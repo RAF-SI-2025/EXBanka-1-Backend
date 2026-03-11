@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "github.com/exbanka/contract/authpb;authpb";
+
+service AuthService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc RequestPasswordReset(PasswordResetRequest) returns (PasswordResetResponse);
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  rpc ActivateAccount(ActivateAccountRequest) returns (ActivateAccountResponse);
+  rpc CreateActivationToken(CreateActivationTokenRequest) returns (CreateActivationTokenResponse);
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+}
+
+message ValidateTokenRequest {
+  string token = 1;
+}
+
+message ValidateTokenResponse {
+  bool valid = 1;
+  int64 user_id = 2;
+  string email = 3;
+  string role = 4;
+  repeated string permissions = 5;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+}
+
+message PasswordResetRequest {
+  string email = 1;
+}
+
+message PasswordResetResponse {
+  bool success = 1;
+}
+
+message ResetPasswordRequest {
+  string token = 1;
+  string new_password = 2;
+  string confirm_password = 3;
+}
+
+message ResetPasswordResponse {
+  bool success = 1;
+}
+
+message ActivateAccountRequest {
+  string token = 1;
+  string password = 2;
+  string confirm_password = 3;
+}
+
+message ActivateAccountResponse {
+  bool success = 1;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {
+  bool success = 1;
+}
+
+message CreateActivationTokenRequest {
+  int64 user_id = 1;
+  string email = 2;
+  string first_name = 3;
+}
+
+message CreateActivationTokenResponse {
+  bool success = 1;
+}

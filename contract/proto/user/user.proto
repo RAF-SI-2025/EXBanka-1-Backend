@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package user;
+
+option go_package = "github.com/exbanka/contract/userpb;userpb";
+
+service UserService {
+  rpc CreateEmployee(CreateEmployeeRequest) returns (EmployeeResponse);
+  rpc GetEmployee(GetEmployeeRequest) returns (EmployeeResponse);
+  rpc ListEmployees(ListEmployeesRequest) returns (ListEmployeesResponse);
+  rpc UpdateEmployee(UpdateEmployeeRequest) returns (EmployeeResponse);
+  rpc ValidateCredentials(ValidateCredentialsRequest) returns (ValidateCredentialsResponse);
+  rpc GetUserByEmail(GetUserByEmailRequest) returns (UserResponse);
+  rpc SetPassword(SetPasswordRequest) returns (SetPasswordResponse);
+}
+
+message CreateEmployeeRequest {
+  string first_name = 1;
+  string last_name = 2;
+  int64 date_of_birth = 3;
+  string gender = 4;
+  string email = 5;
+  string phone = 6;
+  string address = 7;
+  string username = 8;
+  string position = 9;
+  string department = 10;
+  string role = 11;
+  bool active = 12;
+}
+
+message UpdateEmployeeRequest {
+  int64 id = 1;
+  optional string last_name = 2;
+  optional string gender = 3;
+  optional string phone = 4;
+  optional string address = 5;
+  optional string position = 6;
+  optional string department = 7;
+  optional string role = 8;
+  optional bool active = 9;
+}
+
+message GetEmployeeRequest {
+  int64 id = 1;
+}
+
+message GetUserByEmailRequest {
+  string email = 1;
+}
+
+message ListEmployeesRequest {
+  string email_filter = 1;
+  string name_filter = 2;
+  string position_filter = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+}
+
+message ValidateCredentialsRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message ValidateCredentialsResponse {
+  bool valid = 1;
+  int64 user_id = 2;
+  string email = 3;
+  string role = 4;
+  repeated string permissions = 5;
+}
+
+message EmployeeResponse {
+  int64 id = 1;
+  string first_name = 2;
+  string last_name = 3;
+  int64 date_of_birth = 4;
+  string gender = 5;
+  string email = 6;
+  string phone = 7;
+  string address = 8;
+  string username = 9;
+  string position = 10;
+  string department = 11;
+  bool active = 12;
+  string role = 13;
+  repeated string permissions = 14;
+}
+
+message ListEmployeesResponse {
+  repeated EmployeeResponse employees = 1;
+  int32 total_count = 2;
+}
+
+message UserResponse {
+  int64 id = 1;
+  string email = 2;
+  string role = 3;
+  repeated string permissions = 4;
+  string password_hash = 5;
+  bool active = 6;
+}
+
+message SetPasswordRequest {
+  int64 user_id = 1;
+  string password_hash = 2;
+}
+
+message SetPasswordResponse {
+  bool success = 1;
+}
