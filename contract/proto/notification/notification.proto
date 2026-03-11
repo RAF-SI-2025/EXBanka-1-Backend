@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package notification;
+
+option go_package = "github.com/exbanka/contract/notificationpb;notificationpb";
+
+service NotificationService {
+  // Send an email directly via gRPC (used by api-gateway if needed)
+  rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
+  // Get delivery status of a notification
+  rpc GetDeliveryStatus(GetDeliveryStatusRequest) returns (GetDeliveryStatusResponse);
+}
+
+message SendEmailRequest {
+  string to = 1;
+  string email_type = 2;
+  map<string, string> data = 3;
+}
+
+message SendEmailResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetDeliveryStatusRequest {
+  string notification_id = 1;
+}
+
+message GetDeliveryStatusResponse {
+  string status = 1; // "pending", "sent", "failed"
+  string error = 2;
+}
