@@ -14,6 +14,7 @@ type Config struct {
 	DBName       string
 	GRPCAddr     string
 	KafkaBrokers string
+	RedisAddr    string
 }
 
 func Load() *Config {
@@ -26,6 +27,7 @@ func Load() *Config {
 		DBName:       getEnv("USER_DB_NAME", "user_db"),
 		GRPCAddr:     getEnv("USER_GRPC_ADDR", ":50052"),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
+		RedisAddr:    getEnv("REDIS_ADDR", "localhost:6379"),
 	}
 }
 

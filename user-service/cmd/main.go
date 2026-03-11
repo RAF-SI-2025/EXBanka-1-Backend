@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/userpb"
+	"github.com/exbanka/user-service/internal/cache"
 	"github.com/exbanka/user-service/internal/config"
 	"github.com/exbanka/user-service/internal/handler"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
@@ -32,8 +33,17 @@ func main() {
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 
+	var redisCache *cache.RedisCache
+	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
+	if err != nil {
+		log.Printf("warn: redis unavailable, running without cache: %v", err)
+	}
+	if redisCache != nil {
+		defer redisCache.Close()
+	}
+
 	repo := repository.NewEmployeeRepository(db)
-	empService := service.NewEmployeeService(repo, producer)
+	empService := service.NewEmployeeService(repo, producer, redisCache)
 	grpcHandler := handler.NewUserGRPCHandler(empService)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)

@@ -6,9 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/exbanka/user-service/internal/cache"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/exbanka/user-service/internal/repository"
@@ -17,10 +20,11 @@ import (
 type EmployeeService struct {
 	repo     *repository.EmployeeRepository
 	producer *kafkaprod.Producer
+	cache    *cache.RedisCache
 }
 
-func NewEmployeeService(repo *repository.EmployeeRepository, producer *kafkaprod.Producer) *EmployeeService {
-	return &EmployeeService{repo: repo, producer: producer}
+func NewEmployeeService(repo *repository.EmployeeRepository, producer *kafkaprod.Producer, cache *cache.RedisCache) *EmployeeService {
+	return &EmployeeService{repo: repo, producer: producer, cache: cache}
 }
 
 func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employee) error {
@@ -41,11 +45,43 @@ func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employe
 }
 
 func (s *EmployeeService) GetEmployee(id int64) (*model.Employee, error) {
-	return s.repo.GetByID(id)
+	cacheKey := "employee:id:" + strconv.FormatInt(id, 10)
+	if s.cache != nil {
+		var cached model.Employee
+		if err := s.cache.Get(context.Background(), cacheKey, &cached); err == nil {
+			return &cached, nil
+		}
+	}
+
+	emp, err := s.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		_ = s.cache.Set(context.Background(), cacheKey, emp, 5*time.Minute)
+	}
+	return emp, nil
 }
 
 func (s *EmployeeService) GetByEmail(email string) (*model.Employee, error) {
-	return s.repo.GetByEmail(email)
+	cacheKey := "employee:email:" + email
+	if s.cache != nil {
+		var cached model.Employee
+		if err := s.cache.Get(context.Background(), cacheKey, &cached); err == nil {
+			return &cached, nil
+		}
+	}
+
+	emp, err := s.repo.GetByEmail(email)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		_ = s.cache.Set(context.Background(), cacheKey, emp, 5*time.Minute)
+	}
+	return emp, nil
 }
 
 func (s *EmployeeService) ListEmployees(emailFilter, nameFilter, positionFilter string, page, pageSize int) ([]model.Employee, int64, error) {
@@ -91,6 +127,10 @@ func (s *EmployeeService) UpdateEmployee(id int64, updates map[string]interface{
 
 	if err := s.repo.Update(emp); err != nil {
 		return nil, err
+	}
+	if s.cache != nil {
+		_ = s.cache.Delete(context.Background(), "employee:id:"+strconv.FormatInt(id, 10))
+		_ = s.cache.Delete(context.Background(), "employee:email:"+emp.Email)
 	}
 	return emp, nil
 }
