@@ -1,0 +1,5 @@
+.worktrees/
+.env
+*.exe
+*.test
+vendor/
