@@ -1,6 +1,7 @@
 package router
 
 import (
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
 	authpb "github.com/exbanka/contract/authpb"
@@ -11,6 +12,7 @@ import (
 
 func Setup(authClient authpb.AuthServiceClient, userClient userpb.UserServiceClient) *gin.Engine {
 	r := gin.Default()
+	r.Use(cors.Default())
 
 	authHandler := handler.NewAuthHandler(authClient)
 	empHandler := handler.NewEmployeeHandler(userClient, authClient)
