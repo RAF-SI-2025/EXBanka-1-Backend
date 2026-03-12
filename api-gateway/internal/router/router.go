@@ -3,6 +3,8 @@ package router
 import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	authpb "github.com/exbanka/contract/authpb"
 	userpb "github.com/exbanka/contract/userpb"
@@ -60,6 +62,8 @@ func Setup(authClient authpb.AuthServiceClient, userClient userpb.UserServiceCli
 			}
 		}
 	}
+
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	return r
 }

@@ -35,6 +35,7 @@ type CreateEmployeeRequest struct {
 	Department    string                 `protobuf:"bytes,10,opt,name=department,proto3" json:"department,omitempty"`
 	Role          string                 `protobuf:"bytes,11,opt,name=role,proto3" json:"role,omitempty"`
 	Active        bool                   `protobuf:"varint,12,opt,name=active,proto3" json:"active,omitempty"`
+	Jmbg          string                 `protobuf:"bytes,13,opt,name=jmbg,proto3" json:"jmbg,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -153,6 +154,13 @@ func (x *CreateEmployeeRequest) GetActive() bool {
 	return false
 }
 
+func (x *CreateEmployeeRequest) GetJmbg() string {
+	if x != nil {
+		return x.Jmbg
+	}
+	return ""
+}
+
 type UpdateEmployeeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -164,6 +172,7 @@ type UpdateEmployeeRequest struct {
 	Department    *string                `protobuf:"bytes,7,opt,name=department,proto3,oneof" json:"department,omitempty"`
 	Role          *string                `protobuf:"bytes,8,opt,name=role,proto3,oneof" json:"role,omitempty"`
 	Active        *bool                  `protobuf:"varint,9,opt,name=active,proto3,oneof" json:"active,omitempty"`
+	Jmbg          *string                `protobuf:"bytes,10,opt,name=jmbg,proto3,oneof" json:"jmbg,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -259,6 +268,13 @@ func (x *UpdateEmployeeRequest) GetActive() bool {
 		return *x.Active
 	}
 	return false
+}
+
+func (x *UpdateEmployeeRequest) GetJmbg() string {
+	if x != nil && x.Jmbg != nil {
+		return *x.Jmbg
+	}
+	return ""
 }
 
 type GetEmployeeRequest struct {
@@ -569,6 +585,7 @@ type EmployeeResponse struct {
 	Active        bool                   `protobuf:"varint,12,opt,name=active,proto3" json:"active,omitempty"`
 	Role          string                 `protobuf:"bytes,13,opt,name=role,proto3" json:"role,omitempty"`
 	Permissions   []string               `protobuf:"bytes,14,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	Jmbg          string                 `protobuf:"bytes,15,opt,name=jmbg,proto3" json:"jmbg,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -699,6 +716,13 @@ func (x *EmployeeResponse) GetPermissions() []string {
 		return x.Permissions
 	}
 	return nil
+}
+
+func (x *EmployeeResponse) GetJmbg() string {
+	if x != nil {
+		return x.Jmbg
+	}
+	return ""
 }
 
 type ListEmployeesResponse struct {
@@ -937,7 +961,7 @@ var File_user_user_proto protoreflect.FileDescriptor
 
 const file_user_user_proto_rawDesc = "" +
 	"\n" +
-	"\x0fuser/user.proto\x12\x04user\"\xd9\x02\n" +
+	"\x0fuser/user.proto\x12\x04user\"\xed\x02\n" +
 	"\x15CreateEmployeeRequest\x12\x1d\n" +
 	"\n" +
 	"first_name\x18\x01 \x01(\tR\tfirstName\x12\x1b\n" +
@@ -954,7 +978,8 @@ const file_user_user_proto_rawDesc = "" +
 	" \x01(\tR\n" +
 	"department\x12\x12\n" +
 	"\x04role\x18\v \x01(\tR\x04role\x12\x16\n" +
-	"\x06active\x18\f \x01(\bR\x06active\"\xfb\x02\n" +
+	"\x06active\x18\f \x01(\bR\x06active\x12\x12\n" +
+	"\x04jmbg\x18\r \x01(\tR\x04jmbg\"\x9d\x03\n" +
 	"\x15UpdateEmployeeRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12 \n" +
 	"\tlast_name\x18\x02 \x01(\tH\x00R\blastName\x88\x01\x01\x12\x1b\n" +
@@ -966,7 +991,9 @@ const file_user_user_proto_rawDesc = "" +
 	"department\x18\a \x01(\tH\x05R\n" +
 	"department\x88\x01\x01\x12\x17\n" +
 	"\x04role\x18\b \x01(\tH\x06R\x04role\x88\x01\x01\x12\x1b\n" +
-	"\x06active\x18\t \x01(\bH\aR\x06active\x88\x01\x01B\f\n" +
+	"\x06active\x18\t \x01(\bH\aR\x06active\x88\x01\x01\x12\x17\n" +
+	"\x04jmbg\x18\n" +
+	" \x01(\tH\bR\x04jmbg\x88\x01\x01B\f\n" +
 	"\n" +
 	"_last_nameB\t\n" +
 	"\a_genderB\b\n" +
@@ -976,7 +1003,8 @@ const file_user_user_proto_rawDesc = "" +
 	"\t_positionB\r\n" +
 	"\v_departmentB\a\n" +
 	"\x05_roleB\t\n" +
-	"\a_active\"$\n" +
+	"\a_activeB\a\n" +
+	"\x05_jmbg\"$\n" +
 	"\x12GetEmployeeRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\"-\n" +
 	"\x15GetUserByEmailRequest\x12\x14\n" +
@@ -996,7 +1024,7 @@ const file_user_user_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x12\n" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12 \n" +
-	"\vpermissions\x18\x05 \x03(\tR\vpermissions\"\x86\x03\n" +
+	"\vpermissions\x18\x05 \x03(\tR\vpermissions\"\x9a\x03\n" +
 	"\x10EmployeeResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1d\n" +
 	"\n" +
@@ -1015,7 +1043,8 @@ const file_user_user_proto_rawDesc = "" +
 	"department\x12\x16\n" +
 	"\x06active\x18\f \x01(\bR\x06active\x12\x12\n" +
 	"\x04role\x18\r \x01(\tR\x04role\x12 \n" +
-	"\vpermissions\x18\x0e \x03(\tR\vpermissions\"n\n" +
+	"\vpermissions\x18\x0e \x03(\tR\vpermissions\x12\x12\n" +
+	"\x04jmbg\x18\x0f \x01(\tR\x04jmbg\"n\n" +
 	"\x15ListEmployeesResponse\x124\n" +
 	"\temployees\x18\x01 \x03(\v2\x16.user.EmployeeResponseR\temployees\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +

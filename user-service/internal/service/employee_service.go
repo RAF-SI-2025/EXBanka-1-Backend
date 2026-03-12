@@ -14,22 +14,24 @@ import (
 	"github.com/exbanka/user-service/internal/cache"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
-	"github.com/exbanka/user-service/internal/repository"
 )
 
 type EmployeeService struct {
-	repo     *repository.EmployeeRepository
+	repo     EmployeeRepo
 	producer *kafkaprod.Producer
 	cache    *cache.RedisCache
 }
 
-func NewEmployeeService(repo *repository.EmployeeRepository, producer *kafkaprod.Producer, cache *cache.RedisCache) *EmployeeService {
+func NewEmployeeService(repo EmployeeRepo, producer *kafkaprod.Producer, cache *cache.RedisCache) *EmployeeService {
 	return &EmployeeService{repo: repo, producer: producer, cache: cache}
 }
 
 func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employee) error {
 	if !ValidRole(emp.Role) {
 		return errors.New("invalid role")
+	}
+	if err := ValidateJMBG(emp.JMBG); err != nil {
+		return err
 	}
 
 	salt := generateSalt()
@@ -123,6 +125,12 @@ func (s *EmployeeService) UpdateEmployee(id int64, updates map[string]interface{
 	}
 	if v, ok := updates["active"].(bool); ok {
 		emp.Active = v
+	}
+	if v, ok := updates["jmbg"].(string); ok {
+		if err := ValidateJMBG(v); err != nil {
+			return nil, err
+		}
+		emp.JMBG = v
 	}
 
 	if err := s.repo.Update(emp); err != nil {

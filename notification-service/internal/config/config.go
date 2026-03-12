@@ -19,7 +19,11 @@ type Config struct {
 }
 
 func Load() *Config {
-	godotenv.Load()
+	for _, f := range []string{".env", "../.env", "../../.env", "../../../.env"} {
+		if err := godotenv.Load(f); err == nil {
+			break
+		}
+	}
 	return &Config{
 		GRPCAddr:     getEnv("NOTIFICATION_GRPC_ADDR", ":50053"),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),

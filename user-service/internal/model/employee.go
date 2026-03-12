@@ -11,6 +11,7 @@ type Employee struct {
 	Email        string    `gorm:"uniqueIndex;not null" json:"email"`
 	Phone        string    `json:"phone"`
 	Address      string    `json:"address"`
+	JMBG         string    `gorm:"uniqueIndex;size:13" json:"jmbg"`
 	Username     string    `gorm:"uniqueIndex;not null" json:"username"`
 	PasswordHash string    `gorm:"not null" json:"-"`
 	Salt         string    `gorm:"not null" json:"-"`

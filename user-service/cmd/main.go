@@ -84,6 +84,7 @@ func seedAdminUser(repo *repository.EmployeeRepository) error {
 		Email:        "admin@admin.admin",
 		Phone:        "+38600000000",
 		Address:      "Admin Street 1",
+		JMBG:         "0000000000000",
 		Username:     "admin",
 		PasswordHash: hash,
 		Salt:         "",

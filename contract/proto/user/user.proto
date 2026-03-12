@@ -27,6 +27,7 @@ message CreateEmployeeRequest {
   string department = 10;
   string role = 11;
   bool active = 12;
+  string jmbg = 13;
 }
 
 message UpdateEmployeeRequest {
@@ -39,6 +40,7 @@ message UpdateEmployeeRequest {
   optional string department = 7;
   optional string role = 8;
   optional bool active = 9;
+  optional string jmbg = 10;
 }
 
 message GetEmployeeRequest {
@@ -85,6 +87,7 @@ message EmployeeResponse {
   bool active = 12;
   string role = 13;
   repeated string permissions = 14;
+  string jmbg = 15;
 }
 
 message ListEmployeesResponse {
