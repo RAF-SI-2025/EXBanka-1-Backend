@@ -8,18 +8,19 @@ import (
 )
 
 type Config struct {
-	DBHost        string
-	DBPort        string
-	DBUser        string
-	DBPassword    string
-	DBName        string
-	GRPCAddr      string
-	UserGRPCAddr  string
-	KafkaBrokers  string
-	JWTSecret     string
-	AccessExpiry  time.Duration
-	RefreshExpiry time.Duration
-	RedisAddr     string
+	DBHost         string
+	DBPort         string
+	DBUser         string
+	DBPassword     string
+	DBName         string
+	GRPCAddr       string
+	UserGRPCAddr   string
+	KafkaBrokers   string
+	JWTSecret      string
+	AccessExpiry   time.Duration
+	RefreshExpiry  time.Duration
+	RedisAddr      string
+	FrontendBaseURL string
 }
 
 func Load() *Config {
@@ -45,6 +46,7 @@ func Load() *Config {
 		AccessExpiry:  accessExp,
 		RefreshExpiry: refreshExp,
 		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
+		FrontendBaseURL: getEnv("FRONTEND_BASE_URL", "http://localhost:3000"),
 	}
 }
 
