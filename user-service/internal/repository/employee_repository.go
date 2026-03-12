@@ -38,6 +38,12 @@ func (r *EmployeeRepository) SetPassword(userID int64, passwordHash string) erro
 		Updates(map[string]interface{}{"password_hash": passwordHash, "activated": true}).Error
 }
 
+func (r *EmployeeRepository) GetByJMBG(jmbg string) (*model.Employee, error) {
+	var emp model.Employee
+	err := r.db.Where("jmbg = ?", jmbg).First(&emp).Error
+	return &emp, err
+}
+
 func (r *EmployeeRepository) List(emailFilter, nameFilter, positionFilter string, page, pageSize int) ([]model.Employee, int64, error) {
 	var employees []model.Employee
 	var total int64

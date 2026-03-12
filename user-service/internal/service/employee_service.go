@@ -31,6 +31,9 @@ func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employe
 	if !ValidRole(emp.Role) {
 		return errors.New("invalid role")
 	}
+	if err := ValidateJMBG(emp.JMBG); err != nil {
+		return err
+	}
 
 	salt := generateSalt()
 	emp.Salt = salt
@@ -123,6 +126,12 @@ func (s *EmployeeService) UpdateEmployee(id int64, updates map[string]interface{
 	}
 	if v, ok := updates["active"].(bool); ok {
 		emp.Active = v
+	}
+	if v, ok := updates["jmbg"].(string); ok {
+		if err := ValidateJMBG(v); err != nil {
+			return nil, err
+		}
+		emp.JMBG = v
 	}
 
 	if err := s.repo.Update(emp); err != nil {

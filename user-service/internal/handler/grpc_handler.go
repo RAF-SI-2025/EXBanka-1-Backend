@@ -38,6 +38,7 @@ func (h *UserGRPCHandler) CreateEmployee(ctx context.Context, req *pb.CreateEmpl
 		Department:  req.Department,
 		Role:        req.Role,
 		Active:      req.Active,
+		JMBG:        req.Jmbg,
 	}
 
 	if err := h.empService.CreateEmployee(ctx, emp); err != nil {
@@ -95,6 +96,9 @@ func (h *UserGRPCHandler) UpdateEmployee(ctx context.Context, req *pb.UpdateEmpl
 	}
 	if req.Active != nil {
 		updates["active"] = *req.Active
+	}
+	if req.Jmbg != nil {
+		updates["jmbg"] = *req.Jmbg
 	}
 
 	emp, err := h.empService.UpdateEmployee(req.Id, updates)
@@ -159,5 +163,6 @@ func toEmployeeResponse(emp *model.Employee) *pb.EmployeeResponse {
 		Active:      emp.Active,
 		Role:        emp.Role,
 		Permissions: service.GetPermissions(emp.Role),
+		Jmbg:        emp.JMBG,
 	}
 }
