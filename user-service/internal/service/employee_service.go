@@ -14,16 +14,15 @@ import (
 	"github.com/exbanka/user-service/internal/cache"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
-	"github.com/exbanka/user-service/internal/repository"
 )
 
 type EmployeeService struct {
-	repo     *repository.EmployeeRepository
+	repo     EmployeeRepo
 	producer *kafkaprod.Producer
 	cache    *cache.RedisCache
 }
 
-func NewEmployeeService(repo *repository.EmployeeRepository, producer *kafkaprod.Producer, cache *cache.RedisCache) *EmployeeService {
+func NewEmployeeService(repo EmployeeRepo, producer *kafkaprod.Producer, cache *cache.RedisCache) *EmployeeService {
 	return &EmployeeService{repo: repo, producer: producer, cache: cache}
 }
 
