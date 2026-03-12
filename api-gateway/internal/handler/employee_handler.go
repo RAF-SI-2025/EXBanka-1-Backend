@@ -68,6 +68,7 @@ type createEmployeeRequest struct {
 	Email       string `json:"email" binding:"required,email"`
 	Phone       string `json:"phone"`
 	Address     string `json:"address"`
+	JMBG        string `json:"jmbg" binding:"required"`
 	Username    string `json:"username" binding:"required"`
 	Position    string `json:"position"`
 	Department  string `json:"department"`
@@ -90,6 +91,7 @@ func (h *EmployeeHandler) CreateEmployee(c *gin.Context) {
 		Email:       req.Email,
 		Phone:       req.Phone,
 		Address:     req.Address,
+		Jmbg:        req.JMBG,
 		Username:    req.Username,
 		Position:    req.Position,
 		Department:  req.Department,
@@ -116,6 +118,7 @@ type updateEmployeeRequest struct {
 	Gender     *string `json:"gender"`
 	Phone      *string `json:"phone"`
 	Address    *string `json:"address"`
+	JMBG       *string `json:"jmbg"`
 	Position   *string `json:"position"`
 	Department *string `json:"department"`
 	Role       *string `json:"role"`
@@ -159,6 +162,9 @@ func (h *EmployeeHandler) UpdateEmployee(c *gin.Context) {
 	if req.Address != nil {
 		pbReq.Address = req.Address
 	}
+	if req.JMBG != nil {
+		pbReq.Jmbg = req.JMBG
+	}
 	if req.Position != nil {
 		pbReq.Position = req.Position
 	}
@@ -190,6 +196,7 @@ func employeeToJSON(emp *userpb.EmployeeResponse) gin.H {
 		"email":         emp.Email,
 		"phone":         emp.Phone,
 		"address":       emp.Address,
+		"jmbg":          emp.Jmbg,
 		"username":      emp.Username,
 		"position":      emp.Position,
 		"department":    emp.Department,
