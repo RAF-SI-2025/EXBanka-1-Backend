@@ -1,4 +1,4 @@
-.PHONY: proto clean build tidy docker-up docker-down docker-logs
+.PHONY: proto clean build tidy docker-up docker-down docker-logs test
 
 proto:
 	protoc -I contract/proto \
@@ -36,3 +36,9 @@ docker-logs:
 clean:
 	rm -f contract/authpb/*.go contract/userpb/*.go contract/notificationpb/*.go
 	rm -f user-service/bin/* auth-service/bin/* api-gateway/bin/* notification-service/bin/*
+
+test:
+	cd user-service && go test ./... -v
+	cd auth-service && go test ./... -v
+	cd notification-service && go test ./... -v
+	cd api-gateway && go test ./... -v

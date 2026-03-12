@@ -21,12 +21,13 @@ import (
 )
 
 type AuthService struct {
-	tokenRepo  *repository.TokenRepository
-	jwtService *JWTService
-	userClient userpb.UserServiceClient
-	producer   *kafkaprod.Producer
-	cache      *cache.RedisCache
-	refreshExp time.Duration
+	tokenRepo       *repository.TokenRepository
+	jwtService      *JWTService
+	userClient      userpb.UserServiceClient
+	producer        *kafkaprod.Producer
+	cache           *cache.RedisCache
+	refreshExp      time.Duration
+	frontendBaseURL string
 }
 
 func NewAuthService(
@@ -36,14 +37,16 @@ func NewAuthService(
 	producer *kafkaprod.Producer,
 	cache *cache.RedisCache,
 	refreshExp time.Duration,
+	frontendBaseURL string,
 ) *AuthService {
 	return &AuthService{
-		tokenRepo:  tokenRepo,
-		jwtService: jwtService,
-		userClient: userClient,
-		producer:   producer,
-		cache:      cache,
-		refreshExp: refreshExp,
+		tokenRepo:       tokenRepo,
+		jwtService:      jwtService,
+		userClient:      userClient,
+		producer:        producer,
+		cache:           cache,
+		refreshExp:      refreshExp,
+		frontendBaseURL: frontendBaseURL,
 	}
 }
 
@@ -171,6 +174,7 @@ func (s *AuthService) CreateActivationToken(ctx context.Context, userID int64, e
 		Data: map[string]string{
 			"token":      token,
 			"first_name": firstName,
+			"link":       s.frontendBaseURL + "/activate?token=" + token,
 		},
 	})
 }
@@ -196,7 +200,9 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 	return s.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
 		To:        email,
 		EmailType: kafkamsg.EmailTypePasswordReset,
-		Data:      map[string]string{"token": token},
+		Data: map[string]string{
+			"link": s.frontendBaseURL + "/reset-password?token=" + token,
+		},
 	})
 }
 

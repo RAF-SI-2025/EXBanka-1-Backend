@@ -57,7 +57,7 @@ func main() {
 
 	tokenRepo := repository.NewTokenRepository(db)
 	jwtService := service.NewJWTService(cfg.JWTSecret, cfg.AccessExpiry)
-	authService := service.NewAuthService(tokenRepo, jwtService, userClient, producer, redisCache, cfg.RefreshExpiry)
+	authService := service.NewAuthService(tokenRepo, jwtService, userClient, producer, redisCache, cfg.RefreshExpiry, cfg.FrontendBaseURL)
 	grpcHandler := handler.NewAuthGRPCHandler(authService)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)

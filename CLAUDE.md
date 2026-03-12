@@ -13,6 +13,7 @@ This is a Go workspace monorepo. Each service has its own self-contained directo
 ├── auth-service/            # JWT token lifecycle and password workflows (gRPC, port 50051)
 ├── user-service/            # Employee CRUD and credential management (gRPC, port 50052)
 ├── notification-service/    # Email/push notification delivery (gRPC port 50053, Kafka consumer)
+├── docs/                    # API documentation and implementation plans
 ├── docker-compose.yml
 ├── Makefile
 └── go.work
@@ -32,6 +33,7 @@ make docker-up    # Start all infrastructure + services via Docker
 make docker-down  # Stop containers
 make docker-logs  # Stream logs
 make clean        # Remove generated protobuf files and binaries
+make test         # Run all tests across all services
 ```
 
 **Individual service builds:**
@@ -59,6 +61,7 @@ Copy `.env.example` to `.env` in the active worktree root. Key variables:
 | `SMTP_HOST` / `SMTP_PORT` | smtp.gmail.com / 587 | |
 | `SMTP_USER` / `SMTP_PASSWORD` | *(must set)* | Gmail app password |
 | `SMTP_FROM` | *(must set)* | Sender email address |
+| `FRONTEND_BASE_URL` | http://localhost:3000 | Base URL for links in emails |
 
 ## Architecture
 
@@ -69,6 +72,7 @@ Copy `.env.example` to `.env` in the active worktree root. Key variables:
 - Notification → Services: Kafka topic `notification.email-sent` (delivery confirmation)
 - Persistence: PostgreSQL via GORM (auto-migrated on startup)
 - Caching: Redis (JWT validation in auth-service, employee lookups in user-service)
+- Swagger UI: Available at /swagger/index.html on the API Gateway (port 8080)
 
 **Each backend service follows the same layered structure:**
 ```
@@ -102,12 +106,17 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 **Token types** (auth-service):
 - Access token: short-lived JWT (15 min), stateless validation (cached in Redis)
 - Refresh token: long-lived (168h), stored in `auth_db` and revocable
-- Activation token: 24h, triggers email via Kafka → notification-service
-- Password reset token: 1h, triggers email via Kafka → notification-service
+- Activation token: 24h, triggers email with activation link via Kafka → notification-service
+- Password reset token: 1h, triggers email with reset link via Kafka → notification-service
 
 **Notification flow:** Services publish `SendEmailMessage` to Kafka → notification-service consumes, sends via SMTP, publishes `EmailSentMessage` delivery confirmation back to Kafka.
 
 **Employee creation flow:** API Gateway → User service (create employee) → Auth service (create activation token) → Kafka → Notification service (send activation email).
+
+**JMBG (Jedinstveni Matični Broj Građana):**
+- Unique 13-digit national identification number required for all employees
+- Validated on create and update (exactly 13 digits)
+- Stored with unique index in user_db
 
 ## Proto Code Generation
 
