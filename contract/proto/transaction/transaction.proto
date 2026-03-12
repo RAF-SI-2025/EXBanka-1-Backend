@@ -1,0 +1,165 @@
+syntax = "proto3";
+package transaction;
+option go_package = "github.com/exbanka/contract/transactionpb;transactionpb";
+
+service TransactionService {
+  rpc CreatePayment(CreatePaymentRequest) returns (PaymentResponse);
+  rpc GetPayment(GetPaymentRequest) returns (PaymentResponse);
+  rpc ListPaymentsByAccount(ListPaymentsByAccountRequest) returns (ListPaymentsResponse);
+
+  rpc CreateTransfer(CreateTransferRequest) returns (TransferResponse);
+  rpc GetTransfer(GetTransferRequest) returns (TransferResponse);
+  rpc ListTransfersByClient(ListTransfersByClientRequest) returns (ListTransfersResponse);
+
+  rpc CreatePaymentRecipient(CreatePaymentRecipientRequest) returns (PaymentRecipientResponse);
+  rpc ListPaymentRecipients(ListPaymentRecipientsRequest) returns (ListPaymentRecipientsResponse);
+  rpc UpdatePaymentRecipient(UpdatePaymentRecipientRequest) returns (PaymentRecipientResponse);
+  rpc DeletePaymentRecipient(DeletePaymentRecipientRequest) returns (DeletePaymentRecipientResponse);
+
+  rpc GetExchangeRate(GetExchangeRateRequest) returns (ExchangeRateResponse);
+  rpc ListExchangeRates(ListExchangeRatesRequest) returns (ListExchangeRatesResponse);
+
+  rpc CreateVerificationCode(CreateVerificationCodeRequest) returns (CreateVerificationCodeResponse);
+  rpc ValidateVerificationCode(ValidateVerificationCodeRequest) returns (ValidateVerificationCodeResponse);
+}
+
+message CreatePaymentRequest {
+  string from_account_number = 1;
+  string to_account_number = 2;
+  double amount = 3;
+  string recipient_name = 4;
+  string payment_code = 5;
+  string reference_number = 6;
+  string payment_purpose = 7;
+}
+
+message GetPaymentRequest { uint64 id = 1; }
+
+message ListPaymentsByAccountRequest {
+  string account_number = 1;
+  string date_from = 2;
+  string date_to = 3;
+  string status_filter = 4;
+  double amount_min = 5;
+  double amount_max = 6;
+  int32 page = 7;
+  int32 page_size = 8;
+}
+
+message ListPaymentsResponse {
+  repeated PaymentResponse payments = 1;
+  int64 total = 2;
+}
+
+message PaymentResponse {
+  uint64 id = 1;
+  string from_account_number = 2;
+  string to_account_number = 3;
+  double initial_amount = 4;
+  double final_amount = 5;
+  double commission = 6;
+  string recipient_name = 7;
+  string payment_code = 8;
+  string reference_number = 9;
+  string payment_purpose = 10;
+  string status = 11;
+  string timestamp = 12;
+}
+
+message CreateTransferRequest {
+  string from_account_number = 1;
+  string to_account_number = 2;
+  double amount = 3;
+}
+
+message GetTransferRequest { uint64 id = 1; }
+
+message ListTransfersByClientRequest {
+  uint64 client_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ListTransfersResponse {
+  repeated TransferResponse transfers = 1;
+  int64 total = 2;
+}
+
+message TransferResponse {
+  uint64 id = 1;
+  string from_account_number = 2;
+  string to_account_number = 3;
+  double initial_amount = 4;
+  double final_amount = 5;
+  double exchange_rate = 6;
+  double commission = 7;
+  string timestamp = 8;
+}
+
+message CreatePaymentRecipientRequest {
+  uint64 client_id = 1;
+  string recipient_name = 2;
+  string account_number = 3;
+}
+
+message ListPaymentRecipientsRequest { uint64 client_id = 1; }
+
+message ListPaymentRecipientsResponse {
+  repeated PaymentRecipientResponse recipients = 1;
+}
+
+message UpdatePaymentRecipientRequest {
+  uint64 id = 1;
+  optional string recipient_name = 2;
+  optional string account_number = 3;
+}
+
+message DeletePaymentRecipientRequest { uint64 id = 1; }
+message DeletePaymentRecipientResponse { bool success = 1; }
+
+message PaymentRecipientResponse {
+  uint64 id = 1;
+  uint64 client_id = 2;
+  string recipient_name = 3;
+  string account_number = 4;
+  string created_at = 5;
+}
+
+message GetExchangeRateRequest {
+  string from_currency = 1;
+  string to_currency = 2;
+}
+
+message ListExchangeRatesRequest {}
+
+message ExchangeRateResponse {
+  string from_currency = 1;
+  string to_currency = 2;
+  double buy_rate = 3;
+  double sell_rate = 4;
+  string updated_at = 5;
+}
+
+message ListExchangeRatesResponse { repeated ExchangeRateResponse rates = 1; }
+
+message CreateVerificationCodeRequest {
+  uint64 client_id = 1;
+  uint64 transaction_id = 2;
+  string transaction_type = 3;
+}
+
+message CreateVerificationCodeResponse {
+  string code = 1;
+  int64 expires_at = 2;
+}
+
+message ValidateVerificationCodeRequest {
+  uint64 client_id = 1;
+  uint64 transaction_id = 2;
+  string code = 3;
+}
+
+message ValidateVerificationCodeResponse {
+  bool valid = 1;
+  int32 remaining_attempts = 2;
+}
