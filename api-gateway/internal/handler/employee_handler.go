@@ -19,6 +19,21 @@ func NewEmployeeHandler(userClient userpb.UserServiceClient, authClient authpb.A
 	return &EmployeeHandler{userClient: userClient, authClient: authClient}
 }
 
+// ListEmployees godoc
+// @Summary      List employees
+// @Description  Get paginated list of employees with optional filters
+// @Tags         employees
+// @Produce      json
+// @Param        page       query  int     false  "Page number"  default(1)
+// @Param        page_size  query  int     false  "Page size"    default(20)
+// @Param        email      query  string  false  "Filter by email (partial match)"
+// @Param        name       query  string  false  "Filter by first/last name (partial match)"
+// @Param        position   query  string  false  "Filter by position (partial match)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "employees array and total_count"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      500  {object}  map[string]string       "error message"
+// @Router       /api/employees [get]
 func (h *EmployeeHandler) ListEmployees(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -45,6 +60,17 @@ func (h *EmployeeHandler) ListEmployees(c *gin.Context) {
 	})
 }
 
+// GetEmployee godoc
+// @Summary      Get employee by ID
+// @Description  Retrieve a single employee's details
+// @Tags         employees
+// @Produce      json
+// @Param        id  path  int  true  "Employee ID"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "employee details"
+// @Failure      400  {object}  map[string]string       "invalid id"
+// @Failure      404  {object}  map[string]string       "not found"
+// @Router       /api/employees/{id} [get]
 func (h *EmployeeHandler) GetEmployee(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -76,6 +102,19 @@ type createEmployeeRequest struct {
 	Active      bool   `json:"active"`
 }
 
+// CreateEmployee godoc
+// @Summary      Create a new employee
+// @Description  Create employee and send activation email. Requires employees.create permission.
+// @Tags         employees
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createEmployeeRequest  true  "Employee data"
+// @Security     BearerAuth
+// @Success      201  {object}  map[string]interface{}  "created employee"
+// @Failure      400  {object}  map[string]string       "validation error"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      500  {object}  map[string]string       "error message"
+// @Router       /api/employees [post]
 func (h *EmployeeHandler) CreateEmployee(c *gin.Context) {
 	var req createEmployeeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -125,6 +164,20 @@ type updateEmployeeRequest struct {
 	Active     *bool   `json:"active"`
 }
 
+// UpdateEmployee godoc
+// @Summary      Update an employee
+// @Description  Partially update employee fields. Cannot edit admin employees.
+// @Tags         employees
+// @Accept       json
+// @Produce      json
+// @Param        id    path  int                    true  "Employee ID"
+// @Param        body  body  updateEmployeeRequest  true  "Fields to update"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "updated employee"
+// @Failure      400  {object}  map[string]string       "validation error"
+// @Failure      403  {object}  map[string]string       "cannot edit admin"
+// @Failure      404  {object}  map[string]string       "not found"
+// @Router       /api/employees/{id} [put]
 func (h *EmployeeHandler) UpdateEmployee(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
