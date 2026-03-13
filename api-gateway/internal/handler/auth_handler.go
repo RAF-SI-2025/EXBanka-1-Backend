@@ -57,6 +57,38 @@ type refreshRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
+// ClientLogin godoc
+// @Summary      Client login
+// @Description  Authenticate a bank client with email and password, returns access and refresh tokens
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body  loginRequest  true  "Client login credentials"
+// @Success      200  {object}  map[string]string  "access_token, refresh_token"
+// @Failure      400  {object}  map[string]string  "error message"
+// @Failure      401  {object}  map[string]string  "invalid credentials"
+// @Router       /api/auth/client-login [post]
+func (h *AuthHandler) ClientLogin(c *gin.Context) {
+	var req loginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.authClient.ClientLogin(c.Request.Context(), &authpb.LoginRequest{
+		Email:    req.Email,
+		Password: req.Password,
+	})
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":  resp.AccessToken,
+		"refresh_token": resp.RefreshToken,
+	})
+}
+
 // RefreshToken godoc
 // @Summary      Refresh access token
 // @Description  Exchange a valid refresh token for a new access/refresh token pair

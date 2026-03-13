@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
+	clientpb "github.com/exbanka/contract/clientpb"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/auth-service/internal/cache"
 	kafkaprod "github.com/exbanka/auth-service/internal/kafka"
@@ -24,6 +25,7 @@ type AuthService struct {
 	tokenRepo       *repository.TokenRepository
 	jwtService      *JWTService
 	userClient      userpb.UserServiceClient
+	clientClient    clientpb.ClientServiceClient
 	producer        *kafkaprod.Producer
 	cache           *cache.RedisCache
 	refreshExp      time.Duration
@@ -34,6 +36,7 @@ func NewAuthService(
 	tokenRepo *repository.TokenRepository,
 	jwtService *JWTService,
 	userClient userpb.UserServiceClient,
+	clientClient clientpb.ClientServiceClient,
 	producer *kafkaprod.Producer,
 	cache *cache.RedisCache,
 	refreshExp time.Duration,
@@ -43,6 +46,7 @@ func NewAuthService(
 		tokenRepo:       tokenRepo,
 		jwtService:      jwtService,
 		userClient:      userClient,
+		clientClient:    clientClient,
 		producer:        producer,
 		cache:           cache,
 		refreshExp:      refreshExp,
@@ -70,6 +74,38 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	}
 	if err := s.tokenRepo.CreateRefreshToken(&model.RefreshToken{
 		UserID:    resp.UserId,
+		Token:     refreshToken,
+		ExpiresAt: time.Now().Add(s.refreshExp),
+	}); err != nil {
+		return "", "", err
+	}
+
+	return accessToken, refreshToken, nil
+}
+
+// ClientLogin authenticates a bank client using the client-service's ValidateCredentials RPC.
+// It returns a JWT access token with role="client" and a refresh token.
+func (s *AuthService) ClientLogin(ctx context.Context, email, password string) (string, string, error) {
+	resp, err := s.clientClient.ValidateCredentials(ctx, &clientpb.ValidateClientCredentialsRequest{
+		Email:    email,
+		Password: password,
+	})
+	if err != nil {
+		return "", "", errors.New("invalid credentials")
+	}
+
+	// Client ID is uint64 in clientpb; cast to int64 for JWT claims.
+	accessToken, err := s.jwtService.GenerateAccessToken(int64(resp.Id), resp.Email, "client", nil)
+	if err != nil {
+		return "", "", err
+	}
+
+	refreshToken, err := generateToken()
+	if err != nil {
+		return "", "", fmt.Errorf("generate refresh token: %w", err)
+	}
+	if err := s.tokenRepo.CreateRefreshToken(&model.RefreshToken{
+		UserID:    int64(resp.Id),
 		Token:     refreshToken,
 		ExpiresAt: time.Now().Add(s.refreshExp),
 	}); err != nil {

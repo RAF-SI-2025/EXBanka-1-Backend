@@ -8,18 +8,19 @@ import (
 )
 
 type Config struct {
-	DBHost         string
-	DBPort         string
-	DBUser         string
-	DBPassword     string
-	DBName         string
-	GRPCAddr       string
-	UserGRPCAddr   string
-	KafkaBrokers   string
-	JWTSecret      string
-	AccessExpiry   time.Duration
-	RefreshExpiry  time.Duration
-	RedisAddr      string
+	DBHost          string
+	DBPort          string
+	DBUser          string
+	DBPassword      string
+	DBName          string
+	GRPCAddr        string
+	UserGRPCAddr    string
+	ClientGRPCAddr  string
+	KafkaBrokers    string
+	JWTSecret       string
+	AccessExpiry    time.Duration
+	RefreshExpiry   time.Duration
+	RedisAddr       string
 	FrontendBaseURL string
 }
 
@@ -39,9 +40,10 @@ func Load() *Config {
 		DBUser:        getEnv("AUTH_DB_USER", "exteam1"),
 		DBPassword:    getEnv("AUTH_DB_PASSWORD", "Anajankovic03"),
 		DBName:        getEnv("AUTH_DB_NAME", "authservicedb"),
-		GRPCAddr:      getEnv("AUTH_GRPC_ADDR", ":50051"),
-		UserGRPCAddr:  getEnv("USER_GRPC_ADDR", "localhost:50052"),
-		KafkaBrokers:  getEnv("KAFKA_BROKERS", "localhost:9092"),
+		GRPCAddr:       getEnv("AUTH_GRPC_ADDR", ":50051"),
+		UserGRPCAddr:   getEnv("USER_GRPC_ADDR", "localhost:50052"),
+		ClientGRPCAddr: getEnv("CLIENT_GRPC_ADDR", "localhost:50054"),
+		KafkaBrokers:   getEnv("KAFKA_BROKERS", "localhost:9092"),
 		JWTSecret:     getEnv("JWT_SECRET", "change-me"),
 		AccessExpiry:  accessExp,
 		RefreshExpiry: refreshExp,

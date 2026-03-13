@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	authpb "github.com/exbanka/contract/authpb"
+	clientpb "github.com/exbanka/contract/clientpb"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/auth-service/internal/cache"
 	"github.com/exbanka/auth-service/internal/config"
@@ -43,6 +44,13 @@ func main() {
 	defer userConn.Close()
 	userClient := userpb.NewUserServiceClient(userConn)
 
+	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to client service: %v", err)
+	}
+	defer clientConn.Close()
+	clientClient := clientpb.NewClientServiceClient(clientConn)
+
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 
@@ -57,7 +65,7 @@ func main() {
 
 	tokenRepo := repository.NewTokenRepository(db)
 	jwtService := service.NewJWTService(cfg.JWTSecret, cfg.AccessExpiry)
-	authService := service.NewAuthService(tokenRepo, jwtService, userClient, producer, redisCache, cfg.RefreshExpiry, cfg.FrontendBaseURL)
+	authService := service.NewAuthService(tokenRepo, jwtService, userClient, clientClient, producer, redisCache, cfg.RefreshExpiry, cfg.FrontendBaseURL)
 	grpcHandler := handler.NewAuthGRPCHandler(authService)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)

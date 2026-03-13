@@ -31,6 +31,17 @@ func (h *AuthGRPCHandler) Login(ctx context.Context, req *pb.LoginRequest) (*pb.
 	}, nil
 }
 
+func (h *AuthGRPCHandler) ClientLogin(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
+	access, refresh, err := h.authService.ClientLogin(ctx, req.Email, req.Password)
+	if err != nil {
+		return nil, status.Errorf(codes.Unauthenticated, "invalid credentials")
+	}
+	return &pb.LoginResponse{
+		AccessToken:  access,
+		RefreshToken: refresh,
+	}, nil
+}
+
 func (h *AuthGRPCHandler) ValidateToken(ctx context.Context, req *pb.ValidateTokenRequest) (*pb.ValidateTokenResponse, error) {
 	claims, err := h.authService.ValidateToken(req.Token)
 	if err != nil {

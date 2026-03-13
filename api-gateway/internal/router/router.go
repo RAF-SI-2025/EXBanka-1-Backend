@@ -50,6 +50,7 @@ func Setup(
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", authHandler.Login)
+			auth.POST("/client-login", authHandler.ClientLogin)
 			auth.POST("/refresh", authHandler.RefreshToken)
 			auth.POST("/logout", authHandler.Logout)
 			auth.POST("/password/reset-request", authHandler.RequestPasswordReset)
