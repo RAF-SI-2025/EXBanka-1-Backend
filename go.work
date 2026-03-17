@@ -6,4 +6,9 @@ use (
 	./contract
 	./notification-service
 	./user-service
+	./client-service
+	./account-service
+	./card-service
+	./transaction-service
+	./credit-service
 )

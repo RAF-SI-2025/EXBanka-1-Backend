@@ -6,6 +6,7 @@ option go_package = "github.com/exbanka/contract/authpb;authpb";
 
 service AuthService {
   rpc Login(LoginRequest) returns (LoginResponse);
+  rpc ClientLogin(LoginRequest) returns (LoginResponse);
   rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
   rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc Logout(LogoutRequest) returns (LogoutResponse);

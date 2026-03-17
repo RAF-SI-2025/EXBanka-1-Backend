@@ -34,7 +34,37 @@ func main() {
 	}
 	defer userConn.Close()
 
-	r := router.Setup(authClient, userClient)
+	clientClient, clientConn, err := grpcclients.NewClientClient(cfg.ClientGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to client service: %v", err)
+	}
+	defer clientConn.Close()
+
+	accountClient, accountConn, err := grpcclients.NewAccountClient(cfg.AccountGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to account service: %v", err)
+	}
+	defer accountConn.Close()
+
+	cardClient, cardConn, err := grpcclients.NewCardClient(cfg.CardGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to card service: %v", err)
+	}
+	defer cardConn.Close()
+
+	txClient, txConn, err := grpcclients.NewTransactionClient(cfg.TransactionGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to transaction service: %v", err)
+	}
+	defer txConn.Close()
+
+	creditClient, creditConn, err := grpcclients.NewCreditClient(cfg.CreditGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to credit service: %v", err)
+	}
+	defer creditConn.Close()
+
+	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient)
 
 	fmt.Printf("API Gateway listening on %s\n", cfg.HTTPAddr)
 	if err := r.Run(cfg.HTTPAddr); err != nil {

@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.34.0
-// source: proto/notification/notification.proto
+// source: notification/notification.proto
 
 package notificationpb
 
@@ -32,7 +32,7 @@ type SendEmailRequest struct {
 
 func (x *SendEmailRequest) Reset() {
 	*x = SendEmailRequest{}
-	mi := &file_proto_notification_notification_proto_msgTypes[0]
+	mi := &file_notification_notification_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -44,7 +44,7 @@ func (x *SendEmailRequest) String() string {
 func (*SendEmailRequest) ProtoMessage() {}
 
 func (x *SendEmailRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_notification_notification_proto_msgTypes[0]
+	mi := &file_notification_notification_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -57,7 +57,7 @@ func (x *SendEmailRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendEmailRequest.ProtoReflect.Descriptor instead.
 func (*SendEmailRequest) Descriptor() ([]byte, []int) {
-	return file_proto_notification_notification_proto_rawDescGZIP(), []int{0}
+	return file_notification_notification_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *SendEmailRequest) GetTo() string {
@@ -91,7 +91,7 @@ type SendEmailResponse struct {
 
 func (x *SendEmailResponse) Reset() {
 	*x = SendEmailResponse{}
-	mi := &file_proto_notification_notification_proto_msgTypes[1]
+	mi := &file_notification_notification_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -103,7 +103,7 @@ func (x *SendEmailResponse) String() string {
 func (*SendEmailResponse) ProtoMessage() {}
 
 func (x *SendEmailResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_notification_notification_proto_msgTypes[1]
+	mi := &file_notification_notification_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -116,7 +116,7 @@ func (x *SendEmailResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendEmailResponse.ProtoReflect.Descriptor instead.
 func (*SendEmailResponse) Descriptor() ([]byte, []int) {
-	return file_proto_notification_notification_proto_rawDescGZIP(), []int{1}
+	return file_notification_notification_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *SendEmailResponse) GetSuccess() bool {
@@ -142,7 +142,7 @@ type GetDeliveryStatusRequest struct {
 
 func (x *GetDeliveryStatusRequest) Reset() {
 	*x = GetDeliveryStatusRequest{}
-	mi := &file_proto_notification_notification_proto_msgTypes[2]
+	mi := &file_notification_notification_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -154,7 +154,7 @@ func (x *GetDeliveryStatusRequest) String() string {
 func (*GetDeliveryStatusRequest) ProtoMessage() {}
 
 func (x *GetDeliveryStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_notification_notification_proto_msgTypes[2]
+	mi := &file_notification_notification_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -167,7 +167,7 @@ func (x *GetDeliveryStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDeliveryStatusRequest.ProtoReflect.Descriptor instead.
 func (*GetDeliveryStatusRequest) Descriptor() ([]byte, []int) {
-	return file_proto_notification_notification_proto_rawDescGZIP(), []int{2}
+	return file_notification_notification_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *GetDeliveryStatusRequest) GetMessageId() string {
@@ -188,7 +188,7 @@ type GetDeliveryStatusResponse struct {
 
 func (x *GetDeliveryStatusResponse) Reset() {
 	*x = GetDeliveryStatusResponse{}
-	mi := &file_proto_notification_notification_proto_msgTypes[3]
+	mi := &file_notification_notification_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -200,7 +200,7 @@ func (x *GetDeliveryStatusResponse) String() string {
 func (*GetDeliveryStatusResponse) ProtoMessage() {}
 
 func (x *GetDeliveryStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_notification_notification_proto_msgTypes[3]
+	mi := &file_notification_notification_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -213,7 +213,7 @@ func (x *GetDeliveryStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDeliveryStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetDeliveryStatusResponse) Descriptor() ([]byte, []int) {
-	return file_proto_notification_notification_proto_rawDescGZIP(), []int{3}
+	return file_notification_notification_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetDeliveryStatusResponse) GetMessageId() string {
@@ -237,11 +237,11 @@ func (x *GetDeliveryStatusResponse) GetDeliveredAt() string {
 	return ""
 }
 
-var File_proto_notification_notification_proto protoreflect.FileDescriptor
+var File_notification_notification_proto protoreflect.FileDescriptor
 
-const file_proto_notification_notification_proto_rawDesc = "" +
+const file_notification_notification_proto_rawDesc = "" +
 	"\n" +
-	"%proto/notification/notification.proto\x12\fnotification\"\xb8\x01\n" +
+	"\x1fnotification/notification.proto\x12\fnotification\"\xb8\x01\n" +
 	"\x10SendEmailRequest\x12\x0e\n" +
 	"\x02to\x18\x01 \x01(\tR\x02to\x12\x1d\n" +
 	"\n" +
@@ -266,26 +266,26 @@ const file_proto_notification_notification_proto_rawDesc = "" +
 	"\x11GetDeliveryStatus\x12&.notification.GetDeliveryStatusRequest\x1a'.notification.GetDeliveryStatusResponseB;Z9github.com/exbanka/contract/notificationpb;notificationpbb\x06proto3"
 
 var (
-	file_proto_notification_notification_proto_rawDescOnce sync.Once
-	file_proto_notification_notification_proto_rawDescData []byte
+	file_notification_notification_proto_rawDescOnce sync.Once
+	file_notification_notification_proto_rawDescData []byte
 )
 
-func file_proto_notification_notification_proto_rawDescGZIP() []byte {
-	file_proto_notification_notification_proto_rawDescOnce.Do(func() {
-		file_proto_notification_notification_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_notification_notification_proto_rawDesc), len(file_proto_notification_notification_proto_rawDesc)))
+func file_notification_notification_proto_rawDescGZIP() []byte {
+	file_notification_notification_proto_rawDescOnce.Do(func() {
+		file_notification_notification_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_notification_notification_proto_rawDesc), len(file_notification_notification_proto_rawDesc)))
 	})
-	return file_proto_notification_notification_proto_rawDescData
+	return file_notification_notification_proto_rawDescData
 }
 
-var file_proto_notification_notification_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
-var file_proto_notification_notification_proto_goTypes = []any{
+var file_notification_notification_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_notification_notification_proto_goTypes = []any{
 	(*SendEmailRequest)(nil),          // 0: notification.SendEmailRequest
 	(*SendEmailResponse)(nil),         // 1: notification.SendEmailResponse
 	(*GetDeliveryStatusRequest)(nil),  // 2: notification.GetDeliveryStatusRequest
 	(*GetDeliveryStatusResponse)(nil), // 3: notification.GetDeliveryStatusResponse
 	nil,                               // 4: notification.SendEmailRequest.DataEntry
 }
-var file_proto_notification_notification_proto_depIdxs = []int32{
+var file_notification_notification_proto_depIdxs = []int32{
 	4, // 0: notification.SendEmailRequest.data:type_name -> notification.SendEmailRequest.DataEntry
 	0, // 1: notification.NotificationService.SendEmail:input_type -> notification.SendEmailRequest
 	2, // 2: notification.NotificationService.GetDeliveryStatus:input_type -> notification.GetDeliveryStatusRequest
@@ -298,26 +298,26 @@ var file_proto_notification_notification_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_proto_notification_notification_proto_init() }
-func file_proto_notification_notification_proto_init() {
-	if File_proto_notification_notification_proto != nil {
+func init() { file_notification_notification_proto_init() }
+func file_notification_notification_proto_init() {
+	if File_notification_notification_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_notification_notification_proto_rawDesc), len(file_proto_notification_notification_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_notification_notification_proto_rawDesc), len(file_notification_notification_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_notification_notification_proto_goTypes,
-		DependencyIndexes: file_proto_notification_notification_proto_depIdxs,
-		MessageInfos:      file_proto_notification_notification_proto_msgTypes,
+		GoTypes:           file_notification_notification_proto_goTypes,
+		DependencyIndexes: file_notification_notification_proto_depIdxs,
+		MessageInfos:      file_notification_notification_proto_msgTypes,
 	}.Build()
-	File_proto_notification_notification_proto = out.File
-	file_proto_notification_notification_proto_goTypes = nil
-	file_proto_notification_notification_proto_depIdxs = nil
+	File_notification_notification_proto = out.File
+	file_notification_notification_proto_goTypes = nil
+	file_notification_notification_proto_depIdxs = nil
 }

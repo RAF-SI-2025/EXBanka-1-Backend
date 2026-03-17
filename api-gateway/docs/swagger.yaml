@@ -13,6 +13,114 @@ definitions:
     - password
     - token
     type: object
+  handler.createAccountRequest:
+    properties:
+      account_category:
+        type: string
+      account_kind:
+        type: string
+      account_type:
+        type: string
+      company_id:
+        type: integer
+      create_card:
+        type: boolean
+      currency_code:
+        type: string
+      employee_id:
+        type: integer
+      initial_balance:
+        type: number
+      owner_id:
+        type: integer
+    required:
+    - account_kind
+    - account_type
+    - currency_code
+    - owner_id
+    type: object
+  handler.createAuthorizedPersonRequest:
+    properties:
+      account_id:
+        type: integer
+      address:
+        type: string
+      date_of_birth:
+        type: integer
+      email:
+        type: string
+      first_name:
+        type: string
+      gender:
+        type: string
+      last_name:
+        type: string
+      phone:
+        type: string
+    required:
+    - account_id
+    - first_name
+    - last_name
+    type: object
+  handler.createCardRequest:
+    properties:
+      account_number:
+        type: string
+      card_brand:
+        type: string
+      owner_id:
+        type: integer
+      owner_type:
+        type: string
+    required:
+    - account_number
+    - owner_id
+    - owner_type
+    type: object
+  handler.createClientRequest:
+    properties:
+      address:
+        type: string
+      date_of_birth:
+        type: integer
+      email:
+        type: string
+      first_name:
+        type: string
+      gender:
+        type: string
+      jmbg:
+        type: string
+      last_name:
+        type: string
+      phone:
+        type: string
+    required:
+    - date_of_birth
+    - email
+    - first_name
+    - jmbg
+    - last_name
+    type: object
+  handler.createCompanyRequest:
+    properties:
+      activity_code:
+        type: string
+      address:
+        type: string
+      company_name:
+        type: string
+      owner_id:
+        type: integer
+      registration_number:
+        type: string
+      tax_number:
+        type: string
+    required:
+    - company_name
+    - owner_id
+    - registration_number
+    type: object
   handler.createEmployeeRequest:
     properties:
       active:
@@ -49,6 +157,101 @@ definitions:
     - last_name
     - role
     - username
+    type: object
+  handler.createLoanRequestBody:
+    properties:
+      account_number:
+        type: string
+      amount:
+        type: number
+      client_id:
+        type: integer
+      currency_code:
+        type: string
+      employment_period:
+        type: integer
+      employment_status:
+        type: string
+      interest_type:
+        type: string
+      loan_type:
+        type: string
+      monthly_salary:
+        type: number
+      phone:
+        type: string
+      purpose:
+        type: string
+      repayment_period:
+        type: integer
+    required:
+    - account_number
+    - amount
+    - client_id
+    - currency_code
+    - interest_type
+    - loan_type
+    - repayment_period
+    type: object
+  handler.createPaymentRecipientRequest:
+    properties:
+      account_number:
+        type: string
+      client_id:
+        type: integer
+      recipient_name:
+        type: string
+    required:
+    - account_number
+    - client_id
+    - recipient_name
+    type: object
+  handler.createPaymentRequest:
+    properties:
+      amount:
+        type: number
+      from_account_number:
+        type: string
+      payment_code:
+        type: string
+      payment_purpose:
+        type: string
+      recipient_name:
+        type: string
+      reference_number:
+        type: string
+      to_account_number:
+        type: string
+    required:
+    - amount
+    - from_account_number
+    - to_account_number
+    type: object
+  handler.createTransferRequest:
+    properties:
+      amount:
+        type: number
+      from_account_number:
+        type: string
+      to_account_number:
+        type: string
+    required:
+    - amount
+    - from_account_number
+    - to_account_number
+    type: object
+  handler.createVerificationCodeRequest:
+    properties:
+      client_id:
+        type: integer
+      transaction_id:
+        type: integer
+      transaction_type:
+        type: string
+    required:
+    - client_id
+    - transaction_id
+    - transaction_type
     type: object
   handler.loginRequest:
     properties:
@@ -94,6 +297,56 @@ definitions:
     - new_password
     - token
     type: object
+  handler.setPasswordRequest:
+    properties:
+      password_hash:
+        type: string
+      user_id:
+        type: integer
+    required:
+    - password_hash
+    - user_id
+    type: object
+  handler.updateAccountLimitsRequest:
+    properties:
+      daily_limit:
+        type: number
+      monthly_limit:
+        type: number
+    type: object
+  handler.updateAccountNameRequest:
+    properties:
+      client_id:
+        type: integer
+      new_name:
+        type: string
+    required:
+    - new_name
+    type: object
+  handler.updateAccountStatusRequest:
+    properties:
+      status:
+        type: string
+    required:
+    - status
+    type: object
+  handler.updateClientRequest:
+    properties:
+      address:
+        type: string
+      date_of_birth:
+        type: integer
+      email:
+        type: string
+      first_name:
+        type: string
+      gender:
+        type: string
+      last_name:
+        type: string
+      phone:
+        type: string
+    type: object
   handler.updateEmployeeRequest:
     properties:
       active:
@@ -115,6 +368,26 @@ definitions:
       role:
         type: string
     type: object
+  handler.updatePaymentRecipientRequest:
+    properties:
+      account_number:
+        type: string
+      recipient_name:
+        type: string
+    type: object
+  handler.validateVerificationCodeRequest:
+    properties:
+      client_id:
+        type: integer
+      code:
+        type: string
+      transaction_id:
+        type: integer
+    required:
+    - client_id
+    - code
+    - transaction_id
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -122,6 +395,315 @@ info:
   title: EXBanka API
   version: "1.0"
 paths:
+  /api/accounts:
+    get:
+      description: Paginated list of all bank accounts with optional filters
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by account name
+        in: query
+        name: name_filter
+        type: string
+      - description: Filter by account number
+        in: query
+        name: account_number_filter
+        type: string
+      - description: Filter by account type
+        in: query
+        name: type_filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: accounts array and total count
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all accounts
+      tags:
+      - accounts
+    post:
+      consumes:
+      - application/json
+      description: Open a new bank account for a client
+      parameters:
+      - description: Account data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created account
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a bank account
+      tags:
+      - accounts
+  /api/accounts/{id}:
+    get:
+      description: Retrieve a single bank account by its ID
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Account data
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Account not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get account by ID
+      tags:
+      - accounts
+  /api/accounts/{id}/limits:
+    put:
+      consumes:
+      - application/json
+      description: Set daily and/or monthly spending limits for an account
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Limit values
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateAccountLimitsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated account
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update account spending limits
+      tags:
+      - accounts
+  /api/accounts/{id}/name:
+    put:
+      consumes:
+      - application/json
+      description: Change the display name of a bank account
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: New name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateAccountNameRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated account
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update account name
+      tags:
+      - accounts
+  /api/accounts/{id}/status:
+    put:
+      consumes:
+      - application/json
+      description: Change the status of a bank account (e.g. active, blocked, closed)
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: New status
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateAccountStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated account
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update account status
+      tags:
+      - accounts
+  /api/accounts/by-number/{account_number}:
+    get:
+      description: Retrieve a bank account by its account number
+      parameters:
+      - description: Account number
+        in: path
+        name: account_number
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Account data
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Account not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get account by account number
+      tags:
+      - accounts
+  /api/accounts/client/{client_id}:
+    get:
+      description: Retrieve all bank accounts belonging to a specific client
+      parameters:
+      - description: Client ID
+        in: path
+        name: client_id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: accounts array and total count
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid client_id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List accounts by client
+      tags:
+      - accounts
   /api/auth/activate:
     post:
       consumes:
@@ -151,6 +733,43 @@ paths:
               type: string
             type: object
       summary: Activate account
+      tags:
+      - auth
+  /api/auth/client-login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate a bank client with email and password, returns access
+        and refresh tokens
+      parameters:
+      - description: Client login credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: access_token, refresh_token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: error message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: invalid credentials
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Client login
       tags:
       - auth
   /api/auth/login:
@@ -310,6 +929,553 @@ paths:
       summary: Refresh access token
       tags:
       - auth
+  /api/cards:
+    post:
+      consumes:
+      - application/json
+      description: Issue a new payment card for an account
+      parameters:
+      - description: Card data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createCardRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created card
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a payment card
+      tags:
+      - cards
+  /api/cards/{id}:
+    get:
+      description: Retrieve a payment card by its ID
+      parameters:
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Card data
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Card not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get card by ID
+      tags:
+      - cards
+  /api/cards/{id}/block:
+    put:
+      description: Temporarily block a payment card
+      parameters:
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated card
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Block a card
+      tags:
+      - cards
+  /api/cards/{id}/deactivate:
+    put:
+      description: Permanently deactivate a payment card
+      parameters:
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated card
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Deactivate a card
+      tags:
+      - cards
+  /api/cards/{id}/unblock:
+    put:
+      description: Unblock a previously blocked payment card
+      parameters:
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated card
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Unblock a card
+      tags:
+      - cards
+  /api/cards/account/{account_number}:
+    get:
+      description: Retrieve all payment cards linked to an account
+      parameters:
+      - description: Account number
+        in: path
+        name: account_number
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: cards array
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List cards by account number
+      tags:
+      - cards
+  /api/cards/authorized-person:
+    post:
+      consumes:
+      - application/json
+      description: Add a person authorized to use cards on an account
+      parameters:
+      - description: Authorized person data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createAuthorizedPersonRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created authorized person
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Add authorized card person
+      tags:
+      - cards
+  /api/cards/client/{client_id}:
+    get:
+      description: Retrieve all payment cards belonging to a client
+      parameters:
+      - description: Client ID
+        in: path
+        name: client_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: cards array
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid client_id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List cards by client
+      tags:
+      - cards
+  /api/clients:
+    get:
+      description: Paginated list of bank clients with optional filters
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by email
+        in: query
+        name: email_filter
+        type: string
+      - description: Filter by name
+        in: query
+        name: name_filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: clients array and total count
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List clients
+      tags:
+      - clients
+    post:
+      consumes:
+      - application/json
+      description: Register a new bank client
+      parameters:
+      - description: Client data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createClientRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created client
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new client
+      tags:
+      - clients
+  /api/clients/{id}:
+    get:
+      description: Retrieve a single bank client by their ID
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Client data
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Client not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get client by ID
+      tags:
+      - clients
+    put:
+      consumes:
+      - application/json
+      description: Update bank client fields (all fields optional)
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateClientRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated client
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update client
+      tags:
+      - clients
+  /api/clients/me:
+    get:
+      description: Returns the profile of the currently authenticated client
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Client data
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Not authenticated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Client not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current client profile
+      tags:
+      - clients
+  /api/clients/set-password:
+    post:
+      consumes:
+      - application/json
+      description: Set or reset the password for a bank client
+      parameters:
+      - description: User ID and password hash
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.setPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'success: true'
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Set client password
+      tags:
+      - clients
+  /api/companies:
+    post:
+      consumes:
+      - application/json
+      description: Register a new company for corporate banking
+      parameters:
+      - description: Company data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createCompanyRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created company
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a company
+      tags:
+      - accounts
+  /api/currencies:
+    get:
+      description: Returns all currencies supported by the bank
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: currencies array
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List supported currencies
+      tags:
+      - accounts
   /api/employees:
     get:
       description: Get paginated list of employees with optional filters
@@ -485,6 +1651,856 @@ paths:
       summary: Update an employee
       tags:
       - employees
+  /api/exchange-rates:
+    get:
+      description: Returns all current currency exchange rates
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: rates array
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List exchange rates
+      tags:
+      - exchange-rates
+  /api/exchange-rates/{from}/{to}:
+    get:
+      description: Get the exchange rate between two currencies
+      parameters:
+      - description: Source currency code (e.g. USD)
+        in: path
+        name: from
+        required: true
+        type: string
+      - description: Target currency code (e.g. EUR)
+        in: path
+        name: to
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Exchange rate data
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Exchange rate not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get exchange rate
+      tags:
+      - exchange-rates
+  /api/loans:
+    get:
+      description: Paginated list of all loans with optional filters (employee view)
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by loan type
+        in: query
+        name: loan_type_filter
+        type: string
+      - description: Filter by account number
+        in: query
+        name: account_number_filter
+        type: string
+      - description: Filter by status
+        in: query
+        name: status_filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: loans array and total count
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all loans
+      tags:
+      - loans
+  /api/loans/{id}:
+    get:
+      description: Retrieve an active loan by its ID
+      parameters:
+      - description: Loan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Loan data
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Loan not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get loan by ID
+      tags:
+      - loans
+  /api/loans/{id}/installments:
+    get:
+      description: Retrieve all repayment installments for a loan
+      parameters:
+      - description: Loan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: installments array
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get installments for a loan
+      tags:
+      - loans
+  /api/loans/client/{client_id}:
+    get:
+      description: Retrieve all loans belonging to a specific client
+      parameters:
+      - description: Client ID
+        in: path
+        name: client_id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: loans array and total count
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid client_id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List loans by client
+      tags:
+      - loans
+  /api/loans/requests:
+    get:
+      description: Paginated list of all loan applications with optional filters
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by loan type
+        in: query
+        name: loan_type_filter
+        type: string
+      - description: Filter by account number
+        in: query
+        name: account_number_filter
+        type: string
+      - description: Filter by status
+        in: query
+        name: status_filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: requests array and total count
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List loan requests
+      tags:
+      - loans
+    post:
+      consumes:
+      - application/json
+      description: Client submits a new loan application
+      parameters:
+      - description: Loan request data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createLoanRequestBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created loan request
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Submit a loan request
+      tags:
+      - loans
+  /api/loans/requests/{id}:
+    get:
+      description: Retrieve a single loan application by its ID
+      parameters:
+      - description: Loan request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Loan request data
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Loan request not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get loan request by ID
+      tags:
+      - loans
+  /api/loans/requests/{id}/approve:
+    put:
+      description: Employee approves a pending loan application, creating an active
+        loan
+      parameters:
+      - description: Loan request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Created loan
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Approve a loan request
+      tags:
+      - loans
+  /api/loans/requests/{id}/reject:
+    put:
+      description: Employee rejects a pending loan application
+      parameters:
+      - description: Loan request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated loan request
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reject a loan request
+      tags:
+      - loans
+  /api/payment-recipients:
+    post:
+      consumes:
+      - application/json
+      description: Save a frequently used payment recipient for a client
+      parameters:
+      - description: Recipient data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createPaymentRecipientRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created recipient
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Save a payment recipient
+      tags:
+      - payment-recipients
+  /api/payment-recipients/{client_id}:
+    get:
+      description: List all saved payment recipients for a client
+      parameters:
+      - description: Client ID
+        in: path
+        name: client_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: recipients array
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid client_id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List payment recipients
+      tags:
+      - payment-recipients
+  /api/payment-recipients/{id}:
+    delete:
+      description: Remove a saved payment recipient
+      parameters:
+      - description: Recipient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'success: true/false'
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a payment recipient
+      tags:
+      - payment-recipients
+    put:
+      consumes:
+      - application/json
+      description: Update the name or account number of a saved payment recipient
+      parameters:
+      - description: Recipient ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updatePaymentRecipientRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Updated recipient
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update a payment recipient
+      tags:
+      - payment-recipients
+  /api/payments:
+    post:
+      consumes:
+      - application/json
+      description: Execute a payment between two accounts
+      parameters:
+      - description: Payment data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created payment
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a payment
+      tags:
+      - payments
+  /api/payments/{id}:
+    get:
+      description: Retrieve a single payment transaction by its ID
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Payment data
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Payment not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get payment by ID
+      tags:
+      - payments
+  /api/payments/account/{account_number}:
+    get:
+      description: Retrieve paginated payment history for an account with optional
+        filters
+      parameters:
+      - description: Account number
+        in: path
+        name: account_number
+        required: true
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter from date (RFC3339)
+        in: query
+        name: date_from
+        type: string
+      - description: Filter to date (RFC3339)
+        in: query
+        name: date_to
+        type: string
+      - description: Filter by status
+        in: query
+        name: status_filter
+        type: string
+      - description: Minimum amount
+        in: query
+        name: amount_min
+        type: number
+      - description: Maximum amount
+        in: query
+        name: amount_max
+        type: number
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: payments array and total count
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List payments by account
+      tags:
+      - payments
+  /api/transfers:
+    post:
+      consumes:
+      - application/json
+      description: Execute an internal transfer between two accounts (supports currency
+        conversion)
+      parameters:
+      - description: Transfer data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createTransferRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created transfer
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a transfer
+      tags:
+      - transfers
+  /api/transfers/{id}:
+    get:
+      description: Retrieve a single transfer transaction by its ID
+      parameters:
+      - description: Transfer ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Transfer data
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Transfer not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get transfer by ID
+      tags:
+      - transfers
+  /api/transfers/client/{client_id}:
+    get:
+      description: Retrieve paginated transfer history for a client
+      parameters:
+      - description: Client ID
+        in: path
+        name: client_id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: transfers array and total count
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid client_id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List transfers by client
+      tags:
+      - transfers
+  /api/verification:
+    post:
+      consumes:
+      - application/json
+      description: Generate a one-time verification code for a transaction
+      parameters:
+      - description: Verification request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createVerificationCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: code and expires_at
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a verification code
+      tags:
+      - verification
+  /api/verification/validate:
+    post:
+      consumes:
+      - application/json
+      description: Verify a one-time code for a transaction
+      parameters:
+      - description: Validation request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.validateVerificationCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'valid: true/false'
+          schema:
+            additionalProperties:
+              type: boolean
+            type: object
+        "400":
+          description: Validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Validate a verification code
+      tags:
+      - verification
 securityDefinitions:
   BearerAuth:
     description: Enter "Bearer <token>"

@@ -66,6 +66,7 @@ services:
       USER_GRPC_ADDR: ":50052"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      USER_DB_SSLMODE: disable
     ports:
       - "50052:50052"
     depends_on:
@@ -93,6 +94,7 @@ services:
       JWT_ACCESS_EXPIRY: 15m
       JWT_REFRESH_EXPIRY: 168h
       REDIS_ADDR: redis:6379
+      AUTH_DB_SSLMODE: disable
     ports:
       - "50051:50051"
     depends_on:
@@ -151,7 +153,207 @@ services:
       kafka:
         condition: service_healthy
 
+  client-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: clientdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - client-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  account-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: accountdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - account-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  card-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: carddb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - card-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  transaction-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: transactiondb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5437:5432"
+    volumes:
+      - transaction-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  credit-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: creditdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5438:5432"
+    volumes:
+      - credit-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  client-service:
+    build:
+      context: .
+      dockerfile: client-service/Dockerfile
+    environment:
+      CLIENT_DB_HOST: client-db
+      CLIENT_DB_PORT: "5432"
+      CLIENT_DB_USER: postgres
+      CLIENT_DB_PASSWORD: postgres
+      CLIENT_DB_NAME: clientdb
+      CLIENT_GRPC_ADDR: ":50054"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+    ports:
+      - "50054:50054"
+    depends_on:
+      client-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  account-service:
+    build:
+      context: .
+      dockerfile: account-service/Dockerfile
+    environment:
+      ACCOUNT_DB_HOST: account-db
+      ACCOUNT_DB_PORT: "5432"
+      ACCOUNT_DB_USER: postgres
+      ACCOUNT_DB_PASSWORD: postgres
+      ACCOUNT_DB_NAME: accountdb
+      ACCOUNT_GRPC_ADDR: ":50055"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+    ports:
+      - "50055:50055"
+    depends_on:
+      account-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  card-service:
+    build:
+      context: .
+      dockerfile: card-service/Dockerfile
+    environment:
+      CARD_DB_HOST: card-db
+      CARD_DB_PORT: "5432"
+      CARD_DB_USER: postgres
+      CARD_DB_PASSWORD: postgres
+      CARD_DB_NAME: carddb
+      CARD_GRPC_ADDR: ":50056"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+    ports:
+      - "50056:50056"
+    depends_on:
+      card-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  transaction-service:
+    build:
+      context: .
+      dockerfile: transaction-service/Dockerfile
+    environment:
+      TRANSACTION_DB_HOST: transaction-db
+      TRANSACTION_DB_PORT: "5432"
+      TRANSACTION_DB_USER: postgres
+      TRANSACTION_DB_PASSWORD: postgres
+      TRANSACTION_DB_NAME: transactiondb
+      TRANSACTION_GRPC_ADDR: ":50057"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+    ports:
+      - "50057:50057"
+    depends_on:
+      transaction-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  credit-service:
+    build:
+      context: .
+      dockerfile: credit-service/Dockerfile
+    environment:
+      CREDIT_DB_HOST: credit-db
+      CREDIT_DB_PORT: "5432"
+      CREDIT_DB_USER: postgres
+      CREDIT_DB_PASSWORD: postgres
+      CREDIT_DB_NAME: creditdb
+      CREDIT_GRPC_ADDR: ":50058"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+    ports:
+      - "50058:50058"
+    depends_on:
+      credit-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   user_db_data:
   auth_db_data:
   redis_data:
+  client-db-data:
+  account-db-data:
+  card-db-data:
+  transaction-db-data:
+  credit-db-data:

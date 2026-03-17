@@ -1,0 +1,73 @@
+syntax = "proto3";
+package card;
+option go_package = "github.com/exbanka/contract/cardpb;cardpb";
+
+service CardService {
+  rpc CreateCard(CreateCardRequest) returns (CardResponse);
+  rpc GetCard(GetCardRequest) returns (CardResponse);
+  rpc ListCardsByAccount(ListCardsByAccountRequest) returns (ListCardsResponse);
+  rpc ListCardsByClient(ListCardsByClientRequest) returns (ListCardsResponse);
+  rpc BlockCard(BlockCardRequest) returns (CardResponse);
+  rpc UnblockCard(UnblockCardRequest) returns (CardResponse);
+  rpc DeactivateCard(DeactivateCardRequest) returns (CardResponse);
+  rpc CreateAuthorizedPerson(CreateAuthorizedPersonRequest) returns (AuthorizedPersonResponse);
+  rpc GetAuthorizedPerson(GetAuthorizedPersonRequest) returns (AuthorizedPersonResponse);
+}
+
+message CreateCardRequest {
+  string account_number = 1;
+  uint64 owner_id = 2;
+  string owner_type = 3;
+  string card_brand = 4;
+}
+
+message GetCardRequest { uint64 id = 1; }
+message ListCardsByAccountRequest { string account_number = 1; }
+message ListCardsByClientRequest { uint64 client_id = 1; }
+message ListCardsResponse { repeated CardResponse cards = 1; }
+message BlockCardRequest { uint64 id = 1; }
+message UnblockCardRequest { uint64 id = 1; }
+message DeactivateCardRequest { uint64 id = 1; }
+
+message CardResponse {
+  uint64 id = 1;
+  string card_number = 2;
+  string card_number_full = 3;
+  string card_type = 4;
+  string card_name = 5;
+  string card_brand = 6;
+  string created_at = 7;
+  string expires_at = 8;
+  string account_number = 9;
+  string cvv = 10;
+  double card_limit = 11;
+  string status = 12;
+  string owner_type = 13;
+  uint64 owner_id = 14;
+}
+
+message CreateAuthorizedPersonRequest {
+  string first_name = 1;
+  string last_name = 2;
+  int64 date_of_birth = 3;
+  string gender = 4;
+  string email = 5;
+  string phone = 6;
+  string address = 7;
+  uint64 account_id = 8;
+}
+
+message GetAuthorizedPersonRequest { uint64 id = 1; }
+
+message AuthorizedPersonResponse {
+  uint64 id = 1;
+  string first_name = 2;
+  string last_name = 3;
+  int64 date_of_birth = 4;
+  string gender = 5;
+  string email = 6;
+  string phone = 7;
+  string address = 8;
+  uint64 account_id = 9;
+  string created_at = 10;
+}

@@ -13,17 +13,20 @@ This is a Go workspace monorepo. Each service has its own self-contained directo
 ├── auth-service/            # JWT token lifecycle and password workflows (gRPC, port 50051)
 ├── user-service/            # Employee CRUD and credential management (gRPC, port 50052)
 ├── notification-service/    # Email/push notification delivery (gRPC port 50053, Kafka consumer)
+├── client-service/          # Bank client CRUD and credential management (gRPC, port 50054)
+├── account-service/         # Bank accounts, currencies, companies (gRPC, port 50055)
+├── card-service/            # Payment cards and authorized persons (gRPC, port 50056)
+├── transaction-service/     # Payments, transfers, exchange rates (gRPC, port 50057)
+├── credit-service/          # Loan requests, loans, installments (gRPC, port 50058)
 ├── docs/                    # API documentation and implementation plans
 ├── docker-compose.yml
 ├── Makefile
 └── go.work
 ```
 
-Development happens in git worktrees under `.worktrees/`. Each worktree checks out a feature branch of the full repo.
-
 ## Commands
 
-All commands should be run from the active worktree root (e.g., `.worktrees/api-gateway/`).
+All commands should be run from the repo root.
 
 ```bash
 make proto        # Regenerate protobuf Go files (run after editing .proto files)
@@ -46,7 +49,7 @@ cd notification-service && go build -o bin/notification-service ./cmd
 
 ## Environment
 
-Copy `.env.example` to `.env` in the active worktree root. Key variables:
+Each service reads its `.env` file by walking up the directory tree from its working directory until it finds one. Place a `.env` file at the repo root (or within the service directory) containing the required variables. Key variables:
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -55,6 +58,11 @@ Copy `.env.example` to `.env` in the active worktree root. Key variables:
 | `JWT_ACCESS_EXPIRY` / `JWT_REFRESH_EXPIRY` | 15m / 168h | |
 | `AUTH_GRPC_ADDR` / `USER_GRPC_ADDR` | localhost:50051 / :50052 | |
 | `NOTIFICATION_GRPC_ADDR` | :50053 | |
+| `CLIENT_GRPC_ADDR` | localhost:50054 | client-service gRPC address |
+| `ACCOUNT_GRPC_ADDR` | localhost:50055 | account-service gRPC address |
+| `CARD_GRPC_ADDR` | localhost:50056 | card-service gRPC address |
+| `TRANSACTION_GRPC_ADDR` | localhost:50057 | transaction-service gRPC address |
+| `CREDIT_GRPC_ADDR` | localhost:50058 | credit-service gRPC address |
 | `GATEWAY_HTTP_ADDR` | :8080 | |
 | `KAFKA_BROKERS` | localhost:9092 | |
 | `REDIS_ADDR` | localhost:6379 | Shared by auth + user services |
@@ -62,6 +70,16 @@ Copy `.env.example` to `.env` in the active worktree root. Key variables:
 | `SMTP_USER` / `SMTP_PASSWORD` | *(must set)* | Gmail app password |
 | `SMTP_FROM` | *(must set)* | Sender email address |
 | `FRONTEND_BASE_URL` | http://localhost:3000 | Base URL for links in emails |
+
+**New service DB ports (if running separate DBs):**
+
+| Service | Default DB Port |
+|---|---|
+| client-service | 5434 |
+| account-service | 5435 |
+| card-service | 5436 |
+| transaction-service | 5437 |
+| credit-service | 5438 |
 
 ## Architecture
 
@@ -113,10 +131,35 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 
 **Employee creation flow:** API Gateway → User service (create employee) → Auth service (create activation token) → Kafka → Notification service (send activation email).
 
+**Client login flow:** API Gateway (`POST /api/auth/client-login`) → Auth service (`ClientLogin` RPC) → Client service (`ValidateCredentials` RPC) → Auth service generates JWT with `role="client"` and issues refresh token. The client JWT is then validated by `ClientAuthMiddleware` in the API Gateway for client-protected routes.
+
 **JMBG (Jedinstveni Matični Broj Građana):**
 - Unique 13-digit national identification number required for all employees
 - Validated on create and update (exactly 13 digits)
 - Stored with unique index in user_db
+
+## Swagger Documentation Requirement
+
+**Every route added or changed in `api-gateway` must have up-to-date Swagger annotations.** This is a hard requirement — not optional.
+
+- Every handler function exposed via the router must have a `// @Summary`, `// @Tags`, `// @Param`, `// @Success`, `// @Failure`, and `// @Router` godoc annotation.
+- After adding or modifying any route or handler, regenerate the docs: `make swagger` (or `cd api-gateway && swag init -g cmd/main.go --output docs`).
+- Swagger is **not dynamic** — the generated files in `api-gateway/docs/` must be committed alongside handler changes.
+- `make build` runs `swag init` automatically before compiling.
+
+## Kafka Event Publishing Requirement
+
+**All services must publish Kafka events for every significant action they perform.** This is a hard requirement — not optional.
+
+- Every create, update, delete, and state-change operation in a service's business logic layer must result in a Kafka event being published.
+- Events must be published from the `service/` layer (not handler or repository).
+- Use the existing `kafka/producer.go` pattern within each service.
+- Event topic naming convention: `<service>.<action>` (e.g., `user.employee-created`, `auth.token-activated`, `notification.email-sent`).
+- Define event payload structs in `contract/` so other services can consume them.
+
+## Implementation Plans
+
+Before starting any feature or bug fix, read the existing implementation plans in `docs/superpowers/plans/`. These plans contain context, decisions, and scope that must inform your work. Plans are Markdown files named by date and feature (e.g., `2026-03-12-feature-name.md`).
 
 ## Proto Code Generation
 

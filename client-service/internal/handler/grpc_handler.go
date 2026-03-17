@@ -1,0 +1,174 @@
+package handler
+
+import (
+	"context"
+	"errors"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
+
+	pb "github.com/exbanka/contract/clientpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
+	kafkaprod "github.com/exbanka/client-service/internal/kafka"
+	"github.com/exbanka/client-service/internal/model"
+	"github.com/exbanka/client-service/internal/service"
+)
+
+type ClientGRPCHandler struct {
+	pb.UnimplementedClientServiceServer
+	clientService *service.ClientService
+	producer      *kafkaprod.Producer
+}
+
+func NewClientGRPCHandler(clientService *service.ClientService, producer *kafkaprod.Producer) *ClientGRPCHandler {
+	return &ClientGRPCHandler{
+		clientService: clientService,
+		producer:      producer,
+	}
+}
+
+func (h *ClientGRPCHandler) CreateClient(ctx context.Context, req *pb.CreateClientRequest) (*pb.ClientResponse, error) {
+	client := &model.Client{
+		FirstName:   req.FirstName,
+		LastName:    req.LastName,
+		DateOfBirth: req.DateOfBirth,
+		Gender:      req.Gender,
+		Email:       req.Email,
+		Phone:       req.Phone,
+		Address:     req.Address,
+		JMBG:        req.Jmbg,
+	}
+
+	if err := h.clientService.CreateClient(ctx, client); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create client: %v", err)
+	}
+
+	// Publish Kafka event
+	_ = h.producer.PublishClientCreated(ctx, kafkamsg.ClientCreatedMessage{
+		ClientID:  client.ID,
+		Email:     client.Email,
+		FirstName: client.FirstName,
+		LastName:  client.LastName,
+	})
+
+	return toClientResponse(client), nil
+}
+
+func (h *ClientGRPCHandler) GetClient(ctx context.Context, req *pb.GetClientRequest) (*pb.ClientResponse, error) {
+	client, err := h.clientService.GetClient(req.Id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(codes.NotFound, "client not found")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to get client: %v", err)
+	}
+	return toClientResponse(client), nil
+}
+
+func (h *ClientGRPCHandler) GetClientByEmail(ctx context.Context, req *pb.GetClientByEmailRequest) (*pb.ClientResponse, error) {
+	client, err := h.clientService.GetByEmail(req.Email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(codes.NotFound, "client not found")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to get client: %v", err)
+	}
+	return toClientResponse(client), nil
+}
+
+func (h *ClientGRPCHandler) ListClients(ctx context.Context, req *pb.ListClientsRequest) (*pb.ListClientsResponse, error) {
+	clients, total, err := h.clientService.ListClients(
+		req.EmailFilter, req.NameFilter,
+		int(req.Page), int(req.PageSize),
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list clients: %v", err)
+	}
+
+	resp := &pb.ListClientsResponse{Total: total}
+	for _, c := range clients {
+		c := c
+		resp.Clients = append(resp.Clients, toClientResponse(&c))
+	}
+	return resp, nil
+}
+
+func (h *ClientGRPCHandler) UpdateClient(ctx context.Context, req *pb.UpdateClientRequest) (*pb.ClientResponse, error) {
+	updates := make(map[string]interface{})
+	if req.FirstName != nil {
+		updates["first_name"] = *req.FirstName
+	}
+	if req.LastName != nil {
+		updates["last_name"] = *req.LastName
+	}
+	if req.DateOfBirth != nil {
+		updates["date_of_birth"] = *req.DateOfBirth
+	}
+	if req.Gender != nil {
+		updates["gender"] = *req.Gender
+	}
+	if req.Email != nil {
+		updates["email"] = *req.Email
+	}
+	if req.Phone != nil {
+		updates["phone"] = *req.Phone
+	}
+	if req.Address != nil {
+		updates["address"] = *req.Address
+	}
+
+	client, err := h.clientService.UpdateClient(req.Id, updates)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(codes.NotFound, "client not found")
+		}
+		return nil, status.Errorf(codes.Internal, "failed to update client: %v", err)
+	}
+
+	// Publish Kafka event
+	_ = h.producer.PublishClientUpdated(ctx, kafkamsg.ClientCreatedMessage{
+		ClientID:  client.ID,
+		Email:     client.Email,
+		FirstName: client.FirstName,
+		LastName:  client.LastName,
+	})
+
+	return toClientResponse(client), nil
+}
+
+func (h *ClientGRPCHandler) ValidateCredentials(ctx context.Context, req *pb.ValidateClientCredentialsRequest) (*pb.ValidateClientCredentialsResponse, error) {
+	client, valid := h.clientService.ValidateCredentials(req.Email, req.Password)
+	if !valid {
+		return &pb.ValidateClientCredentialsResponse{}, nil
+	}
+	return &pb.ValidateClientCredentialsResponse{
+		Id:        client.ID,
+		Email:     client.Email,
+		FirstName: client.FirstName,
+		LastName:  client.LastName,
+	}, nil
+}
+
+func (h *ClientGRPCHandler) SetPassword(ctx context.Context, req *pb.SetClientPasswordRequest) (*pb.SetClientPasswordResponse, error) {
+	if err := h.clientService.SetPassword(req.UserId, req.PasswordHash); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to set password: %v", err)
+	}
+	return &pb.SetClientPasswordResponse{Success: true}, nil
+}
+
+func toClientResponse(c *model.Client) *pb.ClientResponse {
+	return &pb.ClientResponse{
+		Id:          c.ID,
+		FirstName:   c.FirstName,
+		LastName:    c.LastName,
+		DateOfBirth: c.DateOfBirth,
+		Gender:      c.Gender,
+		Email:       c.Email,
+		Phone:       c.Phone,
+		Address:     c.Address,
+		Jmbg:        c.JMBG,
+		Active:      c.Active,
+		CreatedAt:   c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+}

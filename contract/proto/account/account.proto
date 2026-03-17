@@ -1,0 +1,147 @@
+syntax = "proto3";
+package account;
+option go_package = "github.com/exbanka/contract/accountpb;accountpb";
+
+service AccountService {
+  rpc CreateAccount(CreateAccountRequest) returns (AccountResponse);
+  rpc GetAccount(GetAccountRequest) returns (AccountResponse);
+  rpc GetAccountByNumber(GetAccountByNumberRequest) returns (AccountResponse);
+  rpc ListAccountsByClient(ListAccountsByClientRequest) returns (ListAccountsResponse);
+  rpc ListAllAccounts(ListAllAccountsRequest) returns (ListAccountsResponse);
+  rpc UpdateAccountName(UpdateAccountNameRequest) returns (AccountResponse);
+  rpc UpdateAccountLimits(UpdateAccountLimitsRequest) returns (AccountResponse);
+  rpc UpdateAccountStatus(UpdateAccountStatusRequest) returns (AccountResponse);
+  rpc UpdateBalance(UpdateBalanceRequest) returns (AccountResponse);
+
+  rpc CreateCompany(CreateCompanyRequest) returns (CompanyResponse);
+  rpc GetCompany(GetCompanyRequest) returns (CompanyResponse);
+  rpc UpdateCompany(UpdateCompanyRequest) returns (CompanyResponse);
+
+  rpc ListCurrencies(ListCurrenciesRequest) returns (ListCurrenciesResponse);
+  rpc GetCurrency(GetCurrencyRequest) returns (CurrencyResponse);
+}
+
+message CreateAccountRequest {
+  uint64 owner_id = 1;
+  string account_kind = 2;
+  string account_type = 3;
+  string account_category = 4;
+  string currency_code = 5;
+  uint64 employee_id = 6;
+  double initial_balance = 7;
+  bool create_card = 8;
+  optional uint64 company_id = 9;
+}
+
+message GetAccountRequest { uint64 id = 1; }
+message GetAccountByNumberRequest { string account_number = 1; }
+
+message ListAccountsByClientRequest {
+  uint64 client_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ListAllAccountsRequest {
+  string name_filter = 1;
+  string account_number_filter = 2;
+  string type_filter = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+}
+
+message ListAccountsResponse {
+  repeated AccountResponse accounts = 1;
+  int64 total = 2;
+}
+
+message UpdateAccountNameRequest {
+  uint64 id = 1;
+  uint64 client_id = 2;
+  string new_name = 3;
+}
+
+message UpdateAccountLimitsRequest {
+  uint64 id = 1;
+  optional double daily_limit = 2;
+  optional double monthly_limit = 3;
+}
+
+message UpdateAccountStatusRequest {
+  uint64 id = 1;
+  string status = 2;
+}
+
+message UpdateBalanceRequest {
+  string account_number = 1;
+  double amount = 2;
+  bool update_available = 3;
+}
+
+message AccountResponse {
+  uint64 id = 1;
+  string account_number = 2;
+  string account_name = 3;
+  uint64 owner_id = 4;
+  string owner_name = 5;
+  double balance = 6;
+  double available_balance = 7;
+  uint64 employee_id = 8;
+  string created_at = 9;
+  string expires_at = 10;
+  string currency_code = 11;
+  string status = 12;
+  string account_kind = 13;
+  string account_type = 14;
+  string account_category = 15;
+  double maintenance_fee = 16;
+  double daily_limit = 17;
+  double monthly_limit = 18;
+  double daily_spending = 19;
+  double monthly_spending = 20;
+  optional uint64 company_id = 21;
+}
+
+message CreateCompanyRequest {
+  string company_name = 1;
+  string registration_number = 2;
+  string tax_number = 3;
+  string activity_code = 4;
+  string address = 5;
+  uint64 owner_id = 6;
+}
+
+message GetCompanyRequest { uint64 id = 1; }
+
+message UpdateCompanyRequest {
+  uint64 id = 1;
+  optional string company_name = 2;
+  optional string activity_code = 3;
+  optional string address = 4;
+  optional uint64 owner_id = 5;
+}
+
+message CompanyResponse {
+  uint64 id = 1;
+  string company_name = 2;
+  string registration_number = 3;
+  string tax_number = 4;
+  string activity_code = 5;
+  string address = 6;
+  uint64 owner_id = 7;
+  string created_at = 8;
+}
+
+message ListCurrenciesRequest {}
+message ListCurrenciesResponse { repeated CurrencyResponse currencies = 1; }
+message GetCurrencyRequest { string code = 1; }
+
+message CurrencyResponse {
+  uint64 id = 1;
+  string name = 2;
+  string code = 3;
+  string symbol = 4;
+  string country = 5;
+  string description = 6;
+  bool active = 7;
+}
