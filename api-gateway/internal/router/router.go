@@ -103,7 +103,6 @@ func Setup(
 				accountsEmployee.POST("", accountHandler.CreateAccount)
 				accountsEmployee.GET("", accountHandler.ListAllAccounts)
 				accountsEmployee.GET("/:id", accountHandler.GetAccount)
-				accountsEmployee.GET("/by-number/:account_number", accountHandler.GetAccountByNumber)
 				accountsEmployee.GET("/client/:client_id", accountHandler.ListAccountsByClient)
 				accountsEmployee.PUT("/:id/name", accountHandler.UpdateAccountName)
 				accountsEmployee.PUT("/:id/limits", accountHandler.UpdateAccountLimits)
@@ -125,9 +124,6 @@ func Setup(
 			cardsEmployee.Use(middleware.RequirePermission("cards.read"))
 			{
 				cardsEmployee.POST("", cardHandler.CreateCard)
-				cardsEmployee.GET("/:id", cardHandler.GetCard)
-				cardsEmployee.GET("/account/:account_number", cardHandler.ListCardsByAccount)
-				cardsEmployee.GET("/client/:client_id", cardHandler.ListCardsByClient)
 				cardsEmployee.PUT("/:id/block", cardHandler.BlockCard)
 				cardsEmployee.PUT("/:id/unblock", cardHandler.UnblockCard)
 				cardsEmployee.PUT("/:id/deactivate", cardHandler.DeactivateCard)
@@ -138,7 +134,6 @@ func Setup(
 			paymentsEmployee := protected.Group("/payments")
 			paymentsEmployee.Use(middleware.RequirePermission("accounts.read"))
 			{
-				paymentsEmployee.GET("/:id", txHandler.GetPayment)
 				paymentsEmployee.GET("/account/:account_number", txHandler.ListPaymentsByAccount)
 			}
 
@@ -146,7 +141,6 @@ func Setup(
 			transfersEmployee := protected.Group("/transfers")
 			transfersEmployee.Use(middleware.RequirePermission("accounts.read"))
 			{
-				transfersEmployee.GET("/:id", txHandler.GetTransfer)
 				transfersEmployee.GET("/client/:client_id", txHandler.ListTransfersByClient)
 			}
 
@@ -158,14 +152,26 @@ func Setup(
 				loansEmployee.GET("/requests", creditHandler.ListLoanRequests)
 				loansEmployee.PUT("/requests/:id/approve", creditHandler.ApproveLoanRequest)
 				loansEmployee.PUT("/requests/:id/reject", creditHandler.RejectLoanRequest)
-				loansEmployee.GET("/:id", creditHandler.GetLoan)
-				loansEmployee.GET("/client/:client_id", creditHandler.ListLoansByClient)
 				loansEmployee.GET("", creditHandler.ListAllLoans)
-				loansEmployee.GET("/:id/installments", creditHandler.GetInstallmentsByLoan)
 			}
 		}
 
-		// Client-protected routes
+		// Routes accessible by both employees and clients
+		anyAuth := api.Group("/")
+		anyAuth.Use(middleware.AnyAuthMiddleware(authClient))
+		{
+			anyAuth.GET("/payments/:id", txHandler.GetPayment)
+			anyAuth.GET("/transfers/:id", txHandler.GetTransfer)
+			anyAuth.GET("/accounts/by-number/:account_number", accountHandler.GetAccountByNumber)
+			anyAuth.GET("/cards/:id", cardHandler.GetCard)
+			anyAuth.GET("/cards/account/:account_number", cardHandler.ListCardsByAccount)
+			anyAuth.GET("/cards/client/:client_id", cardHandler.ListCardsByClient)
+			anyAuth.GET("/loans/:id", creditHandler.GetLoan)
+			anyAuth.GET("/loans/client/:client_id", creditHandler.ListLoansByClient)
+			anyAuth.GET("/loans/:id/installments", creditHandler.GetInstallmentsByLoan)
+		}
+
+		// Client-only routes
 		clientProtected := api.Group("/")
 		clientProtected.Use(middleware.ClientAuthMiddleware(authClient))
 		{
@@ -174,13 +180,9 @@ func Setup(
 
 			// Payments (client)
 			clientProtected.POST("/payments", txHandler.CreatePayment)
-			clientProtected.GET("/payments/:id", txHandler.GetPayment)
-			clientProtected.GET("/payments/account/:account_number", txHandler.ListPaymentsByAccount)
 
 			// Transfers (client)
 			clientProtected.POST("/transfers", txHandler.CreateTransfer)
-			clientProtected.GET("/transfers/:id", txHandler.GetTransfer)
-			clientProtected.GET("/transfers/client/:client_id", txHandler.ListTransfersByClient)
 
 			// Payment recipients (client)
 			clientProtected.POST("/payment-recipients", txHandler.CreatePaymentRecipient)
@@ -192,19 +194,8 @@ func Setup(
 			clientProtected.POST("/verification", txHandler.CreateVerificationCode)
 			clientProtected.POST("/verification/validate", txHandler.ValidateVerificationCode)
 
-			// Account by number (client)
-			clientProtected.GET("/accounts/by-number/:account_number", accountHandler.GetAccountByNumber)
-
-			// Cards (client)
-			clientProtected.GET("/cards/:id", cardHandler.GetCard)
-			clientProtected.GET("/cards/account/:account_number", cardHandler.ListCardsByAccount)
-			clientProtected.GET("/cards/client/:client_id", cardHandler.ListCardsByClient)
-
 			// Loans (client)
 			clientProtected.POST("/loans/requests", creditHandler.CreateLoanRequest)
-			clientProtected.GET("/loans/:id", creditHandler.GetLoan)
-			clientProtected.GET("/loans/client/:client_id", creditHandler.ListLoansByClient)
-			clientProtected.GET("/loans/:id/installments", creditHandler.GetInstallmentsByLoan)
 		}
 	}
 

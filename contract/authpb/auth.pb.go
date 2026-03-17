@@ -879,9 +879,10 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\n" +
 	"first_name\x18\x03 \x01(\tR\tfirstName\"9\n" +
 	"\x1dCreateActivationTokenResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2\xd2\x04\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\x8a\x05\n" +
 	"\vAuthService\x120\n" +
-	"\x05Login\x12\x12.auth.LoginRequest\x1a\x13.auth.LoginResponse\x12H\n" +
+	"\x05Login\x12\x12.auth.LoginRequest\x1a\x13.auth.LoginResponse\x126\n" +
+	"\vClientLogin\x12\x12.auth.LoginRequest\x1a\x13.auth.LoginResponse\x12H\n" +
 	"\rValidateToken\x12\x1a.auth.ValidateTokenRequest\x1a\x1b.auth.ValidateTokenResponse\x12E\n" +
 	"\fRefreshToken\x12\x19.auth.RefreshTokenRequest\x1a\x1a.auth.RefreshTokenResponse\x123\n" +
 	"\x06Logout\x12\x13.auth.LogoutRequest\x1a\x14.auth.LogoutResponse\x12O\n" +
@@ -923,23 +924,25 @@ var file_auth_auth_proto_goTypes = []any{
 }
 var file_auth_auth_proto_depIdxs = []int32{
 	0,  // 0: auth.AuthService.Login:input_type -> auth.LoginRequest
-	2,  // 1: auth.AuthService.ValidateToken:input_type -> auth.ValidateTokenRequest
-	4,  // 2: auth.AuthService.RefreshToken:input_type -> auth.RefreshTokenRequest
-	12, // 3: auth.AuthService.Logout:input_type -> auth.LogoutRequest
-	6,  // 4: auth.AuthService.RequestPasswordReset:input_type -> auth.PasswordResetRequest
-	8,  // 5: auth.AuthService.ResetPassword:input_type -> auth.ResetPasswordRequest
-	10, // 6: auth.AuthService.ActivateAccount:input_type -> auth.ActivateAccountRequest
-	14, // 7: auth.AuthService.CreateActivationToken:input_type -> auth.CreateActivationTokenRequest
-	1,  // 8: auth.AuthService.Login:output_type -> auth.LoginResponse
-	3,  // 9: auth.AuthService.ValidateToken:output_type -> auth.ValidateTokenResponse
-	5,  // 10: auth.AuthService.RefreshToken:output_type -> auth.RefreshTokenResponse
-	13, // 11: auth.AuthService.Logout:output_type -> auth.LogoutResponse
-	7,  // 12: auth.AuthService.RequestPasswordReset:output_type -> auth.PasswordResetResponse
-	9,  // 13: auth.AuthService.ResetPassword:output_type -> auth.ResetPasswordResponse
-	11, // 14: auth.AuthService.ActivateAccount:output_type -> auth.ActivateAccountResponse
-	15, // 15: auth.AuthService.CreateActivationToken:output_type -> auth.CreateActivationTokenResponse
-	8,  // [8:16] is the sub-list for method output_type
-	0,  // [0:8] is the sub-list for method input_type
+	0,  // 1: auth.AuthService.ClientLogin:input_type -> auth.LoginRequest
+	2,  // 2: auth.AuthService.ValidateToken:input_type -> auth.ValidateTokenRequest
+	4,  // 3: auth.AuthService.RefreshToken:input_type -> auth.RefreshTokenRequest
+	12, // 4: auth.AuthService.Logout:input_type -> auth.LogoutRequest
+	6,  // 5: auth.AuthService.RequestPasswordReset:input_type -> auth.PasswordResetRequest
+	8,  // 6: auth.AuthService.ResetPassword:input_type -> auth.ResetPasswordRequest
+	10, // 7: auth.AuthService.ActivateAccount:input_type -> auth.ActivateAccountRequest
+	14, // 8: auth.AuthService.CreateActivationToken:input_type -> auth.CreateActivationTokenRequest
+	1,  // 9: auth.AuthService.Login:output_type -> auth.LoginResponse
+	1,  // 10: auth.AuthService.ClientLogin:output_type -> auth.LoginResponse
+	3,  // 11: auth.AuthService.ValidateToken:output_type -> auth.ValidateTokenResponse
+	5,  // 12: auth.AuthService.RefreshToken:output_type -> auth.RefreshTokenResponse
+	13, // 13: auth.AuthService.Logout:output_type -> auth.LogoutResponse
+	7,  // 14: auth.AuthService.RequestPasswordReset:output_type -> auth.PasswordResetResponse
+	9,  // 15: auth.AuthService.ResetPassword:output_type -> auth.ResetPasswordResponse
+	11, // 16: auth.AuthService.ActivateAccount:output_type -> auth.ActivateAccountResponse
+	15, // 17: auth.AuthService.CreateActivationToken:output_type -> auth.CreateActivationTokenResponse
+	9,  // [9:18] is the sub-list for method output_type
+	0,  // [0:9] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name

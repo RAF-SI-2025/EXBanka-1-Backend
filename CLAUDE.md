@@ -138,6 +138,15 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 - Validated on create and update (exactly 13 digits)
 - Stored with unique index in user_db
 
+## Swagger Documentation Requirement
+
+**Every route added or changed in `api-gateway` must have up-to-date Swagger annotations.** This is a hard requirement — not optional.
+
+- Every handler function exposed via the router must have a `// @Summary`, `// @Tags`, `// @Param`, `// @Success`, `// @Failure`, and `// @Router` godoc annotation.
+- After adding or modifying any route or handler, regenerate the docs: `make swagger` (or `cd api-gateway && swag init -g cmd/main.go --output docs`).
+- Swagger is **not dynamic** — the generated files in `api-gateway/docs/` must be committed alongside handler changes.
+- `make build` runs `swag init` automatically before compiling.
+
 ## Kafka Event Publishing Requirement
 
 **All services must publish Kafka events for every significant action they perform.** This is a hard requirement — not optional.

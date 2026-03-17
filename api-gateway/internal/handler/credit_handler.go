@@ -32,6 +32,18 @@ type createLoanRequestBody struct {
 	AccountNumber    string  `json:"account_number" binding:"required"`
 }
 
+// CreateLoanRequest godoc
+// @Summary      Submit a loan request
+// @Description  Client submits a new loan application
+// @Tags         loans
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createLoanRequestBody  true  "Loan request data"
+// @Success      201  {object}  map[string]interface{}  "Created loan request"
+// @Failure      400  {object}  map[string]string       "Validation error"
+// @Failure      500  {object}  map[string]string       "Internal error"
+// @Security     BearerAuth
+// @Router       /api/loans/requests [post]
 func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 	var req createLoanRequestBody
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -60,6 +72,17 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 	c.JSON(http.StatusCreated, loanRequestToJSON(resp))
 }
 
+// GetLoanRequest godoc
+// @Summary      Get loan request by ID
+// @Description  Retrieve a single loan application by its ID
+// @Tags         loans
+// @Produce      json
+// @Param        id  path  int  true  "Loan request ID"
+// @Success      200  {object}  map[string]interface{}  "Loan request data"
+// @Failure      400  {object}  map[string]string       "Invalid ID"
+// @Failure      404  {object}  map[string]string       "Loan request not found"
+// @Security     BearerAuth
+// @Router       /api/loans/requests/{id} [get]
 func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -75,6 +98,20 @@ func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, loanRequestToJSON(resp))
 }
 
+// ListLoanRequests godoc
+// @Summary      List loan requests
+// @Description  Paginated list of all loan applications with optional filters
+// @Tags         loans
+// @Produce      json
+// @Param        page                   query  int     false  "Page number (default 1)"
+// @Param        page_size              query  int     false  "Page size (default 20)"
+// @Param        loan_type_filter       query  string  false  "Filter by loan type"
+// @Param        account_number_filter  query  string  false  "Filter by account number"
+// @Param        status_filter          query  string  false  "Filter by status"
+// @Success      200  {object}  map[string]interface{}  "requests array and total count"
+// @Failure      500  {object}  map[string]string       "Internal error"
+// @Security     BearerAuth
+// @Router       /api/loans/requests [get]
 func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -101,6 +138,17 @@ func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 	})
 }
 
+// ApproveLoanRequest godoc
+// @Summary      Approve a loan request
+// @Description  Employee approves a pending loan application, creating an active loan
+// @Tags         loans
+// @Produce      json
+// @Param        id  path  int  true  "Loan request ID"
+// @Success      200  {object}  map[string]interface{}  "Created loan"
+// @Failure      400  {object}  map[string]string       "Invalid ID"
+// @Failure      500  {object}  map[string]string       "Internal error"
+// @Security     BearerAuth
+// @Router       /api/loans/requests/{id}/approve [put]
 func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -116,6 +164,17 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, loanToJSON(resp))
 }
 
+// RejectLoanRequest godoc
+// @Summary      Reject a loan request
+// @Description  Employee rejects a pending loan application
+// @Tags         loans
+// @Produce      json
+// @Param        id  path  int  true  "Loan request ID"
+// @Success      200  {object}  map[string]interface{}  "Updated loan request"
+// @Failure      400  {object}  map[string]string       "Invalid ID"
+// @Failure      500  {object}  map[string]string       "Internal error"
+// @Security     BearerAuth
+// @Router       /api/loans/requests/{id}/reject [put]
 func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -131,6 +190,17 @@ func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, loanRequestToJSON(resp))
 }
 
+// GetLoan godoc
+// @Summary      Get loan by ID
+// @Description  Retrieve an active loan by its ID
+// @Tags         loans
+// @Produce      json
+// @Param        id  path  int  true  "Loan ID"
+// @Success      200  {object}  map[string]interface{}  "Loan data"
+// @Failure      400  {object}  map[string]string       "Invalid ID"
+// @Failure      404  {object}  map[string]string       "Loan not found"
+// @Security     BearerAuth
+// @Router       /api/loans/{id} [get]
 func (h *CreditHandler) GetLoan(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -146,6 +216,19 @@ func (h *CreditHandler) GetLoan(c *gin.Context) {
 	c.JSON(http.StatusOK, loanToJSON(resp))
 }
 
+// ListLoansByClient godoc
+// @Summary      List loans by client
+// @Description  Retrieve all loans belonging to a specific client
+// @Tags         loans
+// @Produce      json
+// @Param        client_id  path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Page size (default 20)"
+// @Success      200  {object}  map[string]interface{}  "loans array and total count"
+// @Failure      400  {object}  map[string]string       "Invalid client_id"
+// @Failure      500  {object}  map[string]string       "Internal error"
+// @Security     BearerAuth
+// @Router       /api/loans/client/{client_id} [get]
 func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -175,6 +258,20 @@ func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 	})
 }
 
+// ListAllLoans godoc
+// @Summary      List all loans
+// @Description  Paginated list of all loans with optional filters (employee view)
+// @Tags         loans
+// @Produce      json
+// @Param        page                   query  int     false  "Page number (default 1)"
+// @Param        page_size              query  int     false  "Page size (default 20)"
+// @Param        loan_type_filter       query  string  false  "Filter by loan type"
+// @Param        account_number_filter  query  string  false  "Filter by account number"
+// @Param        status_filter          query  string  false  "Filter by status"
+// @Success      200  {object}  map[string]interface{}  "loans array and total count"
+// @Failure      500  {object}  map[string]string       "Internal error"
+// @Security     BearerAuth
+// @Router       /api/loans [get]
 func (h *CreditHandler) ListAllLoans(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -201,6 +298,17 @@ func (h *CreditHandler) ListAllLoans(c *gin.Context) {
 	})
 }
 
+// GetInstallmentsByLoan godoc
+// @Summary      Get installments for a loan
+// @Description  Retrieve all repayment installments for a loan
+// @Tags         loans
+// @Produce      json
+// @Param        id  path  int  true  "Loan ID"
+// @Success      200  {object}  map[string]interface{}  "installments array"
+// @Failure      400  {object}  map[string]string       "Invalid ID"
+// @Failure      500  {object}  map[string]string       "Internal error"
+// @Security     BearerAuth
+// @Router       /api/loans/{id}/installments [get]
 func (h *CreditHandler) GetInstallmentsByLoan(c *gin.Context) {
 	loanID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

@@ -1,4 +1,4 @@
-.PHONY: proto clean build tidy docker-up docker-down docker-logs test
+.PHONY: proto clean build tidy docker-up docker-down docker-logs test swagger
 
 proto:
 	protoc -I contract/proto \
@@ -21,7 +21,11 @@ proto:
 	rmdir contract/auth contract/user contract/notification 2>/dev/null || true
 	rmdir contract/client contract/account contract/card contract/transaction contract/credit 2>/dev/null || true
 
+swagger:
+	cd api-gateway && swag init -g cmd/main.go --output docs
+
 build:
+	cd api-gateway && swag init -g cmd/main.go --output docs
 	cd user-service && go build -o bin/user-service ./cmd
 	cd auth-service && go build -o bin/auth-service ./cmd
 	cd api-gateway && go build -o bin/api-gateway ./cmd

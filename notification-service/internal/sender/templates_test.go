@@ -13,7 +13,7 @@ func TestBuildEmail_Activation(t *testing.T) {
 	data := map[string]string{
 		"first_name": "John",
 		"token":      "abc123",
-		"link":       "http://localhost:5173/activate?token=abc123",
+		"link":       "http://localhost:3000/activate?token=abc123",
 	}
 	subject, body := BuildEmail(kafkamsg.EmailTypeActivation, data)
 
@@ -27,7 +27,7 @@ func TestBuildEmail_Activation(t *testing.T) {
 func TestBuildEmail_PasswordReset(t *testing.T) {
 	data := map[string]string{
 		"token": "reset123",
-		"link":  "http://localhost:5173/reset-password?token=reset123",
+		"link":  "http://localhost:3000/reset-password?token=reset123",
 	}
 	subject, body := BuildEmail(kafkamsg.EmailTypePasswordReset, data)
 

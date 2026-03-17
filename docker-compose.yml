@@ -66,6 +66,7 @@ services:
       USER_GRPC_ADDR: ":50052"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      USER_DB_SSLMODE: disable
     ports:
       - "50052:50052"
     depends_on:
@@ -93,6 +94,7 @@ services:
       JWT_ACCESS_EXPIRY: 15m
       JWT_REFRESH_EXPIRY: 168h
       REDIS_ADDR: redis:6379
+      AUTH_DB_SSLMODE: disable
     ports:
       - "50051:50051"
     depends_on:
@@ -232,7 +234,9 @@ services:
       retries: 5
 
   client-service:
-    build: ./client-service
+    build:
+      context: .
+      dockerfile: client-service/Dockerfile
     environment:
       CLIENT_DB_HOST: client-db
       CLIENT_DB_PORT: "5432"
@@ -253,7 +257,9 @@ services:
         condition: service_healthy
 
   account-service:
-    build: ./account-service
+    build:
+      context: .
+      dockerfile: account-service/Dockerfile
     environment:
       ACCOUNT_DB_HOST: account-db
       ACCOUNT_DB_PORT: "5432"
@@ -274,7 +280,9 @@ services:
         condition: service_healthy
 
   card-service:
-    build: ./card-service
+    build:
+      context: .
+      dockerfile: card-service/Dockerfile
     environment:
       CARD_DB_HOST: card-db
       CARD_DB_PORT: "5432"
@@ -295,7 +303,9 @@ services:
         condition: service_healthy
 
   transaction-service:
-    build: ./transaction-service
+    build:
+      context: .
+      dockerfile: transaction-service/Dockerfile
     environment:
       TRANSACTION_DB_HOST: transaction-db
       TRANSACTION_DB_PORT: "5432"
@@ -316,7 +326,9 @@ services:
         condition: service_healthy
 
   credit-service:
-    build: ./credit-service
+    build:
+      context: .
+      dockerfile: credit-service/Dockerfile
     environment:
       CREDIT_DB_HOST: credit-db
       CREDIT_DB_PORT: "5432"
