@@ -132,9 +132,9 @@ type InstallmentResultMessage struct {
 
 // EmployeeCreatedMessage is published when an employee is created or updated.
 type EmployeeCreatedMessage struct {
-	EmployeeID int64  `json:"employee_id"`
-	Email      string `json:"email"`
-	FirstName  string `json:"first_name"`
-	LastName   string `json:"last_name"`
-	Role       string `json:"role"`
+	EmployeeID int64    `json:"employee_id"`
+	Email      string   `json:"email"`
+	FirstName  string   `json:"first_name"`
+	LastName   string   `json:"last_name"`
+	Roles      []string `json:"roles"`
 }

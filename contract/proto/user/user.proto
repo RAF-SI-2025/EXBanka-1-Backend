@@ -12,6 +12,13 @@ service UserService {
   rpc ValidateCredentials(ValidateCredentialsRequest) returns (ValidateCredentialsResponse);
   rpc GetUserByEmail(GetUserByEmailRequest) returns (UserResponse);
   rpc SetPassword(SetPasswordRequest) returns (SetPasswordResponse);
+  rpc ListRoles(ListRolesRequest) returns (ListRolesResponse);
+  rpc GetRole(GetRoleRequest) returns (RoleResponse);
+  rpc CreateRole(CreateRoleRequest) returns (RoleResponse);
+  rpc UpdateRolePermissions(UpdateRolePermissionsRequest) returns (RoleResponse);
+  rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse);
+  rpc SetEmployeeRoles(SetEmployeeRolesRequest) returns (EmployeeResponse);
+  rpc SetEmployeeAdditionalPermissions(SetEmployeePermissionsRequest) returns (EmployeeResponse);
 }
 
 message CreateEmployeeRequest {
@@ -70,6 +77,7 @@ message ValidateCredentialsResponse {
   string email = 3;
   string role = 4;
   repeated string permissions = 5;
+  repeated string roles = 6;
 }
 
 message EmployeeResponse {
@@ -88,6 +96,8 @@ message EmployeeResponse {
   string role = 13;
   repeated string permissions = 14;
   string jmbg = 15;
+  repeated string roles = 16;
+  repeated string additional_permissions = 17;
 }
 
 message ListEmployeesResponse {
@@ -102,6 +112,7 @@ message UserResponse {
   repeated string permissions = 4;
   string password_hash = 5;
   bool active = 6;
+  repeated string roles = 7;
 }
 
 message SetPasswordRequest {
@@ -111,4 +122,46 @@ message SetPasswordRequest {
 
 message SetPasswordResponse {
   bool success = 1;
+}
+
+message RoleResponse {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string permissions = 4;
+}
+
+message ListRolesRequest {}
+message ListRolesResponse { repeated RoleResponse roles = 1; }
+message GetRoleRequest { int64 id = 1; }
+
+message CreateRoleRequest {
+  string name = 1;
+  string description = 2;
+  repeated string permission_codes = 3;
+}
+
+message UpdateRolePermissionsRequest {
+  int64 role_id = 1;
+  repeated string permission_codes = 2;
+}
+
+message PermissionResponse {
+  int64 id = 1;
+  string code = 2;
+  string description = 3;
+  string category = 4;
+}
+
+message ListPermissionsRequest {}
+message ListPermissionsResponse { repeated PermissionResponse permissions = 1; }
+
+message SetEmployeeRolesRequest {
+  int64 employee_id = 1;
+  repeated string role_names = 2;
+}
+
+message SetEmployeePermissionsRequest {
+  int64 employee_id = 1;
+  repeated string permission_codes = 2;
 }

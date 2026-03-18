@@ -31,9 +31,16 @@ func AuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 			return
 		}
 
+		// Block client tokens from accessing employee-only routes
+		if resp.SystemType == "client" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "token not authorized for employee routes"})
+			return
+		}
+
 		c.Set("user_id", resp.UserId)
 		c.Set("email", resp.Email)
 		c.Set("role", resp.Role)
+		c.Set("system_type", resp.SystemType)
 		c.Set("permissions", resp.Permissions)
 		c.Next()
 	}
@@ -66,6 +73,7 @@ func AnyAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 		c.Set("user_id", resp.UserId)
 		c.Set("email", resp.Email)
 		c.Set("role", resp.Role)
+		c.Set("system_type", resp.SystemType)
 		c.Set("permissions", resp.Permissions)
 		c.Next()
 	}

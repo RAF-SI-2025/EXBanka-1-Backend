@@ -37,6 +37,7 @@ func Setup(
 
 	authHandler := handler.NewAuthHandler(authClient)
 	empHandler := handler.NewEmployeeHandler(userClient)
+	roleHandler := handler.NewRoleHandler(userClient)
 	clientHandler := handler.NewClientHandler(clientClient)
 	accountHandler := handler.NewAccountHandler(accountClient)
 	cardHandler := handler.NewCardHandler(cardClient)
@@ -83,6 +84,19 @@ func Setup(
 			updateEmployees.Use(middleware.RequirePermission("employees.update"))
 			{
 				updateEmployees.PUT("/:id", empHandler.UpdateEmployee)
+			}
+
+			// Role and permission management (employees.permissions)
+			permManagement := protected.Group("/")
+			permManagement.Use(middleware.RequirePermission("employees.permissions"))
+			{
+				permManagement.GET("/roles", roleHandler.ListRoles)
+				permManagement.GET("/roles/:id", roleHandler.GetRole)
+				permManagement.POST("/roles", roleHandler.CreateRole)
+				permManagement.PUT("/roles/:id/permissions", roleHandler.UpdateRolePermissions)
+				permManagement.GET("/permissions", roleHandler.ListPermissions)
+				permManagement.PUT("/employees/:id/roles", roleHandler.SetEmployeeRoles)
+				permManagement.PUT("/employees/:id/permissions", roleHandler.SetEmployeeAdditionalPermissions)
 			}
 
 			// Client management (EmployeeBasic)

@@ -31,7 +31,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Employee{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.Permission{},
+		&model.Role{},
+		&model.Employee{},
+	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -48,13 +52,23 @@ func main() {
 	}
 
 	repo := repository.NewEmployeeRepository(db)
-	empService := service.NewEmployeeService(repo, producer, redisCache)
+	permRepo := repository.NewPermissionRepository(db)
+	roleRepo := repository.NewRoleRepository(db)
 
-	if err := seedAdminUser(repo); err != nil {
+	roleSvc := service.NewRoleService(roleRepo, permRepo)
+
+	// Seed roles and permissions on startup
+	if err := roleSvc.SeedRolesAndPermissions(); err != nil {
+		log.Printf("warn: failed to seed roles and permissions: %v", err)
+	}
+
+	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc)
+
+	if err := seedAdminUser(repo, roleSvc); err != nil {
 		log.Printf("warn: seed admin user: %v", err)
 	}
 
-	grpcHandler := handler.NewUserGRPCHandler(empService)
+	grpcHandler := handler.NewUserGRPCHandler(empService, roleSvc)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -83,7 +97,7 @@ func main() {
 	log.Println("Server stopped")
 }
 
-func seedAdminUser(repo *repository.EmployeeRepository) error {
+func seedAdminUser(repo *repository.EmployeeRepository, roleSvc *service.RoleService) error {
 	existing, _ := repo.GetByEmail("admin@exbanka.com")
 	if existing != nil {
 		log.Println("Admin user already exists, skipping seed")
@@ -113,5 +127,26 @@ func seedAdminUser(repo *repository.EmployeeRepository) error {
 		Role:         "EmployeeAdmin",
 		Activated:    true,
 	}
-	return repo.Create(admin)
+	if err := repo.Create(admin); err != nil {
+		return err
+	}
+
+	// Associate admin role using the many2many relationship
+	if roleSvc != nil {
+		adminRole, err := roleSvc.GetRole(0) // won't work with 0 ID
+		_ = adminRole
+		_ = err
+		// Look up by name
+		role, err2 := roleSvc.ListRoles()
+		if err2 == nil {
+			for _, r := range role {
+				if r.Name == "EmployeeAdmin" {
+					_ = repo.SetEmployeeRoles(admin.ID, []model.Role{r})
+					break
+				}
+			}
+		}
+	}
+
+	return nil
 }

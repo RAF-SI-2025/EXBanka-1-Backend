@@ -19,13 +19,20 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UserService_CreateEmployee_FullMethodName      = "/user.UserService/CreateEmployee"
-	UserService_GetEmployee_FullMethodName         = "/user.UserService/GetEmployee"
-	UserService_ListEmployees_FullMethodName       = "/user.UserService/ListEmployees"
-	UserService_UpdateEmployee_FullMethodName      = "/user.UserService/UpdateEmployee"
-	UserService_ValidateCredentials_FullMethodName = "/user.UserService/ValidateCredentials"
-	UserService_GetUserByEmail_FullMethodName      = "/user.UserService/GetUserByEmail"
-	UserService_SetPassword_FullMethodName         = "/user.UserService/SetPassword"
+	UserService_CreateEmployee_FullMethodName                   = "/user.UserService/CreateEmployee"
+	UserService_GetEmployee_FullMethodName                      = "/user.UserService/GetEmployee"
+	UserService_ListEmployees_FullMethodName                    = "/user.UserService/ListEmployees"
+	UserService_UpdateEmployee_FullMethodName                   = "/user.UserService/UpdateEmployee"
+	UserService_ValidateCredentials_FullMethodName              = "/user.UserService/ValidateCredentials"
+	UserService_GetUserByEmail_FullMethodName                   = "/user.UserService/GetUserByEmail"
+	UserService_SetPassword_FullMethodName                      = "/user.UserService/SetPassword"
+	UserService_ListRoles_FullMethodName                        = "/user.UserService/ListRoles"
+	UserService_GetRole_FullMethodName                          = "/user.UserService/GetRole"
+	UserService_CreateRole_FullMethodName                       = "/user.UserService/CreateRole"
+	UserService_UpdateRolePermissions_FullMethodName            = "/user.UserService/UpdateRolePermissions"
+	UserService_ListPermissions_FullMethodName                  = "/user.UserService/ListPermissions"
+	UserService_SetEmployeeRoles_FullMethodName                 = "/user.UserService/SetEmployeeRoles"
+	UserService_SetEmployeeAdditionalPermissions_FullMethodName = "/user.UserService/SetEmployeeAdditionalPermissions"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -39,6 +46,13 @@ type UserServiceClient interface {
 	ValidateCredentials(ctx context.Context, in *ValidateCredentialsRequest, opts ...grpc.CallOption) (*ValidateCredentialsResponse, error)
 	GetUserByEmail(ctx context.Context, in *GetUserByEmailRequest, opts ...grpc.CallOption) (*UserResponse, error)
 	SetPassword(ctx context.Context, in *SetPasswordRequest, opts ...grpc.CallOption) (*SetPasswordResponse, error)
+	ListRoles(ctx context.Context, in *ListRolesRequest, opts ...grpc.CallOption) (*ListRolesResponse, error)
+	GetRole(ctx context.Context, in *GetRoleRequest, opts ...grpc.CallOption) (*RoleResponse, error)
+	CreateRole(ctx context.Context, in *CreateRoleRequest, opts ...grpc.CallOption) (*RoleResponse, error)
+	UpdateRolePermissions(ctx context.Context, in *UpdateRolePermissionsRequest, opts ...grpc.CallOption) (*RoleResponse, error)
+	ListPermissions(ctx context.Context, in *ListPermissionsRequest, opts ...grpc.CallOption) (*ListPermissionsResponse, error)
+	SetEmployeeRoles(ctx context.Context, in *SetEmployeeRolesRequest, opts ...grpc.CallOption) (*EmployeeResponse, error)
+	SetEmployeeAdditionalPermissions(ctx context.Context, in *SetEmployeePermissionsRequest, opts ...grpc.CallOption) (*EmployeeResponse, error)
 }
 
 type userServiceClient struct {
@@ -119,6 +133,76 @@ func (c *userServiceClient) SetPassword(ctx context.Context, in *SetPasswordRequ
 	return out, nil
 }
 
+func (c *userServiceClient) ListRoles(ctx context.Context, in *ListRolesRequest, opts ...grpc.CallOption) (*ListRolesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRolesResponse)
+	err := c.cc.Invoke(ctx, UserService_ListRoles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) GetRole(ctx context.Context, in *GetRoleRequest, opts ...grpc.CallOption) (*RoleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RoleResponse)
+	err := c.cc.Invoke(ctx, UserService_GetRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) CreateRole(ctx context.Context, in *CreateRoleRequest, opts ...grpc.CallOption) (*RoleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RoleResponse)
+	err := c.cc.Invoke(ctx, UserService_CreateRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) UpdateRolePermissions(ctx context.Context, in *UpdateRolePermissionsRequest, opts ...grpc.CallOption) (*RoleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RoleResponse)
+	err := c.cc.Invoke(ctx, UserService_UpdateRolePermissions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) ListPermissions(ctx context.Context, in *ListPermissionsRequest, opts ...grpc.CallOption) (*ListPermissionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPermissionsResponse)
+	err := c.cc.Invoke(ctx, UserService_ListPermissions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) SetEmployeeRoles(ctx context.Context, in *SetEmployeeRolesRequest, opts ...grpc.CallOption) (*EmployeeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EmployeeResponse)
+	err := c.cc.Invoke(ctx, UserService_SetEmployeeRoles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) SetEmployeeAdditionalPermissions(ctx context.Context, in *SetEmployeePermissionsRequest, opts ...grpc.CallOption) (*EmployeeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EmployeeResponse)
+	err := c.cc.Invoke(ctx, UserService_SetEmployeeAdditionalPermissions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserServiceServer is the server API for UserService service.
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
@@ -130,6 +214,13 @@ type UserServiceServer interface {
 	ValidateCredentials(context.Context, *ValidateCredentialsRequest) (*ValidateCredentialsResponse, error)
 	GetUserByEmail(context.Context, *GetUserByEmailRequest) (*UserResponse, error)
 	SetPassword(context.Context, *SetPasswordRequest) (*SetPasswordResponse, error)
+	ListRoles(context.Context, *ListRolesRequest) (*ListRolesResponse, error)
+	GetRole(context.Context, *GetRoleRequest) (*RoleResponse, error)
+	CreateRole(context.Context, *CreateRoleRequest) (*RoleResponse, error)
+	UpdateRolePermissions(context.Context, *UpdateRolePermissionsRequest) (*RoleResponse, error)
+	ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error)
+	SetEmployeeRoles(context.Context, *SetEmployeeRolesRequest) (*EmployeeResponse, error)
+	SetEmployeeAdditionalPermissions(context.Context, *SetEmployeePermissionsRequest) (*EmployeeResponse, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -160,6 +251,27 @@ func (UnimplementedUserServiceServer) GetUserByEmail(context.Context, *GetUserBy
 }
 func (UnimplementedUserServiceServer) SetPassword(context.Context, *SetPasswordRequest) (*SetPasswordResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SetPassword not implemented")
+}
+func (UnimplementedUserServiceServer) ListRoles(context.Context, *ListRolesRequest) (*ListRolesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRoles not implemented")
+}
+func (UnimplementedUserServiceServer) GetRole(context.Context, *GetRoleRequest) (*RoleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetRole not implemented")
+}
+func (UnimplementedUserServiceServer) CreateRole(context.Context, *CreateRoleRequest) (*RoleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateRole not implemented")
+}
+func (UnimplementedUserServiceServer) UpdateRolePermissions(context.Context, *UpdateRolePermissionsRequest) (*RoleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateRolePermissions not implemented")
+}
+func (UnimplementedUserServiceServer) ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListPermissions not implemented")
+}
+func (UnimplementedUserServiceServer) SetEmployeeRoles(context.Context, *SetEmployeeRolesRequest) (*EmployeeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetEmployeeRoles not implemented")
+}
+func (UnimplementedUserServiceServer) SetEmployeeAdditionalPermissions(context.Context, *SetEmployeePermissionsRequest) (*EmployeeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetEmployeeAdditionalPermissions not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -308,6 +420,132 @@ func _UserService_SetPassword_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_ListRoles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRolesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ListRoles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ListRoles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ListRoles(ctx, req.(*ListRolesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_GetRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRoleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetRole(ctx, req.(*GetRoleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_CreateRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateRoleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).CreateRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_CreateRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).CreateRole(ctx, req.(*CreateRoleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_UpdateRolePermissions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateRolePermissionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).UpdateRolePermissions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_UpdateRolePermissions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).UpdateRolePermissions(ctx, req.(*UpdateRolePermissionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_ListPermissions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPermissionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ListPermissions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ListPermissions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ListPermissions(ctx, req.(*ListPermissionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_SetEmployeeRoles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetEmployeeRolesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).SetEmployeeRoles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_SetEmployeeRoles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).SetEmployeeRoles(ctx, req.(*SetEmployeeRolesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_SetEmployeeAdditionalPermissions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetEmployeePermissionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).SetEmployeeAdditionalPermissions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_SetEmployeeAdditionalPermissions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).SetEmployeeAdditionalPermissions(ctx, req.(*SetEmployeePermissionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserService_ServiceDesc is the grpc.ServiceDesc for UserService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -342,6 +580,34 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetPassword",
 			Handler:    _UserService_SetPassword_Handler,
+		},
+		{
+			MethodName: "ListRoles",
+			Handler:    _UserService_ListRoles_Handler,
+		},
+		{
+			MethodName: "GetRole",
+			Handler:    _UserService_GetRole_Handler,
+		},
+		{
+			MethodName: "CreateRole",
+			Handler:    _UserService_CreateRole_Handler,
+		},
+		{
+			MethodName: "UpdateRolePermissions",
+			Handler:    _UserService_UpdateRolePermissions_Handler,
+		},
+		{
+			MethodName: "ListPermissions",
+			Handler:    _UserService_ListPermissions_Handler,
+		},
+		{
+			MethodName: "SetEmployeeRoles",
+			Handler:    _UserService_SetEmployeeRoles_Handler,
+		},
+		{
+			MethodName: "SetEmployeeAdditionalPermissions",
+			Handler:    _UserService_SetEmployeeAdditionalPermissions_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

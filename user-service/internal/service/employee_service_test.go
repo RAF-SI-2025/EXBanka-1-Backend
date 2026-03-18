@@ -81,6 +81,10 @@ func (m *mockRepo) GetByID(id int64) (*model.Employee, error) {
 	return emp, nil
 }
 
+func (m *mockRepo) GetByIDWithRoles(id int64) (*model.Employee, error) {
+	return m.GetByID(id)
+}
+
 func (m *mockRepo) GetByEmail(email string) (*model.Employee, error) {
 	for _, emp := range m.employees {
 		if emp.Email == email {
@@ -88,6 +92,10 @@ func (m *mockRepo) GetByEmail(email string) (*model.Employee, error) {
 		}
 	}
 	return nil, errors.New("not found")
+}
+
+func (m *mockRepo) GetByEmailWithRoles(email string) (*model.Employee, error) {
+	return m.GetByEmail(email)
 }
 
 func (m *mockRepo) GetByJMBG(jmbg string) (*model.Employee, error) {
@@ -122,9 +130,27 @@ func (m *mockRepo) List(emailFilter, nameFilter, positionFilter string, page, pa
 	return result, int64(len(result)), nil
 }
 
+func (m *mockRepo) SetEmployeeRoles(employeeID int64, roles []model.Role) error {
+	emp, ok := m.employees[employeeID]
+	if !ok {
+		return errors.New("not found")
+	}
+	emp.Roles = roles
+	return nil
+}
+
+func (m *mockRepo) SetAdditionalPermissions(employeeID int64, perms []model.Permission) error {
+	emp, ok := m.employees[employeeID]
+	if !ok {
+		return errors.New("not found")
+	}
+	emp.AdditionalPermissions = perms
+	return nil
+}
+
 func TestCreateEmployee_Valid(t *testing.T) {
 	repo := newMockRepo()
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	emp := &model.Employee{
 		FirstName: "John",
@@ -144,7 +170,7 @@ func TestCreateEmployee_Valid(t *testing.T) {
 
 func TestCreateEmployee_InvalidRole(t *testing.T) {
 	repo := newMockRepo()
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	emp := &model.Employee{
 		Role: "InvalidRole",
@@ -157,7 +183,7 @@ func TestCreateEmployee_InvalidRole(t *testing.T) {
 
 func TestCreateEmployee_InvalidJMBG(t *testing.T) {
 	repo := newMockRepo()
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	emp := &model.Employee{
 		Role: "EmployeeBasic",
@@ -171,7 +197,7 @@ func TestCreateEmployee_InvalidJMBG(t *testing.T) {
 func TestGetEmployee(t *testing.T) {
 	repo := newMockRepo()
 	repo.employees[1] = &model.Employee{ID: 1, FirstName: "Jane", Email: "jane@example.com"}
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	emp, err := svc.GetEmployee(1)
 	assert.NoError(t, err)
@@ -180,7 +206,7 @@ func TestGetEmployee(t *testing.T) {
 
 func TestGetEmployee_NotFound(t *testing.T) {
 	repo := newMockRepo()
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	_, err := svc.GetEmployee(999)
 	assert.Error(t, err)
@@ -189,7 +215,7 @@ func TestGetEmployee_NotFound(t *testing.T) {
 func TestUpdateEmployee_InvalidRole(t *testing.T) {
 	repo := newMockRepo()
 	repo.employees[1] = &model.Employee{ID: 1, Role: "EmployeeBasic"}
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"role": "BadRole"})
 	assert.Error(t, err)
@@ -199,7 +225,7 @@ func TestUpdateEmployee_InvalidRole(t *testing.T) {
 func TestUpdateEmployee_InvalidJMBG(t *testing.T) {
 	repo := newMockRepo()
 	repo.employees[1] = &model.Employee{ID: 1, Role: "EmployeeBasic", JMBG: "0101990710024"}
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"jmbg": "bad"})
 	assert.Error(t, err)
@@ -216,7 +242,7 @@ func TestValidateCredentials_Valid(t *testing.T) {
 		Active:       true,
 		Activated:    true,
 	}
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	emp, valid := svc.ValidateCredentials("test@test.com", "ValidPass12")
 	assert.True(t, valid)
@@ -233,7 +259,7 @@ func TestValidateCredentials_WrongPassword(t *testing.T) {
 		Active:       true,
 		Activated:    true,
 	}
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	_, valid := svc.ValidateCredentials("test@test.com", "WrongPass12")
 	assert.False(t, valid)
@@ -249,8 +275,42 @@ func TestValidateCredentials_InactiveUser(t *testing.T) {
 		Active:       false,
 		Activated:    true,
 	}
-	svc := NewEmployeeService(repo, nil, nil)
+	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	_, valid := svc.ValidateCredentials("test@test.com", "ValidPass12")
 	assert.False(t, valid)
+}
+
+func TestResolvePermissions(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	emp := &model.Employee{
+		Roles: []model.Role{
+			{
+				Name: "EmployeeBasic",
+				Permissions: []model.Permission{
+					{Code: "clients.read"},
+					{Code: "accounts.read"},
+				},
+			},
+		},
+		AdditionalPermissions: []model.Permission{
+			{Code: "securities.trade"},
+			{Code: "clients.read"}, // duplicate — should be deduplicated
+		},
+	}
+
+	perms := svc.ResolvePermissions(emp)
+	assert.Contains(t, perms, "clients.read")
+	assert.Contains(t, perms, "accounts.read")
+	assert.Contains(t, perms, "securities.trade")
+	// "clients.read" should appear only once
+	count := 0
+	for _, p := range perms {
+		if p == "clients.read" {
+			count++
+		}
+	}
+	assert.Equal(t, 1, count, "clients.read should appear exactly once")
 }

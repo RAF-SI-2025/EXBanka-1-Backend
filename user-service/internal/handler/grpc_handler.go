@@ -17,10 +17,11 @@ import (
 type UserGRPCHandler struct {
 	pb.UnimplementedUserServiceServer
 	empService *service.EmployeeService
+	roleSvc    *service.RoleService
 }
 
-func NewUserGRPCHandler(empService *service.EmployeeService) *UserGRPCHandler {
-	return &UserGRPCHandler{empService: empService}
+func NewUserGRPCHandler(empService *service.EmployeeService, roleSvc *service.RoleService) *UserGRPCHandler {
+	return &UserGRPCHandler{empService: empService, roleSvc: roleSvc}
 }
 
 func (h *UserGRPCHandler) CreateEmployee(ctx context.Context, req *pb.CreateEmployeeRequest) (*pb.EmployeeResponse, error) {
@@ -44,7 +45,7 @@ func (h *UserGRPCHandler) CreateEmployee(ctx context.Context, req *pb.CreateEmpl
 	if err := h.empService.CreateEmployee(ctx, emp); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create employee: %v", err)
 	}
-	return toEmployeeResponse(emp), nil
+	return toEmployeeResponse(emp, h.empService), nil
 }
 
 func (h *UserGRPCHandler) GetEmployee(ctx context.Context, req *pb.GetEmployeeRequest) (*pb.EmployeeResponse, error) {
@@ -52,7 +53,7 @@ func (h *UserGRPCHandler) GetEmployee(ctx context.Context, req *pb.GetEmployeeRe
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "employee not found")
 	}
-	return toEmployeeResponse(emp), nil
+	return toEmployeeResponse(emp, h.empService), nil
 }
 
 func (h *UserGRPCHandler) ListEmployees(ctx context.Context, req *pb.ListEmployeesRequest) (*pb.ListEmployeesResponse, error) {
@@ -66,7 +67,7 @@ func (h *UserGRPCHandler) ListEmployees(ctx context.Context, req *pb.ListEmploye
 
 	resp := &pb.ListEmployeesResponse{TotalCount: int32(total)}
 	for _, emp := range employees {
-		resp.Employees = append(resp.Employees, toEmployeeResponse(&emp))
+		resp.Employees = append(resp.Employees, toEmployeeResponse(&emp, h.empService))
 	}
 	return resp, nil
 }
@@ -108,7 +109,7 @@ func (h *UserGRPCHandler) UpdateEmployee(ctx context.Context, req *pb.UpdateEmpl
 		}
 		return nil, status.Errorf(codes.Internal, "failed to update: %v", err)
 	}
-	return toEmployeeResponse(emp), nil
+	return toEmployeeResponse(emp, h.empService), nil
 }
 
 func (h *UserGRPCHandler) ValidateCredentials(ctx context.Context, req *pb.ValidateCredentialsRequest) (*pb.ValidateCredentialsResponse, error) {
@@ -116,12 +117,23 @@ func (h *UserGRPCHandler) ValidateCredentials(ctx context.Context, req *pb.Valid
 	if !valid {
 		return &pb.ValidateCredentialsResponse{Valid: false}, nil
 	}
+	permissions := h.empService.ResolvePermissions(emp)
+	roleNames := extractRoleNames(emp.Roles)
+	// Fall back to legacy Role field if multi-role not yet populated
+	if len(roleNames) == 0 && emp.Role != "" {
+		roleNames = []string{emp.Role}
+	}
+	legacyRole := emp.Role
+	if len(roleNames) > 0 {
+		legacyRole = roleNames[0]
+	}
 	return &pb.ValidateCredentialsResponse{
 		Valid:       true,
 		UserId:      emp.ID,
 		Email:       emp.Email,
-		Role:        emp.Role,
-		Permissions: service.GetPermissions(emp.Role),
+		Role:        legacyRole,
+		Permissions: permissions,
+		Roles:       roleNames,
 	}, nil
 }
 
@@ -130,11 +142,21 @@ func (h *UserGRPCHandler) GetUserByEmail(ctx context.Context, req *pb.GetUserByE
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "user not found")
 	}
+	permissions := h.empService.ResolvePermissions(emp)
+	roleNames := extractRoleNames(emp.Roles)
+	if len(roleNames) == 0 && emp.Role != "" {
+		roleNames = []string{emp.Role}
+	}
+	legacyRole := emp.Role
+	if len(roleNames) > 0 {
+		legacyRole = roleNames[0]
+	}
 	return &pb.UserResponse{
 		Id:           emp.ID,
 		Email:        emp.Email,
-		Role:         emp.Role,
-		Permissions:  service.GetPermissions(emp.Role),
+		Role:         legacyRole,
+		Roles:        roleNames,
+		Permissions:  permissions,
 		PasswordHash: emp.PasswordHash,
 		Active:       emp.Active,
 	}, nil
@@ -147,22 +169,147 @@ func (h *UserGRPCHandler) SetPassword(ctx context.Context, req *pb.SetPasswordRe
 	return &pb.SetPasswordResponse{Success: true}, nil
 }
 
-func toEmployeeResponse(emp *model.Employee) *pb.EmployeeResponse {
-	return &pb.EmployeeResponse{
-		Id:          emp.ID,
-		FirstName:   emp.FirstName,
-		LastName:    emp.LastName,
-		DateOfBirth: emp.DateOfBirth.Unix(),
-		Gender:      emp.Gender,
-		Email:       emp.Email,
-		Phone:       emp.Phone,
-		Address:     emp.Address,
-		Username:    emp.Username,
-		Position:    emp.Position,
-		Department:  emp.Department,
-		Active:      emp.Active,
-		Role:        emp.Role,
-		Permissions: service.GetPermissions(emp.Role),
-		Jmbg:        emp.JMBG,
+// ListRoles returns all roles with their permissions.
+func (h *UserGRPCHandler) ListRoles(ctx context.Context, req *pb.ListRolesRequest) (*pb.ListRolesResponse, error) {
+	roles, err := h.roleSvc.ListRoles()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list roles: %v", err)
 	}
+	var pbRoles []*pb.RoleResponse
+	for _, r := range roles {
+		pbRoles = append(pbRoles, toRoleResponse(&r))
+	}
+	return &pb.ListRolesResponse{Roles: pbRoles}, nil
+}
+
+// GetRole returns a single role by ID.
+func (h *UserGRPCHandler) GetRole(ctx context.Context, req *pb.GetRoleRequest) (*pb.RoleResponse, error) {
+	role, err := h.roleSvc.GetRole(req.Id)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "role not found")
+	}
+	return toRoleResponse(role), nil
+}
+
+// CreateRole creates a new role.
+func (h *UserGRPCHandler) CreateRole(ctx context.Context, req *pb.CreateRoleRequest) (*pb.RoleResponse, error) {
+	role, err := h.roleSvc.CreateRole(req.Name, req.Description, req.PermissionCodes)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create role: %v", err)
+	}
+	return toRoleResponse(role), nil
+}
+
+// UpdateRolePermissions replaces the permissions on a role.
+func (h *UserGRPCHandler) UpdateRolePermissions(ctx context.Context, req *pb.UpdateRolePermissionsRequest) (*pb.RoleResponse, error) {
+	if err := h.roleSvc.UpdateRolePermissions(req.RoleId, req.PermissionCodes); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to update role permissions: %v", err)
+	}
+	role, err := h.roleSvc.GetRole(req.RoleId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "role not found after update")
+	}
+	return toRoleResponse(role), nil
+}
+
+// ListPermissions returns all permissions.
+func (h *UserGRPCHandler) ListPermissions(ctx context.Context, req *pb.ListPermissionsRequest) (*pb.ListPermissionsResponse, error) {
+	perms, err := h.roleSvc.ListPermissions()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list permissions: %v", err)
+	}
+	var pbPerms []*pb.PermissionResponse
+	for _, p := range perms {
+		pbPerms = append(pbPerms, &pb.PermissionResponse{
+			Id:          p.ID,
+			Code:        p.Code,
+			Description: p.Description,
+			Category:    p.Category,
+		})
+	}
+	return &pb.ListPermissionsResponse{Permissions: pbPerms}, nil
+}
+
+// SetEmployeeRoles replaces the roles for an employee.
+func (h *UserGRPCHandler) SetEmployeeRoles(ctx context.Context, req *pb.SetEmployeeRolesRequest) (*pb.EmployeeResponse, error) {
+	if err := h.empService.SetEmployeeRoles(ctx, req.EmployeeId, req.RoleNames); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to set employee roles: %v", err)
+	}
+	emp, err := h.empService.GetEmployee(req.EmployeeId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "employee not found")
+	}
+	return toEmployeeResponse(emp, h.empService), nil
+}
+
+// SetEmployeeAdditionalPermissions replaces the additional permissions for an employee.
+func (h *UserGRPCHandler) SetEmployeeAdditionalPermissions(ctx context.Context, req *pb.SetEmployeePermissionsRequest) (*pb.EmployeeResponse, error) {
+	if err := h.empService.SetEmployeeAdditionalPermissions(ctx, req.EmployeeId, req.PermissionCodes); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to set employee permissions: %v", err)
+	}
+	emp, err := h.empService.GetEmployee(req.EmployeeId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "employee not found")
+	}
+	return toEmployeeResponse(emp, h.empService), nil
+}
+
+func toEmployeeResponse(emp *model.Employee, empSvc *service.EmployeeService) *pb.EmployeeResponse {
+	permissions := empSvc.ResolvePermissions(emp)
+	roleNames := extractRoleNames(emp.Roles)
+	// Fall back to legacy Role field if multi-role not yet populated
+	if len(roleNames) == 0 && emp.Role != "" {
+		roleNames = []string{emp.Role}
+	}
+	legacyRole := emp.Role
+	if len(roleNames) > 0 {
+		legacyRole = roleNames[0]
+	}
+
+	// Collect additional permission codes
+	additionalPerms := make([]string, 0, len(emp.AdditionalPermissions))
+	for _, p := range emp.AdditionalPermissions {
+		additionalPerms = append(additionalPerms, p.Code)
+	}
+
+	return &pb.EmployeeResponse{
+		Id:                    emp.ID,
+		FirstName:             emp.FirstName,
+		LastName:              emp.LastName,
+		DateOfBirth:           emp.DateOfBirth.Unix(),
+		Gender:                emp.Gender,
+		Email:                 emp.Email,
+		Phone:                 emp.Phone,
+		Address:               emp.Address,
+		Username:              emp.Username,
+		Position:              emp.Position,
+		Department:            emp.Department,
+		Active:                emp.Active,
+		Role:                  legacyRole,
+		Permissions:           permissions,
+		Jmbg:                  emp.JMBG,
+		Roles:                 roleNames,
+		AdditionalPermissions: additionalPerms,
+	}
+}
+
+func toRoleResponse(role *model.Role) *pb.RoleResponse {
+	permCodes := make([]string, 0, len(role.Permissions))
+	for _, p := range role.Permissions {
+		permCodes = append(permCodes, p.Code)
+	}
+	return &pb.RoleResponse{
+		Id:          role.ID,
+		Name:        role.Name,
+		Description: role.Description,
+		Permissions: permCodes,
+	}
+}
+
+func extractRoleNames(roles []model.Role) []string {
+	names := make([]string, 0, len(roles))
+	for _, r := range roles {
+		names = append(names, r.Name)
+	}
+	return names
 }

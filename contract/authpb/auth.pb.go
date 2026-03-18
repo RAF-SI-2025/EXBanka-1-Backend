@@ -176,6 +176,7 @@ type ValidateTokenResponse struct {
 	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
 	Permissions   []string               `protobuf:"bytes,5,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	SystemType    string                 `protobuf:"bytes,6,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -243,6 +244,13 @@ func (x *ValidateTokenResponse) GetPermissions() []string {
 		return x.Permissions
 	}
 	return nil
+}
+
+func (x *ValidateTokenResponse) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
 }
 
 type RefreshTokenRequest struct {
@@ -841,13 +849,15 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\",\n" +
 	"\x14ValidateTokenRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"\x92\x01\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\xb3\x01\n" +
 	"\x15ValidateTokenResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x12\n" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12 \n" +
-	"\vpermissions\x18\x05 \x03(\tR\vpermissions\":\n" +
+	"\vpermissions\x18\x05 \x03(\tR\vpermissions\x12\x1f\n" +
+	"\vsystem_type\x18\x06 \x01(\tR\n" +
+	"systemType\":\n" +
 	"\x13RefreshTokenRequest\x12#\n" +
 	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"^\n" +
 	"\x14RefreshTokenResponse\x12!\n" +
