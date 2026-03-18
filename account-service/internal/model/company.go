@@ -10,6 +10,7 @@ type Company struct {
 	ActivityCode       string    `gorm:"size:5" json:"activity_code"`
 	Address            string    `json:"address"`
 	OwnerID            uint64    `gorm:"not null" json:"owner_id"`
+	Version            int64     `gorm:"not null;default:1"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }

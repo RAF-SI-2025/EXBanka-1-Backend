@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -38,14 +39,16 @@ func NewCreditGRPCHandler(
 }
 
 func (h *CreditGRPCHandler) CreateLoanRequest(ctx context.Context, req *pb.CreateLoanRequestReq) (*pb.LoanRequestResponse, error) {
+	amount, _ := decimal.NewFromString(req.Amount)
+	monthlySalary, _ := decimal.NewFromString(req.MonthlySalary)
 	loanReq := &model.LoanRequest{
 		ClientID:         req.ClientId,
 		LoanType:         req.LoanType,
 		InterestType:     req.InterestType,
-		Amount:           req.Amount,
+		Amount:           amount,
 		CurrencyCode:     req.CurrencyCode,
 		Purpose:          req.Purpose,
-		MonthlySalary:    req.MonthlySalary,
+		MonthlySalary:    monthlySalary,
 		EmploymentStatus: req.EmploymentStatus,
 		EmploymentPeriod: int(req.EmploymentPeriod),
 		RepaymentPeriod:  int(req.RepaymentPeriod),
@@ -60,7 +63,7 @@ func (h *CreditGRPCHandler) CreateLoanRequest(ctx context.Context, req *pb.Creat
 	_ = h.producer.PublishLoanRequested(ctx, kafkamsg.LoanStatusMessage{
 		LoanRequestID: loanReq.ID,
 		LoanType:      loanReq.LoanType,
-		Amount:        loanReq.Amount,
+		Amount:        loanReq.Amount.StringFixed(4),
 		Status:        loanReq.Status,
 	})
 
@@ -107,7 +110,7 @@ func (h *CreditGRPCHandler) ApproveLoanRequest(ctx context.Context, req *pb.Appr
 	_ = h.producer.PublishLoanApproved(ctx, kafkamsg.LoanStatusMessage{
 		LoanRequestID: req.RequestId,
 		LoanType:      loan.LoanType,
-		Amount:        loan.Amount,
+		Amount:        loan.Amount.StringFixed(4),
 		Status:        loan.Status,
 	})
 
@@ -126,7 +129,7 @@ func (h *CreditGRPCHandler) RejectLoanRequest(ctx context.Context, req *pb.Rejec
 	_ = h.producer.PublishLoanRejected(ctx, kafkamsg.LoanStatusMessage{
 		LoanRequestID: req.RequestId,
 		LoanType:      loanReq.LoanType,
-		Amount:        loanReq.Amount,
+		Amount:        loanReq.Amount.StringFixed(4),
 		Status:        loanReq.Status,
 	})
 
@@ -195,10 +198,10 @@ func toLoanRequestResponse(r *model.LoanRequest) *pb.LoanRequestResponse {
 		ClientId:         r.ClientID,
 		LoanType:         r.LoanType,
 		InterestType:     r.InterestType,
-		Amount:           r.Amount,
+		Amount:           r.Amount.StringFixed(4),
 		CurrencyCode:     r.CurrencyCode,
 		Purpose:          r.Purpose,
-		MonthlySalary:    r.MonthlySalary,
+		MonthlySalary:    r.MonthlySalary.StringFixed(4),
 		EmploymentStatus: r.EmploymentStatus,
 		EmploymentPeriod: int32(r.EmploymentPeriod),
 		RepaymentPeriod:  int32(r.RepaymentPeriod),
@@ -215,15 +218,15 @@ func toLoanResponse(l *model.Loan) *pb.LoanResponse {
 		LoanNumber:            l.LoanNumber,
 		LoanType:              l.LoanType,
 		AccountNumber:         l.AccountNumber,
-		Amount:                l.Amount,
+		Amount:                l.Amount.StringFixed(4),
 		RepaymentPeriod:       int32(l.RepaymentPeriod),
-		NominalInterestRate:   l.NominalInterestRate,
-		EffectiveInterestRate: l.EffectiveInterestRate,
+		NominalInterestRate:   l.NominalInterestRate.StringFixed(4),
+		EffectiveInterestRate: l.EffectiveInterestRate.StringFixed(4),
 		ContractDate:          l.ContractDate.Format("2006-01-02T15:04:05Z"),
 		MaturityDate:          l.MaturityDate.Format("2006-01-02T15:04:05Z"),
-		NextInstallmentAmount: l.NextInstallmentAmount,
+		NextInstallmentAmount: l.NextInstallmentAmount.StringFixed(4),
 		NextInstallmentDate:   l.NextInstallmentDate.Format("2006-01-02T15:04:05Z"),
-		RemainingDebt:         l.RemainingDebt,
+		RemainingDebt:         l.RemainingDebt.StringFixed(4),
 		CurrencyCode:          l.CurrencyCode,
 		Status:                l.Status,
 		InterestType:          l.InterestType,
@@ -235,8 +238,8 @@ func toInstallmentResponse(inst *model.Installment) *pb.InstallmentResponse {
 	resp := &pb.InstallmentResponse{
 		Id:           inst.ID,
 		LoanId:       inst.LoanID,
-		Amount:       inst.Amount,
-		InterestRate: inst.InterestRate,
+		Amount:       inst.Amount.StringFixed(4),
+		InterestRate: inst.InterestRate.StringFixed(4),
 		CurrencyCode: inst.CurrencyCode,
 		ExpectedDate: inst.ExpectedDate.Format("2006-01-02T15:04:05Z"),
 		Status:       inst.Status,

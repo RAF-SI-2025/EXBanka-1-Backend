@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"github.com/shopspring/decimal"
+
 	"github.com/exbanka/account-service/internal/model"
 	"gorm.io/gorm"
 )
@@ -108,7 +110,7 @@ func (r *AccountRepository) UpdateStatus(id uint64, status string) error {
 	return nil
 }
 
-func (r *AccountRepository) UpdateBalance(accountNumber string, amount float64, updateAvailable bool) error {
+func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		updates := map[string]interface{}{
 			"balance": gorm.Expr("balance + ?", amount),

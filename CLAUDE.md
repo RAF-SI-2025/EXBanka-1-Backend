@@ -147,6 +147,15 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 - Swagger is **not dynamic** — the generated files in `api-gateway/docs/` must be committed alongside handler changes.
 - `make build` runs `swag init` automatically before compiling.
 
+## REST API Documentation Requirement
+
+**Every route added, changed, or removed in `api-gateway` must be reflected in `docs/api/REST_API.md`.** This is a hard requirement — not optional.
+
+- Add a new section or subsection for every new endpoint, following the existing format (authentication, path/query parameters, request body, example request, and all response codes).
+- Update existing sections when request/response shapes, authentication requirements, or behavior changes.
+- Remove sections for any deleted routes.
+- `docs/api/REST_API.md` must be committed alongside handler and router changes.
+
 ## Kafka Event Publishing Requirement
 
 **All services must publish Kafka events for every significant action they perform.** This is a hard requirement — not optional.

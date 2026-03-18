@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	notifpb "github.com/exbanka/contract/notificationpb"
+	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/notification-service/internal/config"
 	"github.com/exbanka/notification-service/internal/consumer"
 	"github.com/exbanka/notification-service/internal/handler"
@@ -49,6 +50,7 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 	notifpb.RegisterNotificationServiceServer(grpcServer, handler.NewGRPCHandler(emailSender))
+	shared.RegisterHealthCheck(grpcServer, "notification-service")
 	reflection.Register(grpcServer)
 
 	// Graceful shutdown

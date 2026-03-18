@@ -191,7 +191,7 @@ func TestUpdateEmployee_InvalidRole(t *testing.T) {
 	repo.employees[1] = &model.Employee{ID: 1, Role: "EmployeeBasic"}
 	svc := NewEmployeeService(repo, nil, nil)
 
-	_, err := svc.UpdateEmployee(1, map[string]interface{}{"role": "BadRole"})
+	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"role": "BadRole"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid role")
 }
@@ -201,7 +201,7 @@ func TestUpdateEmployee_InvalidJMBG(t *testing.T) {
 	repo.employees[1] = &model.Employee{ID: 1, Role: "EmployeeBasic", JMBG: "0101990710024"}
 	svc := NewEmployeeService(repo, nil, nil)
 
-	_, err := svc.UpdateEmployee(1, map[string]interface{}{"jmbg": "bad"})
+	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"jmbg": "bad"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "JMBG")
 }

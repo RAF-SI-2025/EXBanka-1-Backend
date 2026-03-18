@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -27,17 +28,14 @@ type createPaymentRequest struct {
 	PaymentPurpose    string  `json:"payment_purpose"`
 }
 
-// CreatePayment godoc
-// @Summary      Create a payment
-// @Description  Execute a payment between two accounts
+// @Summary      Create payment
 // @Tags         payments
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createPaymentRequest  true  "Payment data"
-// @Success      201  {object}  map[string]interface{}  "Created payment"
-// @Failure      400  {object}  map[string]string       "Validation error"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/payments [post]
 func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 	var req createPaymentRequest
@@ -49,7 +47,7 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 	resp, err := h.txClient.CreatePayment(c.Request.Context(), &transactionpb.CreatePaymentRequest{
 		FromAccountNumber: req.FromAccountNumber,
 		ToAccountNumber:   req.ToAccountNumber,
-		Amount:            req.Amount,
+		Amount:            fmt.Sprintf("%.4f", req.Amount),
 		RecipientName:     req.RecipientName,
 		PaymentCode:       req.PaymentCode,
 		ReferenceNumber:   req.ReferenceNumber,
@@ -62,16 +60,12 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 	c.JSON(http.StatusCreated, paymentToJSON(resp))
 }
 
-// GetPayment godoc
 // @Summary      Get payment by ID
-// @Description  Retrieve a single payment transaction by its ID
 // @Tags         payments
 // @Produce      json
-// @Param        id  path  int  true  "Payment ID"
-// @Success      200  {object}  map[string]interface{}  "Payment data"
-// @Failure      400  {object}  map[string]string       "Invalid ID"
-// @Failure      404  {object}  map[string]string       "Payment not found"
-// @Security     BearerAuth
+// @Param        id   path  int  true  "Payment ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]string
 // @Router       /api/payments/{id} [get]
 func (h *TransactionHandler) GetPayment(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -88,37 +82,32 @@ func (h *TransactionHandler) GetPayment(c *gin.Context) {
 	c.JSON(http.StatusOK, paymentToJSON(resp))
 }
 
-// ListPaymentsByAccount godoc
 // @Summary      List payments by account
-// @Description  Retrieve paginated payment history for an account with optional filters
 // @Tags         payments
 // @Produce      json
 // @Param        account_number  path   string   true   "Account number"
 // @Param        page            query  int      false  "Page number (default 1)"
-// @Param        page_size       query  int      false  "Page size (default 20)"
-// @Param        date_from       query  string   false  "Filter from date (RFC3339)"
-// @Param        date_to         query  string   false  "Filter to date (RFC3339)"
+// @Param        page_size       query  int      false  "Items per page (default 20)"
+// @Param        date_from       query  string   false  "Start date (RFC3339 or YYYY-MM-DD)"
+// @Param        date_to         query  string   false  "End date (RFC3339 or YYYY-MM-DD)"
 // @Param        status_filter   query  string   false  "Filter by status"
 // @Param        amount_min      query  number   false  "Minimum amount"
 // @Param        amount_max      query  number   false  "Maximum amount"
-// @Success      200  {object}  map[string]interface{}  "payments array and total count"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
 // @Router       /api/payments/account/{account_number} [get]
 func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
 	accountNumber := c.Param("account_number")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-	amountMin, _ := strconv.ParseFloat(c.Query("amount_min"), 64)
-	amountMax, _ := strconv.ParseFloat(c.Query("amount_max"), 64)
 
 	resp, err := h.txClient.ListPaymentsByAccount(c.Request.Context(), &transactionpb.ListPaymentsByAccountRequest{
 		AccountNumber: accountNumber,
 		DateFrom:      c.Query("date_from"),
 		DateTo:        c.Query("date_to"),
 		StatusFilter:  c.Query("status_filter"),
-		AmountMin:     amountMin,
-		AmountMax:     amountMax,
+		AmountMin:     c.Query("amount_min"),
+		AmountMax:     c.Query("amount_max"),
 		Page:          int32(page),
 		PageSize:      int32(pageSize),
 	})
@@ -143,17 +132,14 @@ type createTransferRequest struct {
 	Amount            float64 `json:"amount" binding:"required"`
 }
 
-// CreateTransfer godoc
-// @Summary      Create a transfer
-// @Description  Execute an internal transfer between two accounts (supports currency conversion)
+// @Summary      Create transfer
 // @Tags         transfers
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createTransferRequest  true  "Transfer data"
-// @Success      201  {object}  map[string]interface{}  "Created transfer"
-// @Failure      400  {object}  map[string]string       "Validation error"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/transfers [post]
 func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	var req createTransferRequest
@@ -165,7 +151,7 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	resp, err := h.txClient.CreateTransfer(c.Request.Context(), &transactionpb.CreateTransferRequest{
 		FromAccountNumber: req.FromAccountNumber,
 		ToAccountNumber:   req.ToAccountNumber,
-		Amount:            req.Amount,
+		Amount:            fmt.Sprintf("%.4f", req.Amount),
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -174,16 +160,12 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	c.JSON(http.StatusCreated, transferToJSON(resp))
 }
 
-// GetTransfer godoc
 // @Summary      Get transfer by ID
-// @Description  Retrieve a single transfer transaction by its ID
 // @Tags         transfers
 // @Produce      json
-// @Param        id  path  int  true  "Transfer ID"
-// @Success      200  {object}  map[string]interface{}  "Transfer data"
-// @Failure      400  {object}  map[string]string       "Invalid ID"
-// @Failure      404  {object}  map[string]string       "Transfer not found"
-// @Security     BearerAuth
+// @Param        id   path  int  true  "Transfer ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]string
 // @Router       /api/transfers/{id} [get]
 func (h *TransactionHandler) GetTransfer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -200,18 +182,15 @@ func (h *TransactionHandler) GetTransfer(c *gin.Context) {
 	c.JSON(http.StatusOK, transferToJSON(resp))
 }
 
-// ListTransfersByClient godoc
 // @Summary      List transfers by client
-// @Description  Retrieve paginated transfer history for a client
 // @Tags         transfers
 // @Produce      json
 // @Param        client_id  path   int  true   "Client ID"
 // @Param        page       query  int  false  "Page number (default 1)"
-// @Param        page_size  query  int  false  "Page size (default 20)"
-// @Success      200  {object}  map[string]interface{}  "transfers array and total count"
-// @Failure      400  {object}  map[string]string       "Invalid client_id"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
 // @Router       /api/transfers/client/{client_id} [get]
 func (h *TransactionHandler) ListTransfersByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
@@ -248,17 +227,14 @@ type createPaymentRecipientRequest struct {
 	AccountNumber string `json:"account_number" binding:"required"`
 }
 
-// CreatePaymentRecipient godoc
-// @Summary      Save a payment recipient
-// @Description  Save a frequently used payment recipient for a client
+// @Summary      Create payment recipient
 // @Tags         payment-recipients
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createPaymentRecipientRequest  true  "Recipient data"
-// @Success      201  {object}  map[string]interface{}  "Created recipient"
-// @Failure      400  {object}  map[string]string       "Validation error"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/payment-recipients [post]
 func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 	var req createPaymentRecipientRequest
@@ -279,16 +255,13 @@ func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 	c.JSON(http.StatusCreated, recipientToJSON(resp))
 }
 
-// ListPaymentRecipients godoc
 // @Summary      List payment recipients
-// @Description  List all saved payment recipients for a client
 // @Tags         payment-recipients
 // @Produce      json
 // @Param        client_id  path  int  true  "Client ID"
-// @Success      200  {object}  map[string]interface{}  "recipients array"
-// @Failure      400  {object}  map[string]string       "Invalid client_id"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
 // @Router       /api/payment-recipients/{client_id} [get]
 func (h *TransactionHandler) ListPaymentRecipients(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
@@ -317,18 +290,15 @@ type updatePaymentRecipientRequest struct {
 	AccountNumber *string `json:"account_number"`
 }
 
-// UpdatePaymentRecipient godoc
-// @Summary      Update a payment recipient
-// @Description  Update the name or account number of a saved payment recipient
+// @Summary      Update payment recipient
 // @Tags         payment-recipients
 // @Accept       json
 // @Produce      json
 // @Param        id    path  int                            true  "Recipient ID"
 // @Param        body  body  updatePaymentRecipientRequest  true  "Fields to update"
-// @Success      200  {object}  map[string]interface{}  "Updated recipient"
-// @Failure      400  {object}  map[string]string       "Invalid request"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/payment-recipients/{id} [put]
 func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -355,16 +325,12 @@ func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 	c.JSON(http.StatusOK, recipientToJSON(resp))
 }
 
-// DeletePaymentRecipient godoc
-// @Summary      Delete a payment recipient
-// @Description  Remove a saved payment recipient
+// @Summary      Delete payment recipient
 // @Tags         payment-recipients
 // @Produce      json
-// @Param        id  path  int  true  "Recipient ID"
-// @Success      200  {object}  map[string]bool    "success: true/false"
-// @Failure      400  {object}  map[string]string  "Invalid ID"
-// @Failure      500  {object}  map[string]string  "Internal error"
-// @Security     BearerAuth
+// @Param        id   path  int  true  "Recipient ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
 // @Router       /api/payment-recipients/{id} [delete]
 func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -387,17 +353,14 @@ type createVerificationCodeRequest struct {
 	TransactionType string `json:"transaction_type" binding:"required"`
 }
 
-// CreateVerificationCode godoc
-// @Summary      Create a verification code
-// @Description  Generate a one-time verification code for a transaction
+// @Summary      Create verification code
 // @Tags         verification
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createVerificationCodeRequest  true  "Verification request"
-// @Success      201  {object}  map[string]interface{}  "code and expires_at"
-// @Failure      400  {object}  map[string]string       "Validation error"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/verification [post]
 func (h *TransactionHandler) CreateVerificationCode(c *gin.Context) {
 	var req createVerificationCodeRequest
@@ -427,17 +390,14 @@ type validateVerificationCodeRequest struct {
 	Code          string `json:"code" binding:"required"`
 }
 
-// ValidateVerificationCode godoc
-// @Summary      Validate a verification code
-// @Description  Verify a one-time code for a transaction
+// @Summary      Validate verification code
 // @Tags         verification
 // @Accept       json
 // @Produce      json
-// @Param        body  body  validateVerificationCodeRequest  true  "Validation request"
-// @Success      200  {object}  map[string]bool    "valid: true/false"
-// @Failure      400  {object}  map[string]string  "Validation error"
-// @Failure      500  {object}  map[string]string  "Internal error"
-// @Security     BearerAuth
+// @Param        body  body  validateVerificationCodeRequest  true  "Code to validate"
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/verification/validate [post]
 func (h *TransactionHandler) ValidateVerificationCode(c *gin.Context) {
 	var req validateVerificationCodeRequest

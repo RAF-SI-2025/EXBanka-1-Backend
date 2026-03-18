@@ -50,6 +50,11 @@ func (c *RedisCache) DeleteByPattern(ctx context.Context, pattern string) error 
 	return iter.Err()
 }
 
+func (c *RedisCache) Exists(ctx context.Context, key string) (bool, error) {
+	n, err := c.client.Exists(ctx, key).Result()
+	return n > 0, err
+}
+
 func (c *RedisCache) Close() error {
 	return c.client.Close()
 }

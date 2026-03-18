@@ -29,7 +29,7 @@ type CreateAccountRequest struct {
 	AccountCategory string                 `protobuf:"bytes,4,opt,name=account_category,json=accountCategory,proto3" json:"account_category,omitempty"`
 	CurrencyCode    string                 `protobuf:"bytes,5,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
 	EmployeeId      uint64                 `protobuf:"varint,6,opt,name=employee_id,json=employeeId,proto3" json:"employee_id,omitempty"`
-	InitialBalance  float64                `protobuf:"fixed64,7,opt,name=initial_balance,json=initialBalance,proto3" json:"initial_balance,omitempty"`
+	InitialBalance  string                 `protobuf:"bytes,7,opt,name=initial_balance,json=initialBalance,proto3" json:"initial_balance,omitempty"`
 	CreateCard      bool                   `protobuf:"varint,8,opt,name=create_card,json=createCard,proto3" json:"create_card,omitempty"`
 	CompanyId       *uint64                `protobuf:"varint,9,opt,name=company_id,json=companyId,proto3,oneof" json:"company_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -108,11 +108,11 @@ func (x *CreateAccountRequest) GetEmployeeId() uint64 {
 	return 0
 }
 
-func (x *CreateAccountRequest) GetInitialBalance() float64 {
+func (x *CreateAccountRequest) GetInitialBalance() string {
 	if x != nil {
 		return x.InitialBalance
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateAccountRequest) GetCreateCard() bool {
@@ -468,8 +468,8 @@ func (x *UpdateAccountNameRequest) GetNewName() string {
 type UpdateAccountLimitsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	DailyLimit    *float64               `protobuf:"fixed64,2,opt,name=daily_limit,json=dailyLimit,proto3,oneof" json:"daily_limit,omitempty"`
-	MonthlyLimit  *float64               `protobuf:"fixed64,3,opt,name=monthly_limit,json=monthlyLimit,proto3,oneof" json:"monthly_limit,omitempty"`
+	DailyLimit    *string                `protobuf:"bytes,2,opt,name=daily_limit,json=dailyLimit,proto3,oneof" json:"daily_limit,omitempty"`
+	MonthlyLimit  *string                `protobuf:"bytes,3,opt,name=monthly_limit,json=monthlyLimit,proto3,oneof" json:"monthly_limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -511,18 +511,18 @@ func (x *UpdateAccountLimitsRequest) GetId() uint64 {
 	return 0
 }
 
-func (x *UpdateAccountLimitsRequest) GetDailyLimit() float64 {
+func (x *UpdateAccountLimitsRequest) GetDailyLimit() string {
 	if x != nil && x.DailyLimit != nil {
 		return *x.DailyLimit
 	}
-	return 0
+	return ""
 }
 
-func (x *UpdateAccountLimitsRequest) GetMonthlyLimit() float64 {
+func (x *UpdateAccountLimitsRequest) GetMonthlyLimit() string {
 	if x != nil && x.MonthlyLimit != nil {
 		return *x.MonthlyLimit
 	}
-	return 0
+	return ""
 }
 
 type UpdateAccountStatusRequest struct {
@@ -580,7 +580,7 @@ func (x *UpdateAccountStatusRequest) GetStatus() string {
 type UpdateBalanceRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	AccountNumber   string                 `protobuf:"bytes,1,opt,name=account_number,json=accountNumber,proto3" json:"account_number,omitempty"`
-	Amount          float64                `protobuf:"fixed64,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	Amount          string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
 	UpdateAvailable bool                   `protobuf:"varint,3,opt,name=update_available,json=updateAvailable,proto3" json:"update_available,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -623,11 +623,11 @@ func (x *UpdateBalanceRequest) GetAccountNumber() string {
 	return ""
 }
 
-func (x *UpdateBalanceRequest) GetAmount() float64 {
+func (x *UpdateBalanceRequest) GetAmount() string {
 	if x != nil {
 		return x.Amount
 	}
-	return 0
+	return ""
 }
 
 func (x *UpdateBalanceRequest) GetUpdateAvailable() bool {
@@ -644,8 +644,8 @@ type AccountResponse struct {
 	AccountName      string                 `protobuf:"bytes,3,opt,name=account_name,json=accountName,proto3" json:"account_name,omitempty"`
 	OwnerId          uint64                 `protobuf:"varint,4,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	OwnerName        string                 `protobuf:"bytes,5,opt,name=owner_name,json=ownerName,proto3" json:"owner_name,omitempty"`
-	Balance          float64                `protobuf:"fixed64,6,opt,name=balance,proto3" json:"balance,omitempty"`
-	AvailableBalance float64                `protobuf:"fixed64,7,opt,name=available_balance,json=availableBalance,proto3" json:"available_balance,omitempty"`
+	Balance          string                 `protobuf:"bytes,6,opt,name=balance,proto3" json:"balance,omitempty"`
+	AvailableBalance string                 `protobuf:"bytes,7,opt,name=available_balance,json=availableBalance,proto3" json:"available_balance,omitempty"`
 	EmployeeId       uint64                 `protobuf:"varint,8,opt,name=employee_id,json=employeeId,proto3" json:"employee_id,omitempty"`
 	CreatedAt        string                 `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	ExpiresAt        string                 `protobuf:"bytes,10,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
@@ -654,11 +654,11 @@ type AccountResponse struct {
 	AccountKind      string                 `protobuf:"bytes,13,opt,name=account_kind,json=accountKind,proto3" json:"account_kind,omitempty"`
 	AccountType      string                 `protobuf:"bytes,14,opt,name=account_type,json=accountType,proto3" json:"account_type,omitempty"`
 	AccountCategory  string                 `protobuf:"bytes,15,opt,name=account_category,json=accountCategory,proto3" json:"account_category,omitempty"`
-	MaintenanceFee   float64                `protobuf:"fixed64,16,opt,name=maintenance_fee,json=maintenanceFee,proto3" json:"maintenance_fee,omitempty"`
-	DailyLimit       float64                `protobuf:"fixed64,17,opt,name=daily_limit,json=dailyLimit,proto3" json:"daily_limit,omitempty"`
-	MonthlyLimit     float64                `protobuf:"fixed64,18,opt,name=monthly_limit,json=monthlyLimit,proto3" json:"monthly_limit,omitempty"`
-	DailySpending    float64                `protobuf:"fixed64,19,opt,name=daily_spending,json=dailySpending,proto3" json:"daily_spending,omitempty"`
-	MonthlySpending  float64                `protobuf:"fixed64,20,opt,name=monthly_spending,json=monthlySpending,proto3" json:"monthly_spending,omitempty"`
+	MaintenanceFee   string                 `protobuf:"bytes,16,opt,name=maintenance_fee,json=maintenanceFee,proto3" json:"maintenance_fee,omitempty"`
+	DailyLimit       string                 `protobuf:"bytes,17,opt,name=daily_limit,json=dailyLimit,proto3" json:"daily_limit,omitempty"`
+	MonthlyLimit     string                 `protobuf:"bytes,18,opt,name=monthly_limit,json=monthlyLimit,proto3" json:"monthly_limit,omitempty"`
+	DailySpending    string                 `protobuf:"bytes,19,opt,name=daily_spending,json=dailySpending,proto3" json:"daily_spending,omitempty"`
+	MonthlySpending  string                 `protobuf:"bytes,20,opt,name=monthly_spending,json=monthlySpending,proto3" json:"monthly_spending,omitempty"`
 	CompanyId        *uint64                `protobuf:"varint,21,opt,name=company_id,json=companyId,proto3,oneof" json:"company_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -729,18 +729,18 @@ func (x *AccountResponse) GetOwnerName() string {
 	return ""
 }
 
-func (x *AccountResponse) GetBalance() float64 {
+func (x *AccountResponse) GetBalance() string {
 	if x != nil {
 		return x.Balance
 	}
-	return 0
+	return ""
 }
 
-func (x *AccountResponse) GetAvailableBalance() float64 {
+func (x *AccountResponse) GetAvailableBalance() string {
 	if x != nil {
 		return x.AvailableBalance
 	}
-	return 0
+	return ""
 }
 
 func (x *AccountResponse) GetEmployeeId() uint64 {
@@ -799,39 +799,39 @@ func (x *AccountResponse) GetAccountCategory() string {
 	return ""
 }
 
-func (x *AccountResponse) GetMaintenanceFee() float64 {
+func (x *AccountResponse) GetMaintenanceFee() string {
 	if x != nil {
 		return x.MaintenanceFee
 	}
-	return 0
+	return ""
 }
 
-func (x *AccountResponse) GetDailyLimit() float64 {
+func (x *AccountResponse) GetDailyLimit() string {
 	if x != nil {
 		return x.DailyLimit
 	}
-	return 0
+	return ""
 }
 
-func (x *AccountResponse) GetMonthlyLimit() float64 {
+func (x *AccountResponse) GetMonthlyLimit() string {
 	if x != nil {
 		return x.MonthlyLimit
 	}
-	return 0
+	return ""
 }
 
-func (x *AccountResponse) GetDailySpending() float64 {
+func (x *AccountResponse) GetDailySpending() string {
 	if x != nil {
 		return x.DailySpending
 	}
-	return 0
+	return ""
 }
 
-func (x *AccountResponse) GetMonthlySpending() float64 {
+func (x *AccountResponse) GetMonthlySpending() string {
 	if x != nil {
 		return x.MonthlySpending
 	}
-	return 0
+	return ""
 }
 
 func (x *AccountResponse) GetCompanyId() uint64 {
@@ -1361,6 +1361,234 @@ func (x *CurrencyResponse) GetActive() bool {
 	return false
 }
 
+type GetLedgerEntriesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountNumber string                 `protobuf:"bytes,1,opt,name=account_number,json=accountNumber,proto3" json:"account_number,omitempty"`
+	Page          int32                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetLedgerEntriesRequest) Reset() {
+	*x = GetLedgerEntriesRequest{}
+	mi := &file_account_account_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetLedgerEntriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLedgerEntriesRequest) ProtoMessage() {}
+
+func (x *GetLedgerEntriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLedgerEntriesRequest.ProtoReflect.Descriptor instead.
+func (*GetLedgerEntriesRequest) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *GetLedgerEntriesRequest) GetAccountNumber() string {
+	if x != nil {
+		return x.AccountNumber
+	}
+	return ""
+}
+
+func (x *GetLedgerEntriesRequest) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *GetLedgerEntriesRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+type LedgerEntryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	AccountNumber string                 `protobuf:"bytes,2,opt,name=account_number,json=accountNumber,proto3" json:"account_number,omitempty"`
+	EntryType     string                 `protobuf:"bytes,3,opt,name=entry_type,json=entryType,proto3" json:"entry_type,omitempty"`
+	Amount        string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	BalanceBefore string                 `protobuf:"bytes,5,opt,name=balance_before,json=balanceBefore,proto3" json:"balance_before,omitempty"`
+	BalanceAfter  string                 `protobuf:"bytes,6,opt,name=balance_after,json=balanceAfter,proto3" json:"balance_after,omitempty"`
+	Description   string                 `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
+	ReferenceId   string                 `protobuf:"bytes,8,opt,name=reference_id,json=referenceId,proto3" json:"reference_id,omitempty"`
+	ReferenceType string                 `protobuf:"bytes,9,opt,name=reference_type,json=referenceType,proto3" json:"reference_type,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LedgerEntryResponse) Reset() {
+	*x = LedgerEntryResponse{}
+	mi := &file_account_account_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LedgerEntryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LedgerEntryResponse) ProtoMessage() {}
+
+func (x *LedgerEntryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LedgerEntryResponse.ProtoReflect.Descriptor instead.
+func (*LedgerEntryResponse) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *LedgerEntryResponse) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *LedgerEntryResponse) GetAccountNumber() string {
+	if x != nil {
+		return x.AccountNumber
+	}
+	return ""
+}
+
+func (x *LedgerEntryResponse) GetEntryType() string {
+	if x != nil {
+		return x.EntryType
+	}
+	return ""
+}
+
+func (x *LedgerEntryResponse) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *LedgerEntryResponse) GetBalanceBefore() string {
+	if x != nil {
+		return x.BalanceBefore
+	}
+	return ""
+}
+
+func (x *LedgerEntryResponse) GetBalanceAfter() string {
+	if x != nil {
+		return x.BalanceAfter
+	}
+	return ""
+}
+
+func (x *LedgerEntryResponse) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *LedgerEntryResponse) GetReferenceId() string {
+	if x != nil {
+		return x.ReferenceId
+	}
+	return ""
+}
+
+func (x *LedgerEntryResponse) GetReferenceType() string {
+	if x != nil {
+		return x.ReferenceType
+	}
+	return ""
+}
+
+func (x *LedgerEntryResponse) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+type GetLedgerEntriesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*LedgerEntryResponse `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	TotalCount    int64                  `protobuf:"varint,2,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetLedgerEntriesResponse) Reset() {
+	*x = GetLedgerEntriesResponse{}
+	mi := &file_account_account_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetLedgerEntriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetLedgerEntriesResponse) ProtoMessage() {}
+
+func (x *GetLedgerEntriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetLedgerEntriesResponse.ProtoReflect.Descriptor instead.
+func (*GetLedgerEntriesResponse) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *GetLedgerEntriesResponse) GetEntries() []*LedgerEntryResponse {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *GetLedgerEntriesResponse) GetTotalCount() int64 {
+	if x != nil {
+		return x.TotalCount
+	}
+	return 0
+}
+
 var File_account_account_proto protoreflect.FileDescriptor
 
 const file_account_account_proto_rawDesc = "" +
@@ -1374,7 +1602,7 @@ const file_account_account_proto_rawDesc = "" +
 	"\rcurrency_code\x18\x05 \x01(\tR\fcurrencyCode\x12\x1f\n" +
 	"\vemployee_id\x18\x06 \x01(\x04R\n" +
 	"employeeId\x12'\n" +
-	"\x0finitial_balance\x18\a \x01(\x01R\x0einitialBalance\x12\x1f\n" +
+	"\x0finitial_balance\x18\a \x01(\tR\x0einitialBalance\x12\x1f\n" +
 	"\vcreate_card\x18\b \x01(\bR\n" +
 	"createCard\x12\"\n" +
 	"\n" +
@@ -1405,9 +1633,9 @@ const file_account_account_proto_rawDesc = "" +
 	"\bnew_name\x18\x03 \x01(\tR\anewName\"\x9e\x01\n" +
 	"\x1aUpdateAccountLimitsRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12$\n" +
-	"\vdaily_limit\x18\x02 \x01(\x01H\x00R\n" +
+	"\vdaily_limit\x18\x02 \x01(\tH\x00R\n" +
 	"dailyLimit\x88\x01\x01\x12(\n" +
-	"\rmonthly_limit\x18\x03 \x01(\x01H\x01R\fmonthlyLimit\x88\x01\x01B\x0e\n" +
+	"\rmonthly_limit\x18\x03 \x01(\tH\x01R\fmonthlyLimit\x88\x01\x01B\x0e\n" +
 	"\f_daily_limitB\x10\n" +
 	"\x0e_monthly_limit\"D\n" +
 	"\x1aUpdateAccountStatusRequest\x12\x0e\n" +
@@ -1415,7 +1643,7 @@ const file_account_account_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\"\x80\x01\n" +
 	"\x14UpdateBalanceRequest\x12%\n" +
 	"\x0eaccount_number\x18\x01 \x01(\tR\raccountNumber\x12\x16\n" +
-	"\x06amount\x18\x02 \x01(\x01R\x06amount\x12)\n" +
+	"\x06amount\x18\x02 \x01(\tR\x06amount\x12)\n" +
 	"\x10update_available\x18\x03 \x01(\bR\x0fupdateAvailable\"\xed\x05\n" +
 	"\x0fAccountResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12%\n" +
@@ -1424,8 +1652,8 @@ const file_account_account_proto_rawDesc = "" +
 	"\bowner_id\x18\x04 \x01(\x04R\aownerId\x12\x1d\n" +
 	"\n" +
 	"owner_name\x18\x05 \x01(\tR\townerName\x12\x18\n" +
-	"\abalance\x18\x06 \x01(\x01R\abalance\x12+\n" +
-	"\x11available_balance\x18\a \x01(\x01R\x10availableBalance\x12\x1f\n" +
+	"\abalance\x18\x06 \x01(\tR\abalance\x12+\n" +
+	"\x11available_balance\x18\a \x01(\tR\x10availableBalance\x12\x1f\n" +
 	"\vemployee_id\x18\b \x01(\x04R\n" +
 	"employeeId\x12\x1d\n" +
 	"\n" +
@@ -1438,12 +1666,12 @@ const file_account_account_proto_rawDesc = "" +
 	"\faccount_kind\x18\r \x01(\tR\vaccountKind\x12!\n" +
 	"\faccount_type\x18\x0e \x01(\tR\vaccountType\x12)\n" +
 	"\x10account_category\x18\x0f \x01(\tR\x0faccountCategory\x12'\n" +
-	"\x0fmaintenance_fee\x18\x10 \x01(\x01R\x0emaintenanceFee\x12\x1f\n" +
-	"\vdaily_limit\x18\x11 \x01(\x01R\n" +
+	"\x0fmaintenance_fee\x18\x10 \x01(\tR\x0emaintenanceFee\x12\x1f\n" +
+	"\vdaily_limit\x18\x11 \x01(\tR\n" +
 	"dailyLimit\x12#\n" +
-	"\rmonthly_limit\x18\x12 \x01(\x01R\fmonthlyLimit\x12%\n" +
-	"\x0edaily_spending\x18\x13 \x01(\x01R\rdailySpending\x12)\n" +
-	"\x10monthly_spending\x18\x14 \x01(\x01R\x0fmonthlySpending\x12\"\n" +
+	"\rmonthly_limit\x18\x12 \x01(\tR\fmonthlyLimit\x12%\n" +
+	"\x0edaily_spending\x18\x13 \x01(\tR\rdailySpending\x12)\n" +
+	"\x10monthly_spending\x18\x14 \x01(\tR\x0fmonthlySpending\x12\"\n" +
 	"\n" +
 	"company_id\x18\x15 \x01(\x04H\x00R\tcompanyId\x88\x01\x01B\r\n" +
 	"\v_company_id\"\xe3\x01\n" +
@@ -1493,7 +1721,29 @@ const file_account_account_proto_rawDesc = "" +
 	"\x06symbol\x18\x04 \x01(\tR\x06symbol\x12\x18\n" +
 	"\acountry\x18\x05 \x01(\tR\acountry\x12 \n" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x12\x16\n" +
-	"\x06active\x18\a \x01(\bR\x06active2\xdc\b\n" +
+	"\x06active\x18\a \x01(\bR\x06active\"q\n" +
+	"\x17GetLedgerEntriesRequest\x12%\n" +
+	"\x0eaccount_number\x18\x01 \x01(\tR\raccountNumber\x12\x12\n" +
+	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"\xda\x02\n" +
+	"\x13LedgerEntryResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12%\n" +
+	"\x0eaccount_number\x18\x02 \x01(\tR\raccountNumber\x12\x1d\n" +
+	"\n" +
+	"entry_type\x18\x03 \x01(\tR\tentryType\x12\x16\n" +
+	"\x06amount\x18\x04 \x01(\tR\x06amount\x12%\n" +
+	"\x0ebalance_before\x18\x05 \x01(\tR\rbalanceBefore\x12#\n" +
+	"\rbalance_after\x18\x06 \x01(\tR\fbalanceAfter\x12 \n" +
+	"\vdescription\x18\a \x01(\tR\vdescription\x12!\n" +
+	"\freference_id\x18\b \x01(\tR\vreferenceId\x12%\n" +
+	"\x0ereference_type\x18\t \x01(\tR\rreferenceType\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\n" +
+	" \x01(\x03R\tcreatedAt\"s\n" +
+	"\x18GetLedgerEntriesResponse\x126\n" +
+	"\aentries\x18\x01 \x03(\v2\x1c.account.LedgerEntryResponseR\aentries\x12\x1f\n" +
+	"\vtotal_count\x18\x02 \x01(\x03R\n" +
+	"totalCount2\xb5\t\n" +
 	"\x0eAccountService\x12H\n" +
 	"\rCreateAccount\x12\x1d.account.CreateAccountRequest\x1a\x18.account.AccountResponse\x12B\n" +
 	"\n" +
@@ -1510,7 +1760,8 @@ const file_account_account_proto_rawDesc = "" +
 	"GetCompany\x12\x1a.account.GetCompanyRequest\x1a\x18.account.CompanyResponse\x12H\n" +
 	"\rUpdateCompany\x12\x1d.account.UpdateCompanyRequest\x1a\x18.account.CompanyResponse\x12Q\n" +
 	"\x0eListCurrencies\x12\x1e.account.ListCurrenciesRequest\x1a\x1f.account.ListCurrenciesResponse\x12E\n" +
-	"\vGetCurrency\x12\x1b.account.GetCurrencyRequest\x1a\x19.account.CurrencyResponseB1Z/github.com/exbanka/contract/accountpb;accountpbb\x06proto3"
+	"\vGetCurrency\x12\x1b.account.GetCurrencyRequest\x1a\x19.account.CurrencyResponse\x12W\n" +
+	"\x10GetLedgerEntries\x12 .account.GetLedgerEntriesRequest\x1a!.account.GetLedgerEntriesResponseB1Z/github.com/exbanka/contract/accountpb;accountpbb\x06proto3"
 
 var (
 	file_account_account_proto_rawDescOnce sync.Once
@@ -1524,7 +1775,7 @@ func file_account_account_proto_rawDescGZIP() []byte {
 	return file_account_account_proto_rawDescData
 }
 
-var file_account_account_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_account_account_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_account_account_proto_goTypes = []any{
 	(*CreateAccountRequest)(nil),        // 0: account.CreateAccountRequest
 	(*GetAccountRequest)(nil),           // 1: account.GetAccountRequest
@@ -1545,43 +1796,49 @@ var file_account_account_proto_goTypes = []any{
 	(*ListCurrenciesResponse)(nil),      // 16: account.ListCurrenciesResponse
 	(*GetCurrencyRequest)(nil),          // 17: account.GetCurrencyRequest
 	(*CurrencyResponse)(nil),            // 18: account.CurrencyResponse
+	(*GetLedgerEntriesRequest)(nil),     // 19: account.GetLedgerEntriesRequest
+	(*LedgerEntryResponse)(nil),         // 20: account.LedgerEntryResponse
+	(*GetLedgerEntriesResponse)(nil),    // 21: account.GetLedgerEntriesResponse
 }
 var file_account_account_proto_depIdxs = []int32{
 	10, // 0: account.ListAccountsResponse.accounts:type_name -> account.AccountResponse
 	18, // 1: account.ListCurrenciesResponse.currencies:type_name -> account.CurrencyResponse
-	0,  // 2: account.AccountService.CreateAccount:input_type -> account.CreateAccountRequest
-	1,  // 3: account.AccountService.GetAccount:input_type -> account.GetAccountRequest
-	2,  // 4: account.AccountService.GetAccountByNumber:input_type -> account.GetAccountByNumberRequest
-	3,  // 5: account.AccountService.ListAccountsByClient:input_type -> account.ListAccountsByClientRequest
-	4,  // 6: account.AccountService.ListAllAccounts:input_type -> account.ListAllAccountsRequest
-	6,  // 7: account.AccountService.UpdateAccountName:input_type -> account.UpdateAccountNameRequest
-	7,  // 8: account.AccountService.UpdateAccountLimits:input_type -> account.UpdateAccountLimitsRequest
-	8,  // 9: account.AccountService.UpdateAccountStatus:input_type -> account.UpdateAccountStatusRequest
-	9,  // 10: account.AccountService.UpdateBalance:input_type -> account.UpdateBalanceRequest
-	11, // 11: account.AccountService.CreateCompany:input_type -> account.CreateCompanyRequest
-	12, // 12: account.AccountService.GetCompany:input_type -> account.GetCompanyRequest
-	13, // 13: account.AccountService.UpdateCompany:input_type -> account.UpdateCompanyRequest
-	15, // 14: account.AccountService.ListCurrencies:input_type -> account.ListCurrenciesRequest
-	17, // 15: account.AccountService.GetCurrency:input_type -> account.GetCurrencyRequest
-	10, // 16: account.AccountService.CreateAccount:output_type -> account.AccountResponse
-	10, // 17: account.AccountService.GetAccount:output_type -> account.AccountResponse
-	10, // 18: account.AccountService.GetAccountByNumber:output_type -> account.AccountResponse
-	5,  // 19: account.AccountService.ListAccountsByClient:output_type -> account.ListAccountsResponse
-	5,  // 20: account.AccountService.ListAllAccounts:output_type -> account.ListAccountsResponse
-	10, // 21: account.AccountService.UpdateAccountName:output_type -> account.AccountResponse
-	10, // 22: account.AccountService.UpdateAccountLimits:output_type -> account.AccountResponse
-	10, // 23: account.AccountService.UpdateAccountStatus:output_type -> account.AccountResponse
-	10, // 24: account.AccountService.UpdateBalance:output_type -> account.AccountResponse
-	14, // 25: account.AccountService.CreateCompany:output_type -> account.CompanyResponse
-	14, // 26: account.AccountService.GetCompany:output_type -> account.CompanyResponse
-	14, // 27: account.AccountService.UpdateCompany:output_type -> account.CompanyResponse
-	16, // 28: account.AccountService.ListCurrencies:output_type -> account.ListCurrenciesResponse
-	18, // 29: account.AccountService.GetCurrency:output_type -> account.CurrencyResponse
-	16, // [16:30] is the sub-list for method output_type
-	2,  // [2:16] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	20, // 2: account.GetLedgerEntriesResponse.entries:type_name -> account.LedgerEntryResponse
+	0,  // 3: account.AccountService.CreateAccount:input_type -> account.CreateAccountRequest
+	1,  // 4: account.AccountService.GetAccount:input_type -> account.GetAccountRequest
+	2,  // 5: account.AccountService.GetAccountByNumber:input_type -> account.GetAccountByNumberRequest
+	3,  // 6: account.AccountService.ListAccountsByClient:input_type -> account.ListAccountsByClientRequest
+	4,  // 7: account.AccountService.ListAllAccounts:input_type -> account.ListAllAccountsRequest
+	6,  // 8: account.AccountService.UpdateAccountName:input_type -> account.UpdateAccountNameRequest
+	7,  // 9: account.AccountService.UpdateAccountLimits:input_type -> account.UpdateAccountLimitsRequest
+	8,  // 10: account.AccountService.UpdateAccountStatus:input_type -> account.UpdateAccountStatusRequest
+	9,  // 11: account.AccountService.UpdateBalance:input_type -> account.UpdateBalanceRequest
+	11, // 12: account.AccountService.CreateCompany:input_type -> account.CreateCompanyRequest
+	12, // 13: account.AccountService.GetCompany:input_type -> account.GetCompanyRequest
+	13, // 14: account.AccountService.UpdateCompany:input_type -> account.UpdateCompanyRequest
+	15, // 15: account.AccountService.ListCurrencies:input_type -> account.ListCurrenciesRequest
+	17, // 16: account.AccountService.GetCurrency:input_type -> account.GetCurrencyRequest
+	19, // 17: account.AccountService.GetLedgerEntries:input_type -> account.GetLedgerEntriesRequest
+	10, // 18: account.AccountService.CreateAccount:output_type -> account.AccountResponse
+	10, // 19: account.AccountService.GetAccount:output_type -> account.AccountResponse
+	10, // 20: account.AccountService.GetAccountByNumber:output_type -> account.AccountResponse
+	5,  // 21: account.AccountService.ListAccountsByClient:output_type -> account.ListAccountsResponse
+	5,  // 22: account.AccountService.ListAllAccounts:output_type -> account.ListAccountsResponse
+	10, // 23: account.AccountService.UpdateAccountName:output_type -> account.AccountResponse
+	10, // 24: account.AccountService.UpdateAccountLimits:output_type -> account.AccountResponse
+	10, // 25: account.AccountService.UpdateAccountStatus:output_type -> account.AccountResponse
+	10, // 26: account.AccountService.UpdateBalance:output_type -> account.AccountResponse
+	14, // 27: account.AccountService.CreateCompany:output_type -> account.CompanyResponse
+	14, // 28: account.AccountService.GetCompany:output_type -> account.CompanyResponse
+	14, // 29: account.AccountService.UpdateCompany:output_type -> account.CompanyResponse
+	16, // 30: account.AccountService.ListCurrencies:output_type -> account.ListCurrenciesResponse
+	18, // 31: account.AccountService.GetCurrency:output_type -> account.CurrencyResponse
+	21, // 32: account.AccountService.GetLedgerEntries:output_type -> account.GetLedgerEntriesResponse
+	18, // [18:33] is the sub-list for method output_type
+	3,  // [3:18] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_account_account_proto_init() }
@@ -1599,7 +1856,7 @@ func file_account_account_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_account_account_proto_rawDesc), len(file_account_account_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

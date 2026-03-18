@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"google.golang.org/grpc"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/clientpb"
+	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/client-service/internal/cache"
 	"github.com/exbanka/client-service/internal/config"
 	"github.com/exbanka/client-service/internal/handler"
@@ -53,9 +57,22 @@ func main() {
 
 	s := grpc.NewServer()
 	pb.RegisterClientServiceServer(s, grpcHandler)
+	shared.RegisterHealthCheck(s, "client-service")
 
-	fmt.Printf("client service listening on %s\n", cfg.GRPCAddr)
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-	}
+	// Start gRPC server in goroutine
+	go func() {
+		fmt.Printf("client service listening on %s\n", cfg.GRPCAddr)
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("gRPC server failed: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down gracefully...")
+	s.GracefulStop()
+	log.Println("Server stopped")
 }

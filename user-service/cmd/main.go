@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -11,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/userpb"
+	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/user-service/internal/cache"
 	"github.com/exbanka/user-service/internal/config"
 	"github.com/exbanka/user-service/internal/handler"
@@ -59,41 +63,55 @@ func main() {
 
 	s := grpc.NewServer()
 	pb.RegisterUserServiceServer(s, grpcHandler)
+	shared.RegisterHealthCheck(s, "user-service")
 
-	fmt.Printf("user service listening on %s\n", cfg.GRPCAddr)
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-	}
+	// Start gRPC server in goroutine
+	go func() {
+		fmt.Printf("user service listening on %s\n", cfg.GRPCAddr)
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("gRPC server failed: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down gracefully...")
+	s.GracefulStop()
+	log.Println("Server stopped")
 }
 
 func seedAdminUser(repo *repository.EmployeeRepository) error {
-	if _, err := repo.GetByEmail("admin@admin.admin"); err == nil {
-		return nil // already exists
+	existing, _ := repo.GetByEmail("admin@exbanka.com")
+	if existing != nil {
+		log.Println("Admin user already exists, skipping seed")
+		return nil
 	}
 
 	hash, err := service.HashPassword("AdminAdmin2026.!")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to hash admin password: %w", err)
 	}
 
 	admin := &model.Employee{
-		FirstName:    "Admin",
+		FirstName:    "System",
 		LastName:     "Admin",
 		DateOfBirth:  time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC),
-		Gender:       "M",
-		Email:        "admin@admin.admin",
-		Phone:        "+38600000000",
-		Address:      "Admin Street 1",
-		JMBG:         "0000000000000",
+		Gender:       "other",
+		Email:        "admin@exbanka.com",
+		Phone:        "+381000000000",
+		Address:      "System Account",
+		JMBG:         "0101990000000",
 		Username:     "admin",
 		PasswordHash: hash,
-		Salt:         "",
-		Position:     "Administrator",
+		Salt:         "system-seed",
+		Position:     "System Administrator",
 		Department:   "IT",
 		Active:       true,
 		Role:         "EmployeeAdmin",
 		Activated:    true,
 	}
-
 	return repo.Create(admin)
 }

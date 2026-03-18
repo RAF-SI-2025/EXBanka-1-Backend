@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	_ "github.com/exbanka/api-gateway/docs"
 	"github.com/exbanka/api-gateway/internal/config"
@@ -66,8 +72,29 @@ func main() {
 
 	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient)
 
-	fmt.Printf("API Gateway listening on %s\n", cfg.HTTPAddr)
-	if err := r.Run(cfg.HTTPAddr); err != nil {
-		log.Fatalf("failed to start server: %v", err)
+	srv := &http.Server{
+		Addr:    cfg.HTTPAddr,
+		Handler: r,
 	}
+
+	// Start HTTP server in goroutine
+	go func() {
+		fmt.Printf("API Gateway listening on %s\n", cfg.HTTPAddr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("failed to start server: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down API Gateway gracefully...")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("server forced to shutdown: %v", err)
+	}
+	log.Println("Server stopped")
 }

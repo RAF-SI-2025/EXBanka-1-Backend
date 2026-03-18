@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -20,6 +21,7 @@ type AccountGRPCHandler struct {
 	accountService  *service.AccountService
 	companyService  *service.CompanyService
 	currencyService *service.CurrencyService
+	ledgerService   *service.LedgerService
 	producer        *kafkaprod.Producer
 }
 
@@ -27,27 +29,30 @@ func NewAccountGRPCHandler(
 	accountService *service.AccountService,
 	companyService *service.CompanyService,
 	currencyService *service.CurrencyService,
+	ledgerService *service.LedgerService,
 	producer *kafkaprod.Producer,
 ) *AccountGRPCHandler {
 	return &AccountGRPCHandler{
 		accountService:  accountService,
 		companyService:  companyService,
 		currencyService: currencyService,
+		ledgerService:   ledgerService,
 		producer:        producer,
 	}
 }
 
 func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.AccountResponse, error) {
+	initialBalance, _ := decimal.NewFromString(req.InitialBalance)
 	account := &model.Account{
-		OwnerID:         req.OwnerId,
-		AccountKind:     req.AccountKind,
-		AccountType:     req.AccountType,
-		AccountCategory: req.AccountCategory,
-		CurrencyCode:    req.CurrencyCode,
-		EmployeeID:      req.EmployeeId,
-		Balance:         req.InitialBalance,
-		AvailableBalance: req.InitialBalance,
-		CompanyID:       req.CompanyId,
+		OwnerID:          req.OwnerId,
+		AccountKind:      req.AccountKind,
+		AccountType:      req.AccountType,
+		AccountCategory:  req.AccountCategory,
+		CurrencyCode:     req.CurrencyCode,
+		EmployeeID:       req.EmployeeId,
+		Balance:          initialBalance,
+		AvailableBalance: initialBalance,
+		CompanyID:        req.CompanyId,
 	}
 
 	if err := h.accountService.CreateAccount(account); err != nil {
@@ -171,7 +176,8 @@ func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.Up
 }
 
 func (h *AccountGRPCHandler) UpdateBalance(ctx context.Context, req *pb.UpdateBalanceRequest) (*pb.AccountResponse, error) {
-	if err := h.accountService.UpdateBalance(req.AccountNumber, req.Amount, req.UpdateAvailable); err != nil {
+	amount, _ := decimal.NewFromString(req.Amount)
+	if err := h.accountService.UpdateBalance(req.AccountNumber, amount, req.UpdateAvailable); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}
@@ -265,6 +271,39 @@ func (h *AccountGRPCHandler) GetCurrency(ctx context.Context, req *pb.GetCurrenc
 	return toCurrencyResponse(currency), nil
 }
 
+func (h *AccountGRPCHandler) GetLedgerEntries(ctx context.Context, req *pb.GetLedgerEntriesRequest) (*pb.GetLedgerEntriesResponse, error) {
+	page := int(req.Page)
+	pageSize := int(req.PageSize)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+
+	entries, total, err := h.ledgerService.GetLedgerEntries(req.AccountNumber, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get ledger entries: %v", err)
+	}
+
+	resp := &pb.GetLedgerEntriesResponse{TotalCount: total}
+	for _, e := range entries {
+		resp.Entries = append(resp.Entries, &pb.LedgerEntryResponse{
+			Id:            e.ID,
+			AccountNumber: e.AccountNumber,
+			EntryType:     e.EntryType,
+			Amount:        e.Amount.StringFixed(4),
+			BalanceBefore: e.BalanceBefore.StringFixed(4),
+			BalanceAfter:  e.BalanceAfter.StringFixed(4),
+			Description:   e.Description,
+			ReferenceId:   e.ReferenceID,
+			ReferenceType: e.ReferenceType,
+			CreatedAt:     e.CreatedAt.Unix(),
+		})
+	}
+	return resp, nil
+}
+
 func toAccountResponse(a *model.Account) *pb.AccountResponse {
 	resp := &pb.AccountResponse{
 		Id:               a.ID,
@@ -272,8 +311,8 @@ func toAccountResponse(a *model.Account) *pb.AccountResponse {
 		AccountName:      a.AccountName,
 		OwnerId:          a.OwnerID,
 		OwnerName:        a.OwnerName,
-		Balance:          a.Balance,
-		AvailableBalance: a.AvailableBalance,
+		Balance:          a.Balance.StringFixed(4),
+		AvailableBalance: a.AvailableBalance.StringFixed(4),
 		EmployeeId:       a.EmployeeID,
 		CreatedAt:        a.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		ExpiresAt:        a.ExpiresAt.Format("2006-01-02T15:04:05Z"),
@@ -282,11 +321,11 @@ func toAccountResponse(a *model.Account) *pb.AccountResponse {
 		AccountKind:      a.AccountKind,
 		AccountType:      a.AccountType,
 		AccountCategory:  a.AccountCategory,
-		MaintenanceFee:   a.MaintenanceFee,
-		DailyLimit:       a.DailyLimit,
-		MonthlyLimit:     a.MonthlyLimit,
-		DailySpending:    a.DailySpending,
-		MonthlySpending:  a.MonthlySpending,
+		MaintenanceFee:   a.MaintenanceFee.StringFixed(4),
+		DailyLimit:       a.DailyLimit.StringFixed(4),
+		MonthlyLimit:     a.MonthlyLimit.StringFixed(4),
+		DailySpending:    a.DailySpending.StringFixed(4),
+		MonthlySpending:  a.MonthlySpending.StringFixed(4),
 		CompanyId:        a.CompanyID,
 	}
 	return resp

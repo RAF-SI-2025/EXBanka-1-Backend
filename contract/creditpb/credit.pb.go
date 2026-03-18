@@ -26,10 +26,10 @@ type CreateLoanRequestReq struct {
 	ClientId         uint64                 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
 	LoanType         string                 `protobuf:"bytes,2,opt,name=loan_type,json=loanType,proto3" json:"loan_type,omitempty"`
 	InterestType     string                 `protobuf:"bytes,3,opt,name=interest_type,json=interestType,proto3" json:"interest_type,omitempty"`
-	Amount           float64                `protobuf:"fixed64,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	Amount           string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`
 	CurrencyCode     string                 `protobuf:"bytes,5,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
 	Purpose          string                 `protobuf:"bytes,6,opt,name=purpose,proto3" json:"purpose,omitempty"`
-	MonthlySalary    float64                `protobuf:"fixed64,7,opt,name=monthly_salary,json=monthlySalary,proto3" json:"monthly_salary,omitempty"`
+	MonthlySalary    string                 `protobuf:"bytes,7,opt,name=monthly_salary,json=monthlySalary,proto3" json:"monthly_salary,omitempty"`
 	EmploymentStatus string                 `protobuf:"bytes,8,opt,name=employment_status,json=employmentStatus,proto3" json:"employment_status,omitempty"`
 	EmploymentPeriod int32                  `protobuf:"varint,9,opt,name=employment_period,json=employmentPeriod,proto3" json:"employment_period,omitempty"`
 	RepaymentPeriod  int32                  `protobuf:"varint,10,opt,name=repayment_period,json=repaymentPeriod,proto3" json:"repayment_period,omitempty"`
@@ -90,11 +90,11 @@ func (x *CreateLoanRequestReq) GetInterestType() string {
 	return ""
 }
 
-func (x *CreateLoanRequestReq) GetAmount() float64 {
+func (x *CreateLoanRequestReq) GetAmount() string {
 	if x != nil {
 		return x.Amount
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateLoanRequestReq) GetCurrencyCode() string {
@@ -111,11 +111,11 @@ func (x *CreateLoanRequestReq) GetPurpose() string {
 	return ""
 }
 
-func (x *CreateLoanRequestReq) GetMonthlySalary() float64 {
+func (x *CreateLoanRequestReq) GetMonthlySalary() string {
 	if x != nil {
 		return x.MonthlySalary
 	}
-	return 0
+	return ""
 }
 
 func (x *CreateLoanRequestReq) GetEmploymentStatus() string {
@@ -419,10 +419,10 @@ type LoanRequestResponse struct {
 	ClientId         uint64                 `protobuf:"varint,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
 	LoanType         string                 `protobuf:"bytes,3,opt,name=loan_type,json=loanType,proto3" json:"loan_type,omitempty"`
 	InterestType     string                 `protobuf:"bytes,4,opt,name=interest_type,json=interestType,proto3" json:"interest_type,omitempty"`
-	Amount           float64                `protobuf:"fixed64,5,opt,name=amount,proto3" json:"amount,omitempty"`
+	Amount           string                 `protobuf:"bytes,5,opt,name=amount,proto3" json:"amount,omitempty"`
 	CurrencyCode     string                 `protobuf:"bytes,6,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
 	Purpose          string                 `protobuf:"bytes,7,opt,name=purpose,proto3" json:"purpose,omitempty"`
-	MonthlySalary    float64                `protobuf:"fixed64,8,opt,name=monthly_salary,json=monthlySalary,proto3" json:"monthly_salary,omitempty"`
+	MonthlySalary    string                 `protobuf:"bytes,8,opt,name=monthly_salary,json=monthlySalary,proto3" json:"monthly_salary,omitempty"`
 	EmploymentStatus string                 `protobuf:"bytes,9,opt,name=employment_status,json=employmentStatus,proto3" json:"employment_status,omitempty"`
 	EmploymentPeriod int32                  `protobuf:"varint,10,opt,name=employment_period,json=employmentPeriod,proto3" json:"employment_period,omitempty"`
 	RepaymentPeriod  int32                  `protobuf:"varint,11,opt,name=repayment_period,json=repaymentPeriod,proto3" json:"repayment_period,omitempty"`
@@ -492,11 +492,11 @@ func (x *LoanRequestResponse) GetInterestType() string {
 	return ""
 }
 
-func (x *LoanRequestResponse) GetAmount() float64 {
+func (x *LoanRequestResponse) GetAmount() string {
 	if x != nil {
 		return x.Amount
 	}
-	return 0
+	return ""
 }
 
 func (x *LoanRequestResponse) GetCurrencyCode() string {
@@ -513,11 +513,11 @@ func (x *LoanRequestResponse) GetPurpose() string {
 	return ""
 }
 
-func (x *LoanRequestResponse) GetMonthlySalary() float64 {
+func (x *LoanRequestResponse) GetMonthlySalary() string {
 	if x != nil {
 		return x.MonthlySalary
 	}
-	return 0
+	return ""
 }
 
 func (x *LoanRequestResponse) GetEmploymentStatus() string {
@@ -807,15 +807,15 @@ type LoanResponse struct {
 	LoanNumber            string                 `protobuf:"bytes,2,opt,name=loan_number,json=loanNumber,proto3" json:"loan_number,omitempty"`
 	LoanType              string                 `protobuf:"bytes,3,opt,name=loan_type,json=loanType,proto3" json:"loan_type,omitempty"`
 	AccountNumber         string                 `protobuf:"bytes,4,opt,name=account_number,json=accountNumber,proto3" json:"account_number,omitempty"`
-	Amount                float64                `protobuf:"fixed64,5,opt,name=amount,proto3" json:"amount,omitempty"`
+	Amount                string                 `protobuf:"bytes,5,opt,name=amount,proto3" json:"amount,omitempty"`
 	RepaymentPeriod       int32                  `protobuf:"varint,6,opt,name=repayment_period,json=repaymentPeriod,proto3" json:"repayment_period,omitempty"`
-	NominalInterestRate   float64                `protobuf:"fixed64,7,opt,name=nominal_interest_rate,json=nominalInterestRate,proto3" json:"nominal_interest_rate,omitempty"`
-	EffectiveInterestRate float64                `protobuf:"fixed64,8,opt,name=effective_interest_rate,json=effectiveInterestRate,proto3" json:"effective_interest_rate,omitempty"`
+	NominalInterestRate   string                 `protobuf:"bytes,7,opt,name=nominal_interest_rate,json=nominalInterestRate,proto3" json:"nominal_interest_rate,omitempty"`
+	EffectiveInterestRate string                 `protobuf:"bytes,8,opt,name=effective_interest_rate,json=effectiveInterestRate,proto3" json:"effective_interest_rate,omitempty"`
 	ContractDate          string                 `protobuf:"bytes,9,opt,name=contract_date,json=contractDate,proto3" json:"contract_date,omitempty"`
 	MaturityDate          string                 `protobuf:"bytes,10,opt,name=maturity_date,json=maturityDate,proto3" json:"maturity_date,omitempty"`
-	NextInstallmentAmount float64                `protobuf:"fixed64,11,opt,name=next_installment_amount,json=nextInstallmentAmount,proto3" json:"next_installment_amount,omitempty"`
+	NextInstallmentAmount string                 `protobuf:"bytes,11,opt,name=next_installment_amount,json=nextInstallmentAmount,proto3" json:"next_installment_amount,omitempty"`
 	NextInstallmentDate   string                 `protobuf:"bytes,12,opt,name=next_installment_date,json=nextInstallmentDate,proto3" json:"next_installment_date,omitempty"`
-	RemainingDebt         float64                `protobuf:"fixed64,13,opt,name=remaining_debt,json=remainingDebt,proto3" json:"remaining_debt,omitempty"`
+	RemainingDebt         string                 `protobuf:"bytes,13,opt,name=remaining_debt,json=remainingDebt,proto3" json:"remaining_debt,omitempty"`
 	CurrencyCode          string                 `protobuf:"bytes,14,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
 	Status                string                 `protobuf:"bytes,15,opt,name=status,proto3" json:"status,omitempty"`
 	InterestType          string                 `protobuf:"bytes,16,opt,name=interest_type,json=interestType,proto3" json:"interest_type,omitempty"`
@@ -882,11 +882,11 @@ func (x *LoanResponse) GetAccountNumber() string {
 	return ""
 }
 
-func (x *LoanResponse) GetAmount() float64 {
+func (x *LoanResponse) GetAmount() string {
 	if x != nil {
 		return x.Amount
 	}
-	return 0
+	return ""
 }
 
 func (x *LoanResponse) GetRepaymentPeriod() int32 {
@@ -896,18 +896,18 @@ func (x *LoanResponse) GetRepaymentPeriod() int32 {
 	return 0
 }
 
-func (x *LoanResponse) GetNominalInterestRate() float64 {
+func (x *LoanResponse) GetNominalInterestRate() string {
 	if x != nil {
 		return x.NominalInterestRate
 	}
-	return 0
+	return ""
 }
 
-func (x *LoanResponse) GetEffectiveInterestRate() float64 {
+func (x *LoanResponse) GetEffectiveInterestRate() string {
 	if x != nil {
 		return x.EffectiveInterestRate
 	}
-	return 0
+	return ""
 }
 
 func (x *LoanResponse) GetContractDate() string {
@@ -924,11 +924,11 @@ func (x *LoanResponse) GetMaturityDate() string {
 	return ""
 }
 
-func (x *LoanResponse) GetNextInstallmentAmount() float64 {
+func (x *LoanResponse) GetNextInstallmentAmount() string {
 	if x != nil {
 		return x.NextInstallmentAmount
 	}
-	return 0
+	return ""
 }
 
 func (x *LoanResponse) GetNextInstallmentDate() string {
@@ -938,11 +938,11 @@ func (x *LoanResponse) GetNextInstallmentDate() string {
 	return ""
 }
 
-func (x *LoanResponse) GetRemainingDebt() float64 {
+func (x *LoanResponse) GetRemainingDebt() string {
 	if x != nil {
 		return x.RemainingDebt
 	}
-	return 0
+	return ""
 }
 
 func (x *LoanResponse) GetCurrencyCode() string {
@@ -1065,8 +1065,8 @@ type InstallmentResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	LoanId        uint64                 `protobuf:"varint,2,opt,name=loan_id,json=loanId,proto3" json:"loan_id,omitempty"`
-	Amount        float64                `protobuf:"fixed64,3,opt,name=amount,proto3" json:"amount,omitempty"`
-	InterestRate  float64                `protobuf:"fixed64,4,opt,name=interest_rate,json=interestRate,proto3" json:"interest_rate,omitempty"`
+	Amount        string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`
+	InterestRate  string                 `protobuf:"bytes,4,opt,name=interest_rate,json=interestRate,proto3" json:"interest_rate,omitempty"`
 	CurrencyCode  string                 `protobuf:"bytes,5,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
 	ExpectedDate  string                 `protobuf:"bytes,6,opt,name=expected_date,json=expectedDate,proto3" json:"expected_date,omitempty"`
 	ActualDate    string                 `protobuf:"bytes,7,opt,name=actual_date,json=actualDate,proto3" json:"actual_date,omitempty"`
@@ -1119,18 +1119,18 @@ func (x *InstallmentResponse) GetLoanId() uint64 {
 	return 0
 }
 
-func (x *InstallmentResponse) GetAmount() float64 {
+func (x *InstallmentResponse) GetAmount() string {
 	if x != nil {
 		return x.Amount
 	}
-	return 0
+	return ""
 }
 
-func (x *InstallmentResponse) GetInterestRate() float64 {
+func (x *InstallmentResponse) GetInterestRate() string {
 	if x != nil {
 		return x.InterestRate
 	}
-	return 0
+	return ""
 }
 
 func (x *InstallmentResponse) GetCurrencyCode() string {
@@ -1170,10 +1170,10 @@ const file_credit_credit_proto_rawDesc = "" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12\x1b\n" +
 	"\tloan_type\x18\x02 \x01(\tR\bloanType\x12#\n" +
 	"\rinterest_type\x18\x03 \x01(\tR\finterestType\x12\x16\n" +
-	"\x06amount\x18\x04 \x01(\x01R\x06amount\x12#\n" +
+	"\x06amount\x18\x04 \x01(\tR\x06amount\x12#\n" +
 	"\rcurrency_code\x18\x05 \x01(\tR\fcurrencyCode\x12\x18\n" +
 	"\apurpose\x18\x06 \x01(\tR\apurpose\x12%\n" +
-	"\x0emonthly_salary\x18\a \x01(\x01R\rmonthlySalary\x12+\n" +
+	"\x0emonthly_salary\x18\a \x01(\tR\rmonthlySalary\x12+\n" +
 	"\x11employment_status\x18\b \x01(\tR\x10employmentStatus\x12+\n" +
 	"\x11employment_period\x18\t \x01(\x05R\x10employmentPeriod\x12)\n" +
 	"\x10repayment_period\x18\n" +
@@ -1202,10 +1202,10 @@ const file_credit_credit_proto_rawDesc = "" +
 	"\tclient_id\x18\x02 \x01(\x04R\bclientId\x12\x1b\n" +
 	"\tloan_type\x18\x03 \x01(\tR\bloanType\x12#\n" +
 	"\rinterest_type\x18\x04 \x01(\tR\finterestType\x12\x16\n" +
-	"\x06amount\x18\x05 \x01(\x01R\x06amount\x12#\n" +
+	"\x06amount\x18\x05 \x01(\tR\x06amount\x12#\n" +
 	"\rcurrency_code\x18\x06 \x01(\tR\fcurrencyCode\x12\x18\n" +
 	"\apurpose\x18\a \x01(\tR\apurpose\x12%\n" +
-	"\x0emonthly_salary\x18\b \x01(\x01R\rmonthlySalary\x12+\n" +
+	"\x0emonthly_salary\x18\b \x01(\tR\rmonthlySalary\x12+\n" +
 	"\x11employment_status\x18\t \x01(\tR\x10employmentStatus\x12+\n" +
 	"\x11employment_period\x18\n" +
 	" \x01(\x05R\x10employmentPeriod\x12)\n" +
@@ -1237,16 +1237,16 @@ const file_credit_credit_proto_rawDesc = "" +
 	"loanNumber\x12\x1b\n" +
 	"\tloan_type\x18\x03 \x01(\tR\bloanType\x12%\n" +
 	"\x0eaccount_number\x18\x04 \x01(\tR\raccountNumber\x12\x16\n" +
-	"\x06amount\x18\x05 \x01(\x01R\x06amount\x12)\n" +
+	"\x06amount\x18\x05 \x01(\tR\x06amount\x12)\n" +
 	"\x10repayment_period\x18\x06 \x01(\x05R\x0frepaymentPeriod\x122\n" +
-	"\x15nominal_interest_rate\x18\a \x01(\x01R\x13nominalInterestRate\x126\n" +
-	"\x17effective_interest_rate\x18\b \x01(\x01R\x15effectiveInterestRate\x12#\n" +
+	"\x15nominal_interest_rate\x18\a \x01(\tR\x13nominalInterestRate\x126\n" +
+	"\x17effective_interest_rate\x18\b \x01(\tR\x15effectiveInterestRate\x12#\n" +
 	"\rcontract_date\x18\t \x01(\tR\fcontractDate\x12#\n" +
 	"\rmaturity_date\x18\n" +
 	" \x01(\tR\fmaturityDate\x126\n" +
-	"\x17next_installment_amount\x18\v \x01(\x01R\x15nextInstallmentAmount\x122\n" +
+	"\x17next_installment_amount\x18\v \x01(\tR\x15nextInstallmentAmount\x122\n" +
 	"\x15next_installment_date\x18\f \x01(\tR\x13nextInstallmentDate\x12%\n" +
-	"\x0eremaining_debt\x18\r \x01(\x01R\rremainingDebt\x12#\n" +
+	"\x0eremaining_debt\x18\r \x01(\tR\rremainingDebt\x12#\n" +
 	"\rcurrency_code\x18\x0e \x01(\tR\fcurrencyCode\x12\x16\n" +
 	"\x06status\x18\x0f \x01(\tR\x06status\x12#\n" +
 	"\rinterest_type\x18\x10 \x01(\tR\finterestType\x12\x1d\n" +
@@ -1259,8 +1259,8 @@ const file_credit_credit_proto_rawDesc = "" +
 	"\x13InstallmentResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\aloan_id\x18\x02 \x01(\x04R\x06loanId\x12\x16\n" +
-	"\x06amount\x18\x03 \x01(\x01R\x06amount\x12#\n" +
-	"\rinterest_rate\x18\x04 \x01(\x01R\finterestRate\x12#\n" +
+	"\x06amount\x18\x03 \x01(\tR\x06amount\x12#\n" +
+	"\rinterest_rate\x18\x04 \x01(\tR\finterestRate\x12#\n" +
 	"\rcurrency_code\x18\x05 \x01(\tR\fcurrencyCode\x12#\n" +
 	"\rexpected_date\x18\x06 \x01(\tR\fexpectedDate\x12\x1f\n" +
 	"\vactual_date\x18\a \x01(\tR\n" +

@@ -26,6 +26,25 @@ func (r *TransferRepository) GetByID(id uint64) (*model.Transfer, error) {
 	return &transfer, nil
 }
 
+func (r *TransferRepository) GetByIdempotencyKey(key string) (*model.Transfer, error) {
+	var transfer model.Transfer
+	if err := r.db.Where("idempotency_key = ?", key).First(&transfer).Error; err != nil {
+		return nil, err
+	}
+	return &transfer, nil
+}
+
+func (r *TransferRepository) UpdateStatus(id uint64, status string) error {
+	return r.db.Model(&model.Transfer{}).Where("id = ?", id).Update("status", status).Error
+}
+
+func (r *TransferRepository) UpdateStatusWithReason(id uint64, status, reason string) error {
+	return r.db.Model(&model.Transfer{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":         status,
+		"failure_reason": reason,
+	}).Error
+}
+
 func (r *TransferRepository) ListByClient(clientID uint64, page, pageSize int) ([]model.Transfer, int64, error) {
 	q := r.db.Model(&model.Transfer{})
 

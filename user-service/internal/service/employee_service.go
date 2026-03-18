@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/user-service/internal/cache"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
@@ -41,6 +43,18 @@ func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employe
 
 	if err := s.repo.Create(emp); err != nil {
 		return fmt.Errorf("create employee: %w", err)
+	}
+
+	if s.producer != nil {
+		if err := s.producer.PublishEmployeeCreated(ctx, kafkamsg.EmployeeCreatedMessage{
+			EmployeeID: emp.ID,
+			Email:      emp.Email,
+			FirstName:  emp.FirstName,
+			LastName:   emp.LastName,
+			Role:       emp.Role,
+		}); err != nil {
+			log.Printf("warn: failed to publish employee-created event: %v", err)
+		}
 	}
 
 	return nil
@@ -90,7 +104,7 @@ func (s *EmployeeService) ListEmployees(emailFilter, nameFilter, positionFilter 
 	return s.repo.List(emailFilter, nameFilter, positionFilter, page, pageSize)
 }
 
-func (s *EmployeeService) UpdateEmployee(id int64, updates map[string]interface{}) (*model.Employee, error) {
+func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates map[string]interface{}) (*model.Employee, error) {
 	emp, err := s.repo.GetByID(id)
 	if err != nil {
 		return nil, err
@@ -140,6 +154,19 @@ func (s *EmployeeService) UpdateEmployee(id int64, updates map[string]interface{
 		_ = s.cache.Delete(context.Background(), "employee:id:"+strconv.FormatInt(id, 10))
 		_ = s.cache.Delete(context.Background(), "employee:email:"+emp.Email)
 	}
+
+	if s.producer != nil {
+		if err := s.producer.PublishEmployeeUpdated(ctx, kafkamsg.EmployeeCreatedMessage{
+			EmployeeID: emp.ID,
+			Email:      emp.Email,
+			FirstName:  emp.FirstName,
+			LastName:   emp.LastName,
+			Role:       emp.Role,
+		}); err != nil {
+			log.Printf("warn: failed to publish employee-updated event: %v", err)
+		}
+	}
+
 	return emp, nil
 }
 

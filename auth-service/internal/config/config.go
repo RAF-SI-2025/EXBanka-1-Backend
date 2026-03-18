@@ -3,8 +3,6 @@ package config
 import (
 	"os"
 	"time"
-
-	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -25,21 +23,15 @@ type Config struct {
 }
 
 func Load() *Config {
-	for _, f := range []string{".env", "../.env", "../../.env", "../../../.env"} {
-		if err := godotenv.Load(f); err == nil {
-			break
-		}
-	}
-
 	accessExp, _ := time.ParseDuration(getEnv("JWT_ACCESS_EXPIRY", "15m"))
 	refreshExp, _ := time.ParseDuration(getEnv("JWT_REFRESH_EXPIRY", "168h"))
 
 	return &Config{
-		DBHost:        getEnv("AUTH_DB_HOST", "exteam1-database.postgres.database.azure.com"),
+		DBHost:        getEnv("AUTH_DB_HOST", "localhost"),
 		DBPort:        getEnv("AUTH_DB_PORT", "5432"),
-		DBUser:        getEnv("AUTH_DB_USER", "exteam1"),
-		DBPassword:    getEnv("AUTH_DB_PASSWORD", "Anajankovic03"),
-		DBName:        getEnv("AUTH_DB_NAME", "authservicedb"),
+		DBUser:        getEnv("AUTH_DB_USER", "postgres"),
+		DBPassword:    getEnv("AUTH_DB_PASSWORD", "postgres"),
+		DBName:        getEnv("AUTH_DB_NAME", "authdb"),
 		GRPCAddr:       getEnv("AUTH_GRPC_ADDR", ":50051"),
 		UserGRPCAddr:   getEnv("USER_GRPC_ADDR", "localhost:50052"),
 		ClientGRPCAddr: getEnv("CLIENT_GRPC_ADDR", "localhost:50054"),

@@ -3,6 +3,7 @@ package service
 import (
 	"testing"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,24 +24,28 @@ func TestGetNominalInterestRate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rate := GetNominalInterestRate(tt.loanType, tt.interestType)
-			assert.GreaterOrEqual(t, rate, tt.minRate, "rate should be >= minRate")
-			assert.LessOrEqual(t, rate, tt.maxRate, "rate should be <= maxRate")
+			rateF, _ := rate.Float64()
+			assert.GreaterOrEqual(t, rateF, tt.minRate, "rate should be >= minRate")
+			assert.LessOrEqual(t, rateF, tt.maxRate, "rate should be <= maxRate")
 		})
 	}
 }
 
 func TestCalculateEffectiveInterestRate(t *testing.T) {
-	nominal := 5.0
+	nominal := decimal.NewFromFloat(5.0)
 	eir := CalculateEffectiveInterestRate(nominal, 12)
-	assert.Greater(t, eir, nominal, "EIR must be greater than nominal")
-	assert.Less(t, eir, nominal*2, "EIR should not be unreasonably high")
+	nominalF, _ := nominal.Float64()
+	eirF, _ := eir.Float64()
+	assert.Greater(t, eirF, nominalF, "EIR must be greater than nominal")
+	assert.Less(t, eirF, nominalF*2, "EIR should not be unreasonably high")
 }
 
 func TestCalculateMonthlyInstallment(t *testing.T) {
-	amount := 100000.0
-	annualRate := 5.0
+	amount := decimal.NewFromFloat(100000.0)
+	annualRate := decimal.NewFromFloat(5.0)
 	months := 12
 	installment := CalculateMonthlyInstallment(amount, annualRate, months)
-	assert.Greater(t, installment, 8000.0)
-	assert.Less(t, installment, 9000.0)
+	installmentF, _ := installment.Float64()
+	assert.Greater(t, installmentF, 8000.0)
+	assert.Less(t, installmentF, 9000.0)
 }

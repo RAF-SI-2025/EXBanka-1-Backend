@@ -409,7 +409,7 @@ type CardResponse struct {
 	ExpiresAt      string                 `protobuf:"bytes,8,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	AccountNumber  string                 `protobuf:"bytes,9,opt,name=account_number,json=accountNumber,proto3" json:"account_number,omitempty"`
 	Cvv            string                 `protobuf:"bytes,10,opt,name=cvv,proto3" json:"cvv,omitempty"`
-	CardLimit      float64                `protobuf:"fixed64,11,opt,name=card_limit,json=cardLimit,proto3" json:"card_limit,omitempty"`
+	CardLimit      string                 `protobuf:"bytes,11,opt,name=card_limit,json=cardLimit,proto3" json:"card_limit,omitempty"`
 	Status         string                 `protobuf:"bytes,12,opt,name=status,proto3" json:"status,omitempty"`
 	OwnerType      string                 `protobuf:"bytes,13,opt,name=owner_type,json=ownerType,proto3" json:"owner_type,omitempty"`
 	OwnerId        uint64                 `protobuf:"varint,14,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
@@ -517,11 +517,11 @@ func (x *CardResponse) GetCvv() string {
 	return ""
 }
 
-func (x *CardResponse) GetCardLimit() float64 {
+func (x *CardResponse) GetCardLimit() string {
 	if x != nil {
 		return x.CardLimit
 	}
-	return 0
+	return ""
 }
 
 func (x *CardResponse) GetStatus() string {
@@ -848,7 +848,7 @@ const file_card_card_proto_rawDesc = "" +
 	"\x03cvv\x18\n" +
 	" \x01(\tR\x03cvv\x12\x1d\n" +
 	"\n" +
-	"card_limit\x18\v \x01(\x01R\tcardLimit\x12\x16\n" +
+	"card_limit\x18\v \x01(\tR\tcardLimit\x12\x16\n" +
 	"\x06status\x18\f \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
 	"owner_type\x18\r \x01(\tR\townerType\x12\x19\n" +

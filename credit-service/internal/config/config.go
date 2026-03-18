@@ -2,36 +2,31 @@ package config
 
 import (
 	"os"
-
-	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	DBHost       string
-	DBPort       string
-	DBUser       string
-	DBPassword   string
-	DBName       string
-	GRPCAddr     string
-	KafkaBrokers string
-	RedisAddr    string
+	DBHost          string
+	DBPort          string
+	DBUser          string
+	DBPassword      string
+	DBName          string
+	GRPCAddr        string
+	KafkaBrokers    string
+	RedisAddr       string
+	AccountGRPCAddr string
 }
 
 func Load() *Config {
-	for _, f := range []string{".env", "../.env", "../../.env", "../../../.env"} {
-		if err := godotenv.Load(f); err == nil {
-			break
-		}
-	}
 	return &Config{
-		DBHost:       getEnv("CREDIT_DB_HOST", "localhost"),
-		DBPort:       getEnv("CREDIT_DB_PORT", "5438"),
-		DBUser:       getEnv("CREDIT_DB_USER", "postgres"),
-		DBPassword:   getEnv("CREDIT_DB_PASSWORD", "postgres"),
-		DBName:       getEnv("CREDIT_DB_NAME", "creditdb"),
-		GRPCAddr:     getEnv("CREDIT_GRPC_ADDR", ":50058"),
-		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
-		RedisAddr:    getEnv("REDIS_ADDR", "localhost:6379"),
+		DBHost:          getEnv("CREDIT_DB_HOST", "localhost"),
+		DBPort:          getEnv("CREDIT_DB_PORT", "5438"),
+		DBUser:          getEnv("CREDIT_DB_USER", "postgres"),
+		DBPassword:      getEnv("CREDIT_DB_PASSWORD", "postgres"),
+		DBName:          getEnv("CREDIT_DB_NAME", "creditdb"),
+		GRPCAddr:        getEnv("CREDIT_GRPC_ADDR", ":50058"),
+		KafkaBrokers:    getEnv("KAFKA_BROKERS", "localhost:9092"),
+		RedisAddr:       getEnv("REDIS_ADDR", "localhost:6379"),
+		AccountGRPCAddr: getEnv("ACCOUNT_GRPC_ADDR", "localhost:50055"),
 	}
 }
 

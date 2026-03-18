@@ -4,9 +4,9 @@ go 1.25.0
 
 require (
 	github.com/exbanka/contract v0.0.0
-	github.com/joho/godotenv v1.5.1
-	github.com/redis/go-redis/v9 v9.7.3
+	github.com/redis/go-redis/v9 v9.18.0
 	github.com/segmentio/kafka-go v0.4.50
+	github.com/shopspring/decimal v1.4.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.79.2
 	gorm.io/driver/postgres v1.6.0
@@ -23,11 +23,13 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/klauspost/compress v1.15.9 // indirect
+	github.com/klauspost/compress v1.17.6 // indirect
+	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	github.com/xdg-go/scram v1.2.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect

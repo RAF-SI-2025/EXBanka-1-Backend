@@ -4,8 +4,7 @@ COPY contract/ contract/
 COPY api-gateway/ api-gateway/
 ENV GOWORK=off
 RUN cd api-gateway && \
-    go mod edit -require github.com/exbanka/contract@v0.0.0 && \
-    go mod edit -replace github.com/exbanka/contract@v0.0.0=../contract && \
+    go mod edit -replace github.com/exbanka/contract=../contract && \
     go mod download && go build -o /api-gateway ./cmd
 
 FROM alpine:3.19

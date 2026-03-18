@@ -16,13 +16,11 @@ func NewExchangeHandler(txClient transactionpb.TransactionServiceClient) *Exchan
 	return &ExchangeHandler{txClient: txClient}
 }
 
-// ListExchangeRates godoc
 // @Summary      List exchange rates
-// @Description  Returns all current currency exchange rates
 // @Tags         exchange-rates
 // @Produce      json
-// @Success      200  {object}  map[string]interface{}  "rates array"
-// @Failure      500  {object}  map[string]string       "Internal error"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
 // @Router       /api/exchange-rates [get]
 func (h *ExchangeHandler) ListExchangeRates(c *gin.Context) {
 	resp, err := h.txClient.ListExchangeRates(c.Request.Context(), &transactionpb.ListExchangeRatesRequest{})
@@ -38,15 +36,13 @@ func (h *ExchangeHandler) ListExchangeRates(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"rates": rates})
 }
 
-// GetExchangeRate godoc
 // @Summary      Get exchange rate
-// @Description  Get the exchange rate between two currencies
 // @Tags         exchange-rates
 // @Produce      json
-// @Param        from  path  string  true  "Source currency code (e.g. USD)"
-// @Param        to    path  string  true  "Target currency code (e.g. EUR)"
-// @Success      200  {object}  map[string]interface{}  "Exchange rate data"
-// @Failure      404  {object}  map[string]string       "Exchange rate not found"
+// @Param        from  path  string  true  "Source currency (e.g. EUR)"
+// @Param        to    path  string  true  "Target currency (e.g. RSD)"
+// @Success      200   {object}  map[string]interface{}
+// @Failure      404   {object}  map[string]string
 // @Router       /api/exchange-rates/{from}/{to} [get]
 func (h *ExchangeHandler) GetExchangeRate(c *gin.Context) {
 	from := c.Param("from")

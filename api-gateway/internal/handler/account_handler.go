@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -29,17 +30,15 @@ type createAccountRequest struct {
 	CompanyID       *uint64  `json:"company_id"`
 }
 
-// CreateAccount godoc
-// @Summary      Create a bank account
-// @Description  Open a new bank account for a client
+// @Summary      Create account
 // @Tags         accounts
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createAccountRequest  true  "Account data"
-// @Success      201  {object}  map[string]interface{}  "Created account"
-// @Failure      400  {object}  map[string]string       "Validation error"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/accounts [post]
 func (h *AccountHandler) CreateAccount(c *gin.Context) {
 	var req createAccountRequest
@@ -55,7 +54,7 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 		AccountCategory: req.AccountCategory,
 		CurrencyCode:    req.CurrencyCode,
 		EmployeeId:      req.EmployeeID,
-		InitialBalance:  req.InitialBalance,
+		InitialBalance:  fmt.Sprintf("%.4f", req.InitialBalance),
 		CreateCard:      req.CreateCard,
 		CompanyId:       req.CompanyID,
 	}
@@ -68,19 +67,17 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 	c.JSON(http.StatusCreated, accountToJSON(resp))
 }
 
-// ListAllAccounts godoc
-// @Summary      List all accounts
-// @Description  Paginated list of all bank accounts with optional filters
+// @Summary      List accounts
 // @Tags         accounts
 // @Produce      json
-// @Param        page                   query  int     false  "Page number (default 1)"
-// @Param        page_size              query  int     false  "Page size (default 20)"
-// @Param        name_filter            query  string  false  "Filter by account name"
-// @Param        account_number_filter  query  string  false  "Filter by account number"
-// @Param        type_filter            query  string  false  "Filter by account type"
-// @Success      200  {object}  map[string]interface{}  "accounts array and total count"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Param        page                  query  int     false  "Page number (default 1)"
+// @Param        page_size             query  int     false  "Items per page (default 20)"
+// @Param        name_filter           query  string  false  "Filter by account name"
+// @Param        account_number_filter query  string  false  "Filter by account number"
+// @Param        type_filter           query  string  false  "Filter by account type"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
 // @Router       /api/accounts [get]
 func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -108,16 +105,12 @@ func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 	})
 }
 
-// GetAccount godoc
 // @Summary      Get account by ID
-// @Description  Retrieve a single bank account by its ID
 // @Tags         accounts
 // @Produce      json
-// @Param        id  path  int  true  "Account ID"
-// @Success      200  {object}  map[string]interface{}  "Account data"
-// @Failure      400  {object}  map[string]string       "Invalid ID"
-// @Failure      404  {object}  map[string]string       "Account not found"
-// @Security     BearerAuth
+// @Param        id   path  int  true  "Account ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]string
 // @Router       /api/accounts/{id} [get]
 func (h *AccountHandler) GetAccount(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -134,15 +127,12 @@ func (h *AccountHandler) GetAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, accountToJSON(resp))
 }
 
-// GetAccountByNumber godoc
-// @Summary      Get account by account number
-// @Description  Retrieve a bank account by its account number
+// @Summary      Get account by number
 // @Tags         accounts
 // @Produce      json
 // @Param        account_number  path  string  true  "Account number"
-// @Success      200  {object}  map[string]interface{}  "Account data"
-// @Failure      404  {object}  map[string]string       "Account not found"
-// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]string
 // @Router       /api/accounts/by-number/{account_number} [get]
 func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
 	accountNumber := c.Param("account_number")
@@ -156,18 +146,15 @@ func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
 	c.JSON(http.StatusOK, accountToJSON(resp))
 }
 
-// ListAccountsByClient godoc
 // @Summary      List accounts by client
-// @Description  Retrieve all bank accounts belonging to a specific client
 // @Tags         accounts
 // @Produce      json
-// @Param        client_id  path  int  true  "Client ID"
+// @Param        client_id  path   int  true   "Client ID"
 // @Param        page       query  int  false  "Page number (default 1)"
-// @Param        page_size  query  int  false  "Page size (default 20)"
-// @Success      200  {object}  map[string]interface{}  "accounts array and total count"
-// @Failure      400  {object}  map[string]string       "Invalid client_id"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
 // @Router       /api/accounts/client/{client_id} [get]
 func (h *AccountHandler) ListAccountsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
@@ -203,18 +190,15 @@ type updateAccountNameRequest struct {
 	ClientID uint64 `json:"client_id"`
 }
 
-// UpdateAccountName godoc
 // @Summary      Update account name
-// @Description  Change the display name of a bank account
 // @Tags         accounts
 // @Accept       json
 // @Produce      json
 // @Param        id    path  int                       true  "Account ID"
 // @Param        body  body  updateAccountNameRequest  true  "New name"
-// @Success      200  {object}  map[string]interface{}  "Updated account"
-// @Failure      400  {object}  map[string]string       "Invalid request"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/accounts/{id}/name [put]
 func (h *AccountHandler) UpdateAccountName(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -246,18 +230,15 @@ type updateAccountLimitsRequest struct {
 	MonthlyLimit *float64 `json:"monthly_limit"`
 }
 
-// UpdateAccountLimits godoc
-// @Summary      Update account spending limits
-// @Description  Set daily and/or monthly spending limits for an account
+// @Summary      Update account limits
 // @Tags         accounts
 // @Accept       json
 // @Produce      json
-// @Param        id    path  int                          true  "Account ID"
+// @Param        id    path  int                         true  "Account ID"
 // @Param        body  body  updateAccountLimitsRequest  true  "Limit values"
-// @Success      200  {object}  map[string]interface{}  "Updated account"
-// @Failure      400  {object}  map[string]string       "Invalid request"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/accounts/{id}/limits [put]
 func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -272,11 +253,16 @@ func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.accountClient.UpdateAccountLimits(c.Request.Context(), &accountpb.UpdateAccountLimitsRequest{
-		Id:           id,
-		DailyLimit:   req.DailyLimit,
-		MonthlyLimit: req.MonthlyLimit,
-	})
+	pbLimitsReq := &accountpb.UpdateAccountLimitsRequest{Id: id}
+	if req.DailyLimit != nil {
+		s := fmt.Sprintf("%.4f", *req.DailyLimit)
+		pbLimitsReq.DailyLimit = &s
+	}
+	if req.MonthlyLimit != nil {
+		s := fmt.Sprintf("%.4f", *req.MonthlyLimit)
+		pbLimitsReq.MonthlyLimit = &s
+	}
+	resp, err := h.accountClient.UpdateAccountLimits(c.Request.Context(), pbLimitsReq)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -288,18 +274,15 @@ type updateAccountStatusRequest struct {
 	Status string `json:"status" binding:"required"`
 }
 
-// UpdateAccountStatus godoc
 // @Summary      Update account status
-// @Description  Change the status of a bank account (e.g. active, blocked, closed)
 // @Tags         accounts
 // @Accept       json
 // @Produce      json
-// @Param        id    path  int                           true  "Account ID"
+// @Param        id    path  int                         true  "Account ID"
 // @Param        body  body  updateAccountStatusRequest  true  "New status"
-// @Success      200  {object}  map[string]interface{}  "Updated account"
-// @Failure      400  {object}  map[string]string       "Invalid request"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/accounts/{id}/status [put]
 func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -325,14 +308,11 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, accountToJSON(resp))
 }
 
-// ListCurrencies godoc
-// @Summary      List supported currencies
-// @Description  Returns all currencies supported by the bank
+// @Summary      List currencies
 // @Tags         accounts
 // @Produce      json
-// @Success      200  {object}  map[string]interface{}  "currencies array"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
 // @Router       /api/currencies [get]
 func (h *AccountHandler) ListCurrencies(c *gin.Context) {
 	resp, err := h.accountClient.ListCurrencies(c.Request.Context(), &accountpb.ListCurrenciesRequest{})
@@ -361,17 +341,14 @@ type createCompanyRequest struct {
 	OwnerID            uint64 `json:"owner_id" binding:"required"`
 }
 
-// CreateCompany godoc
-// @Summary      Create a company
-// @Description  Register a new company for corporate banking
+// @Summary      Create company
 // @Tags         accounts
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createCompanyRequest  true  "Company data"
-// @Success      201  {object}  map[string]interface{}  "Created company"
-// @Failure      400  {object}  map[string]string       "Validation error"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/companies [post]
 func (h *AccountHandler) CreateCompany(c *gin.Context) {
 	var req createCompanyRequest

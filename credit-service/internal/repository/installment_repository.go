@@ -42,3 +42,12 @@ func (r *InstallmentRepository) MarkOverdue() error {
 		Where("status = ? AND expected_date < ?", "unpaid", time.Now()).
 		Update("status", "overdue").Error
 }
+
+// GetDueInstallments returns unpaid installments whose expected_date is today or earlier.
+func (r *InstallmentRepository) GetDueInstallments() ([]model.Installment, error) {
+	var installments []model.Installment
+	if err := r.db.Where("status = ? AND expected_date <= ?", "unpaid", time.Now()).Find(&installments).Error; err != nil {
+		return nil, err
+	}
+	return installments, nil
+}

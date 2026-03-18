@@ -28,17 +28,14 @@ type createClientRequest struct {
 	JMBG        string `json:"jmbg" binding:"required"`
 }
 
-// CreateClient godoc
-// @Summary      Create a new client
-// @Description  Register a new bank client
+// @Summary      Create client
 // @Tags         clients
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createClientRequest  true  "Client data"
-// @Success      201  {object}  map[string]interface{}  "Created client"
-// @Failure      400  {object}  map[string]string       "Validation error"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/clients [post]
 func (h *ClientHandler) CreateClient(c *gin.Context) {
 	var req createClientRequest
@@ -64,18 +61,15 @@ func (h *ClientHandler) CreateClient(c *gin.Context) {
 	c.JSON(http.StatusCreated, clientToJSON(resp))
 }
 
-// ListClients godoc
 // @Summary      List clients
-// @Description  Paginated list of bank clients with optional filters
 // @Tags         clients
 // @Produce      json
-// @Param        page         query  int     false  "Page number (default 1)"
-// @Param        page_size    query  int     false  "Page size (default 20)"
-// @Param        email_filter query  string  false  "Filter by email"
-// @Param        name_filter  query  string  false  "Filter by name"
-// @Success      200  {object}  map[string]interface{}  "clients array and total count"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Param        page          query  int     false  "Page number (default 1)"
+// @Param        page_size     query  int     false  "Items per page (default 20)"
+// @Param        email_filter  query  string  false  "Filter by email"
+// @Param        name_filter   query  string  false  "Filter by name"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
 // @Router       /api/clients [get]
 func (h *ClientHandler) ListClients(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -102,16 +96,12 @@ func (h *ClientHandler) ListClients(c *gin.Context) {
 	})
 }
 
-// GetClient godoc
 // @Summary      Get client by ID
-// @Description  Retrieve a single bank client by their ID
 // @Tags         clients
 // @Produce      json
-// @Param        id  path  int  true  "Client ID"
-// @Success      200  {object}  map[string]interface{}  "Client data"
-// @Failure      400  {object}  map[string]string       "Invalid ID"
-// @Failure      404  {object}  map[string]string       "Client not found"
-// @Security     BearerAuth
+// @Param        id   path  int  true  "Client ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]string
 // @Router       /api/clients/{id} [get]
 func (h *ClientHandler) GetClient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -138,18 +128,15 @@ type updateClientRequest struct {
 	Address     *string `json:"address"`
 }
 
-// UpdateClient godoc
 // @Summary      Update client
-// @Description  Update bank client fields (all fields optional)
 // @Tags         clients
 // @Accept       json
 // @Produce      json
 // @Param        id    path  int                  true  "Client ID"
 // @Param        body  body  updateClientRequest  true  "Fields to update"
-// @Success      200  {object}  map[string]interface{}  "Updated client"
-// @Failure      400  {object}  map[string]string       "Invalid request"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/clients/{id} [put]
 func (h *ClientHandler) UpdateClient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -181,15 +168,12 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 	c.JSON(http.StatusOK, clientToJSON(resp))
 }
 
-// GetCurrentClient godoc
-// @Summary      Get current client profile
-// @Description  Returns the profile of the currently authenticated client
+// @Summary      Get current client (me)
 // @Tags         clients
 // @Produce      json
-// @Success      200  {object}  map[string]interface{}  "Client data"
-// @Failure      401  {object}  map[string]string       "Not authenticated"
-// @Failure      404  {object}  map[string]string       "Client not found"
-// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
 // @Router       /api/clients/me [get]
 func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
 	userID, exists := c.Get("user_id")
@@ -227,17 +211,14 @@ type setPasswordRequest struct {
 	PasswordHash string `json:"password_hash" binding:"required"`
 }
 
-// SetPassword godoc
-// @Summary      Set client password
-// @Description  Set or reset the password for a bank client
+// @Summary      Set client password hash
 // @Tags         clients
 // @Accept       json
 // @Produce      json
-// @Param        body  body  setPasswordRequest  true  "User ID and password hash"
-// @Success      200  {object}  map[string]bool    "success: true"
-// @Failure      400  {object}  map[string]string  "Validation error"
-// @Failure      500  {object}  map[string]string  "Internal error"
-// @Security     BearerAuth
+// @Param        body  body  setPasswordRequest  true  "Password hash data"
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/clients/set-password [post]
 func (h *ClientHandler) SetPassword(c *gin.Context) {
 	var req setPasswordRequest

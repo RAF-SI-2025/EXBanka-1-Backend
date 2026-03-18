@@ -67,6 +67,7 @@ clean:
 
 test:
 	cd user-service && go test ./... -v
+
 	cd auth-service && go test ./... -v
 	cd notification-service && go test ./... -v
 	cd api-gateway && go test ./... -v

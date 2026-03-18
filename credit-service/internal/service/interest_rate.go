@@ -1,38 +1,45 @@
 package service
 
-import "math"
+import "github.com/shopspring/decimal"
 
 // GetNominalInterestRate returns the nominal annual interest rate percentage for a loan type
-func GetNominalInterestRate(loanType, interestType string) float64 {
-	rates := map[string]map[string]float64{
-		"cash":        {"fixed": 9.5, "variable": 7.5},
-		"housing":     {"fixed": 3.5, "variable": 2.5},
-		"auto":        {"fixed": 5.5, "variable": 4.0},
-		"refinancing": {"fixed": 7.0, "variable": 5.5},
-		"student":     {"fixed": 2.0, "variable": 1.5},
+func GetNominalInterestRate(loanType, interestType string) decimal.Decimal {
+	rates := map[string]map[string]decimal.Decimal{
+		"cash":        {"fixed": decimal.NewFromFloat(9.5), "variable": decimal.NewFromFloat(7.5)},
+		"housing":     {"fixed": decimal.NewFromFloat(3.5), "variable": decimal.NewFromFloat(2.5)},
+		"auto":        {"fixed": decimal.NewFromFloat(5.5), "variable": decimal.NewFromFloat(4.0)},
+		"refinancing": {"fixed": decimal.NewFromFloat(7.0), "variable": decimal.NewFromFloat(5.5)},
+		"student":     {"fixed": decimal.NewFromFloat(2.0), "variable": decimal.NewFromFloat(1.5)},
 	}
-	if r, ok := rates[loanType]; ok {
-		if rate, ok := r[interestType]; ok {
-			return rate
+	if m, ok := rates[loanType]; ok {
+		if r, ok := m[interestType]; ok {
+			return r
 		}
 	}
-	return 8.0 // default
+	return decimal.NewFromFloat(8.0)
 }
 
 // CalculateEffectiveInterestRate computes EIR from nominal rate and compounding periods per year
-func CalculateEffectiveInterestRate(nominalRate float64, periodsPerYear int) float64 {
-	r := nominalRate / 100 / float64(periodsPerYear)
-	eir := (math.Pow(1+r, float64(periodsPerYear)) - 1) * 100
-	return math.Round(eir*10000) / 10000
+func CalculateEffectiveInterestRate(nominalRate decimal.Decimal, periodsPerYear int) decimal.Decimal {
+	// (1 + r/12)^12 - 1 using decimal arithmetic
+	r := nominalRate.Div(decimal.NewFromInt(100)).Div(decimal.NewFromInt(12))
+	one := decimal.NewFromInt(1)
+	return one.Add(r).Pow(decimal.NewFromInt(int64(periodsPerYear))).Sub(one).Mul(decimal.NewFromInt(100))
 }
 
 // CalculateMonthlyInstallment uses annuity formula: P * r / (1 - (1+r)^-n)
-func CalculateMonthlyInstallment(principal float64, annualRatePercent float64, months int) float64 {
-	r := annualRatePercent / 12 / 100
-	if r == 0 {
-		return principal / float64(months)
+func CalculateMonthlyInstallment(principal, annualRatePercent decimal.Decimal, months int) decimal.Decimal {
+	if months <= 0 {
+		return decimal.Zero
 	}
-	factor := math.Pow(1+r, float64(months))
-	payment := principal * r * factor / (factor - 1)
-	return math.Round(payment*100) / 100
+	r := annualRatePercent.Div(decimal.NewFromInt(100)).Div(decimal.NewFromInt(12))
+	if r.IsZero() {
+		return principal.Div(decimal.NewFromInt(int64(months)))
+	}
+	n := decimal.NewFromInt(int64(months))
+	one := decimal.NewFromInt(1)
+	// P * r / (1 - (1+r)^-n)
+	numerator := principal.Mul(r)
+	denominator := one.Sub(one.Add(r).Pow(n.Neg()))
+	return numerator.Div(denominator)
 }
