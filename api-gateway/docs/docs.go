@@ -17,19 +17,13 @@ const docTemplate = `{
     "paths": {
         "/api/accounts": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Paginated list of all bank accounts with optional filters",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "accounts"
                 ],
-                "summary": "List all accounts",
+                "summary": "List accounts",
                 "parameters": [
                     {
                         "type": "integer",
@@ -39,7 +33,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
+                        "description": "Items per page (default 20)",
                         "name": "page_size",
                         "in": "query"
                     },
@@ -64,14 +58,23 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "accounts array and total count",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -82,12 +85,6 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Open a new bank account for a client",
                 "consumes": [
                     "application/json"
                 ],
@@ -97,7 +94,7 @@ const docTemplate = `{
                 "tags": [
                     "accounts"
                 ],
-                "summary": "Create a bank account",
+                "summary": "Create account",
                 "parameters": [
                     {
                         "description": "Account data",
@@ -111,14 +108,23 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created account",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -127,7 +133,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -140,19 +146,13 @@ const docTemplate = `{
         },
         "/api/accounts/by-number/{account_number}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve a bank account by its account number",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "accounts"
                 ],
-                "summary": "Get account by account number",
+                "summary": "Get account by number",
                 "parameters": [
                     {
                         "type": "string",
@@ -164,14 +164,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Account data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "404": {
-                        "description": "Account not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -184,12 +184,6 @@ const docTemplate = `{
         },
         "/api/accounts/client/{client_id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve all bank accounts belonging to a specific client",
                 "produces": [
                     "application/json"
                 ],
@@ -213,21 +207,21 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
+                        "description": "Items per page (default 20)",
                         "name": "page_size",
                         "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "accounts array and total count",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid client_id",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -236,7 +230,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -249,12 +243,6 @@ const docTemplate = `{
         },
         "/api/accounts/{id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve a single bank account by its ID",
                 "produces": [
                     "application/json"
                 ],
@@ -273,23 +261,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Account data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "404": {
-                        "description": "Account not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -302,12 +281,6 @@ const docTemplate = `{
         },
         "/api/accounts/{id}/limits": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Set daily and/or monthly spending limits for an account",
                 "consumes": [
                     "application/json"
                 ],
@@ -317,7 +290,7 @@ const docTemplate = `{
                 "tags": [
                     "accounts"
                 ],
-                "summary": "Update account spending limits",
+                "summary": "Update account limits",
                 "parameters": [
                     {
                         "type": "integer",
@@ -338,14 +311,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated account",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid request",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -354,7 +327,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -367,12 +340,6 @@ const docTemplate = `{
         },
         "/api/accounts/{id}/name": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Change the display name of a bank account",
                 "consumes": [
                     "application/json"
                 ],
@@ -403,14 +370,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated account",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid request",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -419,7 +386,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -432,12 +399,6 @@ const docTemplate = `{
         },
         "/api/accounts/{id}/status": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Change the status of a bank account (e.g. active, blocked, closed)",
                 "consumes": [
                     "application/json"
                 ],
@@ -468,14 +429,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated account",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid request",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -484,7 +445,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -837,12 +798,6 @@ const docTemplate = `{
         },
         "/api/cards": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Issue a new payment card for an account",
                 "consumes": [
                     "application/json"
                 ],
@@ -852,7 +807,7 @@ const docTemplate = `{
                 "tags": [
                     "cards"
                 ],
-                "summary": "Create a payment card",
+                "summary": "Issue a card",
                 "parameters": [
                     {
                         "description": "Card data",
@@ -866,14 +821,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created card",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -882,7 +837,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -895,19 +850,13 @@ const docTemplate = `{
         },
         "/api/cards/account/{account_number}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve all payment cards linked to an account",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "cards"
                 ],
-                "summary": "List cards by account number",
+                "summary": "List cards by account",
                 "parameters": [
                     {
                         "type": "string",
@@ -919,14 +868,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "cards array",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -939,12 +888,6 @@ const docTemplate = `{
         },
         "/api/cards/authorized-person": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Add a person authorized to use cards on an account",
                 "consumes": [
                     "application/json"
                 ],
@@ -954,7 +897,7 @@ const docTemplate = `{
                 "tags": [
                     "cards"
                 ],
-                "summary": "Add authorized card person",
+                "summary": "Create authorized person",
                 "parameters": [
                     {
                         "description": "Authorized person data",
@@ -968,14 +911,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created authorized person",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -984,7 +927,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -997,12 +940,6 @@ const docTemplate = `{
         },
         "/api/cards/client/{client_id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve all payment cards belonging to a client",
                 "produces": [
                     "application/json"
                 ],
@@ -1021,14 +958,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "cards array",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid client_id",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1037,7 +974,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1050,12 +987,6 @@ const docTemplate = `{
         },
         "/api/cards/{id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve a payment card by its ID",
                 "produces": [
                     "application/json"
                 ],
@@ -1074,23 +1005,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Card data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "404": {
-                        "description": "Card not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1103,12 +1025,6 @@ const docTemplate = `{
         },
         "/api/cards/{id}/block": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Temporarily block a payment card",
                 "produces": [
                     "application/json"
                 ],
@@ -1127,23 +1043,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated card",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1156,12 +1063,6 @@ const docTemplate = `{
         },
         "/api/cards/{id}/deactivate": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Permanently deactivate a payment card",
                 "produces": [
                     "application/json"
                 ],
@@ -1180,23 +1081,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated card",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1209,12 +1101,6 @@ const docTemplate = `{
         },
         "/api/cards/{id}/unblock": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Unblock a previously blocked payment card",
                 "produces": [
                     "application/json"
                 ],
@@ -1233,23 +1119,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated card",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1262,12 +1139,6 @@ const docTemplate = `{
         },
         "/api/clients": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Paginated list of bank clients with optional filters",
                 "produces": [
                     "application/json"
                 ],
@@ -1284,7 +1155,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
+                        "description": "Items per page (default 20)",
                         "name": "page_size",
                         "in": "query"
                     },
@@ -1303,14 +1174,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "clients array and total count",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1321,12 +1192,6 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Register a new bank client",
                 "consumes": [
                     "application/json"
                 ],
@@ -1336,7 +1201,7 @@ const docTemplate = `{
                 "tags": [
                     "clients"
                 ],
-                "summary": "Create a new client",
+                "summary": "Create client",
                 "parameters": [
                     {
                         "description": "Client data",
@@ -1350,14 +1215,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created client",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1366,7 +1231,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1379,29 +1244,23 @@ const docTemplate = `{
         },
         "/api/clients/me": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns the profile of the currently authenticated client",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "clients"
                 ],
-                "summary": "Get current client profile",
+                "summary": "Get current client (me)",
                 "responses": {
                     "200": {
-                        "description": "Client data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "401": {
-                        "description": "Not authenticated",
+                        "description": "Unauthorized",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1410,7 +1269,7 @@ const docTemplate = `{
                         }
                     },
                     "404": {
-                        "description": "Client not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1423,12 +1282,6 @@ const docTemplate = `{
         },
         "/api/clients/set-password": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Set or reset the password for a bank client",
                 "consumes": [
                     "application/json"
                 ],
@@ -1438,10 +1291,10 @@ const docTemplate = `{
                 "tags": [
                     "clients"
                 ],
-                "summary": "Set client password",
+                "summary": "Set client password hash",
                 "parameters": [
                     {
-                        "description": "User ID and password hash",
+                        "description": "Password hash data",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -1452,16 +1305,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "success: true",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
-                            "additionalProperties": {
-                                "type": "boolean"
-                            }
+                            "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1470,7 +1321,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1483,12 +1334,6 @@ const docTemplate = `{
         },
         "/api/clients/{id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve a single bank client by their ID",
                 "produces": [
                     "application/json"
                 ],
@@ -1507,23 +1352,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Client data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "404": {
-                        "description": "Client not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1534,12 +1370,6 @@ const docTemplate = `{
                 }
             },
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update bank client fields (all fields optional)",
                 "consumes": [
                     "application/json"
                 ],
@@ -1570,14 +1400,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated client",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid request",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1586,7 +1416,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1599,12 +1429,6 @@ const docTemplate = `{
         },
         "/api/companies": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Register a new company for corporate banking",
                 "consumes": [
                     "application/json"
                 ],
@@ -1614,7 +1438,7 @@ const docTemplate = `{
                 "tags": [
                     "accounts"
                 ],
-                "summary": "Create a company",
+                "summary": "Create company",
                 "parameters": [
                     {
                         "description": "Company data",
@@ -1628,14 +1452,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created company",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1644,7 +1468,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1657,29 +1481,23 @@ const docTemplate = `{
         },
         "/api/currencies": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns all currencies supported by the bank",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "accounts"
                 ],
-                "summary": "List supported currencies",
+                "summary": "List currencies",
                 "responses": {
                     "200": {
-                        "description": "currencies array",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1960,7 +1778,6 @@ const docTemplate = `{
         },
         "/api/exchange-rates": {
             "get": {
-                "description": "Returns all current currency exchange rates",
                 "produces": [
                     "application/json"
                 ],
@@ -1970,14 +1787,14 @@ const docTemplate = `{
                 "summary": "List exchange rates",
                 "responses": {
                     "200": {
-                        "description": "rates array",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1990,7 +1807,6 @@ const docTemplate = `{
         },
         "/api/exchange-rates/{from}/{to}": {
             "get": {
-                "description": "Get the exchange rate between two currencies",
                 "produces": [
                     "application/json"
                 ],
@@ -2001,14 +1817,14 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Source currency code (e.g. USD)",
+                        "description": "Source currency (e.g. EUR)",
                         "name": "from",
                         "in": "path",
                         "required": true
                     },
                     {
                         "type": "string",
-                        "description": "Target currency code (e.g. EUR)",
+                        "description": "Target currency (e.g. RSD)",
                         "name": "to",
                         "in": "path",
                         "required": true
@@ -2016,14 +1832,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Exchange rate data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "404": {
-                        "description": "Exchange rate not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2036,12 +1852,6 @@ const docTemplate = `{
         },
         "/api/loans": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Paginated list of all loans with optional filters (employee view)",
                 "produces": [
                     "application/json"
                 ],
@@ -2058,7 +1868,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
+                        "description": "Items per page (default 20)",
                         "name": "page_size",
                         "in": "query"
                     },
@@ -2083,14 +1893,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "loans array and total count",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2103,12 +1913,6 @@ const docTemplate = `{
         },
         "/api/loans/client/{client_id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve all loans belonging to a specific client",
                 "produces": [
                     "application/json"
                 ],
@@ -2132,21 +1936,21 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
+                        "description": "Items per page (default 20)",
                         "name": "page_size",
                         "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "loans array and total count",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid client_id",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2155,7 +1959,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2168,12 +1972,6 @@ const docTemplate = `{
         },
         "/api/loans/requests": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Paginated list of all loan applications with optional filters",
                 "produces": [
                     "application/json"
                 ],
@@ -2190,7 +1988,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
+                        "description": "Items per page (default 20)",
                         "name": "page_size",
                         "in": "query"
                     },
@@ -2215,14 +2013,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "requests array and total count",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2233,12 +2031,6 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Client submits a new loan application",
                 "consumes": [
                     "application/json"
                 ],
@@ -2248,10 +2040,10 @@ const docTemplate = `{
                 "tags": [
                     "loans"
                 ],
-                "summary": "Submit a loan request",
+                "summary": "Submit loan application",
                 "parameters": [
                     {
-                        "description": "Loan request data",
+                        "description": "Loan application data",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -2262,14 +2054,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created loan request",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2278,7 +2070,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2291,12 +2083,6 @@ const docTemplate = `{
         },
         "/api/loans/requests/{id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve a single loan application by its ID",
                 "produces": [
                     "application/json"
                 ],
@@ -2315,23 +2101,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Loan request data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "404": {
-                        "description": "Loan request not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2344,19 +2121,13 @@ const docTemplate = `{
         },
         "/api/loans/requests/{id}/approve": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Employee approves a pending loan application, creating an active loan",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "loans"
                 ],
-                "summary": "Approve a loan request",
+                "summary": "Approve loan request",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2368,23 +2139,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Created loan",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2397,19 +2159,13 @@ const docTemplate = `{
         },
         "/api/loans/requests/{id}/reject": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Employee rejects a pending loan application",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "loans"
                 ],
-                "summary": "Reject a loan request",
+                "summary": "Reject loan request",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2421,23 +2177,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated loan request",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2450,12 +2197,6 @@ const docTemplate = `{
         },
         "/api/loans/{id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve an active loan by its ID",
                 "produces": [
                     "application/json"
                 ],
@@ -2474,23 +2215,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Loan data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "404": {
-                        "description": "Loan not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2503,19 +2235,13 @@ const docTemplate = `{
         },
         "/api/loans/{id}/installments": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve all repayment installments for a loan",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "loans"
                 ],
-                "summary": "Get installments for a loan",
+                "summary": "Get installments by loan",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2527,14 +2253,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "installments array",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid ID",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2543,7 +2269,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2556,12 +2282,6 @@ const docTemplate = `{
         },
         "/api/payment-recipients": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Save a frequently used payment recipient for a client",
                 "consumes": [
                     "application/json"
                 ],
@@ -2571,7 +2291,7 @@ const docTemplate = `{
                 "tags": [
                     "payment-recipients"
                 ],
-                "summary": "Save a payment recipient",
+                "summary": "Create payment recipient",
                 "parameters": [
                     {
                         "description": "Recipient data",
@@ -2585,14 +2305,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created recipient",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2601,7 +2321,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2614,12 +2334,6 @@ const docTemplate = `{
         },
         "/api/payment-recipients/{client_id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "List all saved payment recipients for a client",
                 "produces": [
                     "application/json"
                 ],
@@ -2638,14 +2352,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "recipients array",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid client_id",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2654,7 +2368,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2667,12 +2381,6 @@ const docTemplate = `{
         },
         "/api/payment-recipients/{id}": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update the name or account number of a saved payment recipient",
                 "consumes": [
                     "application/json"
                 ],
@@ -2682,7 +2390,7 @@ const docTemplate = `{
                 "tags": [
                     "payment-recipients"
                 ],
-                "summary": "Update a payment recipient",
+                "summary": "Update payment recipient",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2703,14 +2411,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Updated recipient",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid request",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2719,7 +2427,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2730,19 +2438,13 @@ const docTemplate = `{
                 }
             },
             "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Remove a saved payment recipient",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "payment-recipients"
                 ],
-                "summary": "Delete a payment recipient",
+                "summary": "Delete payment recipient",
                 "parameters": [
                     {
                         "type": "integer",
@@ -2754,25 +2456,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "success: true/false",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
-                            "additionalProperties": {
-                                "type": "boolean"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "additionalProperties": true
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2785,12 +2476,6 @@ const docTemplate = `{
         },
         "/api/payments": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Execute a payment between two accounts",
                 "consumes": [
                     "application/json"
                 ],
@@ -2800,7 +2485,7 @@ const docTemplate = `{
                 "tags": [
                     "payments"
                 ],
-                "summary": "Create a payment",
+                "summary": "Create payment",
                 "parameters": [
                     {
                         "description": "Payment data",
@@ -2814,14 +2499,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created payment",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2830,7 +2515,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2843,12 +2528,6 @@ const docTemplate = `{
         },
         "/api/payments/account/{account_number}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve paginated payment history for an account with optional filters",
                 "produces": [
                     "application/json"
                 ],
@@ -2872,19 +2551,19 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
+                        "description": "Items per page (default 20)",
                         "name": "page_size",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Filter from date (RFC3339)",
+                        "description": "Start date (RFC3339 or YYYY-MM-DD)",
                         "name": "date_from",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Filter to date (RFC3339)",
+                        "description": "End date (RFC3339 or YYYY-MM-DD)",
                         "name": "date_to",
                         "in": "query"
                     },
@@ -2909,14 +2588,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "payments array and total count",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2929,12 +2608,6 @@ const docTemplate = `{
         },
         "/api/payments/{id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve a single payment transaction by its ID",
                 "produces": [
                     "application/json"
                 ],
@@ -2953,23 +2626,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Payment data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "404": {
-                        "description": "Payment not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2982,12 +2646,6 @@ const docTemplate = `{
         },
         "/api/transfers": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Execute an internal transfer between two accounts (supports currency conversion)",
                 "consumes": [
                     "application/json"
                 ],
@@ -2997,7 +2655,7 @@ const docTemplate = `{
                 "tags": [
                     "transfers"
                 ],
-                "summary": "Create a transfer",
+                "summary": "Create transfer",
                 "parameters": [
                     {
                         "description": "Transfer data",
@@ -3011,14 +2669,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created transfer",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3027,7 +2685,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3040,12 +2698,6 @@ const docTemplate = `{
         },
         "/api/transfers/client/{client_id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve paginated transfer history for a client",
                 "produces": [
                     "application/json"
                 ],
@@ -3069,21 +2721,21 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
+                        "description": "Items per page (default 20)",
                         "name": "page_size",
                         "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "transfers array and total count",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Invalid client_id",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3092,7 +2744,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3105,12 +2757,6 @@ const docTemplate = `{
         },
         "/api/transfers/{id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Retrieve a single transfer transaction by its ID",
                 "produces": [
                     "application/json"
                 ],
@@ -3129,23 +2775,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Transfer data",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
-                    "400": {
-                        "description": "Invalid ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "404": {
-                        "description": "Transfer not found",
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3158,12 +2795,6 @@ const docTemplate = `{
         },
         "/api/verification": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Generate a one-time verification code for a transaction",
                 "consumes": [
                     "application/json"
                 ],
@@ -3173,7 +2804,7 @@ const docTemplate = `{
                 "tags": [
                     "verification"
                 ],
-                "summary": "Create a verification code",
+                "summary": "Create verification code",
                 "parameters": [
                     {
                         "description": "Verification request",
@@ -3187,14 +2818,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "code and expires_at",
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3203,7 +2834,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3216,12 +2847,6 @@ const docTemplate = `{
         },
         "/api/verification/validate": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Verify a one-time code for a transaction",
                 "consumes": [
                     "application/json"
                 ],
@@ -3231,10 +2856,10 @@ const docTemplate = `{
                 "tags": [
                     "verification"
                 ],
-                "summary": "Validate a verification code",
+                "summary": "Validate verification code",
                 "parameters": [
                     {
-                        "description": "Validation request",
+                        "description": "Code to validate",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -3245,16 +2870,14 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "valid: true/false",
+                        "description": "OK",
                         "schema": {
                             "type": "object",
-                            "additionalProperties": {
-                                "type": "boolean"
-                            }
+                            "additionalProperties": true
                         }
                     },
                     "400": {
-                        "description": "Validation error",
+                        "description": "Bad Request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3263,7 +2886,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Internal error",
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {

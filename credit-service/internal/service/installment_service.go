@@ -3,6 +3,8 @@ package service
 import (
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/exbanka/credit-service/internal/model"
 	"github.com/exbanka/credit-service/internal/repository"
 )
@@ -16,7 +18,7 @@ func NewInstallmentService(installRepo *repository.InstallmentRepository) *Insta
 }
 
 // CreateInstallmentSchedule creates a slice of installments for a loan (does not persist them)
-func CreateInstallmentSchedule(amount float64, annualRate float64, months int, currency string, startDateStr string) []model.Installment {
+func CreateInstallmentSchedule(amount, annualRate decimal.Decimal, months int, currency string, startDateStr string) []model.Installment {
 	monthlyPayment := CalculateMonthlyInstallment(amount, annualRate, months)
 
 	startDate, err := time.Parse("2006-01-02", startDateStr)
@@ -48,4 +50,8 @@ func (s *InstallmentService) MarkInstallmentPaid(installmentID uint64) error {
 
 func (s *InstallmentService) MarkOverdueInstallments() error {
 	return s.installRepo.MarkOverdue()
+}
+
+func (s *InstallmentService) GetDueInstallments() ([]model.Installment, error) {
+	return s.installRepo.GetDueInstallments()
 }

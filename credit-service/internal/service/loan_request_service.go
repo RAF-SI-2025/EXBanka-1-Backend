@@ -38,7 +38,7 @@ func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
 	if !validInterestTypes[req.InterestType] {
 		return fmt.Errorf("invalid interest type: %s", req.InterestType)
 	}
-	if req.Amount <= 0 {
+	if req.Amount.IsNegative() || req.Amount.IsZero() {
 		return errors.New("amount must be greater than 0")
 	}
 	if req.RepaymentPeriod <= 0 {

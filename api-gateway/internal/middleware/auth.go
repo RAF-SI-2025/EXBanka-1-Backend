@@ -39,7 +39,8 @@ func AuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 	}
 }
 
-// AnyAuthMiddleware validates any JWT token (employee or client role).
+// AnyAuthMiddleware accepts either an employee JWT or a client JWT.
+// Use this for routes that should be accessible by both roles.
 func AnyAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")

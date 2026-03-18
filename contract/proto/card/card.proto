@@ -40,7 +40,7 @@ message CardResponse {
   string expires_at = 8;
   string account_number = 9;
   string cvv = 10;
-  double card_limit = 11;
+  string card_limit = 11;
   string status = 12;
   string owner_type = 13;
   uint64 owner_id = 14;

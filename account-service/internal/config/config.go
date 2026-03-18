@@ -2,8 +2,6 @@ package config
 
 import (
 	"os"
-
-	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -18,11 +16,6 @@ type Config struct {
 }
 
 func Load() *Config {
-	for _, f := range []string{".env", "../.env", "../../.env", "../../../.env"} {
-		if err := godotenv.Load(f); err == nil {
-			break
-		}
-	}
 	return &Config{
 		DBHost:       getEnv("ACCOUNT_DB_HOST", "localhost"),
 		DBPort:       getEnv("ACCOUNT_DB_PORT", "5435"),

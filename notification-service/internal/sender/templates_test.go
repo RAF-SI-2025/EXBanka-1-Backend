@@ -13,13 +13,13 @@ func TestBuildEmail_Activation(t *testing.T) {
 	data := map[string]string{
 		"first_name": "John",
 		"token":      "abc123",
-		"link":       "http://localhost:3000/activate?token=abc123",
+		"link":       "http://localhost:5173/activate?token=abc123",
 	}
 	subject, body := BuildEmail(kafkamsg.EmailTypeActivation, data)
 
 	assert.Equal(t, "Activate Your EXBanka Account", subject)
 	assert.Contains(t, body, "John")
-	assert.Contains(t, body, "http://localhost:3000/activate?token=abc123")
+	assert.Contains(t, body, "http://localhost:5173/activate?token=abc123")
 	assert.Contains(t, body, "Activate Account")
 	assert.Contains(t, body, "24 hours")
 }
@@ -27,12 +27,12 @@ func TestBuildEmail_Activation(t *testing.T) {
 func TestBuildEmail_PasswordReset(t *testing.T) {
 	data := map[string]string{
 		"token": "reset123",
-		"link":  "http://localhost:3000/reset-password?token=reset123",
+		"link":  "http://localhost:5173/reset-password?token=reset123",
 	}
 	subject, body := BuildEmail(kafkamsg.EmailTypePasswordReset, data)
 
 	assert.Equal(t, "Password Reset Request", subject)
-	assert.Contains(t, body, "http://localhost:3000/reset-password?token=reset123")
+	assert.Contains(t, body, "http://localhost:5173/reset-password?token=reset123")
 	assert.Contains(t, body, "Reset Password")
 	assert.Contains(t, body, "1 hour")
 }

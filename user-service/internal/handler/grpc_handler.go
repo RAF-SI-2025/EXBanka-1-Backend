@@ -101,7 +101,7 @@ func (h *UserGRPCHandler) UpdateEmployee(ctx context.Context, req *pb.UpdateEmpl
 		updates["jmbg"] = *req.Jmbg
 	}
 
-	emp, err := h.empService.UpdateEmployee(req.Id, updates)
+	emp, err := h.empService.UpdateEmployee(ctx, req.Id, updates)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "employee not found")

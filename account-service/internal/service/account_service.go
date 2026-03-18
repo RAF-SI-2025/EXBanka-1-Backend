@@ -4,6 +4,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 )
@@ -16,18 +18,18 @@ func NewAccountService(repo *repository.AccountRepository) *AccountService {
 	return &AccountService{repo: repo}
 }
 
-func maintenanceFeeByType(accountType string) float64 {
+func maintenanceFeeByType(accountType string) decimal.Decimal {
 	switch accountType {
 	case "premium":
-		return 500
+		return decimal.NewFromInt(500)
 	case "student":
-		return 0
+		return decimal.Zero
 	case "youth":
-		return 0
+		return decimal.Zero
 	case "pension":
-		return 100
+		return decimal.NewFromInt(100)
 	default:
-		return 220
+		return decimal.NewFromInt(220)
 	}
 }
 
@@ -82,19 +84,27 @@ func (s *AccountService) UpdateAccountName(id, clientID uint64, newName string) 
 	return s.repo.UpdateName(id, clientID, newName)
 }
 
-func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit *float64) error {
+func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit *string) error {
 	updates := make(map[string]interface{})
-	if dailyLimit != nil {
-		if *dailyLimit <= 0 {
+	if dailyLimit != nil && *dailyLimit != "" {
+		d, err := decimal.NewFromString(*dailyLimit)
+		if err != nil {
+			return errors.New("invalid daily_limit value")
+		}
+		if d.IsNegative() || d.IsZero() {
 			return errors.New("daily_limit must be greater than 0")
 		}
-		updates["daily_limit"] = *dailyLimit
+		updates["daily_limit"] = d
 	}
-	if monthlyLimit != nil {
-		if *monthlyLimit <= 0 {
+	if monthlyLimit != nil && *monthlyLimit != "" {
+		m, err := decimal.NewFromString(*monthlyLimit)
+		if err != nil {
+			return errors.New("invalid monthly_limit value")
+		}
+		if m.IsNegative() || m.IsZero() {
 			return errors.New("monthly_limit must be greater than 0")
 		}
-		updates["monthly_limit"] = *monthlyLimit
+		updates["monthly_limit"] = m
 	}
 	if len(updates) == 0 {
 		return nil
@@ -109,6 +119,6 @@ func (s *AccountService) UpdateAccountStatus(id uint64, status string) error {
 	return s.repo.UpdateStatus(id, status)
 }
 
-func (s *AccountService) UpdateBalance(accountNumber string, amount float64, updateAvailable bool) error {
+func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
 	return s.repo.UpdateBalance(accountNumber, amount, updateAvailable)
 }

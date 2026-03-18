@@ -3,6 +3,7 @@ package service
 import (
 	"testing"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,8 +19,9 @@ func TestCalculateCommission(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := CalculatePaymentCommission(tt.amount)
-			assert.InDelta(t, tt.expected, result, 0.001)
+			result := CalculatePaymentCommission(decimal.NewFromFloat(tt.amount))
+			expected, _ := result.Float64()
+			assert.InDelta(t, tt.expected, expected, 0.001)
 		})
 	}
 }

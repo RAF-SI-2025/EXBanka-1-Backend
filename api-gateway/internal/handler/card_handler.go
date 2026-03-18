@@ -24,17 +24,14 @@ type createCardRequest struct {
 	CardBrand     string `json:"card_brand"`
 }
 
-// CreateCard godoc
-// @Summary      Create a payment card
-// @Description  Issue a new payment card for an account
+// @Summary      Issue a card
 // @Tags         cards
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createCardRequest  true  "Card data"
-// @Success      201  {object}  map[string]interface{}  "Created card"
-// @Failure      400  {object}  map[string]string       "Validation error"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/cards [post]
 func (h *CardHandler) CreateCard(c *gin.Context) {
 	var req createCardRequest
@@ -56,16 +53,12 @@ func (h *CardHandler) CreateCard(c *gin.Context) {
 	c.JSON(http.StatusCreated, cardToJSON(resp))
 }
 
-// GetCard godoc
 // @Summary      Get card by ID
-// @Description  Retrieve a payment card by its ID
 // @Tags         cards
 // @Produce      json
-// @Param        id  path  int  true  "Card ID"
-// @Success      200  {object}  map[string]interface{}  "Card data"
-// @Failure      400  {object}  map[string]string       "Invalid ID"
-// @Failure      404  {object}  map[string]string       "Card not found"
-// @Security     BearerAuth
+// @Param        id   path  int  true  "Card ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]string
 // @Router       /api/cards/{id} [get]
 func (h *CardHandler) GetCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -82,15 +75,12 @@ func (h *CardHandler) GetCard(c *gin.Context) {
 	c.JSON(http.StatusOK, cardToJSON(resp))
 }
 
-// ListCardsByAccount godoc
-// @Summary      List cards by account number
-// @Description  Retrieve all payment cards linked to an account
+// @Summary      List cards by account
 // @Tags         cards
 // @Produce      json
 // @Param        account_number  path  string  true  "Account number"
-// @Success      200  {object}  map[string]interface{}  "cards array"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
 // @Router       /api/cards/account/{account_number} [get]
 func (h *CardHandler) ListCardsByAccount(c *gin.Context) {
 	accountNumber := c.Param("account_number")
@@ -109,16 +99,13 @@ func (h *CardHandler) ListCardsByAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"cards": cards})
 }
 
-// ListCardsByClient godoc
 // @Summary      List cards by client
-// @Description  Retrieve all payment cards belonging to a client
 // @Tags         cards
 // @Produce      json
 // @Param        client_id  path  int  true  "Client ID"
-// @Success      200  {object}  map[string]interface{}  "cards array"
-// @Failure      400  {object}  map[string]string       "Invalid client_id"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
 // @Router       /api/cards/client/{client_id} [get]
 func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
@@ -142,16 +129,12 @@ func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"cards": cards})
 }
 
-// BlockCard godoc
 // @Summary      Block a card
-// @Description  Temporarily block a payment card
 // @Tags         cards
 // @Produce      json
-// @Param        id  path  int  true  "Card ID"
-// @Success      200  {object}  map[string]interface{}  "Updated card"
-// @Failure      400  {object}  map[string]string       "Invalid ID"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Param        id   path  int  true  "Card ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
 // @Router       /api/cards/{id}/block [put]
 func (h *CardHandler) BlockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -168,16 +151,12 @@ func (h *CardHandler) BlockCard(c *gin.Context) {
 	c.JSON(http.StatusOK, cardToJSON(resp))
 }
 
-// UnblockCard godoc
 // @Summary      Unblock a card
-// @Description  Unblock a previously blocked payment card
 // @Tags         cards
 // @Produce      json
-// @Param        id  path  int  true  "Card ID"
-// @Success      200  {object}  map[string]interface{}  "Updated card"
-// @Failure      400  {object}  map[string]string       "Invalid ID"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Param        id   path  int  true  "Card ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
 // @Router       /api/cards/{id}/unblock [put]
 func (h *CardHandler) UnblockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -194,16 +173,12 @@ func (h *CardHandler) UnblockCard(c *gin.Context) {
 	c.JSON(http.StatusOK, cardToJSON(resp))
 }
 
-// DeactivateCard godoc
 // @Summary      Deactivate a card
-// @Description  Permanently deactivate a payment card
 // @Tags         cards
 // @Produce      json
-// @Param        id  path  int  true  "Card ID"
-// @Success      200  {object}  map[string]interface{}  "Updated card"
-// @Failure      400  {object}  map[string]string       "Invalid ID"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Param        id   path  int  true  "Card ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
 // @Router       /api/cards/{id}/deactivate [put]
 func (h *CardHandler) DeactivateCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -231,17 +206,14 @@ type createAuthorizedPersonRequest struct {
 	AccountID   uint64 `json:"account_id" binding:"required"`
 }
 
-// CreateAuthorizedPerson godoc
-// @Summary      Add authorized card person
-// @Description  Add a person authorized to use cards on an account
+// @Summary      Create authorized person
 // @Tags         cards
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createAuthorizedPersonRequest  true  "Authorized person data"
-// @Success      201  {object}  map[string]interface{}  "Created authorized person"
-// @Failure      400  {object}  map[string]string       "Validation error"
-// @Failure      500  {object}  map[string]string       "Internal error"
-// @Security     BearerAuth
+// @Success      201   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
 // @Router       /api/cards/authorized-person [post]
 func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {
 	var req createAuthorizedPersonRequest

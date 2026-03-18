@@ -36,7 +36,7 @@ func Setup(
 	}))
 
 	authHandler := handler.NewAuthHandler(authClient)
-	empHandler := handler.NewEmployeeHandler(userClient, authClient)
+	empHandler := handler.NewEmployeeHandler(userClient)
 	clientHandler := handler.NewClientHandler(clientClient)
 	accountHandler := handler.NewAccountHandler(accountClient)
 	cardHandler := handler.NewCardHandler(cardClient)
@@ -130,21 +130,7 @@ func Setup(
 				cardsEmployee.POST("/authorized-person", cardHandler.CreateAuthorizedPerson)
 			}
 
-			// Payments - employee view
-			paymentsEmployee := protected.Group("/payments")
-			paymentsEmployee.Use(middleware.RequirePermission("accounts.read"))
-			{
-				paymentsEmployee.GET("/account/:account_number", txHandler.ListPaymentsByAccount)
-			}
-
-			// Transfers - employee view
-			transfersEmployee := protected.Group("/transfers")
-			transfersEmployee.Use(middleware.RequirePermission("accounts.read"))
-			{
-				transfersEmployee.GET("/client/:client_id", txHandler.ListTransfersByClient)
-			}
-
-			// Loans (EmployeeBasic)
+			// Loans (EmployeeBasic) - employee-only operations
 			loansEmployee := protected.Group("/loans")
 			loansEmployee.Use(middleware.RequirePermission("loans.read"))
 			{
@@ -156,32 +142,17 @@ func Setup(
 			}
 		}
 
-		// Routes accessible by both employees and clients
-		anyAuth := api.Group("/")
-		anyAuth.Use(middleware.AnyAuthMiddleware(authClient))
-		{
-			anyAuth.GET("/payments/:id", txHandler.GetPayment)
-			anyAuth.GET("/transfers/:id", txHandler.GetTransfer)
-			anyAuth.GET("/accounts/by-number/:account_number", accountHandler.GetAccountByNumber)
-			anyAuth.GET("/cards/:id", cardHandler.GetCard)
-			anyAuth.GET("/cards/account/:account_number", cardHandler.ListCardsByAccount)
-			anyAuth.GET("/cards/client/:client_id", cardHandler.ListCardsByClient)
-			anyAuth.GET("/loans/:id", creditHandler.GetLoan)
-			anyAuth.GET("/loans/client/:client_id", creditHandler.ListLoansByClient)
-			anyAuth.GET("/loans/:id/installments", creditHandler.GetInstallmentsByLoan)
-		}
-
-		// Client-only routes
+		// Client-only routes (write operations and self-service)
 		clientProtected := api.Group("/")
 		clientProtected.Use(middleware.ClientAuthMiddleware(authClient))
 		{
 			// Client self-service
 			clientProtected.GET("/clients/me", clientHandler.GetCurrentClient)
 
-			// Payments (client)
+			// Payments (client write)
 			clientProtected.POST("/payments", txHandler.CreatePayment)
 
-			// Transfers (client)
+			// Transfers (client write)
 			clientProtected.POST("/transfers", txHandler.CreateTransfer)
 
 			// Payment recipients (client)
@@ -194,8 +165,34 @@ func Setup(
 			clientProtected.POST("/verification", txHandler.CreateVerificationCode)
 			clientProtected.POST("/verification/validate", txHandler.ValidateVerificationCode)
 
-			// Loans (client)
+			// Loans (client write)
 			clientProtected.POST("/loans/requests", creditHandler.CreateLoanRequest)
+		}
+
+		// Routes accessible by both employee and client tokens
+		anyAuth := api.Group("/")
+		anyAuth.Use(middleware.AnyAuthMiddleware(authClient))
+		{
+			// Account by number
+			anyAuth.GET("/accounts/by-number/:account_number", accountHandler.GetAccountByNumber)
+
+			// Cards (read)
+			anyAuth.GET("/cards/:id", cardHandler.GetCard)
+			anyAuth.GET("/cards/account/:account_number", cardHandler.ListCardsByAccount)
+			anyAuth.GET("/cards/client/:client_id", cardHandler.ListCardsByClient)
+
+			// Payments (read)
+			anyAuth.GET("/payments/:id", txHandler.GetPayment)
+			anyAuth.GET("/payments/account/:account_number", txHandler.ListPaymentsByAccount)
+
+			// Transfers (read)
+			anyAuth.GET("/transfers/:id", txHandler.GetTransfer)
+			anyAuth.GET("/transfers/client/:client_id", txHandler.ListTransfersByClient)
+
+			// Loans (read)
+			anyAuth.GET("/loans/:id", creditHandler.GetLoan)
+			anyAuth.GET("/loans/client/:client_id", creditHandler.ListLoansByClient)
+			anyAuth.GET("/loans/:id/installments", creditHandler.GetInstallmentsByLoan)
 		}
 	}
 

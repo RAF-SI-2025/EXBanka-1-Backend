@@ -1,18 +1,27 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 type Payment struct {
-	ID                uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	FromAccountNumber string    `gorm:"not null;index" json:"from_account_number"`
-	ToAccountNumber   string    `gorm:"not null;index" json:"to_account_number"`
-	InitialAmount     float64   `gorm:"not null" json:"initial_amount"`
-	FinalAmount       float64   `gorm:"not null" json:"final_amount"`
-	Commission        float64   `gorm:"default:0" json:"commission"`
-	RecipientName     string    `json:"recipient_name"`
-	PaymentCode       string    `gorm:"size:3" json:"payment_code"`
-	ReferenceNumber   string    `json:"reference_number"`
-	PaymentPurpose    string    `json:"payment_purpose"`
-	Status            string    `gorm:"size:20;default:'processing'" json:"status"` // processing, completed, rejected
-	Timestamp         time.Time `json:"timestamp"`
+	ID                uint64          `gorm:"primaryKey;autoIncrement"`
+	IdempotencyKey    string          `gorm:"uniqueIndex;size:36;not null"`
+	FromAccountNumber string          `gorm:"not null;index:idx_payment_from"`
+	ToAccountNumber   string          `gorm:"not null;index:idx_payment_to"`
+	InitialAmount     decimal.Decimal `gorm:"type:numeric(18,4);not null"`
+	FinalAmount       decimal.Decimal `gorm:"type:numeric(18,4);not null"`
+	Commission        decimal.Decimal `gorm:"type:numeric(18,4);not null;default:0"`
+	CurrencyCode      string          `gorm:"size:3;not null;default:'RSD'"`
+	RecipientName     string          `gorm:"size:255"`
+	PaymentCode       string          `gorm:"size:10"`
+	ReferenceNumber   string          `gorm:"size:50"`
+	PaymentPurpose    string          `gorm:"size:255"`
+	Status            string          `gorm:"size:20;not null;default:'pending';index:idx_payment_status"`
+	FailureReason     string          `gorm:"size:512"`
+	Version           int64           `gorm:"not null;default:1"`
+	Timestamp         time.Time       `gorm:"not null;index:idx_payment_timestamp"`
+	CompletedAt       *time.Time
 }

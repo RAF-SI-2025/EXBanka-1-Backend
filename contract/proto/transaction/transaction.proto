@@ -26,7 +26,7 @@ service TransactionService {
 message CreatePaymentRequest {
   string from_account_number = 1;
   string to_account_number = 2;
-  double amount = 3;
+  string amount = 3;
   string recipient_name = 4;
   string payment_code = 5;
   string reference_number = 6;
@@ -40,8 +40,8 @@ message ListPaymentsByAccountRequest {
   string date_from = 2;
   string date_to = 3;
   string status_filter = 4;
-  double amount_min = 5;
-  double amount_max = 6;
+  string amount_min = 5;
+  string amount_max = 6;
   int32 page = 7;
   int32 page_size = 8;
 }
@@ -55,9 +55,9 @@ message PaymentResponse {
   uint64 id = 1;
   string from_account_number = 2;
   string to_account_number = 3;
-  double initial_amount = 4;
-  double final_amount = 5;
-  double commission = 6;
+  string initial_amount = 4;
+  string final_amount = 5;
+  string commission = 6;
   string recipient_name = 7;
   string payment_code = 8;
   string reference_number = 9;
@@ -69,7 +69,7 @@ message PaymentResponse {
 message CreateTransferRequest {
   string from_account_number = 1;
   string to_account_number = 2;
-  double amount = 3;
+  string amount = 3;
 }
 
 message GetTransferRequest { uint64 id = 1; }
@@ -89,10 +89,10 @@ message TransferResponse {
   uint64 id = 1;
   string from_account_number = 2;
   string to_account_number = 3;
-  double initial_amount = 4;
-  double final_amount = 5;
-  double exchange_rate = 6;
-  double commission = 7;
+  string initial_amount = 4;
+  string final_amount = 5;
+  string exchange_rate = 6;
+  string commission = 7;
   string timestamp = 8;
 }
 
@@ -135,8 +135,8 @@ message ListExchangeRatesRequest {}
 message ExchangeRateResponse {
   string from_currency = 1;
   string to_currency = 2;
-  double buy_rate = 3;
-  double sell_rate = 4;
+  string buy_rate = 3;
+  string sell_rate = 4;
   string updated_at = 5;
 }
 

@@ -2,8 +2,6 @@ package config
 
 import (
 	"os"
-
-	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -18,17 +16,12 @@ type Config struct {
 }
 
 func Load() *Config {
-	for _, f := range []string{".env", "../.env", "../../.env", "../../../.env"} {
-		if err := godotenv.Load(f); err == nil {
-			break
-		}
-	}
 	return &Config{
-		DBHost:       getEnv("USER_DB_HOST", "exteam1-database.postgres.database.azure.com"),
+		DBHost:       getEnv("USER_DB_HOST", "localhost"),
 		DBPort:       getEnv("USER_DB_PORT", "5432"),
-		DBUser:       getEnv("USER_DB_USER", "exteam1"),
-		DBPassword:   getEnv("USER_DB_PASSWORD", "Anajankovic03"),
-		DBName:       getEnv("USER_DB_NAME", "userservicedb"),
+		DBUser:       getEnv("USER_DB_USER", "postgres"),
+		DBPassword:   getEnv("USER_DB_PASSWORD", "postgres"),
+		DBName:       getEnv("USER_DB_NAME", "userdb"),
 		GRPCAddr:     getEnv("USER_GRPC_ADDR", ":50052"),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
 		RedisAddr:    getEnv("REDIS_ADDR", "localhost:6379"),

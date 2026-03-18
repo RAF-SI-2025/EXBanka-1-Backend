@@ -3,6 +3,7 @@ package service
 import (
 	"testing"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -21,7 +22,7 @@ func TestValidateTransfer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateTransfer(tt.from, tt.to, tt.amount)
+			err := ValidateTransfer(tt.from, tt.to, decimal.NewFromFloat(tt.amount))
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

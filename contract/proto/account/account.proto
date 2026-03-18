@@ -19,6 +19,8 @@ service AccountService {
 
   rpc ListCurrencies(ListCurrenciesRequest) returns (ListCurrenciesResponse);
   rpc GetCurrency(GetCurrencyRequest) returns (CurrencyResponse);
+
+  rpc GetLedgerEntries(GetLedgerEntriesRequest) returns (GetLedgerEntriesResponse);
 }
 
 message CreateAccountRequest {
@@ -28,7 +30,7 @@ message CreateAccountRequest {
   string account_category = 4;
   string currency_code = 5;
   uint64 employee_id = 6;
-  double initial_balance = 7;
+  string initial_balance = 7;
   bool create_card = 8;
   optional uint64 company_id = 9;
 }
@@ -63,8 +65,8 @@ message UpdateAccountNameRequest {
 
 message UpdateAccountLimitsRequest {
   uint64 id = 1;
-  optional double daily_limit = 2;
-  optional double monthly_limit = 3;
+  optional string daily_limit = 2;
+  optional string monthly_limit = 3;
 }
 
 message UpdateAccountStatusRequest {
@@ -74,7 +76,7 @@ message UpdateAccountStatusRequest {
 
 message UpdateBalanceRequest {
   string account_number = 1;
-  double amount = 2;
+  string amount = 2;
   bool update_available = 3;
 }
 
@@ -84,8 +86,8 @@ message AccountResponse {
   string account_name = 3;
   uint64 owner_id = 4;
   string owner_name = 5;
-  double balance = 6;
-  double available_balance = 7;
+  string balance = 6;
+  string available_balance = 7;
   uint64 employee_id = 8;
   string created_at = 9;
   string expires_at = 10;
@@ -94,11 +96,11 @@ message AccountResponse {
   string account_kind = 13;
   string account_type = 14;
   string account_category = 15;
-  double maintenance_fee = 16;
-  double daily_limit = 17;
-  double monthly_limit = 18;
-  double daily_spending = 19;
-  double monthly_spending = 20;
+  string maintenance_fee = 16;
+  string daily_limit = 17;
+  string monthly_limit = 18;
+  string daily_spending = 19;
+  string monthly_spending = 20;
   optional uint64 company_id = 21;
 }
 
@@ -144,4 +146,28 @@ message CurrencyResponse {
   string country = 5;
   string description = 6;
   bool active = 7;
+}
+
+message GetLedgerEntriesRequest {
+  string account_number = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message LedgerEntryResponse {
+  uint64 id = 1;
+  string account_number = 2;
+  string entry_type = 3;
+  string amount = 4;
+  string balance_before = 5;
+  string balance_after = 6;
+  string description = 7;
+  string reference_id = 8;
+  string reference_type = 9;
+  int64 created_at = 10;
+}
+
+message GetLedgerEntriesResponse {
+  repeated LedgerEntryResponse entries = 1;
+  int64 total_count = 2;
 }

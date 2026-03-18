@@ -73,6 +73,21 @@ func (r *PaymentRepository) ListByAccount(accountNumber, dateFrom, dateTo, statu
 	return payments, total, nil
 }
 
+func (r *PaymentRepository) GetByIdempotencyKey(key string) (*model.Payment, error) {
+	var payment model.Payment
+	if err := r.db.Where("idempotency_key = ?", key).First(&payment).Error; err != nil {
+		return nil, err
+	}
+	return &payment, nil
+}
+
 func (r *PaymentRepository) UpdateStatus(id uint64, status string) error {
 	return r.db.Model(&model.Payment{}).Where("id = ?", id).Update("status", status).Error
+}
+
+func (r *PaymentRepository) UpdateStatusWithReason(id uint64, status, reason string) error {
+	return r.db.Model(&model.Payment{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"status":         status,
+		"failure_reason": reason,
+	}).Error
 }

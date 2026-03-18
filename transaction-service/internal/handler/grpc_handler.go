@@ -2,8 +2,12 @@ package handler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"log"
+	"strconv"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -14,14 +18,20 @@ import (
 	"github.com/exbanka/transaction-service/internal/service"
 )
 
+func generateIdempotencyKey() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 type TransactionGRPCHandler struct {
 	pb.UnimplementedTransactionServiceServer
-	paymentSvc     *service.PaymentService
-	transferSvc    *service.TransferService
-	recipientSvc   *service.PaymentRecipientService
-	exchangeSvc    *service.ExchangeService
+	paymentSvc      *service.PaymentService
+	transferSvc     *service.TransferService
+	recipientSvc    *service.PaymentRecipientService
+	exchangeSvc     *service.ExchangeService
 	verificationSvc *service.VerificationService
-	producer       *kafka.Producer
+	producer        *kafka.Producer
 }
 
 func NewTransactionGRPCHandler(
@@ -45,10 +55,13 @@ func NewTransactionGRPCHandler(
 // ---- Payment RPCs ----
 
 func (h *TransactionGRPCHandler) CreatePayment(ctx context.Context, req *pb.CreatePaymentRequest) (*pb.PaymentResponse, error) {
+	idempotencyKey := generateIdempotencyKey()
+	paymentAmount, _ := decimal.NewFromString(req.GetAmount())
 	payment := &model.Payment{
+		IdempotencyKey:    idempotencyKey,
 		FromAccountNumber: req.GetFromAccountNumber(),
 		ToAccountNumber:   req.GetToAccountNumber(),
-		InitialAmount:     req.GetAmount(),
+		InitialAmount:     paymentAmount,
 		RecipientName:     req.GetRecipientName(),
 		PaymentCode:       req.GetPaymentCode(),
 		ReferenceNumber:   req.GetReferenceNumber(),
@@ -64,7 +77,7 @@ func (h *TransactionGRPCHandler) CreatePayment(ctx context.Context, req *pb.Crea
 		PaymentID:         payment.ID,
 		FromAccountNumber: payment.FromAccountNumber,
 		ToAccountNumber:   payment.ToAccountNumber,
-		Amount:            payment.InitialAmount,
+		Amount:            payment.InitialAmount.StringFixed(4),
 		Status:            payment.Status,
 	}
 	if err := h.producer.PublishPaymentCreated(ctx, msg); err != nil {
@@ -86,13 +99,15 @@ func (h *TransactionGRPCHandler) GetPayment(ctx context.Context, req *pb.GetPaym
 }
 
 func (h *TransactionGRPCHandler) ListPaymentsByAccount(ctx context.Context, req *pb.ListPaymentsByAccountRequest) (*pb.ListPaymentsResponse, error) {
+	amountMin, _ := strconv.ParseFloat(req.GetAmountMin(), 64)
+	amountMax, _ := strconv.ParseFloat(req.GetAmountMax(), 64)
 	payments, total, err := h.paymentSvc.ListPaymentsByAccount(
 		req.GetAccountNumber(),
 		req.GetDateFrom(),
 		req.GetDateTo(),
 		req.GetStatusFilter(),
-		req.GetAmountMin(),
-		req.GetAmountMax(),
+		amountMin,
+		amountMax,
 		int(req.GetPage()),
 		int(req.GetPageSize()),
 	)
@@ -110,11 +125,14 @@ func (h *TransactionGRPCHandler) ListPaymentsByAccount(ctx context.Context, req 
 // ---- Transfer RPCs ----
 
 func (h *TransactionGRPCHandler) CreateTransfer(ctx context.Context, req *pb.CreateTransferRequest) (*pb.TransferResponse, error) {
+	idempotencyKey := generateIdempotencyKey()
+	transferAmount, _ := decimal.NewFromString(req.GetAmount())
 	transfer := &model.Transfer{
+		IdempotencyKey:    idempotencyKey,
 		FromAccountNumber: req.GetFromAccountNumber(),
 		ToAccountNumber:   req.GetToAccountNumber(),
-		InitialAmount:     req.GetAmount(),
-		ExchangeRate:      1,
+		InitialAmount:     transferAmount,
+		ExchangeRate:      decimal.NewFromInt(1),
 	}
 
 	if err := h.transferSvc.CreateTransfer(ctx, transfer); err != nil {
@@ -126,9 +144,9 @@ func (h *TransactionGRPCHandler) CreateTransfer(ctx context.Context, req *pb.Cre
 		TransferID:        transfer.ID,
 		FromAccountNumber: transfer.FromAccountNumber,
 		ToAccountNumber:   transfer.ToAccountNumber,
-		InitialAmount:     transfer.InitialAmount,
-		FinalAmount:       transfer.FinalAmount,
-		ExchangeRate:      transfer.ExchangeRate,
+		InitialAmount:     transfer.InitialAmount.StringFixed(4),
+		FinalAmount:       transfer.FinalAmount.StringFixed(4),
+		ExchangeRate:      transfer.ExchangeRate.StringFixed(4),
 	}
 	if err := h.producer.PublishTransferCreated(ctx, msg); err != nil {
 		log.Printf("warn: failed to publish transfer-created event: %v", err)
@@ -261,9 +279,9 @@ func paymentToProto(p *model.Payment) *pb.PaymentResponse {
 		Id:                p.ID,
 		FromAccountNumber: p.FromAccountNumber,
 		ToAccountNumber:   p.ToAccountNumber,
-		InitialAmount:     p.InitialAmount,
-		FinalAmount:       p.FinalAmount,
-		Commission:        p.Commission,
+		InitialAmount:     p.InitialAmount.StringFixed(4),
+		FinalAmount:       p.FinalAmount.StringFixed(4),
+		Commission:        p.Commission.StringFixed(4),
 		RecipientName:     p.RecipientName,
 		PaymentCode:       p.PaymentCode,
 		ReferenceNumber:   p.ReferenceNumber,
@@ -278,10 +296,10 @@ func transferToProto(t *model.Transfer) *pb.TransferResponse {
 		Id:                t.ID,
 		FromAccountNumber: t.FromAccountNumber,
 		ToAccountNumber:   t.ToAccountNumber,
-		InitialAmount:     t.InitialAmount,
-		FinalAmount:       t.FinalAmount,
-		ExchangeRate:      t.ExchangeRate,
-		Commission:        t.Commission,
+		InitialAmount:     t.InitialAmount.StringFixed(4),
+		FinalAmount:       t.FinalAmount.StringFixed(4),
+		ExchangeRate:      t.ExchangeRate.StringFixed(4),
+		Commission:        t.Commission.StringFixed(4),
 		Timestamp:         t.Timestamp.String(),
 	}
 }
@@ -300,8 +318,9 @@ func exchangeRateToProto(r *model.ExchangeRate) *pb.ExchangeRateResponse {
 	return &pb.ExchangeRateResponse{
 		FromCurrency: r.FromCurrency,
 		ToCurrency:   r.ToCurrency,
-		BuyRate:      r.BuyRate,
-		SellRate:     r.SellRate,
+		BuyRate:      r.BuyRate.StringFixed(4),
+		SellRate:     r.SellRate.StringFixed(4),
 		UpdatedAt:    r.UpdatedAt.String(),
 	}
 }
+

@@ -166,19 +166,19 @@ func (h *CardGRPCHandler) GetAuthorizedPerson(ctx context.Context, req *pb.GetAu
 
 func toCardResponse(c *model.Card) *pb.CardResponse {
 	return &pb.CardResponse{
-		Id:            c.ID,
-		CardNumber:    c.CardNumber,
+		Id:             c.ID,
+		CardNumber:     c.CardNumber,
 		CardNumberFull: c.CardNumberFull,
-		CardType:      c.CardType,
-		CardName:      c.CardName,
-		CardBrand:     c.CardBrand,
-		AccountNumber: c.AccountNumber,
-		CardLimit:     c.CardLimit,
-		Status:        c.Status,
-		OwnerType:     c.OwnerType,
-		OwnerId:       c.OwnerID,
-		ExpiresAt:     c.ExpiresAt.Format("2006-01-02T15:04:05Z"),
-		CreatedAt:     c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		CardType:       c.CardType,
+		CardName:       c.CardName,
+		CardBrand:      c.CardBrand,
+		AccountNumber:  c.AccountNumber,
+		CardLimit:      c.CardLimit.StringFixed(4),
+		Status:         c.Status,
+		OwnerType:      c.OwnerType,
+		OwnerId:        c.OwnerID,
+		ExpiresAt:      c.ExpiresAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:      c.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 }
 

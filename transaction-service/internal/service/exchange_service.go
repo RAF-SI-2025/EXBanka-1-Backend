@@ -1,6 +1,8 @@
 package service
 
 import (
+	"github.com/shopspring/decimal"
+
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
 )
@@ -14,8 +16,8 @@ func NewExchangeService(exchangeRepo *repository.ExchangeRateRepository) *Exchan
 }
 
 // ConvertAmount multiplies amount by rate.
-func ConvertAmount(amount, rate float64) float64 {
-	return amount * rate
+func ConvertAmount(amount, rate decimal.Decimal) decimal.Decimal {
+	return amount.Mul(rate)
 }
 
 func (s *ExchangeService) GetExchangeRate(fromCurrency, toCurrency string) (*model.ExchangeRate, error) {

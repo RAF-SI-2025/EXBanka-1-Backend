@@ -33,6 +33,7 @@ const (
 	AccountService_UpdateCompany_FullMethodName        = "/account.AccountService/UpdateCompany"
 	AccountService_ListCurrencies_FullMethodName       = "/account.AccountService/ListCurrencies"
 	AccountService_GetCurrency_FullMethodName          = "/account.AccountService/GetCurrency"
+	AccountService_GetLedgerEntries_FullMethodName     = "/account.AccountService/GetLedgerEntries"
 )
 
 // AccountServiceClient is the client API for AccountService service.
@@ -53,6 +54,7 @@ type AccountServiceClient interface {
 	UpdateCompany(ctx context.Context, in *UpdateCompanyRequest, opts ...grpc.CallOption) (*CompanyResponse, error)
 	ListCurrencies(ctx context.Context, in *ListCurrenciesRequest, opts ...grpc.CallOption) (*ListCurrenciesResponse, error)
 	GetCurrency(ctx context.Context, in *GetCurrencyRequest, opts ...grpc.CallOption) (*CurrencyResponse, error)
+	GetLedgerEntries(ctx context.Context, in *GetLedgerEntriesRequest, opts ...grpc.CallOption) (*GetLedgerEntriesResponse, error)
 }
 
 type accountServiceClient struct {
@@ -203,6 +205,16 @@ func (c *accountServiceClient) GetCurrency(ctx context.Context, in *GetCurrencyR
 	return out, nil
 }
 
+func (c *accountServiceClient) GetLedgerEntries(ctx context.Context, in *GetLedgerEntriesRequest, opts ...grpc.CallOption) (*GetLedgerEntriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetLedgerEntriesResponse)
+	err := c.cc.Invoke(ctx, AccountService_GetLedgerEntries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AccountServiceServer is the server API for AccountService service.
 // All implementations must embed UnimplementedAccountServiceServer
 // for forward compatibility.
@@ -221,6 +233,7 @@ type AccountServiceServer interface {
 	UpdateCompany(context.Context, *UpdateCompanyRequest) (*CompanyResponse, error)
 	ListCurrencies(context.Context, *ListCurrenciesRequest) (*ListCurrenciesResponse, error)
 	GetCurrency(context.Context, *GetCurrencyRequest) (*CurrencyResponse, error)
+	GetLedgerEntries(context.Context, *GetLedgerEntriesRequest) (*GetLedgerEntriesResponse, error)
 	mustEmbedUnimplementedAccountServiceServer()
 }
 
@@ -272,6 +285,9 @@ func (UnimplementedAccountServiceServer) ListCurrencies(context.Context, *ListCu
 }
 func (UnimplementedAccountServiceServer) GetCurrency(context.Context, *GetCurrencyRequest) (*CurrencyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetCurrency not implemented")
+}
+func (UnimplementedAccountServiceServer) GetLedgerEntries(context.Context, *GetLedgerEntriesRequest) (*GetLedgerEntriesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetLedgerEntries not implemented")
 }
 func (UnimplementedAccountServiceServer) mustEmbedUnimplementedAccountServiceServer() {}
 func (UnimplementedAccountServiceServer) testEmbeddedByValue()                        {}
@@ -546,6 +562,24 @@ func _AccountService_GetCurrency_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AccountService_GetLedgerEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLedgerEntriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).GetLedgerEntries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_GetLedgerEntries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).GetLedgerEntries(ctx, req.(*GetLedgerEntriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AccountService_ServiceDesc is the grpc.ServiceDesc for AccountService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -608,6 +642,10 @@ var AccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCurrency",
 			Handler:    _AccountService_GetCurrency_Handler,
+		},
+		{
+			MethodName: "GetLedgerEntries",
+			Handler:    _AccountService_GetLedgerEntries_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

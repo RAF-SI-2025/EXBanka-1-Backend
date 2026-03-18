@@ -6,17 +6,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	authpb "github.com/exbanka/contract/authpb"
 	userpb "github.com/exbanka/contract/userpb"
 )
 
 type EmployeeHandler struct {
 	userClient userpb.UserServiceClient
-	authClient authpb.AuthServiceClient
 }
 
-func NewEmployeeHandler(userClient userpb.UserServiceClient, authClient authpb.AuthServiceClient) *EmployeeHandler {
-	return &EmployeeHandler{userClient: userClient, authClient: authClient}
+func NewEmployeeHandler(userClient userpb.UserServiceClient) *EmployeeHandler {
+	return &EmployeeHandler{userClient: userClient}
 }
 
 // ListEmployees godoc
@@ -142,13 +140,7 @@ func (h *EmployeeHandler) CreateEmployee(c *gin.Context) {
 		return
 	}
 
-	// Orchestrate: tell auth-service to create activation token and send email
-	_, _ = h.authClient.CreateActivationToken(c.Request.Context(), &authpb.CreateActivationTokenRequest{
-		UserId:    resp.Id,
-		Email:     resp.Email,
-		FirstName: resp.FirstName,
-	})
-
+	// Activation email is triggered via Kafka (user.employee-created event consumed by auth-service)
 	c.JSON(http.StatusCreated, employeeToJSON(resp))
 }
 

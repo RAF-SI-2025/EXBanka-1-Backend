@@ -29,6 +29,12 @@ type EmailSentMessage struct {
 	Error     string    `json:"error,omitempty"`
 }
 
+// Employee event topic constants
+const (
+	TopicEmployeeCreated = "user.employee-created"
+	TopicEmployeeUpdated = "user.employee-updated"
+)
+
 // New topic constants
 const (
 	TopicClientCreated        = "client.created"
@@ -91,35 +97,44 @@ type CardStatusChangedMessage struct {
 }
 
 type PaymentCompletedMessage struct {
-	PaymentID         uint64  `json:"payment_id"`
-	FromAccountNumber string  `json:"from_account_number"`
-	ToAccountNumber   string  `json:"to_account_number"`
-	Amount            float64 `json:"amount"`
-	Status            string  `json:"status"`
+	PaymentID         uint64 `json:"payment_id"`
+	FromAccountNumber string `json:"from_account_number"`
+	ToAccountNumber   string `json:"to_account_number"`
+	Amount            string `json:"amount"`
+	Status            string `json:"status"`
 }
 
 type TransferCompletedMessage struct {
-	TransferID        uint64  `json:"transfer_id"`
-	FromAccountNumber string  `json:"from_account_number"`
-	ToAccountNumber   string  `json:"to_account_number"`
-	InitialAmount     float64 `json:"initial_amount"`
-	FinalAmount       float64 `json:"final_amount"`
-	ExchangeRate      float64 `json:"exchange_rate"`
+	TransferID        uint64 `json:"transfer_id"`
+	FromAccountNumber string `json:"from_account_number"`
+	ToAccountNumber   string `json:"to_account_number"`
+	InitialAmount     string `json:"initial_amount"`
+	FinalAmount       string `json:"final_amount"`
+	ExchangeRate      string `json:"exchange_rate"`
 }
 
 type LoanStatusMessage struct {
-	LoanRequestID uint64  `json:"loan_request_id"`
-	ClientEmail   string  `json:"client_email"`
-	LoanType      string  `json:"loan_type"`
-	Amount        float64 `json:"amount"`
-	Status        string  `json:"status"`
+	LoanRequestID uint64 `json:"loan_request_id"`
+	ClientEmail   string `json:"client_email"`
+	LoanType      string `json:"loan_type"`
+	Amount        string `json:"amount"`
+	Status        string `json:"status"`
 }
 
 type InstallmentResultMessage struct {
-	LoanID        uint64  `json:"loan_id"`
-	ClientEmail   string  `json:"client_email"`
-	Amount        float64 `json:"amount"`
-	Success       bool    `json:"success"`
-	Error         string  `json:"error,omitempty"`
-	RetryDeadline string  `json:"retry_deadline,omitempty"`
+	LoanID        uint64 `json:"loan_id"`
+	ClientEmail   string `json:"client_email"`
+	Amount        string `json:"amount"`
+	Success       bool   `json:"success"`
+	Error         string `json:"error,omitempty"`
+	RetryDeadline string `json:"retry_deadline,omitempty"`
+}
+
+// EmployeeCreatedMessage is published when an employee is created or updated.
+type EmployeeCreatedMessage struct {
+	EmployeeID int64  `json:"employee_id"`
+	Email      string `json:"email"`
+	FirstName  string `json:"first_name"`
+	LastName   string `json:"last_name"`
+	Role       string `json:"role"`
 }
