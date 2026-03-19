@@ -459,10 +459,18 @@ func (s *AuthService) ActivateAccount(ctx context.Context, tokenStr, password, c
 		return err
 	}
 
-	_, err = s.userClient.SetPassword(ctx, &userpb.SetPasswordRequest{
-		UserId:       at.UserID,
-		PasswordHash: string(hash),
-	})
+	switch at.SystemType {
+	case "client":
+		_, err = s.clientClient.SetPassword(ctx, &clientpb.SetClientPasswordRequest{
+			UserId:       uint64(at.UserID),
+			PasswordHash: string(hash),
+		})
+	default:
+		_, err = s.userClient.SetPassword(ctx, &userpb.SetPasswordRequest{
+			UserId:       at.UserID,
+			PasswordHash: string(hash),
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("failed to set password: %w", err)
 	}
@@ -471,12 +479,27 @@ func (s *AuthService) ActivateAccount(ctx context.Context, tokenStr, password, c
 		log.Printf("warn: failed to mark activation token used (token may be replayable): %v", err)
 	}
 
-	user, _ := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: at.UserID})
-	if user != nil {
+	// Send confirmation email
+	var email, firstName string
+	switch at.SystemType {
+	case "client":
+		resp, _ := s.clientClient.GetClient(ctx, &clientpb.GetClientRequest{Id: uint64(at.UserID)})
+		if resp != nil {
+			email = resp.Email
+			firstName = resp.FirstName
+		}
+	default:
+		user, _ := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: at.UserID})
+		if user != nil {
+			email = user.Email
+			firstName = user.FirstName
+		}
+	}
+	if email != "" {
 		_ = s.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-			To:        user.Email,
+			To:        email,
 			EmailType: kafkamsg.EmailTypeConfirmation,
-			Data:      map[string]string{"first_name": user.FirstName},
+			Data:      map[string]string{"first_name": firstName},
 		})
 	}
 
