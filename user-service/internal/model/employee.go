@@ -17,9 +17,11 @@ type Employee struct {
 	Salt         string    `gorm:"not null" json:"-"`
 	Position     string    `json:"position"`
 	Department   string    `json:"department"`
-	Active       bool      `gorm:"default:true" json:"active"`
-	Role         string    `gorm:"not null;default:'EmployeeBasic'" json:"role"`
-	Activated    bool      `gorm:"default:false" json:"-"`
+	Active                bool         `gorm:"default:true" json:"active"`
+	Role                  string       `gorm:"size:50;default:'EmployeeBasic'" json:"role"` // DEPRECATED — kept for backwards compat
+	Roles                 []Role       `gorm:"many2many:employee_roles;" json:"roles"`
+	AdditionalPermissions []Permission `gorm:"many2many:employee_additional_permissions;" json:"additional_permissions,omitempty"`
+	Activated             bool         `gorm:"default:false" json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

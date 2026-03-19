@@ -10,11 +10,39 @@ import (
 )
 
 type CardHandler struct {
-	cardClient cardpb.CardServiceClient
+	cardClient        cardpb.CardServiceClient
+	virtualCardClient cardpb.VirtualCardServiceClient
 }
 
-func NewCardHandler(cardClient cardpb.CardServiceClient) *CardHandler {
-	return &CardHandler{cardClient: cardClient}
+func NewCardHandler(cardClient cardpb.CardServiceClient, virtualCardClient cardpb.VirtualCardServiceClient) *CardHandler {
+	return &CardHandler{cardClient: cardClient, virtualCardClient: virtualCardClient}
+}
+
+// createVirtualCardBody is the swagger body for creating a virtual card.
+type createVirtualCardBody struct {
+	AccountNumber string `json:"account_number" binding:"required" example:"265-0000000001-00"`
+	OwnerId       uint64 `json:"owner_id" binding:"required" example:"1"`
+	CardBrand     string `json:"card_brand" binding:"required" example:"visa"`
+	UsageType     string `json:"usage_type" binding:"required" example:"single_use"`
+	MaxUses       int32  `json:"max_uses" example:"1"`
+	ExpiryMonths  int32  `json:"expiry_months" binding:"required" example:"1"`
+	CardLimit     string `json:"card_limit" binding:"required" example:"100000.0000"`
+}
+
+// setCardPinBody is the swagger body for setting a card PIN.
+type setCardPinBody struct {
+	Pin string `json:"pin" binding:"required" example:"1234"`
+}
+
+// verifyCardPinBody is the swagger body for verifying a card PIN.
+type verifyCardPinBody struct {
+	Pin string `json:"pin" binding:"required" example:"1234"`
+}
+
+// temporaryBlockCardBody is the swagger body for temporarily blocking a card.
+type temporaryBlockCardBody struct {
+	DurationHours int32  `json:"duration_hours" binding:"required" example:"24"`
+	Reason        string `json:"reason" example:"Lost card"`
 }
 
 type createCardRequest struct {
@@ -247,6 +275,151 @@ func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {
 		"address":       resp.Address,
 		"account_id":    resp.AccountId,
 	})
+}
+
+// CreateVirtualCard godoc
+// @Summary      Create virtual card
+// @Description  Creates a virtual card for a client (single_use or multi_use, 1-3 month expiry)
+// @Tags         cards
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createVirtualCardBody  true  "Virtual card details"
+// @Security     ClientBearerAuth
+// @Success      201  {object}  map[string]interface{}  "created virtual card"
+// @Failure      400  {object}  map[string]string       "invalid input"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/cards/virtual [post]
+func (h *CardHandler) CreateVirtualCard(c *gin.Context) {
+	var body createVirtualCardBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := h.virtualCardClient.CreateVirtualCard(c.Request.Context(), &cardpb.CreateVirtualCardRequest{
+		AccountNumber: body.AccountNumber,
+		OwnerId:       body.OwnerId,
+		CardBrand:     body.CardBrand,
+		UsageType:     body.UsageType,
+		MaxUses:       body.MaxUses,
+		ExpiryMonths:  body.ExpiryMonths,
+		CardLimit:     body.CardLimit,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, resp)
+}
+
+// SetCardPin godoc
+// @Summary      Set card PIN
+// @Description  Sets the 4-digit PIN for a card
+// @Tags         cards
+// @Accept       json
+// @Produce      json
+// @Param        id    path  int             true  "Card ID"
+// @Param        body  body  setCardPinBody  true  "PIN"
+// @Security     ClientBearerAuth
+// @Success      200  {object}  map[string]interface{}  "PIN set"
+// @Failure      400  {object}  map[string]string       "invalid input"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/cards/{id}/pin [post]
+func (h *CardHandler) SetCardPin(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid card id"})
+		return
+	}
+	var body setCardPinBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := h.virtualCardClient.SetCardPin(c.Request.Context(), &cardpb.SetCardPinRequest{
+		Id:  id,
+		Pin: body.Pin,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// VerifyCardPin godoc
+// @Summary      Verify card PIN
+// @Description  Verifies the 4-digit PIN for a card. Card is blocked after 3 failed attempts.
+// @Tags         cards
+// @Accept       json
+// @Produce      json
+// @Param        id    path  int                true  "Card ID"
+// @Param        body  body  verifyCardPinBody  true  "PIN"
+// @Security     ClientBearerAuth
+// @Success      200  {object}  map[string]interface{}  "verification result"
+// @Failure      400  {object}  map[string]string       "invalid input"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/cards/{id}/verify-pin [post]
+func (h *CardHandler) VerifyCardPin(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid card id"})
+		return
+	}
+	var body verifyCardPinBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := h.virtualCardClient.VerifyCardPin(c.Request.Context(), &cardpb.VerifyCardPinRequest{
+		Id:  id,
+		Pin: body.Pin,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// TemporaryBlockCard godoc
+// @Summary      Temporarily block card
+// @Description  Blocks a card temporarily for a specified duration in hours (1-720). Card is automatically unblocked when the duration expires.
+// @Tags         cards
+// @Accept       json
+// @Produce      json
+// @Param        id    path  int                      true  "Card ID"
+// @Param        body  body  temporaryBlockCardBody   true  "Block duration and reason"
+// @Security     ClientBearerAuth
+// @Success      200  {object}  map[string]interface{}  "blocked card"
+// @Failure      400  {object}  map[string]string       "invalid input"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      404  {object}  map[string]string       "card not found"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/cards/{id}/temporary-block [post]
+func (h *CardHandler) TemporaryBlockCard(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid card id"})
+		return
+	}
+	var body temporaryBlockCardBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := h.virtualCardClient.TemporaryBlockCard(c.Request.Context(), &cardpb.TemporaryBlockCardRequest{
+		Id:            id,
+		DurationHours: body.DurationHours,
+		Reason:        body.Reason,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func cardToJSON(card *cardpb.CardResponse) gin.H {

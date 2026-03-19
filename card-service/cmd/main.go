@@ -9,10 +9,12 @@ import (
 	"syscall"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/cardpb"
+	clientpb "github.com/exbanka/contract/clientpb"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/card-service/internal/cache"
 	"github.com/exbanka/card-service/internal/config"
@@ -30,7 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}); err != nil {
+	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -46,10 +48,22 @@ func main() {
 		defer redisCache.Close()
 	}
 
+	// Connect to client-service
+	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to client service: %v", err)
+	}
+	defer clientConn.Close()
+	clientClient := clientpb.NewClientServiceClient(clientConn)
+
 	cardRepo := repository.NewCardRepository(db)
+	blockRepo := repository.NewCardBlockRepository(db)
 	authRepo := repository.NewAuthorizedPersonRepository(db)
-	cardService := service.NewCardService(cardRepo, authRepo, redisCache)
-	grpcHandler := handler.NewCardGRPCHandler(cardService, producer)
+	cardService := service.NewCardService(cardRepo, blockRepo, authRepo, producer, redisCache)
+	grpcHandler := handler.NewCardGRPCHandler(cardService, producer, clientClient)
+	virtualCardHandler := handler.NewVirtualCardGRPCHandler(cardService)
+
+	service.StartCardCron(cardRepo, blockRepo)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -58,6 +72,7 @@ func main() {
 
 	s := grpc.NewServer()
 	pb.RegisterCardServiceServer(s, grpcHandler)
+	pb.RegisterVirtualCardServiceServer(s, virtualCardHandler)
 	shared.RegisterHealthCheck(s, "card-service")
 
 	// Start gRPC server in goroutine

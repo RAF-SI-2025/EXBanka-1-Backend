@@ -28,6 +28,7 @@ type Account struct {
 	DailySpending    decimal.Decimal `gorm:"type:numeric(18,4);not null;default:0"`
 	MonthlySpending  decimal.Decimal `gorm:"type:numeric(18,4);not null;default:0"`
 	CompanyID        *uint64         `gorm:"index"`
+	IsBankAccount    bool            `gorm:"default:false;index" json:"is_bank_account"`
 	Version          int64           `gorm:"not null;default:1"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time

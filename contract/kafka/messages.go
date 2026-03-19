@@ -37,6 +37,8 @@ const (
 
 // New topic constants
 const (
+	TopicCardTemporaryBlocked = "card.temporary-blocked"
+	TopicVirtualCardCreated   = "card.virtual-card-created"
 	TopicClientCreated        = "client.created"
 	TopicClientUpdated        = "client.updated"
 	TopicAccountCreated       = "account.created"
@@ -45,8 +47,10 @@ const (
 	TopicCardStatusChanged    = "card.status-changed"
 	TopicPaymentCreated       = "transaction.payment-created"
 	TopicPaymentCompleted     = "transaction.payment-completed"
+	TopicPaymentFailed        = "transaction.payment-failed"
 	TopicTransferCreated      = "transaction.transfer-created"
 	TopicTransferCompleted    = "transaction.transfer-completed"
+	TopicTransferFailed       = "transaction.transfer-failed"
 	TopicLoanRequested        = "credit.loan-requested"
 	TopicLoanApproved         = "credit.loan-approved"
 	TopicLoanRejected         = "credit.loan-rejected"
@@ -113,6 +117,24 @@ type TransferCompletedMessage struct {
 	ExchangeRate      string `json:"exchange_rate"`
 }
 
+// PaymentFailedMessage is published when a payment fails at any stage.
+type PaymentFailedMessage struct {
+	PaymentID         uint64 `json:"payment_id"`
+	FromAccountNumber string `json:"from_account_number"`
+	ToAccountNumber   string `json:"to_account_number"`
+	Amount            string `json:"amount"`
+	FailureReason     string `json:"failure_reason"`
+}
+
+// TransferFailedMessage is published when a transfer fails at any stage.
+type TransferFailedMessage struct {
+	TransferID        uint64 `json:"transfer_id"`
+	FromAccountNumber string `json:"from_account_number"`
+	ToAccountNumber   string `json:"to_account_number"`
+	Amount            string `json:"amount"`
+	FailureReason     string `json:"failure_reason"`
+}
+
 type LoanStatusMessage struct {
 	LoanRequestID uint64 `json:"loan_request_id"`
 	ClientEmail   string `json:"client_email"`
@@ -132,9 +154,51 @@ type InstallmentResultMessage struct {
 
 // EmployeeCreatedMessage is published when an employee is created or updated.
 type EmployeeCreatedMessage struct {
+	EmployeeID int64    `json:"employee_id"`
+	Email      string   `json:"email"`
+	FirstName  string   `json:"first_name"`
+	LastName   string   `json:"last_name"`
+	Roles      []string `json:"roles"`
+}
+
+// Limit event topic constants
+const (
+	TopicEmployeeLimitsUpdated = "user.employee-limits-updated"
+	TopicLimitTemplateCreated  = "user.limit-template-created"
+	TopicLimitTemplateUpdated  = "user.limit-template-updated"
+	TopicLimitTemplateDeleted  = "user.limit-template-deleted"
+	TopicClientLimitsUpdated   = "client.limits-updated"
+)
+
+// EmployeeLimitsUpdatedMessage is published when an employee's limits are set or updated.
+type EmployeeLimitsUpdatedMessage struct {
 	EmployeeID int64  `json:"employee_id"`
-	Email      string `json:"email"`
-	FirstName  string `json:"first_name"`
-	LastName   string `json:"last_name"`
-	Role       string `json:"role"`
+	Action     string `json:"action"` // "set" or "template_applied"
+}
+
+// LimitTemplateMessage is published when a limit template is created, updated, or deleted.
+type LimitTemplateMessage struct {
+	TemplateID   int64  `json:"template_id"`
+	TemplateName string `json:"template_name"`
+	Action       string `json:"action"` // "created", "updated", "deleted"
+}
+
+// ClientLimitsUpdatedMessage is published when a client's limits are updated.
+type ClientLimitsUpdatedMessage struct {
+	ClientID      int64  `json:"client_id"`
+	SetByEmployee int64  `json:"set_by_employee"`
+	Action        string `json:"action"` // "set"
+}
+
+type CardTemporaryBlockedMessage struct {
+	CardID    uint64 `json:"card_id"`
+	ExpiresAt string `json:"expires_at"`
+	Reason    string `json:"reason"`
+}
+
+type VirtualCardCreatedMessage struct {
+	CardID        uint64 `json:"card_id"`
+	AccountNumber string `json:"account_number"`
+	UsageType     string `json:"usage_type"`
+	MaxUses       int    `json:"max_uses"`
 }

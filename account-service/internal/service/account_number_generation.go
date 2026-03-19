@@ -1,15 +1,16 @@
 package service
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
-	"time"
+	"math/big"
 )
 
 func GenerateAccountNumber() string {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	max := big.NewInt(9999999999999)
+	n, _ := rand.Int(rand.Reader, max)
 	// Bank code: 105 + 13 random digits
-	middle := fmt.Sprintf("%013d", rng.Int63n(9999999999999))
+	middle := fmt.Sprintf("%013d", n.Int64())
 	base := "105" + middle
 	// Compute mod97 check digits
 	checkVal := 98 - mod97(base+"00")

@@ -33,7 +33,12 @@ func ClientAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 			return
 		}
 
-		if resp.Role != "client" {
+		// Check by system_type first (new), fall back to role=="client" (legacy)
+		if resp.SystemType == "employee" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "token not authorized for client routes"})
+			return
+		}
+		if resp.SystemType != "client" && resp.Role != "client" {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "client access required"})
 			return
 		}
@@ -41,6 +46,7 @@ func ClientAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 		c.Set("user_id", resp.UserId)
 		c.Set("email", resp.Email)
 		c.Set("role", resp.Role)
+		c.Set("system_type", resp.SystemType)
 		c.Set("permissions", resp.Permissions)
 		c.Next()
 	}

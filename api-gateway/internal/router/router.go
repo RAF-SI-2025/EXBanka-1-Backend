@@ -25,6 +25,11 @@ func Setup(
 	cardClient cardpb.CardServiceClient,
 	txClient transactionpb.TransactionServiceClient,
 	creditClient creditpb.CreditServiceClient,
+	empLimitClient userpb.EmployeeLimitServiceClient,
+	clientLimitClient clientpb.ClientLimitServiceClient,
+	virtualCardClient cardpb.VirtualCardServiceClient,
+	bankAccountClient accountpb.BankAccountServiceClient,
+	feeClient transactionpb.FeeServiceClient,
 ) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
@@ -37,10 +42,12 @@ func Setup(
 
 	authHandler := handler.NewAuthHandler(authClient)
 	empHandler := handler.NewEmployeeHandler(userClient)
+	roleHandler := handler.NewRoleHandler(userClient)
+	limitHandler := handler.NewLimitHandler(empLimitClient, clientLimitClient)
 	clientHandler := handler.NewClientHandler(clientClient)
-	accountHandler := handler.NewAccountHandler(accountClient)
-	cardHandler := handler.NewCardHandler(cardClient)
-	txHandler := handler.NewTransactionHandler(txClient)
+	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient)
+	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient)
+	txHandler := handler.NewTransactionHandler(txClient, feeClient)
 	exchangeHandler := handler.NewExchangeHandler(txClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
 
@@ -79,10 +86,55 @@ func Setup(
 				adminEmployees.POST("", empHandler.CreateEmployee)
 			}
 
+			// Bank account management (admin only)
+			bankAccountsAdmin := protected.Group("/bank-accounts")
+			bankAccountsAdmin.Use(middleware.RequirePermission("employees.create"))
+			{
+				bankAccountsAdmin.GET("", accountHandler.ListBankAccounts)
+				bankAccountsAdmin.POST("", accountHandler.CreateBankAccount)
+				bankAccountsAdmin.DELETE("/:id", accountHandler.DeleteBankAccount)
+			}
+
+			// Transfer fee management (admin only)
+			feesAdmin := protected.Group("/fees")
+			feesAdmin.Use(middleware.RequirePermission("employees.create"))
+			{
+				feesAdmin.GET("", txHandler.ListFees)
+				feesAdmin.POST("", txHandler.CreateFee)
+				feesAdmin.PUT("/:id", txHandler.UpdateFee)
+				feesAdmin.DELETE("/:id", txHandler.DeleteFee)
+			}
+
 			updateEmployees := protected.Group("/employees")
 			updateEmployees.Use(middleware.RequirePermission("employees.update"))
 			{
 				updateEmployees.PUT("/:id", empHandler.UpdateEmployee)
+			}
+
+			// Role and permission management (employees.permissions)
+			permManagement := protected.Group("/")
+			permManagement.Use(middleware.RequirePermission("employees.permissions"))
+			{
+				permManagement.GET("/roles", roleHandler.ListRoles)
+				permManagement.GET("/roles/:id", roleHandler.GetRole)
+				permManagement.POST("/roles", roleHandler.CreateRole)
+				permManagement.PUT("/roles/:id/permissions", roleHandler.UpdateRolePermissions)
+				permManagement.GET("/permissions", roleHandler.ListPermissions)
+				permManagement.PUT("/employees/:id/roles", roleHandler.SetEmployeeRoles)
+				permManagement.PUT("/employees/:id/permissions", roleHandler.SetEmployeeAdditionalPermissions)
+			}
+
+			// Employee limit management (limits.manage)
+			limitsEmployee := protected.Group("/")
+			limitsEmployee.Use(middleware.RequirePermission("limits.manage"))
+			{
+				limitsEmployee.GET("/employees/:id/limits", limitHandler.GetEmployeeLimits)
+				limitsEmployee.PUT("/employees/:id/limits", limitHandler.SetEmployeeLimits)
+				limitsEmployee.POST("/employees/:id/limits/template", limitHandler.ApplyLimitTemplate)
+				limitsEmployee.GET("/limits/templates", limitHandler.ListLimitTemplates)
+				limitsEmployee.POST("/limits/templates", limitHandler.CreateLimitTemplate)
+				limitsEmployee.GET("/clients/:id/limits", limitHandler.GetClientLimits)
+				limitsEmployee.PUT("/clients/:id/limits", limitHandler.SetClientLimits)
 			}
 
 			// Client management (EmployeeBasic)
@@ -167,6 +219,12 @@ func Setup(
 
 			// Loans (client write)
 			clientProtected.POST("/loans/requests", creditHandler.CreateLoanRequest)
+
+			// Virtual cards (client)
+			clientProtected.POST("/cards/virtual", cardHandler.CreateVirtualCard)
+			clientProtected.POST("/cards/:id/pin", cardHandler.SetCardPin)
+			clientProtected.POST("/cards/:id/verify-pin", cardHandler.VerifyCardPin)
+			clientProtected.POST("/cards/:id/temporary-block", cardHandler.TemporaryBlockCard)
 		}
 
 		// Routes accessible by both employee and client tokens

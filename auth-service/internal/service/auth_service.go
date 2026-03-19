@@ -140,7 +140,13 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 
 	_ = s.loginAttemptRepo.RecordAttempt(email, "", true)
 
-	accessToken, err := s.jwtService.GenerateAccessToken(resp.UserId, resp.Email, resp.Role, resp.Permissions)
+	// Gather roles from response (new multi-role field takes priority, fall back to single role)
+	loginRoles := resp.Roles
+	if len(loginRoles) == 0 && resp.Role != "" {
+		loginRoles = []string{resp.Role}
+	}
+
+	accessToken, err := s.jwtService.GenerateAccessToken(resp.UserId, resp.Email, loginRoles, resp.Permissions, "employee")
 	if err != nil {
 		return "", "", err
 	}
@@ -150,9 +156,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 	if err := s.tokenRepo.CreateRefreshToken(&model.RefreshToken{
-		UserID:    resp.UserId,
-		Token:     refreshToken,
-		ExpiresAt: time.Now().Add(s.refreshExp),
+		UserID:     resp.UserId,
+		Token:      refreshToken,
+		ExpiresAt:  time.Now().Add(s.refreshExp),
+		SystemType: "employee",
 	}); err != nil {
 		return "", "", err
 	}
@@ -197,7 +204,7 @@ func (s *AuthService) ClientLogin(ctx context.Context, email, password string) (
 	_ = s.loginAttemptRepo.RecordAttempt(email, "", true)
 
 	// Client ID is uint64 in clientpb; cast to int64 for JWT claims.
-	accessToken, err := s.jwtService.GenerateAccessToken(int64(resp.Id), resp.Email, "client", nil)
+	accessToken, err := s.jwtService.GenerateAccessToken(int64(resp.Id), resp.Email, []string{"client"}, nil, "client")
 	if err != nil {
 		return "", "", err
 	}
@@ -207,9 +214,10 @@ func (s *AuthService) ClientLogin(ctx context.Context, email, password string) (
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 	if err := s.tokenRepo.CreateRefreshToken(&model.RefreshToken{
-		UserID:    int64(resp.Id),
-		Token:     refreshToken,
-		ExpiresAt: time.Now().Add(s.refreshExp),
+		UserID:     int64(resp.Id),
+		Token:      refreshToken,
+		ExpiresAt:  time.Now().Add(s.refreshExp),
+		SystemType: "client",
 	}); err != nil {
 		return "", "", err
 	}
@@ -285,16 +293,38 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) 
 		return "", "", fmt.Errorf("failed to revoke old refresh token: %w", err)
 	}
 
-	userResp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: rt.UserID})
-	if err != nil {
-		return "", "", errors.New("user not found")
+	var accessToken string
+	systemType := rt.SystemType
+	if systemType == "" {
+		systemType = "employee" // backwards compat for existing tokens without system_type
 	}
 
-	accessToken, err := s.jwtService.GenerateAccessToken(
-		userResp.Id, userResp.Email, userResp.Role, userResp.Permissions,
-	)
-	if err != nil {
-		return "", "", err
+	if systemType == "client" {
+		// Client refresh: look up client by ID to get email
+		clientResp, err := s.clientClient.GetClient(ctx, &clientpb.GetClientRequest{Id: uint64(rt.UserID)})
+		clientEmail := ""
+		if err == nil && clientResp != nil {
+			clientEmail = clientResp.Email
+		}
+		accessToken, err = s.jwtService.GenerateAccessToken(rt.UserID, clientEmail, []string{"client"}, nil, "client")
+		if err != nil {
+			return "", "", err
+		}
+	} else {
+		userResp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: rt.UserID})
+		if err != nil {
+			return "", "", errors.New("user not found")
+		}
+		refreshRoles := userResp.Roles
+		if len(refreshRoles) == 0 && userResp.Role != "" {
+			refreshRoles = []string{userResp.Role}
+		}
+		accessToken, err = s.jwtService.GenerateAccessToken(
+			userResp.Id, userResp.Email, refreshRoles, userResp.Permissions, "employee",
+		)
+		if err != nil {
+			return "", "", err
+		}
 	}
 
 	newRefreshToken, err := generateToken()
@@ -302,9 +332,10 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) 
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 	if err := s.tokenRepo.CreateRefreshToken(&model.RefreshToken{
-		UserID:    rt.UserID,
-		Token:     newRefreshToken,
-		ExpiresAt: time.Now().Add(s.refreshExp),
+		UserID:     rt.UserID,
+		Token:      newRefreshToken,
+		ExpiresAt:  time.Now().Add(s.refreshExp),
+		SystemType: systemType,
 	}); err != nil {
 		return "", "", err
 	}

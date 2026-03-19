@@ -9,10 +9,12 @@ import (
 	"syscall"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/clientpb"
+	clientpb "github.com/exbanka/contract/clientpb"
+	userpb "github.com/exbanka/contract/userpb"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/client-service/internal/cache"
 	"github.com/exbanka/client-service/internal/config"
@@ -30,7 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Client{}); err != nil {
+	if err := db.AutoMigrate(&model.Client{}, &model.ClientLimit{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -46,9 +48,24 @@ func main() {
 		defer redisCache.Close()
 	}
 
+	// Connect to user-service for employee limit enforcement
+	var userLimitClient userpb.EmployeeLimitServiceClient
+	userConn, userErr := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if userErr != nil {
+		log.Printf("warn: failed to connect to user service for limit enforcement: %v", userErr)
+	} else {
+		defer userConn.Close()
+		userLimitClient = userpb.NewEmployeeLimitServiceClient(userConn)
+	}
+
 	repo := repository.NewClientRepository(db)
+	clientLimitRepo := repository.NewClientLimitRepository(db)
+
 	clientService := service.NewClientService(repo, producer, redisCache)
+	clientLimitSvc := service.NewClientLimitService(clientLimitRepo, userLimitClient, producer)
+
 	grpcHandler := handler.NewClientGRPCHandler(clientService, producer)
+	limitHandler := handler.NewClientLimitGRPCHandler(clientLimitSvc)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -56,7 +73,8 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterClientServiceServer(s, grpcHandler)
+	clientpb.RegisterClientServiceServer(s, grpcHandler)
+	clientpb.RegisterClientLimitServiceServer(s, limitHandler)
 	shared.RegisterHealthCheck(s, "client-service")
 
 	// Start gRPC server in goroutine
@@ -76,3 +94,6 @@ func main() {
 	s.GracefulStop()
 	log.Println("Server stopped")
 }
+
+// Keep os import used
+var _ = os.Getenv

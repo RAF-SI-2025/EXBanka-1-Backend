@@ -64,13 +64,47 @@ func main() {
 	}
 	defer txConn.Close()
 
+	feeClient, feeConn, err := grpcclients.NewFeeServiceClient(cfg.TransactionGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to fee service: %v", err)
+	}
+	defer feeConn.Close()
+
 	creditClient, creditConn, err := grpcclients.NewCreditClient(cfg.CreditGRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to connect to credit service: %v", err)
 	}
 	defer creditConn.Close()
 
-	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient)
+	// Employee limit service reuses the user-service connection
+	empLimitClient, empLimitConn, err := grpcclients.NewEmployeeLimitClient(cfg.UserGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to employee limit service: %v", err)
+	}
+	defer empLimitConn.Close()
+
+	// Client limit service reuses the client-service connection
+	clientLimitClient, clientLimitConn, err := grpcclients.NewClientLimitClient(cfg.ClientGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to client limit service: %v", err)
+	}
+	defer clientLimitConn.Close()
+
+	// Virtual card service reuses the card-service connection
+	virtualCardClient, virtualCardConn, err := grpcclients.NewVirtualCardClient(cfg.CardGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to virtual card service: %v", err)
+	}
+	defer virtualCardConn.Close()
+
+	// Bank account service reuses the account-service connection
+	bankAccountClient, bankAccountConn, err := grpcclients.NewBankAccountClient(cfg.AccountGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to bank account service: %v", err)
+	}
+	defer bankAccountConn.Close()
+
+	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,

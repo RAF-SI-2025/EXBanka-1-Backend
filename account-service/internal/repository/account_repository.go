@@ -110,6 +110,29 @@ func (r *AccountRepository) UpdateStatus(id uint64, status string) error {
 	return nil
 }
 
+func (r *AccountRepository) ListBankAccounts() ([]model.Account, error) {
+	var accounts []model.Account
+	err := r.db.Where("is_bank_account = ?", true).Find(&accounts).Error
+	return accounts, err
+}
+
+func (r *AccountRepository) ListBankAccountsByCurrency(currency string) ([]model.Account, error) {
+	var accounts []model.Account
+	err := r.db.Where("is_bank_account = ? AND currency_code = ? AND status = ?", true, currency, "active").Find(&accounts).Error
+	return accounts, err
+}
+
+func (r *AccountRepository) SoftDelete(id uint64) error {
+	result := r.db.Delete(&model.Account{}, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		updates := map[string]interface{}{

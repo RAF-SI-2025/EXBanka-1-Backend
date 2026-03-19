@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"time"
+
 	"github.com/exbanka/card-service/internal/model"
 	"gorm.io/gorm"
 )
@@ -51,4 +53,14 @@ func (r *CardRepository) UpdateStatus(id uint64, status string) (*model.Card, er
 		return nil, err
 	}
 	return &card, nil
+}
+
+func (r *CardRepository) Update(card *model.Card) error {
+	return r.db.Save(card).Error
+}
+
+func (r *CardRepository) FindExpiredVirtual(now time.Time) ([]model.Card, error) {
+	var cards []model.Card
+	err := r.db.Where("is_virtual = ? AND status = ? AND expires_at <= ?", true, "active", now).Find(&cards).Error
+	return cards, err
 }

@@ -20,7 +20,13 @@ type Card struct {
 	CardLimit      decimal.Decimal `gorm:"type:numeric(18,4);not null;default:1000000" json:"card_limit"`
 	Status         string          `gorm:"size:20;default:'active'" json:"status"` // active, blocked, deactivated
 	Version        int64           `gorm:"not null;default:1"`
-	ExpiresAt      time.Time       `json:"expires_at"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	IsVirtual     bool      `gorm:"default:false" json:"is_virtual"`
+	UsageType     string    `gorm:"size:20;default:'unlimited'" json:"usage_type"` // "single_use", "multi_use", "unlimited"
+	MaxUses       int       `gorm:"default:0" json:"max_uses"`
+	UsesRemaining int       `gorm:"default:0" json:"uses_remaining"`
+	PinHash       string    `gorm:"size:255" json:"-"`
+	PinAttempts   int       `gorm:"default:0" json:"-"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }

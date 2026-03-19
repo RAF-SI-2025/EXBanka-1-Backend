@@ -37,6 +37,9 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 9. [Verification Codes](#9-verification-codes)
 10. [Exchange Rates](#10-exchange-rates)
 11. [Loans](#11-loans)
+12. [Limits](#12-limits)
+13. [Bank Accounts](#13-bank-accounts)
+14. [Transfer Fees](#14-transfer-fees)
 
 ---
 
@@ -1058,6 +1061,186 @@ Create an authorized person who can also hold a card linked to an existing accou
 
 ---
 
+### POST /api/cards/virtual
+
+Create a virtual card for a client account. Virtual cards can be single-use or multi-use and expire after 1-3 months.
+
+**Authentication:** Client JWT
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `account_number` | string | Yes | Account to link the virtual card to |
+| `owner_id` | uint64 | Yes | Client ID of the card owner |
+| `card_brand` | string | Yes | `"visa"`, `"mastercard"`, `"dinacard"`, or `"amex"` |
+| `usage_type` | string | Yes | `"single_use"` or `"multi_use"` |
+| `max_uses` | int32 | No | Max uses (required for `multi_use`, must be >= 2; ignored for `single_use`) |
+| `expiry_months` | int32 | Yes | Expiry duration in months: 1, 2, or 3 |
+| `card_limit` | string | Yes | Card spending limit as decimal string (e.g. `"100000.0000"`) |
+
+**Example Request:**
+```json
+{
+  "account_number": "265-0000000001-00",
+  "owner_id": 1,
+  "card_brand": "visa",
+  "usage_type": "multi_use",
+  "max_uses": 5,
+  "expiry_months": 1,
+  "card_limit": "5000.0000"
+}
+```
+
+**Response 201:**
+```json
+{
+  "id": 10,
+  "card_number": "**** **** **** 9876",
+  "card_number_full": "4111111111119876",
+  "card_type": "debit",
+  "card_brand": "visa",
+  "account_number": "265-0000000001-00",
+  "cvv": "456",
+  "card_limit": "5000.0000",
+  "status": "active",
+  "owner_type": "client",
+  "owner_id": 1,
+  "expires_at": "2026-04-19T00:00:00Z",
+  "created_at": "2026-03-19T10:00:00Z"
+}
+```
+
+| Status | Description |
+|---|---|
+| 201 | Virtual card created |
+| 400 | Invalid input (bad usage_type, expiry_months, max_uses, or card_limit) |
+| 401 | Unauthorized |
+
+---
+
+### POST /api/cards/:id/pin
+
+Set the 4-digit PIN for a card.
+
+**Authentication:** Client JWT
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Card ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `pin` | string | Yes | Exactly 4 numeric digits |
+
+**Example Request:**
+```json
+{
+  "pin": "1234"
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "message": "PIN set successfully"
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | PIN set |
+| 400 | Invalid PIN format (must be exactly 4 digits) |
+| 401 | Unauthorized |
+| 500 | Internal error |
+
+---
+
+### POST /api/cards/:id/verify-pin
+
+Verify the 4-digit PIN for a card. The card is permanently blocked after 3 consecutive failed attempts.
+
+**Authentication:** Client JWT
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Card ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `pin` | string | Yes | 4-digit PIN to verify |
+
+**Example Request:**
+```json
+{
+  "pin": "1234"
+}
+```
+
+**Response 200:**
+```json
+{
+  "valid": true,
+  "message": "PIN verified"
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Verification result (check `valid` field) |
+| 400 | Invalid input |
+| 401 | Unauthorized |
+| 500 | Internal error |
+
+---
+
+### POST /api/cards/:id/temporary-block
+
+Temporarily block a card for a specified duration in hours. The card is automatically unblocked by a background job when the duration expires.
+
+**Authentication:** Client JWT
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Card ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `duration_hours` | int32 | Yes | Block duration in hours (1–720) |
+| `reason` | string | No | Reason for blocking (e.g. "Lost card") |
+
+**Example Request:**
+```json
+{
+  "duration_hours": 24,
+  "reason": "Suspicious activity"
+}
+```
+
+**Response 200:** Updated card object with `"status": "blocked"`
+
+| Status | Description |
+|---|---|
+| 200 | Card temporarily blocked |
+| 400 | Invalid input or card not found |
+| 401 | Unauthorized |
+| 404 | Card not found |
+
+---
+
 ## 6. Payments
 
 Payments are domestic/foreign transfers from one account to another with optional payment metadata.
@@ -1757,6 +1940,291 @@ Get all installment records for a loan.
 
 ---
 
+## 12. Limits
+
+Manage transaction and approval limits for employees, and transaction limits for bank clients.
+
+All monetary values are decimal strings (e.g., `"50000.0000"`).
+
+**Authentication:** All endpoints require a valid employee Bearer token.
+
+**Required permission:** `limits.manage`
+
+---
+
+### GET /api/employees/:id/limits
+
+Retrieve the current transaction and approval limits for an employee.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Employee ID |
+
+**Example request:**
+```
+GET /api/employees/42/limits
+Authorization: Bearer <token>
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "employee_id": 42,
+  "max_loan_approval_amount": "50000.0000",
+  "max_single_transaction": "100000.0000",
+  "max_daily_transaction": "500000.0000",
+  "max_client_daily_limit": "250000.0000",
+  "max_client_monthly_limit": "2500000.0000"
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Employee limits returned |
+| 400 | Invalid employee ID |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### PUT /api/employees/:id/limits
+
+Set or update transaction and approval limits for an employee. If no limits exist for this employee, they are created.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Employee ID |
+
+**Request body:**
+```json
+{
+  "max_loan_approval_amount": "50000.0000",
+  "max_single_transaction": "100000.0000",
+  "max_daily_transaction": "500000.0000",
+  "max_client_daily_limit": "250000.0000",
+  "max_client_monthly_limit": "2500000.0000"
+}
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "employee_id": 42,
+  "max_loan_approval_amount": "50000.0000",
+  "max_single_transaction": "100000.0000",
+  "max_daily_transaction": "500000.0000",
+  "max_client_daily_limit": "250000.0000",
+  "max_client_monthly_limit": "2500000.0000"
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Limits updated |
+| 400 | Invalid input |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### POST /api/employees/:id/limits/template
+
+Apply a named limit template to an employee. Copies the template's values to the employee's limit record.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Employee ID |
+
+**Request body:**
+```json
+{
+  "template_name": "BasicTeller"
+}
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "employee_id": 42,
+  "max_loan_approval_amount": "50000.0000",
+  "max_single_transaction": "100000.0000",
+  "max_daily_transaction": "500000.0000",
+  "max_client_daily_limit": "250000.0000",
+  "max_client_monthly_limit": "2500000.0000"
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Template applied |
+| 400 | Invalid input or template not found |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### GET /api/limits/templates
+
+List all predefined and custom limit templates.
+
+**Example request:**
+```
+GET /api/limits/templates
+Authorization: Bearer <token>
+```
+
+**Example response:**
+```json
+{
+  "templates": [
+    {
+      "id": 1,
+      "name": "BasicTeller",
+      "description": "Default teller limits",
+      "max_loan_approval_amount": "50000.0000",
+      "max_single_transaction": "100000.0000",
+      "max_daily_transaction": "500000.0000",
+      "max_client_daily_limit": "250000.0000",
+      "max_client_monthly_limit": "2500000.0000"
+    }
+  ]
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Templates returned |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### POST /api/limits/templates
+
+Create a new named limit template.
+
+**Request body:**
+```json
+{
+  "name": "SeniorAgent",
+  "description": "Senior agent limits",
+  "max_loan_approval_amount": "500000.0000",
+  "max_single_transaction": "1000000.0000",
+  "max_daily_transaction": "5000000.0000",
+  "max_client_daily_limit": "1000000.0000",
+  "max_client_monthly_limit": "10000000.0000"
+}
+```
+
+**Example response:**
+```json
+{
+  "id": 4,
+  "name": "SeniorAgent",
+  "description": "Senior agent limits",
+  "max_loan_approval_amount": "500000.0000",
+  "max_single_transaction": "1000000.0000",
+  "max_daily_transaction": "5000000.0000",
+  "max_client_daily_limit": "1000000.0000",
+  "max_client_monthly_limit": "10000000.0000"
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 201 | Template created |
+| 400 | Invalid input |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### GET /api/clients/:id/limits
+
+Retrieve the current transaction limits for a client.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Client ID |
+
+**Example request:**
+```
+GET /api/clients/7/limits
+Authorization: Bearer <token>
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "client_id": 7,
+  "daily_limit": "100000.0000",
+  "monthly_limit": "1000000.0000",
+  "transfer_limit": "50000.0000",
+  "set_by_employee": 42
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Client limits returned |
+| 400 | Invalid client ID |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### PUT /api/clients/:id/limits
+
+Set or update transaction limits for a client. The employee's own limits constrain the maximum values they may assign (daily and monthly). Requires the authenticated employee's `max_client_daily_limit` ≥ requested `daily_limit` and `max_client_monthly_limit` ≥ requested `monthly_limit`.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Client ID |
+
+**Request body:**
+```json
+{
+  "daily_limit": "100000.0000",
+  "monthly_limit": "1000000.0000",
+  "transfer_limit": "50000.0000"
+}
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "client_id": 7,
+  "daily_limit": "100000.0000",
+  "monthly_limit": "1000000.0000",
+  "transfer_limit": "50000.0000",
+  "set_by_employee": 42
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Client limits updated |
+| 400 | Invalid input or limit exceeds employee's authority |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
 ## Error Response Format
 
 All error responses follow this format:
@@ -1778,6 +2246,260 @@ All error responses follow this format:
 | 403 | Forbidden (insufficient permissions or wrong role) |
 | 404 | Resource not found |
 | 500 | Internal server error |
+
+---
+
+## 13. Bank Accounts
+
+Bank account management endpoints allow administrators to manage internal bank-owned accounts used for fee collection and loan repayments. The bank must always maintain at least one RSD account and at least one foreign currency account.
+
+**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+
+---
+
+### GET /api/bank-accounts
+
+List all bank-owned accounts.
+
+**Authentication:** Employee token with `employees.create` permission
+
+**Response 200:**
+```json
+{
+  "accounts": [
+    {
+      "id": 1,
+      "account_number": "265-1234567890123-45",
+      "account_name": "EX Banka RSD Account",
+      "owner_id": 1000000000,
+      "owner_name": "EX Banka",
+      "balance": "0.0000",
+      "available_balance": "0.0000",
+      "currency_code": "RSD",
+      "status": "active",
+      "account_kind": "current",
+      "account_type": "bank"
+    }
+  ]
+}
+```
+
+**Response 401:** `{"error": "unauthorized"}`
+**Response 500:** `{"error": "internal server error"}`
+
+---
+
+### POST /api/bank-accounts
+
+Create a new bank-owned account.
+
+**Authentication:** Employee token with `employees.create` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `currency_code` | string | Yes | ISO 4217 currency code (e.g., `RSD`, `EUR`, `USD`) |
+| `account_kind` | string | Yes | Account kind: `current` or `foreign` |
+| `account_name` | string | No | Human-readable name for the account |
+
+**Example Request:**
+```json
+{
+  "currency_code": "EUR",
+  "account_kind": "foreign",
+  "account_name": "EX Banka EUR Account"
+}
+```
+
+**Response 201:**
+```json
+{
+  "id": 2,
+  "account_number": "265-9876543210987-12",
+  "account_name": "EX Banka EUR Account",
+  "owner_id": 1000000000,
+  "owner_name": "EX Banka",
+  "balance": "0.0000",
+  "available_balance": "0.0000",
+  "currency_code": "EUR",
+  "status": "active",
+  "account_kind": "foreign",
+  "account_type": "bank"
+}
+```
+
+**Response 400:** `{"error": "account_kind must be 'current' or 'foreign'"}`
+**Response 401:** `{"error": "unauthorized"}`
+
+---
+
+### DELETE /api/bank-accounts/{id}
+
+Delete a bank-owned account by ID.
+
+**Authentication:** Employee token with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | integer | Bank account ID |
+
+**Business rules:**
+- The account must be a bank account (returns 400 if not).
+- Deletion fails if it would leave the bank with zero RSD accounts.
+- Deletion fails if it would leave the bank with zero foreign currency accounts.
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "message": "bank account deleted"
+}
+```
+
+**Response 400:** `{"error": "cannot delete: bank must maintain at least one RSD account"}`
+**Response 401:** `{"error": "unauthorized"}`
+**Response 404:** `{"error": "bank account not found"}`
+
+---
+
+## 14. Transfer Fees
+
+Configurable fee rules applied to payments and transfers. Multiple active fee rules can apply to the same transaction — they stack additively. For example, a percentage fee AND a fixed fee can both apply to the same transaction.
+
+Fee calculation is DB-backed: if the fee service is unavailable, the transaction is rejected. If no rules match (e.g., amount below threshold), zero fee is charged (not an error).
+
+**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+
+**Fee types:**
+- `percentage` — charged as a percentage of the transaction amount (e.g., `0.1` = 0.1%)
+- `fixed` — a flat fee regardless of amount
+
+---
+
+### GET /api/fees
+
+List all transfer fee rules.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Response 200:**
+```json
+{
+  "fees": [
+    {
+      "id": 1,
+      "name": "Standard Payment Fee",
+      "fee_type": "percentage",
+      "fee_value": "0.1000",
+      "min_amount": "1000.0000",
+      "max_fee": "0.0000",
+      "transaction_type": "all",
+      "currency_code": "",
+      "active": true
+    }
+  ]
+}
+```
+
+**Response 401:** `{"error": "unauthorized"}`
+**Response 500:** `{"error": "..."}`
+
+---
+
+### POST /api/fees
+
+Create a new transfer fee rule.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Human-readable name (e.g., `"Standard Payment Fee"`) |
+| `fee_type` | string | Yes | `"percentage"` or `"fixed"` |
+| `fee_value` | string | Yes | Fee value as a decimal string. For percentage: `"0.1"` means 0.1%. For fixed: amount in the account's currency. |
+| `min_amount` | string | No | Minimum transaction amount for the rule to apply. `"0"` or omitted means always applies. |
+| `max_fee` | string | No | Maximum fee cap. `"0"` or omitted means uncapped. |
+| `transaction_type` | string | Yes | `"payment"`, `"transfer"`, or `"all"` |
+| `currency_code` | string | No | ISO 4217 currency code to restrict the rule (e.g., `"EUR"`). Empty string or omitted applies to all currencies. |
+
+**Example Request:**
+```json
+{
+  "name": "Standard Payment Fee",
+  "fee_type": "percentage",
+  "fee_value": "0.1",
+  "min_amount": "1000.0000",
+  "max_fee": "0.0000",
+  "transaction_type": "all",
+  "currency_code": ""
+}
+```
+
+**Response 201:** Created fee rule object
+**Response 400:** `{"error": "..."}`
+**Response 401:** `{"error": "unauthorized"}`
+
+---
+
+### PUT /api/fees/{id}
+
+Update an existing fee rule.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | integer | Fee rule ID |
+
+**Request Body** (all fields optional; omit to keep existing value):
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | New display name |
+| `fee_type` | string | `"percentage"` or `"fixed"` |
+| `fee_value` | string | New fee value as decimal string |
+| `min_amount` | string | New minimum amount threshold |
+| `max_fee` | string | New cap (set to `"0"` to remove cap) |
+| `transaction_type` | string | `"payment"`, `"transfer"`, or `"all"` |
+| `currency_code` | string | New currency restriction |
+| `active` | bool | Set to `false` to deactivate, `true` to reactivate |
+
+**Response 200:** Updated fee rule object
+**Response 400:** `{"error": "invalid input"}`
+**Response 401:** `{"error": "unauthorized"}`
+**Response 404:** `{"error": "fee not found"}`
+
+---
+
+### DELETE /api/fees/{id}
+
+Deactivate a fee rule. The rule is not deleted from the database — it is soft-deactivated and will no longer apply to new transactions. It can be reactivated via `PUT /api/fees/{id}` with `"active": true`.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | integer | Fee rule ID |
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "message": "fee deactivated"
+}
+```
+
+**Response 401:** `{"error": "unauthorized"}`
+**Response 500:** `{"error": "..."}`
 
 ---
 

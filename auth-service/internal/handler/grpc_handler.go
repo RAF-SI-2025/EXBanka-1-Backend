@@ -47,12 +47,19 @@ func (h *AuthGRPCHandler) ValidateToken(ctx context.Context, req *pb.ValidateTok
 	if err != nil {
 		return &pb.ValidateTokenResponse{Valid: false}, nil
 	}
+	// Derive legacy Role field from first role for backwards compat
+	legacyRole := ""
+	if len(claims.Roles) > 0 {
+		legacyRole = claims.Roles[0]
+	}
 	return &pb.ValidateTokenResponse{
 		Valid:       true,
 		UserId:      claims.UserID,
 		Email:       claims.Email,
-		Role:        claims.Role,
+		Role:        legacyRole,
+		Roles:       claims.Roles,
 		Permissions: claims.Permissions,
+		SystemType:  claims.SystemType,
 	}, nil
 }
 

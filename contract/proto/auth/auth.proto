@@ -36,6 +36,7 @@ message ValidateTokenResponse {
   string email = 3;
   string role = 4;
   repeated string permissions = 5;
+  string system_type = 6;
 }
 
 message RefreshTokenRequest {

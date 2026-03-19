@@ -1,14 +1,14 @@
 go 1.25.0
 
 use (
+	./account-service
 	./api-gateway
 	./auth-service
-	./contract
-	./notification-service
-	./user-service
-	./client-service
-	./account-service
 	./card-service
-	./transaction-service
+	./client-service
+	./contract
 	./credit-service
+	./notification-service
+	./transaction-service
+	./user-service
 )

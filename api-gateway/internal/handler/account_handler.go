@@ -11,11 +11,18 @@ import (
 )
 
 type AccountHandler struct {
-	accountClient accountpb.AccountServiceClient
+	accountClient     accountpb.AccountServiceClient
+	bankAccountClient accountpb.BankAccountServiceClient
 }
 
-func NewAccountHandler(accountClient accountpb.AccountServiceClient) *AccountHandler {
-	return &AccountHandler{accountClient: accountClient}
+func NewAccountHandler(accountClient accountpb.AccountServiceClient, bankAccountClient accountpb.BankAccountServiceClient) *AccountHandler {
+	return &AccountHandler{accountClient: accountClient, bankAccountClient: bankAccountClient}
+}
+
+type createBankAccountBody struct {
+	CurrencyCode string `json:"currency_code" binding:"required" example:"RSD"`
+	AccountKind  string `json:"account_kind" binding:"required" example:"current"`
+	AccountName  string `json:"account_name" example:"EX Banka RSD Account"`
 }
 
 type createAccountRequest struct {
@@ -378,6 +385,83 @@ func (h *AccountHandler) CreateCompany(c *gin.Context) {
 		"address":             resp.Address,
 		"owner_id":            resp.OwnerId,
 	})
+}
+
+// ListBankAccounts godoc
+// @Summary      List bank accounts
+// @Description  Returns all bank-owned accounts (admin only)
+// @Tags         bank-accounts
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "bank accounts"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/bank-accounts [get]
+func (h *AccountHandler) ListBankAccounts(c *gin.Context) {
+	resp, err := h.bankAccountClient.ListBankAccounts(c.Request.Context(), &accountpb.ListBankAccountsRequest{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// CreateBankAccount godoc
+// @Summary      Create bank account
+// @Description  Creates a bank-owned account for fee collection (admin only)
+// @Tags         bank-accounts
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createBankAccountBody  true  "Bank account details"
+// @Security     BearerAuth
+// @Success      201  {object}  map[string]interface{}  "created bank account"
+// @Failure      400  {object}  map[string]string       "invalid input"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/bank-accounts [post]
+func (h *AccountHandler) CreateBankAccount(c *gin.Context) {
+	var body createBankAccountBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := h.bankAccountClient.CreateBankAccount(c.Request.Context(), &accountpb.CreateBankAccountRequest{
+		CurrencyCode: body.CurrencyCode,
+		AccountKind:  body.AccountKind,
+		AccountName:  body.AccountName,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, resp)
+}
+
+// DeleteBankAccount godoc
+// @Summary      Delete bank account
+// @Description  Deletes a bank-owned account. Fails if it's the last RSD or last foreign currency bank account.
+// @Tags         bank-accounts
+// @Produce      json
+// @Param        id   path   int  true  "Bank Account ID"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "deleted"
+// @Failure      400  {object}  map[string]string       "cannot delete (last account)"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      404  {object}  map[string]string       "not found"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/bank-accounts/{id} [delete]
+func (h *AccountHandler) DeleteBankAccount(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	resp, err := h.bankAccountClient.DeleteBankAccount(c.Request.Context(), &accountpb.DeleteBankAccountRequest{Id: id})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func accountToJSON(acc *accountpb.AccountResponse) gin.H {

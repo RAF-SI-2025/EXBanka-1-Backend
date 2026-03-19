@@ -58,8 +58,8 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | `JWT_ACCESS_EXPIRY` / `JWT_REFRESH_EXPIRY` | 15m / 168h | |
 | `AUTH_GRPC_ADDR` / `USER_GRPC_ADDR` | localhost:50051 / :50052 | |
 | `NOTIFICATION_GRPC_ADDR` | :50053 | |
-| `CLIENT_GRPC_ADDR` | localhost:50054 | client-service gRPC address |
-| `ACCOUNT_GRPC_ADDR` | localhost:50055 | account-service gRPC address |
+| `CLIENT_GRPC_ADDR` | localhost:50054 | client-service gRPC address; also required by credit-service and card-service |
+| `ACCOUNT_GRPC_ADDR` | localhost:50055 | account-service gRPC address; also required by credit-service and card-service |
 | `CARD_GRPC_ADDR` | localhost:50056 | card-service gRPC address |
 | `TRANSACTION_GRPC_ADDR` | localhost:50057 | transaction-service gRPC address |
 | `CREDIT_GRPC_ADDR` | localhost:50058 | credit-service gRPC address |
@@ -80,6 +80,8 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | card-service | 5436 |
 | transaction-service | 5437 |
 | credit-service | 5438 |
+
+**Note:** `credit-service` and `card-service` both depend on `CLIENT_GRPC_ADDR` and `ACCOUNT_GRPC_ADDR` in addition to their own gRPC addresses. Ensure these variables are set in their docker-compose environment sections.
 
 ## Architecture
 
@@ -115,14 +117,49 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 
 ## Key Domain Concepts
 
-**Roles & permissions** (defined in `user-service/internal/service/role_service.go`):
-- `EmployeeBasic` → clients/accounts/cards/credits access
-- `EmployeeAgent` → adds securities trading
-- `EmployeeSupervisor` → adds agents/OTC/funds management
-- `EmployeeAdmin` → adds employees management
+**Roles & permissions** (stored in `user_db`, seeded from `user-service/internal/service/role_service.go`):
+- Roles (`EmployeeBasic`, `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin`) are stored in the `roles` table with their associated `permissions` in a `role_permissions` join table.
+- Employees can have multiple roles (`employee_roles`) and additional per-employee permissions (`employee_additional_permissions`).
+- Default seed: `EmployeeBasic` → clients/accounts/cards/credits access; `EmployeeAgent` → adds securities trading; `EmployeeSupervisor` → adds agents/OTC/funds management; `EmployeeAdmin` → adds employees management.
+
+**Employee limits** (stored in `user_db`, `employee_limits` table):
+- Each employee has configurable limits: `MaxLoanApprovalAmount`, `MaxSingleTransaction`, `MaxDailyTransaction`, `MaxClientDailyLimit`, `MaxClientMonthlyLimit` (all `decimal.Decimal`).
+- Limit templates (`limit_templates`) allow bulk-assigning limits by template name (e.g., `BasicTeller`).
+
+**Client limits** (stored in `client_db`, `client_limits` table):
+- Clients have `DailyLimit`, `MonthlyLimit`, `TransferLimit`.
+- When an employee sets client limits, the values are constrained to not exceed the employee's own `MaxClientDailyLimit` and `MaxClientMonthlyLimit`.
+
+**Virtual cards** (card-service):
+- Cards can be physical or virtual (`is_virtual` field).
+- Virtual cards have `usage_type`: `single_use` (expires after one use), `multi_use` (has `max_uses` counter), or `unlimited`.
+- All cards support PIN management (bcrypt-hashed, 4 digits, locked after 3 failed attempts).
+- Temporary block: `CardBlock` record with optional `ExpiresAt` — auto-unblocked by background goroutine every minute.
+
+**Bank account management** (account-service):
+- Bank-owned accounts are flagged with `is_bank_account = true` and `owner_id = 1_000_000_000` (sentinel).
+- The bank must maintain at least one RSD account and one foreign currency account at all times (enforced on delete).
+- Seeded at startup: 1 RSD + 1 EUR bank account.
+- Used for collecting transaction fees and loan installment credits.
+
+**NBS exchange rates** (transaction-service):
+- Exchange rates are synced from the National Bank of Serbia XML API every 6 hours.
+- Rates are seeded with hardcoded defaults on first startup; NBS sync failure on startup is non-fatal (log warning, keep seed rates).
+- Rates stored as both `CODE/RSD` and inverse `RSD/CODE` pairs.
+
+**Transfer fees** (transaction-service):
+- Configurable fee rules stored in `transfer_fees` table (type: `percentage` or `fixed`, with `min_amount` threshold and `max_fee` cap).
+- Multiple matching rules are cumulative (stack).
+- Fee lookup failure (DB error) REJECTS the transaction (not silently ignored).
+- Default seed: 0.1% percentage fee for all transactions >= 1000 RSD.
+- Collected fees are credited to the bank's own RSD account after each transaction.
+
+**Auth token system type** (auth-service):
+- JWT claims include a `system_type` field: `employee` for employee logins, `client` for client logins.
+- Middleware uses `system_type` to route to `AuthMiddleware` (employee) or `ClientAuthMiddleware` (client).
 
 **Token types** (auth-service):
-- Access token: short-lived JWT (15 min), stateless validation (cached in Redis)
+- Access token: short-lived JWT (15 min), stateless validation. Claims include `user_id`, `roles []string`, `permissions []string`, and `system_type` (`employee` or `client`).
 - Refresh token: long-lived (168h), stored in `auth_db` and revocable
 - Activation token: 24h, triggers email with activation link via Kafka → notification-service
 - Password reset token: 1h, triggers email with reset link via Kafka → notification-service

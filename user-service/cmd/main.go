@@ -31,7 +31,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Employee{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.Permission{},
+		&model.Role{},
+		&model.Employee{},
+		&model.EmployeeLimit{},
+		&model.LimitTemplate{},
+	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -48,13 +54,31 @@ func main() {
 	}
 
 	repo := repository.NewEmployeeRepository(db)
-	empService := service.NewEmployeeService(repo, producer, redisCache)
+	permRepo := repository.NewPermissionRepository(db)
+	roleRepo := repository.NewRoleRepository(db)
+	employeeLimitRepo := repository.NewEmployeeLimitRepository(db)
+	limitTemplateRepo := repository.NewLimitTemplateRepository(db)
 
-	if err := seedAdminUser(repo); err != nil {
+	roleSvc := service.NewRoleService(roleRepo, permRepo)
+
+	// Seed roles and permissions on startup
+	if err := roleSvc.SeedRolesAndPermissions(); err != nil {
+		log.Fatalf("failed to seed roles and permissions: %v", err)
+	}
+
+	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc)
+	limitSvc := service.NewLimitService(employeeLimitRepo, limitTemplateRepo, producer)
+
+	if err := limitSvc.SeedDefaultTemplates(); err != nil {
+		log.Fatalf("failed to seed default limit templates: %v", err)
+	}
+
+	if err := seedAdminUser(repo, roleSvc); err != nil {
 		log.Printf("warn: seed admin user: %v", err)
 	}
 
-	grpcHandler := handler.NewUserGRPCHandler(empService)
+	grpcHandler := handler.NewUserGRPCHandler(empService, roleSvc)
+	limitHandler := handler.NewLimitGRPCHandler(limitSvc)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -63,6 +87,7 @@ func main() {
 
 	s := grpc.NewServer()
 	pb.RegisterUserServiceServer(s, grpcHandler)
+	pb.RegisterEmployeeLimitServiceServer(s, limitHandler)
 	shared.RegisterHealthCheck(s, "user-service")
 
 	// Start gRPC server in goroutine
@@ -83,14 +108,18 @@ func main() {
 	log.Println("Server stopped")
 }
 
-func seedAdminUser(repo *repository.EmployeeRepository) error {
+func seedAdminUser(repo *repository.EmployeeRepository, roleSvc *service.RoleService) error {
 	existing, _ := repo.GetByEmail("admin@exbanka.com")
 	if existing != nil {
 		log.Println("Admin user already exists, skipping seed")
 		return nil
 	}
 
-	hash, err := service.HashPassword("AdminAdmin2026.!")
+	adminPassword := os.Getenv("ADMIN_SEED_PASSWORD")
+	if adminPassword == "" {
+		adminPassword = "AdminAdmin2026.!" // fallback for local dev only
+	}
+	hash, err := service.HashPassword(adminPassword)
 	if err != nil {
 		return fmt.Errorf("failed to hash admin password: %w", err)
 	}
@@ -113,5 +142,17 @@ func seedAdminUser(repo *repository.EmployeeRepository) error {
 		Role:         "EmployeeAdmin",
 		Activated:    true,
 	}
-	return repo.Create(admin)
+	if err := repo.Create(admin); err != nil {
+		return err
+	}
+
+	// Associate admin role using the many2many relationship
+	if roleSvc != nil {
+		roles, err2 := roleSvc.GetRolesByNames([]string{"EmployeeAdmin"})
+		if err2 == nil && len(roles) > 0 {
+			_ = repo.SetEmployeeRoles(admin.ID, roles)
+		}
+	}
+
+	return nil
 }

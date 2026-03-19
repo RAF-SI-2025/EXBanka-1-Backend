@@ -44,6 +44,14 @@ func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage)
 	return p.publish(ctx, kafkamsg.TopicSendEmail, msg)
 }
 
+func (p *Producer) PublishCardTemporaryBlocked(ctx context.Context, msg kafkamsg.CardTemporaryBlockedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicCardTemporaryBlocked, msg)
+}
+
+func (p *Producer) PublishVirtualCardCreated(ctx context.Context, msg kafkamsg.VirtualCardCreatedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicVirtualCardCreated, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }
