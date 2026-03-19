@@ -28,8 +28,10 @@ func (r *TokenRepository) RevokeRefreshToken(token string) error {
 	return r.db.Model(&model.RefreshToken{}).Where("token = ?", token).Update("revoked", true).Error
 }
 
-func (r *TokenRepository) RevokeAllForUser(userID int64) error {
-	return r.db.Model(&model.RefreshToken{}).Where("user_id = ?", userID).Update("revoked", true).Error
+func (r *TokenRepository) RevokeAllForUser(userID int64, systemType string) error {
+	return r.db.Model(&model.RefreshToken{}).
+		Where("user_id = ? AND system_type = ?", userID, systemType).
+		Update("revoked", true).Error
 }
 
 // Activation tokens

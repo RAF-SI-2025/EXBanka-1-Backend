@@ -444,7 +444,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, 
 	if err := s.tokenRepo.MarkPasswordResetUsed(tokenStr); err != nil {
 		log.Printf("warn: failed to mark password reset token used (token may be replayable): %v", err)
 	}
-	if err := s.tokenRepo.RevokeAllForUser(prt.UserID); err != nil {
+	if err := s.tokenRepo.RevokeAllForUser(prt.UserID, prt.SystemType); err != nil {
 		log.Printf("warn: failed to revoke all sessions after password reset: %v", err)
 	}
 
