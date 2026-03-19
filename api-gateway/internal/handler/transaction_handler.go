@@ -45,6 +45,14 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 		return
 	}
 
+	if err := positive("amount", req.Amount); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := notEqual("from_account_number", req.FromAccountNumber, "to_account_number", req.ToAccountNumber); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	resp, err := h.txClient.CreatePayment(c.Request.Context(), &transactionpb.CreatePaymentRequest{
 		FromAccountNumber: req.FromAccountNumber,
 		ToAccountNumber:   req.ToAccountNumber,
@@ -149,6 +157,14 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 		return
 	}
 
+	if err := positive("amount", req.Amount); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := notEqual("from_account_number", req.FromAccountNumber, "to_account_number", req.ToAccountNumber); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	resp, err := h.txClient.CreateTransfer(c.Request.Context(), &transactionpb.CreateTransferRequest{
 		FromAccountNumber: req.FromAccountNumber,
 		ToAccountNumber:   req.ToAccountNumber,
@@ -520,9 +536,14 @@ func (h *TransactionHandler) CreateFee(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	feeType, err := oneOf("fee_type", body.FeeType, "percentage", "fixed")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	resp, err := h.feeClient.CreateFee(c.Request.Context(), &transactionpb.CreateFeeRequest{
 		Name:            body.Name,
-		FeeType:         body.FeeType,
+		FeeType:         feeType,
 		FeeValue:        body.FeeValue,
 		MinAmount:       body.MinAmount,
 		MaxFee:          body.MaxFee,
@@ -562,10 +583,18 @@ func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	updFeeType := body.FeeType
+	if updFeeType != "" {
+		updFeeType, err = oneOf("fee_type", updFeeType, "percentage", "fixed")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	resp, err := h.feeClient.UpdateFee(c.Request.Context(), &transactionpb.UpdateFeeRequest{
 		Id:              id,
 		Name:            body.Name,
-		FeeType:         body.FeeType,
+		FeeType:         updFeeType,
 		FeeValue:        body.FeeValue,
 		MinAmount:       body.MinAmount,
 		MaxFee:          body.MaxFee,

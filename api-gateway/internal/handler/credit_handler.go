@@ -49,10 +49,28 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 		return
 	}
 
+	loanType, err := oneOf("loan_type", req.LoanType, "cash", "housing", "auto", "refinancing", "student")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	interestType, err := oneOf("interest_type", req.InterestType, "fixed", "variable")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := positive("amount", req.Amount); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.RepaymentPeriod <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "repayment_period must be positive"})
+		return
+	}
 	resp, err := h.creditClient.CreateLoanRequest(c.Request.Context(), &creditpb.CreateLoanRequestReq{
 		ClientId:         req.ClientID,
-		LoanType:         req.LoanType,
-		InterestType:     req.InterestType,
+		LoanType:         loanType,
+		InterestType:     interestType,
 		Amount:           fmt.Sprintf("%.4f", req.Amount),
 		CurrencyCode:     req.CurrencyCode,
 		Purpose:          req.Purpose,

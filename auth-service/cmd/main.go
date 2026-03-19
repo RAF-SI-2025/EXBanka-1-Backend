@@ -90,6 +90,14 @@ func main() {
 	authpb.RegisterAuthServiceServer(s, grpcHandler)
 	shared.RegisterHealthCheck(s, "auth-service")
 
+	// Pre-create Kafka topics before starting consumers to avoid
+	// partition assignment race condition on fresh startup.
+	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+		"user.employee-created",
+		"client.created",
+		"notification.send-email",
+	)
+
 	// Start Kafka consumer for employee-created events
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

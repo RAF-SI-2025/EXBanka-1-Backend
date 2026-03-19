@@ -33,6 +33,13 @@ func main() {
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 
+	// Pre-create Kafka topics before starting consumers to avoid
+	// partition assignment race condition on fresh startup.
+	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+		"notification.send-email",
+		"notification.email-sent",
+	)
+
 	// Kafka consumer (email events)
 	emailConsumer := consumer.NewEmailConsumer(cfg.KafkaBrokers, emailSender, producer)
 	defer emailConsumer.Close()

@@ -40,6 +40,14 @@ func main() {
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 
+	// Pre-create Kafka topics before any publishing to avoid
+	// partition assignment race condition for downstream consumers.
+	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+		"account.created",
+		"account.status-changed",
+		"notification.send-email",
+	)
+
 	var redisCache *cache.RedisCache
 	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
 	if err != nil {

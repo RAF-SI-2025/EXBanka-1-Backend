@@ -2,21 +2,24 @@ package handler
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	cardpb "github.com/exbanka/contract/cardpb"
 )
 
 type AccountHandler struct {
 	accountClient     accountpb.AccountServiceClient
 	bankAccountClient accountpb.BankAccountServiceClient
+	cardClient        cardpb.CardServiceClient
 }
 
-func NewAccountHandler(accountClient accountpb.AccountServiceClient, bankAccountClient accountpb.BankAccountServiceClient) *AccountHandler {
-	return &AccountHandler{accountClient: accountClient, bankAccountClient: bankAccountClient}
+func NewAccountHandler(accountClient accountpb.AccountServiceClient, bankAccountClient accountpb.BankAccountServiceClient, cardClient cardpb.CardServiceClient) *AccountHandler {
+	return &AccountHandler{accountClient: accountClient, bankAccountClient: bankAccountClient, cardClient: cardClient}
 }
 
 type createBankAccountBody struct {
@@ -34,6 +37,7 @@ type createAccountRequest struct {
 	EmployeeID      uint64   `json:"employee_id"`
 	InitialBalance  float64  `json:"initial_balance"`
 	CreateCard      bool     `json:"create_card"`
+	CardBrand       string   `json:"card_brand"`
 	CompanyID       *uint64  `json:"company_id"`
 }
 
@@ -54,9 +58,19 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 		return
 	}
 
+	accountKind, err := oneOf("account_kind", req.AccountKind, "current", "foreign")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("initial_balance", req.InitialBalance); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	pbReq := &accountpb.CreateAccountRequest{
 		OwnerId:         req.OwnerID,
-		AccountKind:     req.AccountKind,
+		AccountKind:     accountKind,
 		AccountType:     req.AccountType,
 		AccountCategory: req.AccountCategory,
 		CurrencyCode:    req.CurrencyCode,
@@ -71,7 +85,29 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, accountToJSON(resp))
+
+	result := accountToJSON(resp)
+
+	if req.CreateCard && h.cardClient != nil {
+		brand := req.CardBrand
+		if brand == "" {
+			brand = "visa"
+		}
+		cardResp, cardErr := h.cardClient.CreateCard(c.Request.Context(), &cardpb.CreateCardRequest{
+			AccountNumber: resp.AccountNumber,
+			OwnerId:       req.OwnerID,
+			OwnerType:     "client",
+			CardBrand:     brand,
+		})
+		if cardErr != nil {
+			log.Printf("warn: account created but card creation failed: %v", cardErr)
+			result["card_error"] = cardErr.Error()
+		} else {
+			result["card"] = cardToJSON(cardResp)
+		}
+	}
+
+	c.JSON(http.StatusCreated, result)
 }
 
 // @Summary      List accounts
@@ -260,6 +296,19 @@ func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 		return
 	}
 
+	if req.DailyLimit != nil {
+		if err := nonNegative("daily_limit", *req.DailyLimit); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	if req.MonthlyLimit != nil {
+		if err := nonNegative("monthly_limit", *req.MonthlyLimit); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
 	pbLimitsReq := &accountpb.UpdateAccountLimitsRequest{Id: id}
 	if req.DailyLimit != nil {
 		s := fmt.Sprintf("%.4f", *req.DailyLimit)
@@ -304,9 +353,14 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 		return
 	}
 
+	status, err := oneOf("status", req.Status, "active", "inactive")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	resp, err := h.accountClient.UpdateAccountStatus(c.Request.Context(), &accountpb.UpdateAccountStatusRequest{
 		Id:     id,
-		Status: req.Status,
+		Status: status,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -425,9 +479,14 @@ func (h *AccountHandler) CreateBankAccount(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	bankAccountKind, err := oneOf("account_kind", body.AccountKind, "current", "foreign")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	resp, err := h.bankAccountClient.CreateBankAccount(c.Request.Context(), &accountpb.CreateBankAccountRequest{
 		CurrencyCode: body.CurrencyCode,
-		AccountKind:  body.AccountKind,
+		AccountKind:  bankAccountKind,
 		AccountName:  body.AccountName,
 	})
 	if err != nil {

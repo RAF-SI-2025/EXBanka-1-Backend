@@ -45,7 +45,7 @@ func Setup(
 	roleHandler := handler.NewRoleHandler(userClient)
 	limitHandler := handler.NewLimitHandler(empLimitClient, clientLimitClient)
 	clientHandler := handler.NewClientHandler(clientClient)
-	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient)
+	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient)
 	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient)
 	txHandler := handler.NewTransactionHandler(txClient, feeClient)
 	exchangeHandler := handler.NewExchangeHandler(txClient)

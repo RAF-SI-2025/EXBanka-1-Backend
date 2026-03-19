@@ -68,11 +68,24 @@ func (h *CardHandler) CreateCard(c *gin.Context) {
 		return
 	}
 
+	ownerType, err := oneOf("owner_type", req.OwnerType, "client", "authorized_person")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	cardBrand := req.CardBrand
+	if cardBrand != "" {
+		cardBrand, err = oneOf("card_brand", cardBrand, "visa", "mastercard", "dinacard", "amex")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	resp, err := h.cardClient.CreateCard(c.Request.Context(), &cardpb.CreateCardRequest{
 		AccountNumber: req.AccountNumber,
 		OwnerId:       req.OwnerID,
-		OwnerType:     req.OwnerType,
-		CardBrand:     req.CardBrand,
+		OwnerType:     ownerType,
+		CardBrand:     cardBrand,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -296,11 +309,29 @@ func (h *CardHandler) CreateVirtualCard(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	vcBrand, err := oneOf("card_brand", body.CardBrand, "visa", "mastercard", "dinacard", "amex")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	usageType, err := oneOf("usage_type", body.UsageType, "single_use", "multi_use")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := inRange("expiry_months", body.ExpiryMonths, 1, 3); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if usageType == "multi_use" && body.MaxUses < 2 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "multi_use cards must have max_uses >= 2"})
+		return
+	}
 	resp, err := h.virtualCardClient.CreateVirtualCard(c.Request.Context(), &cardpb.CreateVirtualCardRequest{
 		AccountNumber: body.AccountNumber,
 		OwnerId:       body.OwnerId,
-		CardBrand:     body.CardBrand,
-		UsageType:     body.UsageType,
+		CardBrand:     vcBrand,
+		UsageType:     usageType,
 		MaxUses:       body.MaxUses,
 		ExpiryMonths:  body.ExpiryMonths,
 		CardLimit:     body.CardLimit,
@@ -334,6 +365,10 @@ func (h *CardHandler) SetCardPin(c *gin.Context) {
 	}
 	var body setCardPinBody
 	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validatePin(body.Pin); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -373,6 +408,10 @@ func (h *CardHandler) VerifyCardPin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if err := validatePin(body.Pin); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	resp, err := h.virtualCardClient.VerifyCardPin(c.Request.Context(), &cardpb.VerifyCardPinRequest{
 		Id:  id,
 		Pin: body.Pin,
@@ -407,6 +446,10 @@ func (h *CardHandler) TemporaryBlockCard(c *gin.Context) {
 	}
 	var body temporaryBlockCardBody
 	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := inRange("duration_hours", body.DurationHours, 1, 720); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

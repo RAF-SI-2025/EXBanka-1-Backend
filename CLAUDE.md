@@ -175,6 +175,24 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 - Validated on create and update (exactly 13 digits)
 - Stored with unique index in user_db
 
+## API Gateway Input Validation Requirement
+
+**The API gateway must validate all input data before forwarding to gRPC services.** This is a hard requirement — not optional.
+
+- All string enum fields must be validated against their allowed values using the `oneOf()` helper in `api-gateway/internal/handler/validation.go`. This helper also normalizes input to lowercase, making validation case-insensitive (e.g., `"FOREIGN"` becomes `"foreign"`).
+- Numeric fields must be validated for range and sign: amounts must be positive (`positive()`), limits must be non-negative (`nonNegative()`), ranges must be checked with `inRange()`.
+- Format-constrained fields (e.g., PIN must be 4 digits) must be validated with format-specific helpers (e.g., `validatePin()`).
+- When adding a new endpoint or field, add validation in the gateway handler BEFORE the gRPC call. Return HTTP 400 with a clear error message on validation failure.
+- Known enum values (keep in sync with service-layer validation):
+  - `account_kind`: `current`, `foreign`
+  - `account status`: `active`, `inactive`
+  - `card_brand`: `visa`, `mastercard`, `dinacard`, `amex`
+  - `owner_type`: `client`, `authorized_person`
+  - `usage_type`: `single_use`, `multi_use`
+  - `fee_type`: `percentage`, `fixed`
+  - `loan_type`: `cash`, `housing`, `auto`, `refinancing`, `student`
+  - `interest_type`: `fixed`, `variable`
+
 ## Swagger Documentation Requirement
 
 **Every route added or changed in `api-gateway` must have up-to-date Swagger annotations.** This is a hard requirement — not optional.
@@ -202,6 +220,16 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 - Use the existing `kafka/producer.go` pattern within each service.
 - Event topic naming convention: `<service>.<action>` (e.g., `user.employee-created`, `auth.token-activated`, `notification.email-sent`).
 - Define event payload structs in `contract/` so other services can consume them.
+
+## Kafka Topic Pre-Creation Requirement
+
+**Every service that uses Kafka must pre-create its topics on startup using `EnsureTopics`.** This is a hard requirement — not optional.
+
+- Without pre-creation, Kafka consumer groups that start before topics exist get assigned 0 partitions and never receive messages (partition assignment race condition).
+- Every service has a `internal/kafka/topics.go` file containing the `EnsureTopics(broker string, topics ...string)` function. This function connects to the Kafka controller and creates topics idempotently (no error if they already exist).
+- In `cmd/main.go`, call `kafkaprod.EnsureTopics(cfg.KafkaBrokers, ...)` immediately after creating the producer, listing **all topics the service produces to AND consumes from**.
+- When adding a new Kafka topic (new event type in `contract/kafka/messages.go`), add it to the `EnsureTopics` call in every service that produces or consumes that topic.
+- The function retries Kafka connection up to 10 times (2s apart) to handle startup ordering in Docker Compose.
 
 ## Docker Compose Requirement
 
