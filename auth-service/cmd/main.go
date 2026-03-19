@@ -98,6 +98,10 @@ func main() {
 	employeeConsumer.Start(ctx)
 	defer employeeConsumer.Close()
 
+	clientConsumer := consumer.NewClientConsumer(cfg.KafkaBrokers, authService)
+	clientConsumer.Start(ctx)
+	defer clientConsumer.Close()
+
 	// Start gRPC server in goroutine
 	go func() {
 		fmt.Printf("Auth service listening on %s\n", cfg.GRPCAddr)
