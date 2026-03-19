@@ -3,12 +3,14 @@ package handler
 import (
 	"context"
 	"errors"
+	"log"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/cardpb"
+	clientpb "github.com/exbanka/contract/clientpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/card-service/internal/kafka"
 	"github.com/exbanka/card-service/internal/model"
@@ -17,14 +19,16 @@ import (
 
 type CardGRPCHandler struct {
 	pb.UnimplementedCardServiceServer
-	cardService *service.CardService
-	producer    *kafkaprod.Producer
+	cardService  *service.CardService
+	producer     *kafkaprod.Producer
+	clientClient clientpb.ClientServiceClient
 }
 
-func NewCardGRPCHandler(cardService *service.CardService, producer *kafkaprod.Producer) *CardGRPCHandler {
+func NewCardGRPCHandler(cardService *service.CardService, producer *kafkaprod.Producer, clientClient clientpb.ClientServiceClient) *CardGRPCHandler {
 	return &CardGRPCHandler{
-		cardService: cardService,
-		producer:    producer,
+		cardService:  cardService,
+		producer:     producer,
+		clientClient: clientClient,
 	}
 }
 
@@ -97,6 +101,27 @@ func (h *CardGRPCHandler) BlockCard(ctx context.Context, req *pb.BlockCardReques
 		NewStatus:     card.Status,
 	})
 
+	// Send email notification to card owner
+	if h.clientClient != nil && h.producer != nil {
+		clientResp, clientErr := h.clientClient.GetClient(ctx, &clientpb.GetClientRequest{Id: card.OwnerID})
+		if clientErr == nil {
+			emailErr := h.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
+				To:        clientResp.Email,
+				EmailType: kafkamsg.EmailTypeCardStatusChanged,
+				Data: map[string]string{
+					"card_last_four": maskCardNumber(card.CardNumber),
+					"new_status":     card.Status,
+					"account_number": card.AccountNumber,
+				},
+			})
+			if emailErr != nil {
+				log.Printf("CardGRPCHandler: failed to send block card email for card %d: %v", card.ID, emailErr)
+			}
+		} else {
+			log.Printf("CardGRPCHandler: failed to fetch client for card %d: %v", card.ID, clientErr)
+		}
+	}
+
 	return toCardResponse(card), nil
 }
 
@@ -162,6 +187,14 @@ func (h *CardGRPCHandler) GetAuthorizedPerson(ctx context.Context, req *pb.GetAu
 		return nil, status.Errorf(codes.Internal, "failed to get authorized person: %v", err)
 	}
 	return toAuthorizedPersonResponse(ap), nil
+}
+
+// maskCardNumber returns a masked card number showing only the last 4 digits.
+func maskCardNumber(cardNumber string) string {
+	if len(cardNumber) < 4 {
+		return cardNumber
+	}
+	return cardNumber[len(cardNumber)-4:]
 }
 
 func toCardResponse(c *model.Card) *pb.CardResponse {

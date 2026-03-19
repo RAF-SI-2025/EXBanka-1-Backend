@@ -290,6 +290,7 @@ services:
       CARD_DB_PASSWORD: postgres
       CARD_DB_NAME: carddb
       CARD_GRPC_ADDR: ":50056"
+      CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
     ports:
@@ -301,6 +302,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      client-service:
+        condition: service_started
 
   transaction-service:
     build:
@@ -336,6 +339,8 @@ services:
       CREDIT_DB_PASSWORD: postgres
       CREDIT_DB_NAME: creditdb
       CREDIT_GRPC_ADDR: ":50058"
+      ACCOUNT_GRPC_ADDR: "account-service:50055"
+      CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
     ports:
@@ -347,6 +352,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      account-service:
+        condition: service_started
+      client-service:
+        condition: service_started
 
 volumes:
   user_db_data:

@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	clientpb "github.com/exbanka/contract/clientpb"
 	pb "github.com/exbanka/contract/creditpb"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/credit-service/internal/cache"
@@ -56,6 +57,25 @@ func main() {
 	}
 	defer accountConn.Close()
 	accountClient := accountpb.NewAccountServiceClient(accountConn)
+	bankAccountClient := accountpb.NewBankAccountServiceClient(accountConn)
+
+	// Connect to client-service
+	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to client service: %v", err)
+	}
+	defer clientConn.Close()
+	clientClient := clientpb.NewClientServiceClient(clientConn)
+
+	// Fetch the bank's RSD account number at startup (non-fatal if unavailable)
+	var bankRSDAccount string
+	bankRSDResp, bankRSDErr := bankAccountClient.GetBankRSDAccount(context.Background(), &accountpb.GetBankRSDAccountRequest{})
+	if bankRSDErr != nil {
+		log.Printf("warn: could not fetch bank RSD account at startup: %v", bankRSDErr)
+	} else {
+		bankRSDAccount = bankRSDResp.AccountNumber
+		log.Printf("credit-service: bank RSD account: %s", bankRSDAccount)
+	}
 
 	loanRequestRepo := repository.NewLoanRequestRepository(db)
 	loanRepo := repository.NewLoanRepository(db)
@@ -64,7 +84,7 @@ func main() {
 	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo)
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
-	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, producer)
+	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
