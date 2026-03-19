@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
@@ -42,6 +43,7 @@ func main() {
 		&model.PaymentRecipient{},
 		&model.VerificationCode{},
 		&model.ExchangeRate{},
+		&model.TransferFee{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -92,8 +94,40 @@ func main() {
 		}
 	}()
 
-	paymentSvc := service.NewPaymentService(paymentRepo, accountClient)
-	transferSvc := service.NewTransferService(transferRepo, exchangeSvc, accountClient)
+	feeRepo := repository.NewTransferFeeRepository(db)
+	feeSvc := service.NewFeeService(feeRepo)
+
+	// Seed default fee rule if none exist
+	existingFees, _ := feeSvc.ListFees()
+	if len(existingFees) == 0 {
+		_ = feeSvc.CreateFee(&model.TransferFee{
+			Name:            "Standard Payment Fee",
+			FeeType:         "percentage",
+			FeeValue:        decimal.NewFromFloat(0.1),
+			MinAmount:       decimal.NewFromInt(1000),
+			TransactionType: "all",
+			Active:          true,
+		})
+		log.Println("Seeded default payment fee (0.1%)")
+	}
+
+	// Fetch bank RSD account number (non-fatal if unavailable)
+	bankRSDAccountNumber := ""
+	bankAccountConn, bankErr := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if bankErr == nil {
+		bankClient := accountpb.NewBankAccountServiceClient(bankAccountConn)
+		defer bankAccountConn.Close()
+		bankResp, bankRSDErr := bankClient.GetBankRSDAccount(context.Background(), &accountpb.GetBankRSDAccountRequest{})
+		if bankRSDErr == nil && bankResp != nil {
+			bankRSDAccountNumber = bankResp.GetAccountNumber()
+			log.Printf("Bank RSD account: %s", bankRSDAccountNumber)
+		} else {
+			log.Printf("warn: could not fetch bank RSD account, fees will not be credited to bank: %v", bankRSDErr)
+		}
+	}
+
+	paymentSvc := service.NewPaymentService(paymentRepo, accountClient, feeSvc, bankRSDAccountNumber)
+	transferSvc := service.NewTransferService(transferRepo, exchangeSvc, accountClient, feeSvc, bankRSDAccountNumber)
 	recipientSvc := service.NewPaymentRecipientService(recipientRepo)
 	verificationSvc := service.NewVerificationService(vcRepo)
 
@@ -106,6 +140,8 @@ func main() {
 		producer,
 	)
 
+	feeHandler := handler.NewFeeGRPCHandler(feeSvc)
+
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -113,6 +149,7 @@ func main() {
 
 	s := grpc.NewServer()
 	pb.RegisterTransactionServiceServer(s, grpcHandler)
+	pb.RegisterFeeServiceServer(s, feeHandler)
 	shared.RegisterHealthCheck(s, "transaction-service")
 
 	// Start gRPC server in goroutine

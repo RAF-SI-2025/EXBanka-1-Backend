@@ -16,13 +16,21 @@ import (
 )
 
 type TransferService struct {
-	transferRepo  *repository.TransferRepository
-	exchangeSvc   *ExchangeService
-	accountClient accountpb.AccountServiceClient
+	transferRepo   *repository.TransferRepository
+	exchangeSvc    *ExchangeService
+	accountClient  accountpb.AccountServiceClient
+	feeSvc         *FeeService
+	bankRSDAccount string // account number of bank's RSD account
 }
 
-func NewTransferService(transferRepo *repository.TransferRepository, exchangeSvc *ExchangeService, accountClient accountpb.AccountServiceClient) *TransferService {
-	return &TransferService{transferRepo: transferRepo, exchangeSvc: exchangeSvc, accountClient: accountClient}
+func NewTransferService(transferRepo *repository.TransferRepository, exchangeSvc *ExchangeService, accountClient accountpb.AccountServiceClient, feeSvc *FeeService, bankRSDAccount string) *TransferService {
+	return &TransferService{
+		transferRepo:   transferRepo,
+		exchangeSvc:    exchangeSvc,
+		accountClient:  accountClient,
+		feeSvc:         feeSvc,
+		bankRSDAccount: bankRSDAccount,
+	}
 }
 
 // ValidateTransfer checks that a transfer has distinct accounts and a positive amount.
@@ -53,7 +61,15 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		return err
 	}
 
-	transfer.Commission = CalculatePaymentCommission(transfer.InitialAmount)
+	fromCurrency := transfer.FromCurrency
+	if fromCurrency == "" {
+		fromCurrency = "RSD"
+	}
+	commission, err := s.feeSvc.CalculateFee(transfer.InitialAmount, "transfer", fromCurrency)
+	if err != nil {
+		return fmt.Errorf("fee calculation failed: %w", err)
+	}
+	transfer.Commission = commission
 	transfer.Timestamp = time.Now()
 
 	// 2. Determine exchange rate for cross-currency transfers
@@ -123,7 +139,20 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		}
 	}
 
-	// 5. Mark transfer completed
+	// 5. Credit commission to bank's own RSD account (best-effort)
+	if s.bankRSDAccount != "" && transfer.Commission.IsPositive() {
+		commissionAmt := transfer.Commission.StringFixed(4)
+		_ = shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   s.bankRSDAccount,
+				Amount:          commissionAmt,
+				UpdateAvailable: true,
+			})
+			return e
+		})
+	}
+
+	// 6. Mark transfer completed
 	now := time.Now()
 	transfer.CompletedAt = &now
 	if err := s.transferRepo.UpdateStatus(transfer.ID, "completed"); err != nil {

@@ -2848,6 +2848,258 @@
                 }
             }
         },
+        "/api/fees": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all configurable fee rules (admin only)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "fees"
+                ],
+                "summary": "List transfer fee rules",
+                "responses": {
+                    "200": {
+                        "description": "fee rules",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a new configurable fee rule (admin only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "fees"
+                ],
+                "summary": "Create fee rule",
+                "parameters": [
+                    {
+                        "description": "Fee rule definition",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createFeeBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "created fee rule",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "invalid input",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/fees/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates an existing fee rule (admin only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "fees"
+                ],
+                "summary": "Update fee rule",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Fee Rule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Updated fee rule",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.updateFeeBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "updated fee rule",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "invalid input",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deactivates a fee rule (admin only). Cannot be undone except via update.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "fees"
+                ],
+                "summary": "Deactivate fee rule",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Fee Rule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "deactivated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/limits/templates": {
             "get": {
                 "security": [
@@ -4603,6 +4855,45 @@
                 }
             }
         },
+        "handler.createFeeBody": {
+            "type": "object",
+            "required": [
+                "fee_type",
+                "fee_value",
+                "name",
+                "transaction_type"
+            ],
+            "properties": {
+                "currency_code": {
+                    "type": "string",
+                    "example": ""
+                },
+                "fee_type": {
+                    "type": "string",
+                    "example": "percentage"
+                },
+                "fee_value": {
+                    "type": "string",
+                    "example": "0.1000"
+                },
+                "max_fee": {
+                    "type": "string",
+                    "example": "0.0000"
+                },
+                "min_amount": {
+                    "type": "string",
+                    "example": "1000.0000"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Standard Payment Fee"
+                },
+                "transaction_type": {
+                    "type": "string",
+                    "example": "all"
+                }
+            }
+        },
         "handler.createLimitTemplateBody": {
             "type": "object",
             "required": [
@@ -5114,6 +5405,43 @@
                 },
                 "role": {
                     "type": "string"
+                }
+            }
+        },
+        "handler.updateFeeBody": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "currency_code": {
+                    "type": "string",
+                    "example": "RSD"
+                },
+                "fee_type": {
+                    "type": "string",
+                    "example": "percentage"
+                },
+                "fee_value": {
+                    "type": "string",
+                    "example": "0.2000"
+                },
+                "max_fee": {
+                    "type": "string",
+                    "example": "1000.0000"
+                },
+                "min_amount": {
+                    "type": "string",
+                    "example": "500.0000"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Updated Fee"
+                },
+                "transaction_type": {
+                    "type": "string",
+                    "example": "payment"
                 }
             }
         },

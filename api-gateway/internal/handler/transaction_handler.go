@@ -11,11 +11,12 @@ import (
 )
 
 type TransactionHandler struct {
-	txClient transactionpb.TransactionServiceClient
+	txClient  transactionpb.TransactionServiceClient
+	feeClient transactionpb.FeeServiceClient
 }
 
-func NewTransactionHandler(txClient transactionpb.TransactionServiceClient) *TransactionHandler {
-	return &TransactionHandler{txClient: txClient}
+func NewTransactionHandler(txClient transactionpb.TransactionServiceClient, feeClient transactionpb.FeeServiceClient) *TransactionHandler {
+	return &TransactionHandler{txClient: txClient, feeClient: feeClient}
 }
 
 type createPaymentRequest struct {
@@ -456,4 +457,151 @@ func recipientToJSON(r *transactionpb.PaymentRecipientResponse) gin.H {
 		"account_number": r.AccountNumber,
 		"created_at":     r.CreatedAt,
 	}
+}
+
+// createFeeBody is the swagger body for creating a fee rule.
+type createFeeBody struct {
+	Name            string `json:"name" binding:"required" example:"Standard Payment Fee"`
+	FeeType         string `json:"fee_type" binding:"required" example:"percentage"`
+	FeeValue        string `json:"fee_value" binding:"required" example:"0.1000"`
+	MinAmount       string `json:"min_amount" example:"1000.0000"`
+	MaxFee          string `json:"max_fee" example:"0.0000"`
+	TransactionType string `json:"transaction_type" binding:"required" example:"all"`
+	CurrencyCode    string `json:"currency_code" example:""`
+}
+
+// updateFeeBody is the swagger body for updating a fee rule.
+type updateFeeBody struct {
+	Name            string `json:"name" example:"Updated Fee"`
+	FeeType         string `json:"fee_type" example:"percentage"`
+	FeeValue        string `json:"fee_value" example:"0.2000"`
+	MinAmount       string `json:"min_amount" example:"500.0000"`
+	MaxFee          string `json:"max_fee" example:"1000.0000"`
+	TransactionType string `json:"transaction_type" example:"payment"`
+	CurrencyCode    string `json:"currency_code" example:"RSD"`
+	Active          bool   `json:"active" example:"true"`
+}
+
+// ListFees godoc
+// @Summary      List transfer fee rules
+// @Description  Returns all configurable fee rules (admin only)
+// @Tags         fees
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "fee rules"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/fees [get]
+func (h *TransactionHandler) ListFees(c *gin.Context) {
+	resp, err := h.feeClient.ListFees(c.Request.Context(), &transactionpb.ListFeesRequest{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// CreateFee godoc
+// @Summary      Create fee rule
+// @Description  Creates a new configurable fee rule (admin only)
+// @Tags         fees
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createFeeBody  true  "Fee rule definition"
+// @Security     BearerAuth
+// @Success      201  {object}  map[string]interface{}  "created fee rule"
+// @Failure      400  {object}  map[string]string       "invalid input"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/fees [post]
+func (h *TransactionHandler) CreateFee(c *gin.Context) {
+	var body createFeeBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := h.feeClient.CreateFee(c.Request.Context(), &transactionpb.CreateFeeRequest{
+		Name:            body.Name,
+		FeeType:         body.FeeType,
+		FeeValue:        body.FeeValue,
+		MinAmount:       body.MinAmount,
+		MaxFee:          body.MaxFee,
+		TransactionType: body.TransactionType,
+		CurrencyCode:    body.CurrencyCode,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, resp)
+}
+
+// UpdateFee godoc
+// @Summary      Update fee rule
+// @Description  Updates an existing fee rule (admin only)
+// @Tags         fees
+// @Accept       json
+// @Produce      json
+// @Param        id    path  int             true  "Fee Rule ID"
+// @Param        body  body  updateFeeBody   true  "Updated fee rule"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "updated fee rule"
+// @Failure      400  {object}  map[string]string       "invalid input"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      404  {object}  map[string]string       "not found"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/fees/{id} [put]
+func (h *TransactionHandler) UpdateFee(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	var body updateFeeBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := h.feeClient.UpdateFee(c.Request.Context(), &transactionpb.UpdateFeeRequest{
+		Id:              id,
+		Name:            body.Name,
+		FeeType:         body.FeeType,
+		FeeValue:        body.FeeValue,
+		MinAmount:       body.MinAmount,
+		MaxFee:          body.MaxFee,
+		TransactionType: body.TransactionType,
+		CurrencyCode:    body.CurrencyCode,
+		Active:          body.Active,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// DeleteFee godoc
+// @Summary      Deactivate fee rule
+// @Description  Deactivates a fee rule (admin only). Cannot be undone except via update.
+// @Tags         fees
+// @Produce      json
+// @Param        id   path   int  true  "Fee Rule ID"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "deactivated"
+// @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      404  {object}  map[string]string       "not found"
+// @Failure      500  {object}  map[string]string       "error"
+// @Router       /api/fees/{id} [delete]
+func (h *TransactionHandler) DeleteFee(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	resp, err := h.feeClient.DeleteFee(c.Request.Context(), &transactionpb.DeleteFeeRequest{Id: id})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }

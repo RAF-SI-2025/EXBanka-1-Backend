@@ -39,6 +39,7 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 11. [Loans](#11-loans)
 12. [Limits](#12-limits)
 13. [Bank Accounts](#13-bank-accounts)
+14. [Transfer Fees](#14-transfer-fees)
 
 ---
 
@@ -2361,6 +2362,144 @@ Delete a bank-owned account by ID.
 **Response 400:** `{"error": "cannot delete: bank must maintain at least one RSD account"}`
 **Response 401:** `{"error": "unauthorized"}`
 **Response 404:** `{"error": "bank account not found"}`
+
+---
+
+## 14. Transfer Fees
+
+Configurable fee rules applied to payments and transfers. Multiple active fee rules can apply to the same transaction — they stack additively. For example, a percentage fee AND a fixed fee can both apply to the same transaction.
+
+Fee calculation is DB-backed: if the fee service is unavailable, the transaction is rejected. If no rules match (e.g., amount below threshold), zero fee is charged (not an error).
+
+**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+
+**Fee types:**
+- `percentage` — charged as a percentage of the transaction amount (e.g., `0.1` = 0.1%)
+- `fixed` — a flat fee regardless of amount
+
+---
+
+### GET /api/fees
+
+List all transfer fee rules.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Response 200:**
+```json
+{
+  "fees": [
+    {
+      "id": 1,
+      "name": "Standard Payment Fee",
+      "fee_type": "percentage",
+      "fee_value": "0.1000",
+      "min_amount": "1000.0000",
+      "max_fee": "0.0000",
+      "transaction_type": "all",
+      "currency_code": "",
+      "active": true
+    }
+  ]
+}
+```
+
+**Response 401:** `{"error": "unauthorized"}`
+**Response 500:** `{"error": "..."}`
+
+---
+
+### POST /api/fees
+
+Create a new transfer fee rule.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Human-readable name (e.g., `"Standard Payment Fee"`) |
+| `fee_type` | string | Yes | `"percentage"` or `"fixed"` |
+| `fee_value` | string | Yes | Fee value as a decimal string. For percentage: `"0.1"` means 0.1%. For fixed: amount in the account's currency. |
+| `min_amount` | string | No | Minimum transaction amount for the rule to apply. `"0"` or omitted means always applies. |
+| `max_fee` | string | No | Maximum fee cap. `"0"` or omitted means uncapped. |
+| `transaction_type` | string | Yes | `"payment"`, `"transfer"`, or `"all"` |
+| `currency_code` | string | No | ISO 4217 currency code to restrict the rule (e.g., `"EUR"`). Empty string or omitted applies to all currencies. |
+
+**Example Request:**
+```json
+{
+  "name": "Standard Payment Fee",
+  "fee_type": "percentage",
+  "fee_value": "0.1",
+  "min_amount": "1000.0000",
+  "max_fee": "0.0000",
+  "transaction_type": "all",
+  "currency_code": ""
+}
+```
+
+**Response 201:** Created fee rule object
+**Response 400:** `{"error": "..."}`
+**Response 401:** `{"error": "unauthorized"}`
+
+---
+
+### PUT /api/fees/{id}
+
+Update an existing fee rule.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | integer | Fee rule ID |
+
+**Request Body** (all fields optional; omit to keep existing value):
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | New display name |
+| `fee_type` | string | `"percentage"` or `"fixed"` |
+| `fee_value` | string | New fee value as decimal string |
+| `min_amount` | string | New minimum amount threshold |
+| `max_fee` | string | New cap (set to `"0"` to remove cap) |
+| `transaction_type` | string | `"payment"`, `"transfer"`, or `"all"` |
+| `currency_code` | string | New currency restriction |
+| `active` | bool | Set to `false` to deactivate, `true` to reactivate |
+
+**Response 200:** Updated fee rule object
+**Response 400:** `{"error": "invalid input"}`
+**Response 401:** `{"error": "unauthorized"}`
+**Response 404:** `{"error": "fee not found"}`
+
+---
+
+### DELETE /api/fees/{id}
+
+Deactivate a fee rule. The rule is not deleted from the database — it is soft-deactivated and will no longer apply to new transactions. It can be reactivated via `PUT /api/fees/{id}` with `"active": true`.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | integer | Fee rule ID |
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "message": "fee deactivated"
+}
+```
+
+**Response 401:** `{"error": "unauthorized"}`
+**Response 500:** `{"error": "..."}`
 
 ---
 

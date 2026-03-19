@@ -29,6 +29,7 @@ func Setup(
 	clientLimitClient clientpb.ClientLimitServiceClient,
 	virtualCardClient cardpb.VirtualCardServiceClient,
 	bankAccountClient accountpb.BankAccountServiceClient,
+	feeClient transactionpb.FeeServiceClient,
 ) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
@@ -46,7 +47,7 @@ func Setup(
 	clientHandler := handler.NewClientHandler(clientClient)
 	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient)
 	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient)
-	txHandler := handler.NewTransactionHandler(txClient)
+	txHandler := handler.NewTransactionHandler(txClient, feeClient)
 	exchangeHandler := handler.NewExchangeHandler(txClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
 
@@ -92,6 +93,16 @@ func Setup(
 				bankAccountsAdmin.GET("", accountHandler.ListBankAccounts)
 				bankAccountsAdmin.POST("", accountHandler.CreateBankAccount)
 				bankAccountsAdmin.DELETE("/:id", accountHandler.DeleteBankAccount)
+			}
+
+			// Transfer fee management (admin only)
+			feesAdmin := protected.Group("/fees")
+			feesAdmin.Use(middleware.RequirePermission("employees.create"))
+			{
+				feesAdmin.GET("", txHandler.ListFees)
+				feesAdmin.POST("", txHandler.CreateFee)
+				feesAdmin.PUT("/:id", txHandler.UpdateFee)
+				feesAdmin.DELETE("/:id", txHandler.DeleteFee)
 			}
 
 			updateEmployees := protected.Group("/employees")

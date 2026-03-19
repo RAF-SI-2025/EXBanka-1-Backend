@@ -64,6 +64,12 @@ func main() {
 	}
 	defer txConn.Close()
 
+	feeClient, feeConn, err := grpcclients.NewFeeServiceClient(cfg.TransactionGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to fee service: %v", err)
+	}
+	defer feeConn.Close()
+
 	creditClient, creditConn, err := grpcclients.NewCreditClient(cfg.CreditGRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to connect to credit service: %v", err)
@@ -98,7 +104,7 @@ func main() {
 	}
 	defer bankAccountConn.Close()
 
-	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient)
+	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,

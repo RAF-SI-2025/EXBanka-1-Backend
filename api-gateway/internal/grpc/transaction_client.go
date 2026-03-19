@@ -14,3 +14,11 @@ func NewTransactionClient(addr string) (transactionpb.TransactionServiceClient, 
 	}
 	return transactionpb.NewTransactionServiceClient(conn), conn, nil
 }
+
+func NewFeeServiceClient(addr string) (transactionpb.FeeServiceClient, *grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, nil, err
+	}
+	return transactionpb.NewFeeServiceClient(conn), conn, nil
+}

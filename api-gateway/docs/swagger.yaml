@@ -181,6 +181,35 @@ definitions:
     - role
     - username
     type: object
+  handler.createFeeBody:
+    properties:
+      currency_code:
+        example: ""
+        type: string
+      fee_type:
+        example: percentage
+        type: string
+      fee_value:
+        example: "0.1000"
+        type: string
+      max_fee:
+        example: "0.0000"
+        type: string
+      min_amount:
+        example: "1000.0000"
+        type: string
+      name:
+        example: Standard Payment Fee
+        type: string
+      transaction_type:
+        example: all
+        type: string
+    required:
+    - fee_type
+    - fee_value
+    - name
+    - transaction_type
+    type: object
   handler.createLimitTemplateBody:
     properties:
       description:
@@ -530,6 +559,33 @@ definitions:
       position:
         type: string
       role:
+        type: string
+    type: object
+  handler.updateFeeBody:
+    properties:
+      active:
+        example: true
+        type: boolean
+      currency_code:
+        example: RSD
+        type: string
+      fee_type:
+        example: percentage
+        type: string
+      fee_value:
+        example: "0.2000"
+        type: string
+      max_fee:
+        example: "1000.0000"
+        type: string
+      min_amount:
+        example: "500.0000"
+        type: string
+      name:
+        example: Updated Fee
+        type: string
+      transaction_type:
+        example: payment
         type: string
     type: object
   handler.updatePaymentRecipientRequest:
@@ -2442,6 +2498,170 @@ paths:
       summary: Get exchange rate
       tags:
       - exchange-rates
+  /api/fees:
+    get:
+      description: Returns all configurable fee rules (admin only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: fee rules
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List transfer fee rules
+      tags:
+      - fees
+    post:
+      consumes:
+      - application/json
+      description: Creates a new configurable fee rule (admin only)
+      parameters:
+      - description: Fee rule definition
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createFeeBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: created fee rule
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create fee rule
+      tags:
+      - fees
+  /api/fees/{id}:
+    delete:
+      description: Deactivates a fee rule (admin only). Cannot be undone except via
+        update.
+      parameters:
+      - description: Fee Rule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: deactivated
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Deactivate fee rule
+      tags:
+      - fees
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing fee rule (admin only)
+      parameters:
+      - description: Fee Rule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Updated fee rule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateFeeBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: updated fee rule
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update fee rule
+      tags:
+      - fees
   /api/limits/templates:
     get:
       description: Returns all predefined limit templates

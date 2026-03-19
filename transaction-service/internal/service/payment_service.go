@@ -16,12 +16,19 @@ import (
 )
 
 type PaymentService struct {
-	paymentRepo   *repository.PaymentRepository
-	accountClient accountpb.AccountServiceClient
+	paymentRepo    *repository.PaymentRepository
+	accountClient  accountpb.AccountServiceClient
+	feeSvc         *FeeService
+	bankRSDAccount string // account number of bank's RSD account
 }
 
-func NewPaymentService(paymentRepo *repository.PaymentRepository, accountClient accountpb.AccountServiceClient) *PaymentService {
-	return &PaymentService{paymentRepo: paymentRepo, accountClient: accountClient}
+func NewPaymentService(paymentRepo *repository.PaymentRepository, accountClient accountpb.AccountServiceClient, feeSvc *FeeService, bankRSDAccount string) *PaymentService {
+	return &PaymentService{
+		paymentRepo:    paymentRepo,
+		accountClient:  accountClient,
+		feeSvc:         feeSvc,
+		bankRSDAccount: bankRSDAccount,
+	}
 }
 
 // CalculatePaymentCommission returns 0.1% commission for amounts >= 1000, else 0.
@@ -51,7 +58,15 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 		return errors.New("payment amount must be positive")
 	}
 
-	payment.Commission = CalculatePaymentCommission(payment.InitialAmount)
+	currency := payment.CurrencyCode
+	if currency == "" {
+		currency = "RSD"
+	}
+	commission, err := s.feeSvc.CalculateFee(payment.InitialAmount, "payment", currency)
+	if err != nil {
+		return fmt.Errorf("fee calculation failed: %w", err)
+	}
+	payment.Commission = commission
 	payment.FinalAmount = payment.InitialAmount.Add(payment.Commission)
 	payment.Status = "processing"
 	payment.Timestamp = time.Now()
@@ -140,6 +155,19 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			payment.FailureReason = reason
 			return fmt.Errorf("failed to credit recipient account: %w", err)
 		}
+	}
+
+	// 6. Credit commission to bank's own RSD account (best-effort)
+	if s.bankRSDAccount != "" && payment.Commission.IsPositive() {
+		commissionAmt := payment.Commission.StringFixed(4)
+		_ = shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   s.bankRSDAccount,
+				Amount:          commissionAmt,
+				UpdateAvailable: true,
+			})
+			return e
+		})
 	}
 
 	// 7. Mark payment completed
