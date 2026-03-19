@@ -433,10 +433,18 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, 
 		return err
 	}
 
-	_, err = s.userClient.SetPassword(ctx, &userpb.SetPasswordRequest{
-		UserId:       prt.UserID,
-		PasswordHash: string(hash),
-	})
+	switch prt.SystemType {
+	case "client":
+		_, err = s.clientClient.SetPassword(ctx, &clientpb.SetClientPasswordRequest{
+			UserId:       uint64(prt.UserID),
+			PasswordHash: string(hash),
+		})
+	default:
+		_, err = s.userClient.SetPassword(ctx, &userpb.SetPasswordRequest{
+			UserId:       prt.UserID,
+			PasswordHash: string(hash),
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("failed to set password: %w", err)
 	}
