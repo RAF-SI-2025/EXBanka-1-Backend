@@ -18,7 +18,7 @@ type Employee struct {
 	Position     string    `json:"position"`
 	Department   string    `json:"department"`
 	Active                bool         `gorm:"default:true" json:"active"`
-	Role                  string       `gorm:"not null;default:'EmployeeBasic'" json:"role"`
+	Role                  string       `gorm:"size:50;default:'EmployeeBasic'" json:"role"` // DEPRECATED — kept for backwards compat
 	Roles                 []Role       `gorm:"many2many:employee_roles;" json:"roles"`
 	AdditionalPermissions []Permission `gorm:"many2many:employee_additional_permissions;" json:"additional_permissions,omitempty"`
 	Activated             bool         `gorm:"default:false" json:"-"`

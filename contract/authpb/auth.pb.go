@@ -177,6 +177,7 @@ type ValidateTokenResponse struct {
 	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
 	Permissions   []string               `protobuf:"bytes,5,rep,name=permissions,proto3" json:"permissions,omitempty"`
 	SystemType    string                 `protobuf:"bytes,6,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
+	Roles         []string               `protobuf:"bytes,7,rep,name=roles,proto3" json:"roles,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -251,6 +252,13 @@ func (x *ValidateTokenResponse) GetSystemType() string {
 		return x.SystemType
 	}
 	return ""
+}
+
+func (x *ValidateTokenResponse) GetRoles() []string {
+	if x != nil {
+		return x.Roles
+	}
+	return nil
 }
 
 type RefreshTokenRequest struct {

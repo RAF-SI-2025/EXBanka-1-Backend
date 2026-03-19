@@ -272,3 +272,41 @@ func TestRoleService_ListPermissions(t *testing.T) {
 	// Should have all 15 permission codes from AllPermissions
 	assert.Equal(t, len(AllPermissions), len(perms))
 }
+
+func TestRoleService_GetRolesByNames(t *testing.T) {
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	svc := NewRoleService(roleRepo, permRepo)
+
+	_ = svc.SeedRolesAndPermissions()
+
+	roles, err := svc.GetRolesByNames([]string{"EmployeeBasic", "EmployeeAdmin"})
+	assert.NoError(t, err)
+	assert.Len(t, roles, 2)
+
+	names := make(map[string]bool)
+	for _, r := range roles {
+		names[r.Name] = true
+	}
+	assert.True(t, names["EmployeeBasic"])
+	assert.True(t, names["EmployeeAdmin"])
+}
+
+func TestRoleService_GetPermissionsByCodes(t *testing.T) {
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	svc := NewRoleService(roleRepo, permRepo)
+
+	_ = svc.SeedRolesAndPermissions()
+
+	perms, err := svc.GetPermissionsByCodes([]string{"clients.read", "accounts.read"})
+	assert.NoError(t, err)
+	assert.Len(t, perms, 2)
+
+	codes := make(map[string]bool)
+	for _, p := range perms {
+		codes[p.Code] = true
+	}
+	assert.True(t, codes["clients.read"])
+	assert.True(t, codes["accounts.read"])
+}

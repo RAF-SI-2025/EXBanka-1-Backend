@@ -52,6 +52,7 @@ func (h *AuthGRPCHandler) ValidateToken(ctx context.Context, req *pb.ValidateTok
 		UserId:      claims.UserID,
 		Email:       claims.Email,
 		Role:        claims.Role,
+		Roles:       claims.Roles,
 		Permissions: claims.Permissions,
 		SystemType:  claims.SystemType,
 	}, nil

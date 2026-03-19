@@ -156,3 +156,13 @@ func (s *RoleService) UpdateRolePermissions(roleID int64, permissionCodes []stri
 func (s *RoleService) ListPermissions() ([]model.Permission, error) {
 	return s.permRepo.List()
 }
+
+// GetRolesByNames fetches multiple roles by name.
+func (s *RoleService) GetRolesByNames(names []string) ([]model.Role, error) {
+	return s.roleRepo.GetByNames(names)
+}
+
+// GetPermissionsByCodes resolves permissions by their codes.
+func (s *RoleService) GetPermissionsByCodes(codes []string) ([]model.Permission, error) {
+	return s.permRepo.ListByCodes(codes)
+}

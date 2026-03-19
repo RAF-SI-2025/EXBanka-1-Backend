@@ -254,7 +254,7 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 		}
 	}
 
-	roles, err := s.roleSvc.roleRepo.GetByNames(roleNames)
+	roles, err := s.roleSvc.GetRolesByNames(roleNames)
 	if err != nil {
 		return err
 	}
@@ -276,7 +276,7 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 
 // SetEmployeeAdditionalPermissions replaces the additional permissions for an employee.
 func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, employeeID int64, permCodes []string) error {
-	perms, err := s.roleSvc.permRepo.ListByCodes(permCodes)
+	perms, err := s.roleSvc.GetPermissionsByCodes(permCodes)
 	if err != nil {
 		return err
 	}

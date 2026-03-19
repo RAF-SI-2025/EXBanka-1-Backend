@@ -59,7 +59,7 @@ func main() {
 
 	// Seed roles and permissions on startup
 	if err := roleSvc.SeedRolesAndPermissions(); err != nil {
-		log.Printf("warn: failed to seed roles and permissions: %v", err)
+		log.Fatalf("failed to seed roles and permissions: %v", err)
 	}
 
 	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc)
@@ -133,18 +133,9 @@ func seedAdminUser(repo *repository.EmployeeRepository, roleSvc *service.RoleSer
 
 	// Associate admin role using the many2many relationship
 	if roleSvc != nil {
-		adminRole, err := roleSvc.GetRole(0) // won't work with 0 ID
-		_ = adminRole
-		_ = err
-		// Look up by name
-		role, err2 := roleSvc.ListRoles()
-		if err2 == nil {
-			for _, r := range role {
-				if r.Name == "EmployeeAdmin" {
-					_ = repo.SetEmployeeRoles(admin.ID, []model.Role{r})
-					break
-				}
-			}
+		roles, err2 := roleSvc.GetRolesByNames([]string{"EmployeeAdmin"})
+		if err2 == nil && len(roles) > 0 {
+			_ = repo.SetEmployeeRoles(admin.ID, roles)
 		}
 	}
 

@@ -281,6 +281,65 @@ func TestValidateCredentials_InactiveUser(t *testing.T) {
 	assert.False(t, valid)
 }
 
+func TestSetEmployeeRoles(t *testing.T) {
+	repo := newMockRepo()
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	roleSvc := NewRoleService(roleRepo, permRepo)
+	svc := NewEmployeeService(repo, nil, nil, roleSvc)
+
+	// Create an employee first
+	emp := &model.Employee{
+		FirstName: "Alice",
+		LastName:  "Smith",
+		Email:     "alice@example.com",
+		Username:  "asmith",
+		Role:      "EmployeeBasic",
+		JMBG:      "0101990710024",
+	}
+	_ = repo.Create(emp)
+
+	// Seed roles
+	_ = roleSvc.SeedRolesAndPermissions()
+
+	err := svc.SetEmployeeRoles(context.Background(), emp.ID, []string{"EmployeeAgent"})
+	assert.NoError(t, err)
+
+	updated, err := repo.GetByID(emp.ID)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, updated.Roles)
+	assert.Equal(t, "EmployeeAgent", updated.Roles[0].Name)
+}
+
+func TestSetEmployeeAdditionalPermissions(t *testing.T) {
+	repo := newMockRepo()
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	roleSvc := NewRoleService(roleRepo, permRepo)
+	svc := NewEmployeeService(repo, nil, nil, roleSvc)
+
+	// Create an employee
+	emp := &model.Employee{
+		FirstName: "Bob",
+		LastName:  "Jones",
+		Email:     "bob@example.com",
+		Username:  "bjones",
+		Role:      "EmployeeBasic",
+		JMBG:      "0201990710025",
+	}
+	_ = repo.Create(emp)
+
+	// Seed permissions
+	_ = roleSvc.SeedRolesAndPermissions()
+
+	err := svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID, []string{"clients.read", "securities.trade"})
+	assert.NoError(t, err)
+
+	updated, err := repo.GetByID(emp.ID)
+	assert.NoError(t, err)
+	assert.Len(t, updated.AdditionalPermissions, 2)
+}
+
 func TestResolvePermissions(t *testing.T) {
 	repo := newMockRepo()
 	svc := NewEmployeeService(repo, nil, nil, nil)
