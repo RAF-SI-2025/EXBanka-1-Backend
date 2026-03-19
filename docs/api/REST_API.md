@@ -38,6 +38,7 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 10. [Exchange Rates](#10-exchange-rates)
 11. [Loans](#11-loans)
 12. [Limits](#12-limits)
+13. [Bank Accounts](#13-bank-accounts)
 
 ---
 
@@ -2244,6 +2245,122 @@ All error responses follow this format:
 | 403 | Forbidden (insufficient permissions or wrong role) |
 | 404 | Resource not found |
 | 500 | Internal server error |
+
+---
+
+## 13. Bank Accounts
+
+Bank account management endpoints allow administrators to manage internal bank-owned accounts used for fee collection and loan repayments. The bank must always maintain at least one RSD account and at least one foreign currency account.
+
+**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+
+---
+
+### GET /api/bank-accounts
+
+List all bank-owned accounts.
+
+**Authentication:** Employee token with `employees.create` permission
+
+**Response 200:**
+```json
+{
+  "accounts": [
+    {
+      "id": 1,
+      "account_number": "265-1234567890123-45",
+      "account_name": "EX Banka RSD Account",
+      "owner_id": 1000000000,
+      "owner_name": "EX Banka",
+      "balance": "0.0000",
+      "available_balance": "0.0000",
+      "currency_code": "RSD",
+      "status": "active",
+      "account_kind": "current",
+      "account_type": "bank"
+    }
+  ]
+}
+```
+
+**Response 401:** `{"error": "unauthorized"}`
+**Response 500:** `{"error": "internal server error"}`
+
+---
+
+### POST /api/bank-accounts
+
+Create a new bank-owned account.
+
+**Authentication:** Employee token with `employees.create` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `currency_code` | string | Yes | ISO 4217 currency code (e.g., `RSD`, `EUR`, `USD`) |
+| `account_kind` | string | Yes | Account kind: `current` or `foreign` |
+| `account_name` | string | No | Human-readable name for the account |
+
+**Example Request:**
+```json
+{
+  "currency_code": "EUR",
+  "account_kind": "foreign",
+  "account_name": "EX Banka EUR Account"
+}
+```
+
+**Response 201:**
+```json
+{
+  "id": 2,
+  "account_number": "265-9876543210987-12",
+  "account_name": "EX Banka EUR Account",
+  "owner_id": 1000000000,
+  "owner_name": "EX Banka",
+  "balance": "0.0000",
+  "available_balance": "0.0000",
+  "currency_code": "EUR",
+  "status": "active",
+  "account_kind": "foreign",
+  "account_type": "bank"
+}
+```
+
+**Response 400:** `{"error": "account_kind must be 'current' or 'foreign'"}`
+**Response 401:** `{"error": "unauthorized"}`
+
+---
+
+### DELETE /api/bank-accounts/{id}
+
+Delete a bank-owned account by ID.
+
+**Authentication:** Employee token with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | integer | Bank account ID |
+
+**Business rules:**
+- The account must be a bank account (returns 400 if not).
+- Deletion fails if it would leave the bank with zero RSD accounts.
+- Deletion fails if it would leave the bank with zero foreign currency accounts.
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "message": "bank account deleted"
+}
+```
+
+**Response 400:** `{"error": "cannot delete: bank must maintain at least one RSD account"}`
+**Response 401:** `{"error": "unauthorized"}`
+**Response 404:** `{"error": "bank account not found"}`
 
 ---
 

@@ -14,3 +14,11 @@ func NewAccountClient(addr string) (accountpb.AccountServiceClient, *grpc.Client
 	}
 	return accountpb.NewAccountServiceClient(conn), conn, nil
 }
+
+func NewBankAccountClient(addr string) (accountpb.BankAccountServiceClient, *grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, nil, err
+	}
+	return accountpb.NewBankAccountServiceClient(conn), conn, nil
+}

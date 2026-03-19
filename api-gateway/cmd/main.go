@@ -91,7 +91,14 @@ func main() {
 	}
 	defer virtualCardConn.Close()
 
-	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient)
+	// Bank account service reuses the account-service connection
+	bankAccountClient, bankAccountConn, err := grpcclients.NewBankAccountClient(cfg.AccountGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to bank account service: %v", err)
+	}
+	defer bankAccountConn.Close()
+
+	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,

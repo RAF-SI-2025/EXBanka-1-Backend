@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -37,7 +36,6 @@ func main() {
 	if err := model.SeedCurrencies(db); err != nil {
 		log.Printf("warn: failed to seed currencies: %v", err)
 	}
-	seedBankAccount(db)
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -61,7 +59,20 @@ func main() {
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
 
+	// Seed bank accounts if none exist
+	bankAccounts, _ := accountService.ListBankAccounts()
+	if len(bankAccounts) == 0 {
+		if _, err := accountService.CreateBankAccount("RSD", "current", "EX Banka RSD Account"); err != nil {
+			log.Printf("warn: failed to seed bank RSD account: %v", err)
+		}
+		if _, err := accountService.CreateBankAccount("EUR", "foreign", "EX Banka EUR Account"); err != nil {
+			log.Printf("warn: failed to seed bank EUR account: %v", err)
+		}
+		log.Println("Seeded bank accounts")
+	}
+
 	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer)
+	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -70,6 +81,7 @@ func main() {
 
 	s := grpc.NewServer()
 	pb.RegisterAccountServiceServer(s, grpcHandler)
+	pb.RegisterBankAccountServiceServer(s, bankAccountHandler)
 	shared.RegisterHealthCheck(s, "account-service")
 
 	// Start gRPC server in goroutine
@@ -90,20 +102,3 @@ func main() {
 	log.Println("Server stopped")
 }
 
-func seedBankAccount(db *gorm.DB) {
-	var count int64
-	db.Model(&model.Account{}).Where("account_number = ?", "BANK-OWN-ACCOUNT").Count(&count)
-	if count == 0 {
-		db.Create(&model.Account{
-			AccountNumber:    "BANK-OWN-ACCOUNT",
-			AccountType:      "current",
-			Status:           "active",
-			CurrencyCode:     "RSD",
-			Balance:          decimal.Zero,
-			AvailableBalance: decimal.Zero,
-			MaintenanceFee:   decimal.Zero,
-			DailyLimit:       decimal.NewFromFloat(999999999),
-			MonthlyLimit:     decimal.NewFromFloat(999999999),
-		})
-	}
-}

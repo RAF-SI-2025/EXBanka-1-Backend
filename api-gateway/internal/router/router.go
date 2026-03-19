@@ -28,6 +28,7 @@ func Setup(
 	empLimitClient userpb.EmployeeLimitServiceClient,
 	clientLimitClient clientpb.ClientLimitServiceClient,
 	virtualCardClient cardpb.VirtualCardServiceClient,
+	bankAccountClient accountpb.BankAccountServiceClient,
 ) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
@@ -43,7 +44,7 @@ func Setup(
 	roleHandler := handler.NewRoleHandler(userClient)
 	limitHandler := handler.NewLimitHandler(empLimitClient, clientLimitClient)
 	clientHandler := handler.NewClientHandler(clientClient)
-	accountHandler := handler.NewAccountHandler(accountClient)
+	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient)
 	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient)
 	txHandler := handler.NewTransactionHandler(txClient)
 	exchangeHandler := handler.NewExchangeHandler(txClient)
@@ -82,6 +83,15 @@ func Setup(
 			adminEmployees.Use(middleware.RequirePermission("employees.create"))
 			{
 				adminEmployees.POST("", empHandler.CreateEmployee)
+			}
+
+			// Bank account management (admin only)
+			bankAccountsAdmin := protected.Group("/bank-accounts")
+			bankAccountsAdmin.Use(middleware.RequirePermission("employees.create"))
+			{
+				bankAccountsAdmin.GET("", accountHandler.ListBankAccounts)
+				bankAccountsAdmin.POST("", accountHandler.CreateBankAccount)
+				bankAccountsAdmin.DELETE("/:id", accountHandler.DeleteBankAccount)
 			}
 
 			updateEmployees := protected.Group("/employees")

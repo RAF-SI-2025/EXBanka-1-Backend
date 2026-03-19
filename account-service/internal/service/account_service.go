@@ -10,6 +10,9 @@ import (
 	"github.com/exbanka/account-service/internal/repository"
 )
 
+// BankOwnerID is the well-known owner ID for bank-owned accounts.
+const BankOwnerID uint64 = 1_000_000_000
+
 type AccountService struct {
 	repo *repository.AccountRepository
 }
@@ -121,4 +124,72 @@ func (s *AccountService) UpdateAccountStatus(id uint64, status string) error {
 
 func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
 	return s.repo.UpdateBalance(accountNumber, amount, updateAvailable)
+}
+
+func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountName string) (*model.Account, error) {
+	if accountKind != "current" && accountKind != "foreign" {
+		return nil, errors.New("account_kind must be 'current' or 'foreign'")
+	}
+	if currencyCode == "" {
+		return nil, errors.New("currency_code is required")
+	}
+	account := &model.Account{
+		OwnerID:       BankOwnerID,
+		OwnerName:     "EX Banka",
+		AccountName:   accountName,
+		CurrencyCode:  currencyCode,
+		AccountKind:   accountKind,
+		AccountType:   "bank",
+		IsBankAccount: true,
+	}
+	account.AccountNumber = GenerateAccountNumber()
+	account.ExpiresAt = time.Now().AddDate(50, 0, 0) // 50-year expiry for bank accounts
+	account.Status = "active"
+	account.MaintenanceFee = decimal.Zero
+	return account, s.repo.Create(account)
+}
+
+func (s *AccountService) ListBankAccounts() ([]model.Account, error) {
+	return s.repo.ListBankAccounts()
+}
+
+func (s *AccountService) DeleteBankAccount(id uint64) error {
+	account, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if !account.IsBankAccount {
+		return errors.New("not a bank account")
+	}
+	bankAccounts, err := s.repo.ListBankAccounts()
+	if err != nil {
+		return err
+	}
+	rsdCount := 0
+	foreignCount := 0
+	for _, a := range bankAccounts {
+		if a.ID == id {
+			continue
+		}
+		if a.CurrencyCode == "RSD" {
+			rsdCount++
+		} else {
+			foreignCount++
+		}
+	}
+	if account.CurrencyCode == "RSD" && rsdCount == 0 {
+		return errors.New("cannot delete: bank must maintain at least one RSD account")
+	}
+	if account.CurrencyCode != "RSD" && foreignCount == 0 {
+		return errors.New("cannot delete: bank must maintain at least one foreign currency account")
+	}
+	return s.repo.SoftDelete(id)
+}
+
+func (s *AccountService) GetBankRSDAccount() (*model.Account, error) {
+	accounts, err := s.repo.ListBankAccountsByCurrency("RSD")
+	if err != nil || len(accounts) == 0 {
+		return nil, errors.New("no bank RSD account found")
+	}
+	return &accounts[0], nil
 }

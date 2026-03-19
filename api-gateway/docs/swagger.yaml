@@ -70,6 +70,21 @@ definitions:
     - first_name
     - last_name
     type: object
+  handler.createBankAccountBody:
+    properties:
+      account_kind:
+        example: current
+        type: string
+      account_name:
+        example: EX Banka RSD Account
+        type: string
+      currency_code:
+        example: RSD
+        type: string
+    required:
+    - account_kind
+    - currency_code
+    type: object
   handler.createCardRequest:
     properties:
       account_number:
@@ -1077,6 +1092,123 @@ paths:
       summary: Refresh access token
       tags:
       - auth
+  /api/bank-accounts:
+    get:
+      description: Returns all bank-owned accounts (admin only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: bank accounts
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List bank accounts
+      tags:
+      - bank-accounts
+    post:
+      consumes:
+      - application/json
+      description: Creates a bank-owned account for fee collection (admin only)
+      parameters:
+      - description: Bank account details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createBankAccountBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: created bank account
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create bank account
+      tags:
+      - bank-accounts
+  /api/bank-accounts/{id}:
+    delete:
+      description: Deletes a bank-owned account. Fails if it's the last RSD or last
+        foreign currency bank account.
+      parameters:
+      - description: Bank Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: deleted
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: cannot delete (last account)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete bank account
+      tags:
+      - bank-accounts
   /api/cards:
     post:
       consumes:
