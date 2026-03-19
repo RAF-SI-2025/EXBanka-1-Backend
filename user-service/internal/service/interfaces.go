@@ -37,3 +37,20 @@ type PermissionRepo interface {
 	ListByCodes(codes []string) ([]model.Permission, error)
 	Delete(id int64) error
 }
+
+type EmployeeLimitRepo interface {
+	Create(limit *model.EmployeeLimit) error
+	GetByEmployeeID(employeeID int64) (*model.EmployeeLimit, error)
+	Update(limit *model.EmployeeLimit) error
+	Delete(employeeID int64) error
+	Upsert(limit *model.EmployeeLimit) error
+}
+
+type LimitTemplateRepo interface {
+	Create(t *model.LimitTemplate) error
+	GetByID(id int64) (*model.LimitTemplate, error)
+	GetByName(name string) (*model.LimitTemplate, error)
+	List() ([]model.LimitTemplate, error)
+	Update(t *model.LimitTemplate) error
+	Delete(id int64) error
+}

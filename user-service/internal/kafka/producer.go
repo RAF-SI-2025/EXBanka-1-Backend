@@ -51,6 +51,23 @@ func (p *Producer) PublishEmployeeUpdated(ctx context.Context, msg kafkamsg.Empl
 	return p.publish(ctx, kafkamsg.TopicEmployeeUpdated, msg)
 }
 
+func (p *Producer) PublishEmployeeLimitsUpdated(ctx context.Context, msg kafkamsg.EmployeeLimitsUpdatedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicEmployeeLimitsUpdated, msg)
+}
+
+func (p *Producer) PublishLimitTemplate(ctx context.Context, msg kafkamsg.LimitTemplateMessage) error {
+	var topic string
+	switch msg.Action {
+	case "created":
+		topic = kafkamsg.TopicLimitTemplateCreated
+	case "updated":
+		topic = kafkamsg.TopicLimitTemplateUpdated
+	default:
+		topic = kafkamsg.TopicLimitTemplateDeleted
+	}
+	return p.publish(ctx, topic, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

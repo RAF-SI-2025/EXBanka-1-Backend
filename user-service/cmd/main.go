@@ -35,6 +35,8 @@ func main() {
 		&model.Permission{},
 		&model.Role{},
 		&model.Employee{},
+		&model.EmployeeLimit{},
+		&model.LimitTemplate{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -54,6 +56,8 @@ func main() {
 	repo := repository.NewEmployeeRepository(db)
 	permRepo := repository.NewPermissionRepository(db)
 	roleRepo := repository.NewRoleRepository(db)
+	employeeLimitRepo := repository.NewEmployeeLimitRepository(db)
+	limitTemplateRepo := repository.NewLimitTemplateRepository(db)
 
 	roleSvc := service.NewRoleService(roleRepo, permRepo)
 
@@ -63,12 +67,18 @@ func main() {
 	}
 
 	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc)
+	limitSvc := service.NewLimitService(employeeLimitRepo, limitTemplateRepo, producer)
+
+	if err := limitSvc.SeedDefaultTemplates(); err != nil {
+		log.Fatalf("failed to seed default limit templates: %v", err)
+	}
 
 	if err := seedAdminUser(repo, roleSvc); err != nil {
 		log.Printf("warn: seed admin user: %v", err)
 	}
 
 	grpcHandler := handler.NewUserGRPCHandler(empService, roleSvc)
+	limitHandler := handler.NewLimitGRPCHandler(limitSvc)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -77,6 +87,7 @@ func main() {
 
 	s := grpc.NewServer()
 	pb.RegisterUserServiceServer(s, grpcHandler)
+	pb.RegisterEmployeeLimitServiceServer(s, limitHandler)
 	shared.RegisterHealthCheck(s, "user-service")
 
 	// Start gRPC server in goroutine

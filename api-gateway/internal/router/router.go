@@ -25,6 +25,8 @@ func Setup(
 	cardClient cardpb.CardServiceClient,
 	txClient transactionpb.TransactionServiceClient,
 	creditClient creditpb.CreditServiceClient,
+	empLimitClient userpb.EmployeeLimitServiceClient,
+	clientLimitClient clientpb.ClientLimitServiceClient,
 ) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
@@ -38,6 +40,7 @@ func Setup(
 	authHandler := handler.NewAuthHandler(authClient)
 	empHandler := handler.NewEmployeeHandler(userClient)
 	roleHandler := handler.NewRoleHandler(userClient)
+	limitHandler := handler.NewLimitHandler(empLimitClient, clientLimitClient)
 	clientHandler := handler.NewClientHandler(clientClient)
 	accountHandler := handler.NewAccountHandler(accountClient)
 	cardHandler := handler.NewCardHandler(cardClient)
@@ -97,6 +100,19 @@ func Setup(
 				permManagement.GET("/permissions", roleHandler.ListPermissions)
 				permManagement.PUT("/employees/:id/roles", roleHandler.SetEmployeeRoles)
 				permManagement.PUT("/employees/:id/permissions", roleHandler.SetEmployeeAdditionalPermissions)
+			}
+
+			// Employee limit management (limits.manage)
+			limitsEmployee := protected.Group("/")
+			limitsEmployee.Use(middleware.RequirePermission("limits.manage"))
+			{
+				limitsEmployee.GET("/employees/:id/limits", limitHandler.GetEmployeeLimits)
+				limitsEmployee.PUT("/employees/:id/limits", limitHandler.SetEmployeeLimits)
+				limitsEmployee.POST("/employees/:id/limits/template", limitHandler.ApplyLimitTemplate)
+				limitsEmployee.GET("/limits/templates", limitHandler.ListLimitTemplates)
+				limitsEmployee.POST("/limits/templates", limitHandler.CreateLimitTemplate)
+				limitsEmployee.GET("/clients/:id/limits", limitHandler.GetClientLimits)
+				limitsEmployee.PUT("/clients/:id/limits", limitHandler.SetClientLimits)
 			}
 
 			// Client management (EmployeeBasic)

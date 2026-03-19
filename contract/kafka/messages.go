@@ -138,3 +138,32 @@ type EmployeeCreatedMessage struct {
 	LastName   string   `json:"last_name"`
 	Roles      []string `json:"roles"`
 }
+
+// Limit event topic constants
+const (
+	TopicEmployeeLimitsUpdated = "user.employee-limits-updated"
+	TopicLimitTemplateCreated  = "user.limit-template-created"
+	TopicLimitTemplateUpdated  = "user.limit-template-updated"
+	TopicLimitTemplateDeleted  = "user.limit-template-deleted"
+	TopicClientLimitsUpdated   = "client.limits-updated"
+)
+
+// EmployeeLimitsUpdatedMessage is published when an employee's limits are set or updated.
+type EmployeeLimitsUpdatedMessage struct {
+	EmployeeID int64  `json:"employee_id"`
+	Action     string `json:"action"` // "set" or "template_applied"
+}
+
+// LimitTemplateMessage is published when a limit template is created, updated, or deleted.
+type LimitTemplateMessage struct {
+	TemplateID   int64  `json:"template_id"`
+	TemplateName string `json:"template_name"`
+	Action       string `json:"action"` // "created", "updated", "deleted"
+}
+
+// ClientLimitsUpdatedMessage is published when a client's limits are updated.
+type ClientLimitsUpdatedMessage struct {
+	ClientID      int64  `json:"client_id"`
+	SetByEmployee int64  `json:"set_by_employee"`
+	Action        string `json:"action"` // "set"
+}

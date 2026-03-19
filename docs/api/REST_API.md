@@ -37,6 +37,7 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 9. [Verification Codes](#9-verification-codes)
 10. [Exchange Rates](#10-exchange-rates)
 11. [Loans](#11-loans)
+12. [Limits](#12-limits)
 
 ---
 
@@ -1754,6 +1755,291 @@ Get all installment records for a loan.
   ]
 }
 ```
+
+---
+
+## 12. Limits
+
+Manage transaction and approval limits for employees, and transaction limits for bank clients.
+
+All monetary values are decimal strings (e.g., `"50000.0000"`).
+
+**Authentication:** All endpoints require a valid employee Bearer token.
+
+**Required permission:** `limits.manage`
+
+---
+
+### GET /api/employees/:id/limits
+
+Retrieve the current transaction and approval limits for an employee.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Employee ID |
+
+**Example request:**
+```
+GET /api/employees/42/limits
+Authorization: Bearer <token>
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "employee_id": 42,
+  "max_loan_approval_amount": "50000.0000",
+  "max_single_transaction": "100000.0000",
+  "max_daily_transaction": "500000.0000",
+  "max_client_daily_limit": "250000.0000",
+  "max_client_monthly_limit": "2500000.0000"
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Employee limits returned |
+| 400 | Invalid employee ID |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### PUT /api/employees/:id/limits
+
+Set or update transaction and approval limits for an employee. If no limits exist for this employee, they are created.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Employee ID |
+
+**Request body:**
+```json
+{
+  "max_loan_approval_amount": "50000.0000",
+  "max_single_transaction": "100000.0000",
+  "max_daily_transaction": "500000.0000",
+  "max_client_daily_limit": "250000.0000",
+  "max_client_monthly_limit": "2500000.0000"
+}
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "employee_id": 42,
+  "max_loan_approval_amount": "50000.0000",
+  "max_single_transaction": "100000.0000",
+  "max_daily_transaction": "500000.0000",
+  "max_client_daily_limit": "250000.0000",
+  "max_client_monthly_limit": "2500000.0000"
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Limits updated |
+| 400 | Invalid input |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### POST /api/employees/:id/limits/template
+
+Apply a named limit template to an employee. Copies the template's values to the employee's limit record.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Employee ID |
+
+**Request body:**
+```json
+{
+  "template_name": "BasicTeller"
+}
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "employee_id": 42,
+  "max_loan_approval_amount": "50000.0000",
+  "max_single_transaction": "100000.0000",
+  "max_daily_transaction": "500000.0000",
+  "max_client_daily_limit": "250000.0000",
+  "max_client_monthly_limit": "2500000.0000"
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Template applied |
+| 400 | Invalid input or template not found |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### GET /api/limits/templates
+
+List all predefined and custom limit templates.
+
+**Example request:**
+```
+GET /api/limits/templates
+Authorization: Bearer <token>
+```
+
+**Example response:**
+```json
+{
+  "templates": [
+    {
+      "id": 1,
+      "name": "BasicTeller",
+      "description": "Default teller limits",
+      "max_loan_approval_amount": "50000.0000",
+      "max_single_transaction": "100000.0000",
+      "max_daily_transaction": "500000.0000",
+      "max_client_daily_limit": "250000.0000",
+      "max_client_monthly_limit": "2500000.0000"
+    }
+  ]
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Templates returned |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### POST /api/limits/templates
+
+Create a new named limit template.
+
+**Request body:**
+```json
+{
+  "name": "SeniorAgent",
+  "description": "Senior agent limits",
+  "max_loan_approval_amount": "500000.0000",
+  "max_single_transaction": "1000000.0000",
+  "max_daily_transaction": "5000000.0000",
+  "max_client_daily_limit": "1000000.0000",
+  "max_client_monthly_limit": "10000000.0000"
+}
+```
+
+**Example response:**
+```json
+{
+  "id": 4,
+  "name": "SeniorAgent",
+  "description": "Senior agent limits",
+  "max_loan_approval_amount": "500000.0000",
+  "max_single_transaction": "1000000.0000",
+  "max_daily_transaction": "5000000.0000",
+  "max_client_daily_limit": "1000000.0000",
+  "max_client_monthly_limit": "10000000.0000"
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 201 | Template created |
+| 400 | Invalid input |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### GET /api/clients/:id/limits
+
+Retrieve the current transaction limits for a client.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Client ID |
+
+**Example request:**
+```
+GET /api/clients/7/limits
+Authorization: Bearer <token>
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "client_id": 7,
+  "daily_limit": "100000.0000",
+  "monthly_limit": "1000000.0000",
+  "transfer_limit": "50000.0000",
+  "set_by_employee": 42
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Client limits returned |
+| 400 | Invalid client ID |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### PUT /api/clients/:id/limits
+
+Set or update transaction limits for a client. The employee's own limits constrain the maximum values they may assign (daily and monthly). Requires the authenticated employee's `max_client_daily_limit` ≥ requested `daily_limit` and `max_client_monthly_limit` ≥ requested `monthly_limit`.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| id | integer | Client ID |
+
+**Request body:**
+```json
+{
+  "daily_limit": "100000.0000",
+  "monthly_limit": "1000000.0000",
+  "transfer_limit": "50000.0000"
+}
+```
+
+**Example response:**
+```json
+{
+  "id": 1,
+  "client_id": 7,
+  "daily_limit": "100000.0000",
+  "monthly_limit": "1000000.0000",
+  "transfer_limit": "50000.0000",
+  "set_by_employee": 42
+}
+```
+
+| Status | Description |
+|--------|-------------|
+| 200 | Client limits updated |
+| 400 | Invalid input or limit exceeds employee's authority |
+| 401 | Unauthorized |
+| 500 | Internal server error |
 
 ---
 

@@ -44,6 +44,10 @@ func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage)
 	return p.publish(ctx, kafkamsg.TopicSendEmail, msg)
 }
 
+func (p *Producer) PublishClientLimitsUpdated(ctx context.Context, msg kafkamsg.ClientLimitsUpdatedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicClientLimitsUpdated, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

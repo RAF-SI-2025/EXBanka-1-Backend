@@ -13,6 +13,14 @@ definitions:
     - password
     - token
     type: object
+  handler.applyLimitTemplateBody:
+    properties:
+      template_name:
+        example: BasicTeller
+        type: string
+    required:
+    - template_name
+    type: object
   handler.createAccountRequest:
     properties:
       account_category:
@@ -158,6 +166,32 @@ definitions:
     - role
     - username
     type: object
+  handler.createLimitTemplateBody:
+    properties:
+      description:
+        example: Default teller limits
+        type: string
+      max_client_daily_limit:
+        example: "250000.0000"
+        type: string
+      max_client_monthly_limit:
+        example: "2500000.0000"
+        type: string
+      max_daily_transaction:
+        example: "500000.0000"
+        type: string
+      max_loan_approval_amount:
+        example: "50000.0000"
+        type: string
+      max_single_transaction:
+        example: "100000.0000"
+        type: string
+      name:
+        example: BasicTeller
+        type: string
+    required:
+    - name
+    type: object
   handler.createLoanRequestBody:
     properties:
       account_number:
@@ -226,6 +260,19 @@ definitions:
     - amount
     - from_account_number
     - to_account_number
+    type: object
+  handler.createRoleRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      permission_codes:
+        items:
+          type: string
+        type: array
+    required:
+    - name
     type: object
   handler.createTransferRequest:
     properties:
@@ -296,6 +343,58 @@ definitions:
     - confirm_password
     - new_password
     - token
+    type: object
+  handler.setClientLimitsBody:
+    properties:
+      daily_limit:
+        example: "100000.0000"
+        type: string
+      monthly_limit:
+        example: "1000000.0000"
+        type: string
+      transfer_limit:
+        example: "50000.0000"
+        type: string
+    required:
+    - daily_limit
+    - monthly_limit
+    - transfer_limit
+    type: object
+  handler.setEmployeeLimitsBody:
+    properties:
+      max_client_daily_limit:
+        example: "250000.0000"
+        type: string
+      max_client_monthly_limit:
+        example: "2500000.0000"
+        type: string
+      max_daily_transaction:
+        example: "500000.0000"
+        type: string
+      max_loan_approval_amount:
+        example: "50000.0000"
+        type: string
+      max_single_transaction:
+        example: "100000.0000"
+        type: string
+    type: object
+  handler.setEmployeePermissionsRequest:
+    properties:
+      permission_codes:
+        items:
+          type: string
+        type: array
+    required:
+    - permission_codes
+    type: object
+  handler.setEmployeeRolesRequest:
+    properties:
+      role_names:
+        items:
+          type: string
+        type: array
+    required:
+    - role_names
     type: object
   handler.setPasswordRequest:
     properties:
@@ -374,6 +473,15 @@ definitions:
         type: string
       recipient_name:
         type: string
+    type: object
+  handler.updateRolePermissionsRequest:
+    properties:
+      permission_codes:
+        items:
+          type: string
+        type: array
+    required:
+    - permission_codes
     type: object
   handler.validateVerificationCodeRequest:
     properties:
@@ -1267,6 +1375,94 @@ paths:
       summary: Update client
       tags:
       - clients
+  /api/clients/{id}/limits:
+    get:
+      description: Returns the transaction limits configured for a client
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: client limits
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get client limits
+      tags:
+      - limits
+    put:
+      consumes:
+      - application/json
+      description: Sets the transaction limits for a client (employee only, constrained
+        by employee limits)
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Limit values
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.setClientLimitsBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: updated client limits
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input or limit exceeded
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Set client limits
+      tags:
+      - limits
   /api/clients/me:
     get:
       produces:
@@ -1554,6 +1750,263 @@ paths:
       summary: Update an employee
       tags:
       - employees
+  /api/employees/{id}/limits:
+    get:
+      description: Returns the transaction and approval limits for an employee
+      parameters:
+      - description: Employee ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: employee limits
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get employee limits
+      tags:
+      - limits
+    put:
+      consumes:
+      - application/json
+      description: Creates or updates the transaction and approval limits for an employee
+      parameters:
+      - description: Employee ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Limit values (all amounts as decimal strings)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.setEmployeeLimitsBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: updated limits
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Set employee limits
+      tags:
+      - limits
+  /api/employees/{id}/limits/template:
+    post:
+      consumes:
+      - application/json
+      description: Copies a named template's limit values to the specified employee
+      parameters:
+      - description: Employee ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Template name to apply
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.applyLimitTemplateBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: updated limits
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Apply limit template to employee
+      tags:
+      - limits
+  /api/employees/{id}/permissions:
+    put:
+      consumes:
+      - application/json
+      description: Replaces the additional (per-employee) permissions for the given
+        employee. Requires employees.permissions permission.
+      parameters:
+      - description: Employee ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Permission codes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.setEmployeePermissionsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: updated employee
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Set employee additional permissions
+      tags:
+      - employees
+  /api/employees/{id}/roles:
+    put:
+      consumes:
+      - application/json
+      description: Replaces all roles for the given employee. Requires employees.permissions
+        permission.
+      parameters:
+      - description: Employee ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Role names
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.setEmployeeRolesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: updated employee
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Set employee roles
+      tags:
+      - employees
   /api/exchange-rates:
     get:
       produces:
@@ -1603,6 +2056,76 @@ paths:
       summary: Get exchange rate
       tags:
       - exchange-rates
+  /api/limits/templates:
+    get:
+      description: Returns all predefined limit templates
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: list of templates
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List limit templates
+      tags:
+      - limits
+    post:
+      consumes:
+      - application/json
+      description: Creates a new named limit template (admin only)
+      parameters:
+      - description: Template definition
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createLimitTemplateBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: created template
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create limit template
+      tags:
+      - limits
   /api/loans:
     get:
       parameters:
@@ -2126,6 +2649,227 @@ paths:
       summary: List payments by account
       tags:
       - payments
+  /api/permissions:
+    get:
+      description: Returns all permission codes with descriptions and categories.
+        Requires employees.permissions permission.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: permissions array
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all permissions
+      tags:
+      - permissions
+  /api/roles:
+    get:
+      description: Returns all roles with their associated permission codes. Requires
+        employees.permissions permission.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: roles array
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all roles
+      tags:
+      - roles
+    post:
+      consumes:
+      - application/json
+      description: Creates a new role with the given permission codes. Requires employees.permissions
+        permission.
+      parameters:
+      - description: Role data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: created role
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new role
+      tags:
+      - roles
+  /api/roles/{id}:
+    get:
+      description: Returns a single role with its permission codes. Requires employees.permissions
+        permission.
+      parameters:
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: role details
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get role by ID
+      tags:
+      - roles
+  /api/roles/{id}/permissions:
+    put:
+      consumes:
+      - application/json
+      description: Replaces all permissions for the given role. Requires employees.permissions
+        permission.
+      parameters:
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Permission codes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateRolePermissionsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: updated role
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update role permissions
+      tags:
+      - roles
   /api/transfers:
     post:
       consumes:

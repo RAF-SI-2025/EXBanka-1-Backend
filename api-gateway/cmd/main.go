@@ -70,7 +70,21 @@ func main() {
 	}
 	defer creditConn.Close()
 
-	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient)
+	// Employee limit service reuses the user-service connection
+	empLimitClient, empLimitConn, err := grpcclients.NewEmployeeLimitClient(cfg.UserGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to employee limit service: %v", err)
+	}
+	defer empLimitConn.Close()
+
+	// Client limit service reuses the client-service connection
+	clientLimitClient, clientLimitConn, err := grpcclients.NewClientLimitClient(cfg.ClientGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to client limit service: %v", err)
+	}
+	defer clientLimitConn.Close()
+
+	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,
