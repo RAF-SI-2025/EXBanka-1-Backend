@@ -111,19 +111,15 @@ func main() {
 		log.Println("Seeded default payment fee (0.1%)")
 	}
 
-	// Fetch bank RSD account number (non-fatal if unavailable)
+	// Reuse existing account connection for BankAccountServiceClient
 	bankRSDAccountNumber := ""
-	bankAccountConn, bankErr := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if bankErr == nil {
-		bankClient := accountpb.NewBankAccountServiceClient(bankAccountConn)
-		defer bankAccountConn.Close()
-		bankResp, bankRSDErr := bankClient.GetBankRSDAccount(context.Background(), &accountpb.GetBankRSDAccountRequest{})
-		if bankRSDErr == nil && bankResp != nil {
-			bankRSDAccountNumber = bankResp.GetAccountNumber()
-			log.Printf("Bank RSD account: %s", bankRSDAccountNumber)
-		} else {
-			log.Printf("warn: could not fetch bank RSD account, fees will not be credited to bank: %v", bankRSDErr)
-		}
+	bankClient := accountpb.NewBankAccountServiceClient(accountConn)
+	bankResp, bankRSDErr := bankClient.GetBankRSDAccount(context.Background(), &accountpb.GetBankRSDAccountRequest{})
+	if bankRSDErr == nil && bankResp != nil {
+		bankRSDAccountNumber = bankResp.GetAccountNumber()
+		log.Printf("Bank RSD account: %s", bankRSDAccountNumber)
+	} else {
+		log.Printf("warn: could not fetch bank RSD account, fees will not be credited to bank: %v", bankRSDErr)
 	}
 
 	paymentSvc := service.NewPaymentService(paymentRepo, accountClient, feeSvc, producer, bankRSDAccountNumber)
