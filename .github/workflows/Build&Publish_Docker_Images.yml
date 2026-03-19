@@ -6,7 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/raf-si-2025
+  IMAGE_PREFIX: ghcr.io/raf-si-2025-exteam1
 
 jobs:
   build-and-push:
@@ -53,5 +53,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:pr-${{ github.event.pull_request.number }}
             ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}:latest
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
