@@ -246,6 +246,10 @@ func (s *EmployeeService) SetPassword(userID int64, hash string) error {
 
 // SetEmployeeRoles replaces the roles associated with an employee.
 func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64, roleNames []string) error {
+	if _, err := s.repo.GetByID(employeeID); err != nil {
+		return fmt.Errorf("employee %d not found: %w", employeeID, err)
+	}
+
 	if s.roleSvc != nil {
 		for _, name := range roleNames {
 			if !s.roleSvc.ValidRole(name) {
@@ -276,9 +280,17 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 
 // SetEmployeeAdditionalPermissions replaces the additional permissions for an employee.
 func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, employeeID int64, permCodes []string) error {
+	if _, err := s.repo.GetByID(employeeID); err != nil {
+		return fmt.Errorf("employee %d not found: %w", employeeID, err)
+	}
+
 	perms, err := s.roleSvc.GetPermissionsByCodes(permCodes)
 	if err != nil {
 		return err
+	}
+
+	if len(perms) != len(permCodes) {
+		return errors.New("one or more permission codes are invalid")
 	}
 
 	if err := s.repo.SetAdditionalPermissions(employeeID, perms); err != nil {

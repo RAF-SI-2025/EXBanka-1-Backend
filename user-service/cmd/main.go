@@ -104,7 +104,11 @@ func seedAdminUser(repo *repository.EmployeeRepository, roleSvc *service.RoleSer
 		return nil
 	}
 
-	hash, err := service.HashPassword("AdminAdmin2026.!")
+	adminPassword := os.Getenv("ADMIN_SEED_PASSWORD")
+	if adminPassword == "" {
+		adminPassword = "AdminAdmin2026.!" // fallback for local dev only
+	}
+	hash, err := service.HashPassword(adminPassword)
 	if err != nil {
 		return fmt.Errorf("failed to hash admin password: %w", err)
 	}

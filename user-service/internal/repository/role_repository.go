@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"fmt"
+
 	"github.com/exbanka/user-service/internal/model"
 	"gorm.io/gorm"
 )
@@ -42,7 +44,7 @@ func (r *RoleRepository) Update(role *model.Role) error {
 func (r *RoleRepository) SetPermissions(roleID int64, permissions []model.Permission) error {
 	var role model.Role
 	if err := r.db.First(&role, roleID).Error; err != nil {
-		return err
+		return fmt.Errorf("role %d not found: %w", roleID, err)
 	}
 	return r.db.Model(&role).Association("Permissions").Replace(permissions)
 }
