@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	accountpb "github.com/exbanka/contract/accountpb"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/credit-service/internal/model"
 	"github.com/exbanka/credit-service/internal/repository"
@@ -45,6 +46,7 @@ type LoanRequestService struct {
 	loanRepo       *repository.LoanRepository
 	installRepo    *repository.InstallmentRepository
 	limitClient    userpb.EmployeeLimitServiceClient
+	accountClient  accountpb.AccountServiceClient
 	rateConfigSvc  *RateConfigService
 }
 
@@ -53,9 +55,10 @@ func NewLoanRequestService(
 	loanRepo *repository.LoanRepository,
 	installRepo *repository.InstallmentRepository,
 	limitClient userpb.EmployeeLimitServiceClient,
+	accountClient accountpb.AccountServiceClient,
 	rateConfigSvc *RateConfigService,
 ) *LoanRequestService {
-	return &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient, rateConfigSvc: rateConfigSvc}
+	return &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient, accountClient: accountClient, rateConfigSvc: rateConfigSvc}
 }
 
 func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
@@ -71,6 +74,18 @@ func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
 	}
 	if err := validateRepaymentPeriod(req.LoanType, req.RepaymentPeriod); err != nil {
 		return err
+	}
+	// Validate loan currency matches account currency
+	if s.accountClient != nil {
+		account, err := s.accountClient.GetAccountByNumber(context.Background(), &accountpb.GetAccountByNumberRequest{
+			AccountNumber: req.AccountNumber,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to verify account %s: %w", req.AccountNumber, err)
+		}
+		if account.CurrencyCode != req.CurrencyCode {
+			return fmt.Errorf("loan currency (%s) must match account currency (%s)", req.CurrencyCode, account.CurrencyCode)
+		}
 	}
 	if err := s.repo.Create(req); err != nil {
 		return fmt.Errorf("failed to save loan request for account %s (loan_type=%s, amount=%s): %v",

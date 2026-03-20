@@ -108,7 +108,7 @@ func main() {
 		log.Fatalf("failed to seed interest rate config: %v", err)
 	}
 
-	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, rateConfigSvc)
+	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc)
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
 	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount)
