@@ -1399,6 +1399,8 @@ paths:
       - cards
   /api/cards/{id}/block:
     put:
+      description: Blocks a card. Employees with cards.manage permission can block
+        any card. Clients can block their own cards via the client-authenticated endpoint.
       parameters:
       - description: Card ID
         in: path
@@ -1413,8 +1415,26 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "401":
           description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
           schema:
             additionalProperties:
               type: string

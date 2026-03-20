@@ -219,6 +219,9 @@ func Setup(
 			// Loans (client write)
 			clientProtected.POST("/loans/requests", creditHandler.CreateLoanRequest)
 
+			// Cards (client)
+			clientProtected.PUT("/cards/:id/block", cardHandler.ClientBlockCard)
+
 			// Virtual cards (client)
 			clientProtected.POST("/cards/virtual", cardHandler.CreateVirtualCard)
 			clientProtected.POST("/cards/:id/pin", cardHandler.SetCardPin)

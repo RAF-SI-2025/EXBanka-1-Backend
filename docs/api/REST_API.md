@@ -1146,7 +1146,9 @@ List all cards belonging to a specific client. Clients can only access their own
 
 Block a card (e.g., reported as lost or stolen).
 
-**Authentication:** Employee JWT + `cards.manage` permission
+**Authentication:** Employee JWT + `cards.manage` permission **OR** Client JWT (own cards only)
+
+Employees with the `cards.manage` permission can block any card. Clients can block their own cards only — the card's `owner_id` must match the authenticated client's `user_id`. If a client attempts to block a card that does not belong to them, a `403 Forbidden` error is returned.
 
 **Path Parameters:**
 
@@ -1156,11 +1158,15 @@ Block a card (e.g., reported as lost or stolen).
 
 **Response 200:** Updated card object with `"status": "BLOCKED"`
 
+**Response 403:** `{"error": "clients can only block their own cards"}` (client attempting to block another client's card)
+
+**Response 404:** `{"error": "card not found"}` (card does not exist)
+
 ---
 
 ### PUT /api/cards/:id/unblock
 
-Unblock a previously blocked card.
+Unblock a previously blocked card. Only employees can unblock cards.
 
 **Authentication:** Employee JWT + `cards.manage` permission
 

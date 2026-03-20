@@ -181,19 +181,58 @@ func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"cards": cards})
 }
 
+// BlockCard godoc
 // @Summary      Block a card
+// @Description  Blocks a card. Employees with cards.manage permission can block any card. Clients can block their own cards via the client-authenticated endpoint.
 // @Tags         cards
 // @Produce      json
 // @Param        id   path  int  true  "Card ID"
 // @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/cards/{id}/block [put]
 func (h *CardHandler) BlockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	resp, err := h.cardClient.BlockCard(c.Request.Context(), &cardpb.BlockCardRequest{Id: id})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, cardToJSON(resp))
+}
+
+// ClientBlockCard blocks a client's own card.
+// The card's owner_id must match the authenticated client's user_id.
+// This handler is mounted on the client-authenticated route group (ClientAuthMiddleware).
+// Swagger documentation is combined with the employee BlockCard endpoint above.
+func (h *CardHandler) ClientBlockCard(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	// Fetch the card to verify ownership
+	card, err := h.cardClient.GetCard(c.Request.Context(), &cardpb.GetCardRequest{Id: id})
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
+		return
+	}
+
+	// Verify the card belongs to the authenticated client
+	uid, _ := c.Get("user_id")
+	userID, ok := uid.(int64)
+	if !ok || uint64(userID) != card.OwnerId {
+		c.JSON(http.StatusForbidden, gin.H{"error": "clients can only block their own cards"})
 		return
 	}
 
