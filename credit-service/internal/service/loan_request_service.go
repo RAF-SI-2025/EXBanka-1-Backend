@@ -19,11 +19,33 @@ var validInterestTypes = map[string]bool{
 	"fixed": true, "variable": true,
 }
 
+var allowedRepaymentPeriods = map[string][]int{
+	"cash":        {12, 24, 36, 48, 60, 72, 84},
+	"housing":     {60, 120, 180, 240, 300, 360},
+	"auto":        {12, 24, 36, 48, 60, 72, 84},
+	"refinancing": {12, 24, 36, 48, 60, 72, 84},
+	"student":     {12, 24, 36, 48, 60, 72, 84},
+}
+
+func validateRepaymentPeriod(loanType string, period int) error {
+	allowed, ok := allowedRepaymentPeriods[loanType]
+	if !ok {
+		return fmt.Errorf("unknown loan type: %s", loanType)
+	}
+	for _, a := range allowed {
+		if period == a {
+			return nil
+		}
+	}
+	return fmt.Errorf("repayment period %d months is not allowed for %s loans; allowed: %v", period, loanType, allowed)
+}
+
 type LoanRequestService struct {
-	repo        *repository.LoanRequestRepository
-	loanRepo    *repository.LoanRepository
-	installRepo *repository.InstallmentRepository
-	limitClient userpb.EmployeeLimitServiceClient
+	repo           *repository.LoanRequestRepository
+	loanRepo       *repository.LoanRepository
+	installRepo    *repository.InstallmentRepository
+	limitClient    userpb.EmployeeLimitServiceClient
+	rateConfigSvc  *RateConfigService
 }
 
 func NewLoanRequestService(
@@ -31,8 +53,9 @@ func NewLoanRequestService(
 	loanRepo *repository.LoanRepository,
 	installRepo *repository.InstallmentRepository,
 	limitClient userpb.EmployeeLimitServiceClient,
+	rateConfigSvc *RateConfigService,
 ) *LoanRequestService {
-	return &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient}
+	return &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient, rateConfigSvc: rateConfigSvc}
 }
 
 func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
@@ -46,9 +69,8 @@ func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
 		return fmt.Errorf("loan request amount must be greater than 0; got: %s (loan_type=%s, account=%s)",
 			req.Amount.StringFixed(2), req.LoanType, req.AccountNumber)
 	}
-	if req.RepaymentPeriod <= 0 {
-		return fmt.Errorf("repayment period must be greater than 0 months; got: %d (loan_type=%s, amount=%s, account=%s)",
-			req.RepaymentPeriod, req.LoanType, req.Amount.StringFixed(2), req.AccountNumber)
+	if err := validateRepaymentPeriod(req.LoanType, req.RepaymentPeriod); err != nil {
+		return err
 	}
 	if err := s.repo.Create(req); err != nil {
 		return fmt.Errorf("failed to save loan request for account %s (loan_type=%s, amount=%s): %v",
@@ -95,7 +117,11 @@ func (s *LoanRequestService) ApproveLoanRequest(requestID uint64, employeeID uin
 		}
 	}
 
-	nominalRate := GetNominalInterestRate(req.LoanType, req.InterestType)
+	nominalRate, rateErr := s.rateConfigSvc.GetNominalRate(req.LoanType, req.InterestType, req.Amount)
+	if rateErr != nil {
+		return nil, fmt.Errorf("failed to determine interest rate for loan request %d (loan_type=%s, interest_type=%s, amount=%s): %v",
+			requestID, req.LoanType, req.InterestType, req.Amount.StringFixed(2), rateErr)
+	}
 	effectiveRate := CalculateEffectiveInterestRate(nominalRate, 12)
 	monthlyInstallment := CalculateMonthlyInstallment(req.Amount, nominalRate, req.RepaymentPeriod)
 

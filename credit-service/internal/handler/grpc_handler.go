@@ -46,6 +46,7 @@ type CreditGRPCHandler struct {
 	loanRequestService *service.LoanRequestService
 	loanService        *service.LoanService
 	installmentService *service.InstallmentService
+	rateConfigService  *service.RateConfigService
 	producer           *kafkaprod.Producer
 }
 
@@ -53,12 +54,14 @@ func NewCreditGRPCHandler(
 	loanRequestService *service.LoanRequestService,
 	loanService *service.LoanService,
 	installmentService *service.InstallmentService,
+	rateConfigService *service.RateConfigService,
 	producer *kafkaprod.Producer,
 ) *CreditGRPCHandler {
 	return &CreditGRPCHandler{
 		loanRequestService: loanRequestService,
 		loanService:        loanService,
 		installmentService: installmentService,
+		rateConfigService:  rateConfigService,
 		producer:           producer,
 	}
 }
@@ -273,4 +276,121 @@ func toInstallmentResponse(inst *model.Installment) *pb.InstallmentResponse {
 		resp.ActualDate = inst.ActualDate.Format("2006-01-02T15:04:05Z")
 	}
 	return resp
+}
+
+// --- Interest Rate Tier RPCs ---
+
+func (h *CreditGRPCHandler) ListInterestRateTiers(ctx context.Context, req *pb.ListInterestRateTiersRequest) (*pb.ListInterestRateTiersResponse, error) {
+	tiers, err := h.rateConfigService.ListTiers()
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "failed to list interest rate tiers: %v", err)
+	}
+
+	resp := &pb.ListInterestRateTiersResponse{}
+	for _, t := range tiers {
+		resp.Tiers = append(resp.Tiers, toInterestRateTierResponse(&t))
+	}
+	return resp, nil
+}
+
+func (h *CreditGRPCHandler) CreateInterestRateTier(ctx context.Context, req *pb.CreateInterestRateTierRequest) (*pb.InterestRateTierResponse, error) {
+	amountFrom, _ := decimal.NewFromString(req.AmountFrom)
+	amountTo, _ := decimal.NewFromString(req.AmountTo)
+	fixedRate, _ := decimal.NewFromString(req.FixedRate)
+	variableBase, _ := decimal.NewFromString(req.VariableBase)
+
+	tier := &model.InterestRateTier{
+		AmountFrom:   amountFrom,
+		AmountTo:     amountTo,
+		FixedRate:    fixedRate,
+		VariableBase: variableBase,
+	}
+
+	if err := h.rateConfigService.CreateTier(tier); err != nil {
+		return nil, status.Errorf(mapServiceError(err), "failed to create interest rate tier: %v", err)
+	}
+
+	return toInterestRateTierResponse(tier), nil
+}
+
+func (h *CreditGRPCHandler) UpdateInterestRateTier(ctx context.Context, req *pb.UpdateInterestRateTierRequest) (*pb.InterestRateTierResponse, error) {
+	amountFrom, _ := decimal.NewFromString(req.AmountFrom)
+	amountTo, _ := decimal.NewFromString(req.AmountTo)
+	fixedRate, _ := decimal.NewFromString(req.FixedRate)
+	variableBase, _ := decimal.NewFromString(req.VariableBase)
+
+	tier := &model.InterestRateTier{
+		ID:           req.Id,
+		AmountFrom:   amountFrom,
+		AmountTo:     amountTo,
+		FixedRate:    fixedRate,
+		VariableBase: variableBase,
+	}
+
+	if err := h.rateConfigService.UpdateTier(tier); err != nil {
+		return nil, status.Errorf(mapServiceError(err), "failed to update interest rate tier: %v", err)
+	}
+
+	return toInterestRateTierResponse(tier), nil
+}
+
+func (h *CreditGRPCHandler) DeleteInterestRateTier(ctx context.Context, req *pb.DeleteInterestRateTierRequest) (*pb.DeleteResponse, error) {
+	if err := h.rateConfigService.DeleteTier(req.Id); err != nil {
+		return nil, status.Errorf(mapServiceError(err), "failed to delete interest rate tier: %v", err)
+	}
+	return &pb.DeleteResponse{Success: true}, nil
+}
+
+// --- Bank Margin RPCs ---
+
+func (h *CreditGRPCHandler) ListBankMargins(ctx context.Context, req *pb.ListBankMarginsRequest) (*pb.ListBankMarginsResponse, error) {
+	margins, err := h.rateConfigService.ListMargins()
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "failed to list bank margins: %v", err)
+	}
+
+	resp := &pb.ListBankMarginsResponse{}
+	for _, m := range margins {
+		resp.Margins = append(resp.Margins, toBankMarginResponse(&m))
+	}
+	return resp, nil
+}
+
+func (h *CreditGRPCHandler) UpdateBankMargin(ctx context.Context, req *pb.UpdateBankMarginRequest) (*pb.BankMarginResponse, error) {
+	margin, _ := decimal.NewFromString(req.Margin)
+
+	bm := &model.BankMargin{
+		ID:     req.Id,
+		Margin: margin,
+	}
+
+	if err := h.rateConfigService.UpdateMargin(bm); err != nil {
+		return nil, status.Errorf(mapServiceError(err), "failed to update bank margin: %v", err)
+	}
+
+	return toBankMarginResponse(bm), nil
+}
+
+func toInterestRateTierResponse(t *model.InterestRateTier) *pb.InterestRateTierResponse {
+	return &pb.InterestRateTierResponse{
+		Id:           t.ID,
+		AmountFrom:   t.AmountFrom.StringFixed(4),
+		AmountTo:     t.AmountTo.StringFixed(4),
+		FixedRate:    t.FixedRate.StringFixed(4),
+		VariableBase: t.VariableBase.StringFixed(4),
+		Active:       t.Active,
+		CreatedAt:    t.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:    t.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+}
+
+func toBankMarginResponse(m *model.BankMargin) *pb.BankMarginResponse {
+	return &pb.BankMarginResponse{
+		Id:        m.ID,
+		LoanType:  m.LoanType,
+		Margin:    m.Margin.StringFixed(4),
+		Active:    m.Active,
+		CreatedAt: m.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt: m.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+	}
 }

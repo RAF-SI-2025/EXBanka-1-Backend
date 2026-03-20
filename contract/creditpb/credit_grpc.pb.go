@@ -19,15 +19,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CreditService_CreateLoanRequest_FullMethodName     = "/credit.CreditService/CreateLoanRequest"
-	CreditService_GetLoanRequest_FullMethodName        = "/credit.CreditService/GetLoanRequest"
-	CreditService_ListLoanRequests_FullMethodName      = "/credit.CreditService/ListLoanRequests"
-	CreditService_ApproveLoanRequest_FullMethodName    = "/credit.CreditService/ApproveLoanRequest"
-	CreditService_RejectLoanRequest_FullMethodName     = "/credit.CreditService/RejectLoanRequest"
-	CreditService_GetLoan_FullMethodName               = "/credit.CreditService/GetLoan"
-	CreditService_ListLoansByClient_FullMethodName     = "/credit.CreditService/ListLoansByClient"
-	CreditService_ListAllLoans_FullMethodName          = "/credit.CreditService/ListAllLoans"
-	CreditService_GetInstallmentsByLoan_FullMethodName = "/credit.CreditService/GetInstallmentsByLoan"
+	CreditService_CreateLoanRequest_FullMethodName      = "/credit.CreditService/CreateLoanRequest"
+	CreditService_GetLoanRequest_FullMethodName         = "/credit.CreditService/GetLoanRequest"
+	CreditService_ListLoanRequests_FullMethodName       = "/credit.CreditService/ListLoanRequests"
+	CreditService_ApproveLoanRequest_FullMethodName     = "/credit.CreditService/ApproveLoanRequest"
+	CreditService_RejectLoanRequest_FullMethodName      = "/credit.CreditService/RejectLoanRequest"
+	CreditService_GetLoan_FullMethodName                = "/credit.CreditService/GetLoan"
+	CreditService_ListLoansByClient_FullMethodName      = "/credit.CreditService/ListLoansByClient"
+	CreditService_ListAllLoans_FullMethodName           = "/credit.CreditService/ListAllLoans"
+	CreditService_GetInstallmentsByLoan_FullMethodName  = "/credit.CreditService/GetInstallmentsByLoan"
+	CreditService_ListInterestRateTiers_FullMethodName  = "/credit.CreditService/ListInterestRateTiers"
+	CreditService_CreateInterestRateTier_FullMethodName = "/credit.CreditService/CreateInterestRateTier"
+	CreditService_UpdateInterestRateTier_FullMethodName = "/credit.CreditService/UpdateInterestRateTier"
+	CreditService_DeleteInterestRateTier_FullMethodName = "/credit.CreditService/DeleteInterestRateTier"
+	CreditService_ListBankMargins_FullMethodName        = "/credit.CreditService/ListBankMargins"
+	CreditService_UpdateBankMargin_FullMethodName       = "/credit.CreditService/UpdateBankMargin"
 )
 
 // CreditServiceClient is the client API for CreditService service.
@@ -43,6 +49,14 @@ type CreditServiceClient interface {
 	ListLoansByClient(ctx context.Context, in *ListLoansByClientReq, opts ...grpc.CallOption) (*ListLoansResponse, error)
 	ListAllLoans(ctx context.Context, in *ListAllLoansReq, opts ...grpc.CallOption) (*ListLoansResponse, error)
 	GetInstallmentsByLoan(ctx context.Context, in *GetInstallmentsByLoanReq, opts ...grpc.CallOption) (*ListInstallmentsResponse, error)
+	// Interest Rate Tier management
+	ListInterestRateTiers(ctx context.Context, in *ListInterestRateTiersRequest, opts ...grpc.CallOption) (*ListInterestRateTiersResponse, error)
+	CreateInterestRateTier(ctx context.Context, in *CreateInterestRateTierRequest, opts ...grpc.CallOption) (*InterestRateTierResponse, error)
+	UpdateInterestRateTier(ctx context.Context, in *UpdateInterestRateTierRequest, opts ...grpc.CallOption) (*InterestRateTierResponse, error)
+	DeleteInterestRateTier(ctx context.Context, in *DeleteInterestRateTierRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
+	// Bank Margin management
+	ListBankMargins(ctx context.Context, in *ListBankMarginsRequest, opts ...grpc.CallOption) (*ListBankMarginsResponse, error)
+	UpdateBankMargin(ctx context.Context, in *UpdateBankMarginRequest, opts ...grpc.CallOption) (*BankMarginResponse, error)
 }
 
 type creditServiceClient struct {
@@ -143,6 +157,66 @@ func (c *creditServiceClient) GetInstallmentsByLoan(ctx context.Context, in *Get
 	return out, nil
 }
 
+func (c *creditServiceClient) ListInterestRateTiers(ctx context.Context, in *ListInterestRateTiersRequest, opts ...grpc.CallOption) (*ListInterestRateTiersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListInterestRateTiersResponse)
+	err := c.cc.Invoke(ctx, CreditService_ListInterestRateTiers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *creditServiceClient) CreateInterestRateTier(ctx context.Context, in *CreateInterestRateTierRequest, opts ...grpc.CallOption) (*InterestRateTierResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InterestRateTierResponse)
+	err := c.cc.Invoke(ctx, CreditService_CreateInterestRateTier_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *creditServiceClient) UpdateInterestRateTier(ctx context.Context, in *UpdateInterestRateTierRequest, opts ...grpc.CallOption) (*InterestRateTierResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InterestRateTierResponse)
+	err := c.cc.Invoke(ctx, CreditService_UpdateInterestRateTier_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *creditServiceClient) DeleteInterestRateTier(ctx context.Context, in *DeleteInterestRateTierRequest, opts ...grpc.CallOption) (*DeleteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteResponse)
+	err := c.cc.Invoke(ctx, CreditService_DeleteInterestRateTier_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *creditServiceClient) ListBankMargins(ctx context.Context, in *ListBankMarginsRequest, opts ...grpc.CallOption) (*ListBankMarginsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBankMarginsResponse)
+	err := c.cc.Invoke(ctx, CreditService_ListBankMargins_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *creditServiceClient) UpdateBankMargin(ctx context.Context, in *UpdateBankMarginRequest, opts ...grpc.CallOption) (*BankMarginResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BankMarginResponse)
+	err := c.cc.Invoke(ctx, CreditService_UpdateBankMargin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CreditServiceServer is the server API for CreditService service.
 // All implementations must embed UnimplementedCreditServiceServer
 // for forward compatibility.
@@ -156,6 +230,14 @@ type CreditServiceServer interface {
 	ListLoansByClient(context.Context, *ListLoansByClientReq) (*ListLoansResponse, error)
 	ListAllLoans(context.Context, *ListAllLoansReq) (*ListLoansResponse, error)
 	GetInstallmentsByLoan(context.Context, *GetInstallmentsByLoanReq) (*ListInstallmentsResponse, error)
+	// Interest Rate Tier management
+	ListInterestRateTiers(context.Context, *ListInterestRateTiersRequest) (*ListInterestRateTiersResponse, error)
+	CreateInterestRateTier(context.Context, *CreateInterestRateTierRequest) (*InterestRateTierResponse, error)
+	UpdateInterestRateTier(context.Context, *UpdateInterestRateTierRequest) (*InterestRateTierResponse, error)
+	DeleteInterestRateTier(context.Context, *DeleteInterestRateTierRequest) (*DeleteResponse, error)
+	// Bank Margin management
+	ListBankMargins(context.Context, *ListBankMarginsRequest) (*ListBankMarginsResponse, error)
+	UpdateBankMargin(context.Context, *UpdateBankMarginRequest) (*BankMarginResponse, error)
 	mustEmbedUnimplementedCreditServiceServer()
 }
 
@@ -192,6 +274,24 @@ func (UnimplementedCreditServiceServer) ListAllLoans(context.Context, *ListAllLo
 }
 func (UnimplementedCreditServiceServer) GetInstallmentsByLoan(context.Context, *GetInstallmentsByLoanReq) (*ListInstallmentsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetInstallmentsByLoan not implemented")
+}
+func (UnimplementedCreditServiceServer) ListInterestRateTiers(context.Context, *ListInterestRateTiersRequest) (*ListInterestRateTiersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListInterestRateTiers not implemented")
+}
+func (UnimplementedCreditServiceServer) CreateInterestRateTier(context.Context, *CreateInterestRateTierRequest) (*InterestRateTierResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateInterestRateTier not implemented")
+}
+func (UnimplementedCreditServiceServer) UpdateInterestRateTier(context.Context, *UpdateInterestRateTierRequest) (*InterestRateTierResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateInterestRateTier not implemented")
+}
+func (UnimplementedCreditServiceServer) DeleteInterestRateTier(context.Context, *DeleteInterestRateTierRequest) (*DeleteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteInterestRateTier not implemented")
+}
+func (UnimplementedCreditServiceServer) ListBankMargins(context.Context, *ListBankMarginsRequest) (*ListBankMarginsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBankMargins not implemented")
+}
+func (UnimplementedCreditServiceServer) UpdateBankMargin(context.Context, *UpdateBankMarginRequest) (*BankMarginResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateBankMargin not implemented")
 }
 func (UnimplementedCreditServiceServer) mustEmbedUnimplementedCreditServiceServer() {}
 func (UnimplementedCreditServiceServer) testEmbeddedByValue()                       {}
@@ -376,6 +476,114 @@ func _CreditService_GetInstallmentsByLoan_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CreditService_ListInterestRateTiers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListInterestRateTiersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CreditServiceServer).ListInterestRateTiers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CreditService_ListInterestRateTiers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CreditServiceServer).ListInterestRateTiers(ctx, req.(*ListInterestRateTiersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CreditService_CreateInterestRateTier_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateInterestRateTierRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CreditServiceServer).CreateInterestRateTier(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CreditService_CreateInterestRateTier_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CreditServiceServer).CreateInterestRateTier(ctx, req.(*CreateInterestRateTierRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CreditService_UpdateInterestRateTier_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateInterestRateTierRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CreditServiceServer).UpdateInterestRateTier(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CreditService_UpdateInterestRateTier_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CreditServiceServer).UpdateInterestRateTier(ctx, req.(*UpdateInterestRateTierRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CreditService_DeleteInterestRateTier_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteInterestRateTierRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CreditServiceServer).DeleteInterestRateTier(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CreditService_DeleteInterestRateTier_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CreditServiceServer).DeleteInterestRateTier(ctx, req.(*DeleteInterestRateTierRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CreditService_ListBankMargins_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBankMarginsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CreditServiceServer).ListBankMargins(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CreditService_ListBankMargins_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CreditServiceServer).ListBankMargins(ctx, req.(*ListBankMarginsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CreditService_UpdateBankMargin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateBankMarginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CreditServiceServer).UpdateBankMargin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CreditService_UpdateBankMargin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CreditServiceServer).UpdateBankMargin(ctx, req.(*UpdateBankMarginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CreditService_ServiceDesc is the grpc.ServiceDesc for CreditService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -418,6 +626,30 @@ var CreditService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetInstallmentsByLoan",
 			Handler:    _CreditService_GetInstallmentsByLoan_Handler,
+		},
+		{
+			MethodName: "ListInterestRateTiers",
+			Handler:    _CreditService_ListInterestRateTiers_Handler,
+		},
+		{
+			MethodName: "CreateInterestRateTier",
+			Handler:    _CreditService_CreateInterestRateTier_Handler,
+		},
+		{
+			MethodName: "UpdateInterestRateTier",
+			Handler:    _CreditService_UpdateInterestRateTier_Handler,
+		},
+		{
+			MethodName: "DeleteInterestRateTier",
+			Handler:    _CreditService_DeleteInterestRateTier_Handler,
+		},
+		{
+			MethodName: "ListBankMargins",
+			Handler:    _CreditService_ListBankMargins_Handler,
+		},
+		{
+			MethodName: "UpdateBankMargin",
+			Handler:    _CreditService_UpdateBankMargin_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

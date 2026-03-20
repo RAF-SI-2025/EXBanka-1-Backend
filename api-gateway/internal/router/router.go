@@ -191,6 +191,24 @@ func Setup(
 				loansEmployee.PUT("/requests/:id/reject", creditHandler.RejectLoanRequest)
 				loansEmployee.GET("", creditHandler.ListAllLoans)
 			}
+
+			// Interest rate tier management (admin only)
+			rateTiersAdmin := protected.Group("/interest-rate-tiers")
+			rateTiersAdmin.Use(middleware.RequirePermission("employees.create"))
+			{
+				rateTiersAdmin.GET("", creditHandler.ListInterestRateTiers)
+				rateTiersAdmin.POST("", creditHandler.CreateInterestRateTier)
+				rateTiersAdmin.PUT("/:id", creditHandler.UpdateInterestRateTier)
+				rateTiersAdmin.DELETE("/:id", creditHandler.DeleteInterestRateTier)
+			}
+
+			// Bank margin management (admin only)
+			bankMarginsAdmin := protected.Group("/bank-margins")
+			bankMarginsAdmin.Use(middleware.RequirePermission("employees.create"))
+			{
+				bankMarginsAdmin.GET("", creditHandler.ListBankMargins)
+				bankMarginsAdmin.PUT("/:id", creditHandler.UpdateBankMargin)
+			}
 		}
 
 		// Client-only routes (write operations and self-service)
