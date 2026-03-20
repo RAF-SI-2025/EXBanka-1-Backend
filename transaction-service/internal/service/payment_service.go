@@ -71,13 +71,13 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("idempotency check failed: %w", err)
+			return fmt.Errorf("idempotency check failed for key %q: %w", payment.IdempotencyKey, err)
 		}
 	}
 
 	// 2. Validate amount is positive
 	if payment.InitialAmount.IsNegative() || payment.InitialAmount.IsZero() {
-		return errors.New("payment amount must be positive")
+		return fmt.Errorf("payment amount must be positive, got %s", payment.InitialAmount.StringFixed(4))
 	}
 
 	currency := payment.CurrencyCode
@@ -86,7 +86,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 	}
 	commission, err := s.feeSvc.CalculateFee(payment.InitialAmount, "payment", currency)
 	if err != nil {
-		return fmt.Errorf("fee calculation failed: %w", err)
+		return fmt.Errorf("fee calculation failed for payment of %s %s from account %s: %w",
+			payment.InitialAmount.StringFixed(4), currency, payment.FromAccountNumber, err)
 	}
 	payment.Commission = commission
 	payment.FinalAmount = payment.InitialAmount.Add(payment.Commission)
@@ -94,7 +95,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 	payment.Timestamp = time.Now()
 
 	if err := s.paymentRepo.Create(payment); err != nil {
-		return err
+		return fmt.Errorf("failed to persist payment from %s to %s: %w",
+			payment.FromAccountNumber, payment.ToAccountNumber, err)
 	}
 
 	totalDebit := payment.FinalAmount
@@ -115,7 +117,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			monthlySpending, _ := decimal.NewFromString(acctResp.GetMonthlySpending())
 
 			if !dailyLimit.IsZero() && dailySpending.Add(totalDebit).GreaterThan(dailyLimit) {
-				reason := "limit_exceeded: daily spending limit would be exceeded"
+				reason := fmt.Sprintf("limit_exceeded: daily spending limit would be exceeded on account %s: current daily spending %s, attempted %s, daily limit %s",
+					payment.FromAccountNumber, dailySpending.StringFixed(4), totalDebit.StringFixed(4), dailyLimit.StringFixed(4))
 				_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
 				payment.Status = "failed"
 				payment.FailureReason = reason
@@ -123,7 +126,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 				return errors.New(reason)
 			}
 			if !monthlyLimit.IsZero() && monthlySpending.Add(totalDebit).GreaterThan(monthlyLimit) {
-				reason := "limit_exceeded: monthly spending limit would be exceeded"
+				reason := fmt.Sprintf("limit_exceeded: monthly spending limit would be exceeded on account %s: current monthly spending %s, attempted %s, monthly limit %s",
+					payment.FromAccountNumber, monthlySpending.StringFixed(4), totalDebit.StringFixed(4), monthlyLimit.StringFixed(4))
 				_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
 				payment.Status = "failed"
 				payment.FailureReason = reason
@@ -144,12 +148,14 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			})
 			return e
 		}); err != nil {
-			reason := fmt.Sprintf("debit failed: %v", err)
+			reason := fmt.Sprintf("debit failed on account %s for amount %s %s: %v",
+				payment.FromAccountNumber, totalDebit.StringFixed(4), currency, err)
 			_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
 			payment.Status = "failed"
 			payment.FailureReason = reason
 			s.publishPaymentFailed(ctx, payment, reason)
-			return fmt.Errorf("failed to debit sender account: %w", err)
+			return fmt.Errorf("failed to debit sender account %s for %s %s: %w",
+				payment.FromAccountNumber, totalDebit.StringFixed(4), currency, err)
 		}
 	}
 
@@ -174,12 +180,15 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 				})
 				return e
 			})
-			reason := fmt.Sprintf("credit failed (debit reversed): %v", err)
+			reason := fmt.Sprintf("credit failed on recipient account %s for amount %s %s (debit of %s on %s reversed): %v",
+				payment.ToAccountNumber, payment.InitialAmount.StringFixed(4), currency,
+				totalDebit.StringFixed(4), payment.FromAccountNumber, err)
 			_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
 			payment.Status = "failed"
 			payment.FailureReason = reason
 			s.publishPaymentFailed(ctx, payment, reason)
-			return fmt.Errorf("failed to credit recipient account: %w", err)
+			return fmt.Errorf("failed to credit recipient account %s for %s %s: %w",
+				payment.ToAccountNumber, payment.InitialAmount.StringFixed(4), currency, err)
 		}
 	}
 
@@ -200,7 +209,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 	now := time.Now()
 	payment.CompletedAt = &now
 	if err := s.paymentRepo.UpdateStatus(payment.ID, "completed"); err != nil {
-		return err
+		return fmt.Errorf("failed to mark payment %d as completed (from %s to %s): %w",
+			payment.ID, payment.FromAccountNumber, payment.ToAccountNumber, err)
 	}
 	payment.Status = "completed"
 	return nil

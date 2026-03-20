@@ -58,10 +58,10 @@ func (s *TransferService) publishTransferFailed(ctx context.Context, transfer *m
 // ValidateTransfer checks that a transfer has distinct accounts and a positive amount.
 func ValidateTransfer(from, to string, amount decimal.Decimal) error {
 	if from == to {
-		return errors.New("from and to accounts must be different")
+		return fmt.Errorf("from and to accounts must be different, both are %s", from)
 	}
 	if amount.IsNegative() || amount.IsZero() {
-		return errors.New("amount must be positive")
+		return fmt.Errorf("transfer amount must be positive, got %s", amount.StringFixed(4))
 	}
 	return nil
 }
@@ -75,7 +75,7 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("idempotency check failed: %w", err)
+			return fmt.Errorf("idempotency check failed for key %q: %w", transfer.IdempotencyKey, err)
 		}
 	}
 
@@ -89,7 +89,8 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 	}
 	commission, err := s.feeSvc.CalculateFee(transfer.InitialAmount, "transfer", fromCurrency)
 	if err != nil {
-		return fmt.Errorf("fee calculation failed: %w", err)
+		return fmt.Errorf("fee calculation failed for transfer of %s %s from account %s to %s: %w",
+			transfer.InitialAmount.StringFixed(4), fromCurrency, transfer.FromAccountNumber, transfer.ToAccountNumber, err)
 	}
 	transfer.Commission = commission
 	transfer.Timestamp = time.Now()
