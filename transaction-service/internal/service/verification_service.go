@@ -14,11 +14,21 @@ import (
 const maxAttempts = 3
 
 type VerificationService struct {
-	repo *repository.VerificationCodeRepository
+	repo         *repository.VerificationCodeRepository
+	paymentRepo  *repository.PaymentRepository
+	transferRepo *repository.TransferRepository
 }
 
-func NewVerificationService(repo *repository.VerificationCodeRepository) *VerificationService {
-	return &VerificationService{repo: repo}
+func NewVerificationService(
+	repo *repository.VerificationCodeRepository,
+	paymentRepo *repository.PaymentRepository,
+	transferRepo *repository.TransferRepository,
+) *VerificationService {
+	return &VerificationService{
+		repo:         repo,
+		paymentRepo:  paymentRepo,
+		transferRepo: transferRepo,
+	}
 }
 
 // GenerateCode returns a 6-digit random number as a zero-padded string.
@@ -62,7 +72,9 @@ func (s *VerificationService) ValidateVerificationCode(clientID, transactionID u
 		return false, 0, errors.New("verification code expired")
 	}
 	if vc.Attempts >= maxAttempts {
-		return false, 0, errors.New("max attempts exceeded")
+		// Cancel the associated transaction
+		s.cancelTransaction(vc.TransactionID, vc.TransactionType)
+		return false, 0, fmt.Errorf("verification code expired after %d failed attempts; transaction cancelled", maxAttempts)
 	}
 
 	if err := s.repo.IncrementAttempts(vc.ID); err != nil {
@@ -72,6 +84,11 @@ func (s *VerificationService) ValidateVerificationCode(clientID, transactionID u
 
 	remaining := maxAttempts - vc.Attempts
 	if vc.Code != code {
+		if remaining == 0 {
+			// Max attempts now reached - cancel transaction
+			s.cancelTransaction(vc.TransactionID, vc.TransactionType)
+			return false, 0, fmt.Errorf("verification code expired after %d failed attempts; transaction cancelled", maxAttempts)
+		}
 		return false, remaining, nil
 	}
 
@@ -79,4 +96,14 @@ func (s *VerificationService) ValidateVerificationCode(clientID, transactionID u
 		return false, remaining, err
 	}
 	return true, remaining, nil
+}
+
+// cancelTransaction sets the associated transaction's status to "rejected".
+func (s *VerificationService) cancelTransaction(transactionID uint64, txType string) {
+	switch txType {
+	case "payment":
+		_ = s.paymentRepo.UpdateStatus(transactionID, "rejected")
+	case "transfer":
+		_ = s.transferRepo.UpdateStatus(transactionID, "rejected")
+	}
 }

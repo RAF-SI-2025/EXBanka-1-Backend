@@ -137,7 +137,7 @@ func main() {
 	paymentSvc := service.NewPaymentService(paymentRepo, accountClient, feeSvc, producer, bankRSDAccountNumber)
 	transferSvc := service.NewTransferService(transferRepo, exchangeSvc, accountClient, feeSvc, producer, bankRSDAccountNumber)
 	recipientSvc := service.NewPaymentRecipientService(recipientRepo)
-	verificationSvc := service.NewVerificationService(vcRepo)
+	verificationSvc := service.NewVerificationService(vcRepo, paymentRepo, transferRepo)
 
 	grpcHandler := handler.NewTransactionGRPCHandler(
 		paymentSvc,
