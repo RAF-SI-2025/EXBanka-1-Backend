@@ -83,6 +83,33 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		return err
 	}
 
+	// Validate that both accounts belong to the same client (transfers are intra-client only)
+	if s.accountClient != nil {
+		var fromAccount, toAccount *accountpb.AccountResponse
+		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+			var e error
+			fromAccount, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+				AccountNumber: transfer.FromAccountNumber,
+			})
+			return e
+		}); err != nil {
+			return fmt.Errorf("failed to fetch sender account %s: %w", transfer.FromAccountNumber, err)
+		}
+		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+			var e error
+			toAccount, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+				AccountNumber: transfer.ToAccountNumber,
+			})
+			return e
+		}); err != nil {
+			return fmt.Errorf("failed to fetch recipient account %s: %w", transfer.ToAccountNumber, err)
+		}
+		if fromAccount.OwnerId != toAccount.OwnerId {
+			transfer.Status = "rejected"
+			return fmt.Errorf("transfers must be between accounts of the same client; use payments for different-client transactions")
+		}
+	}
+
 	fromCurrency := transfer.FromCurrency
 	if fromCurrency == "" {
 		fromCurrency = "RSD"
