@@ -67,16 +67,35 @@ func main() {
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
 
-	// Seed bank accounts if none exist
+	// Seed bank accounts for all supported currencies (idempotent)
 	bankAccounts, _ := accountService.ListBankAccounts()
-	if len(bankAccounts) == 0 {
-		if _, err := accountService.CreateBankAccount("RSD", "current", "EX Banka RSD Account"); err != nil {
-			log.Printf("warn: failed to seed bank RSD account: %v", err)
+	existingCurrencies := make(map[string]bool)
+	for _, a := range bankAccounts {
+		existingCurrencies[a.CurrencyCode] = true
+	}
+	seedCurrencies := []struct {
+		Code string
+		Kind string
+		Name string
+	}{
+		{"RSD", "current", "EX Banka RSD Account"},
+		{"EUR", "foreign", "EX Banka EUR Account"},
+		{"CHF", "foreign", "EX Banka CHF Account"},
+		{"USD", "foreign", "EX Banka USD Account"},
+		{"GBP", "foreign", "EX Banka GBP Account"},
+		{"JPY", "foreign", "EX Banka JPY Account"},
+		{"CAD", "foreign", "EX Banka CAD Account"},
+		{"AUD", "foreign", "EX Banka AUD Account"},
+	}
+	for _, c := range seedCurrencies {
+		if existingCurrencies[c.Code] {
+			continue
 		}
-		if _, err := accountService.CreateBankAccount("EUR", "foreign", "EX Banka EUR Account"); err != nil {
-			log.Printf("warn: failed to seed bank EUR account: %v", err)
+		if _, err := accountService.CreateBankAccount(c.Code, c.Kind, c.Name); err != nil {
+			log.Printf("warn: failed to seed bank %s account: %v", c.Code, err)
+		} else {
+			log.Printf("Seeded bank %s account", c.Code)
 		}
-		log.Println("Seeded bank accounts")
 	}
 
 	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer)
