@@ -19,21 +19,22 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CreditService_CreateLoanRequest_FullMethodName      = "/credit.CreditService/CreateLoanRequest"
-	CreditService_GetLoanRequest_FullMethodName         = "/credit.CreditService/GetLoanRequest"
-	CreditService_ListLoanRequests_FullMethodName       = "/credit.CreditService/ListLoanRequests"
-	CreditService_ApproveLoanRequest_FullMethodName     = "/credit.CreditService/ApproveLoanRequest"
-	CreditService_RejectLoanRequest_FullMethodName      = "/credit.CreditService/RejectLoanRequest"
-	CreditService_GetLoan_FullMethodName                = "/credit.CreditService/GetLoan"
-	CreditService_ListLoansByClient_FullMethodName      = "/credit.CreditService/ListLoansByClient"
-	CreditService_ListAllLoans_FullMethodName           = "/credit.CreditService/ListAllLoans"
-	CreditService_GetInstallmentsByLoan_FullMethodName  = "/credit.CreditService/GetInstallmentsByLoan"
-	CreditService_ListInterestRateTiers_FullMethodName  = "/credit.CreditService/ListInterestRateTiers"
-	CreditService_CreateInterestRateTier_FullMethodName = "/credit.CreditService/CreateInterestRateTier"
-	CreditService_UpdateInterestRateTier_FullMethodName = "/credit.CreditService/UpdateInterestRateTier"
-	CreditService_DeleteInterestRateTier_FullMethodName = "/credit.CreditService/DeleteInterestRateTier"
-	CreditService_ListBankMargins_FullMethodName        = "/credit.CreditService/ListBankMargins"
-	CreditService_UpdateBankMargin_FullMethodName       = "/credit.CreditService/UpdateBankMargin"
+	CreditService_CreateLoanRequest_FullMethodName       = "/credit.CreditService/CreateLoanRequest"
+	CreditService_GetLoanRequest_FullMethodName          = "/credit.CreditService/GetLoanRequest"
+	CreditService_ListLoanRequests_FullMethodName        = "/credit.CreditService/ListLoanRequests"
+	CreditService_ApproveLoanRequest_FullMethodName      = "/credit.CreditService/ApproveLoanRequest"
+	CreditService_RejectLoanRequest_FullMethodName       = "/credit.CreditService/RejectLoanRequest"
+	CreditService_GetLoan_FullMethodName                 = "/credit.CreditService/GetLoan"
+	CreditService_ListLoansByClient_FullMethodName       = "/credit.CreditService/ListLoansByClient"
+	CreditService_ListAllLoans_FullMethodName            = "/credit.CreditService/ListAllLoans"
+	CreditService_GetInstallmentsByLoan_FullMethodName   = "/credit.CreditService/GetInstallmentsByLoan"
+	CreditService_ListInterestRateTiers_FullMethodName   = "/credit.CreditService/ListInterestRateTiers"
+	CreditService_CreateInterestRateTier_FullMethodName  = "/credit.CreditService/CreateInterestRateTier"
+	CreditService_UpdateInterestRateTier_FullMethodName  = "/credit.CreditService/UpdateInterestRateTier"
+	CreditService_DeleteInterestRateTier_FullMethodName  = "/credit.CreditService/DeleteInterestRateTier"
+	CreditService_ListBankMargins_FullMethodName         = "/credit.CreditService/ListBankMargins"
+	CreditService_UpdateBankMargin_FullMethodName        = "/credit.CreditService/UpdateBankMargin"
+	CreditService_ApplyVariableRateUpdate_FullMethodName = "/credit.CreditService/ApplyVariableRateUpdate"
 )
 
 // CreditServiceClient is the client API for CreditService service.
@@ -57,6 +58,8 @@ type CreditServiceClient interface {
 	// Bank Margin management
 	ListBankMargins(ctx context.Context, in *ListBankMarginsRequest, opts ...grpc.CallOption) (*ListBankMarginsResponse, error)
 	UpdateBankMargin(ctx context.Context, in *UpdateBankMarginRequest, opts ...grpc.CallOption) (*BankMarginResponse, error)
+	// Variable rate propagation
+	ApplyVariableRateUpdate(ctx context.Context, in *ApplyVariableRateUpdateRequest, opts ...grpc.CallOption) (*ApplyVariableRateUpdateResponse, error)
 }
 
 type creditServiceClient struct {
@@ -217,6 +220,16 @@ func (c *creditServiceClient) UpdateBankMargin(ctx context.Context, in *UpdateBa
 	return out, nil
 }
 
+func (c *creditServiceClient) ApplyVariableRateUpdate(ctx context.Context, in *ApplyVariableRateUpdateRequest, opts ...grpc.CallOption) (*ApplyVariableRateUpdateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyVariableRateUpdateResponse)
+	err := c.cc.Invoke(ctx, CreditService_ApplyVariableRateUpdate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CreditServiceServer is the server API for CreditService service.
 // All implementations must embed UnimplementedCreditServiceServer
 // for forward compatibility.
@@ -238,6 +251,8 @@ type CreditServiceServer interface {
 	// Bank Margin management
 	ListBankMargins(context.Context, *ListBankMarginsRequest) (*ListBankMarginsResponse, error)
 	UpdateBankMargin(context.Context, *UpdateBankMarginRequest) (*BankMarginResponse, error)
+	// Variable rate propagation
+	ApplyVariableRateUpdate(context.Context, *ApplyVariableRateUpdateRequest) (*ApplyVariableRateUpdateResponse, error)
 	mustEmbedUnimplementedCreditServiceServer()
 }
 
@@ -292,6 +307,9 @@ func (UnimplementedCreditServiceServer) ListBankMargins(context.Context, *ListBa
 }
 func (UnimplementedCreditServiceServer) UpdateBankMargin(context.Context, *UpdateBankMarginRequest) (*BankMarginResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateBankMargin not implemented")
+}
+func (UnimplementedCreditServiceServer) ApplyVariableRateUpdate(context.Context, *ApplyVariableRateUpdateRequest) (*ApplyVariableRateUpdateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyVariableRateUpdate not implemented")
 }
 func (UnimplementedCreditServiceServer) mustEmbedUnimplementedCreditServiceServer() {}
 func (UnimplementedCreditServiceServer) testEmbeddedByValue()                       {}
@@ -584,6 +602,24 @@ func _CreditService_UpdateBankMargin_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CreditService_ApplyVariableRateUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyVariableRateUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CreditServiceServer).ApplyVariableRateUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CreditService_ApplyVariableRateUpdate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CreditServiceServer).ApplyVariableRateUpdate(ctx, req.(*ApplyVariableRateUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CreditService_ServiceDesc is the grpc.ServiceDesc for CreditService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -650,6 +686,10 @@ var CreditService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateBankMargin",
 			Handler:    _CreditService_UpdateBankMargin_Handler,
+		},
+		{
+			MethodName: "ApplyVariableRateUpdate",
+			Handler:    _CreditService_ApplyVariableRateUpdate_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

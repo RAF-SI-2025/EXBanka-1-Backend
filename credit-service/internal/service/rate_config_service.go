@@ -85,6 +85,26 @@ func (s *RateConfigService) GetNominalRate(loanType, interestType string, amount
 	return baseRate.Add(margin.Margin), nil
 }
 
+// GetNominalRateComponents returns the base rate, bank margin, and combined nominal rate
+// for a given loan type, interest type, and amount. Used to snapshot rate components on loan approval.
+func (s *RateConfigService) GetNominalRateComponents(loanType, interestType string, amountRSD decimal.Decimal) (baseRate, bankMargin, nominalRate decimal.Decimal, err error) {
+	tier, findErr := s.tierRepo.FindByAmount(amountRSD)
+	if findErr != nil {
+		return decimal.Zero, decimal.Zero, decimal.Zero, fmt.Errorf("no interest rate tier found for amount %s: %w", amountRSD, findErr)
+	}
+	margin, marginErr := s.marginRepo.FindByLoanType(loanType)
+	if marginErr != nil {
+		return decimal.Zero, decimal.Zero, decimal.Zero, fmt.Errorf("no bank margin found for loan type %s: %w", loanType, marginErr)
+	}
+
+	if interestType == "fixed" {
+		baseRate = tier.FixedRate
+	} else {
+		baseRate = tier.VariableBase
+	}
+	return baseRate, margin.Margin, baseRate.Add(margin.Margin), nil
+}
+
 // --- Interest Rate Tier CRUD ---
 
 func (s *RateConfigService) ListTiers() ([]model.InterestRateTier, error) {
@@ -171,6 +191,64 @@ func (s *RateConfigService) ListMargins() ([]model.BankMargin, error) {
 		return nil, fmt.Errorf("failed to list bank margins: %w", err)
 	}
 	return margins, nil
+}
+
+// ApplyVariableRateUpdate propagates a changed variable base rate from a tier to
+// all active variable-rate loans whose original amount falls in that tier's range.
+// Unpaid installments are recalculated with the new nominal rate. Already-paid
+// installments remain unchanged. Returns the number of affected loans.
+func (s *RateConfigService) ApplyVariableRateUpdate(tierID uint64, loanRepo *repository.LoanRepository, installRepo *repository.InstallmentRepository) (int, error) {
+	tier, err := s.tierRepo.GetByID(tierID)
+	if err != nil {
+		return 0, fmt.Errorf("interest rate tier %d not found: %w", tierID, err)
+	}
+
+	loans, err := loanRepo.FindActiveVariableLoansInAmountRange(tier.AmountFrom, tier.AmountTo)
+	if err != nil {
+		return 0, fmt.Errorf("failed to find variable-rate loans for tier %d: %w", tierID, err)
+	}
+
+	count := 0
+	for i := range loans {
+		loan := &loans[i]
+		newBaseRate := tier.VariableBase
+		newNominalRate := newBaseRate.Add(loan.BankMargin)
+		newEffectiveRate := CalculateEffectiveInterestRate(newNominalRate, 12)
+
+		loan.BaseRate = newBaseRate
+		loan.CurrentRate = newNominalRate
+		loan.NominalInterestRate = newNominalRate
+		loan.EffectiveInterestRate = newEffectiveRate
+
+		// Count remaining unpaid installments to recalculate monthly payment
+		unpaidCount, countErr := installRepo.CountUnpaidByLoan(loan.ID)
+		if countErr != nil {
+			log.Printf("warn: could not count unpaid installments for loan %d: %v", loan.ID, countErr)
+			continue
+		}
+		if unpaidCount == 0 {
+			continue
+		}
+
+		// Recalculate monthly installment based on remaining debt and remaining months
+		newMonthly := CalculateMonthlyInstallment(loan.RemainingDebt, newNominalRate, int(unpaidCount))
+
+		loan.NextInstallmentAmount = newMonthly
+
+		if err := loanRepo.Update(loan); err != nil {
+			log.Printf("warn: could not update loan %d for variable rate change: %v", loan.ID, err)
+			continue
+		}
+
+		// Update all unpaid installments with the new amount and rate
+		if err := installRepo.UpdateUnpaidByLoan(loan.ID, newMonthly, newNominalRate); err != nil {
+			log.Printf("warn: could not update installments for loan %d: %v", loan.ID, err)
+			continue
+		}
+
+		count++
+	}
+	return count, nil
 }
 
 func (s *RateConfigService) UpdateMargin(margin *model.BankMargin) error {

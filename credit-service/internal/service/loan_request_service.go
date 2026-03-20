@@ -132,7 +132,7 @@ func (s *LoanRequestService) ApproveLoanRequest(requestID uint64, employeeID uin
 		}
 	}
 
-	nominalRate, rateErr := s.rateConfigSvc.GetNominalRate(req.LoanType, req.InterestType, req.Amount)
+	baseRate, bankMargin, nominalRate, rateErr := s.rateConfigSvc.GetNominalRateComponents(req.LoanType, req.InterestType, req.Amount)
 	if rateErr != nil {
 		return nil, fmt.Errorf("failed to determine interest rate for loan request %d (loan_type=%s, interest_type=%s, amount=%s): %v",
 			requestID, req.LoanType, req.InterestType, req.Amount.StringFixed(2), rateErr)
@@ -160,6 +160,9 @@ func (s *LoanRequestService) ApproveLoanRequest(requestID uint64, employeeID uin
 		CurrencyCode:          req.CurrencyCode,
 		Status:                "approved",
 		InterestType:          req.InterestType,
+		BaseRate:              baseRate,
+		BankMargin:            bankMargin,
+		CurrentRate:           nominalRate,
 		ClientID:              req.ClientID,
 	}
 

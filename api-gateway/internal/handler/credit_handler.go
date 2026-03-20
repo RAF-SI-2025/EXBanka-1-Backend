@@ -671,6 +671,32 @@ func (h *CreditHandler) UpdateBankMargin(c *gin.Context) {
 	c.JSON(http.StatusOK, bankMarginToJSON(resp))
 }
 
+// @Summary      Apply variable rate update to active loans
+// @Tags         rate-config
+// @Produce      json
+// @Param        id   path  int  true  "Interest Rate Tier ID"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/interest-rate-tiers/{id}/apply [post]
+func (h *CreditHandler) ApplyVariableRateUpdate(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	resp, err := h.creditClient.ApplyVariableRateUpdate(c.Request.Context(), &creditpb.ApplyVariableRateUpdateRequest{TierId: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"affected_loans": resp.AffectedLoans})
+}
+
 func interestRateTierToJSON(t *creditpb.InterestRateTierResponse) gin.H {
 	return gin.H{
 		"id":            t.Id,

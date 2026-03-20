@@ -117,7 +117,7 @@ func main() {
 	defer cancel()
 	go cronSvc.Start(ctx)
 
-	grpcHandler := handler.NewCreditGRPCHandler(loanRequestSvc, loanSvc, installmentSvc, rateConfigSvc, producer)
+	grpcHandler := handler.NewCreditGRPCHandler(loanRequestSvc, loanSvc, installmentSvc, rateConfigSvc, loanRepo, installmentRepo, producer)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

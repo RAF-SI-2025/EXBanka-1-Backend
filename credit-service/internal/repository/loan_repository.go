@@ -5,6 +5,7 @@ import (
 	"math/rand"
 
 	"github.com/exbanka/credit-service/internal/model"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -85,4 +86,23 @@ func (r *LoanRepository) ListAll(typeFilter, accountFilter, statusFilter string,
 	}
 
 	return loans, total, nil
+}
+
+func (r *LoanRepository) Update(loan *model.Loan) error {
+	return r.db.Save(loan).Error
+}
+
+// FindActiveVariableLoansInAmountRange returns all active variable-rate loans
+// whose original amount falls within the specified range [amountFrom, amountTo).
+// If amountTo is zero, there is no upper bound.
+func (r *LoanRepository) FindActiveVariableLoansInAmountRange(amountFrom, amountTo decimal.Decimal) ([]model.Loan, error) {
+	query := r.db.Where("status = ? AND interest_type = ?", "active", "variable")
+	if !amountTo.IsZero() {
+		query = query.Where("amount >= ? AND amount < ?", amountFrom, amountTo)
+	} else {
+		query = query.Where("amount >= ?", amountFrom)
+	}
+	var loans []model.Loan
+	err := query.Find(&loans).Error
+	return loans, err
 }

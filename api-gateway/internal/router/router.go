@@ -200,6 +200,7 @@ func Setup(
 				rateTiersAdmin.POST("", creditHandler.CreateInterestRateTier)
 				rateTiersAdmin.PUT("/:id", creditHandler.UpdateInterestRateTier)
 				rateTiersAdmin.DELETE("/:id", creditHandler.DeleteInterestRateTier)
+				rateTiersAdmin.POST("/:id/apply", creditHandler.ApplyVariableRateUpdate)
 			}
 
 			// Bank margin management (admin only)

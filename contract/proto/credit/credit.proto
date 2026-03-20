@@ -24,6 +24,9 @@ service CreditService {
   // Bank Margin management
   rpc ListBankMargins(ListBankMarginsRequest) returns (ListBankMarginsResponse);
   rpc UpdateBankMargin(UpdateBankMarginRequest) returns (BankMarginResponse);
+
+  // Variable rate propagation
+  rpc ApplyVariableRateUpdate(ApplyVariableRateUpdateRequest) returns (ApplyVariableRateUpdateResponse);
 }
 
 message CreateLoanRequestReq {
@@ -199,4 +202,14 @@ message BankMarginResponse {
 message UpdateBankMarginRequest {
   uint64 id = 1;
   string margin = 2;
+}
+
+// --- Variable rate propagation messages ---
+
+message ApplyVariableRateUpdateRequest {
+  uint64 tier_id = 1;
+}
+
+message ApplyVariableRateUpdateResponse {
+  int32 affected_loans = 1;
 }

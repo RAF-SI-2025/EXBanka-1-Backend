@@ -1805,6 +1805,94 @@ func (x *UpdateBankMarginRequest) GetMargin() string {
 	return ""
 }
 
+type ApplyVariableRateUpdateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TierId        uint64                 `protobuf:"varint,1,opt,name=tier_id,json=tierId,proto3" json:"tier_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyVariableRateUpdateRequest) Reset() {
+	*x = ApplyVariableRateUpdateRequest{}
+	mi := &file_credit_credit_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyVariableRateUpdateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyVariableRateUpdateRequest) ProtoMessage() {}
+
+func (x *ApplyVariableRateUpdateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_credit_credit_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyVariableRateUpdateRequest.ProtoReflect.Descriptor instead.
+func (*ApplyVariableRateUpdateRequest) Descriptor() ([]byte, []int) {
+	return file_credit_credit_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ApplyVariableRateUpdateRequest) GetTierId() uint64 {
+	if x != nil {
+		return x.TierId
+	}
+	return 0
+}
+
+type ApplyVariableRateUpdateResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AffectedLoans int32                  `protobuf:"varint,1,opt,name=affected_loans,json=affectedLoans,proto3" json:"affected_loans,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyVariableRateUpdateResponse) Reset() {
+	*x = ApplyVariableRateUpdateResponse{}
+	mi := &file_credit_credit_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyVariableRateUpdateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyVariableRateUpdateResponse) ProtoMessage() {}
+
+func (x *ApplyVariableRateUpdateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_credit_credit_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyVariableRateUpdateResponse.ProtoReflect.Descriptor instead.
+func (*ApplyVariableRateUpdateResponse) Descriptor() ([]byte, []int) {
+	return file_credit_credit_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ApplyVariableRateUpdateResponse) GetAffectedLoans() int32 {
+	if x != nil {
+		return x.AffectedLoans
+	}
+	return 0
+}
+
 var File_credit_credit_proto protoreflect.FileDescriptor
 
 const file_credit_credit_proto_rawDesc = "" +
@@ -1962,7 +2050,12 @@ const file_credit_credit_proto_rawDesc = "" +
 	"updated_at\x18\x06 \x01(\tR\tupdatedAt\"A\n" +
 	"\x17UpdateBankMarginRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x16\n" +
-	"\x06margin\x18\x02 \x01(\tR\x06margin2\xe5\t\n" +
+	"\x06margin\x18\x02 \x01(\tR\x06margin\"9\n" +
+	"\x1eApplyVariableRateUpdateRequest\x12\x17\n" +
+	"\atier_id\x18\x01 \x01(\x04R\x06tierId\"H\n" +
+	"\x1fApplyVariableRateUpdateResponse\x12%\n" +
+	"\x0eaffected_loans\x18\x01 \x01(\x05R\raffectedLoans2\xd1\n" +
+	"\n" +
 	"\rCreditService\x12N\n" +
 	"\x11CreateLoanRequest\x12\x1c.credit.CreateLoanRequestReq\x1a\x1b.credit.LoanRequestResponse\x12H\n" +
 	"\x0eGetLoanRequest\x12\x19.credit.GetLoanRequestReq\x1a\x1b.credit.LoanRequestResponse\x12Q\n" +
@@ -1978,7 +2071,8 @@ const file_credit_credit_proto_rawDesc = "" +
 	"\x16UpdateInterestRateTier\x12%.credit.UpdateInterestRateTierRequest\x1a .credit.InterestRateTierResponse\x12W\n" +
 	"\x16DeleteInterestRateTier\x12%.credit.DeleteInterestRateTierRequest\x1a\x16.credit.DeleteResponse\x12R\n" +
 	"\x0fListBankMargins\x12\x1e.credit.ListBankMarginsRequest\x1a\x1f.credit.ListBankMarginsResponse\x12O\n" +
-	"\x10UpdateBankMargin\x12\x1f.credit.UpdateBankMarginRequest\x1a\x1a.credit.BankMarginResponseB/Z-github.com/exbanka/contract/creditpb;creditpbb\x06proto3"
+	"\x10UpdateBankMargin\x12\x1f.credit.UpdateBankMarginRequest\x1a\x1a.credit.BankMarginResponse\x12j\n" +
+	"\x17ApplyVariableRateUpdate\x12&.credit.ApplyVariableRateUpdateRequest\x1a'.credit.ApplyVariableRateUpdateResponseB/Z-github.com/exbanka/contract/creditpb;creditpbb\x06proto3"
 
 var (
 	file_credit_credit_proto_rawDescOnce sync.Once
@@ -1992,34 +2086,36 @@ func file_credit_credit_proto_rawDescGZIP() []byte {
 	return file_credit_credit_proto_rawDescData
 }
 
-var file_credit_credit_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_credit_credit_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_credit_credit_proto_goTypes = []any{
-	(*CreateLoanRequestReq)(nil),          // 0: credit.CreateLoanRequestReq
-	(*GetLoanRequestReq)(nil),             // 1: credit.GetLoanRequestReq
-	(*ListLoanRequestsReq)(nil),           // 2: credit.ListLoanRequestsReq
-	(*ListLoanRequestsResponse)(nil),      // 3: credit.ListLoanRequestsResponse
-	(*ApproveLoanRequestReq)(nil),         // 4: credit.ApproveLoanRequestReq
-	(*RejectLoanRequestReq)(nil),          // 5: credit.RejectLoanRequestReq
-	(*LoanRequestResponse)(nil),           // 6: credit.LoanRequestResponse
-	(*GetLoanReq)(nil),                    // 7: credit.GetLoanReq
-	(*ListLoansByClientReq)(nil),          // 8: credit.ListLoansByClientReq
-	(*ListAllLoansReq)(nil),               // 9: credit.ListAllLoansReq
-	(*ListLoansResponse)(nil),             // 10: credit.ListLoansResponse
-	(*LoanResponse)(nil),                  // 11: credit.LoanResponse
-	(*GetInstallmentsByLoanReq)(nil),      // 12: credit.GetInstallmentsByLoanReq
-	(*ListInstallmentsResponse)(nil),      // 13: credit.ListInstallmentsResponse
-	(*InstallmentResponse)(nil),           // 14: credit.InstallmentResponse
-	(*ListInterestRateTiersRequest)(nil),  // 15: credit.ListInterestRateTiersRequest
-	(*ListInterestRateTiersResponse)(nil), // 16: credit.ListInterestRateTiersResponse
-	(*InterestRateTierResponse)(nil),      // 17: credit.InterestRateTierResponse
-	(*CreateInterestRateTierRequest)(nil), // 18: credit.CreateInterestRateTierRequest
-	(*UpdateInterestRateTierRequest)(nil), // 19: credit.UpdateInterestRateTierRequest
-	(*DeleteInterestRateTierRequest)(nil), // 20: credit.DeleteInterestRateTierRequest
-	(*DeleteResponse)(nil),                // 21: credit.DeleteResponse
-	(*ListBankMarginsRequest)(nil),        // 22: credit.ListBankMarginsRequest
-	(*ListBankMarginsResponse)(nil),       // 23: credit.ListBankMarginsResponse
-	(*BankMarginResponse)(nil),            // 24: credit.BankMarginResponse
-	(*UpdateBankMarginRequest)(nil),       // 25: credit.UpdateBankMarginRequest
+	(*CreateLoanRequestReq)(nil),            // 0: credit.CreateLoanRequestReq
+	(*GetLoanRequestReq)(nil),               // 1: credit.GetLoanRequestReq
+	(*ListLoanRequestsReq)(nil),             // 2: credit.ListLoanRequestsReq
+	(*ListLoanRequestsResponse)(nil),        // 3: credit.ListLoanRequestsResponse
+	(*ApproveLoanRequestReq)(nil),           // 4: credit.ApproveLoanRequestReq
+	(*RejectLoanRequestReq)(nil),            // 5: credit.RejectLoanRequestReq
+	(*LoanRequestResponse)(nil),             // 6: credit.LoanRequestResponse
+	(*GetLoanReq)(nil),                      // 7: credit.GetLoanReq
+	(*ListLoansByClientReq)(nil),            // 8: credit.ListLoansByClientReq
+	(*ListAllLoansReq)(nil),                 // 9: credit.ListAllLoansReq
+	(*ListLoansResponse)(nil),               // 10: credit.ListLoansResponse
+	(*LoanResponse)(nil),                    // 11: credit.LoanResponse
+	(*GetInstallmentsByLoanReq)(nil),        // 12: credit.GetInstallmentsByLoanReq
+	(*ListInstallmentsResponse)(nil),        // 13: credit.ListInstallmentsResponse
+	(*InstallmentResponse)(nil),             // 14: credit.InstallmentResponse
+	(*ListInterestRateTiersRequest)(nil),    // 15: credit.ListInterestRateTiersRequest
+	(*ListInterestRateTiersResponse)(nil),   // 16: credit.ListInterestRateTiersResponse
+	(*InterestRateTierResponse)(nil),        // 17: credit.InterestRateTierResponse
+	(*CreateInterestRateTierRequest)(nil),   // 18: credit.CreateInterestRateTierRequest
+	(*UpdateInterestRateTierRequest)(nil),   // 19: credit.UpdateInterestRateTierRequest
+	(*DeleteInterestRateTierRequest)(nil),   // 20: credit.DeleteInterestRateTierRequest
+	(*DeleteResponse)(nil),                  // 21: credit.DeleteResponse
+	(*ListBankMarginsRequest)(nil),          // 22: credit.ListBankMarginsRequest
+	(*ListBankMarginsResponse)(nil),         // 23: credit.ListBankMarginsResponse
+	(*BankMarginResponse)(nil),              // 24: credit.BankMarginResponse
+	(*UpdateBankMarginRequest)(nil),         // 25: credit.UpdateBankMarginRequest
+	(*ApplyVariableRateUpdateRequest)(nil),  // 26: credit.ApplyVariableRateUpdateRequest
+	(*ApplyVariableRateUpdateResponse)(nil), // 27: credit.ApplyVariableRateUpdateResponse
 }
 var file_credit_credit_proto_depIdxs = []int32{
 	6,  // 0: credit.ListLoanRequestsResponse.requests:type_name -> credit.LoanRequestResponse
@@ -2042,23 +2138,25 @@ var file_credit_credit_proto_depIdxs = []int32{
 	20, // 17: credit.CreditService.DeleteInterestRateTier:input_type -> credit.DeleteInterestRateTierRequest
 	22, // 18: credit.CreditService.ListBankMargins:input_type -> credit.ListBankMarginsRequest
 	25, // 19: credit.CreditService.UpdateBankMargin:input_type -> credit.UpdateBankMarginRequest
-	6,  // 20: credit.CreditService.CreateLoanRequest:output_type -> credit.LoanRequestResponse
-	6,  // 21: credit.CreditService.GetLoanRequest:output_type -> credit.LoanRequestResponse
-	3,  // 22: credit.CreditService.ListLoanRequests:output_type -> credit.ListLoanRequestsResponse
-	11, // 23: credit.CreditService.ApproveLoanRequest:output_type -> credit.LoanResponse
-	6,  // 24: credit.CreditService.RejectLoanRequest:output_type -> credit.LoanRequestResponse
-	11, // 25: credit.CreditService.GetLoan:output_type -> credit.LoanResponse
-	10, // 26: credit.CreditService.ListLoansByClient:output_type -> credit.ListLoansResponse
-	10, // 27: credit.CreditService.ListAllLoans:output_type -> credit.ListLoansResponse
-	13, // 28: credit.CreditService.GetInstallmentsByLoan:output_type -> credit.ListInstallmentsResponse
-	16, // 29: credit.CreditService.ListInterestRateTiers:output_type -> credit.ListInterestRateTiersResponse
-	17, // 30: credit.CreditService.CreateInterestRateTier:output_type -> credit.InterestRateTierResponse
-	17, // 31: credit.CreditService.UpdateInterestRateTier:output_type -> credit.InterestRateTierResponse
-	21, // 32: credit.CreditService.DeleteInterestRateTier:output_type -> credit.DeleteResponse
-	23, // 33: credit.CreditService.ListBankMargins:output_type -> credit.ListBankMarginsResponse
-	24, // 34: credit.CreditService.UpdateBankMargin:output_type -> credit.BankMarginResponse
-	20, // [20:35] is the sub-list for method output_type
-	5,  // [5:20] is the sub-list for method input_type
+	26, // 20: credit.CreditService.ApplyVariableRateUpdate:input_type -> credit.ApplyVariableRateUpdateRequest
+	6,  // 21: credit.CreditService.CreateLoanRequest:output_type -> credit.LoanRequestResponse
+	6,  // 22: credit.CreditService.GetLoanRequest:output_type -> credit.LoanRequestResponse
+	3,  // 23: credit.CreditService.ListLoanRequests:output_type -> credit.ListLoanRequestsResponse
+	11, // 24: credit.CreditService.ApproveLoanRequest:output_type -> credit.LoanResponse
+	6,  // 25: credit.CreditService.RejectLoanRequest:output_type -> credit.LoanRequestResponse
+	11, // 26: credit.CreditService.GetLoan:output_type -> credit.LoanResponse
+	10, // 27: credit.CreditService.ListLoansByClient:output_type -> credit.ListLoansResponse
+	10, // 28: credit.CreditService.ListAllLoans:output_type -> credit.ListLoansResponse
+	13, // 29: credit.CreditService.GetInstallmentsByLoan:output_type -> credit.ListInstallmentsResponse
+	16, // 30: credit.CreditService.ListInterestRateTiers:output_type -> credit.ListInterestRateTiersResponse
+	17, // 31: credit.CreditService.CreateInterestRateTier:output_type -> credit.InterestRateTierResponse
+	17, // 32: credit.CreditService.UpdateInterestRateTier:output_type -> credit.InterestRateTierResponse
+	21, // 33: credit.CreditService.DeleteInterestRateTier:output_type -> credit.DeleteResponse
+	23, // 34: credit.CreditService.ListBankMargins:output_type -> credit.ListBankMarginsResponse
+	24, // 35: credit.CreditService.UpdateBankMargin:output_type -> credit.BankMarginResponse
+	27, // 36: credit.CreditService.ApplyVariableRateUpdate:output_type -> credit.ApplyVariableRateUpdateResponse
+	21, // [21:37] is the sub-list for method output_type
+	5,  // [5:21] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
 	5,  // [5:5] is the sub-list for extension extendee
 	0,  // [0:5] is the sub-list for field type_name
@@ -2075,7 +2173,7 @@ func file_credit_credit_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_credit_credit_proto_rawDesc), len(file_credit_credit_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

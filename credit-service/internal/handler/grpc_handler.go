@@ -14,6 +14,7 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/credit-service/internal/kafka"
 	"github.com/exbanka/credit-service/internal/model"
+	"github.com/exbanka/credit-service/internal/repository"
 	"github.com/exbanka/credit-service/internal/service"
 )
 
@@ -47,6 +48,8 @@ type CreditGRPCHandler struct {
 	loanService        *service.LoanService
 	installmentService *service.InstallmentService
 	rateConfigService  *service.RateConfigService
+	loanRepo           *repository.LoanRepository
+	installRepo        *repository.InstallmentRepository
 	producer           *kafkaprod.Producer
 }
 
@@ -55,6 +58,8 @@ func NewCreditGRPCHandler(
 	loanService *service.LoanService,
 	installmentService *service.InstallmentService,
 	rateConfigService *service.RateConfigService,
+	loanRepo *repository.LoanRepository,
+	installRepo *repository.InstallmentRepository,
 	producer *kafkaprod.Producer,
 ) *CreditGRPCHandler {
 	return &CreditGRPCHandler{
@@ -62,6 +67,8 @@ func NewCreditGRPCHandler(
 		loanService:        loanService,
 		installmentService: installmentService,
 		rateConfigService:  rateConfigService,
+		loanRepo:           loanRepo,
+		installRepo:        installRepo,
 		producer:           producer,
 	}
 }
@@ -369,6 +376,16 @@ func (h *CreditGRPCHandler) UpdateBankMargin(ctx context.Context, req *pb.Update
 	}
 
 	return toBankMarginResponse(bm), nil
+}
+
+// --- Variable Rate Propagation RPC ---
+
+func (h *CreditGRPCHandler) ApplyVariableRateUpdate(ctx context.Context, req *pb.ApplyVariableRateUpdateRequest) (*pb.ApplyVariableRateUpdateResponse, error) {
+	affected, err := h.rateConfigService.ApplyVariableRateUpdate(req.TierId, h.loanRepo, h.installRepo)
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "failed to apply variable rate update: %v", err)
+	}
+	return &pb.ApplyVariableRateUpdateResponse{AffectedLoans: int32(affected)}, nil
 }
 
 func toInterestRateTierResponse(t *model.InterestRateTier) *pb.InterestRateTierResponse {
