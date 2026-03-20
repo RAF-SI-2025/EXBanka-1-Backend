@@ -25,6 +25,14 @@ func (r *CompanyRepository) GetByID(id uint64) (*model.Company, error) {
 	return &company, nil
 }
 
+func (r *CompanyRepository) GetByOwnerID(ownerID uint64) (*model.Company, error) {
+	var company model.Company
+	if err := r.db.Where("owner_id = ?", ownerID).First(&company).Error; err != nil {
+		return nil, err
+	}
+	return &company, nil
+}
+
 func (r *CompanyRepository) Update(company *model.Company) error {
 	return r.db.Save(company).Error
 }
