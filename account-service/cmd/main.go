@@ -69,6 +69,9 @@ func main() {
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
 
+	spendingCron := service.NewSpendingCronService(accountRepo)
+	spendingCron.Start()
+
 	// Seed bank accounts for all supported currencies (idempotent)
 	bankAccounts, _ := accountService.ListBankAccounts()
 	existingCurrencies := make(map[string]bool)

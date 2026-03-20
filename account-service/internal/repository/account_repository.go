@@ -145,6 +145,16 @@ func (r *AccountRepository) SoftDelete(id uint64) error {
 	return nil
 }
 
+func (r *AccountRepository) ResetDailySpending() error {
+	return r.db.Model(&model.Account{}).Where("status = ?", "active").
+		Update("daily_spending", 0).Error
+}
+
+func (r *AccountRepository) ResetMonthlySpending() error {
+	return r.db.Model(&model.Account{}).Where("status = ?", "active").
+		Update("monthly_spending", 0).Error
+}
+
 func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		updates := map[string]interface{}{
