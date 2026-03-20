@@ -40,6 +40,27 @@ func (s *CardService) CreateCard(ctx context.Context, accountNumber string, owne
 		return nil, "", fmt.Errorf("owner type must be one of: client, authorized_person; got: %s", ownerType)
 	}
 
+	// Enforce card-per-account limits based on owner type.
+	// "authorized_person" indicates a business account context: max 1 card per owner per account.
+	// "client" indicates a personal account context: max 2 cards total per account.
+	if ownerType == "authorized_person" {
+		count, err := s.cardRepo.CountByAccountAndOwner(accountNumber, ownerID)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to check card count: %w", err)
+		}
+		if count >= 1 {
+			return nil, "", fmt.Errorf("business accounts can have at most 1 card per person; person %d already has a card on account %s", ownerID, accountNumber)
+		}
+	} else {
+		count, err := s.cardRepo.CountByAccount(accountNumber)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to check card count: %w", err)
+		}
+		if count >= 2 {
+			return nil, "", fmt.Errorf("personal accounts can have at most 2 cards; account %s already has %d", accountNumber, count)
+		}
+	}
+
 	cardNumber := GenerateCardNumber(cardBrand)
 	cvv := GenerateCVV()
 	masked := MaskCardNumber(cardNumber)
