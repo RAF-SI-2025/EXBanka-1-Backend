@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 
 	"github.com/shopspring/decimal"
@@ -11,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/accountpb"
+	clientpb "github.com/exbanka/contract/clientpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/account-service/internal/kafka"
 	"github.com/exbanka/account-service/internal/model"
@@ -50,6 +52,7 @@ type AccountGRPCHandler struct {
 	currencyService *service.CurrencyService
 	ledgerService   *service.LedgerService
 	producer        *kafkaprod.Producer
+	clientClient    clientpb.ClientServiceClient
 }
 
 func NewAccountGRPCHandler(
@@ -58,6 +61,7 @@ func NewAccountGRPCHandler(
 	currencyService *service.CurrencyService,
 	ledgerService *service.LedgerService,
 	producer *kafkaprod.Producer,
+	clientClient clientpb.ClientServiceClient,
 ) *AccountGRPCHandler {
 	return &AccountGRPCHandler{
 		accountService:  accountService,
@@ -65,6 +69,7 @@ func NewAccountGRPCHandler(
 		currencyService: currencyService,
 		ledgerService:   ledgerService,
 		producer:        producer,
+		clientClient:    clientClient,
 	}
 }
 
@@ -92,6 +97,27 @@ func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAc
 		AccountKind:   account.AccountKind,
 		CurrencyCode:  account.CurrencyCode,
 	})
+
+	// Send email notification to account owner.
+	if h.clientClient != nil && h.producer != nil {
+		clientResp, clientErr := h.clientClient.GetClient(ctx, &clientpb.GetClientRequest{Id: account.OwnerID})
+		if clientErr == nil {
+			emailErr := h.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
+				To:        clientResp.Email,
+				EmailType: kafkamsg.EmailTypeAccountCreated,
+				Data: map[string]string{
+					"account_number": account.AccountNumber,
+					"account_name":   account.AccountName,
+					"currency":       account.CurrencyCode,
+				},
+			})
+			if emailErr != nil {
+				log.Printf("warn: failed to send account creation email to %s: %v", clientResp.Email, emailErr)
+			}
+		} else {
+			log.Printf("warn: failed to fetch client %d for account creation email: %v", account.OwnerID, clientErr)
+		}
+	}
 
 	return toAccountResponse(account), nil
 }

@@ -289,6 +289,7 @@ services:
       ACCOUNT_DB_PASSWORD: postgres
       ACCOUNT_DB_NAME: accountdb
       ACCOUNT_GRPC_ADDR: ":50055"
+      CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
     ports:
@@ -300,6 +301,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      client-service:
+        condition: service_started
 
   card-service:
     build:

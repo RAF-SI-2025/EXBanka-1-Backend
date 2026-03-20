@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/accountpb"
+	clientpb "github.com/exbanka/contract/clientpb"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/account-service/internal/cache"
 	"github.com/exbanka/account-service/internal/config"
@@ -23,6 +24,7 @@ import (
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -57,6 +59,17 @@ func main() {
 	}
 	if redisCache != nil {
 		defer redisCache.Close()
+	}
+
+	// Connect to client-service for email lookup on account creation.
+	clientConn, clientConnErr := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if clientConnErr != nil {
+		log.Printf("warn: failed to connect to client service: %v", clientConnErr)
+	}
+	var clientClient clientpb.ClientServiceClient
+	if clientConn != nil {
+		defer clientConn.Close()
+		clientClient = clientpb.NewClientServiceClient(clientConn)
 	}
 
 	accountRepo := repository.NewAccountRepository(db)
@@ -143,7 +156,7 @@ func main() {
 		}
 	}
 
-	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer)
+	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer, clientClient)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
