@@ -2,10 +2,12 @@ package handler
 
 import (
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -107,4 +109,72 @@ func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
 		}
 	}
 	return true
+}
+
+// ---------------------------------------------------------------------------
+// Structured error response helpers
+// ---------------------------------------------------------------------------
+
+// ErrorCode constants for machine-readable error identification.
+const (
+	ErrCodeValidation           = "VALIDATION_ERROR"
+	ErrCodeNotFound             = "NOT_FOUND"
+	ErrCodeForbidden            = "FORBIDDEN"
+	ErrCodeInsufficientFunds    = "INSUFFICIENT_FUNDS"
+	ErrCodeLimitExceeded        = "LIMIT_EXCEEDED"
+	ErrCodeDuplicate            = "DUPLICATE"
+	ErrCodeVerificationRequired = "VERIFICATION_REQUIRED"
+	ErrCodeVerificationFailed   = "VERIFICATION_FAILED"
+	ErrCodeInternal             = "INTERNAL_ERROR"
+)
+
+// APIError represents a structured error response.
+type APIError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Field   string `json:"field,omitempty"`
+}
+
+// errorResponse sends a structured error JSON response.
+func errorResponse(c *gin.Context, httpStatus int, code, message string) {
+	c.JSON(httpStatus, gin.H{"error": APIError{Code: code, Message: message}})
+}
+
+// validationError sends a 400 error with field information.
+func validationError(c *gin.Context, field, message string) {
+	c.JSON(http.StatusBadRequest, gin.H{"error": APIError{
+		Code:    ErrCodeValidation,
+		Message: message,
+		Field:   field,
+	}})
+}
+
+// grpcToAPIError maps a gRPC error to an HTTP status and APIError.
+func grpcToAPIError(err error) (int, APIError) {
+	s, ok := status.FromError(err)
+	if !ok {
+		return 500, APIError{Code: ErrCodeInternal, Message: err.Error()}
+	}
+	switch s.Code() {
+	case codes.NotFound:
+		return 404, APIError{Code: ErrCodeNotFound, Message: s.Message()}
+	case codes.InvalidArgument:
+		return 400, APIError{Code: ErrCodeValidation, Message: s.Message()}
+	case codes.PermissionDenied:
+		return 403, APIError{Code: ErrCodeForbidden, Message: s.Message()}
+	case codes.AlreadyExists:
+		return 409, APIError{Code: ErrCodeDuplicate, Message: s.Message()}
+	case codes.FailedPrecondition:
+		return 422, APIError{Code: ErrCodeLimitExceeded, Message: s.Message()}
+	case codes.ResourceExhausted:
+		return 429, APIError{Code: ErrCodeLimitExceeded, Message: s.Message()}
+	default:
+		return 500, APIError{Code: ErrCodeInternal, Message: s.Message()}
+	}
+}
+
+// handleGRPCError sends a structured error response based on a gRPC error.
+func handleGRPCError(c *gin.Context, err error) {
+	httpStatus, apiErr := grpcToAPIError(err)
+	c.JSON(httpStatus, gin.H{"error": apiErr})
 }
