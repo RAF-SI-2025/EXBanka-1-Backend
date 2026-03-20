@@ -23,6 +23,16 @@ func oneOf(field, value string, allowed ...string) (string, error) {
 
 var pinRegex = regexp.MustCompile(`^\d{4}$`)
 
+var activityCodeRegex = regexp.MustCompile(`^\d{2}\.\d{1,2}$`)
+
+// validateActivityCode checks that the activity code is in format xx.xx (e.g., 10.1, 84.11).
+func validateActivityCode(code string) error {
+	if !activityCodeRegex.MatchString(code) {
+		return fmt.Errorf("activity code must be in format xx.xx (e.g., 10.1, 84.11)")
+	}
+	return nil
+}
+
 // validatePin checks that the PIN is exactly 4 digits.
 func validatePin(pin string) error {
 	if !pinRegex.MatchString(pin) {

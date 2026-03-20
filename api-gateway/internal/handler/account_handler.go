@@ -453,6 +453,13 @@ func (h *AccountHandler) CreateCompany(c *gin.Context) {
 		return
 	}
 
+	if req.ActivityCode != "" {
+		if err := validateActivityCode(req.ActivityCode); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
 	resp, err := h.accountClient.CreateCompany(c.Request.Context(), &accountpb.CreateCompanyRequest{
 		CompanyName:        req.CompanyName,
 		RegistrationNumber: req.RegistrationNumber,
