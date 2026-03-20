@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 // oneOf checks that value (lowercased) is one of the allowed values.
@@ -58,4 +60,21 @@ func notEqual(field1, val1, field2, val2 string) error {
 		return fmt.Errorf("%s and %s must be different", field1, field2)
 	}
 	return nil
+}
+
+// enforceClientSelf checks that a client can only access their own resources.
+// If the caller is a client (system_type == "client"), the path client_id must match their JWT user_id.
+// Employees are allowed to access any client_id.
+// Returns true if the request should continue, false if it was aborted.
+func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
+	sysType, _ := c.Get("system_type")
+	if sysType == "client" {
+		uid, _ := c.Get("user_id")
+		userID, ok := uid.(int64)
+		if !ok || uint64(userID) != pathClientID {
+			c.AbortWithStatusJSON(403, gin.H{"error": "clients can only access their own resources"})
+			return false
+		}
+	}
+	return true
 }

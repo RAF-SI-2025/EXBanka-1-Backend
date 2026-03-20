@@ -12,6 +12,7 @@ env:
 
 jobs:
   build-and-push:
+    if: github.repository == 'RAF-SI-2025/EXBanka-1-Backend'
     name: Build ${{ matrix.service }}
     runs-on: ubuntu-latest
     permissions:

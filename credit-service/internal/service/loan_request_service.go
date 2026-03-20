@@ -51,8 +51,8 @@ func (s *LoanRequestService) GetLoanRequest(id uint64) (*model.LoanRequest, erro
 	return s.repo.GetByID(id)
 }
 
-func (s *LoanRequestService) ListLoanRequests(loanTypeFilter, accountFilter, statusFilter string, page, pageSize int) ([]model.LoanRequest, int64, error) {
-	return s.repo.List(loanTypeFilter, accountFilter, statusFilter, page, pageSize)
+func (s *LoanRequestService) ListLoanRequests(loanTypeFilter, accountFilter, statusFilter string, clientID uint64, page, pageSize int) ([]model.LoanRequest, int64, error) {
+	return s.repo.List(loanTypeFilter, accountFilter, statusFilter, clientID, page, pageSize)
 }
 
 func (s *LoanRequestService) ApproveLoanRequest(requestID uint64) (*model.Loan, error) {

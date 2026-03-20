@@ -6,6 +6,8 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
+	"github.com/exbanka/api-gateway/internal/handler"
+	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	authpb "github.com/exbanka/contract/authpb"
 	cardpb "github.com/exbanka/contract/cardpb"
@@ -13,8 +15,6 @@ import (
 	creditpb "github.com/exbanka/contract/creditpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 	userpb "github.com/exbanka/contract/userpb"
-	"github.com/exbanka/api-gateway/internal/handler"
-	"github.com/exbanka/api-gateway/internal/middleware"
 )
 
 func Setup(
@@ -47,7 +47,7 @@ func Setup(
 	clientHandler := handler.NewClientHandler(clientClient)
 	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient)
 	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient)
-	txHandler := handler.NewTransactionHandler(txClient, feeClient)
+	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient)
 	exchangeHandler := handler.NewExchangeHandler(txClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
 
@@ -155,7 +155,6 @@ func Setup(
 				accountsEmployee.POST("", accountHandler.CreateAccount)
 				accountsEmployee.GET("", accountHandler.ListAllAccounts)
 				accountsEmployee.GET("/:id", accountHandler.GetAccount)
-				accountsEmployee.GET("/client/:client_id", accountHandler.ListAccountsByClient)
 				accountsEmployee.PUT("/:id/name", accountHandler.UpdateAccountName)
 				accountsEmployee.PUT("/:id/limits", accountHandler.UpdateAccountLimits)
 				accountsEmployee.PUT("/:id/status", accountHandler.UpdateAccountStatus)
@@ -173,7 +172,7 @@ func Setup(
 
 			// Cards management (EmployeeBasic)
 			cardsEmployee := protected.Group("/cards")
-			cardsEmployee.Use(middleware.RequirePermission("cards.read"))
+			cardsEmployee.Use(middleware.RequirePermission("cards.manage"))
 			{
 				cardsEmployee.POST("", cardHandler.CreateCard)
 				cardsEmployee.PUT("/:id/block", cardHandler.BlockCard)
@@ -184,7 +183,7 @@ func Setup(
 
 			// Loans (EmployeeBasic) - employee-only operations
 			loansEmployee := protected.Group("/loans")
-			loansEmployee.Use(middleware.RequirePermission("loans.read"))
+			loansEmployee.Use(middleware.RequirePermission("credits.manage"))
 			{
 				loansEmployee.GET("/requests/:id", creditHandler.GetLoanRequest)
 				loansEmployee.GET("/requests", creditHandler.ListLoanRequests)
@@ -228,11 +227,13 @@ func Setup(
 		}
 
 		// Routes accessible by both employee and client tokens
+		// Clients can only access their own resources (enforced in handlers via enforceClientSelf)
 		anyAuth := api.Group("/")
 		anyAuth.Use(middleware.AnyAuthMiddleware(authClient))
 		{
-			// Account by number
+			// Accounts (read)
 			anyAuth.GET("/accounts/by-number/:account_number", accountHandler.GetAccountByNumber)
+			anyAuth.GET("/accounts/client/:client_id", accountHandler.ListAccountsByClient)
 
 			// Cards (read)
 			anyAuth.GET("/cards/:id", cardHandler.GetCard)
@@ -251,6 +252,7 @@ func Setup(
 			anyAuth.GET("/loans/:id", creditHandler.GetLoan)
 			anyAuth.GET("/loans/client/:client_id", creditHandler.ListLoansByClient)
 			anyAuth.GET("/loans/:id/installments", creditHandler.GetInstallmentsByLoan)
+			anyAuth.GET("/loans/requests/client/:client_id", creditHandler.ListLoanRequestsByClient)
 		}
 	}
 

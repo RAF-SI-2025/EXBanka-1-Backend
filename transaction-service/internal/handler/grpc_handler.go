@@ -11,8 +11,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/exbanka/contract/transactionpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	pb "github.com/exbanka/contract/transactionpb"
 	"github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/service"
@@ -72,19 +72,21 @@ func (h *TransactionGRPCHandler) CreatePayment(ctx context.Context, req *pb.Crea
 		return nil, status.Errorf(codes.Internal, "create payment: %v", err)
 	}
 
-	// Publish Kafka events
-	msg := kafkamsg.PaymentCompletedMessage{
-		PaymentID:         payment.ID,
-		FromAccountNumber: payment.FromAccountNumber,
-		ToAccountNumber:   payment.ToAccountNumber,
-		Amount:            payment.InitialAmount.StringFixed(4),
-		Status:            payment.Status,
-	}
-	if err := h.producer.PublishPaymentCreated(ctx, msg); err != nil {
-		log.Printf("warn: failed to publish payment-created event: %v", err)
-	}
-	if err := h.producer.PublishPaymentCompleted(ctx, msg); err != nil {
-		log.Printf("warn: failed to publish payment-completed event: %v", err)
+	// Publish Kafka events only for successful payments
+	if payment.Status == "completed" {
+		msg := kafkamsg.PaymentCompletedMessage{
+			PaymentID:         payment.ID,
+			FromAccountNumber: payment.FromAccountNumber,
+			ToAccountNumber:   payment.ToAccountNumber,
+			Amount:            payment.InitialAmount.StringFixed(4),
+			Status:            payment.Status,
+		}
+		if err := h.producer.PublishPaymentCreated(ctx, msg); err != nil {
+			log.Printf("warn: failed to publish payment-created event: %v", err)
+		}
+		if err := h.producer.PublishPaymentCompleted(ctx, msg); err != nil {
+			log.Printf("warn: failed to publish payment-completed event: %v", err)
+		}
 	}
 
 	return paymentToProto(payment), nil
@@ -133,26 +135,30 @@ func (h *TransactionGRPCHandler) CreateTransfer(ctx context.Context, req *pb.Cre
 		ToAccountNumber:   req.GetToAccountNumber(),
 		InitialAmount:     transferAmount,
 		ExchangeRate:      decimal.NewFromInt(1),
+		FromCurrency:      req.GetFromCurrency(),
+		ToCurrency:        req.GetToCurrency(),
 	}
 
 	if err := h.transferSvc.CreateTransfer(ctx, transfer); err != nil {
 		return nil, status.Errorf(codes.Internal, "create transfer: %v", err)
 	}
 
-	// Publish Kafka events
-	msg := kafkamsg.TransferCompletedMessage{
-		TransferID:        transfer.ID,
-		FromAccountNumber: transfer.FromAccountNumber,
-		ToAccountNumber:   transfer.ToAccountNumber,
-		InitialAmount:     transfer.InitialAmount.StringFixed(4),
-		FinalAmount:       transfer.FinalAmount.StringFixed(4),
-		ExchangeRate:      transfer.ExchangeRate.StringFixed(4),
-	}
-	if err := h.producer.PublishTransferCreated(ctx, msg); err != nil {
-		log.Printf("warn: failed to publish transfer-created event: %v", err)
-	}
-	if err := h.producer.PublishTransferCompleted(ctx, msg); err != nil {
-		log.Printf("warn: failed to publish transfer-completed event: %v", err)
+	// Publish Kafka events only for successful transfers
+	if transfer.Status == "completed" {
+		msg := kafkamsg.TransferCompletedMessage{
+			TransferID:        transfer.ID,
+			FromAccountNumber: transfer.FromAccountNumber,
+			ToAccountNumber:   transfer.ToAccountNumber,
+			InitialAmount:     transfer.InitialAmount.StringFixed(4),
+			FinalAmount:       transfer.FinalAmount.StringFixed(4),
+			ExchangeRate:      transfer.ExchangeRate.StringFixed(4),
+		}
+		if err := h.producer.PublishTransferCreated(ctx, msg); err != nil {
+			log.Printf("warn: failed to publish transfer-created event: %v", err)
+		}
+		if err := h.producer.PublishTransferCompleted(ctx, msg); err != nil {
+			log.Printf("warn: failed to publish transfer-completed event: %v", err)
+		}
 	}
 
 	return transferToProto(transfer), nil
@@ -167,8 +173,8 @@ func (h *TransactionGRPCHandler) GetTransfer(ctx context.Context, req *pb.GetTra
 }
 
 func (h *TransactionGRPCHandler) ListTransfersByClient(ctx context.Context, req *pb.ListTransfersByClientRequest) (*pb.ListTransfersResponse, error) {
-	transfers, total, err := h.transferSvc.ListTransfersByClient(
-		req.GetClientId(),
+	transfers, total, err := h.transferSvc.ListTransfersByAccountNumbers(
+		req.GetAccountNumbers(),
 		int(req.GetPage()),
 		int(req.GetPageSize()),
 	)
@@ -323,4 +329,3 @@ func exchangeRateToProto(r *model.ExchangeRate) *pb.ExchangeRateResponse {
 		UpdatedAt:    r.UpdatedAt.String(),
 	}
 }
-

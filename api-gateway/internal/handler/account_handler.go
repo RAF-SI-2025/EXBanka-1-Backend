@@ -29,16 +29,16 @@ type createBankAccountBody struct {
 }
 
 type createAccountRequest struct {
-	OwnerID         uint64   `json:"owner_id" binding:"required"`
-	AccountKind     string   `json:"account_kind" binding:"required"`
-	AccountType     string   `json:"account_type" binding:"required"`
-	AccountCategory string   `json:"account_category"`
-	CurrencyCode    string   `json:"currency_code" binding:"required"`
-	EmployeeID      uint64   `json:"employee_id"`
-	InitialBalance  float64  `json:"initial_balance"`
-	CreateCard      bool     `json:"create_card"`
-	CardBrand       string   `json:"card_brand"`
-	CompanyID       *uint64  `json:"company_id"`
+	OwnerID         uint64  `json:"owner_id" binding:"required"`
+	AccountKind     string  `json:"account_kind" binding:"required"`
+	AccountType     string  `json:"account_type" binding:"required"`
+	AccountCategory string  `json:"account_category"`
+	CurrencyCode    string  `json:"currency_code" binding:"required"`
+	EmployeeID      uint64  `json:"employee_id"`
+	InitialBalance  float64 `json:"initial_balance"`
+	CreateCard      bool    `json:"create_card"`
+	CardBrand       string  `json:"card_brand"`
+	CompanyID       *uint64 `json:"company_id"`
 }
 
 // @Summary      Create account
@@ -46,6 +46,7 @@ type createAccountRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createAccountRequest  true  "Account data"
+// @Security     BearerAuth
 // @Success      201   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
@@ -63,6 +64,14 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	var accountCategory string
+	if req.AccountCategory != "" {
+		accountCategory, err = oneOf("account_category", req.AccountCategory, "personal", "business")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	if err := nonNegative("initial_balance", req.InitialBalance); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -72,7 +81,7 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 		OwnerId:         req.OwnerID,
 		AccountKind:     accountKind,
 		AccountType:     req.AccountType,
-		AccountCategory: req.AccountCategory,
+		AccountCategory: accountCategory,
 		CurrencyCode:    req.CurrencyCode,
 		EmployeeId:      req.EmployeeID,
 		InitialBalance:  fmt.Sprintf("%.4f", req.InitialBalance),
@@ -92,6 +101,12 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 		brand := req.CardBrand
 		if brand == "" {
 			brand = "visa"
+		}
+		brand, err = oneOf("card_brand", brand, "visa", "mastercard", "dinacard", "amex")
+		if err != nil {
+			result["card_error"] = err.Error()
+			c.JSON(http.StatusCreated, result)
+			return
 		}
 		cardResp, cardErr := h.cardClient.CreateCard(c.Request.Context(), &cardpb.CreateCardRequest{
 			AccountNumber: resp.AccountNumber,
@@ -118,6 +133,7 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 // @Param        name_filter           query  string  false  "Filter by account name"
 // @Param        account_number_filter query  string  false  "Filter by account number"
 // @Param        type_filter           query  string  false  "Filter by account type"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
@@ -152,7 +168,9 @@ func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 // @Tags         accounts
 // @Produce      json
 // @Param        id   path  int  true  "Account ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Router       /api/accounts/{id} [get]
 func (h *AccountHandler) GetAccount(c *gin.Context) {
@@ -174,7 +192,9 @@ func (h *AccountHandler) GetAccount(c *gin.Context) {
 // @Tags         accounts
 // @Produce      json
 // @Param        account_number  path  string  true  "Account number"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Router       /api/accounts/by-number/{account_number} [get]
 func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
@@ -195,14 +215,19 @@ func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
 // @Param        client_id  path   int  true   "Client ID"
 // @Param        page       query  int  false  "Page number (default 1)"
 // @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
 // @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/accounts/client/{client_id} [get]
 func (h *AccountHandler) ListAccountsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		return
+	}
+	if !enforceClientSelf(c, clientID) {
 		return
 	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -239,8 +264,10 @@ type updateAccountNameRequest struct {
 // @Produce      json
 // @Param        id    path  int                       true  "Account ID"
 // @Param        body  body  updateAccountNameRequest  true  "New name"
+// @Security     BearerAuth
 // @Success      200   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/accounts/{id}/name [put]
 func (h *AccountHandler) UpdateAccountName(c *gin.Context) {
@@ -279,8 +306,10 @@ type updateAccountLimitsRequest struct {
 // @Produce      json
 // @Param        id    path  int                         true  "Account ID"
 // @Param        body  body  updateAccountLimitsRequest  true  "Limit values"
+// @Security     BearerAuth
 // @Success      200   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/accounts/{id}/limits [put]
 func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
@@ -336,8 +365,10 @@ type updateAccountStatusRequest struct {
 // @Produce      json
 // @Param        id    path  int                         true  "Account ID"
 // @Param        body  body  updateAccountStatusRequest  true  "New status"
+// @Security     BearerAuth
 // @Success      200   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/accounts/{id}/status [put]
 func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
@@ -372,7 +403,9 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 // @Summary      List currencies
 // @Tags         accounts
 // @Produce      json
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/currencies [get]
 func (h *AccountHandler) ListCurrencies(c *gin.Context) {
@@ -407,8 +440,10 @@ type createCompanyRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createCompanyRequest  true  "Company data"
+// @Security     BearerAuth
 // @Success      201   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/companies [post]
 func (h *AccountHandler) CreateCompany(c *gin.Context) {

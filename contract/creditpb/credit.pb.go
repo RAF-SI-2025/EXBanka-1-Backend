@@ -204,6 +204,7 @@ type ListLoanRequestsReq struct {
 	StatusFilter        string                 `protobuf:"bytes,3,opt,name=status_filter,json=statusFilter,proto3" json:"status_filter,omitempty"`
 	Page                int32                  `protobuf:"varint,4,opt,name=page,proto3" json:"page,omitempty"`
 	PageSize            int32                  `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	ClientIdFilter      uint64                 `protobuf:"varint,6,opt,name=client_id_filter,json=clientIdFilter,proto3" json:"client_id_filter,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -269,6 +270,13 @@ func (x *ListLoanRequestsReq) GetPage() int32 {
 func (x *ListLoanRequestsReq) GetPageSize() int32 {
 	if x != nil {
 		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListLoanRequestsReq) GetClientIdFilter() uint64 {
+	if x != nil {
+		return x.ClientIdFilter
 	}
 	return 0
 }
@@ -1181,13 +1189,14 @@ const file_credit_credit_proto_rawDesc = "" +
 	"\x05phone\x18\v \x01(\tR\x05phone\x12%\n" +
 	"\x0eaccount_number\x18\f \x01(\tR\raccountNumber\"#\n" +
 	"\x11GetLoanRequestReq\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x04R\x02id\"\xc9\x01\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\"\xf3\x01\n" +
 	"\x13ListLoanRequestsReq\x12(\n" +
 	"\x10loan_type_filter\x18\x01 \x01(\tR\x0eloanTypeFilter\x122\n" +
 	"\x15account_number_filter\x18\x02 \x01(\tR\x13accountNumberFilter\x12#\n" +
 	"\rstatus_filter\x18\x03 \x01(\tR\fstatusFilter\x12\x12\n" +
 	"\x04page\x18\x04 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x05 \x01(\x05R\bpageSize\"i\n" +
+	"\tpage_size\x18\x05 \x01(\x05R\bpageSize\x12(\n" +
+	"\x10client_id_filter\x18\x06 \x01(\x04R\x0eclientIdFilter\"i\n" +
 	"\x18ListLoanRequestsResponse\x127\n" +
 	"\brequests\x18\x01 \x03(\v2\x1b.credit.LoanRequestResponseR\brequests\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"6\n" +
