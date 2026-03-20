@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -15,6 +16,30 @@ import (
 	"github.com/exbanka/credit-service/internal/model"
 	"github.com/exbanka/credit-service/internal/service"
 )
+
+// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
+func mapServiceError(err error) codes.Code {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "not found"):
+		return codes.NotFound
+	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"):
+		return codes.InvalidArgument
+	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
+		return codes.AlreadyExists
+	case strings.Contains(msg, "already "), strings.Contains(msg, "exceeds"),
+		strings.Contains(msg, "insufficient funds"), strings.Contains(msg, "limit exceeded"),
+		strings.Contains(msg, "spending limit"), strings.Contains(msg, "only pending"):
+		return codes.FailedPrecondition
+	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
+		strings.Contains(msg, "failed attempts"):
+		return codes.ResourceExhausted
+	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
+		return codes.PermissionDenied
+	default:
+		return codes.Internal
+	}
+}
 
 type CreditGRPCHandler struct {
 	pb.UnimplementedCreditServiceServer
@@ -57,7 +82,7 @@ func (h *CreditGRPCHandler) CreateLoanRequest(ctx context.Context, req *pb.Creat
 	}
 
 	if err := h.loanRequestService.CreateLoanRequest(loanReq); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to create loan request: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to create loan request: %v", err)
 	}
 
 	_ = h.producer.PublishLoanRequested(ctx, kafkamsg.LoanStatusMessage{
@@ -76,7 +101,7 @@ func (h *CreditGRPCHandler) GetLoanRequest(ctx context.Context, req *pb.GetLoanR
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "loan request not found")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to get loan request: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to get loan request: %v", err)
 	}
 	return toLoanRequestResponse(loanReq), nil
 }
@@ -87,7 +112,7 @@ func (h *CreditGRPCHandler) ListLoanRequests(ctx context.Context, req *pb.ListLo
 		req.ClientIdFilter, int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list loan requests: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to list loan requests: %v", err)
 	}
 
 	resp := &pb.ListLoanRequestsResponse{Total: total}
@@ -104,7 +129,7 @@ func (h *CreditGRPCHandler) ApproveLoanRequest(ctx context.Context, req *pb.Appr
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "loan request not found")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to approve loan request: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to approve loan request: %v", err)
 	}
 
 	_ = h.producer.PublishLoanApproved(ctx, kafkamsg.LoanStatusMessage{
@@ -123,7 +148,7 @@ func (h *CreditGRPCHandler) RejectLoanRequest(ctx context.Context, req *pb.Rejec
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "loan request not found")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to reject loan request: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to reject loan request: %v", err)
 	}
 
 	_ = h.producer.PublishLoanRejected(ctx, kafkamsg.LoanStatusMessage{
@@ -142,7 +167,7 @@ func (h *CreditGRPCHandler) GetLoan(ctx context.Context, req *pb.GetLoanReq) (*p
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "loan not found")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to get loan: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to get loan: %v", err)
 	}
 	return toLoanResponse(loan), nil
 }
@@ -150,7 +175,7 @@ func (h *CreditGRPCHandler) GetLoan(ctx context.Context, req *pb.GetLoanReq) (*p
 func (h *CreditGRPCHandler) ListLoansByClient(ctx context.Context, req *pb.ListLoansByClientReq) (*pb.ListLoansResponse, error) {
 	loans, total, err := h.loanService.ListLoansByClient(req.ClientId, int(req.Page), int(req.PageSize))
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list loans: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to list loans: %v", err)
 	}
 
 	resp := &pb.ListLoansResponse{Total: total}
@@ -167,7 +192,7 @@ func (h *CreditGRPCHandler) ListAllLoans(ctx context.Context, req *pb.ListAllLoa
 		int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list all loans: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to list all loans: %v", err)
 	}
 
 	resp := &pb.ListLoansResponse{Total: total}
@@ -181,7 +206,7 @@ func (h *CreditGRPCHandler) ListAllLoans(ctx context.Context, req *pb.ListAllLoa
 func (h *CreditGRPCHandler) GetInstallmentsByLoan(ctx context.Context, req *pb.GetInstallmentsByLoanReq) (*pb.ListInstallmentsResponse, error) {
 	installments, err := h.installmentService.GetInstallmentsByLoan(req.LoanId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get installments: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to get installments: %v", err)
 	}
 
 	resp := &pb.ListInstallmentsResponse{}

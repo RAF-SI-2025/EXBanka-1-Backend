@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log"
 	"strconv"
+	"strings"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -17,6 +18,33 @@ import (
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/service"
 )
+
+// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
+func mapServiceError(err error) codes.Code {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "not found"):
+		return codes.NotFound
+	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"):
+		return codes.InvalidArgument
+	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
+		return codes.AlreadyExists
+	case strings.Contains(msg, "insufficient funds"), strings.Contains(msg, "limit exceeded"),
+		strings.Contains(msg, "spending limit"), strings.Contains(msg, "already used"),
+		strings.Contains(msg, "already blocked"), strings.Contains(msg, "already deactivated"),
+		strings.Contains(msg, "already "):
+		return codes.FailedPrecondition
+	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
+		strings.Contains(msg, "failed attempts"):
+		return codes.ResourceExhausted
+	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
+		return codes.PermissionDenied
+	case strings.Contains(msg, "expired"):
+		return codes.DeadlineExceeded
+	default:
+		return codes.Internal
+	}
+}
 
 func generateIdempotencyKey() string {
 	b := make([]byte, 16)
@@ -69,7 +97,7 @@ func (h *TransactionGRPCHandler) CreatePayment(ctx context.Context, req *pb.Crea
 	}
 
 	if err := h.paymentSvc.CreatePayment(ctx, payment); err != nil {
-		return nil, status.Errorf(codes.Internal, "create payment: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "create payment: %v", err)
 	}
 
 	// Publish Kafka events only for successful payments
@@ -114,7 +142,7 @@ func (h *TransactionGRPCHandler) ListPaymentsByAccount(ctx context.Context, req 
 		int(req.GetPageSize()),
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list payments: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "list payments: %v", err)
 	}
 
 	pbPayments := make([]*pb.PaymentResponse, 0, len(payments))
@@ -140,7 +168,7 @@ func (h *TransactionGRPCHandler) CreateTransfer(ctx context.Context, req *pb.Cre
 	}
 
 	if err := h.transferSvc.CreateTransfer(ctx, transfer); err != nil {
-		return nil, status.Errorf(codes.Internal, "create transfer: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "create transfer: %v", err)
 	}
 
 	// Publish Kafka events only for successful transfers
@@ -179,7 +207,7 @@ func (h *TransactionGRPCHandler) ListTransfersByClient(ctx context.Context, req 
 		int(req.GetPageSize()),
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list transfers: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "list transfers: %v", err)
 	}
 
 	pbTransfers := make([]*pb.TransferResponse, 0, len(transfers))
@@ -198,7 +226,7 @@ func (h *TransactionGRPCHandler) CreatePaymentRecipient(ctx context.Context, req
 		AccountNumber: req.GetAccountNumber(),
 	}
 	if err := h.recipientSvc.Create(pr); err != nil {
-		return nil, status.Errorf(codes.Internal, "create recipient: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "create recipient: %v", err)
 	}
 	return recipientToProto(pr), nil
 }
@@ -206,7 +234,7 @@ func (h *TransactionGRPCHandler) CreatePaymentRecipient(ctx context.Context, req
 func (h *TransactionGRPCHandler) ListPaymentRecipients(ctx context.Context, req *pb.ListPaymentRecipientsRequest) (*pb.ListPaymentRecipientsResponse, error) {
 	recipients, err := h.recipientSvc.ListByClient(req.GetClientId())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list recipients: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "list recipients: %v", err)
 	}
 
 	pbRecipients := make([]*pb.PaymentRecipientResponse, 0, len(recipients))
@@ -219,14 +247,14 @@ func (h *TransactionGRPCHandler) ListPaymentRecipients(ctx context.Context, req 
 func (h *TransactionGRPCHandler) UpdatePaymentRecipient(ctx context.Context, req *pb.UpdatePaymentRecipientRequest) (*pb.PaymentRecipientResponse, error) {
 	pr, err := h.recipientSvc.Update(req.GetId(), req.RecipientName, req.AccountNumber)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "update recipient: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "update recipient: %v", err)
 	}
 	return recipientToProto(pr), nil
 }
 
 func (h *TransactionGRPCHandler) DeletePaymentRecipient(ctx context.Context, req *pb.DeletePaymentRecipientRequest) (*pb.DeletePaymentRecipientResponse, error) {
 	if err := h.recipientSvc.Delete(req.GetId()); err != nil {
-		return nil, status.Errorf(codes.Internal, "delete recipient: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "delete recipient: %v", err)
 	}
 	return &pb.DeletePaymentRecipientResponse{Success: true}, nil
 }
@@ -244,7 +272,7 @@ func (h *TransactionGRPCHandler) GetExchangeRate(ctx context.Context, req *pb.Ge
 func (h *TransactionGRPCHandler) ListExchangeRates(ctx context.Context, req *pb.ListExchangeRatesRequest) (*pb.ListExchangeRatesResponse, error) {
 	rates, err := h.exchangeSvc.ListExchangeRates()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list exchange rates: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "list exchange rates: %v", err)
 	}
 
 	pbRates := make([]*pb.ExchangeRateResponse, 0, len(rates))
@@ -259,7 +287,7 @@ func (h *TransactionGRPCHandler) ListExchangeRates(ctx context.Context, req *pb.
 func (h *TransactionGRPCHandler) CreateVerificationCode(ctx context.Context, req *pb.CreateVerificationCodeRequest) (*pb.CreateVerificationCodeResponse, error) {
 	vc, code, err := h.verificationSvc.CreateVerificationCode(ctx, req.GetClientId(), req.GetTransactionId(), req.GetTransactionType())
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "create verification code: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "create verification code: %v", err)
 	}
 
 	// Send verification code via email
@@ -283,7 +311,7 @@ func (h *TransactionGRPCHandler) CreateVerificationCode(ctx context.Context, req
 func (h *TransactionGRPCHandler) ValidateVerificationCode(ctx context.Context, req *pb.ValidateVerificationCodeRequest) (*pb.ValidateVerificationCodeResponse, error) {
 	valid, remaining, err := h.verificationSvc.ValidateVerificationCode(req.GetClientId(), req.GetTransactionId(), req.GetTransactionType(), req.GetCode())
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "validate verification code: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "validate verification code: %v", err)
 	}
 	return &pb.ValidateVerificationCodeResponse{
 		Valid:             valid,

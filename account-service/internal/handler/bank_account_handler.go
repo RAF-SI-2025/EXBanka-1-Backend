@@ -27,7 +27,7 @@ func NewBankAccountGRPCHandler(accountSvc *service.AccountService, producer *kaf
 func (h *BankAccountGRPCHandler) CreateBankAccount(ctx context.Context, req *pb.CreateBankAccountRequest) (*pb.AccountResponse, error) {
 	account, err := h.accountSvc.CreateBankAccount(req.CurrencyCode, req.AccountKind, req.AccountName)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to create bank account: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to create bank account: %v", err)
 	}
 	_ = h.producer.PublishAccountCreated(ctx, kafkamsg.AccountCreatedMessage{
 		AccountNumber: account.AccountNumber,
@@ -41,7 +41,7 @@ func (h *BankAccountGRPCHandler) CreateBankAccount(ctx context.Context, req *pb.
 func (h *BankAccountGRPCHandler) ListBankAccounts(ctx context.Context, req *pb.ListBankAccountsRequest) (*pb.ListBankAccountsResponse, error) {
 	accounts, err := h.accountSvc.ListBankAccounts()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list bank accounts: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to list bank accounts: %v", err)
 	}
 	resp := &pb.ListBankAccountsResponse{}
 	for _, a := range accounts {
@@ -56,7 +56,7 @@ func (h *BankAccountGRPCHandler) DeleteBankAccount(ctx context.Context, req *pb.
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "bank account not found")
 		}
-		return nil, status.Errorf(codes.InvalidArgument, "%s", err.Error())
+		return nil, status.Errorf(mapServiceError(err), "%s", err.Error())
 	}
 	return &pb.DeleteBankAccountResponse{Success: true, Message: "bank account deleted"}, nil
 }

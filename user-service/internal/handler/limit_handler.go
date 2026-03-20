@@ -25,7 +25,7 @@ func NewLimitGRPCHandler(limitSvc *service.LimitService) *LimitGRPCHandler {
 func (h *LimitGRPCHandler) GetEmployeeLimits(ctx context.Context, req *pb.EmployeeLimitRequest) (*pb.EmployeeLimitResponse, error) {
 	limit, err := h.limitSvc.GetEmployeeLimits(req.EmployeeId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get employee limits: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to get employee limits: %v", err)
 	}
 	return toEmployeeLimitResponse(limit), nil
 }
@@ -63,7 +63,7 @@ func (h *LimitGRPCHandler) SetEmployeeLimits(ctx context.Context, req *pb.SetEmp
 
 	result, err := h.limitSvc.SetEmployeeLimits(ctx, limit)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set employee limits: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to set employee limits: %v", err)
 	}
 	return toEmployeeLimitResponse(result), nil
 }
@@ -71,7 +71,7 @@ func (h *LimitGRPCHandler) SetEmployeeLimits(ctx context.Context, req *pb.SetEmp
 func (h *LimitGRPCHandler) ApplyLimitTemplate(ctx context.Context, req *pb.ApplyLimitTemplateRequest) (*pb.EmployeeLimitResponse, error) {
 	result, err := h.limitSvc.ApplyTemplate(ctx, req.EmployeeId, req.TemplateName)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to apply limit template: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to apply limit template: %v", err)
 	}
 	return toEmployeeLimitResponse(result), nil
 }
@@ -79,7 +79,7 @@ func (h *LimitGRPCHandler) ApplyLimitTemplate(ctx context.Context, req *pb.Apply
 func (h *LimitGRPCHandler) ListLimitTemplates(ctx context.Context, req *pb.ListLimitTemplatesRequest) (*pb.ListLimitTemplatesResponse, error) {
 	templates, err := h.limitSvc.ListTemplates()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list limit templates: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to list limit templates: %v", err)
 	}
 	resp := &pb.ListLimitTemplatesResponse{}
 	for _, t := range templates {
@@ -122,7 +122,7 @@ func (h *LimitGRPCHandler) CreateLimitTemplate(ctx context.Context, req *pb.Crea
 	}
 	result, err := h.limitSvc.CreateTemplate(ctx, tmpl)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create limit template: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to create limit template: %v", err)
 	}
 	return toLimitTemplateResponse(result), nil
 }

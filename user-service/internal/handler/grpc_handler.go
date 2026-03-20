@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -13,6 +14,30 @@ import (
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/exbanka/user-service/internal/service"
 )
+
+// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
+func mapServiceError(err error) codes.Code {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "not found"):
+		return codes.NotFound
+	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"),
+		strings.Contains(msg, "must have"), strings.Contains(msg, "must contain"):
+		return codes.InvalidArgument
+	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
+		return codes.AlreadyExists
+	case strings.Contains(msg, "insufficient funds"), strings.Contains(msg, "limit exceeded"),
+		strings.Contains(msg, "spending limit"):
+		return codes.FailedPrecondition
+	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
+		strings.Contains(msg, "failed attempts"):
+		return codes.ResourceExhausted
+	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
+		return codes.PermissionDenied
+	default:
+		return codes.Internal
+	}
+}
 
 type UserGRPCHandler struct {
 	pb.UnimplementedUserServiceServer
@@ -43,7 +68,7 @@ func (h *UserGRPCHandler) CreateEmployee(ctx context.Context, req *pb.CreateEmpl
 	}
 
 	if err := h.empService.CreateEmployee(ctx, emp); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create employee: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to create employee: %v", err)
 	}
 	return toEmployeeResponse(emp, h.empService), nil
 }
@@ -62,7 +87,7 @@ func (h *UserGRPCHandler) ListEmployees(ctx context.Context, req *pb.ListEmploye
 		int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list employees: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to list employees: %v", err)
 	}
 
 	resp := &pb.ListEmployeesResponse{TotalCount: int32(total)}
@@ -107,7 +132,7 @@ func (h *UserGRPCHandler) UpdateEmployee(ctx context.Context, req *pb.UpdateEmpl
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "employee not found")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to update: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to update: %v", err)
 	}
 	return toEmployeeResponse(emp, h.empService), nil
 }
@@ -164,7 +189,7 @@ func (h *UserGRPCHandler) GetUserByEmail(ctx context.Context, req *pb.GetUserByE
 
 func (h *UserGRPCHandler) SetPassword(ctx context.Context, req *pb.SetPasswordRequest) (*pb.SetPasswordResponse, error) {
 	if err := h.empService.SetPassword(req.UserId, req.PasswordHash); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set password: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to set password: %v", err)
 	}
 	return &pb.SetPasswordResponse{Success: true}, nil
 }
@@ -173,7 +198,7 @@ func (h *UserGRPCHandler) SetPassword(ctx context.Context, req *pb.SetPasswordRe
 func (h *UserGRPCHandler) ListRoles(ctx context.Context, req *pb.ListRolesRequest) (*pb.ListRolesResponse, error) {
 	roles, err := h.roleSvc.ListRoles()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list roles: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to list roles: %v", err)
 	}
 	var pbRoles []*pb.RoleResponse
 	for _, r := range roles {
@@ -195,7 +220,7 @@ func (h *UserGRPCHandler) GetRole(ctx context.Context, req *pb.GetRoleRequest) (
 func (h *UserGRPCHandler) CreateRole(ctx context.Context, req *pb.CreateRoleRequest) (*pb.RoleResponse, error) {
 	role, err := h.roleSvc.CreateRole(req.Name, req.Description, req.PermissionCodes)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create role: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to create role: %v", err)
 	}
 	return toRoleResponse(role), nil
 }
@@ -203,7 +228,7 @@ func (h *UserGRPCHandler) CreateRole(ctx context.Context, req *pb.CreateRoleRequ
 // UpdateRolePermissions replaces the permissions on a role.
 func (h *UserGRPCHandler) UpdateRolePermissions(ctx context.Context, req *pb.UpdateRolePermissionsRequest) (*pb.RoleResponse, error) {
 	if err := h.roleSvc.UpdateRolePermissions(req.RoleId, req.PermissionCodes); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update role permissions: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to update role permissions: %v", err)
 	}
 	role, err := h.roleSvc.GetRole(req.RoleId)
 	if err != nil {
@@ -216,7 +241,7 @@ func (h *UserGRPCHandler) UpdateRolePermissions(ctx context.Context, req *pb.Upd
 func (h *UserGRPCHandler) ListPermissions(ctx context.Context, req *pb.ListPermissionsRequest) (*pb.ListPermissionsResponse, error) {
 	perms, err := h.roleSvc.ListPermissions()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list permissions: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to list permissions: %v", err)
 	}
 	var pbPerms []*pb.PermissionResponse
 	for _, p := range perms {
@@ -233,7 +258,7 @@ func (h *UserGRPCHandler) ListPermissions(ctx context.Context, req *pb.ListPermi
 // SetEmployeeRoles replaces the roles for an employee.
 func (h *UserGRPCHandler) SetEmployeeRoles(ctx context.Context, req *pb.SetEmployeeRolesRequest) (*pb.EmployeeResponse, error) {
 	if err := h.empService.SetEmployeeRoles(ctx, req.EmployeeId, req.RoleNames); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set employee roles: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to set employee roles: %v", err)
 	}
 	emp, err := h.empService.GetEmployee(req.EmployeeId)
 	if err != nil {
@@ -245,7 +270,7 @@ func (h *UserGRPCHandler) SetEmployeeRoles(ctx context.Context, req *pb.SetEmplo
 // SetEmployeeAdditionalPermissions replaces the additional permissions for an employee.
 func (h *UserGRPCHandler) SetEmployeeAdditionalPermissions(ctx context.Context, req *pb.SetEmployeePermissionsRequest) (*pb.EmployeeResponse, error) {
 	if err := h.empService.SetEmployeeAdditionalPermissions(ctx, req.EmployeeId, req.PermissionCodes); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set employee permissions: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to set employee permissions: %v", err)
 	}
 	emp, err := h.empService.GetEmployee(req.EmployeeId)
 	if err != nil {

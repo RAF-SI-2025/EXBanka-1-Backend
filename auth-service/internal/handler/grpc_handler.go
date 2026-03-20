@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"log"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -10,6 +11,32 @@ import (
 	pb "github.com/exbanka/contract/authpb"
 	"github.com/exbanka/auth-service/internal/service"
 )
+
+// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
+func mapServiceError(err error) codes.Code {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "not found"):
+		return codes.NotFound
+	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"),
+		strings.Contains(msg, "must have"), strings.Contains(msg, "do not match"),
+		strings.Contains(msg, "does not match"):
+		return codes.InvalidArgument
+	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
+		return codes.AlreadyExists
+	case strings.Contains(msg, "revoked"):
+		return codes.Unauthenticated
+	case strings.Contains(msg, "expired"):
+		return codes.DeadlineExceeded
+	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
+		strings.Contains(msg, "failed attempts"):
+		return codes.ResourceExhausted
+	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
+		return codes.PermissionDenied
+	default:
+		return codes.Internal
+	}
+}
 
 type AuthGRPCHandler struct {
 	pb.UnimplementedAuthServiceServer
@@ -84,28 +111,28 @@ func (h *AuthGRPCHandler) RequestPasswordReset(ctx context.Context, req *pb.Pass
 
 func (h *AuthGRPCHandler) ResetPassword(ctx context.Context, req *pb.ResetPasswordRequest) (*pb.ResetPasswordResponse, error) {
 	if err := h.authService.ResetPassword(ctx, req.Token, req.NewPassword, req.ConfirmPassword); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}
 	return &pb.ResetPasswordResponse{Success: true}, nil
 }
 
 func (h *AuthGRPCHandler) ActivateAccount(ctx context.Context, req *pb.ActivateAccountRequest) (*pb.ActivateAccountResponse, error) {
 	if err := h.authService.ActivateAccount(ctx, req.Token, req.Password, req.ConfirmPassword); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}
 	return &pb.ActivateAccountResponse{Success: true}, nil
 }
 
 func (h *AuthGRPCHandler) Logout(ctx context.Context, req *pb.LogoutRequest) (*pb.LogoutResponse, error) {
 	if err := h.authService.Logout(ctx, req.RefreshToken); err != nil {
-		return nil, status.Errorf(codes.Internal, "%v", err)
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}
 	return &pb.LogoutResponse{Success: true}, nil
 }
 
 func (h *AuthGRPCHandler) CreateActivationToken(ctx context.Context, req *pb.CreateActivationTokenRequest) (*pb.CreateActivationTokenResponse, error) {
 	if err := h.authService.CreateActivationToken(ctx, req.UserId, req.Email, req.FirstName, "employee"); err != nil {
-		return nil, status.Errorf(codes.Internal, "%v", err)
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}
 	return &pb.CreateActivationTokenResponse{Success: true}, nil
 }
