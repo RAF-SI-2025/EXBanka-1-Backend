@@ -11,6 +11,7 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/credit-service/internal/kafka"
+	"github.com/shopspring/decimal"
 )
 
 type CronService struct {
@@ -152,6 +153,34 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				log.Printf("CronService: failed to publish installment-failed event: %v", pubErr)
 			}
 		}
+
+		// Apply late payment interest penalty for variable-rate loans
+		if loan.InterestType == "variable" {
+			penalty := decimal.NewFromFloat(0.05)
+			loan.BaseRate = loan.BaseRate.Add(penalty)
+			newNominalRate := loan.BaseRate.Add(loan.BankMargin)
+			loan.NominalInterestRate = newNominalRate
+			loan.CurrentRate = newNominalRate
+
+			// Count remaining unpaid installments to recalculate monthly amount
+			remainingCount, countErr := c.installService.installRepo.CountUnpaidByLoan(loanID)
+			if countErr != nil {
+				log.Printf("CronService: failed to count unpaid installments for loan %d: %v", loanID, countErr)
+			} else {
+				remainingMonths := int(remainingCount)
+				newMonthlyAmount := CalculateMonthlyInstallment(loan.RemainingDebt, newNominalRate, remainingMonths)
+				loan.NextInstallmentAmount = newMonthlyAmount
+
+				if updateErr := c.loanService.loanRepo.Update(loan); updateErr != nil {
+					log.Printf("CronService: failed to update loan %d after late penalty: %v", loanID, updateErr)
+				}
+				if updateErr := c.installService.installRepo.UpdateUnpaidByLoan(loanID, newMonthlyAmount, newNominalRate); updateErr != nil {
+					log.Printf("CronService: failed to update unpaid installments for loan %d after late penalty: %v", loanID, updateErr)
+				}
+				log.Printf("CronService: applied +0.05%% late payment penalty to variable loan %d (new rate: %s%%)", loanID, newNominalRate.StringFixed(4))
+			}
+		}
+
 		return
 	}
 
