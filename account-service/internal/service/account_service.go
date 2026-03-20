@@ -54,6 +54,17 @@ func (s *AccountService) CreateAccount(account *model.Account) error {
 		return errors.New("foreign accounts cannot use RSD; supported currencies: EUR, CHF, USD, GBP, JPY, CAD, AUD")
 	}
 
+	// Check for duplicate account name for the same owner.
+	if account.AccountName != "" {
+		exists, err := s.repo.ExistsByNameAndOwner(account.AccountName, account.OwnerID, 0)
+		if err != nil {
+			return fmt.Errorf("failed to check account name uniqueness: %w", err)
+		}
+		if exists {
+			return fmt.Errorf("an account with name %q already exists for this client", account.AccountName)
+		}
+	}
+
 	// Check for duplicate account (same client, same kind, same currency).
 	existing, _, _ := s.repo.ListByClient(account.OwnerID, 1, 1000)
 	for _, a := range existing {
@@ -99,6 +110,14 @@ func (s *AccountService) ListAllAccounts(nameFilter, numberFilter, typeFilter st
 }
 
 func (s *AccountService) UpdateAccountName(id, clientID uint64, newName string) error {
+	// Check for duplicate account name for the same owner.
+	exists, err := s.repo.ExistsByNameAndOwner(newName, clientID, id)
+	if err != nil {
+		return fmt.Errorf("failed to check account name uniqueness: %w", err)
+	}
+	if exists {
+		return fmt.Errorf("an account with name %q already exists for this client", newName)
+	}
 	return s.repo.UpdateName(id, clientID, newName)
 }
 
@@ -168,6 +187,17 @@ func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountNam
 	if currencyCode == "" {
 		return nil, errors.New("currency_code is required")
 	}
+	// Check for duplicate account name for the bank owner.
+	if accountName != "" {
+		exists, err := s.repo.ExistsByNameAndOwner(accountName, BankOwnerID, 0)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check account name uniqueness: %w", err)
+		}
+		if exists {
+			return nil, fmt.Errorf("an account with name %q already exists for this client", accountName)
+		}
+	}
+
 	account := &model.Account{
 		OwnerID:       BankOwnerID,
 		OwnerName:     "EX Banka",

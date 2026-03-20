@@ -77,6 +77,18 @@ func (r *AccountRepository) ListAll(nameFilter, numberFilter, typeFilter string,
 	return accounts, total, nil
 }
 
+func (r *AccountRepository) ExistsByNameAndOwner(name string, ownerID uint64, excludeID uint64) (bool, error) {
+	var count int64
+	query := r.db.Model(&model.Account{}).Where("account_name = ? AND owner_id = ?", name, ownerID)
+	if excludeID > 0 {
+		query = query.Where("id != ?", excludeID)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *AccountRepository) UpdateName(id, clientID uint64, newName string) error {
 	result := r.db.Model(&model.Account{}).Where("id = ? AND owner_id = ?", id, clientID).Update("account_name", newName)
 	if result.Error != nil {
