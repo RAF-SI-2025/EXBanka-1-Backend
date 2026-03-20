@@ -110,21 +110,28 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		}
 	}
 
-	fromCurrency := transfer.FromCurrency
-	if fromCurrency == "" {
-		fromCurrency = "RSD"
-	}
-	commission, err := s.feeSvc.CalculateFee(transfer.InitialAmount, "transfer", fromCurrency)
-	if err != nil {
-		return fmt.Errorf("fee calculation failed for transfer of %s %s from account %s to %s: %w",
-			transfer.InitialAmount.StringFixed(4), fromCurrency, transfer.FromAccountNumber, transfer.ToAccountNumber, err)
-	}
-	transfer.Commission = commission
 	transfer.Timestamp = time.Now()
 
-	// 2. Determine exchange rate for cross-currency transfers
-	exchangeRate := decimal.NewFromInt(1)
-	if transfer.FromCurrency != "" && transfer.ToCurrency != "" && transfer.FromCurrency != transfer.ToCurrency {
+	// Same-currency, same-client = "Prenos" (zero fee, no exchange)
+	// Ownership validation above already confirmed same-client.
+	if transfer.FromCurrency == transfer.ToCurrency || (transfer.FromCurrency == "" && transfer.ToCurrency == "") {
+		transfer.ExchangeRate = decimal.NewFromInt(1)
+		transfer.FinalAmount = transfer.InitialAmount
+		transfer.Commission = decimal.Zero
+	} else {
+		// Cross-currency transfer: calculate fees and exchange rate
+		fromCurrency := transfer.FromCurrency
+		if fromCurrency == "" {
+			fromCurrency = "RSD"
+		}
+		commission, err := s.feeSvc.CalculateFee(transfer.InitialAmount, "transfer", fromCurrency)
+		if err != nil {
+			return fmt.Errorf("fee calculation failed for transfer of %s %s from account %s to %s: %w",
+				transfer.InitialAmount.StringFixed(4), fromCurrency, transfer.FromAccountNumber, transfer.ToAccountNumber, err)
+		}
+		transfer.Commission = commission
+
+		// Determine exchange rate for cross-currency transfers
 		if s.exchangeSvc == nil {
 			return fmt.Errorf("cross-currency transfers require exchange service")
 		}
@@ -132,11 +139,11 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		if err != nil {
 			return fmt.Errorf("exchange rate lookup failed for %s→%s: %w", transfer.FromCurrency, transfer.ToCurrency, err)
 		}
-		exchangeRate = rate.SellRate
+		transfer.ExchangeRate = rate.SellRate
+		transfer.FinalAmount = ConvertAmount(transfer.InitialAmount, rate.SellRate)
 	}
-	transfer.ExchangeRate = exchangeRate
-	convertedAmount := ConvertAmount(transfer.InitialAmount, exchangeRate)
-	transfer.FinalAmount = convertedAmount
+
+	convertedAmount := transfer.FinalAmount
 
 	transfer.Status = "processing"
 	if err := s.transferRepo.Create(transfer); err != nil {
