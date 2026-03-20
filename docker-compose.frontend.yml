@@ -345,9 +345,9 @@ services:
       KAFKA_BROKERS: kafka:9092
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-test@example.com}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-changeme}
-      SMTP_FROM: ${SMTP_FROM:-test@example.com}
+      SMTP_USER: ${SMTP_USER:-thebiggestdouchebagaround@gmail.com}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-eebu yksy isfx nanl}
+      SMTP_FROM: ${SMTP_FROM:-thebiggestdouchebagaround@gmail.com}
     ports:
       - "50053:50053"
     depends_on:

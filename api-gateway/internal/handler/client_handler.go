@@ -33,8 +33,10 @@ type createClientRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createClientRequest  true  "Client data"
+// @Security     BearerAuth
 // @Success      201   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/clients [post]
 func (h *ClientHandler) CreateClient(c *gin.Context) {
@@ -68,7 +70,9 @@ func (h *ClientHandler) CreateClient(c *gin.Context) {
 // @Param        page_size     query  int     false  "Items per page (default 20)"
 // @Param        email_filter  query  string  false  "Filter by email"
 // @Param        name_filter   query  string  false  "Filter by name"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/clients [get]
 func (h *ClientHandler) ListClients(c *gin.Context) {
@@ -100,7 +104,9 @@ func (h *ClientHandler) ListClients(c *gin.Context) {
 // @Tags         clients
 // @Produce      json
 // @Param        id   path  int  true  "Client ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Router       /api/clients/{id} [get]
 func (h *ClientHandler) GetClient(c *gin.Context) {
@@ -134,8 +140,10 @@ type updateClientRequest struct {
 // @Produce      json
 // @Param        id    path  int                  true  "Client ID"
 // @Param        body  body  updateClientRequest  true  "Fields to update"
+// @Security     BearerAuth
 // @Success      200   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/clients/{id} [put]
 func (h *ClientHandler) UpdateClient(c *gin.Context) {
@@ -171,6 +179,7 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 // @Summary      Get current client (me)
 // @Tags         clients
 // @Produce      json
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
@@ -216,8 +225,10 @@ type setPasswordRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  setPasswordRequest  true  "Password hash data"
+// @Security     BearerAuth
 // @Success      200   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/clients/set-password [post]
 func (h *ClientHandler) SetPassword(c *gin.Context) {

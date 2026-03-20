@@ -39,6 +39,7 @@ message ListLoanRequestsReq {
   string status_filter = 3;
   int32 page = 4;
   int32 page_size = 5;
+  uint64 client_id_filter = 6;
 }
 
 message ListLoanRequestsResponse {

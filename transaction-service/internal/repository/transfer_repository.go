@@ -45,8 +45,15 @@ func (r *TransferRepository) UpdateStatusWithReason(id uint64, status, reason st
 	}).Error
 }
 
-func (r *TransferRepository) ListByClient(clientID uint64, page, pageSize int) ([]model.Transfer, int64, error) {
-	q := r.db.Model(&model.Transfer{})
+func (r *TransferRepository) ListByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Transfer, int64, error) {
+	if len(accountNumbers) == 0 {
+		return nil, 0, nil
+	}
+
+	q := r.db.Model(&model.Transfer{}).Where(
+		"from_account_number IN ? OR to_account_number IN ?",
+		accountNumbers, accountNumbers,
+	)
 
 	var total int64
 	if err := q.Count(&total).Error; err != nil {

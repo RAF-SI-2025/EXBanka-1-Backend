@@ -7,16 +7,35 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	accountpb "github.com/exbanka/contract/accountpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
 type TransactionHandler struct {
-	txClient  transactionpb.TransactionServiceClient
-	feeClient transactionpb.FeeServiceClient
+	txClient      transactionpb.TransactionServiceClient
+	feeClient     transactionpb.FeeServiceClient
+	accountClient accountpb.AccountServiceClient
 }
 
-func NewTransactionHandler(txClient transactionpb.TransactionServiceClient, feeClient transactionpb.FeeServiceClient) *TransactionHandler {
-	return &TransactionHandler{txClient: txClient, feeClient: feeClient}
+func NewTransactionHandler(txClient transactionpb.TransactionServiceClient, feeClient transactionpb.FeeServiceClient, accountClient accountpb.AccountServiceClient) *TransactionHandler {
+	return &TransactionHandler{txClient: txClient, feeClient: feeClient, accountClient: accountClient}
+}
+
+// resolveClientAccountNumbers fetches all account numbers belonging to a client from account-service.
+func (h *TransactionHandler) resolveClientAccountNumbers(c *gin.Context, clientID uint64) ([]string, error) {
+	resp, err := h.accountClient.ListAccountsByClient(c.Request.Context(), &accountpb.ListAccountsByClientRequest{
+		ClientId: clientID,
+		Page:     1,
+		PageSize: 1000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	numbers := make([]string, 0, len(resp.Accounts))
+	for _, acc := range resp.Accounts {
+		numbers = append(numbers, acc.AccountNumber)
+	}
+	return numbers, nil
 }
 
 type createPaymentRequest struct {
@@ -34,8 +53,10 @@ type createPaymentRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createPaymentRequest  true  "Payment data"
+// @Security     BearerAuth
 // @Success      201   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/payments [post]
 func (h *TransactionHandler) CreatePayment(c *gin.Context) {
@@ -73,7 +94,9 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 // @Tags         payments
 // @Produce      json
 // @Param        id   path  int  true  "Payment ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Router       /api/payments/{id} [get]
 func (h *TransactionHandler) GetPayment(c *gin.Context) {
@@ -102,7 +125,9 @@ func (h *TransactionHandler) GetPayment(c *gin.Context) {
 // @Param        status_filter   query  string   false  "Filter by status"
 // @Param        amount_min      query  number   false  "Minimum amount"
 // @Param        amount_max      query  number   false  "Maximum amount"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/payments/account/{account_number} [get]
 func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
@@ -146,8 +171,10 @@ type createTransferRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createTransferRequest  true  "Transfer data"
+// @Security     BearerAuth
 // @Success      201   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/transfers [post]
 func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
@@ -165,10 +192,28 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Resolve currencies from account-service
+	var fromCurrency, toCurrency string
+	fromAcc, err := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{AccountNumber: req.FromAccountNumber})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "source account not found"})
+		return
+	}
+	fromCurrency = fromAcc.CurrencyCode
+	toAcc, err := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{AccountNumber: req.ToAccountNumber})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "destination account not found"})
+		return
+	}
+	toCurrency = toAcc.CurrencyCode
+
 	resp, err := h.txClient.CreateTransfer(c.Request.Context(), &transactionpb.CreateTransferRequest{
 		FromAccountNumber: req.FromAccountNumber,
 		ToAccountNumber:   req.ToAccountNumber,
 		Amount:            fmt.Sprintf("%.4f", req.Amount),
+		FromCurrency:      fromCurrency,
+		ToCurrency:        toCurrency,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -181,7 +226,9 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 // @Tags         transfers
 // @Produce      json
 // @Param        id   path  int  true  "Transfer ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Router       /api/transfers/{id} [get]
 func (h *TransactionHandler) GetTransfer(c *gin.Context) {
@@ -205,8 +252,10 @@ func (h *TransactionHandler) GetTransfer(c *gin.Context) {
 // @Param        client_id  path   int  true   "Client ID"
 // @Param        page       query  int  false  "Page number (default 1)"
 // @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
 // @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/transfers/client/{client_id} [get]
 func (h *TransactionHandler) ListTransfersByClient(c *gin.Context) {
@@ -215,13 +264,24 @@ func (h *TransactionHandler) ListTransfersByClient(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
 		return
 	}
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
+
+	accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve client accounts"})
+		return
+	}
+
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
 	resp, err := h.txClient.ListTransfersByClient(c.Request.Context(), &transactionpb.ListTransfersByClientRequest{
-		ClientId: clientID,
-		Page:     int32(page),
-		PageSize: int32(pageSize),
+		ClientId:       clientID,
+		Page:           int32(page),
+		PageSize:       int32(pageSize),
+		AccountNumbers: accountNumbers,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -249,8 +309,10 @@ type createPaymentRecipientRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createPaymentRecipientRequest  true  "Recipient data"
+// @Security     BearerAuth
 // @Success      201   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/payment-recipients [post]
 func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
@@ -276,8 +338,10 @@ func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 // @Tags         payment-recipients
 // @Produce      json
 // @Param        client_id  path  int  true  "Client ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
 // @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/payment-recipients/{client_id} [get]
 func (h *TransactionHandler) ListPaymentRecipients(c *gin.Context) {
@@ -313,8 +377,10 @@ type updatePaymentRecipientRequest struct {
 // @Produce      json
 // @Param        id    path  int                            true  "Recipient ID"
 // @Param        body  body  updatePaymentRecipientRequest  true  "Fields to update"
+// @Security     BearerAuth
 // @Success      200   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/payment-recipients/{id} [put]
 func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
@@ -346,7 +412,9 @@ func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 // @Tags         payment-recipients
 // @Produce      json
 // @Param        id   path  int  true  "Recipient ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/payment-recipients/{id} [delete]
 func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
@@ -375,8 +443,10 @@ type createVerificationCodeRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createVerificationCodeRequest  true  "Verification request"
+// @Security     BearerAuth
 // @Success      201   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/verification [post]
 func (h *TransactionHandler) CreateVerificationCode(c *gin.Context) {
@@ -386,10 +456,16 @@ func (h *TransactionHandler) CreateVerificationCode(c *gin.Context) {
 		return
 	}
 
+	txType, err := oneOf("transaction_type", req.TransactionType, "payment", "transfer")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	resp, err := h.txClient.CreateVerificationCode(c.Request.Context(), &transactionpb.CreateVerificationCodeRequest{
 		ClientId:        req.ClientID,
 		TransactionId:   req.TransactionID,
-		TransactionType: req.TransactionType,
+		TransactionType: txType,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -412,8 +488,10 @@ type validateVerificationCodeRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  validateVerificationCodeRequest  true  "Code to validate"
+// @Security     BearerAuth
 // @Success      200   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/verification/validate [post]
 func (h *TransactionHandler) ValidateVerificationCode(c *gin.Context) {
@@ -541,13 +619,18 @@ func (h *TransactionHandler) CreateFee(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	txType, err := oneOf("transaction_type", body.TransactionType, "payment", "transfer", "all")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	resp, err := h.feeClient.CreateFee(c.Request.Context(), &transactionpb.CreateFeeRequest{
 		Name:            body.Name,
 		FeeType:         feeType,
 		FeeValue:        body.FeeValue,
 		MinAmount:       body.MinAmount,
 		MaxFee:          body.MaxFee,
-		TransactionType: body.TransactionType,
+		TransactionType: txType,
 		CurrencyCode:    body.CurrencyCode,
 	})
 	if err != nil {
@@ -591,6 +674,14 @@ func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 			return
 		}
 	}
+	updTxType := body.TransactionType
+	if updTxType != "" {
+		updTxType, err = oneOf("transaction_type", updTxType, "payment", "transfer", "all")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	resp, err := h.feeClient.UpdateFee(c.Request.Context(), &transactionpb.UpdateFeeRequest{
 		Id:              id,
 		Name:            body.Name,
@@ -598,7 +689,7 @@ func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 		FeeValue:        body.FeeValue,
 		MinAmount:       body.MinAmount,
 		MaxFee:          body.MaxFee,
-		TransactionType: body.TransactionType,
+		TransactionType: updTxType,
 		CurrencyCode:    body.CurrencyCode,
 		Active:          body.Active,
 	})

@@ -84,7 +84,7 @@ func (h *CreditGRPCHandler) GetLoanRequest(ctx context.Context, req *pb.GetLoanR
 func (h *CreditGRPCHandler) ListLoanRequests(ctx context.Context, req *pb.ListLoanRequestsReq) (*pb.ListLoanRequestsResponse, error) {
 	requests, total, err := h.loanRequestService.ListLoanRequests(
 		req.LoanTypeFilter, req.AccountNumberFilter, req.StatusFilter,
-		int(req.Page), int(req.PageSize),
+		req.ClientIdFilter, int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list loan requests: %v", err)

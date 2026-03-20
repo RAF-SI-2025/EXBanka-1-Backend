@@ -446,6 +446,8 @@ type CreateTransferRequest struct {
 	FromAccountNumber string                 `protobuf:"bytes,1,opt,name=from_account_number,json=fromAccountNumber,proto3" json:"from_account_number,omitempty"`
 	ToAccountNumber   string                 `protobuf:"bytes,2,opt,name=to_account_number,json=toAccountNumber,proto3" json:"to_account_number,omitempty"`
 	Amount            string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`
+	FromCurrency      string                 `protobuf:"bytes,4,opt,name=from_currency,json=fromCurrency,proto3" json:"from_currency,omitempty"`
+	ToCurrency        string                 `protobuf:"bytes,5,opt,name=to_currency,json=toCurrency,proto3" json:"to_currency,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -501,6 +503,20 @@ func (x *CreateTransferRequest) GetAmount() string {
 	return ""
 }
 
+func (x *CreateTransferRequest) GetFromCurrency() string {
+	if x != nil {
+		return x.FromCurrency
+	}
+	return ""
+}
+
+func (x *CreateTransferRequest) GetToCurrency() string {
+	if x != nil {
+		return x.ToCurrency
+	}
+	return ""
+}
+
 type GetTransferRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -546,12 +562,13 @@ func (x *GetTransferRequest) GetId() uint64 {
 }
 
 type ListTransfersByClientRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ClientId      uint64                 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	Page          int32                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
-	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ClientId       uint64                 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	Page           int32                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize       int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	AccountNumbers []string               `protobuf:"bytes,4,rep,name=account_numbers,json=accountNumbers,proto3" json:"account_numbers,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ListTransfersByClientRequest) Reset() {
@@ -603,6 +620,13 @@ func (x *ListTransfersByClientRequest) GetPageSize() int32 {
 		return x.PageSize
 	}
 	return 0
+}
+
+func (x *ListTransfersByClientRequest) GetAccountNumbers() []string {
+	if x != nil {
+		return x.AccountNumbers
+	}
+	return nil
 }
 
 type ListTransfersResponse struct {
@@ -1605,17 +1629,21 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x0fpayment_purpose\x18\n" +
 	" \x01(\tR\x0epaymentPurpose\x12\x16\n" +
 	"\x06status\x18\v \x01(\tR\x06status\x12\x1c\n" +
-	"\ttimestamp\x18\f \x01(\tR\ttimestamp\"\x8b\x01\n" +
+	"\ttimestamp\x18\f \x01(\tR\ttimestamp\"\xd1\x01\n" +
 	"\x15CreateTransferRequest\x12.\n" +
 	"\x13from_account_number\x18\x01 \x01(\tR\x11fromAccountNumber\x12*\n" +
 	"\x11to_account_number\x18\x02 \x01(\tR\x0ftoAccountNumber\x12\x16\n" +
-	"\x06amount\x18\x03 \x01(\tR\x06amount\"$\n" +
+	"\x06amount\x18\x03 \x01(\tR\x06amount\x12#\n" +
+	"\rfrom_currency\x18\x04 \x01(\tR\ffromCurrency\x12\x1f\n" +
+	"\vto_currency\x18\x05 \x01(\tR\n" +
+	"toCurrency\"$\n" +
 	"\x12GetTransferRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x04R\x02id\"l\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\"\x95\x01\n" +
 	"\x1cListTransfersByClientRequest\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12\x12\n" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"j\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12'\n" +
+	"\x0faccount_numbers\x18\x04 \x03(\tR\x0eaccountNumbers\"j\n" +
 	"\x15ListTransfersResponse\x12;\n" +
 	"\ttransfers\x18\x01 \x03(\v2\x1d.transaction.TransferResponseR\ttransfers\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"\xab\x02\n" +

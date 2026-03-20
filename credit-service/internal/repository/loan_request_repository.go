@@ -29,11 +29,14 @@ func (r *LoanRequestRepository) Update(req *model.LoanRequest) error {
 	return r.db.Save(req).Error
 }
 
-func (r *LoanRequestRepository) List(typeFilter, accountFilter, statusFilter string, page, pageSize int) ([]model.LoanRequest, int64, error) {
+func (r *LoanRequestRepository) List(typeFilter, accountFilter, statusFilter string, clientID uint64, page, pageSize int) ([]model.LoanRequest, int64, error) {
 	var requests []model.LoanRequest
 	var total int64
 
 	query := r.db.Model(&model.LoanRequest{})
+	if clientID != 0 {
+		query = query.Where("client_id = ?", clientID)
+	}
 	if typeFilter != "" {
 		query = query.Where("loan_type = ?", typeFilter)
 	}

@@ -57,8 +57,10 @@ type createCardRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createCardRequest  true  "Card data"
+// @Security     BearerAuth
 // @Success      201   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/cards [post]
 func (h *CardHandler) CreateCard(c *gin.Context) {
@@ -98,7 +100,9 @@ func (h *CardHandler) CreateCard(c *gin.Context) {
 // @Tags         cards
 // @Produce      json
 // @Param        id   path  int  true  "Card ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Router       /api/cards/{id} [get]
 func (h *CardHandler) GetCard(c *gin.Context) {
@@ -120,7 +124,9 @@ func (h *CardHandler) GetCard(c *gin.Context) {
 // @Tags         cards
 // @Produce      json
 // @Param        account_number  path  string  true  "Account number"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/cards/account/{account_number} [get]
 func (h *CardHandler) ListCardsByAccount(c *gin.Context) {
@@ -144,14 +150,19 @@ func (h *CardHandler) ListCardsByAccount(c *gin.Context) {
 // @Tags         cards
 // @Produce      json
 // @Param        client_id  path  int  true  "Client ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
 // @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/cards/client/{client_id} [get]
 func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		return
+	}
+	if !enforceClientSelf(c, clientID) {
 		return
 	}
 
@@ -174,7 +185,9 @@ func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 // @Tags         cards
 // @Produce      json
 // @Param        id   path  int  true  "Card ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/cards/{id}/block [put]
 func (h *CardHandler) BlockCard(c *gin.Context) {
@@ -196,7 +209,9 @@ func (h *CardHandler) BlockCard(c *gin.Context) {
 // @Tags         cards
 // @Produce      json
 // @Param        id   path  int  true  "Card ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/cards/{id}/unblock [put]
 func (h *CardHandler) UnblockCard(c *gin.Context) {
@@ -218,7 +233,9 @@ func (h *CardHandler) UnblockCard(c *gin.Context) {
 // @Tags         cards
 // @Produce      json
 // @Param        id   path  int  true  "Card ID"
+// @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /api/cards/{id}/deactivate [put]
 func (h *CardHandler) DeactivateCard(c *gin.Context) {
@@ -252,8 +269,10 @@ type createAuthorizedPersonRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createAuthorizedPersonRequest  true  "Authorized person data"
+// @Security     BearerAuth
 // @Success      201   {object}  map[string]interface{}
 // @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
 // @Router       /api/cards/authorized-person [post]
 func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {

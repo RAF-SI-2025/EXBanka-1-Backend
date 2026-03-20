@@ -96,11 +96,15 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 
 	// 2. Determine exchange rate for cross-currency transfers
 	exchangeRate := decimal.NewFromInt(1)
-	if transfer.FromCurrency != "" && transfer.ToCurrency != "" && transfer.FromCurrency != transfer.ToCurrency && s.exchangeSvc != nil {
-		rate, err := s.exchangeSvc.GetExchangeRate(transfer.FromCurrency, transfer.ToCurrency)
-		if err == nil && rate != nil {
-			exchangeRate = rate.SellRate
+	if transfer.FromCurrency != "" && transfer.ToCurrency != "" && transfer.FromCurrency != transfer.ToCurrency {
+		if s.exchangeSvc == nil {
+			return fmt.Errorf("cross-currency transfers require exchange service")
 		}
+		rate, err := s.exchangeSvc.GetExchangeRate(transfer.FromCurrency, transfer.ToCurrency)
+		if err != nil {
+			return fmt.Errorf("exchange rate lookup failed for %s→%s: %w", transfer.FromCurrency, transfer.ToCurrency, err)
+		}
+		exchangeRate = rate.SellRate
 	}
 	transfer.ExchangeRate = exchangeRate
 	convertedAmount := ConvertAmount(transfer.InitialAmount, exchangeRate)
@@ -190,6 +194,6 @@ func (s *TransferService) GetTransfer(id uint64) (*model.Transfer, error) {
 	return s.transferRepo.GetByID(id)
 }
 
-func (s *TransferService) ListTransfersByClient(clientID uint64, page, pageSize int) ([]model.Transfer, int64, error) {
-	return s.transferRepo.ListByClient(clientID, page, pageSize)
+func (s *TransferService) ListTransfersByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Transfer, int64, error) {
+	return s.transferRepo.ListByAccountNumbers(accountNumbers, page, pageSize)
 }
