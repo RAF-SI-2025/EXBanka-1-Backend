@@ -33,14 +33,6 @@ func (r *ClientRepository) Update(client *model.Client) error {
 	return r.db.Save(client).Error
 }
 
-func (r *ClientRepository) SetPassword(userID uint64, hash string) error {
-	return r.db.Model(&model.Client{}).Where("id = ?", userID).
-		Updates(map[string]interface{}{
-			"password_hash": hash,
-			"activated":     true,
-		}).Error
-}
-
 func (r *ClientRepository) List(emailFilter, nameFilter string, page, pageSize int) ([]model.Client, int64, error) {
 	var clients []model.Client
 	var total int64

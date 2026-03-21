@@ -19,13 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ClientService_CreateClient_FullMethodName        = "/client.ClientService/CreateClient"
-	ClientService_GetClient_FullMethodName           = "/client.ClientService/GetClient"
-	ClientService_GetClientByEmail_FullMethodName    = "/client.ClientService/GetClientByEmail"
-	ClientService_ListClients_FullMethodName         = "/client.ClientService/ListClients"
-	ClientService_UpdateClient_FullMethodName        = "/client.ClientService/UpdateClient"
-	ClientService_ValidateCredentials_FullMethodName = "/client.ClientService/ValidateCredentials"
-	ClientService_SetPassword_FullMethodName         = "/client.ClientService/SetPassword"
+	ClientService_CreateClient_FullMethodName     = "/client.ClientService/CreateClient"
+	ClientService_GetClient_FullMethodName        = "/client.ClientService/GetClient"
+	ClientService_GetClientByEmail_FullMethodName = "/client.ClientService/GetClientByEmail"
+	ClientService_ListClients_FullMethodName      = "/client.ClientService/ListClients"
+	ClientService_UpdateClient_FullMethodName     = "/client.ClientService/UpdateClient"
 )
 
 // ClientServiceClient is the client API for ClientService service.
@@ -37,8 +35,6 @@ type ClientServiceClient interface {
 	GetClientByEmail(ctx context.Context, in *GetClientByEmailRequest, opts ...grpc.CallOption) (*ClientResponse, error)
 	ListClients(ctx context.Context, in *ListClientsRequest, opts ...grpc.CallOption) (*ListClientsResponse, error)
 	UpdateClient(ctx context.Context, in *UpdateClientRequest, opts ...grpc.CallOption) (*ClientResponse, error)
-	ValidateCredentials(ctx context.Context, in *ValidateClientCredentialsRequest, opts ...grpc.CallOption) (*ValidateClientCredentialsResponse, error)
-	SetPassword(ctx context.Context, in *SetClientPasswordRequest, opts ...grpc.CallOption) (*SetClientPasswordResponse, error)
 }
 
 type clientServiceClient struct {
@@ -99,26 +95,6 @@ func (c *clientServiceClient) UpdateClient(ctx context.Context, in *UpdateClient
 	return out, nil
 }
 
-func (c *clientServiceClient) ValidateCredentials(ctx context.Context, in *ValidateClientCredentialsRequest, opts ...grpc.CallOption) (*ValidateClientCredentialsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ValidateClientCredentialsResponse)
-	err := c.cc.Invoke(ctx, ClientService_ValidateCredentials_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *clientServiceClient) SetPassword(ctx context.Context, in *SetClientPasswordRequest, opts ...grpc.CallOption) (*SetClientPasswordResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetClientPasswordResponse)
-	err := c.cc.Invoke(ctx, ClientService_SetPassword_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // ClientServiceServer is the server API for ClientService service.
 // All implementations must embed UnimplementedClientServiceServer
 // for forward compatibility.
@@ -128,8 +104,6 @@ type ClientServiceServer interface {
 	GetClientByEmail(context.Context, *GetClientByEmailRequest) (*ClientResponse, error)
 	ListClients(context.Context, *ListClientsRequest) (*ListClientsResponse, error)
 	UpdateClient(context.Context, *UpdateClientRequest) (*ClientResponse, error)
-	ValidateCredentials(context.Context, *ValidateClientCredentialsRequest) (*ValidateClientCredentialsResponse, error)
-	SetPassword(context.Context, *SetClientPasswordRequest) (*SetClientPasswordResponse, error)
 	mustEmbedUnimplementedClientServiceServer()
 }
 
@@ -154,12 +128,6 @@ func (UnimplementedClientServiceServer) ListClients(context.Context, *ListClient
 }
 func (UnimplementedClientServiceServer) UpdateClient(context.Context, *UpdateClientRequest) (*ClientResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateClient not implemented")
-}
-func (UnimplementedClientServiceServer) ValidateCredentials(context.Context, *ValidateClientCredentialsRequest) (*ValidateClientCredentialsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ValidateCredentials not implemented")
-}
-func (UnimplementedClientServiceServer) SetPassword(context.Context, *SetClientPasswordRequest) (*SetClientPasswordResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method SetPassword not implemented")
 }
 func (UnimplementedClientServiceServer) mustEmbedUnimplementedClientServiceServer() {}
 func (UnimplementedClientServiceServer) testEmbeddedByValue()                       {}
@@ -272,42 +240,6 @@ func _ClientService_UpdateClient_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ClientService_ValidateCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ValidateClientCredentialsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ClientServiceServer).ValidateCredentials(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ClientService_ValidateCredentials_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClientServiceServer).ValidateCredentials(ctx, req.(*ValidateClientCredentialsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _ClientService_SetPassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetClientPasswordRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ClientServiceServer).SetPassword(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ClientService_SetPassword_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ClientServiceServer).SetPassword(ctx, req.(*SetClientPasswordRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // ClientService_ServiceDesc is the grpc.ServiceDesc for ClientService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -334,14 +266,6 @@ var ClientService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateClient",
 			Handler:    _ClientService_UpdateClient_Handler,
-		},
-		{
-			MethodName: "ValidateCredentials",
-			Handler:    _ClientService_ValidateCredentials_Handler,
-		},
-		{
-			MethodName: "SetPassword",
-			Handler:    _ClientService_SetPassword_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -77,6 +77,18 @@ func (r *AccountRepository) ListAll(nameFilter, numberFilter, typeFilter string,
 	return accounts, total, nil
 }
 
+func (r *AccountRepository) ExistsByNameAndOwner(name string, ownerID uint64, excludeID uint64) (bool, error) {
+	var count int64
+	query := r.db.Model(&model.Account{}).Where("account_name = ? AND owner_id = ?", name, ownerID)
+	if excludeID > 0 {
+		query = query.Where("id != ?", excludeID)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (r *AccountRepository) UpdateName(id, clientID uint64, newName string) error {
 	result := r.db.Model(&model.Account{}).Where("id = ? AND owner_id = ?", id, clientID).Update("account_name", newName)
 	if result.Error != nil {
@@ -131,6 +143,22 @@ func (r *AccountRepository) SoftDelete(id uint64) error {
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+func (r *AccountRepository) ResetDailySpending() error {
+	return r.db.Model(&model.Account{}).Where("status = ?", "active").
+		Update("daily_spending", 0).Error
+}
+
+func (r *AccountRepository) ResetMonthlySpending() error {
+	return r.db.Model(&model.Account{}).Where("status = ?", "active").
+		Update("monthly_spending", 0).Error
+}
+
+func (r *AccountRepository) ListActiveAccountsWithMaintenanceFee() ([]model.Account, error) {
+	var accounts []model.Account
+	err := r.db.Where("status = ? AND maintenance_fee > 0 AND is_bank_account = ?", "active", false).Find(&accounts).Error
+	return accounts, err
 }
 
 func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {

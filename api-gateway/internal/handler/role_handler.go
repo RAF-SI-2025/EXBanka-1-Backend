@@ -215,7 +215,7 @@ func (h *RoleHandler) SetEmployeeRoles(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, employeeToJSON(resp))
+	c.JSON(http.StatusOK, employeeToJSONWithActive(resp, false))
 }
 
 type setEmployeePermissionsRequest struct {
@@ -257,7 +257,7 @@ func (h *RoleHandler) SetEmployeeAdditionalPermissions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, employeeToJSON(resp))
+	c.JSON(http.StatusOK, employeeToJSONWithActive(resp, false))
 }
 
 func roleToJSON(r *userpb.RoleResponse) gin.H {

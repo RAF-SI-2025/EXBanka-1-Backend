@@ -18,6 +18,7 @@ import (
 	clientpb "github.com/exbanka/contract/clientpb"
 	pb "github.com/exbanka/contract/creditpb"
 	shared "github.com/exbanka/contract/shared"
+	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/credit-service/internal/cache"
 	"github.com/exbanka/credit-service/internal/config"
 	"github.com/exbanka/credit-service/internal/handler"
@@ -34,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}); err != nil {
+	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -49,6 +50,8 @@ func main() {
 		"credit.loan-rejected",
 		"credit.installment-collected",
 		"credit.installment-failed",
+		"credit.variable-rate-adjusted",
+		"credit.late-penalty-applied",
 		"notification.send-email",
 	)
 
@@ -78,6 +81,14 @@ func main() {
 	defer clientConn.Close()
 	clientClient := clientpb.NewClientServiceClient(clientConn)
 
+	// Connect to user-service for employee limit checks
+	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to user service: %v", err)
+	}
+	defer userConn.Close()
+	limitClient := userpb.NewEmployeeLimitServiceClient(userConn)
+
 	// Fetch the bank's RSD account number at startup (non-fatal if unavailable)
 	var bankRSDAccount string
 	bankRSDResp, bankRSDErr := bankAccountClient.GetBankRSDAccount(context.Background(), &accountpb.GetBankRSDAccountRequest{})
@@ -91,8 +102,15 @@ func main() {
 	loanRequestRepo := repository.NewLoanRequestRepository(db)
 	loanRepo := repository.NewLoanRepository(db)
 	installmentRepo := repository.NewInstallmentRepository(db)
+	tierRepo := repository.NewInterestRateTierRepository(db)
+	marginRepo := repository.NewBankMarginRepository(db)
 
-	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo)
+	rateConfigSvc := service.NewRateConfigService(tierRepo, marginRepo)
+	if err := rateConfigSvc.SeedDefaults(); err != nil {
+		log.Fatalf("failed to seed interest rate config: %v", err)
+	}
+
+	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc)
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
 	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount)
@@ -101,7 +119,7 @@ func main() {
 	defer cancel()
 	go cronSvc.Start(ctx)
 
-	grpcHandler := handler.NewCreditGRPCHandler(loanRequestSvc, loanSvc, installmentSvc, producer)
+	grpcHandler := handler.NewCreditGRPCHandler(loanRequestSvc, loanSvc, installmentSvc, rateConfigSvc, loanRepo, installmentRepo, producer)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

@@ -62,15 +62,6 @@ func (s *PaymentService) publishPaymentFailed(ctx context.Context, payment *mode
 	}
 }
 
-// CalculatePaymentCommission returns 0.1% commission for amounts >= 1000, else 0.
-func CalculatePaymentCommission(amount decimal.Decimal) decimal.Decimal {
-	threshold := decimal.NewFromInt(1000)
-	if amount.GreaterThanOrEqual(threshold) {
-		return amount.Mul(decimal.NewFromFloat(0.001)) // 0.1%
-	}
-	return decimal.Zero
-}
-
 func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payment) error {
 	// 1. Idempotency check: return existing payment if key already used
 	if payment.IdempotencyKey != "" {
@@ -80,13 +71,13 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			return nil
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("idempotency check failed: %w", err)
+			return fmt.Errorf("idempotency check failed for key %q: %w", payment.IdempotencyKey, err)
 		}
 	}
 
 	// 2. Validate amount is positive
 	if payment.InitialAmount.IsNegative() || payment.InitialAmount.IsZero() {
-		return errors.New("payment amount must be positive")
+		return fmt.Errorf("payment amount must be positive, got %s", payment.InitialAmount.StringFixed(4))
 	}
 
 	currency := payment.CurrencyCode
@@ -95,20 +86,96 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 	}
 	commission, err := s.feeSvc.CalculateFee(payment.InitialAmount, "payment", currency)
 	if err != nil {
-		return fmt.Errorf("fee calculation failed: %w", err)
+		return fmt.Errorf("fee calculation failed for payment of %s %s from account %s: %w",
+			payment.InitialAmount.StringFixed(4), currency, payment.FromAccountNumber, err)
 	}
 	payment.Commission = commission
 	payment.FinalAmount = payment.InitialAmount.Add(payment.Commission)
-	payment.Status = "processing"
 	payment.Timestamp = time.Now()
-
-	if err := s.paymentRepo.Create(payment); err != nil {
-		return err
-	}
 
 	totalDebit := payment.FinalAmount
 
-	// 3. Spending limit enforcement
+	// 3. Client ownership validation: payments must be between accounts of different clients
+	if s.accountClient != nil {
+		var fromAccount, toAccount *accountpb.AccountResponse
+		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+			var e error
+			fromAccount, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+				AccountNumber: payment.FromAccountNumber,
+			})
+			return e
+		}); err != nil {
+			return fmt.Errorf("failed to fetch sender account %s: %w", payment.FromAccountNumber, err)
+		}
+		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+			var e error
+			toAccount, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+				AccountNumber: payment.ToAccountNumber,
+			})
+			return e
+		}); err != nil {
+			return fmt.Errorf("failed to fetch recipient account %s: %w", payment.ToAccountNumber, err)
+		}
+		if fromAccount.OwnerId == toAccount.OwnerId {
+			return fmt.Errorf("payments must be between accounts of different clients; use transfers for same-client transactions")
+		}
+
+		// 4. Spending limit pre-check
+		dailyLimit, _ := decimal.NewFromString(fromAccount.GetDailyLimit())
+		monthlyLimit, _ := decimal.NewFromString(fromAccount.GetMonthlyLimit())
+		dailySpending, _ := decimal.NewFromString(fromAccount.GetDailySpending())
+		monthlySpending, _ := decimal.NewFromString(fromAccount.GetMonthlySpending())
+
+		if !dailyLimit.IsZero() && dailySpending.Add(totalDebit).GreaterThan(dailyLimit) {
+			return fmt.Errorf("limit_exceeded: daily spending limit would be exceeded on account %s: current daily spending %s, attempted %s, daily limit %s",
+				payment.FromAccountNumber, dailySpending.StringFixed(4), totalDebit.StringFixed(4), dailyLimit.StringFixed(4))
+		}
+		if !monthlyLimit.IsZero() && monthlySpending.Add(totalDebit).GreaterThan(monthlyLimit) {
+			return fmt.Errorf("limit_exceeded: monthly spending limit would be exceeded on account %s: current monthly spending %s, attempted %s, monthly limit %s",
+				payment.FromAccountNumber, monthlySpending.StringFixed(4), totalDebit.StringFixed(4), monthlyLimit.StringFixed(4))
+		}
+	}
+
+	// 5. Save payment in pending_verification status (no balance changes yet)
+	payment.Status = "pending_verification"
+	if err := s.paymentRepo.Create(payment); err != nil {
+		return fmt.Errorf("failed to persist payment from %s to %s: %w",
+			payment.FromAccountNumber, payment.ToAccountNumber, err)
+	}
+
+	return nil
+}
+
+// ExecutePayment performs the actual balance changes for a payment that has been verified.
+// The payment must be in "pending_verification" status.
+func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) error {
+	payment, err := s.paymentRepo.GetByID(paymentID)
+	if err != nil {
+		return fmt.Errorf("payment not found: %w", err)
+	}
+
+	// Idempotency: if already completed, nothing to do
+	if payment.Status == "completed" {
+		return nil
+	}
+
+	if payment.Status != "pending_verification" {
+		return fmt.Errorf("payment %d is in status %q, expected pending_verification", paymentID, payment.Status)
+	}
+
+	// Mark as processing
+	if err := s.paymentRepo.UpdateStatus(payment.ID, "processing"); err != nil {
+		return fmt.Errorf("failed to mark payment %d as processing: %w", payment.ID, err)
+	}
+	payment.Status = "processing"
+
+	currency := payment.CurrencyCode
+	if currency == "" {
+		currency = "RSD"
+	}
+	totalDebit := payment.FinalAmount
+
+	// Re-check spending limits at execution time
 	if s.accountClient != nil {
 		var acctResp *accountpb.AccountResponse
 		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
@@ -124,75 +191,74 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			monthlySpending, _ := decimal.NewFromString(acctResp.GetMonthlySpending())
 
 			if !dailyLimit.IsZero() && dailySpending.Add(totalDebit).GreaterThan(dailyLimit) {
-				reason := "limit_exceeded: daily spending limit would be exceeded"
+				reason := fmt.Sprintf("limit_exceeded: daily spending limit would be exceeded on account %s: current daily spending %s, attempted %s, daily limit %s",
+					payment.FromAccountNumber, dailySpending.StringFixed(4), totalDebit.StringFixed(4), dailyLimit.StringFixed(4))
 				_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
-				payment.Status = "failed"
-				payment.FailureReason = reason
 				s.publishPaymentFailed(ctx, payment, reason)
 				return errors.New(reason)
 			}
 			if !monthlyLimit.IsZero() && monthlySpending.Add(totalDebit).GreaterThan(monthlyLimit) {
-				reason := "limit_exceeded: monthly spending limit would be exceeded"
+				reason := fmt.Sprintf("limit_exceeded: monthly spending limit would be exceeded on account %s: current monthly spending %s, attempted %s, monthly limit %s",
+					payment.FromAccountNumber, monthlySpending.StringFixed(4), totalDebit.StringFixed(4), monthlyLimit.StringFixed(4))
 				_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
-				payment.Status = "failed"
-				payment.FailureReason = reason
 				s.publishPaymentFailed(ctx, payment, reason)
 				return errors.New(reason)
 			}
 		}
 	}
 
-	// 4. Debit sender account
+	// Debit sender account
 	if s.accountClient != nil {
 		debitAmt := totalDebit.Neg().StringFixed(4)
 		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
 			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-				AccountNumber: payment.FromAccountNumber,
-				Amount:        debitAmt,
+				AccountNumber:   payment.FromAccountNumber,
+				Amount:          debitAmt,
 				UpdateAvailable: true,
 			})
 			return e
 		}); err != nil {
-			reason := fmt.Sprintf("debit failed: %v", err)
+			reason := fmt.Sprintf("debit failed on account %s for amount %s %s: %v",
+				payment.FromAccountNumber, totalDebit.StringFixed(4), currency, err)
 			_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
-			payment.Status = "failed"
-			payment.FailureReason = reason
 			s.publishPaymentFailed(ctx, payment, reason)
-			return fmt.Errorf("failed to debit sender account: %w", err)
+			return fmt.Errorf("failed to debit sender account %s for %s %s: %w",
+				payment.FromAccountNumber, totalDebit.StringFixed(4), currency, err)
 		}
 	}
 
-	// 5. Credit recipient account
+	// Credit recipient account
 	if s.accountClient != nil {
 		creditAmt := payment.InitialAmount.StringFixed(4)
 		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
 			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-				AccountNumber: payment.ToAccountNumber,
-				Amount:        creditAmt,
+				AccountNumber:   payment.ToAccountNumber,
+				Amount:          creditAmt,
 				UpdateAvailable: true,
 			})
 			return e
 		}); err != nil {
-			// 6. Compensating transaction: reverse the debit
+			// Compensating transaction: reverse the debit
 			reverseAmt := totalDebit.StringFixed(4)
 			_ = shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
 				_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-					AccountNumber: payment.FromAccountNumber,
-					Amount:        reverseAmt,
+					AccountNumber:   payment.FromAccountNumber,
+					Amount:          reverseAmt,
 					UpdateAvailable: true,
 				})
 				return e
 			})
-			reason := fmt.Sprintf("credit failed (debit reversed): %v", err)
+			reason := fmt.Sprintf("credit failed on recipient account %s for amount %s %s (debit of %s on %s reversed): %v",
+				payment.ToAccountNumber, payment.InitialAmount.StringFixed(4), currency,
+				totalDebit.StringFixed(4), payment.FromAccountNumber, err)
 			_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
-			payment.Status = "failed"
-			payment.FailureReason = reason
 			s.publishPaymentFailed(ctx, payment, reason)
-			return fmt.Errorf("failed to credit recipient account: %w", err)
+			return fmt.Errorf("failed to credit recipient account %s for %s %s: %w",
+				payment.ToAccountNumber, payment.InitialAmount.StringFixed(4), currency, err)
 		}
 	}
 
-	// 6. Credit commission to bank's own RSD account (best-effort)
+	// Credit commission to bank's own RSD account (best-effort)
 	if s.bankRSDAccount != "" && payment.Commission.IsPositive() {
 		commissionAmt := payment.Commission.StringFixed(4)
 		_ = shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
@@ -205,11 +271,12 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 		})
 	}
 
-	// 7. Mark payment completed
+	// Mark payment completed
 	now := time.Now()
 	payment.CompletedAt = &now
 	if err := s.paymentRepo.UpdateStatus(payment.ID, "completed"); err != nil {
-		return err
+		return fmt.Errorf("failed to mark payment %d as completed (from %s to %s): %w",
+			payment.ID, payment.FromAccountNumber, payment.ToAccountNumber, err)
 	}
 	payment.Status = "completed"
 	return nil

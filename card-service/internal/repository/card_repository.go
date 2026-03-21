@@ -64,3 +64,15 @@ func (r *CardRepository) FindExpiredVirtual(now time.Time) ([]model.Card, error)
 	err := r.db.Where("is_virtual = ? AND status = ? AND expires_at <= ?", true, "active", now).Find(&cards).Error
 	return cards, err
 }
+
+func (r *CardRepository) CountByAccount(accountNumber string) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.Card{}).Where("account_number = ? AND status != ?", accountNumber, "deactivated").Count(&count).Error
+	return count, err
+}
+
+func (r *CardRepository) CountByAccountAndOwner(accountNumber string, ownerID uint64) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.Card{}).Where("account_number = ? AND owner_id = ? AND status != ?", accountNumber, ownerID, "deactivated").Count(&count).Error
+	return count, err
+}

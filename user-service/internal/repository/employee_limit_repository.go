@@ -42,6 +42,14 @@ func (r *EmployeeLimitRepository) Delete(employeeID int64) error {
 	return r.db.Where("employee_id = ?", employeeID).Delete(&model.EmployeeLimit{}).Error
 }
 
+// ResetDailyUsedLimits resets all per-employee daily usage counters to zero.
+// The EmployeeLimit model currently tracks only maximum limits and has no daily usage
+// fields; this method is a no-op placeholder that satisfies the interface and is ready
+// for when daily usage tracking fields are added to the model.
+func (r *EmployeeLimitRepository) ResetDailyUsedLimits() error {
+	return nil
+}
+
 // Upsert creates or updates the limit record based on employee_id.
 func (r *EmployeeLimitRepository) Upsert(limit *model.EmployeeLimit) error {
 	var existing model.EmployeeLimit

@@ -7,12 +7,15 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/accountpb"
+	clientpb "github.com/exbanka/contract/clientpb"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/account-service/internal/cache"
 	"github.com/exbanka/account-service/internal/config"
@@ -21,6 +24,7 @@ import (
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -45,6 +49,10 @@ func main() {
 	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
 		"account.created",
 		"account.status-changed",
+		"account.name-updated",
+		"account.limits-updated",
+		"account.maintenance-charged",
+		"account.spending-reset",
 		"notification.send-email",
 	)
 
@@ -57,6 +65,17 @@ func main() {
 		defer redisCache.Close()
 	}
 
+	// Connect to client-service for email lookup on account creation.
+	clientConn, clientConnErr := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if clientConnErr != nil {
+		log.Printf("warn: failed to connect to client service: %v", clientConnErr)
+	}
+	var clientClient clientpb.ClientServiceClient
+	if clientConn != nil {
+		defer clientConn.Close()
+		clientClient = clientpb.NewClientServiceClient(clientConn)
+	}
+
 	accountRepo := repository.NewAccountRepository(db)
 	companyRepo := repository.NewCompanyRepository(db)
 	currencyRepo := repository.NewCurrencyRepository(db)
@@ -67,19 +86,81 @@ func main() {
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
 
-	// Seed bank accounts if none exist
+	spendingCron := service.NewSpendingCronService(accountRepo)
+	spendingCron.Start()
+
+	maintenanceCron := service.NewMaintenanceCronService(accountRepo)
+	maintenanceCron.Start()
+
+	// Seed bank accounts for all supported currencies (idempotent)
 	bankAccounts, _ := accountService.ListBankAccounts()
-	if len(bankAccounts) == 0 {
-		if _, err := accountService.CreateBankAccount("RSD", "current", "EX Banka RSD Account"); err != nil {
-			log.Printf("warn: failed to seed bank RSD account: %v", err)
+	existingCurrencies := make(map[string]bool)
+	for _, a := range bankAccounts {
+		existingCurrencies[a.CurrencyCode] = true
+	}
+	seedCurrencies := []struct {
+		Code string
+		Kind string
+		Name string
+	}{
+		{"RSD", "current", "EX Banka RSD Account"},
+		{"EUR", "foreign", "EX Banka EUR Account"},
+		{"CHF", "foreign", "EX Banka CHF Account"},
+		{"USD", "foreign", "EX Banka USD Account"},
+		{"GBP", "foreign", "EX Banka GBP Account"},
+		{"JPY", "foreign", "EX Banka JPY Account"},
+		{"CAD", "foreign", "EX Banka CAD Account"},
+		{"AUD", "foreign", "EX Banka AUD Account"},
+	}
+	for _, c := range seedCurrencies {
+		if existingCurrencies[c.Code] {
+			continue
 		}
-		if _, err := accountService.CreateBankAccount("EUR", "foreign", "EX Banka EUR Account"); err != nil {
-			log.Printf("warn: failed to seed bank EUR account: %v", err)
+		if _, err := accountService.CreateBankAccount(c.Code, c.Kind, c.Name); err != nil {
+			log.Printf("warn: failed to seed bank %s account: %v", c.Code, err)
+		} else {
+			log.Printf("Seeded bank %s account", c.Code)
 		}
-		log.Println("Seeded bank accounts")
 	}
 
-	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer)
+	// Seed State (Government) entity - one RSD account for tax collection (idempotent)
+	if _, err := companyService.GetByOwnerID(service.StateOwnerID); err != nil {
+		stateCompany := &model.Company{
+			CompanyName:        "Republika Srbija",
+			RegistrationNumber: "00000001",
+			TaxNumber:          "000000001",
+			ActivityCode:       "84.11",
+			Address:            "Beograd, Srbija",
+			OwnerID:            service.StateOwnerID,
+		}
+		if err := companyService.Create(stateCompany); err != nil {
+			log.Printf("warn: failed to seed state company: %v", err)
+		} else {
+			log.Println("Seeded state company: Republika Srbija")
+
+			stateAccount := &model.Account{
+				AccountName:    "Državni račun za poreze",
+				OwnerID:        service.StateOwnerID,
+				OwnerName:      "Republika Srbija",
+				CurrencyCode:   "RSD",
+				Status:         "active",
+				AccountKind:    "current",
+				AccountType:    "standard",
+				IsBankAccount:  false,
+				AccountNumber:  service.GenerateAccountNumber("current"),
+				ExpiresAt:      time.Now().AddDate(50, 0, 0),
+				MaintenanceFee: decimal.Zero,
+				CompanyID:      &stateCompany.ID,
+			}
+			if err := accountRepo.Create(stateAccount); err != nil {
+				log.Printf("warn: failed to seed state RSD account: %v", err)
+			} else {
+				log.Println("Seeded state RSD account")
+			}
+		}
+	}
+
+	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer, clientClient)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)

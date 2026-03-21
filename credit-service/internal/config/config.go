@@ -15,6 +15,7 @@ type Config struct {
 	RedisAddr       string
 	AccountGRPCAddr string
 	ClientGRPCAddr  string
+	UserGRPCAddr    string
 }
 
 func Load() *Config {
@@ -29,6 +30,7 @@ func Load() *Config {
 		RedisAddr:       getEnv("REDIS_ADDR", "localhost:6379"),
 		AccountGRPCAddr: getEnv("ACCOUNT_GRPC_ADDR", "localhost:50055"),
 		ClientGRPCAddr:  getEnv("CLIENT_GRPC_ADDR", "localhost:50054"),
+		UserGRPCAddr:    getEnv("USER_GRPC_ADDR", "localhost:50052"),
 	}
 }
 

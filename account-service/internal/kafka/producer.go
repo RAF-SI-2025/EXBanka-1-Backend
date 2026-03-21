@@ -60,6 +60,50 @@ func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage)
 	})
 }
 
+func (p *Producer) PublishAccountNameUpdated(ctx context.Context, msg kafkamsg.AccountNameUpdatedMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return p.writer.WriteMessages(ctx, kafkago.Message{
+		Topic: kafkamsg.TopicAccountNameUpdated,
+		Value: data,
+	})
+}
+
+func (p *Producer) PublishAccountLimitsUpdated(ctx context.Context, msg kafkamsg.AccountLimitsUpdatedMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return p.writer.WriteMessages(ctx, kafkago.Message{
+		Topic: kafkamsg.TopicAccountLimitsUpdated,
+		Value: data,
+	})
+}
+
+func (p *Producer) PublishMaintenanceFeeCharged(ctx context.Context, msg kafkamsg.MaintenanceFeeChargedMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return p.writer.WriteMessages(ctx, kafkago.Message{
+		Topic: kafkamsg.TopicMaintenanceFeeCharged,
+		Value: data,
+	})
+}
+
+func (p *Producer) PublishSpendingReset(ctx context.Context, msg kafkamsg.SpendingResetMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return p.writer.WriteMessages(ctx, kafkago.Message{
+		Topic: kafkamsg.TopicSpendingReset,
+		Value: data,
+	})
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

@@ -85,6 +85,9 @@ func main() {
 		log.Fatalf("failed to seed default limit templates: %v", err)
 	}
 
+	limitCron := service.NewLimitCronService(employeeLimitRepo)
+	limitCron.Start()
+
 	if err := seedAdminUser(repo, roleSvc); err != nil {
 		log.Printf("warn: seed admin user: %v", err)
 	}
@@ -127,32 +130,19 @@ func seedAdminUser(repo *repository.EmployeeRepository, roleSvc *service.RoleSer
 		return nil
 	}
 
-	adminPassword := os.Getenv("ADMIN_SEED_PASSWORD")
-	if adminPassword == "" {
-		adminPassword = "AdminAdmin2026.!" // fallback for local dev only
-	}
-	hash, err := service.HashPassword(adminPassword)
-	if err != nil {
-		return fmt.Errorf("failed to hash admin password: %w", err)
-	}
-
 	admin := &model.Employee{
-		FirstName:    "System",
-		LastName:     "Admin",
-		DateOfBirth:  time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC),
-		Gender:       "other",
-		Email:        "admin@exbanka.com",
-		Phone:        "+381000000000",
-		Address:      "System Account",
-		JMBG:         "0101990000000",
-		Username:     "admin",
-		PasswordHash: hash,
-		Salt:         "system-seed",
-		Position:     "System Administrator",
-		Department:   "IT",
-		Active:       true,
-		Role:         "EmployeeAdmin",
-		Activated:    true,
+		FirstName:   "System",
+		LastName:    "Admin",
+		DateOfBirth: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC),
+		Gender:      "other",
+		Email:       "admin@exbanka.com",
+		Phone:       "+381000000000",
+		Address:     "System Account",
+		JMBG:        "0101990000000",
+		Username:    "admin",
+		Position:    "System Administrator",
+		Department:  "IT",
+		Role:        "EmployeeAdmin",
 	}
 	if err := repo.Create(admin); err != nil {
 		return err

@@ -47,6 +47,10 @@ func (m *mockEmployeeLimitRepo) Upsert(limit *model.EmployeeLimit) error {
 	return nil
 }
 
+func (m *mockEmployeeLimitRepo) ResetDailyUsedLimits() error {
+	return nil
+}
+
 type mockLimitTemplateRepo struct {
 	templates map[string]*model.LimitTemplate
 	nextID    int64

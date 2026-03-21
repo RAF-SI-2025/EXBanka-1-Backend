@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,6 +15,30 @@ import (
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/client-service/internal/service"
 )
+
+// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
+func mapServiceError(err error) codes.Code {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "not found"):
+		return codes.NotFound
+	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"),
+		strings.Contains(msg, "must have"), strings.Contains(msg, "must contain"):
+		return codes.InvalidArgument
+	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
+		return codes.AlreadyExists
+	case strings.Contains(msg, "exceeds"), strings.Contains(msg, "insufficient funds"),
+		strings.Contains(msg, "limit exceeded"), strings.Contains(msg, "spending limit"):
+		return codes.FailedPrecondition
+	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
+		strings.Contains(msg, "failed attempts"):
+		return codes.ResourceExhausted
+	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
+		return codes.PermissionDenied
+	default:
+		return codes.Internal
+	}
+}
 
 type ClientGRPCHandler struct {
 	pb.UnimplementedClientServiceServer
@@ -41,7 +66,7 @@ func (h *ClientGRPCHandler) CreateClient(ctx context.Context, req *pb.CreateClie
 	}
 
 	if err := h.clientService.CreateClient(ctx, client); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create client: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to create client: %v", err)
 	}
 
 	// Publish Kafka event
@@ -61,7 +86,7 @@ func (h *ClientGRPCHandler) GetClient(ctx context.Context, req *pb.GetClientRequ
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "client not found")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to get client: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to get client: %v", err)
 	}
 	return toClientResponse(client), nil
 }
@@ -72,7 +97,7 @@ func (h *ClientGRPCHandler) GetClientByEmail(ctx context.Context, req *pb.GetCli
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "client not found")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to get client: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to get client: %v", err)
 	}
 	return toClientResponse(client), nil
 }
@@ -83,7 +108,7 @@ func (h *ClientGRPCHandler) ListClients(ctx context.Context, req *pb.ListClients
 		int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list clients: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to list clients: %v", err)
 	}
 
 	resp := &pb.ListClientsResponse{Total: total}
@@ -123,7 +148,7 @@ func (h *ClientGRPCHandler) UpdateClient(ctx context.Context, req *pb.UpdateClie
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "client not found")
 		}
-		return nil, status.Errorf(codes.Internal, "failed to update client: %v", err)
+		return nil, status.Errorf(mapServiceError(err), "failed to update client: %v", err)
 	}
 
 	// Publish Kafka event
@@ -137,26 +162,6 @@ func (h *ClientGRPCHandler) UpdateClient(ctx context.Context, req *pb.UpdateClie
 	return toClientResponse(client), nil
 }
 
-func (h *ClientGRPCHandler) ValidateCredentials(ctx context.Context, req *pb.ValidateClientCredentialsRequest) (*pb.ValidateClientCredentialsResponse, error) {
-	client, valid := h.clientService.ValidateCredentials(req.Email, req.Password)
-	if !valid {
-		return &pb.ValidateClientCredentialsResponse{}, nil
-	}
-	return &pb.ValidateClientCredentialsResponse{
-		Id:        client.ID,
-		Email:     client.Email,
-		FirstName: client.FirstName,
-		LastName:  client.LastName,
-	}, nil
-}
-
-func (h *ClientGRPCHandler) SetPassword(ctx context.Context, req *pb.SetClientPasswordRequest) (*pb.SetClientPasswordResponse, error) {
-	if err := h.clientService.SetPassword(req.UserId, req.PasswordHash); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set password: %v", err)
-	}
-	return &pb.SetClientPasswordResponse{Success: true}, nil
-}
-
 func toClientResponse(c *model.Client) *pb.ClientResponse {
 	return &pb.ClientResponse{
 		Id:          c.ID,
@@ -167,8 +172,7 @@ func toClientResponse(c *model.Client) *pb.ClientResponse {
 		Email:       c.Email,
 		Phone:       c.Phone,
 		Address:     c.Address,
-		Jmbg:        c.JMBG,
-		Active:      c.Active,
-		CreatedAt:   c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		Jmbg:      c.JMBG,
+		CreatedAt: c.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 }

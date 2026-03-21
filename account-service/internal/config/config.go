@@ -5,26 +5,28 @@ import (
 )
 
 type Config struct {
-	DBHost       string
-	DBPort       string
-	DBUser       string
-	DBPassword   string
-	DBName       string
-	GRPCAddr     string
-	KafkaBrokers string
-	RedisAddr    string
+	DBHost         string
+	DBPort         string
+	DBUser         string
+	DBPassword     string
+	DBName         string
+	GRPCAddr       string
+	KafkaBrokers   string
+	RedisAddr      string
+	ClientGRPCAddr string
 }
 
 func Load() *Config {
 	return &Config{
-		DBHost:       getEnv("ACCOUNT_DB_HOST", "localhost"),
-		DBPort:       getEnv("ACCOUNT_DB_PORT", "5435"),
-		DBUser:       getEnv("ACCOUNT_DB_USER", "postgres"),
-		DBPassword:   getEnv("ACCOUNT_DB_PASSWORD", "postgres"),
-		DBName:       getEnv("ACCOUNT_DB_NAME", "accountdb"),
-		GRPCAddr:     getEnv("ACCOUNT_GRPC_ADDR", ":50055"),
-		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
-		RedisAddr:    getEnv("REDIS_ADDR", "localhost:6379"),
+		DBHost:         getEnv("ACCOUNT_DB_HOST", "localhost"),
+		DBPort:         getEnv("ACCOUNT_DB_PORT", "5435"),
+		DBUser:         getEnv("ACCOUNT_DB_USER", "postgres"),
+		DBPassword:     getEnv("ACCOUNT_DB_PASSWORD", "postgres"),
+		DBName:         getEnv("ACCOUNT_DB_NAME", "accountdb"),
+		GRPCAddr:       getEnv("ACCOUNT_GRPC_ADDR", ":50055"),
+		KafkaBrokers:   getEnv("KAFKA_BROKERS", "localhost:9092"),
+		RedisAddr:      getEnv("REDIS_ADDR", "localhost:6379"),
+		ClientGRPCAddr: getEnv("CLIENT_GRPC_ADDR", "localhost:50054"),
 	}
 }
 

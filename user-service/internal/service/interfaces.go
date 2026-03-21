@@ -9,7 +9,6 @@ type EmployeeRepo interface {
 	GetByEmail(email string) (*model.Employee, error)
 	GetByJMBG(jmbg string) (*model.Employee, error)
 	Update(emp *model.Employee) error
-	SetPassword(userID int64, passwordHash string) error
 	List(emailFilter, nameFilter, positionFilter string, page, pageSize int) ([]model.Employee, int64, error)
 	GetByIDWithRoles(id int64) (*model.Employee, error)
 	GetByEmailWithRoles(email string) (*model.Employee, error)
@@ -44,6 +43,7 @@ type EmployeeLimitRepo interface {
 	Update(limit *model.EmployeeLimit) error
 	Delete(employeeID int64) error
 	Upsert(limit *model.EmployeeLimit) error
+	ResetDailyUsedLimits() error
 }
 
 type LimitTemplateRepo interface {

@@ -45,7 +45,7 @@ func (c *ClientConsumer) Start(ctx context.Context) {
 				continue
 			}
 
-			if err := c.authSvc.CreateActivationToken(ctx, int64(evt.ClientID), evt.Email, evt.FirstName, "client"); err != nil {
+			if err := c.authSvc.CreateAccountAndActivationToken(ctx, int64(evt.ClientID), evt.Email, evt.FirstName, "client"); err != nil {
 				log.Printf("failed to create activation token for client %d: %v", evt.ClientID, err)
 			}
 		}

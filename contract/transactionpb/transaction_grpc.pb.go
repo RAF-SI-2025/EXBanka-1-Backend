@@ -20,9 +20,11 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	TransactionService_CreatePayment_FullMethodName            = "/transaction.TransactionService/CreatePayment"
+	TransactionService_ExecutePayment_FullMethodName           = "/transaction.TransactionService/ExecutePayment"
 	TransactionService_GetPayment_FullMethodName               = "/transaction.TransactionService/GetPayment"
 	TransactionService_ListPaymentsByAccount_FullMethodName    = "/transaction.TransactionService/ListPaymentsByAccount"
 	TransactionService_CreateTransfer_FullMethodName           = "/transaction.TransactionService/CreateTransfer"
+	TransactionService_ExecuteTransfer_FullMethodName          = "/transaction.TransactionService/ExecuteTransfer"
 	TransactionService_GetTransfer_FullMethodName              = "/transaction.TransactionService/GetTransfer"
 	TransactionService_ListTransfersByClient_FullMethodName    = "/transaction.TransactionService/ListTransfersByClient"
 	TransactionService_CreatePaymentRecipient_FullMethodName   = "/transaction.TransactionService/CreatePaymentRecipient"
@@ -40,9 +42,11 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TransactionServiceClient interface {
 	CreatePayment(ctx context.Context, in *CreatePaymentRequest, opts ...grpc.CallOption) (*PaymentResponse, error)
+	ExecutePayment(ctx context.Context, in *ExecutePaymentRequest, opts ...grpc.CallOption) (*PaymentResponse, error)
 	GetPayment(ctx context.Context, in *GetPaymentRequest, opts ...grpc.CallOption) (*PaymentResponse, error)
 	ListPaymentsByAccount(ctx context.Context, in *ListPaymentsByAccountRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error)
 	CreateTransfer(ctx context.Context, in *CreateTransferRequest, opts ...grpc.CallOption) (*TransferResponse, error)
+	ExecuteTransfer(ctx context.Context, in *ExecuteTransferRequest, opts ...grpc.CallOption) (*TransferResponse, error)
 	GetTransfer(ctx context.Context, in *GetTransferRequest, opts ...grpc.CallOption) (*TransferResponse, error)
 	ListTransfersByClient(ctx context.Context, in *ListTransfersByClientRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error)
 	CreatePaymentRecipient(ctx context.Context, in *CreatePaymentRecipientRequest, opts ...grpc.CallOption) (*PaymentRecipientResponse, error)
@@ -73,6 +77,16 @@ func (c *transactionServiceClient) CreatePayment(ctx context.Context, in *Create
 	return out, nil
 }
 
+func (c *transactionServiceClient) ExecutePayment(ctx context.Context, in *ExecutePaymentRequest, opts ...grpc.CallOption) (*PaymentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaymentResponse)
+	err := c.cc.Invoke(ctx, TransactionService_ExecutePayment_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *transactionServiceClient) GetPayment(ctx context.Context, in *GetPaymentRequest, opts ...grpc.CallOption) (*PaymentResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PaymentResponse)
@@ -97,6 +111,16 @@ func (c *transactionServiceClient) CreateTransfer(ctx context.Context, in *Creat
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TransferResponse)
 	err := c.cc.Invoke(ctx, TransactionService_CreateTransfer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *transactionServiceClient) ExecuteTransfer(ctx context.Context, in *ExecuteTransferRequest, opts ...grpc.CallOption) (*TransferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TransferResponse)
+	err := c.cc.Invoke(ctx, TransactionService_ExecuteTransfer_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -208,9 +232,11 @@ func (c *transactionServiceClient) ValidateVerificationCode(ctx context.Context,
 // for forward compatibility.
 type TransactionServiceServer interface {
 	CreatePayment(context.Context, *CreatePaymentRequest) (*PaymentResponse, error)
+	ExecutePayment(context.Context, *ExecutePaymentRequest) (*PaymentResponse, error)
 	GetPayment(context.Context, *GetPaymentRequest) (*PaymentResponse, error)
 	ListPaymentsByAccount(context.Context, *ListPaymentsByAccountRequest) (*ListPaymentsResponse, error)
 	CreateTransfer(context.Context, *CreateTransferRequest) (*TransferResponse, error)
+	ExecuteTransfer(context.Context, *ExecuteTransferRequest) (*TransferResponse, error)
 	GetTransfer(context.Context, *GetTransferRequest) (*TransferResponse, error)
 	ListTransfersByClient(context.Context, *ListTransfersByClientRequest) (*ListTransfersResponse, error)
 	CreatePaymentRecipient(context.Context, *CreatePaymentRecipientRequest) (*PaymentRecipientResponse, error)
@@ -234,6 +260,9 @@ type UnimplementedTransactionServiceServer struct{}
 func (UnimplementedTransactionServiceServer) CreatePayment(context.Context, *CreatePaymentRequest) (*PaymentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreatePayment not implemented")
 }
+func (UnimplementedTransactionServiceServer) ExecutePayment(context.Context, *ExecutePaymentRequest) (*PaymentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExecutePayment not implemented")
+}
 func (UnimplementedTransactionServiceServer) GetPayment(context.Context, *GetPaymentRequest) (*PaymentResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetPayment not implemented")
 }
@@ -242,6 +271,9 @@ func (UnimplementedTransactionServiceServer) ListPaymentsByAccount(context.Conte
 }
 func (UnimplementedTransactionServiceServer) CreateTransfer(context.Context, *CreateTransferRequest) (*TransferResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateTransfer not implemented")
+}
+func (UnimplementedTransactionServiceServer) ExecuteTransfer(context.Context, *ExecuteTransferRequest) (*TransferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExecuteTransfer not implemented")
 }
 func (UnimplementedTransactionServiceServer) GetTransfer(context.Context, *GetTransferRequest) (*TransferResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetTransfer not implemented")
@@ -312,6 +344,24 @@ func _TransactionService_CreatePayment_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TransactionService_ExecutePayment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExecutePaymentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionServiceServer).ExecutePayment(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TransactionService_ExecutePayment_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionServiceServer).ExecutePayment(ctx, req.(*ExecutePaymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TransactionService_GetPayment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetPaymentRequest)
 	if err := dec(in); err != nil {
@@ -362,6 +412,24 @@ func _TransactionService_CreateTransfer_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TransactionServiceServer).CreateTransfer(ctx, req.(*CreateTransferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TransactionService_ExecuteTransfer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExecuteTransferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionServiceServer).ExecuteTransfer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TransactionService_ExecuteTransfer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionServiceServer).ExecuteTransfer(ctx, req.(*ExecuteTransferRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -558,6 +626,10 @@ var TransactionService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TransactionService_CreatePayment_Handler,
 		},
 		{
+			MethodName: "ExecutePayment",
+			Handler:    _TransactionService_ExecutePayment_Handler,
+		},
+		{
 			MethodName: "GetPayment",
 			Handler:    _TransactionService_GetPayment_Handler,
 		},
@@ -568,6 +640,10 @@ var TransactionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateTransfer",
 			Handler:    _TransactionService_CreateTransfer_Handler,
+		},
+		{
+			MethodName: "ExecuteTransfer",
+			Handler:    _TransactionService_ExecuteTransfer_Handler,
 		},
 		{
 			MethodName: "GetTransfer",

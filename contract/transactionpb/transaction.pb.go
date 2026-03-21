@@ -1366,6 +1366,7 @@ type CreateVerificationCodeRequest struct {
 	ClientId        uint64                 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
 	TransactionId   uint64                 `protobuf:"varint,2,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
 	TransactionType string                 `protobuf:"bytes,3,opt,name=transaction_type,json=transactionType,proto3" json:"transaction_type,omitempty"`
+	ClientEmail     string                 `protobuf:"bytes,4,opt,name=client_email,json=clientEmail,proto3" json:"client_email,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1417,6 +1418,13 @@ func (x *CreateVerificationCodeRequest) GetTransactionId() uint64 {
 func (x *CreateVerificationCodeRequest) GetTransactionType() string {
 	if x != nil {
 		return x.TransactionType
+	}
+	return ""
+}
+
+func (x *CreateVerificationCodeRequest) GetClientEmail() string {
+	if x != nil {
+		return x.ClientEmail
 	}
 	return ""
 }
@@ -1474,12 +1482,13 @@ func (x *CreateVerificationCodeResponse) GetExpiresAt() int64 {
 }
 
 type ValidateVerificationCodeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ClientId      uint64                 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	TransactionId uint64                 `protobuf:"varint,2,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
-	Code          string                 `protobuf:"bytes,3,opt,name=code,proto3" json:"code,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ClientId        uint64                 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	TransactionId   uint64                 `protobuf:"varint,2,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	Code            string                 `protobuf:"bytes,3,opt,name=code,proto3" json:"code,omitempty"`
+	TransactionType string                 `protobuf:"bytes,4,opt,name=transaction_type,json=transactionType,proto3" json:"transaction_type,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ValidateVerificationCodeRequest) Reset() {
@@ -1529,6 +1538,13 @@ func (x *ValidateVerificationCodeRequest) GetTransactionId() uint64 {
 func (x *ValidateVerificationCodeRequest) GetCode() string {
 	if x != nil {
 		return x.Code
+	}
+	return ""
+}
+
+func (x *ValidateVerificationCodeRequest) GetTransactionType() string {
+	if x != nil {
+		return x.TransactionType
 	}
 	return ""
 }
@@ -1583,6 +1599,126 @@ func (x *ValidateVerificationCodeResponse) GetRemainingAttempts() int32 {
 		return x.RemainingAttempts
 	}
 	return 0
+}
+
+type ExecutePaymentRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PaymentId        uint64                 `protobuf:"varint,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
+	ClientId         uint64                 `protobuf:"varint,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	VerificationCode string                 `protobuf:"bytes,3,opt,name=verification_code,json=verificationCode,proto3" json:"verification_code,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ExecutePaymentRequest) Reset() {
+	*x = ExecutePaymentRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecutePaymentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecutePaymentRequest) ProtoMessage() {}
+
+func (x *ExecutePaymentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecutePaymentRequest.ProtoReflect.Descriptor instead.
+func (*ExecutePaymentRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ExecutePaymentRequest) GetPaymentId() uint64 {
+	if x != nil {
+		return x.PaymentId
+	}
+	return 0
+}
+
+func (x *ExecutePaymentRequest) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
+}
+
+func (x *ExecutePaymentRequest) GetVerificationCode() string {
+	if x != nil {
+		return x.VerificationCode
+	}
+	return ""
+}
+
+type ExecuteTransferRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	TransferId       uint64                 `protobuf:"varint,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	ClientId         uint64                 `protobuf:"varint,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	VerificationCode string                 `protobuf:"bytes,3,opt,name=verification_code,json=verificationCode,proto3" json:"verification_code,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ExecuteTransferRequest) Reset() {
+	*x = ExecuteTransferRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecuteTransferRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecuteTransferRequest) ProtoMessage() {}
+
+func (x *ExecuteTransferRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecuteTransferRequest.ProtoReflect.Descriptor instead.
+func (*ExecuteTransferRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ExecuteTransferRequest) GetTransferId() uint64 {
+	if x != nil {
+		return x.TransferId
+	}
+	return 0
+}
+
+func (x *ExecuteTransferRequest) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
+}
+
+func (x *ExecuteTransferRequest) GetVerificationCode() string {
+	if x != nil {
+		return x.VerificationCode
+	}
+	return ""
 }
 
 var File_transaction_transaction_proto protoreflect.FileDescriptor
@@ -1699,28 +1835,42 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x05 \x01(\tR\tupdatedAt\"T\n" +
 	"\x19ListExchangeRatesResponse\x127\n" +
-	"\x05rates\x18\x01 \x03(\v2!.transaction.ExchangeRateResponseR\x05rates\"\x8e\x01\n" +
+	"\x05rates\x18\x01 \x03(\v2!.transaction.ExchangeRateResponseR\x05rates\"\xb1\x01\n" +
 	"\x1dCreateVerificationCodeRequest\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12%\n" +
 	"\x0etransaction_id\x18\x02 \x01(\x04R\rtransactionId\x12)\n" +
-	"\x10transaction_type\x18\x03 \x01(\tR\x0ftransactionType\"S\n" +
+	"\x10transaction_type\x18\x03 \x01(\tR\x0ftransactionType\x12!\n" +
+	"\fclient_email\x18\x04 \x01(\tR\vclientEmail\"S\n" +
 	"\x1eCreateVerificationCodeResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\x03R\texpiresAt\"y\n" +
+	"expires_at\x18\x02 \x01(\x03R\texpiresAt\"\xa4\x01\n" +
 	"\x1fValidateVerificationCodeRequest\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12%\n" +
 	"\x0etransaction_id\x18\x02 \x01(\x04R\rtransactionId\x12\x12\n" +
-	"\x04code\x18\x03 \x01(\tR\x04code\"g\n" +
+	"\x04code\x18\x03 \x01(\tR\x04code\x12)\n" +
+	"\x10transaction_type\x18\x04 \x01(\tR\x0ftransactionType\"g\n" +
 	" ValidateVerificationCodeResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12-\n" +
-	"\x12remaining_attempts\x18\x02 \x01(\x05R\x11remainingAttempts2\x8d\v\n" +
+	"\x12remaining_attempts\x18\x02 \x01(\x05R\x11remainingAttempts\"\x80\x01\n" +
+	"\x15ExecutePaymentRequest\x12\x1d\n" +
+	"\n" +
+	"payment_id\x18\x01 \x01(\x04R\tpaymentId\x12\x1b\n" +
+	"\tclient_id\x18\x02 \x01(\x04R\bclientId\x12+\n" +
+	"\x11verification_code\x18\x03 \x01(\tR\x10verificationCode\"\x83\x01\n" +
+	"\x16ExecuteTransferRequest\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\x04R\n" +
+	"transferId\x12\x1b\n" +
+	"\tclient_id\x18\x02 \x01(\x04R\bclientId\x12+\n" +
+	"\x11verification_code\x18\x03 \x01(\tR\x10verificationCode2\xb8\f\n" +
 	"\x12TransactionService\x12P\n" +
-	"\rCreatePayment\x12!.transaction.CreatePaymentRequest\x1a\x1c.transaction.PaymentResponse\x12J\n" +
+	"\rCreatePayment\x12!.transaction.CreatePaymentRequest\x1a\x1c.transaction.PaymentResponse\x12R\n" +
+	"\x0eExecutePayment\x12\".transaction.ExecutePaymentRequest\x1a\x1c.transaction.PaymentResponse\x12J\n" +
 	"\n" +
 	"GetPayment\x12\x1e.transaction.GetPaymentRequest\x1a\x1c.transaction.PaymentResponse\x12e\n" +
 	"\x15ListPaymentsByAccount\x12).transaction.ListPaymentsByAccountRequest\x1a!.transaction.ListPaymentsResponse\x12S\n" +
-	"\x0eCreateTransfer\x12\".transaction.CreateTransferRequest\x1a\x1d.transaction.TransferResponse\x12M\n" +
+	"\x0eCreateTransfer\x12\".transaction.CreateTransferRequest\x1a\x1d.transaction.TransferResponse\x12U\n" +
+	"\x0fExecuteTransfer\x12#.transaction.ExecuteTransferRequest\x1a\x1d.transaction.TransferResponse\x12M\n" +
 	"\vGetTransfer\x12\x1f.transaction.GetTransferRequest\x1a\x1d.transaction.TransferResponse\x12f\n" +
 	"\x15ListTransfersByClient\x12).transaction.ListTransfersByClientRequest\x1a\".transaction.ListTransfersResponse\x12k\n" +
 	"\x16CreatePaymentRecipient\x12*.transaction.CreatePaymentRecipientRequest\x1a%.transaction.PaymentRecipientResponse\x12n\n" +
@@ -1744,7 +1894,7 @@ func file_transaction_transaction_proto_rawDescGZIP() []byte {
 	return file_transaction_transaction_proto_rawDescData
 }
 
-var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_transaction_transaction_proto_goTypes = []any{
 	(*CreatePaymentRequest)(nil),             // 0: transaction.CreatePaymentRequest
 	(*GetPaymentRequest)(nil),                // 1: transaction.GetPaymentRequest
@@ -1771,6 +1921,8 @@ var file_transaction_transaction_proto_goTypes = []any{
 	(*CreateVerificationCodeResponse)(nil),   // 22: transaction.CreateVerificationCodeResponse
 	(*ValidateVerificationCodeRequest)(nil),  // 23: transaction.ValidateVerificationCodeRequest
 	(*ValidateVerificationCodeResponse)(nil), // 24: transaction.ValidateVerificationCodeResponse
+	(*ExecutePaymentRequest)(nil),            // 25: transaction.ExecutePaymentRequest
+	(*ExecuteTransferRequest)(nil),           // 26: transaction.ExecuteTransferRequest
 }
 var file_transaction_transaction_proto_depIdxs = []int32{
 	4,  // 0: transaction.ListPaymentsResponse.payments:type_name -> transaction.PaymentResponse
@@ -1778,35 +1930,39 @@ var file_transaction_transaction_proto_depIdxs = []int32{
 	16, // 2: transaction.ListPaymentRecipientsResponse.recipients:type_name -> transaction.PaymentRecipientResponse
 	19, // 3: transaction.ListExchangeRatesResponse.rates:type_name -> transaction.ExchangeRateResponse
 	0,  // 4: transaction.TransactionService.CreatePayment:input_type -> transaction.CreatePaymentRequest
-	1,  // 5: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
-	2,  // 6: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
-	5,  // 7: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
-	6,  // 8: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
-	7,  // 9: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
-	10, // 10: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
-	11, // 11: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
-	13, // 12: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
-	14, // 13: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
-	17, // 14: transaction.TransactionService.GetExchangeRate:input_type -> transaction.GetExchangeRateRequest
-	18, // 15: transaction.TransactionService.ListExchangeRates:input_type -> transaction.ListExchangeRatesRequest
-	21, // 16: transaction.TransactionService.CreateVerificationCode:input_type -> transaction.CreateVerificationCodeRequest
-	23, // 17: transaction.TransactionService.ValidateVerificationCode:input_type -> transaction.ValidateVerificationCodeRequest
-	4,  // 18: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
-	4,  // 19: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
-	3,  // 20: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
-	9,  // 21: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
-	9,  // 22: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
-	8,  // 23: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
-	16, // 24: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	12, // 25: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
-	16, // 26: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	15, // 27: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
-	19, // 28: transaction.TransactionService.GetExchangeRate:output_type -> transaction.ExchangeRateResponse
-	20, // 29: transaction.TransactionService.ListExchangeRates:output_type -> transaction.ListExchangeRatesResponse
-	22, // 30: transaction.TransactionService.CreateVerificationCode:output_type -> transaction.CreateVerificationCodeResponse
-	24, // 31: transaction.TransactionService.ValidateVerificationCode:output_type -> transaction.ValidateVerificationCodeResponse
-	18, // [18:32] is the sub-list for method output_type
-	4,  // [4:18] is the sub-list for method input_type
+	25, // 5: transaction.TransactionService.ExecutePayment:input_type -> transaction.ExecutePaymentRequest
+	1,  // 6: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
+	2,  // 7: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
+	5,  // 8: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
+	26, // 9: transaction.TransactionService.ExecuteTransfer:input_type -> transaction.ExecuteTransferRequest
+	6,  // 10: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
+	7,  // 11: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
+	10, // 12: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
+	11, // 13: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
+	13, // 14: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
+	14, // 15: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
+	17, // 16: transaction.TransactionService.GetExchangeRate:input_type -> transaction.GetExchangeRateRequest
+	18, // 17: transaction.TransactionService.ListExchangeRates:input_type -> transaction.ListExchangeRatesRequest
+	21, // 18: transaction.TransactionService.CreateVerificationCode:input_type -> transaction.CreateVerificationCodeRequest
+	23, // 19: transaction.TransactionService.ValidateVerificationCode:input_type -> transaction.ValidateVerificationCodeRequest
+	4,  // 20: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
+	4,  // 21: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
+	4,  // 22: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
+	3,  // 23: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
+	9,  // 24: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
+	9,  // 25: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
+	9,  // 26: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
+	8,  // 27: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
+	16, // 28: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	12, // 29: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
+	16, // 30: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	15, // 31: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
+	19, // 32: transaction.TransactionService.GetExchangeRate:output_type -> transaction.ExchangeRateResponse
+	20, // 33: transaction.TransactionService.ListExchangeRates:output_type -> transaction.ListExchangeRatesResponse
+	22, // 34: transaction.TransactionService.CreateVerificationCode:output_type -> transaction.CreateVerificationCodeResponse
+	24, // 35: transaction.TransactionService.ValidateVerificationCode:output_type -> transaction.ValidateVerificationCodeResponse
+	20, // [20:36] is the sub-list for method output_type
+	4,  // [4:20] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name
@@ -1824,7 +1980,7 @@ func file_transaction_transaction_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_transaction_transaction_proto_rawDesc), len(file_transaction_transaction_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

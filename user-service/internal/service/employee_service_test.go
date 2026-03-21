@@ -112,16 +112,6 @@ func (m *mockRepo) Update(emp *model.Employee) error {
 	return nil
 }
 
-func (m *mockRepo) SetPassword(userID int64, hash string) error {
-	emp, ok := m.employees[userID]
-	if !ok {
-		return errors.New("not found")
-	}
-	emp.PasswordHash = hash
-	emp.Activated = true
-	return nil
-}
-
 func (m *mockRepo) List(emailFilter, nameFilter, positionFilter string, page, pageSize int) ([]model.Employee, int64, error) {
 	var result []model.Employee
 	for _, emp := range m.employees {
@@ -163,9 +153,6 @@ func TestCreateEmployee_Valid(t *testing.T) {
 	err := svc.CreateEmployee(context.Background(), emp)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), emp.ID)
-	assert.False(t, emp.Activated)
-	assert.Empty(t, emp.PasswordHash)
-	assert.NotEmpty(t, emp.Salt)
 }
 
 func TestCreateEmployee_InvalidRole(t *testing.T) {
@@ -230,55 +217,6 @@ func TestUpdateEmployee_InvalidJMBG(t *testing.T) {
 	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"jmbg": "bad"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "JMBG")
-}
-
-func TestValidateCredentials_Valid(t *testing.T) {
-	hash, _ := HashPassword("ValidPass12")
-	repo := newMockRepo()
-	repo.employees[1] = &model.Employee{
-		ID:           1,
-		Email:        "test@test.com",
-		PasswordHash: hash,
-		Active:       true,
-		Activated:    true,
-	}
-	svc := NewEmployeeService(repo, nil, nil, nil)
-
-	emp, valid := svc.ValidateCredentials("test@test.com", "ValidPass12")
-	assert.True(t, valid)
-	assert.NotNil(t, emp)
-}
-
-func TestValidateCredentials_WrongPassword(t *testing.T) {
-	hash, _ := HashPassword("ValidPass12")
-	repo := newMockRepo()
-	repo.employees[1] = &model.Employee{
-		ID:           1,
-		Email:        "test@test.com",
-		PasswordHash: hash,
-		Active:       true,
-		Activated:    true,
-	}
-	svc := NewEmployeeService(repo, nil, nil, nil)
-
-	_, valid := svc.ValidateCredentials("test@test.com", "WrongPass12")
-	assert.False(t, valid)
-}
-
-func TestValidateCredentials_InactiveUser(t *testing.T) {
-	hash, _ := HashPassword("ValidPass12")
-	repo := newMockRepo()
-	repo.employees[1] = &model.Employee{
-		ID:           1,
-		Email:        "test@test.com",
-		PasswordHash: hash,
-		Active:       false,
-		Activated:    true,
-	}
-	svc := NewEmployeeService(repo, nil, nil, nil)
-
-	_, valid := svc.ValidateCredentials("test@test.com", "ValidPass12")
-	assert.False(t, valid)
 }
 
 func TestSetEmployeeRoles(t *testing.T) {

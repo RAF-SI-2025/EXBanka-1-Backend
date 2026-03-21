@@ -37,11 +37,6 @@ func (r *EmployeeRepository) Update(emp *model.Employee) error {
 	return r.db.Save(emp).Error
 }
 
-func (r *EmployeeRepository) SetPassword(userID int64, passwordHash string) error {
-	return r.db.Model(&model.Employee{}).Where("id = ?", userID).
-		Updates(map[string]interface{}{"password_hash": passwordHash, "activated": true}).Error
-}
-
 func (r *EmployeeRepository) GetByJMBG(jmbg string) (*model.Employee, error) {
 	var emp model.Employee
 	if err := r.db.Where("jmbg = ?", jmbg).First(&emp).Error; err != nil {

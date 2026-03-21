@@ -1,20 +1,23 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	authpb "github.com/exbanka/contract/authpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 )
 
 type ClientHandler struct {
 	clientClient clientpb.ClientServiceClient
+	authClient   authpb.AuthServiceClient
 }
 
-func NewClientHandler(clientClient clientpb.ClientServiceClient) *ClientHandler {
-	return &ClientHandler{clientClient: clientClient}
+func NewClientHandler(clientClient clientpb.ClientServiceClient, authClient authpb.AuthServiceClient) *ClientHandler {
+	return &ClientHandler{clientClient: clientClient, authClient: authClient}
 }
 
 type createClientRequest struct {
@@ -60,7 +63,7 @@ func (h *ClientHandler) CreateClient(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, clientToJSON(resp))
+	c.JSON(http.StatusCreated, clientToJSONWithActive(resp, false))
 }
 
 // @Summary      List clients
@@ -90,9 +93,27 @@ func (h *ClientHandler) ListClients(c *gin.Context) {
 		return
 	}
 
+	ids := make([]int64, 0, len(resp.Clients))
+	for _, cl := range resp.Clients {
+		ids = append(ids, int64(cl.Id))
+	}
+	statusMap := make(map[int64]bool)
+	if len(ids) > 0 {
+		if batchResp, batchErr := h.authClient.GetAccountStatusBatch(c.Request.Context(), &authpb.GetAccountStatusBatchRequest{
+			PrincipalType: "client",
+			PrincipalIds:  ids,
+		}); batchErr == nil {
+			for _, entry := range batchResp.Entries {
+				statusMap[entry.PrincipalId] = entry.Active
+			}
+		} else {
+			log.Printf("WARN: failed to fetch account statuses for clients: %v", batchErr)
+		}
+	}
+
 	clients := make([]gin.H, 0, len(resp.Clients))
 	for _, cl := range resp.Clients {
-		clients = append(clients, clientToJSON(cl))
+		clients = append(clients, clientToJSONWithActive(cl, statusMap[int64(cl.Id)]))
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"clients": clients,
@@ -121,7 +142,17 @@ func (h *ClientHandler) GetClient(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "client not found"})
 		return
 	}
-	c.JSON(http.StatusOK, clientToJSON(resp))
+
+	active := false
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+		PrincipalType: "client",
+		PrincipalId:   int64(id),
+	}); statusErr == nil {
+		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for client %d: %v", id, statusErr)
+	}
+	c.JSON(http.StatusOK, clientToJSONWithActive(resp, active))
 }
 
 type updateClientRequest struct {
@@ -132,6 +163,7 @@ type updateClientRequest struct {
 	Email       *string `json:"email"`
 	Phone       *string `json:"phone"`
 	Address     *string `json:"address"`
+	Active      *bool   `json:"active"`
 }
 
 // @Summary      Update client
@@ -173,7 +205,30 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, clientToJSON(resp))
+
+	if req.Active != nil {
+		_, authErr := h.authClient.SetAccountStatus(c.Request.Context(), &authpb.SetAccountStatusRequest{
+			PrincipalType: "client",
+			PrincipalId:   int64(id),
+			Active:        *req.Active,
+		})
+		if authErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update account status"})
+			return
+		}
+	}
+
+	// Re-fetch active status to return accurate value
+	active := false
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+		PrincipalType: "client",
+		PrincipalId:   int64(id),
+	}); statusErr == nil {
+		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for client %d: %v", id, statusErr)
+	}
+	c.JSON(http.StatusOK, clientToJSONWithActive(resp, active))
 }
 
 // @Summary      Get current client (me)
@@ -191,20 +246,22 @@ func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
 		return
 	}
 
-	id, ok := userID.(uint64)
-	if !ok {
-		// try string conversion
-		idStr, ok2 := userID.(string)
-		if !ok2 {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user_id"})
-			return
-		}
-		parsedID, err := strconv.ParseUint(idStr, 10, 64)
+	var id uint64
+	switch v := userID.(type) {
+	case int64:
+		id = uint64(v)
+	case uint64:
+		id = v
+	case string:
+		parsedID, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user_id"})
 			return
 		}
 		id = parsedID
+	default:
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user_id"})
+		return
 	}
 
 	resp, err := h.clientClient.GetClient(c.Request.Context(), &clientpb.GetClientRequest{Id: id})
@@ -212,44 +269,20 @@ func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "client not found"})
 		return
 	}
-	c.JSON(http.StatusOK, clientToJSON(resp))
-}
 
-type setPasswordRequest struct {
-	UserID       uint64 `json:"user_id" binding:"required"`
-	PasswordHash string `json:"password_hash" binding:"required"`
-}
-
-// @Summary      Set client password hash
-// @Tags         clients
-// @Accept       json
-// @Produce      json
-// @Param        body  body  setPasswordRequest  true  "Password hash data"
-// @Security     BearerAuth
-// @Success      200   {object}  map[string]interface{}
-// @Failure      400   {object}  map[string]string
-// @Failure      401   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /api/clients/set-password [post]
-func (h *ClientHandler) SetPassword(c *gin.Context) {
-	var req setPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	active := false
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+		PrincipalType: "client",
+		PrincipalId:   int64(id),
+	}); statusErr == nil {
+		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for client %d: %v", id, statusErr)
 	}
-
-	_, err := h.clientClient.SetPassword(c.Request.Context(), &clientpb.SetClientPasswordRequest{
-		UserId:       req.UserID,
-		PasswordHash: req.PasswordHash,
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	c.JSON(http.StatusOK, clientToJSONWithActive(resp, active))
 }
 
-func clientToJSON(cl *clientpb.ClientResponse) gin.H {
+func clientToJSONWithActive(cl *clientpb.ClientResponse, active bool) gin.H {
 	return gin.H{
 		"id":            cl.Id,
 		"first_name":    cl.FirstName,
@@ -260,7 +293,7 @@ func clientToJSON(cl *clientpb.ClientResponse) gin.H {
 		"phone":         cl.Phone,
 		"address":       cl.Address,
 		"jmbg":          cl.Jmbg,
-		"active":        cl.Active,
+		"active":        active,
 		"created_at":    cl.CreatedAt,
 	}
 }

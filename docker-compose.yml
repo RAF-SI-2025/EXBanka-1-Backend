@@ -89,7 +89,6 @@ services:
       AUTH_DB_NAME: auth_db
       AUTH_GRPC_ADDR: ":50051"
       USER_GRPC_ADDR: "user-service:50052"
-      CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       JWT_SECRET: docker-test-secret-change-me
       JWT_ACCESS_EXPIRY: 15m
@@ -105,8 +104,6 @@ services:
       kafka:
         condition: service_healthy
       user-service:
-        condition: service_started
-      client-service:
         condition: service_started
       redis:
         condition: service_healthy
@@ -289,6 +286,7 @@ services:
       ACCOUNT_DB_PASSWORD: postgres
       ACCOUNT_DB_NAME: accountdb
       ACCOUNT_GRPC_ADDR: ":50055"
+      CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
     ports:
@@ -300,6 +298,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      client-service:
+        condition: service_started
 
   card-service:
     build:
@@ -366,6 +366,7 @@ services:
       CREDIT_GRPC_ADDR: ":50058"
       ACCOUNT_GRPC_ADDR: "account-service:50055"
       CLIENT_GRPC_ADDR: "client-service:50054"
+      USER_GRPC_ADDR: "user-service:50052"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
     ports:
@@ -380,6 +381,8 @@ services:
       account-service:
         condition: service_started
       client-service:
+        condition: service_started
+      user-service:
         condition: service_started
 
 volumes:

@@ -21,6 +21,10 @@ func (s *CompanyService) Get(id uint64) (*model.Company, error) {
 	return s.repo.GetByID(id)
 }
 
+func (s *CompanyService) GetByOwnerID(ownerID uint64) (*model.Company, error) {
+	return s.repo.GetByOwnerID(ownerID)
+}
+
 func (s *CompanyService) Update(company *model.Company) error {
 	return s.repo.Update(company)
 }

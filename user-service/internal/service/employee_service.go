@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -66,11 +64,6 @@ func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employe
 		return err
 	}
 
-	salt := generateSalt()
-	emp.Salt = salt
-	emp.PasswordHash = "" // no password until activation
-	emp.Activated = false
-
 	if err := s.repo.Create(emp); err != nil {
 		return fmt.Errorf("create employee: %w", err)
 	}
@@ -112,26 +105,6 @@ func (s *EmployeeService) GetEmployee(id int64) (*model.Employee, error) {
 	}
 
 	emp, err := s.repo.GetByIDWithRoles(id)
-	if err != nil {
-		return nil, err
-	}
-
-	if s.cache != nil {
-		_ = s.cache.Set(context.Background(), cacheKey, emp, 5*time.Minute)
-	}
-	return emp, nil
-}
-
-func (s *EmployeeService) GetByEmail(email string) (*model.Employee, error) {
-	cacheKey := "employee:email:" + email
-	if s.cache != nil {
-		var cached model.Employee
-		if err := s.cache.Get(context.Background(), cacheKey, &cached); err == nil {
-			return &cached, nil
-		}
-	}
-
-	emp, err := s.repo.GetByEmailWithRoles(email)
 	if err != nil {
 		return nil, err
 	}
@@ -188,12 +161,6 @@ func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates 
 	if v, ok := updates["department"].(string); ok {
 		emp.Department = v
 	}
-	if v, ok := updates["active"].(*bool); ok {
-		emp.Active = *v
-	}
-	if v, ok := updates["active"].(bool); ok {
-		emp.Active = v
-	}
 	if v, ok := updates["jmbg"].(string); ok {
 		if err := ValidateJMBG(v); err != nil {
 			return nil, err
@@ -227,21 +194,6 @@ func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates 
 	}
 
 	return emp, nil
-}
-
-func (s *EmployeeService) ValidateCredentials(email, password string) (*model.Employee, bool) {
-	emp, err := s.repo.GetByEmailWithRoles(email)
-	if err != nil || !emp.Active || !emp.Activated {
-		return nil, false
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(emp.PasswordHash), []byte(password)); err != nil {
-		return nil, false
-	}
-	return emp, true
-}
-
-func (s *EmployeeService) SetPassword(userID int64, hash string) error {
-	return s.repo.SetPassword(userID, hash)
 }
 
 // SetEmployeeRoles replaces the roles associated with an employee.
@@ -334,14 +286,6 @@ func ValidatePassword(password string) error {
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(bytes), err
-}
-
-func generateSalt() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
-	}
-	return hex.EncodeToString(b)
 }
 
 // validRoleLegacy is a fallback role check using the static map (used when roleSvc is nil in tests).

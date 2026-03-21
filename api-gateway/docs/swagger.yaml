@@ -148,8 +148,6 @@ definitions:
     type: object
   handler.createEmployeeRequest:
     properties:
-      active:
-        type: boolean
       address:
         type: string
       date_of_birth:
@@ -211,6 +209,20 @@ definitions:
     - fee_value
     - name
     - transaction_type
+    type: object
+  handler.createInterestRateTierBody:
+    properties:
+      amount_from:
+        type: number
+      amount_to:
+        type: number
+      fixed_rate:
+        type: number
+      variable_base:
+        type: number
+    required:
+    - fixed_rate
+    - variable_base
     type: object
   handler.createLimitTemplateBody:
     properties:
@@ -377,6 +389,20 @@ definitions:
     - owner_id
     - usage_type
     type: object
+  handler.executePaymentRequest:
+    properties:
+      verification_code:
+        type: string
+    required:
+    - verification_code
+    type: object
+  handler.executeTransferRequest:
+    properties:
+      verification_code:
+        type: string
+    required:
+    - verification_code
+    type: object
   handler.loginRequest:
     properties:
       email:
@@ -481,16 +507,6 @@ definitions:
     required:
     - role_names
     type: object
-  handler.setPasswordRequest:
-    properties:
-      password_hash:
-        type: string
-      user_id:
-        type: integer
-    required:
-    - password_hash
-    - user_id
-    type: object
   handler.temporaryBlockCardBody:
     properties:
       duration_hours:
@@ -508,6 +524,10 @@ definitions:
         type: number
       monthly_limit:
         type: number
+      verification_code:
+        type: string
+    required:
+    - verification_code
     type: object
   handler.updateAccountNameRequest:
     properties:
@@ -525,8 +545,17 @@ definitions:
     required:
     - status
     type: object
+  handler.updateBankMarginBody:
+    properties:
+      margin:
+        type: number
+    required:
+    - margin
+    type: object
   handler.updateClientRequest:
     properties:
+      active:
+        type: boolean
       address:
         type: string
       date_of_birth:
@@ -590,6 +619,20 @@ definitions:
         example: payment
         type: string
     type: object
+  handler.updateInterestRateTierBody:
+    properties:
+      amount_from:
+        type: number
+      amount_to:
+        type: number
+      fixed_rate:
+        type: number
+      variable_base:
+        type: number
+    required:
+    - fixed_rate
+    - variable_base
+    type: object
   handler.updatePaymentRecipientRequest:
     properties:
       account_number:
@@ -614,10 +657,13 @@ definitions:
         type: string
       transaction_id:
         type: integer
+      transaction_type:
+        type: string
     required:
     - client_id
     - code
     - transaction_id
+    - transaction_type
     type: object
   handler.verifyCardPinBody:
     properties:
@@ -1008,43 +1054,6 @@ paths:
       summary: Activate account
       tags:
       - auth
-  /api/auth/client-login:
-    post:
-      consumes:
-      - application/json
-      description: Authenticate a bank client with email and password, returns access
-        and refresh tokens
-      parameters:
-      - description: Client login credentials
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.loginRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: access_token, refresh_token
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: error message
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: invalid credentials
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Client login
-      tags:
-      - auth
   /api/auth/login:
     post:
       consumes:
@@ -1319,6 +1328,86 @@ paths:
       summary: Delete bank account
       tags:
       - bank-accounts
+  /api/bank-margins:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List bank margins
+      tags:
+      - rate-config
+  /api/bank-margins/{id}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Margin ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Margin data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateBankMarginBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update bank margin
+      tags:
+      - rate-config
   /api/cards:
     post:
       consumes:
@@ -1396,6 +1485,8 @@ paths:
       - cards
   /api/cards/{id}/block:
     put:
+      description: Blocks a card. Employees with cards.manage permission can block
+        any card. Clients can block their own cards via the client-authenticated endpoint.
       parameters:
       - description: Card ID
         in: path
@@ -1410,8 +1501,26 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "401":
           description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
           schema:
             additionalProperties:
               type: string
@@ -2080,48 +2189,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get current client (me)
-      tags:
-      - clients
-  /api/clients/set-password:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Password hash data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.setPasswordRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Set client password hash
       tags:
       - clients
   /api/companies:
@@ -2838,6 +2905,216 @@ paths:
       summary: Update fee rule
       tags:
       - fees
+  /api/interest-rate-tiers:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List interest rate tiers
+      tags:
+      - rate-config
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Tier data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createInterestRateTierBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create interest rate tier
+      tags:
+      - rate-config
+  /api/interest-rate-tiers/{id}:
+    delete:
+      parameters:
+      - description: Tier ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete interest rate tier
+      tags:
+      - rate-config
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Tier ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Tier data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateInterestRateTierBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update interest rate tier
+      tags:
+      - rate-config
+  /api/interest-rate-tiers/{id}/apply:
+    post:
+      parameters:
+      - description: Interest Rate Tier ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Apply variable rate update to active loans
+      tags:
+      - rate-config
   /api/limits/templates:
     get:
       description: Returns all predefined limit templates
@@ -3551,6 +3828,59 @@ paths:
       summary: Get payment by ID
       tags:
       - payments
+  /api/payments/{id}/execute:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Payment ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Verification code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.executePaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Execute payment after verification
+      tags:
+      - payments
   /api/payments/account/{account_number}:
     get:
       parameters:
@@ -3906,6 +4236,59 @@ paths:
       security:
       - BearerAuth: []
       summary: Get transfer by ID
+      tags:
+      - transfers
+  /api/transfers/{id}/execute:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Transfer ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Verification code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.executeTransferRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Unprocessable Entity
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Execute transfer after verification
       tags:
       - transfers
   /api/transfers/client/{client_id}:

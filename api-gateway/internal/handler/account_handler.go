@@ -10,16 +10,18 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	cardpb "github.com/exbanka/contract/cardpb"
+	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
 type AccountHandler struct {
 	accountClient     accountpb.AccountServiceClient
 	bankAccountClient accountpb.BankAccountServiceClient
 	cardClient        cardpb.CardServiceClient
+	transactionClient transactionpb.TransactionServiceClient
 }
 
-func NewAccountHandler(accountClient accountpb.AccountServiceClient, bankAccountClient accountpb.BankAccountServiceClient, cardClient cardpb.CardServiceClient) *AccountHandler {
-	return &AccountHandler{accountClient: accountClient, bankAccountClient: bankAccountClient, cardClient: cardClient}
+func NewAccountHandler(accountClient accountpb.AccountServiceClient, bankAccountClient accountpb.BankAccountServiceClient, cardClient cardpb.CardServiceClient, transactionClient transactionpb.TransactionServiceClient) *AccountHandler {
+	return &AccountHandler{accountClient: accountClient, bankAccountClient: bankAccountClient, cardClient: cardClient, transactionClient: transactionClient}
 }
 
 type createBankAccountBody struct {
@@ -296,8 +298,9 @@ func (h *AccountHandler) UpdateAccountName(c *gin.Context) {
 }
 
 type updateAccountLimitsRequest struct {
-	DailyLimit   *float64 `json:"daily_limit"`
-	MonthlyLimit *float64 `json:"monthly_limit"`
+	DailyLimit       *float64 `json:"daily_limit"`
+	MonthlyLimit     *float64 `json:"monthly_limit"`
+	VerificationCode string   `json:"verification_code" binding:"required"`
 }
 
 // @Summary      Update account limits
@@ -336,6 +339,29 @@ func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+	}
+
+	// Validate verification code before applying limit changes
+	uid, _ := c.Get("user_id")
+	clientID, ok := uid.(int64)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+
+	validResp, err := h.transactionClient.ValidateVerificationCode(c.Request.Context(), &transactionpb.ValidateVerificationCodeRequest{
+		ClientId:        uint64(clientID),
+		TransactionId:   id,
+		TransactionType: "limit_change",
+		Code:            req.VerificationCode,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if !validResp.Valid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid verification code"})
+		return
 	}
 
 	pbLimitsReq := &accountpb.UpdateAccountLimitsRequest{Id: id}
@@ -451,6 +477,13 @@ func (h *AccountHandler) CreateCompany(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	if req.ActivityCode != "" {
+		if err := validateActivityCode(req.ActivityCode); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	resp, err := h.accountClient.CreateCompany(c.Request.Context(), &accountpb.CreateCompanyRequest{

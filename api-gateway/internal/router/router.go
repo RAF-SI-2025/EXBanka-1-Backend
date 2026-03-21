@@ -41,11 +41,11 @@ func Setup(
 	}))
 
 	authHandler := handler.NewAuthHandler(authClient)
-	empHandler := handler.NewEmployeeHandler(userClient)
+	empHandler := handler.NewEmployeeHandler(userClient, authClient)
 	roleHandler := handler.NewRoleHandler(userClient)
 	limitHandler := handler.NewLimitHandler(empLimitClient, clientLimitClient)
-	clientHandler := handler.NewClientHandler(clientClient)
-	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient)
+	clientHandler := handler.NewClientHandler(clientClient, authClient)
+	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient, txClient)
 	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient)
 	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient)
 	exchangeHandler := handler.NewExchangeHandler(txClient)
@@ -57,7 +57,6 @@ func Setup(
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", authHandler.Login)
-			auth.POST("/client-login", authHandler.ClientLogin)
 			auth.POST("/refresh", authHandler.RefreshToken)
 			auth.POST("/logout", authHandler.Logout)
 			auth.POST("/password/reset-request", authHandler.RequestPasswordReset)
@@ -145,7 +144,6 @@ func Setup(
 				clientsEmployee.GET("", clientHandler.ListClients)
 				clientsEmployee.GET("/:id", clientHandler.GetClient)
 				clientsEmployee.PUT("/:id", clientHandler.UpdateClient)
-				clientsEmployee.POST("/set-password", clientHandler.SetPassword)
 			}
 
 			// Account management (EmployeeBasic)
@@ -191,6 +189,25 @@ func Setup(
 				loansEmployee.PUT("/requests/:id/reject", creditHandler.RejectLoanRequest)
 				loansEmployee.GET("", creditHandler.ListAllLoans)
 			}
+
+			// Interest rate tier management (admin only)
+			rateTiersAdmin := protected.Group("/interest-rate-tiers")
+			rateTiersAdmin.Use(middleware.RequirePermission("employees.create"))
+			{
+				rateTiersAdmin.GET("", creditHandler.ListInterestRateTiers)
+				rateTiersAdmin.POST("", creditHandler.CreateInterestRateTier)
+				rateTiersAdmin.PUT("/:id", creditHandler.UpdateInterestRateTier)
+				rateTiersAdmin.DELETE("/:id", creditHandler.DeleteInterestRateTier)
+				rateTiersAdmin.POST("/:id/apply", creditHandler.ApplyVariableRateUpdate)
+			}
+
+			// Bank margin management (admin only)
+			bankMarginsAdmin := protected.Group("/bank-margins")
+			bankMarginsAdmin.Use(middleware.RequirePermission("employees.create"))
+			{
+				bankMarginsAdmin.GET("", creditHandler.ListBankMargins)
+				bankMarginsAdmin.PUT("/:id", creditHandler.UpdateBankMargin)
+			}
 		}
 
 		// Client-only routes (write operations and self-service)
@@ -202,9 +219,11 @@ func Setup(
 
 			// Payments (client write)
 			clientProtected.POST("/payments", txHandler.CreatePayment)
+			clientProtected.POST("/payments/:id/execute", txHandler.ExecutePayment)
 
 			// Transfers (client write)
 			clientProtected.POST("/transfers", txHandler.CreateTransfer)
+			clientProtected.POST("/transfers/:id/execute", txHandler.ExecuteTransfer)
 
 			// Payment recipients (client)
 			clientProtected.POST("/payment-recipients", txHandler.CreatePaymentRecipient)
@@ -218,6 +237,9 @@ func Setup(
 
 			// Loans (client write)
 			clientProtected.POST("/loans/requests", creditHandler.CreateLoanRequest)
+
+			// Cards (client)
+			clientProtected.PUT("/cards/:id/block", cardHandler.ClientBlockCard)
 
 			// Virtual cards (client)
 			clientProtected.POST("/cards/virtual", cardHandler.CreateVirtualCard)

@@ -15,8 +15,10 @@ Authorization: Bearer <access_token>
 ```
 
 There are two token types:
-- **Employee token** — issued via `POST /api/auth/login`, required for employee-protected routes
-- **Client token** — issued via `POST /api/auth/client-login`, required for client-protected routes
+- **Employee token** — issued via `POST /api/auth/login` when the principal is an employee, required for employee-protected routes
+- **Client token** — issued via `POST /api/auth/login` when the principal is a client, required for client-protected routes
+
+The unified login endpoint auto-detects whether the principal is an employee or a client based on the stored account record in auth-service and issues the appropriate JWT (`system_type: "employee"` or `system_type: "client"`).
 
 Employee routes additionally require specific permissions (see per-endpoint notes). Client routes require `role="client"` in the JWT.
 
@@ -41,6 +43,8 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 13. [Limits](#13-limits)
 14. [Bank Accounts](#14-bank-accounts)
 15. [Transfer Fees](#15-transfer-fees)
+16. [Interest Rate Tiers](#16-interest-rate-tiers)
+17. [Bank Margins](#17-bank-margins)
 
 ---
 
@@ -48,7 +52,7 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 
 ### POST /api/auth/login
 
-Authenticate an employee with email and password.
+Authenticate an employee or bank client with email and password. The endpoint auto-detects whether the principal is an employee or a client based on the stored account record in auth-service and issues the appropriate JWT. Employees receive a token with `system_type: "employee"` and their roles/permissions; clients receive a token with `system_type: "client"` and `role: "client"`.
 
 **Authentication:** None (public)
 
@@ -56,10 +60,10 @@ Authenticate an employee with email and password.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `email` | string | Yes | Employee email address |
-| `password` | string | Yes | Employee password |
+| `email` | string | Yes | Email address of the employee or client |
+| `password` | string | Yes | Account password |
 
-**Example Request:**
+**Example Request (employee):**
 ```json
 {
   "email": "john.doe@exbanka.com",
@@ -67,33 +71,7 @@ Authenticate an employee with email and password.
 }
 ```
 
-**Response 200:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "a3f8c2d1e9b4..."
-}
-```
-
-**Response 400:** `{"error": "validation error"}`
-**Response 401:** `{"error": "invalid credentials"}`
-
----
-
-### POST /api/auth/client-login
-
-Authenticate a bank client with email and password. Returns a client-scoped JWT.
-
-**Authentication:** None (public)
-
-**Request Body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `email` | string | Yes | Client email address |
-| `password` | string | Yes | Client password |
-
-**Example Request:**
+**Example Request (client):**
 ```json
 {
   "email": "jane.smith@example.com",
@@ -105,7 +83,7 @@ Authenticate a bank client with email and password. Returns a client-scoped JWT.
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "b7e1a9c3f2d8..."
+  "refresh_token": "a3f8c2d1e9b4..."
 }
 ```
 
@@ -925,7 +903,7 @@ Update the display name of an account.
 
 ### PUT /api/accounts/:id/limits
 
-Update the daily/monthly spending limits of an account.
+Update the daily/monthly spending limits of an account. Requires a verification code for authorization.
 
 **Authentication:** Employee JWT + `accounts.read` permission
 
@@ -935,14 +913,33 @@ Update the daily/monthly spending limits of an account.
 |---|---|---|
 | `id` | int | Account ID |
 
-**Request Body** (at least one required):
+**Request Body:**
 
-| Field | Type | Description |
-|---|---|---|
-| `daily_limit` | float64 | New daily spending limit |
-| `monthly_limit` | float64 | New monthly spending limit |
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `daily_limit` | float64 | No | New daily spending limit (must be >= 0) |
+| `monthly_limit` | float64 | No | New monthly spending limit (must be >= 0) |
+| `verification_code` | string | Yes | Verification code for authorization (obtained via `POST /api/verification`) |
+
+> **Note:** At least one of `daily_limit` or `monthly_limit` should be provided. The `verification_code` is validated against the transaction service before the limits are applied.
+
+**Example Request:**
+```json
+{
+  "daily_limit": 500000.00,
+  "monthly_limit": 5000000.00,
+  "verification_code": "847291"
+}
+```
 
 **Response 200:** Updated account object
+
+| Status | Description |
+|---|---|
+| 200 | Limits updated |
+| 400 | Invalid input or invalid verification code |
+| 401 | Unauthorized |
+| 500 | Internal server error |
 
 ---
 
@@ -1146,7 +1143,9 @@ List all cards belonging to a specific client. Clients can only access their own
 
 Block a card (e.g., reported as lost or stolen).
 
-**Authentication:** Employee JWT + `cards.manage` permission
+**Authentication:** Employee JWT + `cards.manage` permission **OR** Client JWT (own cards only)
+
+Employees with the `cards.manage` permission can block any card. Clients can block their own cards only — the card's `owner_id` must match the authenticated client's `user_id`. If a client attempts to block a card that does not belong to them, a `403 Forbidden` error is returned.
 
 **Path Parameters:**
 
@@ -1156,11 +1155,15 @@ Block a card (e.g., reported as lost or stolen).
 
 **Response 200:** Updated card object with `"status": "BLOCKED"`
 
+**Response 403:** `{"error": "clients can only block their own cards"}` (client attempting to block another client's card)
+
+**Response 404:** `{"error": "card not found"}` (card does not exist)
+
 ---
 
 ### PUT /api/cards/:id/unblock
 
-Unblock a previously blocked card.
+Unblock a previously blocked card. Only employees can unblock cards.
 
 **Authentication:** Employee JWT + `cards.manage` permission
 
@@ -1514,6 +1517,59 @@ List payments for a specific account with filters.
 
 ---
 
+### POST /api/payments/:id/execute
+
+Execute a pending payment after verification. The payment must have been created previously via `POST /api/payments` and a valid verification code must be obtained via `POST /api/verification`.
+
+**Authentication:** Client JWT
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Payment ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `verification_code` | string | Yes | Verification code obtained from `POST /api/verification` |
+
+**Example Request:**
+```json
+{
+  "verification_code": "847291"
+}
+```
+
+**Response 200:**
+```json
+{
+  "id": 1,
+  "from_account_number": "265-1234567890123-56",
+  "to_account_number": "265-9876543210987-12",
+  "initial_amount": 5000.00,
+  "final_amount": 5000.00,
+  "commission": 0.00,
+  "recipient_name": "EX Tech d.o.o.",
+  "payment_code": "289",
+  "reference_number": "97 123456789",
+  "payment_purpose": "Invoice #INV-2026-001",
+  "status": "COMPLETED",
+  "timestamp": "2026-03-13T10:00:00Z"
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Payment executed |
+| 400 | Invalid input or invalid payment ID |
+| 401 | Unauthorized |
+| 422 | Verification code invalid or expired |
+| 500 | Internal server error |
+
+---
+
 ## 8. Transfers
 
 Transfers are inter-account currency exchanges (can be same currency or cross-currency).
@@ -1604,6 +1660,55 @@ List all transfers for a specific client. Clients can only access their own tran
   "total": 12
 }
 ```
+
+---
+
+### POST /api/transfers/:id/execute
+
+Execute a pending transfer after verification. The transfer must have been created previously via `POST /api/transfers` and a valid verification code must be obtained via `POST /api/verification`.
+
+**Authentication:** Client JWT
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Transfer ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `verification_code` | string | Yes | Verification code obtained from `POST /api/verification` |
+
+**Example Request:**
+```json
+{
+  "verification_code": "847291"
+}
+```
+
+**Response 200:**
+```json
+{
+  "id": 1,
+  "from_account_number": "265-1234567890123-56",
+  "to_account_number": "265-1234500000EUR-78",
+  "initial_amount": 1000.00,
+  "final_amount": 8.53,
+  "exchange_rate": 117.23,
+  "commission": 0.50,
+  "timestamp": "2026-03-13T10:00:00Z"
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Transfer executed |
+| 400 | Invalid input or invalid transfer ID |
+| 401 | Unauthorized |
+| 422 | Verification code invalid or expired |
+| 500 | Internal server error |
 
 ---
 
@@ -1984,6 +2089,15 @@ Approve a loan request. Creates a loan and sends an approval email to the client
   "created_at": "2026-03-13T10:00:00Z"
 }
 ```
+
+**Response 500 (limit exceeded):**
+```json
+{
+  "error": "loan amount 500000.00 exceeds your approval limit of 100000.00"
+}
+```
+
+> **Note:** The approving employee's `MaxLoanApprovalAmount` limit is enforced. If the loan request amount exceeds the employee's configured limit, the approval is rejected.
 
 ---
 
@@ -2700,6 +2814,288 @@ Deactivate a fee rule. The rule is not deleted from the database — it is soft-
 
 **Response 401:** `{"error": "unauthorized"}`
 **Response 500:** `{"error": "..."}`
+
+---
+
+## 16. Interest Rate Tiers
+
+Interest rate tier management for loan interest rate configuration. Each tier defines the fixed and variable base rates for a loan amount range. Only administrators can manage tiers.
+
+**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+
+---
+
+### GET /api/interest-rate-tiers
+
+List all interest rate tiers.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Response 200:**
+```json
+{
+  "tiers": [
+    {
+      "id": 1,
+      "amount_from": "0.0000",
+      "amount_to": "500000.0000",
+      "fixed_rate": "6.5000",
+      "variable_base": "3.2500",
+      "active": true,
+      "created_at": "2026-03-13T10:00:00Z",
+      "updated_at": "2026-03-13T10:00:00Z"
+    }
+  ]
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Tiers returned |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### POST /api/interest-rate-tiers
+
+Create a new interest rate tier.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `amount_from` | float64 | No | Lower bound of the loan amount range (must be >= 0) |
+| `amount_to` | float64 | No | Upper bound of the loan amount range (must be >= 0) |
+| `fixed_rate` | float64 | Yes | Fixed interest rate for this tier (must be >= 0) |
+| `variable_base` | float64 | Yes | Variable base rate for this tier (must be >= 0) |
+
+**Example Request:**
+```json
+{
+  "amount_from": 0,
+  "amount_to": 500000,
+  "fixed_rate": 6.5,
+  "variable_base": 3.25
+}
+```
+
+**Response 201:**
+```json
+{
+  "id": 1,
+  "amount_from": "0.0000",
+  "amount_to": "500000.0000",
+  "fixed_rate": "6.5000",
+  "variable_base": "3.2500",
+  "active": true,
+  "created_at": "2026-03-13T10:00:00Z",
+  "updated_at": "2026-03-13T10:00:00Z"
+}
+```
+
+| Status | Description |
+|---|---|
+| 201 | Tier created |
+| 400 | Invalid input |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### PUT /api/interest-rate-tiers/:id
+
+Update an existing interest rate tier.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Tier ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `amount_from` | float64 | No | Lower bound of the loan amount range (must be >= 0) |
+| `amount_to` | float64 | No | Upper bound of the loan amount range (must be >= 0) |
+| `fixed_rate` | float64 | Yes | Fixed interest rate (must be >= 0) |
+| `variable_base` | float64 | Yes | Variable base rate (must be >= 0) |
+
+**Example Request:**
+```json
+{
+  "amount_from": 0,
+  "amount_to": 1000000,
+  "fixed_rate": 7.0,
+  "variable_base": 3.5
+}
+```
+
+**Response 200:** Updated tier object
+
+| Status | Description |
+|---|---|
+| 200 | Tier updated |
+| 400 | Invalid input |
+| 401 | Unauthorized |
+| 404 | Tier not found |
+| 500 | Internal server error |
+
+---
+
+### DELETE /api/interest-rate-tiers/:id
+
+Delete an interest rate tier.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Tier ID |
+
+**Response 200:**
+```json
+{
+  "success": true
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Tier deleted |
+| 400 | Invalid ID |
+| 401 | Unauthorized |
+| 404 | Tier not found |
+| 500 | Internal server error |
+
+---
+
+### POST /api/interest-rate-tiers/:id/apply
+
+Apply a variable rate update to all active variable-rate loans whose amount falls within this tier's range. This recalculates the interest rate for affected loans based on the tier's current `variable_base` plus the bank margin.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Interest Rate Tier ID |
+
+**Response 200:**
+```json
+{
+  "affected_loans": 15
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Rate update applied; `affected_loans` indicates how many loans were updated |
+| 400 | Invalid ID |
+| 401 | Unauthorized |
+| 404 | Tier not found |
+| 500 | Internal server error |
+
+---
+
+## 17. Bank Margins
+
+Bank margin management for loan interest rate calculation. Each loan type has a configurable margin that is added to the variable base rate from the interest rate tier. Only administrators can manage margins.
+
+**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+
+---
+
+### GET /api/bank-margins
+
+List all bank margins.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Response 200:**
+```json
+{
+  "margins": [
+    {
+      "id": 1,
+      "loan_type": "cash",
+      "margin": "2.5000",
+      "active": true,
+      "created_at": "2026-03-13T10:00:00Z",
+      "updated_at": "2026-03-13T10:00:00Z"
+    },
+    {
+      "id": 2,
+      "loan_type": "housing",
+      "margin": "1.5000",
+      "active": true,
+      "created_at": "2026-03-13T10:00:00Z",
+      "updated_at": "2026-03-13T10:00:00Z"
+    }
+  ]
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Margins returned |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### PUT /api/bank-margins/:id
+
+Update the margin for a specific loan type.
+
+**Authentication:** Employee JWT with `employees.create` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Margin ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `margin` | float64 | Yes | New margin value (must be >= 0) |
+
+**Example Request:**
+```json
+{
+  "margin": 3.0
+}
+```
+
+**Response 200:**
+```json
+{
+  "id": 1,
+  "loan_type": "cash",
+  "margin": "3.0000",
+  "active": true,
+  "created_at": "2026-03-13T10:00:00Z",
+  "updated_at": "2026-03-20T14:00:00Z"
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Margin updated |
+| 400 | Invalid input |
+| 401 | Unauthorized |
+| 404 | Margin not found |
+| 500 | Internal server error |
 
 ---
 

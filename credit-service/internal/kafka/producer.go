@@ -56,6 +56,14 @@ func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage)
 	return p.publish(ctx, kafkamsg.TopicSendEmail, msg)
 }
 
+func (p *Producer) PublishVariableRateAdjusted(ctx context.Context, msg kafkamsg.VariableRateAdjustedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicVariableRateAdjusted, msg)
+}
+
+func (p *Producer) PublishLatePenaltyApplied(ctx context.Context, msg kafkamsg.LatePenaltyAppliedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicLatePenaltyApplied, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

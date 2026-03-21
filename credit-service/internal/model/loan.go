@@ -23,6 +23,9 @@ type Loan struct {
 	CurrencyCode          string          `gorm:"size:3;not null" json:"currency_code"`
 	Status                string          `gorm:"size:20;default:'approved'" json:"status"`
 	InterestType          string          `gorm:"size:20;not null" json:"interest_type"`
+	BaseRate              decimal.Decimal `gorm:"type:numeric(10,4)" json:"base_rate"`
+	BankMargin            decimal.Decimal `gorm:"type:numeric(10,4)" json:"bank_margin"`
+	CurrentRate           decimal.Decimal `gorm:"type:numeric(10,4)" json:"current_rate"`
 	ClientID              uint64          `gorm:"not null;index" json:"client_id"`
 	Version               int64           `gorm:"not null;default:1"`
 	CreatedAt             time.Time       `json:"created_at"`

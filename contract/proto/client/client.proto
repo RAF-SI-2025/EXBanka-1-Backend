@@ -8,8 +8,6 @@ service ClientService {
   rpc GetClientByEmail(GetClientByEmailRequest) returns (ClientResponse);
   rpc ListClients(ListClientsRequest) returns (ListClientsResponse);
   rpc UpdateClient(UpdateClientRequest) returns (ClientResponse);
-  rpc ValidateCredentials(ValidateClientCredentialsRequest) returns (ValidateClientCredentialsResponse);
-  rpc SetPassword(SetClientPasswordRequest) returns (SetClientPasswordResponse);
 }
 
 message CreateClientRequest {
@@ -64,27 +62,6 @@ message ClientResponse {
   string phone = 7;
   string address = 8;
   string jmbg = 9;
-  bool active = 10;
+  reserved 10;
   string created_at = 11;
-}
-
-message ValidateClientCredentialsRequest {
-  string email = 1;
-  string password = 2;
-}
-
-message ValidateClientCredentialsResponse {
-  uint64 id = 1;
-  string email = 2;
-  string first_name = 3;
-  string last_name = 4;
-}
-
-message SetClientPasswordRequest {
-  uint64 user_id = 1;
-  string password_hash = 2;
-}
-
-message SetClientPasswordResponse {
-  bool success = 1;
 }

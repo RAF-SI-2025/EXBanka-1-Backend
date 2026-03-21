@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	authpb "github.com/exbanka/contract/authpb"
-	clientpb "github.com/exbanka/contract/clientpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/auth-service/internal/cache"
@@ -36,6 +36,7 @@ func main() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 	if err := db.AutoMigrate(
+		&model.Account{},
 		&model.RefreshToken{},
 		&model.ActivationToken{},
 		&model.PasswordResetToken{},
@@ -54,13 +55,6 @@ func main() {
 	defer userConn.Close()
 	userClient := userpb.NewUserServiceClient(userConn)
 
-	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Fatalf("failed to connect to client service: %v", err)
-	}
-	defer clientConn.Close()
-	clientClient := clientpb.NewClientServiceClient(clientConn)
-
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 
@@ -75,10 +69,11 @@ func main() {
 
 	tokenRepo := repository.NewTokenRepository(db)
 	loginAttemptRepo := repository.NewLoginAttemptRepository(db)
+	accountRepo := repository.NewAccountRepository(db)
 	totpRepo := repository.NewTOTPRepository(db)
 	jwtService := service.NewJWTService(cfg.JWTSecret, cfg.AccessExpiry)
 	totpSvc := service.NewTOTPService()
-	authService := service.NewAuthService(tokenRepo, loginAttemptRepo, totpRepo, totpSvc, jwtService, userClient, clientClient, producer, redisCache, cfg.RefreshExpiry, cfg.FrontendBaseURL)
+	authService := service.NewAuthService(tokenRepo, loginAttemptRepo, totpRepo, totpSvc, jwtService, accountRepo, userClient, producer, redisCache, cfg.RefreshExpiry, cfg.FrontendBaseURL)
 	grpcHandler := handler.NewAuthGRPCHandler(authService)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
@@ -96,6 +91,7 @@ func main() {
 		"user.employee-created",
 		"client.created",
 		"notification.send-email",
+		kafkamsg.TopicAuthAccountStatusChanged,
 	)
 
 	// Start Kafka consumer for employee-created events

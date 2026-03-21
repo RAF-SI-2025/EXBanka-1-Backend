@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"github.com/shopspring/decimal"
 	"github.com/exbanka/card-service/internal/cache"
@@ -31,11 +33,32 @@ func NewCardService(cardRepo *repository.CardRepository, blockRepo *repository.C
 func (s *CardService) CreateCard(ctx context.Context, accountNumber string, ownerID uint64, ownerType, cardBrand string) (*model.Card, string, error) {
 	validBrands := map[string]bool{"visa": true, "mastercard": true, "dinacard": true, "amex": true}
 	if !validBrands[cardBrand] {
-		return nil, "", errors.New("invalid card brand")
+		return nil, "", fmt.Errorf("card brand must be one of: visa, mastercard, dinacard, amex; got: %s", cardBrand)
 	}
 	validOwnerTypes := map[string]bool{"client": true, "authorized_person": true}
 	if !validOwnerTypes[ownerType] {
-		return nil, "", errors.New("invalid owner type")
+		return nil, "", fmt.Errorf("owner type must be one of: client, authorized_person; got: %s", ownerType)
+	}
+
+	// Enforce card-per-account limits based on owner type.
+	// "authorized_person" indicates a business account context: max 1 card per owner per account.
+	// "client" indicates a personal account context: max 2 cards total per account.
+	if ownerType == "authorized_person" {
+		count, err := s.cardRepo.CountByAccountAndOwner(accountNumber, ownerID)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to check card count: %w", err)
+		}
+		if count >= 1 {
+			return nil, "", fmt.Errorf("business accounts can have at most 1 card per person; person %d already has a card on account %s", ownerID, accountNumber)
+		}
+	} else {
+		count, err := s.cardRepo.CountByAccount(accountNumber)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to check card count: %w", err)
+		}
+		if count >= 2 {
+			return nil, "", fmt.Errorf("personal accounts can have at most 2 cards; account %s already has %d", accountNumber, count)
+		}
 	}
 
 	cardNumber := GenerateCardNumber(cardBrand)
@@ -56,7 +79,7 @@ func (s *CardService) CreateCard(ctx context.Context, accountNumber string, owne
 	}
 
 	if err := s.cardRepo.Create(card); err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("account %s not found or inactive", accountNumber)
 	}
 	return card, cvv, nil
 }
@@ -74,14 +97,47 @@ func (s *CardService) ListCardsByClient(clientID uint64) ([]model.Card, error) {
 }
 
 func (s *CardService) BlockCard(id uint64) (*model.Card, error) {
+	card, err := s.cardRepo.GetByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("card %d not found", id)
+		}
+		return nil, err
+	}
+	if card.Status == "blocked" {
+		return nil, fmt.Errorf("card %d is already blocked", id)
+	}
+	if card.Status == "deactivated" {
+		return nil, fmt.Errorf("card %d is deactivated and cannot be blocked", id)
+	}
 	return s.cardRepo.UpdateStatus(id, "blocked")
 }
 
 func (s *CardService) UnblockCard(id uint64) (*model.Card, error) {
+	card, err := s.cardRepo.GetByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("card %d not found", id)
+		}
+		return nil, err
+	}
+	if card.Status != "blocked" {
+		return nil, fmt.Errorf("card %d is not blocked", id)
+	}
 	return s.cardRepo.UpdateStatus(id, "active")
 }
 
 func (s *CardService) DeactivateCard(id uint64) (*model.Card, error) {
+	card, err := s.cardRepo.GetByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("card %d not found", id)
+		}
+		return nil, err
+	}
+	if card.Status == "deactivated" {
+		return nil, fmt.Errorf("card %d is already deactivated", id)
+	}
 	return s.cardRepo.UpdateStatus(id, "deactivated")
 }
 
@@ -96,24 +152,24 @@ func (s *CardService) GetAuthorizedPerson(id uint64) (*model.AuthorizedPerson, e
 func (s *CardService) CreateVirtualCard(ctx context.Context, accountNumber string, ownerID uint64, cardBrand, usageType string, maxUses, expiryMonths int, limitStr string) (*model.Card, string, error) {
 	validUsageTypes := map[string]bool{"single_use": true, "multi_use": true}
 	if !validUsageTypes[usageType] {
-		return nil, "", errors.New("usage_type must be 'single_use' or 'multi_use'")
+		return nil, "", fmt.Errorf("usage_type must be one of: single_use, multi_use; got: %s", usageType)
 	}
 	if expiryMonths < 1 || expiryMonths > 3 {
-		return nil, "", errors.New("expiry_months must be between 1 and 3")
+		return nil, "", fmt.Errorf("expiry_months must be between 1 and 3; got: %d", expiryMonths)
 	}
 	if usageType == "multi_use" && maxUses < 2 {
-		return nil, "", errors.New("multi_use cards must have max_uses >= 2")
+		return nil, "", fmt.Errorf("multi_use cards must have max_uses >= 2; got: %d", maxUses)
 	}
 	if usageType == "single_use" {
 		maxUses = 1
 	}
 	limit, err := decimal.NewFromString(limitStr)
 	if err != nil || limit.LessThanOrEqual(decimal.Zero) {
-		return nil, "", errors.New("invalid limit value")
+		return nil, "", fmt.Errorf("limit must be a positive number; got: %s", limitStr)
 	}
 	validBrands := map[string]bool{"visa": true, "mastercard": true, "dinacard": true, "amex": true}
 	if !validBrands[cardBrand] {
-		return nil, "", errors.New("invalid card brand")
+		return nil, "", fmt.Errorf("card brand must be one of: visa, mastercard, dinacard, amex; got: %s", cardBrand)
 	}
 
 	cardNumber := GenerateCardNumber(cardBrand)

@@ -6,14 +6,15 @@ option go_package = "github.com/exbanka/contract/authpb;authpb";
 
 service AuthService {
   rpc Login(LoginRequest) returns (LoginResponse);
-  rpc ClientLogin(LoginRequest) returns (LoginResponse);
   rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
   rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
   rpc Logout(LogoutRequest) returns (LogoutResponse);
   rpc RequestPasswordReset(PasswordResetRequest) returns (PasswordResetResponse);
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
   rpc ActivateAccount(ActivateAccountRequest) returns (ActivateAccountResponse);
-  rpc CreateActivationToken(CreateActivationTokenRequest) returns (CreateActivationTokenResponse);
+  rpc SetAccountStatus(SetAccountStatusRequest) returns (SetAccountStatusResponse);
+  rpc GetAccountStatus(GetAccountStatusRequest) returns (GetAccountStatusResponse);
+  rpc GetAccountStatusBatch(GetAccountStatusBatchRequest) returns (GetAccountStatusBatchResponse);
 }
 
 message LoginRequest {
@@ -85,12 +86,37 @@ message LogoutResponse {
   bool success = 1;
 }
 
-message CreateActivationTokenRequest {
-  int64 user_id = 1;
-  string email = 2;
-  string first_name = 3;
+message SetAccountStatusRequest {
+  string principal_type = 1;
+  int64 principal_id = 2;
+  bool active = 3;
 }
 
-message CreateActivationTokenResponse {
+message SetAccountStatusResponse {
   bool success = 1;
+}
+
+message GetAccountStatusRequest {
+  string principal_type = 1;
+  int64 principal_id = 2;
+}
+
+message GetAccountStatusResponse {
+  string status = 1;
+  bool active = 2;
+}
+
+message GetAccountStatusBatchRequest {
+  string principal_type = 1;
+  repeated int64 principal_ids = 2;
+}
+
+message AccountStatusEntry {
+  int64 principal_id = 1;
+  string status = 2;
+  bool active = 3;
+}
+
+message GetAccountStatusBatchResponse {
+  repeated AccountStatusEntry entries = 1;
 }

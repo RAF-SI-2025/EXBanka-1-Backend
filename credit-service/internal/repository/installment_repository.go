@@ -51,3 +51,20 @@ func (r *InstallmentRepository) GetDueInstallments() ([]model.Installment, error
 	}
 	return installments, nil
 }
+
+// CountUnpaidByLoan returns the number of unpaid installments for a given loan.
+func (r *InstallmentRepository) CountUnpaidByLoan(loanID uint64) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.Installment{}).Where("loan_id = ? AND status = ?", loanID, "unpaid").Count(&count).Error
+	return count, err
+}
+
+// UpdateUnpaidByLoan updates the amount and interest_rate of all unpaid installments for a given loan.
+func (r *InstallmentRepository) UpdateUnpaidByLoan(loanID uint64, newAmount, newRate interface{}) error {
+	return r.db.Model(&model.Installment{}).
+		Where("loan_id = ? AND status = ?", loanID, "unpaid").
+		Updates(map[string]interface{}{
+			"amount":        newAmount,
+			"interest_rate": newRate,
+		}).Error
+}

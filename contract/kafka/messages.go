@@ -202,3 +202,70 @@ type VirtualCardCreatedMessage struct {
 	UsageType     string `json:"usage_type"`
 	MaxUses       int    `json:"max_uses"`
 }
+
+// Account event topic constants
+const (
+	TopicAccountNameUpdated      = "account.name-updated"
+	TopicAccountLimitsUpdated    = "account.limits-updated"
+	TopicMaintenanceFeeCharged   = "account.maintenance-charged"
+	TopicSpendingReset           = "account.spending-reset"
+)
+
+// AccountNameUpdatedMessage is published when an account's name is changed.
+type AccountNameUpdatedMessage struct {
+	AccountID     uint64 `json:"account_id"`
+	AccountNumber string `json:"account_number"`
+	OldName       string `json:"old_name"`
+	NewName       string `json:"new_name"`
+}
+
+// AccountLimitsUpdatedMessage is published when an account's daily/monthly limits are updated.
+type AccountLimitsUpdatedMessage struct {
+	AccountID     uint64 `json:"account_id"`
+	AccountNumber string `json:"account_number"`
+	DailyLimit    string `json:"daily_limit"`
+	MonthlyLimit  string `json:"monthly_limit"`
+}
+
+// MaintenanceFeeChargedMessage is published when a maintenance fee is charged to an account.
+type MaintenanceFeeChargedMessage struct {
+	AccountNumber string `json:"account_number"`
+	Amount        string `json:"amount"`
+	CurrencyCode  string `json:"currency_code"`
+}
+
+// SpendingResetMessage is published when a periodic spending reset is performed.
+type SpendingResetMessage struct {
+	ResetType string `json:"reset_type"` // "daily" or "monthly"
+	Count     int    `json:"count"`
+}
+
+// Credit event topic constants
+const (
+	TopicVariableRateAdjusted = "credit.variable-rate-adjusted"
+	TopicLatePenaltyApplied   = "credit.late-penalty-applied"
+)
+
+// VariableRateAdjustedMessage is published when variable interest rates are recalculated.
+type VariableRateAdjustedMessage struct {
+	TierID        uint64 `json:"tier_id"`
+	AffectedLoans int    `json:"affected_loans"`
+	NewRate       string `json:"new_rate"`
+}
+
+// LatePenaltyAppliedMessage is published when a late payment penalty is applied to a loan.
+type LatePenaltyAppliedMessage struct {
+	LoanID  uint64 `json:"loan_id"`
+	NewRate string `json:"new_rate"`
+	Penalty string `json:"penalty"`
+}
+
+const (
+	TopicAuthAccountStatusChanged = "auth.account-status-changed"
+)
+
+type AuthAccountStatusChangedMessage struct {
+	PrincipalType string `json:"principal_type"`
+	PrincipalID   int64  `json:"principal_id"`
+	Status        string `json:"status"`
+}

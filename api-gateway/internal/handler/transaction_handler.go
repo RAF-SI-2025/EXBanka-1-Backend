@@ -74,6 +74,13 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if req.PaymentCode == "" {
+		req.PaymentCode = "289"
+	}
+	if err := validatePaymentCode(req.PaymentCode); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	resp, err := h.txClient.CreatePayment(c.Request.Context(), &transactionpb.CreatePaymentRequest{
 		FromAccountNumber: req.FromAccountNumber,
 		ToAccountNumber:   req.ToAccountNumber,
@@ -84,7 +91,7 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 		PaymentPurpose:    req.PaymentPurpose,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 	c.JSON(http.StatusCreated, paymentToJSON(resp))
@@ -146,7 +153,7 @@ func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
 		PageSize:      int32(pageSize),
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 
@@ -158,6 +165,55 @@ func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
 		"payments": payments,
 		"total":    resp.Total,
 	})
+}
+
+type executePaymentRequest struct {
+	VerificationCode string `json:"verification_code" binding:"required"`
+}
+
+// @Summary      Execute payment after verification
+// @Tags         payments
+// @Accept       json
+// @Produce      json
+// @Param        id    path  int                    true  "Payment ID"
+// @Param        body  body  executePaymentRequest  true  "Verification code"
+// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      422   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /api/payments/{id}/execute [post]
+func (h *TransactionHandler) ExecutePayment(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req executePaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	uid, _ := c.Get("user_id")
+	clientID, ok := uid.(int64)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+
+	resp, err := h.txClient.ExecutePayment(c.Request.Context(), &transactionpb.ExecutePaymentRequest{
+		PaymentId:        id,
+		ClientId:         uint64(clientID),
+		VerificationCode: req.VerificationCode,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
+		return
+	}
+	c.JSON(http.StatusOK, paymentToJSON(resp))
 }
 
 type createTransferRequest struct {
@@ -216,10 +272,59 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 		ToCurrency:        toCurrency,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 	c.JSON(http.StatusCreated, transferToJSON(resp))
+}
+
+type executeTransferRequest struct {
+	VerificationCode string `json:"verification_code" binding:"required"`
+}
+
+// @Summary      Execute transfer after verification
+// @Tags         transfers
+// @Accept       json
+// @Produce      json
+// @Param        id    path  int                     true  "Transfer ID"
+// @Param        body  body  executeTransferRequest  true  "Verification code"
+// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      422   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /api/transfers/{id}/execute [post]
+func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req executeTransferRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	uid, _ := c.Get("user_id")
+	clientID, ok := uid.(int64)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+
+	resp, err := h.txClient.ExecuteTransfer(c.Request.Context(), &transactionpb.ExecuteTransferRequest{
+		TransferId:       id,
+		ClientId:         uint64(clientID),
+		VerificationCode: req.VerificationCode,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
+		return
+	}
+	c.JSON(http.StatusOK, transferToJSON(resp))
 }
 
 // @Summary      Get transfer by ID
@@ -284,7 +389,7 @@ func (h *TransactionHandler) ListTransfersByClient(c *gin.Context) {
 		AccountNumbers: accountNumbers,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 
@@ -328,7 +433,7 @@ func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 		AccountNumber: req.AccountNumber,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 	c.JSON(http.StatusCreated, recipientToJSON(resp))
@@ -355,7 +460,7 @@ func (h *TransactionHandler) ListPaymentRecipients(c *gin.Context) {
 		ClientId: clientID,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 
@@ -402,7 +507,7 @@ func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 
 	resp, err := h.txClient.UpdatePaymentRecipient(c.Request.Context(), pbReq)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 	c.JSON(http.StatusOK, recipientToJSON(resp))
@@ -426,7 +531,7 @@ func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
 
 	resp, err := h.txClient.DeletePaymentRecipient(c.Request.Context(), &transactionpb.DeletePaymentRecipientRequest{Id: id})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": resp.Success})
@@ -462,13 +567,17 @@ func (h *TransactionHandler) CreateVerificationCode(c *gin.Context) {
 		return
 	}
 
+	email, _ := c.Get("email")
+	clientEmail, _ := email.(string)
+
 	resp, err := h.txClient.CreateVerificationCode(c.Request.Context(), &transactionpb.CreateVerificationCodeRequest{
 		ClientId:        req.ClientID,
 		TransactionId:   req.TransactionID,
 		TransactionType: txType,
+		ClientEmail:     clientEmail,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{
@@ -478,9 +587,10 @@ func (h *TransactionHandler) CreateVerificationCode(c *gin.Context) {
 }
 
 type validateVerificationCodeRequest struct {
-	ClientID      uint64 `json:"client_id" binding:"required"`
-	TransactionID uint64 `json:"transaction_id" binding:"required"`
-	Code          string `json:"code" binding:"required"`
+	ClientID        uint64 `json:"client_id" binding:"required"`
+	TransactionID   uint64 `json:"transaction_id" binding:"required"`
+	TransactionType string `json:"transaction_type" binding:"required"`
+	Code            string `json:"code" binding:"required"`
 }
 
 // @Summary      Validate verification code
@@ -501,13 +611,20 @@ func (h *TransactionHandler) ValidateVerificationCode(c *gin.Context) {
 		return
 	}
 
+	txType, err := oneOf("transaction_type", req.TransactionType, "payment", "transfer")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	resp, err := h.txClient.ValidateVerificationCode(c.Request.Context(), &transactionpb.ValidateVerificationCodeRequest{
-		ClientId:      req.ClientID,
-		TransactionId: req.TransactionID,
-		Code:          req.Code,
+		ClientId:        req.ClientID,
+		TransactionId:   req.TransactionID,
+		Code:            req.Code,
+		TransactionType: txType,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"valid": resp.Valid})
@@ -589,7 +706,7 @@ type updateFeeBody struct {
 func (h *TransactionHandler) ListFees(c *gin.Context) {
 	resp, err := h.feeClient.ListFees(c.Request.Context(), &transactionpb.ListFeesRequest{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": grpcMessage(err)})
 		return
 	}
 	c.JSON(http.StatusOK, resp)

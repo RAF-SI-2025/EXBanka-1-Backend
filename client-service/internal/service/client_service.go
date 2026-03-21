@@ -2,15 +2,11 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/exbanka/client-service/internal/cache"
 	kafkaprod "github.com/exbanka/client-service/internal/kafka"
@@ -23,7 +19,6 @@ type ClientRepo interface {
 	GetByID(id uint64) (*model.Client, error)
 	GetByEmail(email string) (*model.Client, error)
 	Update(client *model.Client) error
-	SetPassword(userID uint64, hash string) error
 	List(emailFilter, nameFilter string, page, pageSize int) ([]model.Client, int64, error)
 }
 
@@ -76,11 +71,6 @@ func (s *ClientService) CreateClient(ctx context.Context, client *model.Client) 
 	if err := ValidateEmail(client.Email); err != nil {
 		return err
 	}
-
-	client.Active = true
-	client.Activated = false
-	client.Salt = generateSalt()
-	client.PasswordHash = ""
 
 	if err := s.repo.Create(client); err != nil {
 		return fmt.Errorf("create client: %w", err)
@@ -149,10 +139,6 @@ func (s *ClientService) UpdateClient(id uint64, updates map[string]interface{}) 
 	if v, ok := updates["address"].(string); ok {
 		client.Address = v
 	}
-	if v, ok := updates["active"].(bool); ok {
-		client.Active = v
-	}
-
 	if err := s.repo.Update(client); err != nil {
 		return nil, err
 	}
@@ -174,33 +160,3 @@ func (s *ClientService) ListClients(emailFilter, nameFilter string, page, pageSi
 	return s.repo.List(emailFilter, nameFilter, page, pageSize)
 }
 
-// ValidateCredentials checks that the email/password match and the account is active and activated.
-func (s *ClientService) ValidateCredentials(email, password string) (*model.Client, bool) {
-	client, err := s.repo.GetByEmail(email)
-	if err != nil || !client.Active || !client.Activated {
-		return nil, false
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(client.PasswordHash), []byte(password)); err != nil {
-		return nil, false
-	}
-	return client, true
-}
-
-// SetPassword stores the hashed password for the given client ID.
-func (s *ClientService) SetPassword(userID uint64, hash string) error {
-	return s.repo.SetPassword(userID, hash)
-}
-
-// HashPassword returns a bcrypt hash of the given password.
-func HashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes), err
-}
-
-func generateSalt() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
-	}
-	return hex.EncodeToString(b)
-}

@@ -1,20 +1,23 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	authpb "github.com/exbanka/contract/authpb"
 	userpb "github.com/exbanka/contract/userpb"
 )
 
 type EmployeeHandler struct {
 	userClient userpb.UserServiceClient
+	authClient authpb.AuthServiceClient
 }
 
-func NewEmployeeHandler(userClient userpb.UserServiceClient) *EmployeeHandler {
-	return &EmployeeHandler{userClient: userClient}
+func NewEmployeeHandler(userClient userpb.UserServiceClient, authClient authpb.AuthServiceClient) *EmployeeHandler {
+	return &EmployeeHandler{userClient: userClient, authClient: authClient}
 }
 
 // ListEmployees godoc
@@ -48,9 +51,27 @@ func (h *EmployeeHandler) ListEmployees(c *gin.Context) {
 		return
 	}
 
+	ids := make([]int64, 0, len(resp.Employees))
+	for _, emp := range resp.Employees {
+		ids = append(ids, emp.Id)
+	}
+	statusMap := make(map[int64]bool)
+	if len(ids) > 0 {
+		if batchResp, batchErr := h.authClient.GetAccountStatusBatch(c.Request.Context(), &authpb.GetAccountStatusBatchRequest{
+			PrincipalType: "employee",
+			PrincipalIds:  ids,
+		}); batchErr == nil {
+			for _, entry := range batchResp.Entries {
+				statusMap[entry.PrincipalId] = entry.Active
+			}
+		} else {
+			log.Printf("WARN: failed to fetch account statuses for employees: %v", batchErr)
+		}
+	}
+
 	employees := make([]gin.H, 0, len(resp.Employees))
 	for _, emp := range resp.Employees {
-		employees = append(employees, employeeToJSON(emp))
+		employees = append(employees, employeeToJSONWithActive(emp, statusMap[emp.Id]))
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"employees":   employees,
@@ -81,7 +102,17 @@ func (h *EmployeeHandler) GetEmployee(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "employee not found"})
 		return
 	}
-	c.JSON(http.StatusOK, employeeToJSON(resp))
+
+	active := false
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+		PrincipalType: "employee",
+		PrincipalId:   id,
+	}); statusErr == nil {
+		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for employee %d: %v", id, statusErr)
+	}
+	c.JSON(http.StatusOK, employeeToJSONWithActive(resp, active))
 }
 
 type createEmployeeRequest struct {
@@ -97,7 +128,6 @@ type createEmployeeRequest struct {
 	Position    string `json:"position"`
 	Department  string `json:"department"`
 	Role        string `json:"role" binding:"required"`
-	Active      bool   `json:"active"`
 }
 
 // CreateEmployee godoc
@@ -133,7 +163,6 @@ func (h *EmployeeHandler) CreateEmployee(c *gin.Context) {
 		Position:    req.Position,
 		Department:  req.Department,
 		Role:        req.Role,
-		Active:      req.Active,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -141,7 +170,8 @@ func (h *EmployeeHandler) CreateEmployee(c *gin.Context) {
 	}
 
 	// Activation email is triggered via Kafka (user.employee-created event consumed by auth-service)
-	c.JSON(http.StatusCreated, employeeToJSON(resp))
+	// New accounts always start as "pending" — auth-service handles this automatically
+	c.JSON(http.StatusCreated, employeeToJSONWithActive(resp, false))
 }
 
 type updateEmployeeRequest struct {
@@ -194,44 +224,79 @@ func (h *EmployeeHandler) UpdateEmployee(c *gin.Context) {
 		return
 	}
 
-	pbReq := &userpb.UpdateEmployeeRequest{Id: id}
-	if req.LastName != nil {
-		pbReq.LastName = req.LastName
-	}
-	if req.Gender != nil {
-		pbReq.Gender = req.Gender
-	}
-	if req.Phone != nil {
-		pbReq.Phone = req.Phone
-	}
-	if req.Address != nil {
-		pbReq.Address = req.Address
-	}
-	if req.JMBG != nil {
-		pbReq.Jmbg = req.JMBG
-	}
-	if req.Position != nil {
-		pbReq.Position = req.Position
-	}
-	if req.Department != nil {
-		pbReq.Department = req.Department
-	}
-	if req.Role != nil {
-		pbReq.Role = req.Role
-	}
-	if req.Active != nil {
-		pbReq.Active = req.Active
+	hasProfileUpdate := req.LastName != nil || req.Gender != nil || req.Phone != nil ||
+		req.Address != nil || req.JMBG != nil || req.Position != nil ||
+		req.Department != nil || req.Role != nil
+
+	var resp *userpb.EmployeeResponse
+	if hasProfileUpdate {
+		pbReq := &userpb.UpdateEmployeeRequest{Id: id}
+		if req.LastName != nil {
+			pbReq.LastName = req.LastName
+		}
+		if req.Gender != nil {
+			pbReq.Gender = req.Gender
+		}
+		if req.Phone != nil {
+			pbReq.Phone = req.Phone
+		}
+		if req.Address != nil {
+			pbReq.Address = req.Address
+		}
+		if req.JMBG != nil {
+			pbReq.Jmbg = req.JMBG
+		}
+		if req.Position != nil {
+			pbReq.Position = req.Position
+		}
+		if req.Department != nil {
+			pbReq.Department = req.Department
+		}
+		if req.Role != nil {
+			pbReq.Role = req.Role
+		}
+
+		resp, err = h.userClient.UpdateEmployee(c.Request.Context(), pbReq)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	} else {
+		// No profile fields — still fetch current employee for response
+		var fetchErr error
+		resp, fetchErr = h.userClient.GetEmployee(c.Request.Context(), &userpb.GetEmployeeRequest{Id: id})
+		if fetchErr != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "employee not found"})
+			return
+		}
 	}
 
-	resp, err := h.userClient.UpdateEmployee(c.Request.Context(), pbReq)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	if req.Active != nil {
+		_, authErr := h.authClient.SetAccountStatus(c.Request.Context(), &authpb.SetAccountStatusRequest{
+			PrincipalType: "employee",
+			PrincipalId:   id,
+			Active:        *req.Active,
+		})
+		if authErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update account status"})
+			return
+		}
 	}
-	c.JSON(http.StatusOK, employeeToJSON(resp))
+
+	// Re-fetch active status to return accurate value
+	active := false
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+		PrincipalType: "employee",
+		PrincipalId:   id,
+	}); statusErr == nil {
+		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for employee %d: %v", id, statusErr)
+	}
+	c.JSON(http.StatusOK, employeeToJSONWithActive(resp, active))
 }
 
-func employeeToJSON(emp *userpb.EmployeeResponse) gin.H {
+func employeeToJSONWithActive(emp *userpb.EmployeeResponse, active bool) gin.H {
 	return gin.H{
 		"id":            emp.Id,
 		"first_name":    emp.FirstName,
@@ -245,7 +310,7 @@ func employeeToJSON(emp *userpb.EmployeeResponse) gin.H {
 		"username":      emp.Username,
 		"position":      emp.Position,
 		"department":    emp.Department,
-		"active":        emp.Active,
+		"active":        active,
 		"role":          emp.Role,
 		"permissions":   emp.Permissions,
 	}

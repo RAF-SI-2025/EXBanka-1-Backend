@@ -65,9 +65,25 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.RepaymentPeriod <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "repayment_period must be positive"})
-		return
+	allowedPeriods := map[string][]int32{
+		"cash":        {12, 24, 36, 48, 60, 72, 84},
+		"housing":     {60, 120, 180, 240, 300, 360},
+		"auto":        {12, 24, 36, 48, 60, 72, 84},
+		"refinancing": {12, 24, 36, 48, 60, 72, 84},
+		"student":     {12, 24, 36, 48, 60, 72, 84},
+	}
+	if periods, ok := allowedPeriods[loanType]; ok {
+		valid := false
+		for _, p := range periods {
+			if req.RepaymentPeriod == p {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("repayment_period %d is not allowed for %s loans; allowed: %v", req.RepaymentPeriod, loanType, periods)})
+			return
+		}
 	}
 	resp, err := h.creditClient.CreateLoanRequest(c.Request.Context(), &creditpb.CreateLoanRequestReq{
 		ClientId:         req.ClientID,
@@ -169,7 +185,14 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.creditClient.ApproveLoanRequest(c.Request.Context(), &creditpb.ApproveLoanRequestReq{RequestId: id})
+	// Get employee ID from JWT context for limit enforcement
+	uid, _ := c.Get("user_id")
+	employeeID := uid.(int64)
+
+	resp, err := h.creditClient.ApproveLoanRequest(c.Request.Context(), &creditpb.ApproveLoanRequestReq{
+		RequestId:  id,
+		EmployeeId: uint64(employeeID),
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -409,6 +432,292 @@ func loanRequestToJSON(r *creditpb.LoanRequestResponse) gin.H {
 		"account_number":    r.AccountNumber,
 		"status":            r.Status,
 		"created_at":        r.CreatedAt,
+	}
+}
+
+// --- Interest Rate Tier endpoints ---
+
+// @Summary      List interest rate tiers
+// @Tags         rate-config
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/interest-rate-tiers [get]
+func (h *CreditHandler) ListInterestRateTiers(c *gin.Context) {
+	resp, err := h.creditClient.ListInterestRateTiers(c.Request.Context(), &creditpb.ListInterestRateTiersRequest{})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	tiers := make([]gin.H, 0, len(resp.Tiers))
+	for _, t := range resp.Tiers {
+		tiers = append(tiers, interestRateTierToJSON(t))
+	}
+	c.JSON(http.StatusOK, gin.H{"tiers": tiers})
+}
+
+type createInterestRateTierBody struct {
+	AmountFrom   float64 `json:"amount_from"`
+	AmountTo     float64 `json:"amount_to"`
+	FixedRate    float64 `json:"fixed_rate" binding:"required"`
+	VariableBase float64 `json:"variable_base" binding:"required"`
+}
+
+// @Summary      Create interest rate tier
+// @Tags         rate-config
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createInterestRateTierBody  true  "Tier data"
+// @Security     BearerAuth
+// @Success      201  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/interest-rate-tiers [post]
+func (h *CreditHandler) CreateInterestRateTier(c *gin.Context) {
+	var req createInterestRateTierBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("amount_from", req.AmountFrom); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("amount_to", req.AmountTo); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("fixed_rate", req.FixedRate); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("variable_base", req.VariableBase); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.creditClient.CreateInterestRateTier(c.Request.Context(), &creditpb.CreateInterestRateTierRequest{
+		AmountFrom:   fmt.Sprintf("%.4f", req.AmountFrom),
+		AmountTo:     fmt.Sprintf("%.4f", req.AmountTo),
+		FixedRate:    fmt.Sprintf("%.4f", req.FixedRate),
+		VariableBase: fmt.Sprintf("%.4f", req.VariableBase),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, interestRateTierToJSON(resp))
+}
+
+type updateInterestRateTierBody struct {
+	AmountFrom   float64 `json:"amount_from"`
+	AmountTo     float64 `json:"amount_to"`
+	FixedRate    float64 `json:"fixed_rate" binding:"required"`
+	VariableBase float64 `json:"variable_base" binding:"required"`
+}
+
+// @Summary      Update interest rate tier
+// @Tags         rate-config
+// @Accept       json
+// @Produce      json
+// @Param        id    path  int                         true  "Tier ID"
+// @Param        body  body  updateInterestRateTierBody  true  "Tier data"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/interest-rate-tiers/{id} [put]
+func (h *CreditHandler) UpdateInterestRateTier(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req updateInterestRateTierBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("amount_from", req.AmountFrom); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("amount_to", req.AmountTo); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("fixed_rate", req.FixedRate); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("variable_base", req.VariableBase); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.creditClient.UpdateInterestRateTier(c.Request.Context(), &creditpb.UpdateInterestRateTierRequest{
+		Id:           id,
+		AmountFrom:   fmt.Sprintf("%.4f", req.AmountFrom),
+		AmountTo:     fmt.Sprintf("%.4f", req.AmountTo),
+		FixedRate:    fmt.Sprintf("%.4f", req.FixedRate),
+		VariableBase: fmt.Sprintf("%.4f", req.VariableBase),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, interestRateTierToJSON(resp))
+}
+
+// @Summary      Delete interest rate tier
+// @Tags         rate-config
+// @Produce      json
+// @Param        id   path  int  true  "Tier ID"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/interest-rate-tiers/{id} [delete]
+func (h *CreditHandler) DeleteInterestRateTier(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	_, err = h.creditClient.DeleteInterestRateTier(c.Request.Context(), &creditpb.DeleteInterestRateTierRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// --- Bank Margin endpoints ---
+
+// @Summary      List bank margins
+// @Tags         rate-config
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/bank-margins [get]
+func (h *CreditHandler) ListBankMargins(c *gin.Context) {
+	resp, err := h.creditClient.ListBankMargins(c.Request.Context(), &creditpb.ListBankMarginsRequest{})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	margins := make([]gin.H, 0, len(resp.Margins))
+	for _, m := range resp.Margins {
+		margins = append(margins, bankMarginToJSON(m))
+	}
+	c.JSON(http.StatusOK, gin.H{"margins": margins})
+}
+
+type updateBankMarginBody struct {
+	Margin float64 `json:"margin" binding:"required"`
+}
+
+// @Summary      Update bank margin
+// @Tags         rate-config
+// @Accept       json
+// @Produce      json
+// @Param        id    path  int                   true  "Margin ID"
+// @Param        body  body  updateBankMarginBody  true  "Margin data"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/bank-margins/{id} [put]
+func (h *CreditHandler) UpdateBankMargin(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req updateBankMarginBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := nonNegative("margin", req.Margin); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.creditClient.UpdateBankMargin(c.Request.Context(), &creditpb.UpdateBankMarginRequest{
+		Id:     id,
+		Margin: fmt.Sprintf("%.4f", req.Margin),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, bankMarginToJSON(resp))
+}
+
+// @Summary      Apply variable rate update to active loans
+// @Tags         rate-config
+// @Produce      json
+// @Param        id   path  int  true  "Interest Rate Tier ID"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/interest-rate-tiers/{id}/apply [post]
+func (h *CreditHandler) ApplyVariableRateUpdate(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	resp, err := h.creditClient.ApplyVariableRateUpdate(c.Request.Context(), &creditpb.ApplyVariableRateUpdateRequest{TierId: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"affected_loans": resp.AffectedLoans})
+}
+
+func interestRateTierToJSON(t *creditpb.InterestRateTierResponse) gin.H {
+	return gin.H{
+		"id":            t.Id,
+		"amount_from":   t.AmountFrom,
+		"amount_to":     t.AmountTo,
+		"fixed_rate":    t.FixedRate,
+		"variable_base": t.VariableBase,
+		"active":        t.Active,
+		"created_at":    t.CreatedAt,
+		"updated_at":    t.UpdatedAt,
+	}
+}
+
+func bankMarginToJSON(m *creditpb.BankMarginResponse) gin.H {
+	return gin.H{
+		"id":         m.Id,
+		"loan_type":  m.LoanType,
+		"margin":     m.Margin,
+		"active":     m.Active,
+		"created_at": m.CreatedAt,
+		"updated_at": m.UpdatedAt,
 	}
 }
 

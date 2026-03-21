@@ -14,6 +14,19 @@ service CreditService {
   rpc ListAllLoans(ListAllLoansReq) returns (ListLoansResponse);
 
   rpc GetInstallmentsByLoan(GetInstallmentsByLoanReq) returns (ListInstallmentsResponse);
+
+  // Interest Rate Tier management
+  rpc ListInterestRateTiers(ListInterestRateTiersRequest) returns (ListInterestRateTiersResponse);
+  rpc CreateInterestRateTier(CreateInterestRateTierRequest) returns (InterestRateTierResponse);
+  rpc UpdateInterestRateTier(UpdateInterestRateTierRequest) returns (InterestRateTierResponse);
+  rpc DeleteInterestRateTier(DeleteInterestRateTierRequest) returns (DeleteResponse);
+
+  // Bank Margin management
+  rpc ListBankMargins(ListBankMarginsRequest) returns (ListBankMarginsResponse);
+  rpc UpdateBankMargin(UpdateBankMarginRequest) returns (BankMarginResponse);
+
+  // Variable rate propagation
+  rpc ApplyVariableRateUpdate(ApplyVariableRateUpdateRequest) returns (ApplyVariableRateUpdateResponse);
 }
 
 message CreateLoanRequestReq {
@@ -47,7 +60,10 @@ message ListLoanRequestsResponse {
   int64 total = 2;
 }
 
-message ApproveLoanRequestReq { uint64 request_id = 1; }
+message ApproveLoanRequestReq {
+  uint64 request_id = 1;
+  uint64 employee_id = 2;
+}
 message RejectLoanRequestReq { uint64 request_id = 1; }
 
 message LoanRequestResponse {
@@ -122,4 +138,78 @@ message InstallmentResponse {
   string expected_date = 6;
   string actual_date = 7;
   string status = 8;
+}
+
+// --- Interest Rate Tier messages ---
+
+message ListInterestRateTiersRequest {}
+
+message ListInterestRateTiersResponse {
+  repeated InterestRateTierResponse tiers = 1;
+}
+
+message InterestRateTierResponse {
+  uint64 id = 1;
+  string amount_from = 2;
+  string amount_to = 3;
+  string fixed_rate = 4;
+  string variable_base = 5;
+  bool active = 6;
+  string created_at = 7;
+  string updated_at = 8;
+}
+
+message CreateInterestRateTierRequest {
+  string amount_from = 1;
+  string amount_to = 2;
+  string fixed_rate = 3;
+  string variable_base = 4;
+}
+
+message UpdateInterestRateTierRequest {
+  uint64 id = 1;
+  string amount_from = 2;
+  string amount_to = 3;
+  string fixed_rate = 4;
+  string variable_base = 5;
+}
+
+message DeleteInterestRateTierRequest {
+  uint64 id = 1;
+}
+
+message DeleteResponse {
+  bool success = 1;
+}
+
+// --- Bank Margin messages ---
+
+message ListBankMarginsRequest {}
+
+message ListBankMarginsResponse {
+  repeated BankMarginResponse margins = 1;
+}
+
+message BankMarginResponse {
+  uint64 id = 1;
+  string loan_type = 2;
+  string margin = 3;
+  bool active = 4;
+  string created_at = 5;
+  string updated_at = 6;
+}
+
+message UpdateBankMarginRequest {
+  uint64 id = 1;
+  string margin = 2;
+}
+
+// --- Variable rate propagation messages ---
+
+message ApplyVariableRateUpdateRequest {
+  uint64 tier_id = 1;
+}
+
+message ApplyVariableRateUpdateResponse {
+  int32 affected_loans = 1;
 }

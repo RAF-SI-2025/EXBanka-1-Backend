@@ -23,9 +23,6 @@ const (
 	UserService_GetEmployee_FullMethodName                      = "/user.UserService/GetEmployee"
 	UserService_ListEmployees_FullMethodName                    = "/user.UserService/ListEmployees"
 	UserService_UpdateEmployee_FullMethodName                   = "/user.UserService/UpdateEmployee"
-	UserService_ValidateCredentials_FullMethodName              = "/user.UserService/ValidateCredentials"
-	UserService_GetUserByEmail_FullMethodName                   = "/user.UserService/GetUserByEmail"
-	UserService_SetPassword_FullMethodName                      = "/user.UserService/SetPassword"
 	UserService_ListRoles_FullMethodName                        = "/user.UserService/ListRoles"
 	UserService_GetRole_FullMethodName                          = "/user.UserService/GetRole"
 	UserService_CreateRole_FullMethodName                       = "/user.UserService/CreateRole"
@@ -43,9 +40,6 @@ type UserServiceClient interface {
 	GetEmployee(ctx context.Context, in *GetEmployeeRequest, opts ...grpc.CallOption) (*EmployeeResponse, error)
 	ListEmployees(ctx context.Context, in *ListEmployeesRequest, opts ...grpc.CallOption) (*ListEmployeesResponse, error)
 	UpdateEmployee(ctx context.Context, in *UpdateEmployeeRequest, opts ...grpc.CallOption) (*EmployeeResponse, error)
-	ValidateCredentials(ctx context.Context, in *ValidateCredentialsRequest, opts ...grpc.CallOption) (*ValidateCredentialsResponse, error)
-	GetUserByEmail(ctx context.Context, in *GetUserByEmailRequest, opts ...grpc.CallOption) (*UserResponse, error)
-	SetPassword(ctx context.Context, in *SetPasswordRequest, opts ...grpc.CallOption) (*SetPasswordResponse, error)
 	ListRoles(ctx context.Context, in *ListRolesRequest, opts ...grpc.CallOption) (*ListRolesResponse, error)
 	GetRole(ctx context.Context, in *GetRoleRequest, opts ...grpc.CallOption) (*RoleResponse, error)
 	CreateRole(ctx context.Context, in *CreateRoleRequest, opts ...grpc.CallOption) (*RoleResponse, error)
@@ -97,36 +91,6 @@ func (c *userServiceClient) UpdateEmployee(ctx context.Context, in *UpdateEmploy
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EmployeeResponse)
 	err := c.cc.Invoke(ctx, UserService_UpdateEmployee_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *userServiceClient) ValidateCredentials(ctx context.Context, in *ValidateCredentialsRequest, opts ...grpc.CallOption) (*ValidateCredentialsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ValidateCredentialsResponse)
-	err := c.cc.Invoke(ctx, UserService_ValidateCredentials_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *userServiceClient) GetUserByEmail(ctx context.Context, in *GetUserByEmailRequest, opts ...grpc.CallOption) (*UserResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(UserResponse)
-	err := c.cc.Invoke(ctx, UserService_GetUserByEmail_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *userServiceClient) SetPassword(ctx context.Context, in *SetPasswordRequest, opts ...grpc.CallOption) (*SetPasswordResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetPasswordResponse)
-	err := c.cc.Invoke(ctx, UserService_SetPassword_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,9 +175,6 @@ type UserServiceServer interface {
 	GetEmployee(context.Context, *GetEmployeeRequest) (*EmployeeResponse, error)
 	ListEmployees(context.Context, *ListEmployeesRequest) (*ListEmployeesResponse, error)
 	UpdateEmployee(context.Context, *UpdateEmployeeRequest) (*EmployeeResponse, error)
-	ValidateCredentials(context.Context, *ValidateCredentialsRequest) (*ValidateCredentialsResponse, error)
-	GetUserByEmail(context.Context, *GetUserByEmailRequest) (*UserResponse, error)
-	SetPassword(context.Context, *SetPasswordRequest) (*SetPasswordResponse, error)
 	ListRoles(context.Context, *ListRolesRequest) (*ListRolesResponse, error)
 	GetRole(context.Context, *GetRoleRequest) (*RoleResponse, error)
 	CreateRole(context.Context, *CreateRoleRequest) (*RoleResponse, error)
@@ -242,15 +203,6 @@ func (UnimplementedUserServiceServer) ListEmployees(context.Context, *ListEmploy
 }
 func (UnimplementedUserServiceServer) UpdateEmployee(context.Context, *UpdateEmployeeRequest) (*EmployeeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateEmployee not implemented")
-}
-func (UnimplementedUserServiceServer) ValidateCredentials(context.Context, *ValidateCredentialsRequest) (*ValidateCredentialsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ValidateCredentials not implemented")
-}
-func (UnimplementedUserServiceServer) GetUserByEmail(context.Context, *GetUserByEmailRequest) (*UserResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetUserByEmail not implemented")
-}
-func (UnimplementedUserServiceServer) SetPassword(context.Context, *SetPasswordRequest) (*SetPasswordResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method SetPassword not implemented")
 }
 func (UnimplementedUserServiceServer) ListRoles(context.Context, *ListRolesRequest) (*ListRolesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListRoles not implemented")
@@ -362,60 +314,6 @@ func _UserService_UpdateEmployee_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(UserServiceServer).UpdateEmployee(ctx, req.(*UpdateEmployeeRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _UserService_ValidateCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ValidateCredentialsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(UserServiceServer).ValidateCredentials(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: UserService_ValidateCredentials_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UserServiceServer).ValidateCredentials(ctx, req.(*ValidateCredentialsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _UserService_GetUserByEmail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetUserByEmailRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(UserServiceServer).GetUserByEmail(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: UserService_GetUserByEmail_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UserServiceServer).GetUserByEmail(ctx, req.(*GetUserByEmailRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _UserService_SetPassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetPasswordRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(UserServiceServer).SetPassword(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: UserService_SetPassword_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UserServiceServer).SetPassword(ctx, req.(*SetPasswordRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -568,18 +466,6 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateEmployee",
 			Handler:    _UserService_UpdateEmployee_Handler,
-		},
-		{
-			MethodName: "ValidateCredentials",
-			Handler:    _UserService_ValidateCredentials_Handler,
-		},
-		{
-			MethodName: "GetUserByEmail",
-			Handler:    _UserService_GetUserByEmail_Handler,
-		},
-		{
-			MethodName: "SetPassword",
-			Handler:    _UserService_SetPassword_Handler,
 		},
 		{
 			MethodName: "ListRoles",

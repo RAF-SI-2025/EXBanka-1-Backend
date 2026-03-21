@@ -440,7 +440,6 @@ type ClientResponse struct {
 	Phone         string                 `protobuf:"bytes,7,opt,name=phone,proto3" json:"phone,omitempty"`
 	Address       string                 `protobuf:"bytes,8,opt,name=address,proto3" json:"address,omitempty"`
 	Jmbg          string                 `protobuf:"bytes,9,opt,name=jmbg,proto3" json:"jmbg,omitempty"`
-	Active        bool                   `protobuf:"varint,10,opt,name=active,proto3" json:"active,omitempty"`
 	CreatedAt     string                 `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -539,234 +538,11 @@ func (x *ClientResponse) GetJmbg() string {
 	return ""
 }
 
-func (x *ClientResponse) GetActive() bool {
-	if x != nil {
-		return x.Active
-	}
-	return false
-}
-
 func (x *ClientResponse) GetCreatedAt() string {
 	if x != nil {
 		return x.CreatedAt
 	}
 	return ""
-}
-
-type ValidateClientCredentialsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Email         string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
-	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ValidateClientCredentialsRequest) Reset() {
-	*x = ValidateClientCredentialsRequest{}
-	mi := &file_client_client_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ValidateClientCredentialsRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ValidateClientCredentialsRequest) ProtoMessage() {}
-
-func (x *ValidateClientCredentialsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ValidateClientCredentialsRequest.ProtoReflect.Descriptor instead.
-func (*ValidateClientCredentialsRequest) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *ValidateClientCredentialsRequest) GetEmail() string {
-	if x != nil {
-		return x.Email
-	}
-	return ""
-}
-
-func (x *ValidateClientCredentialsRequest) GetPassword() string {
-	if x != nil {
-		return x.Password
-	}
-	return ""
-}
-
-type ValidateClientCredentialsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
-	FirstName     string                 `protobuf:"bytes,3,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
-	LastName      string                 `protobuf:"bytes,4,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ValidateClientCredentialsResponse) Reset() {
-	*x = ValidateClientCredentialsResponse{}
-	mi := &file_client_client_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ValidateClientCredentialsResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ValidateClientCredentialsResponse) ProtoMessage() {}
-
-func (x *ValidateClientCredentialsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ValidateClientCredentialsResponse.ProtoReflect.Descriptor instead.
-func (*ValidateClientCredentialsResponse) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *ValidateClientCredentialsResponse) GetId() uint64 {
-	if x != nil {
-		return x.Id
-	}
-	return 0
-}
-
-func (x *ValidateClientCredentialsResponse) GetEmail() string {
-	if x != nil {
-		return x.Email
-	}
-	return ""
-}
-
-func (x *ValidateClientCredentialsResponse) GetFirstName() string {
-	if x != nil {
-		return x.FirstName
-	}
-	return ""
-}
-
-func (x *ValidateClientCredentialsResponse) GetLastName() string {
-	if x != nil {
-		return x.LastName
-	}
-	return ""
-}
-
-type SetClientPasswordRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	PasswordHash  string                 `protobuf:"bytes,2,opt,name=password_hash,json=passwordHash,proto3" json:"password_hash,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SetClientPasswordRequest) Reset() {
-	*x = SetClientPasswordRequest{}
-	mi := &file_client_client_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SetClientPasswordRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SetClientPasswordRequest) ProtoMessage() {}
-
-func (x *SetClientPasswordRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SetClientPasswordRequest.ProtoReflect.Descriptor instead.
-func (*SetClientPasswordRequest) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *SetClientPasswordRequest) GetUserId() uint64 {
-	if x != nil {
-		return x.UserId
-	}
-	return 0
-}
-
-func (x *SetClientPasswordRequest) GetPasswordHash() string {
-	if x != nil {
-		return x.PasswordHash
-	}
-	return ""
-}
-
-type SetClientPasswordResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SetClientPasswordResponse) Reset() {
-	*x = SetClientPasswordResponse{}
-	mi := &file_client_client_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SetClientPasswordResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SetClientPasswordResponse) ProtoMessage() {}
-
-func (x *SetClientPasswordResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SetClientPasswordResponse.ProtoReflect.Descriptor instead.
-func (*SetClientPasswordResponse) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{10}
-}
-
-func (x *SetClientPasswordResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
 }
 
 var File_client_client_proto protoreflect.FileDescriptor
@@ -815,7 +591,7 @@ const file_client_client_proto_rawDesc = "" +
 	"\x06_emailB\b\n" +
 	"\x06_phoneB\n" +
 	"\n" +
-	"\b_address\"\xa9\x02\n" +
+	"\b_address\"\x97\x02\n" +
 	"\x0eClientResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1d\n" +
 	"\n" +
@@ -826,33 +602,16 @@ const file_client_client_proto_rawDesc = "" +
 	"\x05email\x18\x06 \x01(\tR\x05email\x12\x14\n" +
 	"\x05phone\x18\a \x01(\tR\x05phone\x12\x18\n" +
 	"\aaddress\x18\b \x01(\tR\aaddress\x12\x12\n" +
-	"\x04jmbg\x18\t \x01(\tR\x04jmbg\x12\x16\n" +
-	"\x06active\x18\n" +
-	" \x01(\bR\x06active\x12\x1d\n" +
+	"\x04jmbg\x18\t \x01(\tR\x04jmbg\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\v \x01(\tR\tcreatedAt\"T\n" +
-	" ValidateClientCredentialsRequest\x12\x14\n" +
-	"\x05email\x18\x01 \x01(\tR\x05email\x12\x1a\n" +
-	"\bpassword\x18\x02 \x01(\tR\bpassword\"\x85\x01\n" +
-	"!ValidateClientCredentialsResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1d\n" +
-	"\n" +
-	"first_name\x18\x03 \x01(\tR\tfirstName\x12\x1b\n" +
-	"\tlast_name\x18\x04 \x01(\tR\blastName\"X\n" +
-	"\x18SetClientPasswordRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12#\n" +
-	"\rpassword_hash\x18\x02 \x01(\tR\fpasswordHash\"5\n" +
-	"\x19SetClientPasswordResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2\xad\x04\n" +
+	"created_at\x18\v \x01(\tR\tcreatedAtJ\x04\b\n" +
+	"\x10\v2\xed\x02\n" +
 	"\rClientService\x12C\n" +
 	"\fCreateClient\x12\x1b.client.CreateClientRequest\x1a\x16.client.ClientResponse\x12=\n" +
 	"\tGetClient\x12\x18.client.GetClientRequest\x1a\x16.client.ClientResponse\x12K\n" +
 	"\x10GetClientByEmail\x12\x1f.client.GetClientByEmailRequest\x1a\x16.client.ClientResponse\x12F\n" +
 	"\vListClients\x12\x1a.client.ListClientsRequest\x1a\x1b.client.ListClientsResponse\x12C\n" +
-	"\fUpdateClient\x12\x1b.client.UpdateClientRequest\x1a\x16.client.ClientResponse\x12j\n" +
-	"\x13ValidateCredentials\x12(.client.ValidateClientCredentialsRequest\x1a).client.ValidateClientCredentialsResponse\x12R\n" +
-	"\vSetPassword\x12 .client.SetClientPasswordRequest\x1a!.client.SetClientPasswordResponseB/Z-github.com/exbanka/contract/clientpb;clientpbb\x06proto3"
+	"\fUpdateClient\x12\x1b.client.UpdateClientRequest\x1a\x16.client.ClientResponseB/Z-github.com/exbanka/contract/clientpb;clientpbb\x06proto3"
 
 var (
 	file_client_client_proto_rawDescOnce sync.Once
@@ -866,41 +625,33 @@ func file_client_client_proto_rawDescGZIP() []byte {
 	return file_client_client_proto_rawDescData
 }
 
-var file_client_client_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_client_client_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_client_client_proto_goTypes = []any{
-	(*CreateClientRequest)(nil),               // 0: client.CreateClientRequest
-	(*GetClientRequest)(nil),                  // 1: client.GetClientRequest
-	(*GetClientByEmailRequest)(nil),           // 2: client.GetClientByEmailRequest
-	(*ListClientsRequest)(nil),                // 3: client.ListClientsRequest
-	(*ListClientsResponse)(nil),               // 4: client.ListClientsResponse
-	(*UpdateClientRequest)(nil),               // 5: client.UpdateClientRequest
-	(*ClientResponse)(nil),                    // 6: client.ClientResponse
-	(*ValidateClientCredentialsRequest)(nil),  // 7: client.ValidateClientCredentialsRequest
-	(*ValidateClientCredentialsResponse)(nil), // 8: client.ValidateClientCredentialsResponse
-	(*SetClientPasswordRequest)(nil),          // 9: client.SetClientPasswordRequest
-	(*SetClientPasswordResponse)(nil),         // 10: client.SetClientPasswordResponse
+	(*CreateClientRequest)(nil),     // 0: client.CreateClientRequest
+	(*GetClientRequest)(nil),        // 1: client.GetClientRequest
+	(*GetClientByEmailRequest)(nil), // 2: client.GetClientByEmailRequest
+	(*ListClientsRequest)(nil),      // 3: client.ListClientsRequest
+	(*ListClientsResponse)(nil),     // 4: client.ListClientsResponse
+	(*UpdateClientRequest)(nil),     // 5: client.UpdateClientRequest
+	(*ClientResponse)(nil),          // 6: client.ClientResponse
 }
 var file_client_client_proto_depIdxs = []int32{
-	6,  // 0: client.ListClientsResponse.clients:type_name -> client.ClientResponse
-	0,  // 1: client.ClientService.CreateClient:input_type -> client.CreateClientRequest
-	1,  // 2: client.ClientService.GetClient:input_type -> client.GetClientRequest
-	2,  // 3: client.ClientService.GetClientByEmail:input_type -> client.GetClientByEmailRequest
-	3,  // 4: client.ClientService.ListClients:input_type -> client.ListClientsRequest
-	5,  // 5: client.ClientService.UpdateClient:input_type -> client.UpdateClientRequest
-	7,  // 6: client.ClientService.ValidateCredentials:input_type -> client.ValidateClientCredentialsRequest
-	9,  // 7: client.ClientService.SetPassword:input_type -> client.SetClientPasswordRequest
-	6,  // 8: client.ClientService.CreateClient:output_type -> client.ClientResponse
-	6,  // 9: client.ClientService.GetClient:output_type -> client.ClientResponse
-	6,  // 10: client.ClientService.GetClientByEmail:output_type -> client.ClientResponse
-	4,  // 11: client.ClientService.ListClients:output_type -> client.ListClientsResponse
-	6,  // 12: client.ClientService.UpdateClient:output_type -> client.ClientResponse
-	8,  // 13: client.ClientService.ValidateCredentials:output_type -> client.ValidateClientCredentialsResponse
-	10, // 14: client.ClientService.SetPassword:output_type -> client.SetClientPasswordResponse
-	8,  // [8:15] is the sub-list for method output_type
-	1,  // [1:8] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	6, // 0: client.ListClientsResponse.clients:type_name -> client.ClientResponse
+	0, // 1: client.ClientService.CreateClient:input_type -> client.CreateClientRequest
+	1, // 2: client.ClientService.GetClient:input_type -> client.GetClientRequest
+	2, // 3: client.ClientService.GetClientByEmail:input_type -> client.GetClientByEmailRequest
+	3, // 4: client.ClientService.ListClients:input_type -> client.ListClientsRequest
+	5, // 5: client.ClientService.UpdateClient:input_type -> client.UpdateClientRequest
+	6, // 6: client.ClientService.CreateClient:output_type -> client.ClientResponse
+	6, // 7: client.ClientService.GetClient:output_type -> client.ClientResponse
+	6, // 8: client.ClientService.GetClientByEmail:output_type -> client.ClientResponse
+	4, // 9: client.ClientService.ListClients:output_type -> client.ListClientsResponse
+	6, // 10: client.ClientService.UpdateClient:output_type -> client.ClientResponse
+	6, // [6:11] is the sub-list for method output_type
+	1, // [1:6] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_client_client_proto_init() }
@@ -915,7 +666,7 @@ func file_client_client_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_client_client_proto_rawDesc), len(file_client_client_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
