@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -98,13 +99,15 @@ func (h *ClientHandler) ListClients(c *gin.Context) {
 	}
 	statusMap := make(map[int64]bool)
 	if len(ids) > 0 {
-		if batchResp, err := h.authClient.GetAccountStatusBatch(c.Request.Context(), &authpb.GetAccountStatusBatchRequest{
+		if batchResp, batchErr := h.authClient.GetAccountStatusBatch(c.Request.Context(), &authpb.GetAccountStatusBatchRequest{
 			PrincipalType: "client",
 			PrincipalIds:  ids,
-		}); err == nil {
+		}); batchErr == nil {
 			for _, entry := range batchResp.Entries {
 				statusMap[entry.PrincipalId] = entry.Active
 			}
+		} else {
+			log.Printf("WARN: failed to fetch account statuses for clients: %v", batchErr)
 		}
 	}
 
@@ -141,11 +144,13 @@ func (h *ClientHandler) GetClient(c *gin.Context) {
 	}
 
 	active := false
-	if statusResp, err := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
 		PrincipalType: "client",
 		PrincipalId:   int64(id),
-	}); err == nil {
+	}); statusErr == nil {
 		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for client %d: %v", id, statusErr)
 	}
 	c.JSON(http.StatusOK, clientToJSONWithActive(resp, active))
 }
@@ -215,11 +220,13 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 
 	// Re-fetch active status to return accurate value
 	active := false
-	if statusResp, err := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
 		PrincipalType: "client",
 		PrincipalId:   int64(id),
-	}); err == nil {
+	}); statusErr == nil {
 		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for client %d: %v", id, statusErr)
 	}
 	c.JSON(http.StatusOK, clientToJSONWithActive(resp, active))
 }
@@ -239,20 +246,22 @@ func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
 		return
 	}
 
-	id, ok := userID.(uint64)
-	if !ok {
-		// try string conversion
-		idStr, ok2 := userID.(string)
-		if !ok2 {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user_id"})
-			return
-		}
-		parsedID, err := strconv.ParseUint(idStr, 10, 64)
+	var id uint64
+	switch v := userID.(type) {
+	case int64:
+		id = uint64(v)
+	case uint64:
+		id = v
+	case string:
+		parsedID, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user_id"})
 			return
 		}
 		id = parsedID
+	default:
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user_id"})
+		return
 	}
 
 	resp, err := h.clientClient.GetClient(c.Request.Context(), &clientpb.GetClientRequest{Id: id})
@@ -262,11 +271,13 @@ func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
 	}
 
 	active := false
-	if statusResp, err := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
 		PrincipalType: "client",
 		PrincipalId:   int64(id),
-	}); err == nil {
+	}); statusErr == nil {
 		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for client %d: %v", id, statusErr)
 	}
 	c.JSON(http.StatusOK, clientToJSONWithActive(resp, active))
 }

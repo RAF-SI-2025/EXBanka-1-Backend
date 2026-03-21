@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -56,13 +57,15 @@ func (h *EmployeeHandler) ListEmployees(c *gin.Context) {
 	}
 	statusMap := make(map[int64]bool)
 	if len(ids) > 0 {
-		if batchResp, err := h.authClient.GetAccountStatusBatch(c.Request.Context(), &authpb.GetAccountStatusBatchRequest{
+		if batchResp, batchErr := h.authClient.GetAccountStatusBatch(c.Request.Context(), &authpb.GetAccountStatusBatchRequest{
 			PrincipalType: "employee",
 			PrincipalIds:  ids,
-		}); err == nil {
+		}); batchErr == nil {
 			for _, entry := range batchResp.Entries {
 				statusMap[entry.PrincipalId] = entry.Active
 			}
+		} else {
+			log.Printf("WARN: failed to fetch account statuses for employees: %v", batchErr)
 		}
 	}
 
@@ -101,11 +104,13 @@ func (h *EmployeeHandler) GetEmployee(c *gin.Context) {
 	}
 
 	active := false
-	if statusResp, err := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
 		PrincipalType: "employee",
 		PrincipalId:   id,
-	}); err == nil {
+	}); statusErr == nil {
 		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for employee %d: %v", id, statusErr)
 	}
 	c.JSON(http.StatusOK, employeeToJSONWithActive(resp, active))
 }
@@ -219,36 +224,51 @@ func (h *EmployeeHandler) UpdateEmployee(c *gin.Context) {
 		return
 	}
 
-	pbReq := &userpb.UpdateEmployeeRequest{Id: id}
-	if req.LastName != nil {
-		pbReq.LastName = req.LastName
-	}
-	if req.Gender != nil {
-		pbReq.Gender = req.Gender
-	}
-	if req.Phone != nil {
-		pbReq.Phone = req.Phone
-	}
-	if req.Address != nil {
-		pbReq.Address = req.Address
-	}
-	if req.JMBG != nil {
-		pbReq.Jmbg = req.JMBG
-	}
-	if req.Position != nil {
-		pbReq.Position = req.Position
-	}
-	if req.Department != nil {
-		pbReq.Department = req.Department
-	}
-	if req.Role != nil {
-		pbReq.Role = req.Role
-	}
+	hasProfileUpdate := req.LastName != nil || req.Gender != nil || req.Phone != nil ||
+		req.Address != nil || req.JMBG != nil || req.Position != nil ||
+		req.Department != nil || req.Role != nil
 
-	resp, err := h.userClient.UpdateEmployee(c.Request.Context(), pbReq)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	var resp *userpb.EmployeeResponse
+	if hasProfileUpdate {
+		pbReq := &userpb.UpdateEmployeeRequest{Id: id}
+		if req.LastName != nil {
+			pbReq.LastName = req.LastName
+		}
+		if req.Gender != nil {
+			pbReq.Gender = req.Gender
+		}
+		if req.Phone != nil {
+			pbReq.Phone = req.Phone
+		}
+		if req.Address != nil {
+			pbReq.Address = req.Address
+		}
+		if req.JMBG != nil {
+			pbReq.Jmbg = req.JMBG
+		}
+		if req.Position != nil {
+			pbReq.Position = req.Position
+		}
+		if req.Department != nil {
+			pbReq.Department = req.Department
+		}
+		if req.Role != nil {
+			pbReq.Role = req.Role
+		}
+
+		resp, err = h.userClient.UpdateEmployee(c.Request.Context(), pbReq)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	} else {
+		// No profile fields — still fetch current employee for response
+		var fetchErr error
+		resp, fetchErr = h.userClient.GetEmployee(c.Request.Context(), &userpb.GetEmployeeRequest{Id: id})
+		if fetchErr != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "employee not found"})
+			return
+		}
 	}
 
 	if req.Active != nil {
@@ -265,11 +285,13 @@ func (h *EmployeeHandler) UpdateEmployee(c *gin.Context) {
 
 	// Re-fetch active status to return accurate value
 	active := false
-	if statusResp, err := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
+	if statusResp, statusErr := h.authClient.GetAccountStatus(c.Request.Context(), &authpb.GetAccountStatusRequest{
 		PrincipalType: "employee",
 		PrincipalId:   id,
-	}); err == nil {
+	}); statusErr == nil {
 		active = statusResp.Active
+	} else {
+		log.Printf("WARN: failed to fetch account status for employee %d: %v", id, statusErr)
 	}
 	c.JSON(http.StatusOK, employeeToJSONWithActive(resp, active))
 }
