@@ -15,8 +15,10 @@ Authorization: Bearer <access_token>
 ```
 
 There are two token types:
-- **Employee token** — issued via `POST /api/auth/login`, required for employee-protected routes
-- **Client token** — issued via `POST /api/auth/client-login`, required for client-protected routes
+- **Employee token** — issued via `POST /api/auth/login` when the principal is an employee, required for employee-protected routes
+- **Client token** — issued via `POST /api/auth/login` when the principal is a client, required for client-protected routes
+
+The unified login endpoint auto-detects whether the principal is an employee or a client based on the stored account record in auth-service and issues the appropriate JWT (`system_type: "employee"` or `system_type: "client"`).
 
 Employee routes additionally require specific permissions (see per-endpoint notes). Client routes require `role="client"` in the JWT.
 
@@ -50,7 +52,7 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 
 ### POST /api/auth/login
 
-Authenticate an employee with email and password.
+Authenticate an employee or bank client with email and password. The endpoint auto-detects whether the principal is an employee or a client based on the stored account record in auth-service and issues the appropriate JWT. Employees receive a token with `system_type: "employee"` and their roles/permissions; clients receive a token with `system_type: "client"` and `role: "client"`.
 
 **Authentication:** None (public)
 
@@ -58,10 +60,10 @@ Authenticate an employee with email and password.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `email` | string | Yes | Employee email address |
-| `password` | string | Yes | Employee password |
+| `email` | string | Yes | Email address of the employee or client |
+| `password` | string | Yes | Account password |
 
-**Example Request:**
+**Example Request (employee):**
 ```json
 {
   "email": "john.doe@exbanka.com",
@@ -69,33 +71,7 @@ Authenticate an employee with email and password.
 }
 ```
 
-**Response 200:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "a3f8c2d1e9b4..."
-}
-```
-
-**Response 400:** `{"error": "validation error"}`
-**Response 401:** `{"error": "invalid credentials"}`
-
----
-
-### POST /api/auth/client-login
-
-Authenticate a bank client with email and password. Returns a client-scoped JWT.
-
-**Authentication:** None (public)
-
-**Request Body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `email` | string | Yes | Client email address |
-| `password` | string | Yes | Client password |
-
-**Example Request:**
+**Example Request (client):**
 ```json
 {
   "email": "jane.smith@example.com",
@@ -107,7 +83,7 @@ Authenticate a bank client with email and password. Returns a client-scoped JWT.
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "refresh_token": "b7e1a9c3f2d8..."
+  "refresh_token": "a3f8c2d1e9b4..."
 }
 ```
 
