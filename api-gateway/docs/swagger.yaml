@@ -148,8 +148,6 @@ definitions:
     type: object
   handler.createEmployeeRequest:
     properties:
-      active:
-        type: boolean
       address:
         type: string
       date_of_birth:
@@ -509,16 +507,6 @@ definitions:
     required:
     - role_names
     type: object
-  handler.setPasswordRequest:
-    properties:
-      password_hash:
-        type: string
-      user_id:
-        type: integer
-    required:
-    - password_hash
-    - user_id
-    type: object
   handler.temporaryBlockCardBody:
     properties:
       duration_hours:
@@ -566,6 +554,8 @@ definitions:
     type: object
   handler.updateClientRequest:
     properties:
+      active:
+        type: boolean
       address:
         type: string
       date_of_birth:
@@ -1062,43 +1052,6 @@ paths:
               type: string
             type: object
       summary: Activate account
-      tags:
-      - auth
-  /api/auth/client-login:
-    post:
-      consumes:
-      - application/json
-      description: Authenticate a bank client with email and password, returns access
-        and refresh tokens
-      parameters:
-      - description: Client login credentials
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.loginRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: access_token, refresh_token
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: error message
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: invalid credentials
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Client login
       tags:
       - auth
   /api/auth/login:
@@ -2236,48 +2189,6 @@ paths:
       security:
       - BearerAuth: []
       summary: Get current client (me)
-      tags:
-      - clients
-  /api/clients/set-password:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Password hash data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.setPasswordRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Set client password hash
       tags:
       - clients
   /api/companies:
