@@ -63,7 +63,6 @@ func (h *UserGRPCHandler) CreateEmployee(ctx context.Context, req *pb.CreateEmpl
 		Position:    req.Position,
 		Department:  req.Department,
 		Role:        req.Role,
-		Active:      req.Active,
 		JMBG:        req.Jmbg,
 	}
 
@@ -120,9 +119,6 @@ func (h *UserGRPCHandler) UpdateEmployee(ctx context.Context, req *pb.UpdateEmpl
 	if req.Role != nil {
 		updates["role"] = *req.Role
 	}
-	if req.Active != nil {
-		updates["active"] = *req.Active
-	}
 	if req.Jmbg != nil {
 		updates["jmbg"] = *req.Jmbg
 	}
@@ -135,63 +131,6 @@ func (h *UserGRPCHandler) UpdateEmployee(ctx context.Context, req *pb.UpdateEmpl
 		return nil, status.Errorf(mapServiceError(err), "failed to update: %v", err)
 	}
 	return toEmployeeResponse(emp, h.empService), nil
-}
-
-func (h *UserGRPCHandler) ValidateCredentials(ctx context.Context, req *pb.ValidateCredentialsRequest) (*pb.ValidateCredentialsResponse, error) {
-	emp, valid := h.empService.ValidateCredentials(req.Email, req.Password)
-	if !valid {
-		return &pb.ValidateCredentialsResponse{Valid: false}, nil
-	}
-	permissions := h.empService.ResolvePermissions(emp)
-	roleNames := extractRoleNames(emp.Roles)
-	// Fall back to legacy Role field if multi-role not yet populated
-	if len(roleNames) == 0 && emp.Role != "" {
-		roleNames = []string{emp.Role}
-	}
-	legacyRole := emp.Role
-	if len(roleNames) > 0 {
-		legacyRole = roleNames[0]
-	}
-	return &pb.ValidateCredentialsResponse{
-		Valid:       true,
-		UserId:      emp.ID,
-		Email:       emp.Email,
-		Role:        legacyRole,
-		Permissions: permissions,
-		Roles:       roleNames,
-	}, nil
-}
-
-func (h *UserGRPCHandler) GetUserByEmail(ctx context.Context, req *pb.GetUserByEmailRequest) (*pb.UserResponse, error) {
-	emp, err := h.empService.GetByEmail(req.Email)
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "user not found")
-	}
-	permissions := h.empService.ResolvePermissions(emp)
-	roleNames := extractRoleNames(emp.Roles)
-	if len(roleNames) == 0 && emp.Role != "" {
-		roleNames = []string{emp.Role}
-	}
-	legacyRole := emp.Role
-	if len(roleNames) > 0 {
-		legacyRole = roleNames[0]
-	}
-	return &pb.UserResponse{
-		Id:           emp.ID,
-		Email:        emp.Email,
-		Role:         legacyRole,
-		Roles:        roleNames,
-		Permissions:  permissions,
-		PasswordHash: emp.PasswordHash,
-		Active:       emp.Active,
-	}, nil
-}
-
-func (h *UserGRPCHandler) SetPassword(ctx context.Context, req *pb.SetPasswordRequest) (*pb.SetPasswordResponse, error) {
-	if err := h.empService.SetPassword(req.UserId, req.PasswordHash); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to set password: %v", err)
-	}
-	return &pb.SetPasswordResponse{Success: true}, nil
 }
 
 // ListRoles returns all roles with their permissions.
@@ -309,7 +248,6 @@ func toEmployeeResponse(emp *model.Employee, empSvc *service.EmployeeService) *p
 		Username:              emp.Username,
 		Position:              emp.Position,
 		Department:            emp.Department,
-		Active:                emp.Active,
 		Role:                  legacyRole,
 		Permissions:           permissions,
 		Jmbg:                  emp.JMBG,
