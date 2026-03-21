@@ -82,7 +82,14 @@ func (r *AccountRepository) SetStatus(accountID int64, status string) error {
 }
 
 func (r *AccountRepository) SetStatusByPrincipal(principalType string, principalID int64, status string) error {
-	return r.db.Model(&model.Account{}).
+	result := r.db.Model(&model.Account{}).
 		Where("principal_type = ? AND principal_id = ?", principalType, principalID).
-		Update("status", status).Error
+		Update("status", status)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("account not found")
+	}
+	return nil
 }

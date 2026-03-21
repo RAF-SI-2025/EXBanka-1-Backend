@@ -121,43 +121,50 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 		return "", "", fmt.Errorf("account locked due to too many failed attempts, try again in %.0f minutes", remaining)
 	}
 
-	// Count recent failures
-	failedCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
-
-	recordFailure := func() {
-		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
-		if failedCount+1 >= maxFailedAttempts {
-			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
-		}
-	}
-
 	// Look up account by email
 	account, err := s.accountRepo.GetByEmail(email)
 	if err != nil {
-		recordFailure()
-		remaining := int(maxFailedAttempts - (failedCount + 1))
+		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
+		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
+		if freshCount >= maxFailedAttempts {
+			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+		}
+		remaining := int(maxFailedAttempts - freshCount)
 		return "", "", fmt.Errorf("no account found with email %s (%d attempts remaining before lockout)", email, remaining)
 	}
 
 	// Check account status
 	if account.Status == model.AccountStatusPending {
-		recordFailure()
-		remaining := int(maxFailedAttempts - (failedCount + 1))
+		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
+		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
+		if freshCount >= maxFailedAttempts {
+			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+		}
+		remaining := int(maxFailedAttempts - freshCount)
 		return "", "", fmt.Errorf("account not yet activated (%d attempts remaining before lockout)", remaining)
 	}
 	if account.Status != model.AccountStatusActive {
-		recordFailure()
-		remaining := int(maxFailedAttempts - (failedCount + 1))
+		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
+		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
+		if freshCount >= maxFailedAttempts {
+			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+		}
+		remaining := int(maxFailedAttempts - freshCount)
 		return "", "", fmt.Errorf("account is disabled (%d attempts remaining before lockout)", remaining)
 	}
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(password)); err != nil {
-		recordFailure()
-		if failedCount+1 >= maxFailedAttempts {
+		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
+		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
+		if freshCount >= maxFailedAttempts {
+			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
 			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
 		}
-		remaining := int(maxFailedAttempts - (failedCount + 1))
+		remaining := int(maxFailedAttempts - freshCount)
 		return "", "", fmt.Errorf("incorrect password for %s (%d attempts remaining before lockout)", email, remaining)
 	}
 
@@ -497,8 +504,8 @@ func (s *AuthService) SetAccountStatus(ctx context.Context, principalType string
 		if err != nil {
 			return fmt.Errorf("account not found: %w", err)
 		}
-		if err := s.tokenRepo.RevokeAllForAccount(acct.ID); err != nil {
-			log.Printf("warn: failed to revoke tokens for account %d: %v", acct.ID, err)
+		if revokeErr := s.tokenRepo.RevokeAllForAccount(acct.ID); revokeErr != nil {
+			return fmt.Errorf("account disabled but failed to revoke sessions: %w", revokeErr)
 		}
 	}
 
