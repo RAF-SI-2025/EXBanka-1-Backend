@@ -1,4 +1,4 @@
-go 1.25.0
+go 1.26.1
 
 use (
 	./account-service
@@ -9,6 +9,7 @@ use (
 	./contract
 	./credit-service
 	./notification-service
+	./test-app
 	./transaction-service
 	./user-service
 )
