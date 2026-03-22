@@ -71,3 +71,51 @@ message AuthorizedPersonResponse {
   uint64 account_id = 9;
   string created_at = 10;
 }
+
+service VirtualCardService {
+  rpc CreateVirtualCard(CreateVirtualCardRequest) returns (CardResponse);
+  rpc SetCardPin(SetCardPinRequest) returns (SetCardPinResponse);
+  rpc VerifyCardPin(VerifyCardPinRequest) returns (VerifyCardPinResponse);
+  rpc TemporaryBlockCard(TemporaryBlockCardRequest) returns (CardResponse);
+  rpc UseCard(UseCardRequest) returns (UseCardResponse);
+}
+
+message CreateVirtualCardRequest {
+  string account_number = 1;
+  uint64 owner_id = 2;
+  string card_brand = 3;
+  string usage_type = 4;
+  int32 max_uses = 5;
+  int32 expiry_months = 6;
+  string card_limit = 7;
+}
+
+message SetCardPinRequest {
+  uint64 id = 1;
+  string pin = 2;
+}
+
+message SetCardPinResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message VerifyCardPinRequest {
+  uint64 id = 1;
+  string pin = 2;
+}
+
+message VerifyCardPinResponse {
+  bool valid = 1;
+  string message = 2;
+}
+
+message TemporaryBlockCardRequest {
+  uint64 id = 1;
+  int32 duration_hours = 2;
+  string reason = 3;
+}
+
+message UseCardRequest { uint64 id = 1; }
+
+message UseCardResponse { bool success = 1; }

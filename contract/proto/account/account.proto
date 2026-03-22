@@ -171,3 +171,31 @@ message GetLedgerEntriesResponse {
   repeated LedgerEntryResponse entries = 1;
   int64 total_count = 2;
 }
+
+service BankAccountService {
+  rpc CreateBankAccount(CreateBankAccountRequest) returns (AccountResponse);
+  rpc ListBankAccounts(ListBankAccountsRequest) returns (ListBankAccountsResponse);
+  rpc DeleteBankAccount(DeleteBankAccountRequest) returns (DeleteBankAccountResponse);
+  rpc GetBankRSDAccount(GetBankRSDAccountRequest) returns (AccountResponse);
+}
+
+message CreateBankAccountRequest {
+  string currency_code = 1;
+  string account_kind = 2;
+  string account_name = 3;
+}
+
+message ListBankAccountsRequest {}
+
+message ListBankAccountsResponse {
+  repeated AccountResponse accounts = 1;
+}
+
+message DeleteBankAccountRequest { uint64 id = 1; }
+
+message DeleteBankAccountResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message GetBankRSDAccountRequest {}

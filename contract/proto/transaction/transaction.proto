@@ -182,3 +182,57 @@ message ExecuteTransferRequest {
   uint64 client_id = 2;
   string verification_code = 3;
 }
+
+service FeeService {
+  rpc ListFees(ListFeesRequest) returns (ListFeesResponse);
+  rpc CreateFee(CreateFeeRequest) returns (TransferFeeResponse);
+  rpc UpdateFee(UpdateFeeRequest) returns (TransferFeeResponse);
+  rpc DeleteFee(DeleteFeeRequest) returns (DeleteFeeResponse);
+}
+
+message ListFeesRequest {}
+
+message ListFeesResponse {
+  repeated TransferFeeResponse fees = 1;
+}
+
+message CreateFeeRequest {
+  string name = 1;
+  string fee_type = 2;
+  string fee_value = 3;
+  string min_amount = 4;
+  string max_fee = 5;
+  string transaction_type = 6;
+  string currency_code = 7;
+}
+
+message UpdateFeeRequest {
+  uint64 id = 1;
+  string name = 2;
+  string fee_type = 3;
+  string fee_value = 4;
+  string min_amount = 5;
+  string max_fee = 6;
+  string transaction_type = 7;
+  string currency_code = 8;
+  bool active = 9;
+}
+
+message DeleteFeeRequest { uint64 id = 1; }
+
+message DeleteFeeResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message TransferFeeResponse {
+  uint64 id = 1;
+  string name = 2;
+  string fee_type = 3;
+  string fee_value = 4;
+  string min_amount = 5;
+  string max_fee = 6;
+  string transaction_type = 7;
+  string currency_code = 8;
+  bool active = 9;
+}
