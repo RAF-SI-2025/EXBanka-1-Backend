@@ -19,6 +19,7 @@ type Config struct {
 	RefreshExpiry   time.Duration
 	RedisAddr       string
 	FrontendBaseURL string
+	PasswordPepper  string
 }
 
 func Load() *Config {
@@ -39,6 +40,7 @@ func Load() *Config {
 		RefreshExpiry: refreshExp,
 		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
 		FrontendBaseURL: getEnv("FRONTEND_BASE_URL", "http://localhost:3000"),
+		PasswordPepper:  getEnv("PASSWORD_PEPPER", ""),
 	}
 }
 

@@ -96,6 +96,7 @@ services:
       REDIS_ADDR: redis:6379
       AUTH_DB_SSLMODE: disable
       FRONTEND_BASE_URL: "http://localhost:5173"
+      PASSWORD_PEPPER: "${PASSWORD_PEPPER}"
     ports:
       - "50051:50051"
     depends_on:

@@ -73,7 +73,7 @@ func main() {
 	totpRepo := repository.NewTOTPRepository(db)
 	jwtService := service.NewJWTService(cfg.JWTSecret, cfg.AccessExpiry)
 	totpSvc := service.NewTOTPService()
-	authService := service.NewAuthService(tokenRepo, loginAttemptRepo, totpRepo, totpSvc, jwtService, accountRepo, userClient, producer, redisCache, cfg.RefreshExpiry, cfg.FrontendBaseURL)
+	authService := service.NewAuthService(tokenRepo, loginAttemptRepo, totpRepo, totpSvc, jwtService, accountRepo, userClient, producer, redisCache, cfg.RefreshExpiry, cfg.FrontendBaseURL, cfg.PasswordPepper)
 	grpcHandler := handler.NewAuthGRPCHandler(authService)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
@@ -92,6 +92,7 @@ func main() {
 		"client.created",
 		"notification.send-email",
 		kafkamsg.TopicAuthAccountStatusChanged,
+		kafkamsg.TopicAuthDeadLetter,
 	)
 
 	// Start Kafka consumer for employee-created events

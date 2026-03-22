@@ -32,6 +32,7 @@ type AuthService struct {
 	cache            *cache.RedisCache
 	refreshExp       time.Duration
 	frontendBaseURL  string
+	pepper           string
 }
 
 func NewAuthService(
@@ -46,6 +47,7 @@ func NewAuthService(
 	cache *cache.RedisCache,
 	refreshExp time.Duration,
 	frontendBaseURL string,
+	pepper string,
 ) *AuthService {
 	return &AuthService{
 		tokenRepo:        tokenRepo,
@@ -59,6 +61,7 @@ func NewAuthService(
 		cache:            cache,
 		refreshExp:       refreshExp,
 		frontendBaseURL:  frontendBaseURL,
+		pepper:           pepper,
 	}
 }
 
@@ -157,7 +160,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	}
 
 	// Verify password
-	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(PepperPassword(s.pepper, password))); err != nil {
 		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
 		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
 		if freshCount >= maxFailedAttempts {
@@ -418,7 +421,7 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, 
 		return errors.New("password reset token expired; request a new password reset")
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, newPassword)), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
@@ -453,7 +456,7 @@ func (s *AuthService) ActivateAccount(ctx context.Context, tokenStr, password, c
 		return errors.New("token expired")
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, password)), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
@@ -509,7 +512,18 @@ func (s *AuthService) SetAccountStatus(ctx context.Context, principalType string
 		}
 	}
 
-	return s.accountRepo.SetStatusByPrincipal(principalType, principalID, status)
+	if err := s.accountRepo.SetStatusByPrincipal(principalType, principalID, status); err != nil {
+		return err
+	}
+
+	if err := s.producer.Publish(ctx, kafkamsg.TopicAuthAccountStatusChanged, kafkamsg.AuthAccountStatusChangedMessage{
+		PrincipalType: principalType,
+		PrincipalID:   principalID,
+		Status:        string(status),
+	}); err != nil {
+		log.Printf("warn: failed to publish account status changed event for %s/%d: %v", principalType, principalID, err)
+	}
+	return nil
 }
 
 // GetAccountStatus returns the status string and active bool for a given principal.

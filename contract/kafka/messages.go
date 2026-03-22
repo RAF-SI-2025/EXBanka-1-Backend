@@ -262,6 +262,7 @@ type LatePenaltyAppliedMessage struct {
 
 const (
 	TopicAuthAccountStatusChanged = "auth.account-status-changed"
+	TopicAuthDeadLetter           = "auth.dead-letter"
 )
 
 type AuthAccountStatusChangedMessage struct {

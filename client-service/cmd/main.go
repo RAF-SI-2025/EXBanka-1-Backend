@@ -73,7 +73,7 @@ func main() {
 	clientService := service.NewClientService(repo, producer, redisCache)
 	clientLimitSvc := service.NewClientLimitService(clientLimitRepo, userLimitClient, producer)
 
-	grpcHandler := handler.NewClientGRPCHandler(clientService, producer)
+	grpcHandler := handler.NewClientGRPCHandler(clientService)
 	limitHandler := handler.NewClientLimitGRPCHandler(clientLimitSvc)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)

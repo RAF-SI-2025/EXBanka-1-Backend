@@ -10,8 +10,6 @@ import (
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/clientpb"
-	kafkamsg "github.com/exbanka/contract/kafka"
-	kafkaprod "github.com/exbanka/client-service/internal/kafka"
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/client-service/internal/service"
 )
@@ -43,13 +41,11 @@ func mapServiceError(err error) codes.Code {
 type ClientGRPCHandler struct {
 	pb.UnimplementedClientServiceServer
 	clientService *service.ClientService
-	producer      *kafkaprod.Producer
 }
 
-func NewClientGRPCHandler(clientService *service.ClientService, producer *kafkaprod.Producer) *ClientGRPCHandler {
+func NewClientGRPCHandler(clientService *service.ClientService) *ClientGRPCHandler {
 	return &ClientGRPCHandler{
 		clientService: clientService,
-		producer:      producer,
 	}
 }
 
@@ -68,14 +64,6 @@ func (h *ClientGRPCHandler) CreateClient(ctx context.Context, req *pb.CreateClie
 	if err := h.clientService.CreateClient(ctx, client); err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to create client: %v", err)
 	}
-
-	// Publish Kafka event
-	_ = h.producer.PublishClientCreated(ctx, kafkamsg.ClientCreatedMessage{
-		ClientID:  client.ID,
-		Email:     client.Email,
-		FirstName: client.FirstName,
-		LastName:  client.LastName,
-	})
 
 	return toClientResponse(client), nil
 }
@@ -150,14 +138,6 @@ func (h *ClientGRPCHandler) UpdateClient(ctx context.Context, req *pb.UpdateClie
 		}
 		return nil, status.Errorf(mapServiceError(err), "failed to update client: %v", err)
 	}
-
-	// Publish Kafka event
-	_ = h.producer.PublishClientUpdated(ctx, kafkamsg.ClientCreatedMessage{
-		ClientID:  client.ID,
-		Email:     client.Email,
-		FirstName: client.FirstName,
-		LastName:  client.LastName,
-	})
 
 	return toClientResponse(client), nil
 }
