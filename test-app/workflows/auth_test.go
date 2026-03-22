@@ -1,8 +1,14 @@
 package workflows
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
+	"time"
+
+	kafkalib "github.com/segmentio/kafka-go"
 
 	"github.com/exbanka/test-app/internal/client"
 	"github.com/exbanka/test-app/internal/config"
@@ -11,9 +17,73 @@ import (
 
 var cfg *config.Config
 
+const adminEmail = "admin@exbanka.com"
+const adminPassword = "Admin123!"
+
 func TestMain(m *testing.M) {
 	cfg = config.Load()
+	ensureAdminActivated()
 	os.Exit(m.Run())
+}
+
+// ensureAdminActivated auto-activates the seeded admin account if it is still pending.
+// It scans the notification.send-email Kafka topic from the beginning for an ACTIVATION
+// message sent to adminEmail, then calls POST /api/auth/activate with the token.
+// This is safe to call on every test run — if the admin is already active, it returns immediately.
+func ensureAdminActivated() {
+	c := newClient()
+	if resp, err := c.Login(adminEmail, adminPassword); err == nil && resp.StatusCode == 200 {
+		return // already active
+	}
+
+	fmt.Println("[test-app] Admin account not active — scanning Kafka for activation token...")
+
+	r := kafkalib.NewReader(kafkalib.ReaderConfig{
+		Brokers:     []string{cfg.KafkaBrokers},
+		Topic:       "notification.send-email",
+		GroupID:     fmt.Sprintf("test-app-admin-setup-%d", time.Now().UnixNano()),
+		StartOffset: kafkalib.FirstOffset,
+		MaxWait:     500 * time.Millisecond,
+	})
+	defer r.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	var latestToken string
+	for {
+		msg, err := r.ReadMessage(ctx)
+		if err != nil {
+			break
+		}
+		var body struct {
+			To        string            `json:"to"`
+			EmailType string            `json:"email_type"`
+			Data      map[string]string `json:"data"`
+		}
+		if json.Unmarshal(msg.Value, &body) != nil {
+			continue
+		}
+		if body.To == adminEmail && body.EmailType == "ACTIVATION" {
+			if token := body.Data["token"]; token != "" {
+				latestToken = token // keep scanning for the latest token
+			}
+		}
+	}
+
+	if latestToken == "" {
+		fmt.Println("[test-app] Warning: no activation token found for admin. Tests requiring admin login will fail.")
+		return
+	}
+
+	resp, err := c.ActivateAccount(latestToken, adminPassword)
+	if err != nil || resp.StatusCode != 200 {
+		body, _ := json.Marshal(resp.Body)
+		fmt.Printf("[test-app] Warning: admin activation failed (status=%d, body=%s). Tests requiring admin login will fail.\n",
+			resp.StatusCode, body)
+		return
+	}
+	fmt.Println("[test-app] Admin account activated successfully.")
 }
 
 func newClient() *client.APIClient {
@@ -24,7 +94,7 @@ func newClient() *client.APIClient {
 func loginAsAdmin(t *testing.T) *client.APIClient {
 	t.Helper()
 	c := newClient()
-	resp, err := c.Login("admin@exbanka.com", "Admin123!")
+	resp, err := c.Login(adminEmail, adminPassword)
 	if err != nil {
 		t.Fatalf("admin login failed: %v", err)
 	}
@@ -48,7 +118,7 @@ func loginAsClient(t *testing.T, email, password string) *client.APIClient {
 
 func TestAuth_LoginWithValidCredentials(t *testing.T) {
 	c := newClient()
-	resp, err := c.Login("admin@exbanka.com", "Admin123!")
+	resp, err := c.Login(adminEmail, adminPassword)
 	if err != nil {
 		t.Fatalf("login error: %v", err)
 	}
@@ -60,7 +130,7 @@ func TestAuth_LoginWithValidCredentials(t *testing.T) {
 func TestAuth_LoginWithInvalidPassword(t *testing.T) {
 	c := newClient()
 	resp, err := c.POST("/api/auth/login", map[string]string{
-		"email":    "admin@exbanka.com",
+		"email":    adminEmail,
 		"password": "wrongpassword",
 	})
 	if err != nil {
@@ -115,7 +185,7 @@ func TestAuth_LoginWithEmptyFields(t *testing.T) {
 
 func TestAuth_RefreshToken(t *testing.T) {
 	c := newClient()
-	loginResp, err := c.Login("admin@exbanka.com", "Admin123!")
+	loginResp, err := c.Login(adminEmail, adminPassword)
 	if err != nil {
 		t.Fatalf("login error: %v", err)
 	}
@@ -152,7 +222,7 @@ func TestAuth_RefreshTokenInvalid(t *testing.T) {
 
 func TestAuth_Logout(t *testing.T) {
 	c := newClient()
-	loginResp, err := c.Login("admin@exbanka.com", "Admin123!")
+	loginResp, err := c.Login(adminEmail, adminPassword)
 	if err != nil {
 		t.Fatalf("login error: %v", err)
 	}
@@ -183,7 +253,7 @@ func TestAuth_PasswordResetRequest(t *testing.T) {
 
 	// Request for existing email (should succeed silently)
 	resp, err := c.POST("/api/auth/password/reset-request", map[string]string{
-		"email": "admin@exbanka.com",
+		"email": adminEmail,
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
