@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/client-service/internal/cache"
 	kafkaprod "github.com/exbanka/client-service/internal/kafka"
 	"github.com/exbanka/client-service/internal/model"
@@ -74,6 +76,17 @@ func (s *ClientService) CreateClient(ctx context.Context, client *model.Client) 
 
 	if err := s.repo.Create(client); err != nil {
 		return fmt.Errorf("create client: %w", err)
+	}
+
+	if s.producer != nil {
+		if err := s.producer.PublishClientCreated(ctx, kafkamsg.ClientCreatedMessage{
+			ClientID:  client.ID,
+			Email:     client.Email,
+			FirstName: client.FirstName,
+			LastName:  client.LastName,
+		}); err != nil {
+			log.Printf("warn: failed to publish client-created event: %v", err)
+		}
 	}
 	return nil
 }
@@ -145,6 +158,17 @@ func (s *ClientService) UpdateClient(id uint64, updates map[string]interface{}) 
 
 	if s.cache != nil {
 		_ = s.cache.Delete(context.Background(), "client:id:"+strconv.FormatUint(id, 10))
+	}
+
+	if s.producer != nil {
+		if err := s.producer.PublishClientUpdated(context.Background(), kafkamsg.ClientCreatedMessage{
+			ClientID:  client.ID,
+			Email:     client.Email,
+			FirstName: client.FirstName,
+			LastName:  client.LastName,
+		}); err != nil {
+			log.Printf("warn: failed to publish client-updated event: %v", err)
+		}
 	}
 	return client, nil
 }
