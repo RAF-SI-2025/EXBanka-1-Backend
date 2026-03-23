@@ -8,8 +8,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/exbanka/contract/authpb"
 	"github.com/exbanka/auth-service/internal/service"
+	pb "github.com/exbanka/contract/authpb"
 )
 
 // mapServiceError maps service-layer error messages to appropriate gRPC status codes.
@@ -132,6 +132,13 @@ func (h *AuthGRPCHandler) GetAccountStatus(ctx context.Context, req *pb.GetAccou
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 	return &pb.GetAccountStatusResponse{Status: st, Active: active}, nil
+}
+
+func (h *AuthGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.CreateAccountResponse, error) {
+	if err := h.authService.CreateAccountAndActivationToken(ctx, req.PrincipalId, req.Email, req.FirstName, req.PrincipalType); err != nil {
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
+	}
+	return &pb.CreateAccountResponse{Success: true}, nil
 }
 
 func (h *AuthGRPCHandler) GetAccountStatusBatch(ctx context.Context, req *pb.GetAccountStatusBatchRequest) (*pb.GetAccountStatusBatchResponse, error) {

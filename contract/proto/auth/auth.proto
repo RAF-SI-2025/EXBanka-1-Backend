@@ -15,6 +15,7 @@ service AuthService {
   rpc SetAccountStatus(SetAccountStatusRequest) returns (SetAccountStatusResponse);
   rpc GetAccountStatus(GetAccountStatusRequest) returns (GetAccountStatusResponse);
   rpc GetAccountStatusBatch(GetAccountStatusBatchRequest) returns (GetAccountStatusBatchResponse);
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
 }
 
 message LoginRequest {
@@ -119,4 +120,15 @@ message AccountStatusEntry {
 
 message GetAccountStatusBatchResponse {
   repeated AccountStatusEntry entries = 1;
+}
+
+message CreateAccountRequest {
+  int64 principal_id = 1;
+  string email = 2;
+  string first_name = 3;
+  string principal_type = 4;
+}
+
+message CreateAccountResponse {
+  bool success = 1;
 }

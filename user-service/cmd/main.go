@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	authpb "github.com/exbanka/contract/authpb"
 	shared "github.com/exbanka/contract/shared"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/cache"
@@ -89,8 +91,16 @@ func main() {
 	limitCron := service.NewLimitCronService(employeeLimitRepo)
 	limitCron.Start()
 
-	if err := seedAdminUser(empService); err != nil {
-		log.Printf("warn: seed admin user: %v", err)
+	// Connect to auth-service for direct account provisioning during seeding.
+	// grpc.NewClient is non-blocking; actual connection is made lazily.
+	authConn, err := grpc.NewClient(cfg.AuthGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Printf("warn: failed to create auth gRPC client: %v", err)
+	}
+	var authClient authpb.AuthServiceClient
+	if authConn != nil {
+		defer authConn.Close()
+		authClient = authpb.NewAuthServiceClient(authConn)
 	}
 
 	grpcHandler := handler.NewUserGRPCHandler(empService, roleSvc)
@@ -114,6 +124,14 @@ func main() {
 		}
 	}()
 
+	// Seed admin in background so user-service is not blocked waiting for
+	// auth-service to become ready (auth-service starts after user-service).
+	go func() {
+		if err := seedAdminUser(empService, authClient); err != nil {
+			log.Printf("warn: seed admin user: %v", err)
+		}
+	}()
+
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -124,10 +142,15 @@ func main() {
 	log.Println("Server stopped")
 }
 
-func seedAdminUser(empSvc *service.EmployeeService) error {
-	existing, _ := empSvc.GetEmployeeByEmail("admin@exbanka.com")
+func seedAdminUser(empSvc *service.EmployeeService, authClient authpb.AuthServiceClient) error {
+	existing, _ := empSvc.GetEmployeeByEmail("vlupsic11723rn@raf.rs")
 	if existing != nil {
 		log.Println("Admin user already exists, skipping seed")
+		// Still ensure the auth account exists in case a previous run failed
+		// to register it (e.g. auth-service was down).
+		if authClient != nil {
+			ensureAuthAccount(authClient, existing.ID, existing.Email, existing.FirstName, "employee")
+		}
 		return nil
 	}
 
@@ -145,5 +168,39 @@ func seedAdminUser(empSvc *service.EmployeeService) error {
 		Department:  "IT",
 		Role:        "EmployeeAdmin",
 	}
-	return empSvc.CreateEmployee(context.Background(), admin)
+	if err := empSvc.CreateEmployee(context.Background(), admin); err != nil {
+		return err
+	}
+
+	if authClient != nil {
+		ensureAuthAccount(authClient, admin.ID, admin.Email, admin.FirstName, "employee")
+	}
+	return nil
+}
+
+// ensureAuthAccount calls auth-service's CreateAccount RPC with retries,
+// waiting up to ~30 seconds for auth-service to become available.
+func ensureAuthAccount(authClient authpb.AuthServiceClient, principalID int64, email, firstName, principalType string) {
+	const maxAttempts = 10
+	const retryDelay = 3 * time.Second
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := authClient.CreateAccount(ctx, &authpb.CreateAccountRequest{
+			PrincipalId:   principalID,
+			Email:         email,
+			FirstName:     firstName,
+			PrincipalType: principalType,
+		})
+		cancel()
+		if err == nil {
+			log.Printf("auth account provisioned for %s", email)
+			return
+		}
+		log.Printf("ensureAuthAccount attempt %d/%d for %s: %v", attempt, maxAttempts, email, err)
+		if attempt < maxAttempts {
+			time.Sleep(retryDelay)
+		}
+	}
+	log.Printf("warn: could not provision auth account for %s after %d attempts", email, maxAttempts)
 }

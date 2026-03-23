@@ -67,6 +67,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
       USER_DB_SSLMODE: disable
+      AUTH_GRPC_ADDR: "auth-service:50051"
     ports:
       - "50052:50052"
     depends_on:
