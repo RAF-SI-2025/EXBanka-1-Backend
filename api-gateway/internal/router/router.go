@@ -87,7 +87,7 @@ func Setup(
 
 			// Bank account management (admin only)
 			bankAccountsAdmin := protected.Group("/bank-accounts")
-			bankAccountsAdmin.Use(middleware.RequirePermission("employees.create"))
+			bankAccountsAdmin.Use(middleware.RequirePermission("bank-accounts.manage"))
 			{
 				bankAccountsAdmin.GET("", accountHandler.ListBankAccounts)
 				bankAccountsAdmin.POST("", accountHandler.CreateBankAccount)
@@ -96,7 +96,7 @@ func Setup(
 
 			// Transfer fee management (admin only)
 			feesAdmin := protected.Group("/fees")
-			feesAdmin.Use(middleware.RequirePermission("employees.create"))
+			feesAdmin.Use(middleware.RequirePermission("fees.manage"))
 			{
 				feesAdmin.GET("", txHandler.ListFees)
 				feesAdmin.POST("", txHandler.CreateFee)
@@ -137,25 +137,41 @@ func Setup(
 			}
 
 			// Client management (EmployeeBasic)
-			clientsEmployee := protected.Group("/clients")
-			clientsEmployee.Use(middleware.RequirePermission("clients.read"))
+			clientsRead := protected.Group("/clients")
+			clientsRead.Use(middleware.RequirePermission("clients.read"))
 			{
-				clientsEmployee.POST("", clientHandler.CreateClient)
-				clientsEmployee.GET("", clientHandler.ListClients)
-				clientsEmployee.GET("/:id", clientHandler.GetClient)
-				clientsEmployee.PUT("/:id", clientHandler.UpdateClient)
+				clientsRead.GET("", clientHandler.ListClients)
+				clientsRead.GET("/:id", clientHandler.GetClient)
+			}
+			clientsCreate := protected.Group("/clients")
+			clientsCreate.Use(middleware.RequirePermission("clients.create"))
+			{
+				clientsCreate.POST("", clientHandler.CreateClient)
+			}
+			clientsUpdate := protected.Group("/clients")
+			clientsUpdate.Use(middleware.RequirePermission("clients.update"))
+			{
+				clientsUpdate.PUT("/:id", clientHandler.UpdateClient)
 			}
 
 			// Account management (EmployeeBasic)
-			accountsEmployee := protected.Group("/accounts")
-			accountsEmployee.Use(middleware.RequirePermission("accounts.read"))
+			accountsRead := protected.Group("/accounts")
+			accountsRead.Use(middleware.RequirePermission("accounts.read"))
 			{
-				accountsEmployee.POST("", accountHandler.CreateAccount)
-				accountsEmployee.GET("", accountHandler.ListAllAccounts)
-				accountsEmployee.GET("/:id", accountHandler.GetAccount)
-				accountsEmployee.PUT("/:id/name", accountHandler.UpdateAccountName)
-				accountsEmployee.PUT("/:id/limits", accountHandler.UpdateAccountLimits)
-				accountsEmployee.PUT("/:id/status", accountHandler.UpdateAccountStatus)
+				accountsRead.GET("", accountHandler.ListAllAccounts)
+				accountsRead.GET("/:id", accountHandler.GetAccount)
+			}
+			accountsCreate := protected.Group("/accounts")
+			accountsCreate.Use(middleware.RequirePermission("accounts.create"))
+			{
+				accountsCreate.POST("", accountHandler.CreateAccount)
+			}
+			accountsUpdate := protected.Group("/accounts")
+			accountsUpdate.Use(middleware.RequirePermission("accounts.update"))
+			{
+				accountsUpdate.PUT("/:id/name", accountHandler.UpdateAccountName)
+				accountsUpdate.PUT("/:id/limits", accountHandler.UpdateAccountLimits)
+				accountsUpdate.PUT("/:id/status", accountHandler.UpdateAccountStatus)
 			}
 
 			// Currencies (any authenticated)
@@ -163,36 +179,44 @@ func Setup(
 
 			// Companies (EmployeeBasic)
 			companiesEmployee := protected.Group("/companies")
-			companiesEmployee.Use(middleware.RequirePermission("accounts.read"))
+			companiesEmployee.Use(middleware.RequirePermission("accounts.create"))
 			{
 				companiesEmployee.POST("", accountHandler.CreateCompany)
 			}
 
 			// Cards management (EmployeeBasic)
-			cardsEmployee := protected.Group("/cards")
-			cardsEmployee.Use(middleware.RequirePermission("cards.manage"))
+			cardsCreate := protected.Group("/cards")
+			cardsCreate.Use(middleware.RequirePermission("cards.create"))
 			{
-				cardsEmployee.POST("", cardHandler.CreateCard)
-				cardsEmployee.PUT("/:id/block", cardHandler.BlockCard)
-				cardsEmployee.PUT("/:id/unblock", cardHandler.UnblockCard)
-				cardsEmployee.PUT("/:id/deactivate", cardHandler.DeactivateCard)
-				cardsEmployee.POST("/authorized-person", cardHandler.CreateAuthorizedPerson)
+				cardsCreate.POST("", cardHandler.CreateCard)
+				cardsCreate.POST("/authorized-person", cardHandler.CreateAuthorizedPerson)
+			}
+			cardsUpdate := protected.Group("/cards")
+			cardsUpdate.Use(middleware.RequirePermission("cards.update"))
+			{
+				cardsUpdate.PUT("/:id/block", cardHandler.BlockCard)
+				cardsUpdate.PUT("/:id/unblock", cardHandler.UnblockCard)
+				cardsUpdate.PUT("/:id/deactivate", cardHandler.DeactivateCard)
 			}
 
 			// Loans (EmployeeBasic) - employee-only operations
-			loansEmployee := protected.Group("/loans")
-			loansEmployee.Use(middleware.RequirePermission("credits.manage"))
+			loansRead := protected.Group("/loans")
+			loansRead.Use(middleware.RequirePermission("credits.read"))
 			{
-				loansEmployee.GET("/requests/:id", creditHandler.GetLoanRequest)
-				loansEmployee.GET("/requests", creditHandler.ListLoanRequests)
-				loansEmployee.PUT("/requests/:id/approve", creditHandler.ApproveLoanRequest)
-				loansEmployee.PUT("/requests/:id/reject", creditHandler.RejectLoanRequest)
-				loansEmployee.GET("", creditHandler.ListAllLoans)
+				loansRead.GET("/requests/:id", creditHandler.GetLoanRequest)
+				loansRead.GET("/requests", creditHandler.ListLoanRequests)
+				loansRead.GET("", creditHandler.ListAllLoans)
+			}
+			loansApprove := protected.Group("/loans")
+			loansApprove.Use(middleware.RequirePermission("credits.approve"))
+			{
+				loansApprove.PUT("/requests/:id/approve", creditHandler.ApproveLoanRequest)
+				loansApprove.PUT("/requests/:id/reject", creditHandler.RejectLoanRequest)
 			}
 
 			// Interest rate tier management (admin only)
 			rateTiersAdmin := protected.Group("/interest-rate-tiers")
-			rateTiersAdmin.Use(middleware.RequirePermission("employees.create"))
+			rateTiersAdmin.Use(middleware.RequirePermission("interest-rates.manage"))
 			{
 				rateTiersAdmin.GET("", creditHandler.ListInterestRateTiers)
 				rateTiersAdmin.POST("", creditHandler.CreateInterestRateTier)
@@ -203,7 +227,7 @@ func Setup(
 
 			// Bank margin management (admin only)
 			bankMarginsAdmin := protected.Group("/bank-margins")
-			bankMarginsAdmin.Use(middleware.RequirePermission("employees.create"))
+			bankMarginsAdmin.Use(middleware.RequirePermission("interest-rates.manage"))
 			{
 				bankMarginsAdmin.GET("", creditHandler.ListBankMargins)
 				bankMarginsAdmin.PUT("/:id", creditHandler.UpdateBankMargin)

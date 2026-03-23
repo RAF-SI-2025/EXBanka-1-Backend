@@ -4,55 +4,83 @@ import (
 	"github.com/exbanka/user-service/internal/model"
 )
 
-// DefaultRolePermissions defines seed data for roles inserted on first startup.
-var DefaultRolePermissions = map[string][]string{
-	"EmployeeBasic": {
-		"clients.read", "accounts.create", "accounts.read",
-		"cards.manage", "credits.manage",
-	},
-	"EmployeeAgent": {
-		"clients.read", "accounts.create", "accounts.read",
-		"cards.manage", "credits.manage",
-		"securities.trade", "securities.read",
-	},
-	"EmployeeSupervisor": {
-		"clients.read", "accounts.create", "accounts.read",
-		"cards.manage", "credits.manage",
-		"securities.trade", "securities.read",
-		"agents.manage", "otc.manage", "funds.manage",
-	},
-	"EmployeeAdmin": {
-		"clients.read", "accounts.create", "accounts.read",
-		"cards.manage", "credits.manage",
-		"securities.trade", "securities.read",
-		"agents.manage", "otc.manage", "funds.manage",
-		"employees.create", "employees.update",
-		"employees.read", "employees.permissions",
-		"limits.manage",
-	},
-}
-
 // AllPermissions lists every permission code the system knows about.
 var AllPermissions = []struct {
 	Code     string
 	Desc     string
 	Category string
 }{
+	// Clients
+	{"clients.create", "Create client profiles", "clients"},
 	{"clients.read", "View client profiles", "clients"},
+	{"clients.update", "Update client profiles", "clients"},
+	// Accounts
 	{"accounts.create", "Create bank accounts", "accounts"},
 	{"accounts.read", "View bank accounts", "accounts"},
-	{"cards.manage", "Manage payment cards", "cards"},
-	{"credits.manage", "Manage loans and credit requests", "credits"},
+	{"accounts.update", "Update bank accounts", "accounts"},
+	// Cards
+	{"cards.create", "Create payment cards", "cards"},
+	{"cards.read", "View payment cards", "cards"},
+	{"cards.update", "Update/block/unblock cards", "cards"},
+	{"cards.approve", "Approve card requests", "cards"},
+	// Credits / Loans
+	{"credits.read", "View loans and credit requests", "credits"},
+	{"credits.approve", "Approve/reject loan requests", "credits"},
+	// Securities
 	{"securities.trade", "Execute securities trades", "securities"},
 	{"securities.read", "View securities data", "securities"},
-	{"agents.manage", "Manage agent employees", "agents"},
-	{"otc.manage", "Manage OTC trading", "otc"},
-	{"funds.manage", "Manage investment funds", "funds"},
+	// Employee management
 	{"employees.create", "Create employees", "employees"},
 	{"employees.update", "Update employees", "employees"},
 	{"employees.read", "View employee profiles", "employees"},
 	{"employees.permissions", "Manage employee permissions", "employees"},
+	// Limits
 	{"limits.manage", "Manage employee and client limits", "limits"},
+	// Admin operations
+	{"bank-accounts.manage", "Manage bank-owned accounts", "admin"},
+	{"fees.manage", "Manage transfer fee rules", "admin"},
+	{"interest-rates.manage", "Manage interest rate tiers and bank margins", "admin"},
+	// Agent/OTC/Funds
+	{"agents.manage", "Manage agent employees", "agents"},
+	{"otc.manage", "Manage OTC trading", "otc"},
+	{"funds.manage", "Manage investment funds", "funds"},
+}
+
+// DefaultRolePermissions defines seed data for roles inserted on first startup.
+var DefaultRolePermissions = map[string][]string{
+	"EmployeeBasic": {
+		"clients.create", "clients.read", "clients.update",
+		"accounts.create", "accounts.read", "accounts.update",
+		"cards.create", "cards.read", "cards.update", "cards.approve",
+		"credits.read", "credits.approve",
+	},
+	"EmployeeAgent": {
+		"clients.create", "clients.read", "clients.update",
+		"accounts.create", "accounts.read", "accounts.update",
+		"cards.create", "cards.read", "cards.update", "cards.approve",
+		"credits.read", "credits.approve",
+		"securities.trade", "securities.read",
+	},
+	"EmployeeSupervisor": {
+		"clients.create", "clients.read", "clients.update",
+		"accounts.create", "accounts.read", "accounts.update",
+		"cards.create", "cards.read", "cards.update", "cards.approve",
+		"credits.read", "credits.approve",
+		"securities.trade", "securities.read",
+		"agents.manage", "otc.manage", "funds.manage",
+	},
+	"EmployeeAdmin": {
+		"clients.create", "clients.read", "clients.update",
+		"accounts.create", "accounts.read", "accounts.update",
+		"cards.create", "cards.read", "cards.update", "cards.approve",
+		"credits.read", "credits.approve",
+		"securities.trade", "securities.read",
+		"agents.manage", "otc.manage", "funds.manage",
+		"employees.create", "employees.update",
+		"employees.read", "employees.permissions",
+		"limits.manage",
+		"bank-accounts.manage", "fees.manage", "interest-rates.manage",
+	},
 }
 
 type RoleService struct {
