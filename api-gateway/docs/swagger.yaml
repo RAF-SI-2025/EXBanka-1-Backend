@@ -757,6 +757,8 @@ paths:
     post:
       consumes:
       - application/json
+      description: Creates a new bank account for a client. Requires accounts.create
+        permission.
       parameters:
       - description: Account data
         in: body
@@ -832,6 +834,8 @@ paths:
     put:
       consumes:
       - application/json
+      description: Updates the daily/monthly/transfer limits for a bank account. Requires
+        accounts.update permission.
       parameters:
       - description: Account ID
         in: path
@@ -879,6 +883,8 @@ paths:
     put:
       consumes:
       - application/json
+      description: Updates the display name of a bank account. Requires accounts.update
+        permission.
       parameters:
       - description: Account ID
         in: path
@@ -926,6 +932,8 @@ paths:
     put:
       consumes:
       - application/json
+      description: Updates the active/inactive status of a bank account. Requires
+        accounts.update permission.
       parameters:
       - description: Account ID
         in: path
@@ -1239,7 +1247,8 @@ paths:
       - auth
   /api/bank-accounts:
     get:
-      description: Returns all bank-owned accounts (admin only)
+      description: Returns all bank-owned accounts. Requires bank-accounts.manage
+        permission.
       produces:
       - application/json
       responses:
@@ -1268,7 +1277,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates a bank-owned account for fee collection (admin only)
+      description: Creates a bank-owned account for fee collection. Requires bank-accounts.manage
+        permission.
       parameters:
       - description: Bank account details
         in: body
@@ -1309,8 +1319,8 @@ paths:
       - bank-accounts
   /api/bank-accounts/{id}:
     delete:
-      description: Deletes a bank-owned account. Fails if it's the last RSD or last
-        foreign currency bank account.
+      description: Deletes a bank-owned account. Requires bank-accounts.manage permission.
+        Fails if it's the last RSD or last foreign currency bank account.
       parameters:
       - description: Bank Account ID
         in: path
@@ -1356,6 +1366,8 @@ paths:
       - bank-accounts
   /api/bank-margins:
     get:
+      description: Returns all bank margin configurations for variable-rate loans.
+        Requires interest-rates.manage permission.
       produces:
       - application/json
       responses:
@@ -1385,6 +1397,8 @@ paths:
     put:
       consumes:
       - application/json
+      description: Updates the bank margin for a loan tier. Requires interest-rates.manage
+        permission.
       parameters:
       - description: Margin ID
         in: path
@@ -1438,6 +1452,8 @@ paths:
     post:
       consumes:
       - application/json
+      description: Issues a new physical card for a client or authorized person. Requires
+        cards.create permission.
       parameters:
       - description: Card data
         in: body
@@ -1511,7 +1527,7 @@ paths:
       - cards
   /api/cards/{id}/block:
     put:
-      description: Blocks a card. Employees with cards.manage permission can block
+      description: Blocks a card. Employees with cards.update permission can block
         any card. Clients can block their own cards via the client-authenticated endpoint.
       parameters:
       - description: Card ID
@@ -1564,6 +1580,7 @@ paths:
       - cards
   /api/cards/{id}/deactivate:
     put:
+      description: Permanently deactivates a card. Requires cards.update permission.
       parameters:
       - description: Card ID
         in: path
@@ -1700,6 +1717,7 @@ paths:
       - cards
   /api/cards/{id}/unblock:
     put:
+      description: Unblocks a previously blocked card. Requires cards.update permission.
       parameters:
       - description: Card ID
         in: path
@@ -2286,6 +2304,8 @@ paths:
     post:
       consumes:
       - application/json
+      description: Creates a new bank client with login credentials. Requires clients.create
+        permission.
       parameters:
       - description: Client data
         in: body
@@ -2360,6 +2380,7 @@ paths:
     put:
       consumes:
       - application/json
+      description: Updates client profile information. Requires clients.update permission.
       parameters:
       - description: Client ID
         in: path
@@ -3070,7 +3091,7 @@ paths:
       - exchange-rates
   /api/fees:
     get:
-      description: Returns all configurable fee rules (admin only)
+      description: Returns all configurable fee rules. Requires fees.manage permission.
       produces:
       - application/json
       responses:
@@ -3099,7 +3120,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: Creates a new configurable fee rule (admin only)
+      description: Creates a new configurable fee rule. Requires fees.manage permission.
       parameters:
       - description: Fee rule definition
         in: body
@@ -3140,8 +3161,8 @@ paths:
       - fees
   /api/fees/{id}:
     delete:
-      description: Deactivates a fee rule (admin only). Cannot be undone except via
-        update.
+      description: Deactivates a fee rule. Requires fees.manage permission. Cannot
+        be undone except via update.
       parameters:
       - description: Fee Rule ID
         in: path
@@ -3182,7 +3203,7 @@ paths:
     put:
       consumes:
       - application/json
-      description: Updates an existing fee rule (admin only)
+      description: Updates an existing fee rule. Requires fees.manage permission.
       parameters:
       - description: Fee Rule ID
         in: path
@@ -3234,6 +3255,8 @@ paths:
       - fees
   /api/interest-rate-tiers:
     get:
+      description: Returns all interest rate tier configurations. Requires interest-rates.manage
+        permission.
       produces:
       - application/json
       responses:
@@ -3262,6 +3285,8 @@ paths:
     post:
       consumes:
       - application/json
+      description: Creates a new interest rate tier. Requires interest-rates.manage
+        permission.
       parameters:
       - description: Tier data
         in: body
@@ -3302,6 +3327,7 @@ paths:
       - rate-config
   /api/interest-rate-tiers/{id}:
     delete:
+      description: Deletes an interest rate tier. Requires interest-rates.manage permission.
       parameters:
       - description: Tier ID
         in: path
@@ -3348,6 +3374,8 @@ paths:
     put:
       consumes:
       - application/json
+      description: Updates an existing interest rate tier. Requires interest-rates.manage
+        permission.
       parameters:
       - description: Tier ID
         in: path
@@ -3399,6 +3427,8 @@ paths:
       - rate-config
   /api/interest-rate-tiers/{id}/apply:
     post:
+      description: Recalculates interest for all variable-rate loans using a given
+        tier. Requires interest-rates.manage permission.
       parameters:
       - description: Interest Rate Tier ID
         in: path
@@ -3681,6 +3711,8 @@ paths:
       - loans
   /api/loans/requests:
     get:
+      description: Returns all loan requests with optional filters. Requires credits.read
+        permission.
       parameters:
       - description: Page number (default 1)
         in: query
@@ -3770,6 +3802,7 @@ paths:
       - loans
   /api/loans/requests/{id}:
     get:
+      description: Returns a single loan request. Requires credits.read permission.
       parameters:
       - description: Loan request ID
         in: path
@@ -3803,6 +3836,8 @@ paths:
       - loans
   /api/loans/requests/{id}/approve:
     put:
+      description: Approves a pending loan request and creates the loan. Requires
+        credits.approve permission.
       parameters:
       - description: Loan request ID
         in: path
@@ -3836,6 +3871,7 @@ paths:
       - loans
   /api/loans/requests/{id}/reject:
     put:
+      description: Rejects a pending loan request. Requires credits.approve permission.
       parameters:
       - description: Loan request ID
         in: path

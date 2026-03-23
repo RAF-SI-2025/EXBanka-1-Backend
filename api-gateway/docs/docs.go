@@ -95,6 +95,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Creates a new bank account for a client. Requires accounts.create permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -338,6 +339,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Updates the daily/monthly/transfer limits for a bank account. Requires accounts.update permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -411,6 +413,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Updates the display name of a bank account. Requires accounts.update permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -484,6 +487,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Updates the active/inactive status of a bank account. Requires accounts.update permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -842,7 +846,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all bank-owned accounts (admin only)",
+                "description": "Returns all bank-owned accounts. Requires bank-accounts.manage permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -884,7 +888,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a bank-owned account for fee collection (admin only)",
+                "description": "Creates a bank-owned account for fee collection. Requires bank-accounts.manage permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -951,7 +955,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Deletes a bank-owned account. Fails if it's the last RSD or last foreign currency bank account.",
+                "description": "Deletes a bank-owned account. Requires bank-accounts.manage permission. Fails if it's the last RSD or last foreign currency bank account.",
                 "produces": [
                     "application/json"
                 ],
@@ -1022,6 +1026,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Returns all bank margin configurations for variable-rate loans. Requires interest-rates.manage permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -1065,6 +1070,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Updates the bank margin for a loan tier. Requires interest-rates.manage permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1147,6 +1153,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Issues a new physical card for a client or authorized person. Requires cards.create permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1968,7 +1975,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Blocks a card. Employees with cards.manage permission can block any card. Clients can block their own cards via the client-authenticated endpoint.",
+                "description": "Blocks a card. Employees with cards.update permission can block any card. Clients can block their own cards via the client-authenticated endpoint.",
                 "produces": [
                     "application/json"
                 ],
@@ -2048,6 +2055,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Permanently deactivates a card. Requires cards.update permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -2257,6 +2265,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Unblocks a previously blocked card. Requires cards.update permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -2450,6 +2459,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Creates a new bank client with login credentials. Requires clients.create permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2609,6 +2619,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Updates client profile information. Requires clients.update permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3659,7 +3670,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all configurable fee rules (admin only)",
+                "description": "Returns all configurable fee rules. Requires fees.manage permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -3701,7 +3712,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a new configurable fee rule (admin only)",
+                "description": "Creates a new configurable fee rule. Requires fees.manage permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3768,7 +3779,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Updates an existing fee rule (admin only)",
+                "description": "Updates an existing fee rule. Requires fees.manage permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3849,7 +3860,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Deactivates a fee rule (admin only). Cannot be undone except via update.",
+                "description": "Deactivates a fee rule. Requires fees.manage permission. Cannot be undone except via update.",
                 "produces": [
                     "application/json"
                 ],
@@ -3911,6 +3922,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Returns all interest rate tier configurations. Requires interest-rates.manage permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -3952,6 +3964,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Creates a new interest rate tier. Requires interest-rates.manage permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4018,6 +4031,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Updates an existing interest rate tier. Requires interest-rates.manage permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4098,6 +4112,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Deletes an interest rate tier. Requires interest-rates.manage permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -4168,6 +4183,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Recalculates interest for all variable-rate loans using a given tier. Requires interest-rates.manage permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -4495,6 +4511,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Returns all loan requests with optional filters. Requires credits.read permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -4716,6 +4733,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Returns a single loan request. Requires credits.read permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -4768,6 +4786,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Approves a pending loan request and creates the loan. Requires credits.approve permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -4820,6 +4839,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
+                "description": "Rejects a pending loan request. Requires credits.approve permission.",
                 "produces": [
                     "application/json"
                 ],

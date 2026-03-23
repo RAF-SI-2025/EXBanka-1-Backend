@@ -571,7 +571,7 @@ Client management endpoints require an employee JWT with `clients.read` permissi
 
 Create a new bank client.
 
-**Authentication:** Employee JWT + `clients.read` permission
+**Authentication:** Employee JWT + `clients.create` permission
 
 **Request Body:**
 
@@ -676,7 +676,7 @@ Get the currently authenticated client's profile.
 
 Partially update a client record.
 
-**Authentication:** Employee JWT + `clients.read` permission
+**Authentication:** Employee JWT + `clients.update` permission
 
 **Path Parameters:**
 
@@ -727,7 +727,7 @@ Account endpoints require an employee JWT with `accounts.read` permission (Emplo
 
 Create a new bank account.
 
-**Authentication:** Employee JWT + `accounts.read` permission
+**Authentication:** Employee JWT + `accounts.create` permission
 
 **Request Body:**
 
@@ -882,7 +882,7 @@ List all accounts belonging to a specific client. Clients can only access their 
 
 Update the display name of an account.
 
-**Authentication:** Employee JWT + `accounts.read` permission
+**Authentication:** Employee JWT + `accounts.update` permission
 
 **Path Parameters:**
 
@@ -905,7 +905,7 @@ Update the display name of an account.
 
 Update the daily/monthly spending limits of an account. Requires a verification code for authorization.
 
-**Authentication:** Employee JWT + `accounts.read` permission
+**Authentication:** Employee JWT + `accounts.update` permission
 
 **Path Parameters:**
 
@@ -947,7 +947,7 @@ Update the daily/monthly spending limits of an account. Requires a verification 
 
 Update the status of an account (activate, block, close, etc.).
 
-**Authentication:** Employee JWT + `accounts.read` permission
+**Authentication:** Employee JWT + `accounts.update` permission
 
 **Path Parameters:**
 
@@ -1025,7 +1025,7 @@ Create a new company record.
 
 ## 6. Cards
 
-Card endpoints require an employee JWT with `cards.manage` permission (EmployeeBasic+). Clients can read their own cards.
+Card endpoints require specific employee permissions (see per-endpoint notes). Creating cards requires `cards.create`; blocking, unblocking, and deactivating require `cards.update`; approving/rejecting card requests requires `cards.approve`. Clients can read their own cards.
 
 ---
 
@@ -1033,7 +1033,7 @@ Card endpoints require an employee JWT with `cards.manage` permission (EmployeeB
 
 Issue a new payment card linked to an account.
 
-**Authentication:** Employee JWT + `cards.manage` permission
+**Authentication:** Employee JWT + `cards.create` permission
 
 **Request Body:**
 
@@ -1143,9 +1143,9 @@ List all cards belonging to a specific client. Clients can only access their own
 
 Block a card (e.g., reported as lost or stolen).
 
-**Authentication:** Employee JWT + `cards.manage` permission **OR** Client JWT (own cards only)
+**Authentication:** Employee JWT + `cards.update` permission **OR** Client JWT (own cards only)
 
-Employees with the `cards.manage` permission can block any card. Clients can block their own cards only — the card's `owner_id` must match the authenticated client's `user_id`. If a client attempts to block a card that does not belong to them, a `403 Forbidden` error is returned.
+Employees with the `cards.update` permission can block any card. Clients can block their own cards only — the card's `owner_id` must match the authenticated client's `user_id`. If a client attempts to block a card that does not belong to them, a `403 Forbidden` error is returned.
 
 **Path Parameters:**
 
@@ -1165,7 +1165,7 @@ Employees with the `cards.manage` permission can block any card. Clients can blo
 
 Unblock a previously blocked card. Only employees can unblock cards.
 
-**Authentication:** Employee JWT + `cards.manage` permission
+**Authentication:** Employee JWT + `cards.update` permission
 
 **Path Parameters:**
 
@@ -1181,7 +1181,7 @@ Unblock a previously blocked card. Only employees can unblock cards.
 
 Permanently deactivate a card.
 
-**Authentication:** Employee JWT + `cards.manage` permission
+**Authentication:** Employee JWT + `cards.update` permission
 
 **Path Parameters:**
 
@@ -2016,7 +2016,7 @@ Submit a new loan application.
 
 List all loan requests (employee view).
 
-**Authentication:** Employee JWT + `credits.manage` permission
+**Authentication:** Employee JWT + `credits.read` permission
 
 **Query Parameters:**
 
@@ -2042,7 +2042,7 @@ List all loan requests (employee view).
 
 Get a single loan request by ID.
 
-**Authentication:** Employee JWT + `credits.manage` permission
+**Authentication:** Employee JWT + `credits.read` permission
 
 **Path Parameters:**
 
@@ -2059,7 +2059,7 @@ Get a single loan request by ID.
 
 Approve a loan request. Creates a loan and sends an approval email to the client.
 
-**Authentication:** Employee JWT + `credits.manage` permission
+**Authentication:** Employee JWT + `credits.approve` permission
 
 **Path Parameters:**
 
@@ -2105,7 +2105,7 @@ Approve a loan request. Creates a loan and sends an approval email to the client
 
 Reject a loan request. Sends a rejection email to the client.
 
-**Authentication:** Employee JWT + `credits.manage` permission
+**Authentication:** Employee JWT + `credits.approve` permission
 
 **Path Parameters:**
 
@@ -2121,7 +2121,7 @@ Reject a loan request. Sends a rejection email to the client.
 
 List all active loans (employee view).
 
-**Authentication:** Employee JWT + `credits.manage` permission
+**Authentication:** Employee JWT + `credits.read` permission
 
 **Query Parameters:**
 
@@ -2567,7 +2567,7 @@ All error responses follow this format:
 
 Bank account management endpoints allow administrators to manage internal bank-owned accounts used for fee collection and loan repayments. The bank must always maintain at least one RSD account and at least one foreign currency account.
 
-**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+**Authentication:** Employee token with `bank-accounts.manage` permission
 
 ---
 
@@ -2575,7 +2575,7 @@ Bank account management endpoints allow administrators to manage internal bank-o
 
 List all bank-owned accounts.
 
-**Authentication:** Employee token with `employees.create` permission
+**Authentication:** Employee token with `bank-accounts.manage` permission
 
 **Response 200:**
 ```json
@@ -2607,7 +2607,7 @@ List all bank-owned accounts.
 
 Create a new bank-owned account.
 
-**Authentication:** Employee token with `employees.create` permission
+**Authentication:** Employee token with `bank-accounts.manage` permission
 
 **Request Body:**
 
@@ -2652,7 +2652,7 @@ Create a new bank-owned account.
 
 Delete a bank-owned account by ID.
 
-**Authentication:** Employee token with `employees.create` permission
+**Authentication:** Employee token with `bank-accounts.manage` permission
 
 **Path Parameters:**
 
@@ -2685,7 +2685,7 @@ Configurable fee rules applied to payments and transfers. Multiple active fee ru
 
 Fee calculation is DB-backed: if the fee service is unavailable, the transaction is rejected. If no rules match (e.g., amount below threshold), zero fee is charged (not an error).
 
-**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+**Authentication:** Employee token with `fees.manage` permission
 
 **Fee types:**
 - `percentage` — charged as a percentage of the transaction amount (e.g., `0.1` = 0.1%)
@@ -2697,7 +2697,7 @@ Fee calculation is DB-backed: if the fee service is unavailable, the transaction
 
 List all transfer fee rules.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `fees.manage` permission
 
 **Response 200:**
 ```json
@@ -2727,7 +2727,7 @@ List all transfer fee rules.
 
 Create a new transfer fee rule.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `fees.manage` permission
 
 **Request Body:**
 
@@ -2764,7 +2764,7 @@ Create a new transfer fee rule.
 
 Update an existing fee rule.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `fees.manage` permission
 
 **Path Parameters:**
 
@@ -2796,7 +2796,7 @@ Update an existing fee rule.
 
 Deactivate a fee rule. The rule is not deleted from the database — it is soft-deactivated and will no longer apply to new transactions. It can be reactivated via `PUT /api/fees/{id}` with `"active": true`.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `fees.manage` permission
 
 **Path Parameters:**
 
@@ -2819,9 +2819,9 @@ Deactivate a fee rule. The rule is not deleted from the database — it is soft-
 
 ## 16. Interest Rate Tiers
 
-Interest rate tier management for loan interest rate configuration. Each tier defines the fixed and variable base rates for a loan amount range. Only administrators can manage tiers.
+Interest rate tier management for loan interest rate configuration. Each tier defines the fixed and variable base rates for a loan amount range.
 
-**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+**Authentication:** Employee token with `interest-rates.manage` permission
 
 ---
 
@@ -2829,7 +2829,7 @@ Interest rate tier management for loan interest rate configuration. Each tier de
 
 List all interest rate tiers.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `interest-rates.manage` permission
 
 **Response 200:**
 ```json
@@ -2861,7 +2861,7 @@ List all interest rate tiers.
 
 Create a new interest rate tier.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `interest-rates.manage` permission
 
 **Request Body:**
 
@@ -2909,7 +2909,7 @@ Create a new interest rate tier.
 
 Update an existing interest rate tier.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `interest-rates.manage` permission
 
 **Path Parameters:**
 
@@ -2952,7 +2952,7 @@ Update an existing interest rate tier.
 
 Delete an interest rate tier.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `interest-rates.manage` permission
 
 **Path Parameters:**
 
@@ -2981,7 +2981,7 @@ Delete an interest rate tier.
 
 Apply a variable rate update to all active variable-rate loans whose amount falls within this tier's range. This recalculates the interest rate for affected loans based on the tier's current `variable_base` plus the bank margin.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `interest-rates.manage` permission
 
 **Path Parameters:**
 
@@ -3008,9 +3008,9 @@ Apply a variable rate update to all active variable-rate loans whose amount fall
 
 ## 17. Bank Margins
 
-Bank margin management for loan interest rate calculation. Each loan type has a configurable margin that is added to the variable base rate from the interest rate tier. Only administrators can manage margins.
+Bank margin management for loan interest rate calculation. Each loan type has a configurable margin that is added to the variable base rate from the interest rate tier.
 
-**Authentication:** Employee token with `employees.create` permission (EmployeeAdmin role)
+**Authentication:** Employee token with `interest-rates.manage` permission
 
 ---
 
@@ -3018,7 +3018,7 @@ Bank margin management for loan interest rate calculation. Each loan type has a 
 
 List all bank margins.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `interest-rates.manage` permission
 
 **Response 200:**
 ```json
@@ -3056,7 +3056,7 @@ List all bank margins.
 
 Update the margin for a specific loan type.
 
-**Authentication:** Employee JWT with `employees.create` permission
+**Authentication:** Employee JWT with `interest-rates.manage` permission
 
 **Path Parameters:**
 

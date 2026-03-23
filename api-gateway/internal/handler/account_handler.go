@@ -44,6 +44,7 @@ type createAccountRequest struct {
 }
 
 // @Summary      Create account
+// @Description  Creates a new bank account for a client. Requires accounts.create permission.
 // @Tags         accounts
 // @Accept       json
 // @Produce      json
@@ -261,6 +262,7 @@ type updateAccountNameRequest struct {
 }
 
 // @Summary      Update account name
+// @Description  Updates the display name of a bank account. Requires accounts.update permission.
 // @Tags         accounts
 // @Accept       json
 // @Produce      json
@@ -304,6 +306,7 @@ type updateAccountLimitsRequest struct {
 }
 
 // @Summary      Update account limits
+// @Description  Updates the daily/monthly/transfer limits for a bank account. Requires accounts.update permission.
 // @Tags         accounts
 // @Accept       json
 // @Produce      json
@@ -386,6 +389,7 @@ type updateAccountStatusRequest struct {
 }
 
 // @Summary      Update account status
+// @Description  Updates the active/inactive status of a bank account. Requires accounts.update permission.
 // @Tags         accounts
 // @Accept       json
 // @Produce      json
@@ -511,7 +515,7 @@ func (h *AccountHandler) CreateCompany(c *gin.Context) {
 
 // ListBankAccounts godoc
 // @Summary      List bank accounts
-// @Description  Returns all bank-owned accounts (admin only)
+// @Description  Returns all bank-owned accounts. Requires bank-accounts.manage permission.
 // @Tags         bank-accounts
 // @Produce      json
 // @Security     BearerAuth
@@ -530,7 +534,7 @@ func (h *AccountHandler) ListBankAccounts(c *gin.Context) {
 
 // CreateBankAccount godoc
 // @Summary      Create bank account
-// @Description  Creates a bank-owned account for fee collection (admin only)
+// @Description  Creates a bank-owned account for fee collection. Requires bank-accounts.manage permission.
 // @Tags         bank-accounts
 // @Accept       json
 // @Produce      json
@@ -566,7 +570,7 @@ func (h *AccountHandler) CreateBankAccount(c *gin.Context) {
 
 // DeleteBankAccount godoc
 // @Summary      Delete bank account
-// @Description  Deletes a bank-owned account. Fails if it's the last RSD or last foreign currency bank account.
+// @Description  Deletes a bank-owned account. Requires bank-accounts.manage permission. Fails if it's the last RSD or last foreign currency bank account.
 // @Tags         bank-accounts
 // @Produce      json
 // @Param        id   path   int  true  "Bank Account ID"

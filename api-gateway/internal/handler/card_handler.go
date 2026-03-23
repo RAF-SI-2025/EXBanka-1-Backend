@@ -54,6 +54,7 @@ type createCardRequest struct {
 }
 
 // @Summary      Issue a card
+// @Description  Issues a new physical card for a client or authorized person. Requires cards.create permission.
 // @Tags         cards
 // @Accept       json
 // @Produce      json
@@ -184,7 +185,7 @@ func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 
 // BlockCard godoc
 // @Summary      Block a card
-// @Description  Blocks a card. Employees with cards.manage permission can block any card. Clients can block their own cards via the client-authenticated endpoint.
+// @Description  Blocks a card. Employees with cards.update permission can block any card. Clients can block their own cards via the client-authenticated endpoint.
 // @Tags         cards
 // @Produce      json
 // @Param        id   path  int  true  "Card ID"
@@ -246,6 +247,7 @@ func (h *CardHandler) ClientBlockCard(c *gin.Context) {
 }
 
 // @Summary      Unblock a card
+// @Description  Unblocks a previously blocked card. Requires cards.update permission.
 // @Tags         cards
 // @Produce      json
 // @Param        id   path  int  true  "Card ID"
@@ -270,6 +272,7 @@ func (h *CardHandler) UnblockCard(c *gin.Context) {
 }
 
 // @Summary      Deactivate a card
+// @Description  Permanently deactivates a card. Requires cards.update permission.
 // @Tags         cards
 // @Produce      json
 // @Param        id   path  int  true  "Card ID"

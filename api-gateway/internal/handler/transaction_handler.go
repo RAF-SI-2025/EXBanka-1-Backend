@@ -695,7 +695,7 @@ type updateFeeBody struct {
 
 // ListFees godoc
 // @Summary      List transfer fee rules
-// @Description  Returns all configurable fee rules (admin only)
+// @Description  Returns all configurable fee rules. Requires fees.manage permission.
 // @Tags         fees
 // @Produce      json
 // @Security     BearerAuth
@@ -714,7 +714,7 @@ func (h *TransactionHandler) ListFees(c *gin.Context) {
 
 // CreateFee godoc
 // @Summary      Create fee rule
-// @Description  Creates a new configurable fee rule (admin only)
+// @Description  Creates a new configurable fee rule. Requires fees.manage permission.
 // @Tags         fees
 // @Accept       json
 // @Produce      json
@@ -759,7 +759,7 @@ func (h *TransactionHandler) CreateFee(c *gin.Context) {
 
 // UpdateFee godoc
 // @Summary      Update fee rule
-// @Description  Updates an existing fee rule (admin only)
+// @Description  Updates an existing fee rule. Requires fees.manage permission.
 // @Tags         fees
 // @Accept       json
 // @Produce      json
@@ -819,7 +819,7 @@ func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 
 // DeleteFee godoc
 // @Summary      Deactivate fee rule
-// @Description  Deactivates a fee rule (admin only). Cannot be undone except via update.
+// @Description  Deactivates a fee rule. Requires fees.manage permission. Cannot be undone except via update.
 // @Tags         fees
 // @Produce      json
 // @Param        id   path   int  true  "Fee Rule ID"

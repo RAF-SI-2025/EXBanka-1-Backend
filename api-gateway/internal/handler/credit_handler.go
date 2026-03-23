@@ -107,6 +107,7 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 }
 
 // @Summary      Get loan request by ID
+// @Description  Returns a single loan request. Requires credits.read permission.
 // @Tags         loans
 // @Produce      json
 // @Param        id   path  int  true  "Loan request ID"
@@ -131,6 +132,7 @@ func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 }
 
 // @Summary      List loan requests
+// @Description  Returns all loan requests with optional filters. Requires credits.read permission.
 // @Tags         loans
 // @Produce      json
 // @Param        page                  query  int     false  "Page number (default 1)"
@@ -170,6 +172,7 @@ func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 }
 
 // @Summary      Approve loan request
+// @Description  Approves a pending loan request and creates the loan. Requires credits.approve permission.
 // @Tags         loans
 // @Produce      json
 // @Param        id   path  int  true  "Loan request ID"
@@ -201,6 +204,7 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 }
 
 // @Summary      Reject loan request
+// @Description  Rejects a pending loan request. Requires credits.approve permission.
 // @Tags         loans
 // @Produce      json
 // @Param        id   path  int  true  "Loan request ID"
@@ -438,6 +442,7 @@ func loanRequestToJSON(r *creditpb.LoanRequestResponse) gin.H {
 // --- Interest Rate Tier endpoints ---
 
 // @Summary      List interest rate tiers
+// @Description  Returns all interest rate tier configurations. Requires interest-rates.manage permission.
 // @Tags         rate-config
 // @Produce      json
 // @Security     BearerAuth
@@ -467,6 +472,7 @@ type createInterestRateTierBody struct {
 }
 
 // @Summary      Create interest rate tier
+// @Description  Creates a new interest rate tier. Requires interest-rates.manage permission.
 // @Tags         rate-config
 // @Accept       json
 // @Produce      json
@@ -521,6 +527,7 @@ type updateInterestRateTierBody struct {
 }
 
 // @Summary      Update interest rate tier
+// @Description  Updates an existing interest rate tier. Requires interest-rates.manage permission.
 // @Tags         rate-config
 // @Accept       json
 // @Produce      json
@@ -577,6 +584,7 @@ func (h *CreditHandler) UpdateInterestRateTier(c *gin.Context) {
 }
 
 // @Summary      Delete interest rate tier
+// @Description  Deletes an interest rate tier. Requires interest-rates.manage permission.
 // @Tags         rate-config
 // @Produce      json
 // @Param        id   path  int  true  "Tier ID"
@@ -605,6 +613,7 @@ func (h *CreditHandler) DeleteInterestRateTier(c *gin.Context) {
 // --- Bank Margin endpoints ---
 
 // @Summary      List bank margins
+// @Description  Returns all bank margin configurations for variable-rate loans. Requires interest-rates.manage permission.
 // @Tags         rate-config
 // @Produce      json
 // @Security     BearerAuth
@@ -631,6 +640,7 @@ type updateBankMarginBody struct {
 }
 
 // @Summary      Update bank margin
+// @Description  Updates the bank margin for a loan tier. Requires interest-rates.manage permission.
 // @Tags         rate-config
 // @Accept       json
 // @Produce      json
@@ -672,6 +682,7 @@ func (h *CreditHandler) UpdateBankMargin(c *gin.Context) {
 }
 
 // @Summary      Apply variable rate update to active loans
+// @Description  Recalculates interest for all variable-rate loans using a given tier. Requires interest-rates.manage permission.
 // @Tags         rate-config
 // @Produce      json
 // @Param        id   path  int  true  "Interest Rate Tier ID"

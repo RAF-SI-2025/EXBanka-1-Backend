@@ -32,6 +32,7 @@ type createClientRequest struct {
 }
 
 // @Summary      Create client
+// @Description  Creates a new bank client with login credentials. Requires clients.create permission.
 // @Tags         clients
 // @Accept       json
 // @Produce      json
@@ -167,6 +168,7 @@ type updateClientRequest struct {
 }
 
 // @Summary      Update client
+// @Description  Updates client profile information. Requires clients.update permission.
 // @Tags         clients
 // @Accept       json
 // @Produce      json
