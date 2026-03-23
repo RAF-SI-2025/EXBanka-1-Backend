@@ -147,7 +147,6 @@ func TestCreateEmployee_Valid(t *testing.T) {
 		LastName:  "Doe",
 		Email:     "john@example.com",
 		Username:  "johndoe",
-		Role:      "EmployeeBasic",
 		JMBG:      "0101990710024",
 	}
 	err := svc.CreateEmployee(context.Background(), emp)
@@ -155,25 +154,11 @@ func TestCreateEmployee_Valid(t *testing.T) {
 	assert.Equal(t, int64(1), emp.ID)
 }
 
-func TestCreateEmployee_InvalidRole(t *testing.T) {
-	repo := newMockRepo()
-	svc := NewEmployeeService(repo, nil, nil, nil)
-
-	emp := &model.Employee{
-		Role: "InvalidRole",
-		JMBG: "0101990710024",
-	}
-	err := svc.CreateEmployee(context.Background(), emp)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid role")
-}
-
 func TestCreateEmployee_InvalidJMBG(t *testing.T) {
 	repo := newMockRepo()
 	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	emp := &model.Employee{
-		Role: "EmployeeBasic",
 		JMBG: "123",
 	}
 	err := svc.CreateEmployee(context.Background(), emp)
@@ -199,19 +184,9 @@ func TestGetEmployee_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestUpdateEmployee_InvalidRole(t *testing.T) {
-	repo := newMockRepo()
-	repo.employees[1] = &model.Employee{ID: 1, Role: "EmployeeBasic"}
-	svc := NewEmployeeService(repo, nil, nil, nil)
-
-	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"role": "BadRole"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid role")
-}
-
 func TestUpdateEmployee_InvalidJMBG(t *testing.T) {
 	repo := newMockRepo()
-	repo.employees[1] = &model.Employee{ID: 1, Role: "EmployeeBasic", JMBG: "0101990710024"}
+	repo.employees[1] = &model.Employee{ID: 1, JMBG: "0101990710024"}
 	svc := NewEmployeeService(repo, nil, nil, nil)
 
 	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"jmbg": "bad"})
@@ -232,7 +207,6 @@ func TestSetEmployeeRoles(t *testing.T) {
 		LastName:  "Smith",
 		Email:     "alice@example.com",
 		Username:  "asmith",
-		Role:      "EmployeeBasic",
 		JMBG:      "0101990710024",
 	}
 	_ = repo.Create(emp)
@@ -262,7 +236,6 @@ func TestSetEmployeeAdditionalPermissions(t *testing.T) {
 		LastName:  "Jones",
 		Email:     "bob@example.com",
 		Username:  "bjones",
-		Role:      "EmployeeBasic",
 		JMBG:      "0201990710025",
 	}
 	_ = repo.Create(emp)
