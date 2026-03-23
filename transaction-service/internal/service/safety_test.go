@@ -126,7 +126,7 @@ func TestCreatePayment_Idempotency(t *testing.T) {
 	require.NoError(t, err)
 	firstID := p1.ID
 	assert.Equal(t, uint64(1), firstID, "first payment should get ID 1")
-	assert.Equal(t, "completed", p1.Status, "payment should be completed (no account client)")
+	assert.Equal(t, "pending_verification", p1.Status, "payment should be pending_verification after create")
 	assert.Equal(t, 1, len(repo.created), "exactly one payment should be persisted")
 
 	// Second call with same idempotency key: must return the existing payment WITHOUT re-processing.
@@ -196,5 +196,5 @@ func TestCreatePayment_ZeroFee_BelowThreshold(t *testing.T) {
 	assert.True(t, p.Commission.IsZero(), "commission must be zero for amounts below min_amount threshold")
 	assert.True(t, p.FinalAmount.Equal(decimal.NewFromInt(500)),
 		"final amount must equal initial amount when fee is zero; got %s", p.FinalAmount.String())
-	assert.Equal(t, "completed", p.Status)
+	assert.Equal(t, "pending_verification", p.Status)
 }
