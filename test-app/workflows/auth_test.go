@@ -17,9 +17,6 @@ import (
 
 var cfg *config.Config
 
-const adminEmail = "admin@exbanka.com"
-const adminPassword = "Admin123!"
-
 func TestMain(m *testing.M) {
 	cfg = config.Load()
 	ensureAdminActivated()
@@ -28,9 +25,12 @@ func TestMain(m *testing.M) {
 
 // ensureAdminActivated auto-activates the seeded admin account if it is still pending.
 // It scans the notification.send-email Kafka topic from the beginning for an ACTIVATION
-// message sent to adminEmail, then calls POST /api/auth/activate with the token.
+// message sent to cfg.AdminEmail(), then calls POST /api/auth/activate with the token.
 // This is safe to call on every test run — if the admin is already active, it returns immediately.
 func ensureAdminActivated() {
+	adminEmail := cfg.AdminEmail()
+	adminPassword := cfg.Password
+
 	c := newClient()
 	if resp, err := c.Login(adminEmail, adminPassword); err == nil && resp.StatusCode == 200 {
 		return // already active
@@ -94,7 +94,7 @@ func newClient() *client.APIClient {
 func loginAsAdmin(t *testing.T) *client.APIClient {
 	t.Helper()
 	c := newClient()
-	resp, err := c.Login(adminEmail, adminPassword)
+	resp, err := c.Login(cfg.AdminEmail(), cfg.Password)
 	if err != nil {
 		t.Fatalf("admin login failed: %v", err)
 	}
@@ -118,7 +118,7 @@ func loginAsClient(t *testing.T, email, password string) *client.APIClient {
 
 func TestAuth_LoginWithValidCredentials(t *testing.T) {
 	c := newClient()
-	resp, err := c.Login(adminEmail, adminPassword)
+	resp, err := c.Login(cfg.AdminEmail(), cfg.Password)
 	if err != nil {
 		t.Fatalf("login error: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestAuth_LoginWithValidCredentials(t *testing.T) {
 func TestAuth_LoginWithInvalidPassword(t *testing.T) {
 	c := newClient()
 	resp, err := c.POST("/api/auth/login", map[string]string{
-		"email":    adminEmail,
+		"email":    cfg.AdminEmail(),
 		"password": "wrongpassword",
 	})
 	if err != nil {
@@ -172,7 +172,7 @@ func TestAuth_LoginWithEmptyFields(t *testing.T) {
 
 	// Empty password
 	resp, err = c.POST("/api/auth/login", map[string]string{
-		"email":    "admin@exbanka.com",
+		"email":    cfg.AdminEmail(),
 		"password": "",
 	})
 	if err != nil {
@@ -185,7 +185,7 @@ func TestAuth_LoginWithEmptyFields(t *testing.T) {
 
 func TestAuth_RefreshToken(t *testing.T) {
 	c := newClient()
-	loginResp, err := c.Login(adminEmail, adminPassword)
+	loginResp, err := c.Login(cfg.AdminEmail(), cfg.Password)
 	if err != nil {
 		t.Fatalf("login error: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestAuth_RefreshTokenInvalid(t *testing.T) {
 
 func TestAuth_Logout(t *testing.T) {
 	c := newClient()
-	loginResp, err := c.Login(adminEmail, adminPassword)
+	loginResp, err := c.Login(cfg.AdminEmail(), cfg.Password)
 	if err != nil {
 		t.Fatalf("login error: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestAuth_PasswordResetRequest(t *testing.T) {
 
 	// Request for existing email (should succeed silently)
 	resp, err := c.POST("/api/auth/password/reset-request", map[string]string{
-		"email": adminEmail,
+		"email": cfg.AdminEmail(),
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)

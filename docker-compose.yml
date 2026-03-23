@@ -68,6 +68,8 @@ services:
       REDIS_ADDR: redis:6379
       USER_DB_SSLMODE: disable
       AUTH_GRPC_ADDR: "auth-service:50051"
+      TEST_EMAIL: "exbankatest@gmail.com"
+      TEST_PASSWORD: "Test1234!"
     ports:
       - "50052:50052"
     depends_on:
@@ -98,6 +100,8 @@ services:
       AUTH_DB_SSLMODE: disable
       FRONTEND_BASE_URL: "http://localhost:5173"
       PASSWORD_PEPPER: "${PASSWORD_PEPPER}"
+      TEST_EMAIL: "exbankatest@gmail.com"
+      TEST_PASSWORD: "Test1234!"
     ports:
       - "50051:50051"
     depends_on:
@@ -123,6 +127,8 @@ services:
       CARD_GRPC_ADDR: "card-service:50056"
       TRANSACTION_GRPC_ADDR: "transaction-service:50057"
       CREDIT_GRPC_ADDR: "credit-service:50058"
+      TEST_EMAIL: "exbankatest@gmail.com"
+      TEST_PASSWORD: "Test1234!"
     ports:
       - "8080:8080"
     depends_on:
@@ -165,6 +171,8 @@ services:
       SMTP_USER: ${SMTP_USER:-thebiggestdouchebagaround@gmail.com}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-eebu yksy isfx nanl}
       SMTP_FROM: ${SMTP_FROM:-thebiggestdouchebagaround@gmail.com}
+      TEST_EMAIL: "exbankatest@gmail.com"
+      TEST_PASSWORD: "Test1234!"
     ports:
       - "50053:50053"
     depends_on:
@@ -265,6 +273,8 @@ services:
       USER_GRPC_ADDR: "user-service:50052"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      TEST_EMAIL: "exbankatest@gmail.com"
+      TEST_PASSWORD: "Test1234!"
     ports:
       - "50054:50054"
     depends_on:

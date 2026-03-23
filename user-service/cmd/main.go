@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -142,8 +143,29 @@ func main() {
 	log.Println("Server stopped")
 }
 
+// getEnv returns the value of an environment variable or a fallback default.
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// buildTaggedEmail inserts a +tag before the @ in an email address.
+// e.g. buildTaggedEmail("exbankatest@gmail.com", "admin") → "exbankatest+admin@gmail.com"
+func buildTaggedEmail(base, tag string) string {
+	at := strings.Index(base, "@")
+	if at < 0 {
+		return base
+	}
+	return base[:at] + "+" + tag + base[at:]
+}
+
 func seedAdminUser(empSvc *service.EmployeeService, authClient authpb.AuthServiceClient) error {
-	existing, _ := empSvc.GetEmployeeByEmail("vlupsic11723rn@raf.rs")
+	baseEmail := getEnv("TEST_EMAIL", "admin@exbanka.com")
+	adminEmail := buildTaggedEmail(baseEmail, "admin")
+
+	existing, _ := empSvc.GetEmployeeByEmail(adminEmail)
 	if existing != nil {
 		log.Println("Admin user already exists, skipping seed")
 		// Still ensure the auth account exists in case a previous run failed
@@ -159,7 +181,7 @@ func seedAdminUser(empSvc *service.EmployeeService, authClient authpb.AuthServic
 		LastName:    "Admin",
 		DateOfBirth: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC),
 		Gender:      "other",
-		Email:       "vlupsic11723rn@raf.rs",
+		Email:       adminEmail,
 		Phone:       "+381000000000",
 		Address:     "System Account",
 		JMBG:        "0101990000000",
