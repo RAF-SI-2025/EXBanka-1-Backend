@@ -3099,6 +3099,220 @@ Update the margin for a specific loan type.
 
 ---
 
+## Card Requests
+
+Card requests allow clients to request a card for one of their accounts. Employees with `cards.approve` permission can approve or reject these requests.
+
+---
+
+### POST /api/cards/requests
+
+Client submits a request to obtain a card for one of their accounts.
+
+**Authentication:** Client JWT (ClientBearerAuth)
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `account_number` | string | Yes | Account number to attach the card to |
+| `card_brand` | string | Yes | Card brand: `visa`, `mastercard`, `dinacard`, `amex` |
+| `card_type` | string | No | Card type (default: `debit`) |
+| `card_name` | string | No | Custom name for the card |
+
+**Example Request:**
+```json
+{
+  "account_number": "265-0000000001-00",
+  "card_brand": "visa",
+  "card_type": "debit",
+  "card_name": "My Main Card"
+}
+```
+
+**Response 201:**
+```json
+{
+  "id": 1,
+  "client_id": 42,
+  "account_number": "265-0000000001-00",
+  "card_brand": "visa",
+  "card_type": "debit",
+  "card_name": "My Main Card",
+  "status": "pending",
+  "reason": "",
+  "approved_by": 0,
+  "created_at": "2026-03-23T10:00:00Z",
+  "updated_at": "2026-03-23T10:00:00Z"
+}
+```
+
+| Status | Description |
+|---|---|
+| 201 | Card request created |
+| 400 | Invalid input (bad brand, missing required fields) |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### GET /api/cards/requests/me
+
+Returns all card requests submitted by the authenticated client.
+
+**Authentication:** Client JWT (ClientBearerAuth)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Page size (default: 20) |
+
+**Response 200:**
+```json
+{
+  "requests": [...],
+  "total": 3
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | List of card requests |
+| 401 | Unauthorized |
+| 500 | Internal server error |
+
+---
+
+### GET /api/cards/requests
+
+Returns all card requests, optionally filtered by status.
+
+**Authentication:** Employee JWT with `cards.approve` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `status` | string | Filter: `pending`, `approved`, `rejected` |
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Page size (default: 20) |
+
+**Response 200:**
+```json
+{
+  "requests": [...],
+  "total": 10
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | List of card requests |
+| 400 | Invalid status filter |
+| 401 | Unauthorized |
+| 403 | Forbidden (missing permission) |
+| 500 | Internal server error |
+
+---
+
+### GET /api/cards/requests/:id
+
+Returns a single card request by ID.
+
+**Authentication:** Employee JWT with `cards.approve` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Card request ID |
+
+**Response 200:** Card request object
+
+| Status | Description |
+|---|---|
+| 200 | Card request found |
+| 400 | Invalid ID |
+| 401 | Unauthorized |
+| 403 | Forbidden |
+| 404 | Card request not found |
+| 500 | Internal server error |
+
+---
+
+### PUT /api/cards/requests/:id/approve
+
+Employee approves a pending card request. This creates the actual card.
+
+**Authentication:** Employee JWT with `cards.approve` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Card request ID |
+
+**Response 200:**
+```json
+{
+  "request": { "id": 1, "status": "approved", ... },
+  "card": { "id": 10, "card_number": "**** **** **** 4242", ... }
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Request approved and card created |
+| 400 | Invalid ID |
+| 401 | Unauthorized |
+| 403 | Forbidden (missing permission) |
+| 404 | Card request not found |
+| 422 | Request already processed (not pending) |
+| 500 | Internal server error |
+
+---
+
+### PUT /api/cards/requests/:id/reject
+
+Employee rejects a pending card request with a reason.
+
+**Authentication:** Employee JWT with `cards.approve` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Card request ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `reason` | string | Yes | Reason for rejection |
+
+**Example Request:**
+```json
+{
+  "reason": "Insufficient account history"
+}
+```
+
+**Response 200:** Updated card request with status `rejected`
+
+| Status | Description |
+|---|---|
+| 200 | Request rejected |
+| 400 | Invalid input or ID |
+| 401 | Unauthorized |
+| 403 | Forbidden (missing permission) |
+| 404 | Card request not found |
+| 422 | Request already processed (not pending) |
+| 500 | Internal server error |
+
+---
+
 ## Password Requirements
 
 Passwords for both employees and clients must satisfy:

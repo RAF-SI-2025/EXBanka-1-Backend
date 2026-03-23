@@ -22,3 +22,11 @@ func NewVirtualCardClient(addr string) (cardpb.VirtualCardServiceClient, *grpc.C
 	}
 	return cardpb.NewVirtualCardServiceClient(conn), conn, nil
 }
+
+func NewCardRequestClient(addr string) (cardpb.CardRequestServiceClient, *grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, nil, err
+	}
+	return cardpb.NewCardRequestServiceClient(conn), conn, nil
+}

@@ -260,6 +260,35 @@ type LatePenaltyAppliedMessage struct {
 	Penalty string `json:"penalty"`
 }
 
+// Card request event topic constants
+const (
+	TopicCardRequestCreated  = "card.request-created"
+	TopicCardRequestApproved = "card.request-approved"
+	TopicCardRequestRejected = "card.request-rejected"
+)
+
+// CardRequestCreatedMessage is published when a client creates a card request.
+type CardRequestCreatedMessage struct {
+	RequestID     uint64 `json:"request_id"`
+	ClientID      uint64 `json:"client_id"`
+	AccountNumber string `json:"account_number"`
+	CardBrand     string `json:"card_brand"`
+}
+
+// CardRequestApprovedMessage is published when an employee approves a card request.
+type CardRequestApprovedMessage struct {
+	RequestID  uint64 `json:"request_id"`
+	CardID     uint64 `json:"card_id"`
+	EmployeeID uint64 `json:"employee_id"`
+}
+
+// CardRequestRejectedMessage is published when an employee rejects a card request.
+type CardRequestRejectedMessage struct {
+	RequestID  uint64 `json:"request_id"`
+	EmployeeID uint64 `json:"employee_id"`
+	Reason     string `json:"reason"`
+}
+
 const (
 	TopicAuthAccountStatusChanged = "auth.account-status-changed"
 	TopicAuthDeadLetter           = "auth.dead-letter"

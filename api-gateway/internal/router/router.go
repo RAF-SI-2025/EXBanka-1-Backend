@@ -30,6 +30,7 @@ func Setup(
 	virtualCardClient cardpb.VirtualCardServiceClient,
 	bankAccountClient accountpb.BankAccountServiceClient,
 	feeClient transactionpb.FeeServiceClient,
+	cardRequestClient cardpb.CardRequestServiceClient,
 ) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
@@ -46,7 +47,7 @@ func Setup(
 	limitHandler := handler.NewLimitHandler(empLimitClient, clientLimitClient)
 	clientHandler := handler.NewClientHandler(clientClient, authClient)
 	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient, txClient)
-	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient)
+	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient)
 	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient)
 	exchangeHandler := handler.NewExchangeHandler(txClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
@@ -232,6 +233,16 @@ func Setup(
 				bankMarginsAdmin.GET("", creditHandler.ListBankMargins)
 				bankMarginsAdmin.PUT("/:id", creditHandler.UpdateBankMargin)
 			}
+
+			// Card request management (cards.approve)
+			cardsApprove := protected.Group("/cards/requests")
+			cardsApprove.Use(middleware.RequirePermission("cards.approve"))
+			{
+				cardsApprove.GET("", cardHandler.ListCardRequests)
+				cardsApprove.GET("/:id", cardHandler.GetCardRequest)
+				cardsApprove.PUT("/:id/approve", cardHandler.ApproveCardRequest)
+				cardsApprove.PUT("/:id/reject", cardHandler.RejectCardRequest)
+			}
 		}
 
 		// Client-only routes (write operations and self-service)
@@ -270,6 +281,10 @@ func Setup(
 			clientProtected.POST("/cards/:id/pin", cardHandler.SetCardPin)
 			clientProtected.POST("/cards/:id/verify-pin", cardHandler.VerifyCardPin)
 			clientProtected.POST("/cards/:id/temporary-block", cardHandler.TemporaryBlockCard)
+
+			// Card requests (client)
+			clientProtected.POST("/cards/requests", cardHandler.CreateCardRequest)
+			clientProtected.GET("/cards/requests/me", cardHandler.ListMyCardRequests)
 		}
 
 		// Routes accessible by both employee and client tokens

@@ -119,3 +119,71 @@ message TemporaryBlockCardRequest {
 message UseCardRequest { uint64 id = 1; }
 
 message UseCardResponse { bool success = 1; }
+
+service CardRequestService {
+  rpc CreateCardRequest(CreateCardRequestRequest) returns (CardRequestResponse);
+  rpc GetCardRequest(GetCardRequestRequest) returns (CardRequestResponse);
+  rpc ListCardRequests(ListCardRequestsRequest) returns (ListCardRequestsResponse);
+  rpc ListCardRequestsByClient(ListCardRequestsByClientRequest) returns (ListCardRequestsResponse);
+  rpc ApproveCardRequest(ApproveCardRequestRequest) returns (CardRequestApprovedResponse);
+  rpc RejectCardRequest(RejectCardRequestRequest) returns (CardRequestResponse);
+}
+
+message CreateCardRequestRequest {
+  uint64 client_id = 1;
+  string account_number = 2;
+  string card_brand = 3;
+  string card_type = 4;
+  string card_name = 5;
+}
+
+message CardRequestResponse {
+  uint64 id = 1;
+  uint64 client_id = 2;
+  string account_number = 3;
+  string card_brand = 4;
+  string card_type = 5;
+  string card_name = 6;
+  string status = 7;
+  string reason = 8;
+  uint64 approved_by = 9;
+  string created_at = 10;
+  string updated_at = 11;
+}
+
+message CardRequestApprovedResponse {
+  CardRequestResponse request = 1;
+  CardResponse card = 2;
+}
+
+message GetCardRequestRequest {
+  uint64 id = 1;
+}
+
+message ListCardRequestsRequest {
+  string status = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ListCardRequestsResponse {
+  repeated CardRequestResponse requests = 1;
+  int64 total = 2;
+}
+
+message ListCardRequestsByClientRequest {
+  uint64 client_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ApproveCardRequestRequest {
+  uint64 id = 1;
+  uint64 employee_id = 2;
+}
+
+message RejectCardRequestRequest {
+  uint64 id = 1;
+  uint64 employee_id = 2;
+  string reason = 3;
+}

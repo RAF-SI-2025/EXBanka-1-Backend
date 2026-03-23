@@ -102,6 +102,24 @@ definitions:
     - owner_id
     - owner_type
     type: object
+  handler.createCardRequestBody:
+    properties:
+      account_number:
+        example: 265-0000000001-00
+        type: string
+      card_brand:
+        example: visa
+        type: string
+      card_name:
+        example: My Visa Card
+        type: string
+      card_type:
+        example: debit
+        type: string
+    required:
+    - account_number
+    - card_brand
+    type: object
   handler.createClientRequest:
     properties:
       address:
@@ -433,6 +451,14 @@ definitions:
         type: string
     required:
     - refresh_token
+    type: object
+  handler.rejectCardRequestBody:
+    properties:
+      reason:
+        example: Insufficient account history
+        type: string
+    required:
+    - reason
     type: object
   handler.resetPasswordRequest:
     properties:
@@ -1868,6 +1894,307 @@ paths:
       summary: List cards by client
       tags:
       - cards
+  /api/cards/requests:
+    get:
+      description: Returns all card requests, optionally filtered by status. Requires
+        employee authentication with cards.approve permission.
+      parameters:
+      - description: Filter by status (pending, approved, rejected)
+        in: query
+        name: status
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: list of card requests
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all card requests
+      tags:
+      - card-requests
+    post:
+      consumes:
+      - application/json
+      description: Client submits a request to get a card for one of their accounts.
+        Requires client authentication.
+      parameters:
+      - description: Card request details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createCardRequestBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: created card request
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ClientBearerAuth: []
+      summary: Create a card request
+      tags:
+      - card-requests
+  /api/cards/requests/{id}:
+    get:
+      description: Returns a single card request by ID. Accessible by both employees
+        and the owning client.
+      parameters:
+      - description: Card Request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: card request
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a card request by ID
+      tags:
+      - card-requests
+  /api/cards/requests/{id}/approve:
+    put:
+      description: Employee approves a pending card request, which creates the card.
+        Requires cards.approve permission.
+      parameters:
+      - description: Card Request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: approved request and created card
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: already processed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Approve a card request
+      tags:
+      - card-requests
+  /api/cards/requests/{id}/reject:
+    put:
+      consumes:
+      - application/json
+      description: Employee rejects a pending card request with a reason. Requires
+        cards.approve permission.
+      parameters:
+      - description: Card Request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Rejection reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.rejectCardRequestBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: rejected request
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: already processed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reject a card request
+      tags:
+      - card-requests
+  /api/cards/requests/me:
+    get:
+      description: Returns all card requests for the authenticated client.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: list of card requests
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ClientBearerAuth: []
+      summary: List my card requests
+      tags:
+      - card-requests
   /api/cards/virtual:
     post:
       consumes:

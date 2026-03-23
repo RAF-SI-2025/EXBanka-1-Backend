@@ -32,7 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}); err != nil {
+	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}, &model.CardRequest{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -46,6 +46,9 @@ func main() {
 		"card.status-changed",
 		"card.temporary-blocked",
 		"card.virtual-card-created",
+		"card.request-created",
+		"card.request-approved",
+		"card.request-rejected",
 		"notification.send-email",
 	)
 
@@ -69,9 +72,12 @@ func main() {
 	cardRepo := repository.NewCardRepository(db)
 	blockRepo := repository.NewCardBlockRepository(db)
 	authRepo := repository.NewAuthorizedPersonRepository(db)
+	cardRequestRepo := repository.NewCardRequestRepository(db)
 	cardService := service.NewCardService(cardRepo, blockRepo, authRepo, producer, redisCache)
+	cardRequestSvc := service.NewCardRequestService(cardRequestRepo, cardService, producer)
 	grpcHandler := handler.NewCardGRPCHandler(cardService, producer, clientClient)
 	virtualCardHandler := handler.NewVirtualCardGRPCHandler(cardService)
+	cardRequestHandler := handler.NewCardRequestGRPCHandler(cardRequestSvc)
 
 	service.StartCardCron(cardRepo, blockRepo)
 
@@ -83,6 +89,7 @@ func main() {
 	s := grpc.NewServer()
 	pb.RegisterCardServiceServer(s, grpcHandler)
 	pb.RegisterVirtualCardServiceServer(s, virtualCardHandler)
+	pb.RegisterCardRequestServiceServer(s, cardRequestHandler)
 	shared.RegisterHealthCheck(s, "card-service")
 
 	// Start gRPC server in goroutine

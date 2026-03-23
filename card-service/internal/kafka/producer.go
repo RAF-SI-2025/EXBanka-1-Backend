@@ -52,6 +52,18 @@ func (p *Producer) PublishVirtualCardCreated(ctx context.Context, msg kafkamsg.V
 	return p.publish(ctx, kafkamsg.TopicVirtualCardCreated, msg)
 }
 
+func (p *Producer) PublishCardRequestCreated(ctx context.Context, msg kafkamsg.CardRequestCreatedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicCardRequestCreated, msg)
+}
+
+func (p *Producer) PublishCardRequestApproved(ctx context.Context, msg kafkamsg.CardRequestApprovedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicCardRequestApproved, msg)
+}
+
+func (p *Producer) PublishCardRequestRejected(ctx context.Context, msg kafkamsg.CardRequestRejectedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicCardRequestRejected, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }
