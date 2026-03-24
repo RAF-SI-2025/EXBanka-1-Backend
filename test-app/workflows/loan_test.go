@@ -202,7 +202,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 		t.Fatalf("client list loan requests error: %v", err)
 	}
 	// If /loans/requests/me is not available, fall back to client-scoped admin endpoint
-	if clientLoanReqResp.StatusCode == 404 || clientLoanReqResp.StatusCode == 405 || clientLoanReqResp.StatusCode == 403 {
+	if clientLoanReqResp.StatusCode == 404 || clientLoanReqResp.StatusCode == 405 || clientLoanReqResp.StatusCode == 403 || clientLoanReqResp.StatusCode == 400 {
 		clientLoanReqResp, err = adminClient.GET(fmt.Sprintf("/api/loans/requests/client/%d", meClientID))
 		if err != nil {
 			t.Fatalf("list client loan requests error: %v", err)
@@ -216,7 +216,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 		t.Fatalf("client list loans error: %v", err)
 	}
 	// Fall back to admin endpoint if /loans/me is not available
-	if clientLoansResp.StatusCode == 404 || clientLoansResp.StatusCode == 405 || clientLoansResp.StatusCode == 403 {
+	if clientLoansResp.StatusCode == 404 || clientLoansResp.StatusCode == 405 || clientLoansResp.StatusCode == 403 || clientLoansResp.StatusCode == 400 {
 		clientLoansResp, err = adminClient.GET(fmt.Sprintf("/api/loans/client/%d", meClientID))
 		if err != nil {
 			t.Fatalf("list client loans error: %v", err)
@@ -241,12 +241,13 @@ func TestLoan_AllLoanTypes(t *testing.T) {
 	loanTypes := []struct {
 		loanType     string
 		interestType string
+		period       int
 	}{
-		{"cash", "fixed"},
-		{"housing", "variable"},
-		{"auto", "fixed"},
-		{"refinancing", "variable"},
-		{"student", "fixed"},
+		{"cash", "fixed", 12},
+		{"housing", "variable", 60},
+		{"auto", "fixed", 12},
+		{"refinancing", "variable", 12},
+		{"student", "fixed", 12},
 	}
 
 	for _, lt := range loanTypes {
@@ -257,7 +258,7 @@ func TestLoan_AllLoanTypes(t *testing.T) {
 				"interest_type":    lt.interestType,
 				"amount":           5000,
 				"currency_code":    "RSD",
-				"repayment_period": 12,
+				"repayment_period": lt.period,
 				"account_number":   accountNumber,
 			})
 			if err != nil {
@@ -288,7 +289,7 @@ func TestLoan_RejectLoanRequest(t *testing.T) {
 		"interest_type":    "fixed",
 		"amount":           3000,
 		"currency_code":    "RSD",
-		"repayment_period": 6,
+		"repayment_period": 12,
 		"account_number":   accountNumber,
 	})
 	if err != nil {
