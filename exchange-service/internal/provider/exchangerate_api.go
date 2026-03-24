@@ -40,8 +40,12 @@ func NewExchangeRateAPIClient(apiKey, baseURL string) *ExchangeRateAPIClient {
 // It calls the provider once with RSD as the base currency.
 // The response map contains only supported currencies (SupportedCurrencies).
 func (c *ExchangeRateAPIClient) FetchRatesFromRSD() (map[string]decimal.Decimal, error) {
+	// Use baseURL for all requests so tests can inject an httptest.Server.
+	// When an apiKey is set and baseURL is the free-tier default, switch to the
+	// authenticated paid-tier endpoint; a custom baseURL is always honoured as-is.
+	const freeBase = "https://open.er-api.com/v6/latest/"
 	url := c.baseURL + "RSD"
-	if c.apiKey != "" {
+	if c.apiKey != "" && c.baseURL == freeBase {
 		url = fmt.Sprintf("https://v6.exchangerate-api.com/v6/%s/latest/RSD", c.apiKey)
 	}
 
@@ -68,12 +72,6 @@ func (c *ExchangeRateAPIClient) FetchRatesFromRSD() (map[string]decimal.Decimal,
 		return nil, fmt.Errorf("exchange rate API returned result=%q", apiResp.Result)
 	}
 
-	// Filter to only the supported currencies.
-	supportedSet := make(map[string]struct{}, len(SupportedCurrencies))
-	for _, c := range SupportedCurrencies {
-		supportedSet[c] = struct{}{}
-	}
-
 	rates := make(map[string]decimal.Decimal, len(SupportedCurrencies))
 	for _, code := range SupportedCurrencies {
 		raw, ok := apiResp.Rates[code]
@@ -81,6 +79,9 @@ func (c *ExchangeRateAPIClient) FetchRatesFromRSD() (map[string]decimal.Decimal,
 			continue
 		}
 		rates[code] = decimal.NewFromFloat(raw)
+	}
+	if len(rates) == 0 {
+		return nil, fmt.Errorf("exchange rate API: no supported currencies in response")
 	}
 	return rates, nil
 }
