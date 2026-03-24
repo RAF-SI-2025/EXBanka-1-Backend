@@ -13,6 +13,7 @@ import (
 // --- WF10: Loan Workflow ---
 
 func TestLoan_ListLoanRequests(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/loans/requests")
 	if err != nil {
@@ -22,6 +23,7 @@ func TestLoan_ListLoanRequests(t *testing.T) {
 }
 
 func TestLoan_ListAllLoans(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/loans")
 	if err != nil {
@@ -31,6 +33,7 @@ func TestLoan_ListAllLoans(t *testing.T) {
 }
 
 func TestLoan_GetNonExistentLoan(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/loans/999999")
 	if err != nil {
@@ -42,6 +45,7 @@ func TestLoan_GetNonExistentLoan(t *testing.T) {
 }
 
 func TestLoan_UnauthenticatedCannotCreateLoanRequest(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.POST("/api/loans/requests", map[string]interface{}{
 		"loan_type":        "cash",
@@ -57,6 +61,7 @@ func TestLoan_UnauthenticatedCannotCreateLoanRequest(t *testing.T) {
 }
 
 func TestLoan_ApproveNonExistentRequest(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.PUT("/api/loans/requests/999999/approve", nil)
 	if err != nil {
@@ -68,6 +73,7 @@ func TestLoan_ApproveNonExistentRequest(t *testing.T) {
 }
 
 func TestLoan_RejectNonExistentRequest(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.PUT("/api/loans/requests/999999/reject", nil)
 	if err != nil {

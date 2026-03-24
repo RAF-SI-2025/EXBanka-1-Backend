@@ -12,6 +12,7 @@ import (
 // --- WF14: Interest Rate Tier & Bank Margin Management ---
 
 func TestInterestRateTiers_List(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/interest-rate-tiers")
 	if err != nil {
@@ -21,6 +22,7 @@ func TestInterestRateTiers_List(t *testing.T) {
 }
 
 func TestInterestRateTiers_UnauthenticatedDenied(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.GET("/api/interest-rate-tiers")
 	if err != nil {
@@ -104,6 +106,7 @@ func TestInterestRateTiers_UpdateTier(t *testing.T) {
 }
 
 func TestBankMargins_List(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/bank-margins")
 	if err != nil {

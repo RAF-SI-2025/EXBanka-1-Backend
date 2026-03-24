@@ -19,6 +19,7 @@ import (
 // validate that unauthenticated/wrong-auth access is blocked.
 
 func TestPayment_EmployeeCanReadPayments(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	// Get payment by ID (may not exist but should return 404, not 401/403)
 	resp, err := c.GET("/api/payments/999999")
@@ -32,6 +33,7 @@ func TestPayment_EmployeeCanReadPayments(t *testing.T) {
 }
 
 func TestPayment_UnauthenticatedCannotCreatePayment(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.POST("/api/payments", map[string]interface{}{
 		"from_account_number": "123",
@@ -49,6 +51,7 @@ func TestPayment_UnauthenticatedCannotCreatePayment(t *testing.T) {
 }
 
 func TestPayment_VerificationCodeRequired(t *testing.T) {
+	t.Parallel()
 	// Verification code creation is client-only
 	c := newClient()
 	resp, err := c.POST("/api/verification", map[string]interface{}{})
@@ -61,6 +64,7 @@ func TestPayment_VerificationCodeRequired(t *testing.T) {
 }
 
 func TestPayment_KafkaEventsOnPayment(t *testing.T) {
+	t.Parallel()
 	// This test just verifies the Kafka listener can monitor payment topics.
 	// Full payment flow requires an authenticated client with funded accounts.
 	el := kafka.NewEventListener(cfg.KafkaBrokers)

@@ -96,6 +96,7 @@ func TestAccount_CreateWithInvalidKind(t *testing.T) {
 }
 
 func TestAccount_ListAllAccounts(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/accounts")
 	if err != nil {
@@ -163,6 +164,7 @@ func TestAccount_UpdateStatus(t *testing.T) {
 }
 
 func TestAccount_ListCurrencies(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/currencies")
 	if err != nil {
@@ -196,6 +198,7 @@ func TestAccount_BankAccountCRUD(t *testing.T) {
 }
 
 func TestAccount_GetNonExistent(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/accounts/999999")
 	if err != nil {
@@ -345,6 +348,7 @@ func TestAccount_UpdateStatusInvalidValue(t *testing.T) {
 }
 
 func TestAccount_ListWithPagination(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/accounts?page=1&page_size=5")
 	if err != nil {
@@ -368,6 +372,7 @@ func TestAccount_BankAccountCreateForeignEUR(t *testing.T) {
 }
 
 func TestAccount_UnauthenticatedCannotCreate(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.POST("/api/accounts", map[string]interface{}{
 		"owner_id":      1,

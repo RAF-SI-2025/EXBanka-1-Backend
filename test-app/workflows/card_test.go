@@ -122,6 +122,7 @@ func TestCard_BlockUnblockDeactivate(t *testing.T) {
 }
 
 func TestCard_VirtualCardSingleUse(t *testing.T) {
+	t.Parallel()
 	// Virtual card creation is a client-only route, needs client auth.
 	// Test that unauthenticated access fails.
 	c := newClient()
@@ -138,6 +139,7 @@ func TestCard_VirtualCardSingleUse(t *testing.T) {
 }
 
 func TestCard_PINManagement(t *testing.T) {
+	t.Parallel()
 	// PIN operations are client-only routes.
 	// Test that employee tokens can't access these routes.
 	c := loginAsAdmin(t) // employee token
