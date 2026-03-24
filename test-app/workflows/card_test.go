@@ -39,7 +39,7 @@ func TestCard_CreateAllBrands(t *testing.T) {
 
 	for _, brand := range brands {
 		t.Run("brand_"+brand, func(t *testing.T) {
-			_, acctNum := createTestAccountForCards(t, c)
+			clientID, acctNum := createTestAccountForCards(t, c)
 
 			el := kafka.NewEventListener(cfg.KafkaBrokers)
 			el.Start()
@@ -49,6 +49,7 @@ func TestCard_CreateAllBrands(t *testing.T) {
 				"account_number": acctNum,
 				"card_brand":     brand,
 				"owner_type":     "client",
+				"owner_id":       clientID,
 			})
 			if err != nil {
 				t.Fatalf("error: %v", err)
@@ -66,12 +67,13 @@ func TestCard_CreateAllBrands(t *testing.T) {
 
 func TestCard_CreateWithInvalidBrand(t *testing.T) {
 	c := loginAsAdmin(t)
-	_, acctNum := createTestAccountForCards(t, c)
+	clientID, acctNum := createTestAccountForCards(t, c)
 
 	resp, err := c.POST("/api/cards", map[string]interface{}{
 		"account_number": acctNum,
 		"card_brand":     "discover", // invalid
 		"owner_type":     "client",
+		"owner_id":       clientID,
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -83,12 +85,13 @@ func TestCard_CreateWithInvalidBrand(t *testing.T) {
 
 func TestCard_BlockUnblockDeactivate(t *testing.T) {
 	c := loginAsAdmin(t)
-	_, acctNum := createTestAccountForCards(t, c)
+	clientID, acctNum := createTestAccountForCards(t, c)
 
 	createResp, err := c.POST("/api/cards", map[string]interface{}{
 		"account_number": acctNum,
 		"card_brand":     "visa",
 		"owner_type":     "client",
+		"owner_id":       clientID,
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -152,12 +155,13 @@ func TestCard_PINManagement(t *testing.T) {
 
 func TestCard_GetCard(t *testing.T) {
 	c := loginAsAdmin(t)
-	_, acctNum := createTestAccountForCards(t, c)
+	clientID, acctNum := createTestAccountForCards(t, c)
 
 	createResp, err := c.POST("/api/cards", map[string]interface{}{
 		"account_number": acctNum,
 		"card_brand":     "visa",
 		"owner_type":     "client",
+		"owner_id":       clientID,
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -174,13 +178,14 @@ func TestCard_GetCard(t *testing.T) {
 
 func TestCard_ListByAccount(t *testing.T) {
 	c := loginAsAdmin(t)
-	_, acctNum := createTestAccountForCards(t, c)
+	clientID, acctNum := createTestAccountForCards(t, c)
 
 	// Create a card
 	_, err := c.POST("/api/cards", map[string]interface{}{
 		"account_number": acctNum,
 		"card_brand":     "mastercard",
 		"owner_type":     "client",
+		"owner_id":       clientID,
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -195,11 +200,15 @@ func TestCard_ListByAccount(t *testing.T) {
 
 func TestCard_VirtualSingleUseWithClientAuth(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	clientID, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
 	resp, err := clientC.POST("/api/cards/virtual", map[string]interface{}{
 		"account_number": accountNumber,
+		"owner_id":       clientID,
+		"card_brand":     "visa",
 		"usage_type":     "single_use",
+		"expiry_months":  1,
+		"card_limit":     "10000.0000",
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -211,12 +220,16 @@ func TestCard_VirtualSingleUseWithClientAuth(t *testing.T) {
 
 func TestCard_VirtualMultiUseWithClientAuth(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	clientID, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
 	resp, err := clientC.POST("/api/cards/virtual", map[string]interface{}{
 		"account_number": accountNumber,
+		"owner_id":       clientID,
+		"card_brand":     "mastercard",
 		"usage_type":     "multi_use",
 		"max_uses":       5,
+		"expiry_months":  2,
+		"card_limit":     "10000.0000",
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -228,26 +241,37 @@ func TestCard_VirtualMultiUseWithClientAuth(t *testing.T) {
 
 func TestCard_VirtualUnlimitedWithClientAuth(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	clientID, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
+	// The API does not support "unlimited" usage_type.
+	// Use multi_use with a high max_uses to approximate unlimited usage.
 	resp, err := clientC.POST("/api/cards/virtual", map[string]interface{}{
 		"account_number": accountNumber,
-		"usage_type":     "unlimited",
+		"owner_id":       clientID,
+		"card_brand":     "dinacard",
+		"usage_type":     "multi_use",
+		"max_uses":       9999,
+		"expiry_months":  3,
+		"card_limit":     "10000.0000",
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 201)
-	t.Logf("virtual unlimited card created")
+	t.Logf("virtual multi_use (high max_uses) card created")
 }
 
 func TestCard_VirtualInvalidUsageType(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	clientID, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
 	resp, err := clientC.POST("/api/cards/virtual", map[string]interface{}{
 		"account_number": accountNumber,
+		"owner_id":       clientID,
+		"card_brand":     "visa",
 		"usage_type":     "disposable", // invalid
+		"expiry_months":  1,
+		"card_limit":     "10000.0000",
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -259,7 +283,7 @@ func TestCard_VirtualInvalidUsageType(t *testing.T) {
 
 func TestCard_PINSetAndVerify(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	clientID, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
 	// Employee creates a card for the account
 	createResp, err := adminClient.POST("/api/cards", map[string]interface{}{
@@ -267,6 +291,7 @@ func TestCard_PINSetAndVerify(t *testing.T) {
 		"card_brand":     "visa",
 		"owner_type":     "client",
 		"account_type":   "personal",
+		"owner_id":       clientID,
 	})
 	if err != nil {
 		t.Fatalf("create card error: %v", err)
@@ -295,13 +320,14 @@ func TestCard_PINSetAndVerify(t *testing.T) {
 
 func TestCard_PINWrongThreeTimes_LocksCard(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	clientID, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
 	createResp, err := adminClient.POST("/api/cards", map[string]interface{}{
 		"account_number": accountNumber,
 		"card_brand":     "mastercard",
 		"owner_type":     "client",
 		"account_type":   "personal",
+		"owner_id":       clientID,
 	})
 	if err != nil {
 		t.Fatalf("create card error: %v", err)
@@ -343,13 +369,14 @@ func TestCard_PINWrongThreeTimes_LocksCard(t *testing.T) {
 
 func TestCard_ChangePin(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	clientID, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
 	createResp, err := adminClient.POST("/api/cards", map[string]interface{}{
 		"account_number": accountNumber,
 		"card_brand":     "dinacard",
 		"owner_type":     "client",
 		"account_type":   "personal",
+		"owner_id":       clientID,
 	})
 	if err != nil {
 		t.Fatalf("create card error: %v", err)
@@ -382,13 +409,14 @@ func TestCard_ChangePin(t *testing.T) {
 
 func TestCard_TemporaryBlockWithExpiry(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	clientID, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
 	createResp, err := adminClient.POST("/api/cards", map[string]interface{}{
 		"account_number": accountNumber,
 		"card_brand":     "amex",
 		"owner_type":     "client",
 		"account_type":   "personal",
+		"owner_id":       clientID,
 	})
 	if err != nil {
 		t.Fatalf("create card error: %v", err)
@@ -396,15 +424,15 @@ func TestCard_TemporaryBlockWithExpiry(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	cardID := int(helpers.GetNumberField(t, createResp, "id"))
 
-	// Client applies a temporary block with a future expiry
+	// Client applies a temporary block for 1 hour
 	blockResp, err := clientC.POST(fmt.Sprintf("/api/cards/%d/temporary-block", cardID), map[string]interface{}{
-		"expires_at": time.Now().Add(1 * time.Hour).Unix(),
+		"duration_hours": 1, // handler expects duration_hours (int32)
 	})
 	if err != nil {
 		t.Fatalf("temporary block error: %v", err)
 	}
 	helpers.RequireStatus(t, blockResp, 200)
-	t.Logf("card %d temporarily blocked until +1h", cardID)
+	t.Logf("card %d temporarily blocked for 1 hour", cardID)
 }
 
 func TestCard_AllBrandsDebitAndCredit(t *testing.T) {
@@ -415,12 +443,13 @@ func TestCard_AllBrandsDebitAndCredit(t *testing.T) {
 	for _, brand := range brands {
 		for _, cardType := range cardTypes {
 			t.Run(fmt.Sprintf("%s_%s", brand, cardType), func(t *testing.T) {
-				_, acctNum := createTestAccountForCards(t, c)
+				clientID, acctNum := createTestAccountForCards(t, c)
 				resp, err := c.POST("/api/cards", map[string]interface{}{
 					"account_number": acctNum,
 					"card_brand":     brand,
 					"card_type":      cardType,
 					"owner_type":     "client",
+					"owner_id":       clientID,
 				})
 				if err != nil {
 					t.Fatalf("error: %v", err)
