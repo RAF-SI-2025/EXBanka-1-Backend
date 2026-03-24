@@ -8,6 +8,6 @@ RUN cd exchange-service && \
     go mod download && go build -o /exchange-service ./cmd
 
 FROM alpine:3.19
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates netcat-openbsd
 COPY --from=builder /exchange-service /exchange-service
 CMD ["/exchange-service"]

@@ -395,6 +395,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       EXCHANGE_COMMISSION_RATE: "0.005"
       EXCHANGE_SPREAD: "0.003"
+      EXCHANGE_DB_SSLMODE: disable
     ports:
       - "50059:50059"
     healthcheck:
