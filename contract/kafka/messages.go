@@ -67,6 +67,7 @@ const (
 // Other services can consume this to invalidate caches or trigger alerts.
 type ExchangeRatesUpdatedMessage struct {
 	CurrenciesUpdated []string `json:"currencies_updated"`
+	UpdatedAt         string   `json:"updated_at"` // ISO-8601 timestamp of the sync
 }
 
 // New email type constants
