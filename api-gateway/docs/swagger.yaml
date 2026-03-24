@@ -4013,6 +4013,37 @@ paths:
       summary: List loan requests by client
       tags:
       - loans
+  /api/me:
+    get:
+      description: Returns the full profile of the authenticated user (client or employee).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user profile
+      tags:
+      - me
   /api/payment-recipients:
     post:
       consumes:
