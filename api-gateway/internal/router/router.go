@@ -53,12 +53,12 @@ func Setup(
 	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient)
 	exchangeHandler := handler.NewExchangeHandler(txClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
+	meHandler := handler.NewMeHandler(clientClient, userClient, authClient)
 
 	api := r.Group("/api")
 	{
+		// Public routes
 		api.POST("/bootstrap", bootstrapHandler.Bootstrap)
-
-		// Public auth routes
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", authHandler.Login)
@@ -68,54 +68,83 @@ func Setup(
 			auth.POST("/password/reset", authHandler.ResetPassword)
 			auth.POST("/activate", authHandler.ActivateAccount)
 		}
-
-		// Public exchange rate routes
 		api.GET("/exchange-rates", exchangeHandler.ListExchangeRates)
 		api.GET("/exchange-rates/:from/:to", exchangeHandler.GetExchangeRate)
 
-		// Employee-protected routes
+		// /api/me/* — authenticated user's own resources (client or employee).
+		// Ownership derived from JWT user_id, never from URL params.
+		me := api.Group("/me")
+		me.Use(middleware.AnyAuthMiddleware(authClient))
+		{
+			me.GET("", meHandler.GetMe)
+
+			// Accounts
+			me.GET("/accounts", accountHandler.ListMyAccounts)
+			me.GET("/accounts/:id", accountHandler.GetMyAccount)
+
+			// Cards
+			me.GET("/cards", cardHandler.ListMyCards)
+			me.GET("/cards/:id", cardHandler.GetMyCard)
+			me.POST("/cards/:id/pin", cardHandler.SetCardPin)
+			me.POST("/cards/:id/verify-pin", cardHandler.VerifyCardPin)
+			me.POST("/cards/:id/temporary-block", cardHandler.TemporaryBlockCard)
+			me.POST("/cards/virtual", cardHandler.CreateVirtualCard)
+			me.POST("/cards/requests", cardHandler.CreateCardRequest)
+			me.GET("/cards/requests", cardHandler.ListMyCardRequests)
+
+			// Payments
+			me.POST("/payments", txHandler.CreatePayment)
+			me.GET("/payments", txHandler.ListMyPayments)
+			me.GET("/payments/:id", txHandler.GetMyPayment)
+			me.POST("/payments/:id/execute", txHandler.ExecutePayment)
+
+			// Transfers
+			me.POST("/transfers", txHandler.CreateTransfer)
+			me.GET("/transfers", txHandler.ListMyTransfers)
+			me.GET("/transfers/:id", txHandler.GetMyTransfer)
+			me.POST("/transfers/:id/execute", txHandler.ExecuteTransfer)
+
+			// Payment recipients
+			me.POST("/payment-recipients", txHandler.CreateMyPaymentRecipient)
+			me.GET("/payment-recipients", txHandler.ListMyPaymentRecipients)
+			me.PUT("/payment-recipients/:id", txHandler.UpdatePaymentRecipient)
+			me.DELETE("/payment-recipients/:id", txHandler.DeletePaymentRecipient)
+
+			// Verification
+			me.POST("/verification", txHandler.CreateVerificationCode)
+			me.POST("/verification/validate", txHandler.ValidateVerificationCode)
+
+			// Loans
+			me.POST("/loan-requests", creditHandler.CreateLoanRequest)
+			me.GET("/loan-requests", creditHandler.ListMyLoanRequests)
+			me.GET("/loans", creditHandler.ListMyLoans)
+			me.GET("/loans/:id", creditHandler.GetMyLoan)
+			me.GET("/loans/:id/installments", creditHandler.GetMyInstallments)
+		}
+
+		// Employee/admin routes (AuthMiddleware + RequirePermission)
 		protected := api.Group("/")
 		protected.Use(middleware.AuthMiddleware(authClient))
 		{
+			// Employees
 			employees := protected.Group("/employees")
 			employees.Use(middleware.RequirePermission("employees.read"))
 			{
 				employees.GET("", empHandler.ListEmployees)
 				employees.GET("/:id", empHandler.GetEmployee)
 			}
-
 			adminEmployees := protected.Group("/employees")
 			adminEmployees.Use(middleware.RequirePermission("employees.create"))
 			{
 				adminEmployees.POST("", empHandler.CreateEmployee)
 			}
-
-			// Bank account management (admin only)
-			bankAccountsAdmin := protected.Group("/bank-accounts")
-			bankAccountsAdmin.Use(middleware.RequirePermission("bank-accounts.manage"))
-			{
-				bankAccountsAdmin.GET("", accountHandler.ListBankAccounts)
-				bankAccountsAdmin.POST("", accountHandler.CreateBankAccount)
-				bankAccountsAdmin.DELETE("/:id", accountHandler.DeleteBankAccount)
-			}
-
-			// Transfer fee management (admin only)
-			feesAdmin := protected.Group("/fees")
-			feesAdmin.Use(middleware.RequirePermission("fees.manage"))
-			{
-				feesAdmin.GET("", txHandler.ListFees)
-				feesAdmin.POST("", txHandler.CreateFee)
-				feesAdmin.PUT("/:id", txHandler.UpdateFee)
-				feesAdmin.DELETE("/:id", txHandler.DeleteFee)
-			}
-
 			updateEmployees := protected.Group("/employees")
 			updateEmployees.Use(middleware.RequirePermission("employees.update"))
 			{
 				updateEmployees.PUT("/:id", empHandler.UpdateEmployee)
 			}
 
-			// Role and permission management (employees.permissions)
+			// Role and permission management
 			permManagement := protected.Group("/")
 			permManagement.Use(middleware.RequirePermission("employees.permissions"))
 			{
@@ -128,7 +157,7 @@ func Setup(
 				permManagement.PUT("/employees/:id/permissions", roleHandler.SetEmployeeAdditionalPermissions)
 			}
 
-			// Employee limit management (limits.manage)
+			// Employee limit management
 			limitsEmployee := protected.Group("/")
 			limitsEmployee.Use(middleware.RequirePermission("limits.manage"))
 			{
@@ -141,7 +170,7 @@ func Setup(
 				limitsEmployee.PUT("/clients/:id/limits", limitHandler.SetClientLimits)
 			}
 
-			// Client management (EmployeeBasic)
+			// Client management
 			clientsRead := protected.Group("/clients")
 			clientsRead.Use(middleware.RequirePermission("clients.read"))
 			{
@@ -159,12 +188,17 @@ func Setup(
 				clientsUpdate.PUT("/:id", clientHandler.UpdateClient)
 			}
 
-			// Account management (EmployeeBasic)
+			// Currencies (any authenticated employee)
+			protected.GET("/currencies", accountHandler.ListCurrencies)
+
+			// Account management
 			accountsRead := protected.Group("/accounts")
 			accountsRead.Use(middleware.RequirePermission("accounts.read"))
 			{
+				// GET /api/accounts — supports ?client_id=X for filtering by client
 				accountsRead.GET("", accountHandler.ListAllAccounts)
 				accountsRead.GET("/:id", accountHandler.GetAccount)
+				accountsRead.GET("/by-number/:account_number", accountHandler.GetAccountByNumber)
 			}
 			accountsCreate := protected.Group("/accounts")
 			accountsCreate.Use(middleware.RequirePermission("accounts.create"))
@@ -179,17 +213,30 @@ func Setup(
 				accountsUpdate.PUT("/:id/status", accountHandler.UpdateAccountStatus)
 			}
 
-			// Currencies (any authenticated)
-			protected.GET("/currencies", accountHandler.ListCurrencies)
-
-			// Companies (EmployeeBasic)
+			// Companies
 			companiesEmployee := protected.Group("/companies")
 			companiesEmployee.Use(middleware.RequirePermission("accounts.create"))
 			{
 				companiesEmployee.POST("", accountHandler.CreateCompany)
 			}
 
-			// Cards management (EmployeeBasic)
+			// Bank account management (admin only)
+			bankAccountsAdmin := protected.Group("/bank-accounts")
+			bankAccountsAdmin.Use(middleware.RequirePermission("bank-accounts.manage"))
+			{
+				bankAccountsAdmin.GET("", accountHandler.ListBankAccounts)
+				bankAccountsAdmin.POST("", accountHandler.CreateBankAccount)
+				bankAccountsAdmin.DELETE("/:id", accountHandler.DeleteBankAccount)
+			}
+
+			// Cards management
+			cardsRead := protected.Group("/cards")
+			cardsRead.Use(middleware.RequirePermission("cards.read"))
+			{
+				// GET /api/cards — requires ?client_id=X or ?account_number=X
+				cardsRead.GET("", cardHandler.ListCards)
+				cardsRead.GET("/:id", cardHandler.GetCard)
+			}
 			cardsCreate := protected.Group("/cards")
 			cardsCreate.Use(middleware.RequirePermission("cards.create"))
 			{
@@ -199,24 +246,72 @@ func Setup(
 			cardsUpdate := protected.Group("/cards")
 			cardsUpdate.Use(middleware.RequirePermission("cards.update"))
 			{
-				cardsUpdate.PUT("/:id/block", cardHandler.BlockCard)
-				cardsUpdate.PUT("/:id/unblock", cardHandler.UnblockCard)
-				cardsUpdate.PUT("/:id/deactivate", cardHandler.DeactivateCard)
+				cardsUpdate.POST("/:id/block", cardHandler.BlockCard)
+				cardsUpdate.POST("/:id/unblock", cardHandler.UnblockCard)
+				cardsUpdate.POST("/:id/deactivate", cardHandler.DeactivateCard)
 			}
 
-			// Loans (EmployeeBasic) - employee-only operations
+			// Card requests (cards.approve)
+			cardsApprove := protected.Group("/cards/requests")
+			cardsApprove.Use(middleware.RequirePermission("cards.approve"))
+			{
+				cardsApprove.GET("", cardHandler.ListCardRequests)
+				cardsApprove.GET("/:id", cardHandler.GetCardRequest)
+				cardsApprove.POST("/:id/approve", cardHandler.ApproveCardRequest)
+				cardsApprove.POST("/:id/reject", cardHandler.RejectCardRequest)
+			}
+
+			// Payments (employee read)
+			paymentsRead := protected.Group("/payments")
+			paymentsRead.Use(middleware.RequirePermission("payments.read"))
+			{
+				// GET /api/payments — requires ?client_id=X or ?account_number=X
+				paymentsRead.GET("", txHandler.ListPayments)
+				paymentsRead.GET("/:id", txHandler.GetPayment)
+			}
+
+			// Transfers (employee read)
+			transfersRead := protected.Group("/transfers")
+			transfersRead.Use(middleware.RequirePermission("payments.read"))
+			{
+				// GET /api/transfers — requires ?client_id=X
+				transfersRead.GET("", txHandler.ListTransfers)
+				transfersRead.GET("/:id", txHandler.GetTransfer)
+			}
+
+			// Transfer fee management (admin only)
+			feesAdmin := protected.Group("/fees")
+			feesAdmin.Use(middleware.RequirePermission("fees.manage"))
+			{
+				feesAdmin.GET("", txHandler.ListFees)
+				feesAdmin.POST("", txHandler.CreateFee)
+				feesAdmin.PUT("/:id", txHandler.UpdateFee)
+				feesAdmin.DELETE("/:id", txHandler.DeleteFee)
+			}
+
+			// Loans (employee read)
 			loansRead := protected.Group("/loans")
 			loansRead.Use(middleware.RequirePermission("credits.read"))
 			{
-				loansRead.GET("/requests/:id", creditHandler.GetLoanRequest)
-				loansRead.GET("/requests", creditHandler.ListLoanRequests)
+				// GET /api/loans — supports ?client_id=X
 				loansRead.GET("", creditHandler.ListAllLoans)
+				loansRead.GET("/:id", creditHandler.GetLoan)
+				loansRead.GET("/:id/installments", creditHandler.GetInstallmentsByLoan)
 			}
-			loansApprove := protected.Group("/loans")
-			loansApprove.Use(middleware.RequirePermission("credits.approve"))
+
+			// Loan requests (promoted from /loans/requests to /loan-requests)
+			loanRequestsRead := protected.Group("/loan-requests")
+			loanRequestsRead.Use(middleware.RequirePermission("credits.read"))
 			{
-				loansApprove.PUT("/requests/:id/approve", creditHandler.ApproveLoanRequest)
-				loansApprove.PUT("/requests/:id/reject", creditHandler.RejectLoanRequest)
+				// GET /api/loan-requests — supports ?client_id=X
+				loanRequestsRead.GET("", creditHandler.ListLoanRequests)
+				loanRequestsRead.GET("/:id", creditHandler.GetLoanRequest)
+			}
+			loanRequestsApprove := protected.Group("/loan-requests")
+			loanRequestsApprove.Use(middleware.RequirePermission("credits.approve"))
+			{
+				loanRequestsApprove.POST("/:id/approve", creditHandler.ApproveLoanRequest)
+				loanRequestsApprove.POST("/:id/reject", creditHandler.RejectLoanRequest)
 			}
 
 			// Interest rate tier management (admin only)
@@ -237,88 +332,6 @@ func Setup(
 				bankMarginsAdmin.GET("", creditHandler.ListBankMargins)
 				bankMarginsAdmin.PUT("/:id", creditHandler.UpdateBankMargin)
 			}
-
-			// Card request management (cards.approve)
-			cardsApprove := protected.Group("/cards/requests")
-			cardsApprove.Use(middleware.RequirePermission("cards.approve"))
-			{
-				cardsApprove.GET("", cardHandler.ListCardRequests)
-				cardsApprove.GET("/:id", cardHandler.GetCardRequest)
-				cardsApprove.PUT("/:id/approve", cardHandler.ApproveCardRequest)
-				cardsApprove.PUT("/:id/reject", cardHandler.RejectCardRequest)
-			}
-		}
-
-		// Client-only routes (write operations and self-service)
-		clientProtected := api.Group("/")
-		clientProtected.Use(middleware.ClientAuthMiddleware(authClient))
-		{
-			// Client self-service
-			clientProtected.GET("/clients/me", clientHandler.GetCurrentClient)
-
-			// Payments (client write)
-			clientProtected.POST("/payments", txHandler.CreatePayment)
-			clientProtected.POST("/payments/:id/execute", txHandler.ExecutePayment)
-
-			// Transfers (client write)
-			clientProtected.POST("/transfers", txHandler.CreateTransfer)
-			clientProtected.POST("/transfers/:id/execute", txHandler.ExecuteTransfer)
-
-			// Payment recipients (client)
-			clientProtected.POST("/payment-recipients", txHandler.CreatePaymentRecipient)
-			clientProtected.GET("/payment-recipients/:client_id", txHandler.ListPaymentRecipients)
-			clientProtected.PUT("/payment-recipients/:id", txHandler.UpdatePaymentRecipient)
-			clientProtected.DELETE("/payment-recipients/:id", txHandler.DeletePaymentRecipient)
-
-			// Verification codes (client)
-			clientProtected.POST("/verification", txHandler.CreateVerificationCode)
-			clientProtected.POST("/verification/validate", txHandler.ValidateVerificationCode)
-
-			// Loans (client write)
-			clientProtected.POST("/loans/requests", creditHandler.CreateLoanRequest)
-
-			// Cards (client)
-			//clientProtected.PUT("/cards/:id/block", cardHandler.ClientBlockCard)
-
-			// Virtual cards (client)
-			clientProtected.POST("/cards/virtual", cardHandler.CreateVirtualCard)
-			clientProtected.POST("/cards/:id/pin", cardHandler.SetCardPin)
-			clientProtected.POST("/cards/:id/verify-pin", cardHandler.VerifyCardPin)
-			clientProtected.POST("/cards/:id/temporary-block", cardHandler.TemporaryBlockCard)
-
-			// Card requests (client)
-			clientProtected.POST("/cards/requests", cardHandler.CreateCardRequest)
-			clientProtected.GET("/cards/requests/me", cardHandler.ListMyCardRequests)
-		}
-
-		// Routes accessible by both employee and client tokens
-		// Clients can only access their own resources (enforced in handlers via enforceClientSelf)
-		anyAuth := api.Group("/")
-		anyAuth.Use(middleware.AnyAuthMiddleware(authClient))
-		{
-			// Accounts (read)
-			anyAuth.GET("/accounts/by-number/:account_number", accountHandler.GetAccountByNumber)
-			anyAuth.GET("/accounts/client/:client_id", accountHandler.ListAccountsByClient)
-
-			// Cards (read)
-			anyAuth.GET("/cards/:id", cardHandler.GetCard)
-			anyAuth.GET("/cards/account/:account_number", cardHandler.ListCardsByAccount)
-			anyAuth.GET("/cards/client/:client_id", cardHandler.ListCardsByClient)
-
-			// Payments (read)
-			anyAuth.GET("/payments/:id", txHandler.GetPayment)
-			anyAuth.GET("/payments/account/:account_number", txHandler.ListPaymentsByAccount)
-			anyAuth.GET("/payments/client/:client_id", txHandler.ListPaymentsByClient)
-
-			// Transfers (read)
-			anyAuth.GET("/transfers/:id", txHandler.GetTransfer)
-			anyAuth.GET("/transfers/client/:client_id", txHandler.ListTransfersByClient)
-
-			// Loans (read)
-			anyAuth.GET("/loans/:id", creditHandler.GetLoan)
-			anyAuth.GET("/loans/client/:client_id", creditHandler.ListLoansByClient)
-			anyAuth.GET("/loans/:id/installments", creditHandler.GetInstallmentsByLoan)
-			anyAuth.GET("/loans/requests/client/:client_id", creditHandler.ListLoanRequestsByClient)
 		}
 	}
 

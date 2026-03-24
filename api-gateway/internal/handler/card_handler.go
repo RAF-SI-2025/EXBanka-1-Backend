@@ -804,6 +804,51 @@ func (h *CardHandler) RejectCardRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, cardRequestToJSON(resp))
 }
 
+// ListMyCards serves GET /api/me/cards.
+func (h *CardHandler) ListMyCards(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	resp, err := h.cardClient.ListCardsByClient(c.Request.Context(), &cardpb.ListCardsByClientRequest{ClientId: uint64(uid)})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	cards := make([]gin.H, 0, len(resp.Cards))
+	for _, card := range resp.Cards {
+		cards = append(cards, cardToJSON(card))
+	}
+	c.JSON(http.StatusOK, gin.H{"cards": cards})
+}
+
+// GetMyCard serves GET /api/me/cards/:id — fetches card and verifies ownership.
+func (h *CardHandler) GetMyCard(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.cardClient.GetCard(c.Request.Context(), &cardpb.GetCardRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if resp.OwnerId != uint64(uid) {
+		apiError(c, 403, ErrForbidden, "access denied")
+		return
+	}
+	c.JSON(http.StatusOK, cardToJSON(resp))
+}
+
 // ListCards serves GET /api/cards — filters via ?client_id=X or ?account_number=X.
 func (h *CardHandler) ListCards(c *gin.Context) {
 	clientIDStr := c.Query("client_id")

@@ -769,6 +769,101 @@ func bankMarginToJSON(m *creditpb.BankMarginResponse) gin.H {
 	}
 }
 
+// ListMyLoans serves GET /api/me/loans.
+func (h *CreditHandler) ListMyLoans(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.creditClient.ListLoansByClient(c.Request.Context(), &creditpb.ListLoansByClientReq{
+		ClientId: uint64(uid),
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	loans := make([]gin.H, 0, len(resp.Loans))
+	for _, l := range resp.Loans {
+		loans = append(loans, loanToJSON(l))
+	}
+	c.JSON(http.StatusOK, gin.H{"loans": loans, "total": resp.Total})
+}
+
+// GetMyLoan serves GET /api/me/loans/:id.
+func (h *CreditHandler) GetMyLoan(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.creditClient.GetLoan(c.Request.Context(), &creditpb.GetLoanReq{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, loanToJSON(resp))
+}
+
+// GetMyInstallments serves GET /api/me/loans/:id/installments.
+func (h *CreditHandler) GetMyInstallments(c *gin.Context) {
+	loanID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.creditClient.GetInstallmentsByLoan(c.Request.Context(), &creditpb.GetInstallmentsByLoanReq{LoanId: loanID})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	installments := make([]gin.H, 0, len(resp.Installments))
+	for _, inst := range resp.Installments {
+		installments = append(installments, gin.H{
+			"id":            inst.Id,
+			"loan_id":       inst.LoanId,
+			"amount":        inst.Amount,
+			"interest_rate": inst.InterestRate,
+			"currency_code": inst.CurrencyCode,
+			"expected_date": inst.ExpectedDate,
+			"actual_date":   inst.ActualDate,
+			"status":        inst.Status,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"installments": installments})
+}
+
+// ListMyLoanRequests serves GET /api/me/loan-requests.
+func (h *CreditHandler) ListMyLoanRequests(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.creditClient.ListLoanRequests(c.Request.Context(), &creditpb.ListLoanRequestsReq{
+		ClientIdFilter: uint64(uid),
+		Page:           int32(page),
+		PageSize:       int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	requests := make([]gin.H, 0, len(resp.Requests))
+	for _, r := range resp.Requests {
+		requests = append(requests, loanRequestToJSON(r))
+	}
+	c.JSON(http.StatusOK, gin.H{"requests": requests, "total": resp.Total})
+}
+
 func loanToJSON(l *creditpb.LoanResponse) gin.H {
 	return gin.H{
 		"id":                      l.Id,

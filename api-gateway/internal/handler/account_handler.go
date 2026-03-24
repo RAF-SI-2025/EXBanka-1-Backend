@@ -621,6 +621,58 @@ func (h *AccountHandler) DeleteBankAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// ListMyAccounts serves GET /api/me/accounts.
+func (h *AccountHandler) ListMyAccounts(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 32)
+	pageSize, _ := strconv.ParseInt(c.DefaultQuery("page_size", "50"), 10, 32)
+
+	resp, err := h.accountClient.ListAccountsByClient(c.Request.Context(), &accountpb.ListAccountsByClientRequest{
+		ClientId: uint64(uid),
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	accounts := make([]gin.H, 0, len(resp.Accounts))
+	for _, acc := range resp.Accounts {
+		accounts = append(accounts, accountToJSON(acc))
+	}
+	c.JSON(http.StatusOK, gin.H{"accounts": accounts, "total": resp.Total})
+}
+
+// GetMyAccount serves GET /api/me/accounts/:id — fetches account and verifies ownership.
+func (h *AccountHandler) GetMyAccount(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if resp.OwnerId != uint64(uid) {
+		apiError(c, 403, ErrForbidden, "access denied")
+		return
+	}
+	c.JSON(http.StatusOK, accountToJSON(resp))
+}
+
 func accountToJSON(acc *accountpb.AccountResponse) gin.H {
 	return gin.H{
 		"id":                acc.Id,

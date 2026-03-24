@@ -683,6 +683,152 @@ func (h *TransactionHandler) ValidateVerificationCode(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"valid": resp.Valid})
 }
 
+// ListMyPayments serves GET /api/me/payments.
+func (h *TransactionHandler) ListMyPayments(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	accountNumbers, err := h.resolveClientAccountNumbers(c, uint64(uid))
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.txClient.ListPaymentsByClient(c.Request.Context(), &transactionpb.ListPaymentsByClientRequest{
+		ClientId:       uint64(uid),
+		Page:           int32(page),
+		PageSize:       int32(pageSize),
+		AccountNumbers: accountNumbers,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	payments := make([]gin.H, 0, len(resp.Payments))
+	for _, p := range resp.Payments {
+		payments = append(payments, paymentToJSON(p))
+	}
+	c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
+}
+
+// GetMyPayment serves GET /api/me/payments/:id.
+func (h *TransactionHandler) GetMyPayment(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.txClient.GetPayment(c.Request.Context(), &transactionpb.GetPaymentRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, paymentToJSON(resp))
+}
+
+// ListMyTransfers serves GET /api/me/transfers.
+func (h *TransactionHandler) ListMyTransfers(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	accountNumbers, err := h.resolveClientAccountNumbers(c, uint64(uid))
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.txClient.ListTransfersByClient(c.Request.Context(), &transactionpb.ListTransfersByClientRequest{
+		ClientId:       uint64(uid),
+		Page:           int32(page),
+		PageSize:       int32(pageSize),
+		AccountNumbers: accountNumbers,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	transfers := make([]gin.H, 0, len(resp.Transfers))
+	for _, t := range resp.Transfers {
+		transfers = append(transfers, transferToJSON(t))
+	}
+	c.JSON(http.StatusOK, gin.H{"transfers": transfers, "total": resp.Total})
+}
+
+// GetMyTransfer serves GET /api/me/transfers/:id.
+func (h *TransactionHandler) GetMyTransfer(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.txClient.GetTransfer(c.Request.Context(), &transactionpb.GetTransferRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, transferToJSON(resp))
+}
+
+// ListMyPaymentRecipients serves GET /api/me/payment-recipients.
+func (h *TransactionHandler) ListMyPaymentRecipients(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	resp, err := h.txClient.ListPaymentRecipients(c.Request.Context(), &transactionpb.ListPaymentRecipientsRequest{
+		ClientId: uint64(uid),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	recipients := make([]gin.H, 0, len(resp.Recipients))
+	for _, r := range resp.Recipients {
+		recipients = append(recipients, recipientToJSON(r))
+	}
+	c.JSON(http.StatusOK, gin.H{"recipients": recipients})
+}
+
+// CreateMyPaymentRecipient serves POST /api/me/payment-recipients — uses JWT user_id as client_id.
+type createMyPaymentRecipientRequest struct {
+	RecipientName string `json:"recipient_name" binding:"required"`
+	AccountNumber string `json:"account_number" binding:"required"`
+}
+
+func (h *TransactionHandler) CreateMyPaymentRecipient(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	var req createMyPaymentRecipientRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+	resp, err := h.txClient.CreatePaymentRecipient(c.Request.Context(), &transactionpb.CreatePaymentRecipientRequest{
+		ClientId:      uint64(uid),
+		RecipientName: req.RecipientName,
+		AccountNumber: req.AccountNumber,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, recipientToJSON(resp))
+}
+
 // ListPayments serves GET /api/payments — filters via ?client_id=X or ?account_number=X.
 func (h *TransactionHandler) ListPayments(c *gin.Context) {
 	clientIDStr := c.Query("client_id")
