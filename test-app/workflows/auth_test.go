@@ -48,7 +48,7 @@ func ensureAdminActivated() {
 	})
 	defer r.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	var latestToken string
