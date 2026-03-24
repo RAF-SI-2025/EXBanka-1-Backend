@@ -111,7 +111,7 @@ func main() {
 	}
 	defer cardRequestConn.Close()
 
-	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient)
+	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, cfg.BootstrapSecret)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,

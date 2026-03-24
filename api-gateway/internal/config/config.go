@@ -5,14 +5,15 @@ import (
 )
 
 type Config struct {
-	HTTPAddr           string
-	AuthGRPCAddr       string
-	UserGRPCAddr       string
-	ClientGRPCAddr     string
-	AccountGRPCAddr    string
-	CardGRPCAddr       string
+	HTTPAddr            string
+	AuthGRPCAddr        string
+	UserGRPCAddr        string
+	ClientGRPCAddr      string
+	AccountGRPCAddr     string
+	CardGRPCAddr        string
 	TransactionGRPCAddr string
-	CreditGRPCAddr     string
+	CreditGRPCAddr      string
+	BootstrapSecret     string
 }
 
 func Load() *Config {
@@ -25,6 +26,7 @@ func Load() *Config {
 		CardGRPCAddr:        getEnv("CARD_GRPC_ADDR", "localhost:50056"),
 		TransactionGRPCAddr: getEnv("TRANSACTION_GRPC_ADDR", "localhost:50057"),
 		CreditGRPCAddr:      getEnv("CREDIT_GRPC_ADDR", "localhost:50058"),
+		BootstrapSecret:     getEnv("BOOTSTRAP_SECRET", ""),
 	}
 }
 

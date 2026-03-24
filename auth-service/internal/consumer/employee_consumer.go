@@ -29,9 +29,10 @@ type EmployeeConsumer struct {
 
 func NewEmployeeConsumer(brokers string, authSvc *service.AuthService) *EmployeeConsumer {
 	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{brokers},
-		Topic:   kafkamsg.TopicEmployeeCreated,
-		GroupID: "auth-service-employee-consumer",
+		Brokers:     []string{brokers},
+		Topic:       kafkamsg.TopicEmployeeCreated,
+		GroupID:     "auth-service-employee-consumer",
+		StartOffset: kafka.FirstOffset,
 	})
 	dlq := &kafka.Writer{
 		Addr:  kafka.TCP(brokers),

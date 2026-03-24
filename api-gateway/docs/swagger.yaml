@@ -21,6 +21,16 @@ definitions:
     required:
     - template_name
     type: object
+  handler.bootstrapRequest:
+    properties:
+      email:
+        type: string
+      secret:
+        type: string
+    required:
+    - email
+    - secret
+    type: object
   handler.createAccountRequest:
     properties:
       account_category:
@@ -1448,6 +1458,53 @@ paths:
       summary: Update bank margin
       tags:
       - rate-config
+  /api/bootstrap:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Creates the admin employee in user-service and provisions an auth account +
+        activation token in auth-service, which publishes the token to the
+        notification.send-email Kafka topic. Protected by the BOOTSTRAP_SECRET env var;
+        returns 404 when the secret is not configured (safe for production).
+        Idempotent: safe to call multiple times (each call issues a fresh activation token).
+      parameters:
+      - description: Bootstrap credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.bootstrapRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'message: bootstrap complete'
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: not found (secret not set or wrong)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: upstream error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Seed the initial admin employee (test/dev only)
+      tags:
+      - bootstrap
   /api/cards:
     post:
       consumes:
@@ -4303,6 +4360,55 @@ paths:
       security:
       - BearerAuth: []
       summary: List payments by account
+      tags:
+      - payments
+  /api/payments/client/{client_id}:
+    get:
+      description: Returns all payments (sent or received) for all accounts belonging
+        to a client. Clients can only view their own payments.
+      parameters:
+      - description: Client ID
+        in: path
+        name: client_id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List payments by client
       tags:
       - payments
   /api/permissions:

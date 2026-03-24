@@ -7,6 +7,7 @@ service TransactionService {
   rpc ExecutePayment(ExecutePaymentRequest) returns (PaymentResponse);
   rpc GetPayment(GetPaymentRequest) returns (PaymentResponse);
   rpc ListPaymentsByAccount(ListPaymentsByAccountRequest) returns (ListPaymentsResponse);
+  rpc ListPaymentsByClient(ListPaymentsByClientRequest) returns (ListPaymentsResponse);
 
   rpc CreateTransfer(CreateTransferRequest) returns (TransferResponse);
   rpc ExecuteTransfer(ExecuteTransferRequest) returns (TransferResponse);
@@ -51,6 +52,13 @@ message ListPaymentsByAccountRequest {
 message ListPaymentsResponse {
   repeated PaymentResponse payments = 1;
   int64 total = 2;
+}
+
+message ListPaymentsByClientRequest {
+  uint64 client_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  repeated string account_numbers = 4;
 }
 
 message PaymentResponse {
@@ -99,6 +107,7 @@ message TransferResponse {
   string exchange_rate = 6;
   string commission = 7;
   string timestamp = 8;
+  string status = 9;
 }
 
 message CreatePaymentRecipientRequest {

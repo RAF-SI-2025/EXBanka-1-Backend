@@ -1,0 +1,53 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches: [Development, main]
+
+jobs:
+  integration-tests:
+    name: Run Integration Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write   # required by dorny/test-reporter to publish results
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Start all services
+        run: docker compose up --build -d --wait
+        timeout-minutes: 15
+
+      - name: Run integration tests
+        working-directory: test-app
+        env:
+          TEST_GATEWAY_URL: http://localhost:8080
+          TEST_KAFKA_BROKERS: localhost:9094
+          BOOTSTRAP_SECRET: dev-bootstrap-secret
+        run: |
+          gotestsum \
+            --junitfile test-results.xml \
+            --format standard-verbose \
+            -- -tags integration ./workflows/ -count=1 -timeout=20m
+
+      - name: Upload test results artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-app/test-results.xml
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v

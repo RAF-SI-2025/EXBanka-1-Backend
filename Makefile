@@ -1,4 +1,4 @@
-.PHONY: proto clean build tidy docker-up docker-down docker-logs test swagger
+.PHONY: proto clean build tidy docker-up docker-down docker-logs test swagger test-integration
 
 proto:
 	protoc -I contract/proto \
@@ -76,3 +76,6 @@ test:
 	cd card-service && go test ./... -v
 	cd transaction-service && go test ./... -v
 	cd credit-service && go test ./... -v
+
+test-integration:
+	cd test-app && go test -v -tags integration -timeout 15m ./workflows/...

@@ -25,6 +25,7 @@ type PaymentRepo interface {
 	UpdateStatus(id uint64, status string) error
 	UpdateStatusWithReason(id uint64, status, reason string) error
 	ListByAccount(accountNumber, dateFrom, dateTo, statusFilter string, amountMin, amountMax float64, page, pageSize int) ([]model.Payment, int64, error)
+	ListByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Payment, int64, error)
 }
 
 type PaymentService struct {
@@ -288,4 +289,8 @@ func (s *PaymentService) GetPayment(id uint64) (*model.Payment, error) {
 
 func (s *PaymentService) ListPaymentsByAccount(accountNumber, dateFrom, dateTo, statusFilter string, amountMin, amountMax float64, page, pageSize int) ([]model.Payment, int64, error) {
 	return s.paymentRepo.ListByAccount(accountNumber, dateFrom, dateTo, statusFilter, amountMin, amountMax, page, pageSize)
+}
+
+func (s *PaymentService) ListPaymentsByClient(accountNumbers []string, page, pageSize int) ([]model.Payment, int64, error) {
+	return s.paymentRepo.ListByAccountNumbers(accountNumbers, page, pageSize)
 }

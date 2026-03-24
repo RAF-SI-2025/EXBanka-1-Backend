@@ -91,3 +91,31 @@ func (r *PaymentRepository) UpdateStatusWithReason(id uint64, status, reason str
 		"failure_reason": reason,
 	}).Error
 }
+
+// ListByAccountNumbers returns all payments where the given account numbers appear
+// as sender or recipient. Used to aggregate payment history across all client accounts.
+func (r *PaymentRepository) ListByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Payment, int64, error) {
+	if len(accountNumbers) == 0 {
+		return nil, 0, nil
+	}
+	q := r.db.Model(&model.Payment{}).Where(
+		"from_account_number IN ? OR to_account_number IN ?",
+		accountNumbers, accountNumbers,
+	)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+	var payments []model.Payment
+	if err := q.Order("timestamp DESC").Offset(offset).Limit(pageSize).Find(&payments).Error; err != nil {
+		return nil, 0, err
+	}
+	return payments, total, nil
+}

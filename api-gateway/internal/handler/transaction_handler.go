@@ -167,6 +167,59 @@ func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
 	})
 }
 
+// @Summary      List payments by client
+// @Description  Returns all payments (sent or received) for all accounts belonging to a client. Clients can only view their own payments.
+// @Tags         payments
+// @Produce      json
+// @Param        client_id  path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/payments/client/{client_id} [get]
+func (h *TransactionHandler) ListPaymentsByClient(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		return
+	}
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
+
+	accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	resp, err := h.txClient.ListPaymentsByClient(c.Request.Context(), &transactionpb.ListPaymentsByClientRequest{
+		ClientId:       clientID,
+		Page:           int32(page),
+		PageSize:       int32(pageSize),
+		AccountNumbers: accountNumbers,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	payments := make([]gin.H, 0, len(resp.Payments))
+	for _, p := range resp.Payments {
+		payments = append(payments, paymentToJSON(p))
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"payments": payments,
+		"total":    resp.Total,
+	})
+}
+
 type executePaymentRequest struct {
 	VerificationCode string `json:"verification_code" binding:"required"`
 }
@@ -657,6 +710,7 @@ func transferToJSON(t *transactionpb.TransferResponse) gin.H {
 		"exchange_rate":       t.ExchangeRate,
 		"commission":          t.Commission,
 		"timestamp":           t.Timestamp,
+		"status":              t.Status,
 	}
 }
 

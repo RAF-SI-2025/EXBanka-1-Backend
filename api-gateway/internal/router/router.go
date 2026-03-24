@@ -31,6 +31,7 @@ func Setup(
 	bankAccountClient accountpb.BankAccountServiceClient,
 	feeClient transactionpb.FeeServiceClient,
 	cardRequestClient cardpb.CardRequestServiceClient,
+	bootstrapSecret string,
 ) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
@@ -41,6 +42,7 @@ func Setup(
 		AllowCredentials: false,
 	}))
 
+	bootstrapHandler := handler.NewBootstrapHandler(userClient, authClient, bootstrapSecret)
 	authHandler := handler.NewAuthHandler(authClient)
 	empHandler := handler.NewEmployeeHandler(userClient, authClient)
 	roleHandler := handler.NewRoleHandler(userClient)
@@ -54,6 +56,8 @@ func Setup(
 
 	api := r.Group("/api")
 	{
+		api.POST("/bootstrap", bootstrapHandler.Bootstrap)
+
 		// Public auth routes
 		auth := api.Group("/auth")
 		{
@@ -304,6 +308,7 @@ func Setup(
 			// Payments (read)
 			anyAuth.GET("/payments/:id", txHandler.GetPayment)
 			anyAuth.GET("/payments/account/:account_number", txHandler.ListPaymentsByAccount)
+			anyAuth.GET("/payments/client/:client_id", txHandler.ListPaymentsByClient)
 
 			// Transfers (read)
 			anyAuth.GET("/transfers/:id", txHandler.GetTransfer)

@@ -1,9 +1,12 @@
+//go:build integration
+
 package workflows
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"testing"
 	"time"
@@ -23,10 +26,13 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// ensureAdminActivated auto-activates the seeded admin account if it is still pending.
-// It scans the notification.send-email Kafka topic from the beginning for an ACTIVATION
-// message sent to cfg.AdminEmail(), then calls POST /api/auth/activate with the token.
-// This is safe to call on every test run — if the admin is already active, it returns immediately.
+// ensureAdminActivated bootstraps and activates the admin account if needed.
+//
+// Flow:
+//  1. Try login — if the admin is already active, return immediately.
+//  2. Call POST /api/bootstrap (with retry) to create the admin employee and trigger
+//     an ACTIVATION email onto the notification.send-email Kafka topic.
+//  3. Scan that topic (from offset 0) for the token and activate the account.
 func ensureAdminActivated() {
 	adminEmail := cfg.AdminEmail()
 	adminPassword := cfg.Password
@@ -36,23 +42,63 @@ func ensureAdminActivated() {
 		return // already active
 	}
 
-	fmt.Println("[test-app] Admin account not active — scanning Kafka for activation token...")
+	fmt.Println("[test-app] Admin not active — calling bootstrap endpoint...")
 
+	// Retry bootstrap until the API gateway and upstream services are ready.
+	deadline := time.Now().Add(3 * time.Minute)
+	bootstrapped := false
+	for time.Now().Before(deadline) {
+		resp, err := c.POST("/api/bootstrap", map[string]string{
+			"secret": cfg.BootstrapSecret,
+			"email":  adminEmail,
+		})
+		if err == nil && resp.StatusCode == 200 {
+			bootstrapped = true
+			break
+		}
+		if err == nil && resp.StatusCode == 404 {
+			log.Fatalf("[test-app] FATAL: bootstrap endpoint returned 404. " +
+				"Ensure BOOTSTRAP_SECRET is set in the api-gateway environment and " +
+				"matches the BOOTSTRAP_SECRET used by test-app (default: dev-bootstrap-secret).")
+		}
+		statusCode := 0
+		if resp != nil {
+			statusCode = resp.StatusCode
+		}
+		fmt.Printf("[test-app] bootstrap not ready yet (status=%d, err=%v), retrying in 3s...\n", statusCode, err)
+		time.Sleep(3 * time.Second)
+	}
+	if !bootstrapped {
+		log.Fatalf("[test-app] FATAL: bootstrap endpoint did not return 200 within timeout.")
+	}
+
+	fmt.Println("[test-app] Bootstrap succeeded — scanning Kafka for activation token...")
+
+	// No GroupID: use direct partition reader so Kafka never redirects us to
+	// the group coordinator (which advertises the internal kafka:9092 address
+	// unreachable from outside Docker).
 	r := kafkalib.NewReader(kafkalib.ReaderConfig{
 		Brokers:     []string{cfg.KafkaBrokers},
 		Topic:       "notification.send-email",
-		GroupID:     fmt.Sprintf("test-app-admin-setup-%d", time.Now().UnixNano()),
+		Partition:   0,
 		StartOffset: kafkalib.FirstOffset,
 		MaxWait:     500 * time.Millisecond,
 	})
 	defer r.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	outerCtx, outerCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer outerCancel()
 
 	var latestToken string
 	for {
-		msg, err := r.ReadMessage(ctx)
+		// Once a token is found, only wait 1 more second for any newer message.
+		readCtx := outerCtx
+		readCancel := func() {}
+		if latestToken != "" {
+			readCtx, readCancel = context.WithTimeout(outerCtx, 1*time.Second)
+		}
+		msg, err := r.ReadMessage(readCtx)
+		readCancel()
 		if err != nil {
 			break
 		}
@@ -72,8 +118,9 @@ func ensureAdminActivated() {
 	}
 
 	if latestToken == "" {
-		fmt.Println("[test-app] Warning: no activation token found for admin. Tests requiring admin login will fail.")
-		return
+		log.Fatalf("[test-app] FATAL: no ACTIVATION token found in Kafka for admin email %q. "+
+			"Check that auth-service received the bootstrap call and published to notification.send-email.",
+			adminEmail)
 	}
 
 	resp, err := c.ActivateAccount(latestToken, adminPassword)

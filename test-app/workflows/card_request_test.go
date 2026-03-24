@@ -1,3 +1,5 @@
+//go:build integration
+
 package workflows
 
 import (
@@ -261,10 +263,19 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	}
 	helpers.RequireStatus(t, approveResp, 200)
 
-	// Verify card request status is "approved"
-	status := helpers.GetStringField(t, approveResp, "status")
-	if status != "approved" {
-		t.Fatalf("expected card request status approved, got %q", status)
+	// Verify card request status is "approved".
+	// The approve response body is {"card":{...}, "request":{"status":"approved",...}}.
+	// Extract status from the nested "request" object.
+	var reqStatus string
+	if reqObj, ok := approveResp.Body["request"].(map[string]interface{}); ok {
+		reqStatus, _ = reqObj["status"].(string)
+	}
+	// Fallback: some implementations return status at top-level
+	if reqStatus == "" {
+		reqStatus, _ = approveResp.Body["status"].(string)
+	}
+	if reqStatus != "approved" {
+		t.Fatalf("expected card request status approved, got %q (full body: %s)", reqStatus, string(approveResp.RawBody))
 	}
 
 	// Verify an actual card now exists for that account

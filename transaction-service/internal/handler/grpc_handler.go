@@ -185,6 +185,23 @@ func (h *TransactionGRPCHandler) ListPaymentsByAccount(ctx context.Context, req 
 	return &pb.ListPaymentsResponse{Payments: pbPayments, Total: total}, nil
 }
 
+func (h *TransactionGRPCHandler) ListPaymentsByClient(ctx context.Context, req *pb.ListPaymentsByClientRequest) (*pb.ListPaymentsResponse, error) {
+	payments, total, err := h.paymentSvc.ListPaymentsByClient(
+		req.GetAccountNumbers(),
+		int(req.GetPage()),
+		int(req.GetPageSize()),
+	)
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "list payments by client: %v", err)
+	}
+
+	pbPayments := make([]*pb.PaymentResponse, 0, len(payments))
+	for i := range payments {
+		pbPayments = append(pbPayments, paymentToProto(&payments[i]))
+	}
+	return &pb.ListPaymentsResponse{Payments: pbPayments, Total: total}, nil
+}
+
 // ---- Transfer RPCs ----
 
 func (h *TransactionGRPCHandler) CreateTransfer(ctx context.Context, req *pb.CreateTransferRequest) (*pb.TransferResponse, error) {
@@ -361,10 +378,10 @@ func (h *TransactionGRPCHandler) CreateVerificationCode(ctx context.Context, req
 	if email := req.GetClientEmail(); email != "" {
 		_ = h.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
 			To:        email,
-			EmailType: kafkamsg.EmailTypeConfirmation,
+			EmailType: kafkamsg.EmailTypeTransactionVerify,
 			Data: map[string]string{
-				"code":             code,
-				"transaction_type": req.GetTransactionType(),
+				"verification_code": code,
+				"expires_in":        "5 minutes",
 			},
 		})
 	}
@@ -415,6 +432,7 @@ func transferToProto(t *model.Transfer) *pb.TransferResponse {
 		ExchangeRate:      t.ExchangeRate.StringFixed(4),
 		Commission:        t.Commission.StringFixed(4),
 		Timestamp:         t.Timestamp.String(),
+		Status:            t.Status,
 	}
 }
 

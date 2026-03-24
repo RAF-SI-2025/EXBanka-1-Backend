@@ -77,6 +77,10 @@ func (m *mockPaymentRepo) ListByAccount(accountNumber, dateFrom, dateTo, statusF
 	return nil, 0, nil
 }
 
+func (m *mockPaymentRepo) ListByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Payment, int64, error) {
+	return nil, 0, nil
+}
+
 // errNotFound is gorm.ErrRecordNotFound so that errors.Is(err, gorm.ErrRecordNotFound) matches
 // in the idempotency check path of payment_service.go.
 var errNotFound = gorm.ErrRecordNotFound

@@ -42,7 +42,7 @@ func (h *VirtualCardGRPCHandler) SetCardPin(ctx context.Context, req *pb.SetCard
 func (h *VirtualCardGRPCHandler) VerifyCardPin(ctx context.Context, req *pb.VerifyCardPinRequest) (*pb.VerifyCardPinResponse, error) {
 	valid, err := h.cardService.VerifyPin(req.Id, req.Pin)
 	if err != nil {
-		return &pb.VerifyCardPinResponse{Valid: false, Message: err.Error()}, nil
+		return nil, status.Errorf(codes.FailedPrecondition, "%s", err.Error())
 	}
 	msg := "PIN verified"
 	if !valid {

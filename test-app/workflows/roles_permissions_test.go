@@ -1,3 +1,5 @@
+//go:build integration
+
 package workflows
 
 import (
@@ -60,7 +62,7 @@ func TestRoles_UpdateRolePermissions(t *testing.T) {
 
 	// Update permissions
 	resp, err := c.PUT(fmt.Sprintf("/api/roles/%d/permissions", int(roleID)), map[string]interface{}{
-		"permissions": []string{"clients.read", "accounts.read", "cards.manage"},
+		"permission_codes": []string{"clients.read", "accounts.read", "cards.manage"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)

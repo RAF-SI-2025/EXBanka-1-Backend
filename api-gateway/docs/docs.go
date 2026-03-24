@@ -1146,6 +1146,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/bootstrap": {
+            "post": {
+                "description": "Creates the admin employee in user-service and provisions an auth account +\nactivation token in auth-service, which publishes the token to the\nnotification.send-email Kafka topic. Protected by the BOOTSTRAP_SECRET env var;\nreturns 404 when the secret is not configured (safe for production).\nIdempotent: safe to call multiple times (each call issues a fresh activation token).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "bootstrap"
+                ],
+                "summary": "Seed the initial admin employee (test/dev only)",
+                "parameters": [
+                    {
+                        "description": "Bootstrap credentials",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.bootstrapRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "message: bootstrap complete",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "bad request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "not found (secret not set or wrong)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "upstream error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/cards": {
             "post": {
                 "security": [
@@ -5408,6 +5472,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/payments/client/{client_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all payments (sent or received) for all accounts belonging to a client. Clients can only view their own payments.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "summary": "List payments by client",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Client ID",
+                        "name": "client_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (default 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/payments/{id}": {
             "get": {
                 "security": [
@@ -6311,6 +6449,21 @@ const docTemplate = `{
                 "template_name": {
                     "type": "string",
                     "example": "BasicTeller"
+                }
+            }
+        },
+        "handler.bootstrapRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "secret"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "secret": {
+                    "type": "string"
                 }
             }
         },
