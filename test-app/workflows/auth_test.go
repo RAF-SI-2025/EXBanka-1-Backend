@@ -72,21 +72,31 @@ func ensureAdminActivated() {
 
 	fmt.Println("[test-app] Bootstrap succeeded — scanning Kafka for activation token...")
 
+	// No GroupID: use direct partition reader so Kafka never redirects us to
+	// the group coordinator (which advertises the internal kafka:9092 address
+	// unreachable from outside Docker).
 	r := kafkalib.NewReader(kafkalib.ReaderConfig{
 		Brokers:     []string{cfg.KafkaBrokers},
 		Topic:       "notification.send-email",
-		GroupID:     fmt.Sprintf("test-app-admin-setup-%d", time.Now().UnixNano()),
+		Partition:   0,
 		StartOffset: kafkalib.FirstOffset,
 		MaxWait:     500 * time.Millisecond,
 	})
 	defer r.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
+	outerCtx, outerCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer outerCancel()
 
 	var latestToken string
 	for {
-		msg, err := r.ReadMessage(ctx)
+		// Once a token is found, only wait 1 more second for any newer message.
+		readCtx := outerCtx
+		readCancel := func() {}
+		if latestToken != "" {
+			readCtx, readCancel = context.WithTimeout(outerCtx, 1*time.Second)
+		}
+		msg, err := r.ReadMessage(readCtx)
+		readCancel()
 		if err != nil {
 			break
 		}
