@@ -5,7 +5,6 @@ package workflows
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -85,10 +84,13 @@ func getBankRSDAccount(t *testing.T, c *client.APIClient) (string, float64) {
 // This mirrors ensureAdminActivated in auth_test.go but is parameterised by email.
 func scanKafkaForActivationToken(t *testing.T, email string) string {
 	t.Helper()
+	// No GroupID: use direct partition reader so Kafka never redirects us to
+	// the group coordinator (which advertises the internal kafka:9092 address
+	// unreachable from outside Docker).
 	r := kafkalib.NewReader(kafkalib.ReaderConfig{
 		Brokers:     []string{cfg.KafkaBrokers},
 		Topic:       "notification.send-email",
-		GroupID:     fmt.Sprintf("test-app-scan-activation-%d", time.Now().UnixNano()),
+		Partition:   0,
 		StartOffset: kafkalib.FirstOffset,
 		MaxWait:     500 * time.Millisecond,
 	})

@@ -138,8 +138,7 @@ func TestWorkflow_FullPaymentWithFee(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
 	// Set up client A with 50000 RSD
-	clientAID, acctNumA, clientA := setupActivatedClient(t, adminClient)
-	_ = clientAID
+	_, acctNumA, clientA := setupActivatedClient(t, adminClient)
 
 	// Set up client B — we only need an account number, not login
 	clientBEmail := nextClientEmail()
@@ -426,8 +425,7 @@ func TestWorkflow_FullLoanLifecycle(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
 	// Create and activate a client with a funded RSD account
-	clientID, accountNumber, clientC := setupActivatedClient(t, adminClient)
-	_ = clientID
+	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
 	meResp, err := clientC.GET("/api/clients/me")
 	if err != nil {
