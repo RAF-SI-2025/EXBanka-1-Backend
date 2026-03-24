@@ -20,17 +20,17 @@ import (
 
 type TransferService struct {
 	transferRepo   *repository.TransferRepository
-	exchangeSvc    *ExchangeService
+	exchangeClient ExchangeClientIface
 	accountClient  accountpb.AccountServiceClient
 	feeSvc         *FeeService
 	producer       *kafka.Producer
 	bankRSDAccount string // account number of bank's RSD account
 }
 
-func NewTransferService(transferRepo *repository.TransferRepository, exchangeSvc *ExchangeService, accountClient accountpb.AccountServiceClient, feeSvc *FeeService, producer *kafka.Producer, bankRSDAccount string) *TransferService {
+func NewTransferService(transferRepo *repository.TransferRepository, exchangeClient ExchangeClientIface, accountClient accountpb.AccountServiceClient, feeSvc *FeeService, producer *kafka.Producer, bankRSDAccount string) *TransferService {
 	return &TransferService{
 		transferRepo:   transferRepo,
-		exchangeSvc:    exchangeSvc,
+		exchangeClient: exchangeClient,
 		accountClient:  accountClient,
 		feeSvc:         feeSvc,
 		producer:       producer,
@@ -146,10 +146,10 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		transfer.Commission = commission
 
 		// Determine exchange rate for cross-currency transfers (via RSD intermediate)
-		if s.exchangeSvc == nil {
+		if s.exchangeClient == nil {
 			return fmt.Errorf("cross-currency transfers require exchange service")
 		}
-		convertedAmount, effectiveRate, err := s.exchangeSvc.ConvertViaRSD(transfer.FromCurrency, transfer.ToCurrency, transfer.InitialAmount)
+		convertedAmount, effectiveRate, err := s.exchangeClient.ConvertViaRSD(ctx, transfer.FromCurrency, transfer.ToCurrency, transfer.InitialAmount)
 		if err != nil {
 			return fmt.Errorf("currency conversion failed: %w", err)
 		}
