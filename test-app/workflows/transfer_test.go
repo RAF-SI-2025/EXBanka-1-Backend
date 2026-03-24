@@ -14,7 +14,7 @@ import (
 
 func TestTransfer_UnauthenticatedCannotCreateTransfer(t *testing.T) {
 	c := newClient()
-	resp, err := c.POST("/api/transfers", map[string]interface{}{
+	resp, err := c.POST("/api/me/transfers", map[string]interface{}{
 		"from_account_number": "123",
 		"to_account_number":   "456",
 		"amount":              "100.00",
@@ -41,7 +41,7 @@ func TestTransfer_EmployeeCanReadTransfers(t *testing.T) {
 func TestTransfer_ListByClient(t *testing.T) {
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.GET(fmt.Sprintf("/api/transfers/client/%d", clientID))
+	resp, err := c.GET(fmt.Sprintf("/api/transfers?client_id=%d", clientID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -109,10 +109,10 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 
 	client1 := loginAsClient(t, email1, password1)
 
-	// Get client 1's own ID from /api/clients/me
-	meResp, err := client1.GET("/api/clients/me")
+	// Get client 1's own ID from /api/me
+	meResp, err := client1.GET("/api/me")
 	if err != nil {
-		t.Fatalf("get /api/clients/me error: %v", err)
+		t.Fatalf("get /api/me error: %v", err)
 	}
 	helpers.RequireStatus(t, meResp, 200)
 	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
@@ -123,7 +123,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	_, bankBalanceBefore := getBankRSDAccount(t, adminClient)
 
 	// Client 1 creates transfer of 5000 RSD (above 1000 fee threshold)
-	tfrResp, err := client1.POST("/api/transfers", map[string]interface{}{
+	tfrResp, err := client1.POST("/api/me/transfers", map[string]interface{}{
 		"from_account_number": acctNum1,
 		"to_account_number":   acctNum2,
 		"amount":              5000,
@@ -135,7 +135,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	transferID := int(helpers.GetNumberField(t, tfrResp, "id"))
 
 	// Create verification code
-	verResp, err := client1.POST("/api/verification", map[string]interface{}{
+	verResp, err := client1.POST("/api/me/verification", map[string]interface{}{
 		"client_id":        meClientID,
 		"transaction_id":   transferID,
 		"transaction_type": "transfer",
@@ -147,7 +147,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	verCode := helpers.GetStringField(t, verResp, "code")
 
 	// Execute transfer
-	execResp, err := client1.POST(fmt.Sprintf("/api/transfers/%d/execute", transferID), map[string]interface{}{
+	execResp, err := client1.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
 		"verification_code": verCode,
 	})
 	if err != nil {
@@ -251,9 +251,9 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	helpers.RequireStatus(t, activateResp, 200)
 
 	client1 := loginAsClient(t, email1, password1)
-	meResp, err := client1.GET("/api/clients/me")
+	meResp, err := client1.GET("/api/me")
 	if err != nil {
-		t.Fatalf("get /api/clients/me error: %v", err)
+		t.Fatalf("get /api/me error: %v", err)
 	}
 	helpers.RequireStatus(t, meResp, 200)
 	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
@@ -262,7 +262,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	rsdBalBefore := getAccountBalance(t, adminClient, rsdAccountNumber)
 
 	// Transfer 10000 RSD to EUR account (cross-currency)
-	tfrResp, err := client1.POST("/api/transfers", map[string]interface{}{
+	tfrResp, err := client1.POST("/api/me/transfers", map[string]interface{}{
 		"from_account_number": rsdAccountNumber,
 		"to_account_number":   eurAccountNumber,
 		"amount":              10000,
@@ -273,7 +273,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	helpers.RequireStatus(t, tfrResp, 201)
 	transferID := int(helpers.GetNumberField(t, tfrResp, "id"))
 
-	verResp, err := client1.POST("/api/verification", map[string]interface{}{
+	verResp, err := client1.POST("/api/me/verification", map[string]interface{}{
 		"client_id":        meClientID,
 		"transaction_id":   transferID,
 		"transaction_type": "transfer",
@@ -284,7 +284,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	helpers.RequireStatus(t, verResp, 201)
 	verCode := helpers.GetStringField(t, verResp, "code")
 
-	execResp, err := client1.POST(fmt.Sprintf("/api/transfers/%d/execute", transferID), map[string]interface{}{
+	execResp, err := client1.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
 		"verification_code": verCode,
 	})
 	if err != nil {
@@ -310,7 +310,7 @@ func TestTransfer_PaymentRecipientCRUD(t *testing.T) {
 	clientID, _, clientC := setupActivatedClient(t, adminClient)
 
 	// Create a payment recipient — handler requires client_id, recipient_name, account_number
-	createResp, err := clientC.POST("/api/payment-recipients", map[string]interface{}{
+	createResp, err := clientC.POST("/api/me/payment-recipients", map[string]interface{}{
 		"client_id":      clientID,
 		"account_number": "908-0000000001-00",
 		"recipient_name": "John Doe",
@@ -326,8 +326,8 @@ func TestTransfer_PaymentRecipientCRUD(t *testing.T) {
 	recipientID := int(helpers.GetNumberField(t, createResp, "id"))
 	t.Logf("payment recipient created: id=%d", recipientID)
 
-	// List payment recipients — route requires :client_id path parameter
-	listResp, err := clientC.GET(fmt.Sprintf("/api/payment-recipients/%d", clientID))
+	// List payment recipients — client-scoped route
+	listResp, err := clientC.GET("/api/me/payment-recipients")
 	if err != nil {
 		t.Fatalf("list payment recipients error: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
 
 	// Second account for same client
-	meResp, err := clientC.GET("/api/clients/me")
+	meResp, err := clientC.GET("/api/me")
 	if err != nil {
 		t.Fatalf("get me error: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 	acctNum2 := helpers.GetStringField(t, acct2Resp, "account_number")
 
 	// Attempt to transfer more than the balance (100000 RSD available)
-	tfrResp, err := clientC.POST("/api/transfers", map[string]interface{}{
+	tfrResp, err := clientC.POST("/api/me/transfers", map[string]interface{}{
 		"from_account_number": accountNumber,
 		"to_account_number":   acctNum2,
 		"amount":              9999999,
@@ -370,7 +370,7 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 	}
 	if tfrResp.StatusCode == 201 {
 		t.Logf("transfer created (amount > balance); verifying execution fails")
-		verResp, err := clientC.POST("/api/verification", map[string]interface{}{
+		verResp, err := clientC.POST("/api/me/verification", map[string]interface{}{
 			"client_id":        meClientID,
 			"transaction_id":   int(helpers.GetNumberField(t, tfrResp, "id")),
 			"transaction_type": "transfer",
@@ -379,7 +379,7 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 			t.Fatalf("create verification code error: %v", err)
 		}
 		verCode := helpers.GetStringField(t, verResp, "code")
-		execResp, err := clientC.POST(fmt.Sprintf("/api/transfers/%d/execute", int(helpers.GetNumberField(t, tfrResp, "id"))), map[string]interface{}{
+		execResp, err := clientC.POST(fmt.Sprintf("/api/me/transfers/%d/execute", int(helpers.GetNumberField(t, tfrResp, "id"))), map[string]interface{}{
 			"verification_code": verCode,
 		})
 		if err != nil {
