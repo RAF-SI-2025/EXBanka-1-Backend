@@ -37,6 +37,7 @@ func (s *ExchangeService) SyncRates(ctx context.Context, p provider.RateProvider
 	}
 
 	one := decimal.NewFromInt(1)
+	var upsertErrors int
 	for code, midRsdToC := range rates {
 		if midRsdToC.IsZero() {
 			continue
@@ -46,6 +47,7 @@ func (s *ExchangeService) SyncRates(ctx context.Context, p provider.RateProvider
 		sellRsdToC := midRsdToC.Mul(one.Add(s.spread))
 		if err := s.repo.Upsert("RSD", code, buyRsdToC, sellRsdToC); err != nil {
 			log.Printf("WARN: failed to upsert RSD/%s: %v", code, err)
+			upsertErrors++
 		}
 
 		// foreign → RSD direction (inverse)
@@ -54,7 +56,11 @@ func (s *ExchangeService) SyncRates(ctx context.Context, p provider.RateProvider
 		sellCToRsd := midCToRsd.Mul(one.Add(s.spread))
 		if err := s.repo.Upsert(code, "RSD", buyCToRsd, sellCToRsd); err != nil {
 			log.Printf("WARN: failed to upsert %s/RSD: %v", code, err)
+			upsertErrors++
 		}
+	}
+	if upsertErrors > 0 {
+		return fmt.Errorf("sync completed with %d upsert failure(s); check logs for details", upsertErrors)
 	}
 	return nil
 }
