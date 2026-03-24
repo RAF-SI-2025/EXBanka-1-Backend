@@ -979,7 +979,7 @@ List all supported currencies.
 
 Create a new company record.
 
-**Authentication:** Employee JWT + `accounts.read` permission
+**Authentication:** Employee JWT + `accounts.create` permission
 
 **Request Body:**
 
