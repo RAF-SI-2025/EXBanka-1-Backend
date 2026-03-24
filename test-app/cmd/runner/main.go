@@ -12,7 +12,7 @@ func main() {
 	fmt.Println("=== EXBanka Integration Test Runner ===")
 	fmt.Println("Running all workflow tests...")
 
-	cmd := exec.Command("go", "test", "./workflows/", "-v", "-count=1", "-timeout=10m")
+	cmd := exec.Command("go", "test", "-tags", "integration", "./workflows/", "-v", "-count=1", "-timeout=10m")
 	cmd.Dir = findModuleRoot()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
