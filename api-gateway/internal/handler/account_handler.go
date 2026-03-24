@@ -58,25 +58,25 @@ type createAccountRequest struct {
 func (h *AccountHandler) CreateAccount(c *gin.Context) {
 	var req createAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	accountKind, err := oneOf("account_kind", req.AccountKind, "current", "foreign")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	var accountCategory string
 	if req.AccountCategory != "" {
 		accountCategory, err = oneOf("account_category", req.AccountCategory, "personal", "business")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			apiError(c, 400, ErrValidation, err.Error())
 			return
 		}
 	}
 	if err := nonNegative("initial_balance", req.InitialBalance); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -142,6 +142,32 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 // @Failure      500  {object}  map[string]string
 // @Router       /api/accounts [get]
 func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
+	// Query-param filtering: ?client_id=X
+	if clientIDStr := c.Query("client_id"); clientIDStr != "" {
+		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
+		if err != nil {
+			apiError(c, 400, ErrValidation, "invalid client_id query parameter")
+			return
+		}
+		page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 32)
+		pageSize, _ := strconv.ParseInt(c.DefaultQuery("page_size", "50"), 10, 32)
+		resp, err := h.accountClient.ListAccountsByClient(c.Request.Context(), &accountpb.ListAccountsByClientRequest{
+			ClientId: clientID,
+			Page:     int32(page),
+			PageSize: int32(pageSize),
+		})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		accounts := make([]gin.H, 0, len(resp.Accounts))
+		for _, acc := range resp.Accounts {
+			accounts = append(accounts, accountToJSON(acc))
+		}
+		c.JSON(http.StatusOK, gin.H{"accounts": accounts, "total": resp.Total})
+		return
+	}
+
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
@@ -179,7 +205,7 @@ func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 func (h *AccountHandler) GetAccount(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -227,7 +253,7 @@ func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
 func (h *AccountHandler) ListAccountsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		apiError(c, 400, ErrValidation, "invalid client_id")
 		return
 	}
 	if !enforceClientSelf(c, clientID) {
@@ -277,13 +303,13 @@ type updateAccountNameRequest struct {
 func (h *AccountHandler) UpdateAccountName(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var req updateAccountNameRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -321,25 +347,25 @@ type updateAccountLimitsRequest struct {
 func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var req updateAccountLimitsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	if req.DailyLimit != nil {
 		if err := nonNegative("daily_limit", *req.DailyLimit); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			apiError(c, 400, ErrValidation, err.Error())
 			return
 		}
 	}
 	if req.MonthlyLimit != nil {
 		if err := nonNegative("monthly_limit", *req.MonthlyLimit); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			apiError(c, 400, ErrValidation, err.Error())
 			return
 		}
 	}
@@ -348,7 +374,7 @@ func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 	uid, _ := c.Get("user_id")
 	clientID, ok := uid.(int64)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		apiError(c, 401, ErrUnauthorized, "not authenticated")
 		return
 	}
 
@@ -363,7 +389,7 @@ func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 		return
 	}
 	if !validResp.Valid {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid verification code"})
+		apiError(c, 400, ErrValidation, "invalid verification code")
 		return
 	}
 
@@ -404,19 +430,19 @@ type updateAccountStatusRequest struct {
 func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var req updateAccountStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	status, err := oneOf("status", req.Status, "active", "inactive")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.accountClient.UpdateAccountStatus(c.Request.Context(), &accountpb.UpdateAccountStatusRequest{
@@ -479,13 +505,13 @@ type createCompanyRequest struct {
 func (h *AccountHandler) CreateCompany(c *gin.Context) {
 	var req createCompanyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	if req.ActivityCode != "" {
 		if err := validateActivityCode(req.ActivityCode); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			apiError(c, 400, ErrValidation, err.Error())
 			return
 		}
 	}
@@ -548,12 +574,12 @@ func (h *AccountHandler) ListBankAccounts(c *gin.Context) {
 func (h *AccountHandler) CreateBankAccount(c *gin.Context) {
 	var body createBankAccountBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	bankAccountKind, err := oneOf("account_kind", body.AccountKind, "current", "foreign")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.bankAccountClient.CreateBankAccount(c.Request.Context(), &accountpb.CreateBankAccountRequest{
@@ -584,7 +610,7 @@ func (h *AccountHandler) CreateBankAccount(c *gin.Context) {
 func (h *AccountHandler) DeleteBankAccount(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 	resp, err := h.bankAccountClient.DeleteBankAccount(c.Request.Context(), &accountpb.DeleteBankAccountRequest{Id: id})
