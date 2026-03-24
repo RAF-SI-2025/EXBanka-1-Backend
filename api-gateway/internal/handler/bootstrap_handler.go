@@ -52,17 +52,17 @@ type bootstrapRequest struct {
 func (h *BootstrapHandler) Bootstrap(c *gin.Context) {
 	// Return 404 (not 403) so the endpoint is invisible in production.
 	if h.secret == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		apiError(c, 404, ErrNotFound, "not found")
 		return
 	}
 
 	var req bootstrapRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if req.Secret != h.secret {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		apiError(c, 404, ErrNotFound, "not found")
 		return
 	}
 
@@ -88,7 +88,7 @@ func (h *BootstrapHandler) Bootstrap(c *gin.Context) {
 		// Only AlreadyExists is acceptable (email or JMBG duplicate) — employee already exists.
 		// Do NOT swallow codes.Internal: a real infrastructure error must surface as a 500.
 		if st.Code() != codes.AlreadyExists {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "create employee: " + createErr.Error()})
+			apiError(c, 500, ErrInternal, "create employee: "+createErr.Error())
 			return
 		}
 	}
@@ -101,7 +101,7 @@ func (h *BootstrapHandler) Bootstrap(c *gin.Context) {
 		PageSize:    50,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "list employees: " + err.Error()})
+		apiError(c, 500, ErrInternal, "list employees: "+err.Error())
 		return
 	}
 	// Find exact email match (filter is partial — ILIKE query in repo).
@@ -113,7 +113,7 @@ func (h *BootstrapHandler) Bootstrap(c *gin.Context) {
 		}
 	}
 	if principalID == 0 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "admin employee not found after create"})
+		apiError(c, 500, ErrInternal, "admin employee not found after create")
 		return
 	}
 
@@ -126,7 +126,7 @@ func (h *BootstrapHandler) Bootstrap(c *gin.Context) {
 		PrincipalType: "employee",
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "provision auth account: " + err.Error()})
+		apiError(c, 500, ErrInternal, "provision auth account: "+err.Error())
 		return
 	}
 

@@ -62,23 +62,23 @@ type createPaymentRequest struct {
 func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 	var req createPaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	if err := positive("amount", req.Amount); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := notEqual("from_account_number", req.FromAccountNumber, "to_account_number", req.ToAccountNumber); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if req.PaymentCode == "" {
 		req.PaymentCode = "289"
 	}
 	if err := validatePaymentCode(req.PaymentCode); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.txClient.CreatePayment(c.Request.Context(), &transactionpb.CreatePaymentRequest{
@@ -109,7 +109,7 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 func (h *TransactionHandler) GetPayment(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -183,7 +183,7 @@ func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
 func (h *TransactionHandler) ListPaymentsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		apiError(c, 400, ErrValidation, "invalid client_id")
 		return
 	}
 	if !enforceClientSelf(c, clientID) {
@@ -240,20 +240,20 @@ type executePaymentRequest struct {
 func (h *TransactionHandler) ExecutePayment(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var req executePaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	uid, _ := c.Get("user_id")
 	clientID, ok := uid.(int64)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		apiError(c, 401, ErrUnauthorized, "not authenticated")
 		return
 	}
 
@@ -289,16 +289,16 @@ type createTransferRequest struct {
 func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	var req createTransferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	if err := positive("amount", req.Amount); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := notEqual("from_account_number", req.FromAccountNumber, "to_account_number", req.ToAccountNumber); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -306,13 +306,13 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	var fromCurrency, toCurrency string
 	fromAcc, err := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{AccountNumber: req.FromAccountNumber})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "source account not found"})
+		apiError(c, 400, ErrValidation, "source account not found")
 		return
 	}
 	fromCurrency = fromAcc.CurrencyCode
 	toAcc, err := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{AccountNumber: req.ToAccountNumber})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "destination account not found"})
+		apiError(c, 400, ErrValidation, "destination account not found")
 		return
 	}
 	toCurrency = toAcc.CurrencyCode
@@ -351,20 +351,20 @@ type executeTransferRequest struct {
 func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var req executeTransferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	uid, _ := c.Get("user_id")
 	clientID, ok := uid.(int64)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		apiError(c, 401, ErrUnauthorized, "not authenticated")
 		return
 	}
 
@@ -392,7 +392,7 @@ func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
 func (h *TransactionHandler) GetTransfer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -419,7 +419,7 @@ func (h *TransactionHandler) GetTransfer(c *gin.Context) {
 func (h *TransactionHandler) ListTransfersByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		apiError(c, 400, ErrValidation, "invalid client_id")
 		return
 	}
 	if !enforceClientSelf(c, clientID) {
@@ -476,7 +476,7 @@ type createPaymentRecipientRequest struct {
 func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 	var req createPaymentRecipientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -505,7 +505,7 @@ func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 func (h *TransactionHandler) ListPaymentRecipients(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		apiError(c, 400, ErrValidation, "invalid client_id")
 		return
 	}
 
@@ -544,13 +544,13 @@ type updatePaymentRecipientRequest struct {
 func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var req updatePaymentRecipientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -578,7 +578,7 @@ func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -610,13 +610,13 @@ type createVerificationCodeRequest struct {
 func (h *TransactionHandler) CreateVerificationCode(c *gin.Context) {
 	var req createVerificationCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	txType, err := oneOf("transaction_type", req.TransactionType, "payment", "transfer")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -660,13 +660,13 @@ type validateVerificationCodeRequest struct {
 func (h *TransactionHandler) ValidateVerificationCode(c *gin.Context) {
 	var req validateVerificationCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	txType, err := oneOf("transaction_type", req.TransactionType, "payment", "transfer")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -681,6 +681,115 @@ func (h *TransactionHandler) ValidateVerificationCode(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"valid": resp.Valid})
+}
+
+// ListPayments serves GET /api/payments — filters via ?client_id=X or ?account_number=X.
+func (h *TransactionHandler) ListPayments(c *gin.Context) {
+	clientIDStr := c.Query("client_id")
+	accountNumber := c.Query("account_number")
+
+	if clientIDStr != "" && accountNumber != "" {
+		apiError(c, 400, ErrValidation, "provide either client_id or account_number, not both")
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	if clientIDStr != "" {
+		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
+		if err != nil {
+			apiError(c, 400, ErrValidation, "invalid client_id")
+			return
+		}
+		accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		resp, err := h.txClient.ListPaymentsByClient(c.Request.Context(), &transactionpb.ListPaymentsByClientRequest{
+			ClientId:       clientID,
+			Page:           int32(page),
+			PageSize:       int32(pageSize),
+			AccountNumbers: accountNumbers,
+		})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		payments := make([]gin.H, 0, len(resp.Payments))
+		for _, p := range resp.Payments {
+			payments = append(payments, paymentToJSON(p))
+		}
+		c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
+		return
+	}
+
+	if accountNumber != "" {
+		resp, err := h.txClient.ListPaymentsByAccount(c.Request.Context(), &transactionpb.ListPaymentsByAccountRequest{
+			AccountNumber: accountNumber,
+			DateFrom:      c.Query("date_from"),
+			DateTo:        c.Query("date_to"),
+			StatusFilter:  c.Query("status_filter"),
+			AmountMin:     c.Query("amount_min"),
+			AmountMax:     c.Query("amount_max"),
+			Page:          int32(page),
+			PageSize:      int32(pageSize),
+		})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		payments := make([]gin.H, 0, len(resp.Payments))
+		for _, p := range resp.Payments {
+			payments = append(payments, paymentToJSON(p))
+		}
+		c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
+		return
+	}
+
+	apiError(c, 400, ErrValidation, "provide client_id or account_number query parameter")
+}
+
+// ListTransfers serves GET /api/transfers — filters via ?client_id=X.
+func (h *TransactionHandler) ListTransfers(c *gin.Context) {
+	clientIDStr := c.Query("client_id")
+	if clientIDStr == "" {
+		apiError(c, 400, ErrValidation, "provide client_id query parameter")
+		return
+	}
+
+	clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid client_id")
+		return
+	}
+
+	accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+
+	resp, err := h.txClient.ListTransfersByClient(c.Request.Context(), &transactionpb.ListTransfersByClientRequest{
+		ClientId:       clientID,
+		Page:           int32(page),
+		PageSize:       int32(pageSize),
+		AccountNumbers: accountNumbers,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	transfers := make([]gin.H, 0, len(resp.Transfers))
+	for _, t := range resp.Transfers {
+		transfers = append(transfers, transferToJSON(t))
+	}
+	c.JSON(http.StatusOK, gin.H{"transfers": transfers, "total": resp.Total})
 }
 
 func paymentToJSON(p *transactionpb.PaymentResponse) gin.H {
@@ -782,17 +891,17 @@ func (h *TransactionHandler) ListFees(c *gin.Context) {
 func (h *TransactionHandler) CreateFee(c *gin.Context) {
 	var body createFeeBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	feeType, err := oneOf("fee_type", body.FeeType, "percentage", "fixed")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	txType, err := oneOf("transaction_type", body.TransactionType, "payment", "transfer", "all")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.feeClient.CreateFee(c.Request.Context(), &transactionpb.CreateFeeRequest{
@@ -829,19 +938,19 @@ func (h *TransactionHandler) CreateFee(c *gin.Context) {
 func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 	var body updateFeeBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	updFeeType := body.FeeType
 	if updFeeType != "" {
 		updFeeType, err = oneOf("fee_type", updFeeType, "percentage", "fixed")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			apiError(c, 400, ErrValidation, err.Error())
 			return
 		}
 	}
@@ -849,7 +958,7 @@ func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 	if updTxType != "" {
 		updTxType, err = oneOf("transaction_type", updTxType, "payment", "transfer", "all")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			apiError(c, 400, ErrValidation, err.Error())
 			return
 		}
 	}
@@ -886,7 +995,7 @@ func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 func (h *TransactionHandler) DeleteFee(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 	resp, err := h.feeClient.DeleteFee(c.Request.Context(), &transactionpb.DeleteFeeRequest{Id: id})
