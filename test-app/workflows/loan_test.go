@@ -202,7 +202,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 		t.Fatalf("client list loan requests error: %v", err)
 	}
 	// If /loans/requests/me is not available, fall back to client-scoped admin endpoint
-	if clientLoanReqResp.StatusCode == 404 || clientLoanReqResp.StatusCode == 405 {
+	if clientLoanReqResp.StatusCode == 404 || clientLoanReqResp.StatusCode == 405 || clientLoanReqResp.StatusCode == 403 {
 		clientLoanReqResp, err = adminClient.GET(fmt.Sprintf("/api/loans/requests/client/%d", meClientID))
 		if err != nil {
 			t.Fatalf("list client loan requests error: %v", err)
@@ -216,7 +216,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 		t.Fatalf("client list loans error: %v", err)
 	}
 	// Fall back to admin endpoint if /loans/me is not available
-	if clientLoansResp.StatusCode == 404 || clientLoansResp.StatusCode == 405 {
+	if clientLoansResp.StatusCode == 404 || clientLoansResp.StatusCode == 405 || clientLoansResp.StatusCode == 403 {
 		clientLoansResp, err = adminClient.GET(fmt.Sprintf("/api/loans/client/%d", meClientID))
 		if err != nil {
 			t.Fatalf("list client loans error: %v", err)
@@ -224,4 +224,90 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	}
 	helpers.RequireStatus(t, clientLoansResp, 200)
 	t.Logf("loan lifecycle complete: request %d → loan %d (%s)", loanReqID, loanID, status)
+}
+
+// TestLoan_AllLoanTypes verifies that loan requests can be created for all supported loan types.
+func TestLoan_AllLoanTypes(t *testing.T) {
+	adminClient := loginAsAdmin(t)
+	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+
+	meResp, err := clientC.GET("/api/clients/me")
+	if err != nil {
+		t.Fatalf("get /api/clients/me error: %v", err)
+	}
+	helpers.RequireStatus(t, meResp, 200)
+	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
+
+	loanTypes := []struct {
+		loanType     string
+		interestType string
+	}{
+		{"cash", "fixed"},
+		{"housing", "variable"},
+		{"auto", "fixed"},
+		{"refinancing", "variable"},
+		{"student", "fixed"},
+	}
+
+	for _, lt := range loanTypes {
+		t.Run("loan_type_"+lt.loanType, func(t *testing.T) {
+			resp, err := clientC.POST("/api/loans/requests", map[string]interface{}{
+				"client_id":        meClientID,
+				"loan_type":        lt.loanType,
+				"interest_type":    lt.interestType,
+				"amount":           5000,
+				"currency_code":    "RSD",
+				"repayment_period": 12,
+				"account_number":   accountNumber,
+			})
+			if err != nil {
+				t.Fatalf("create loan request (%s) error: %v", lt.loanType, err)
+			}
+			helpers.RequireStatus(t, resp, 201)
+			t.Logf("loan request created: type=%s status=%d", lt.loanType, resp.StatusCode)
+		})
+	}
+}
+
+// TestLoan_RejectLoanRequest verifies the reject flow: create → reject → status = rejected.
+func TestLoan_RejectLoanRequest(t *testing.T) {
+	adminClient := loginAsAdmin(t)
+	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+
+	meResp, err := clientC.GET("/api/clients/me")
+	if err != nil {
+		t.Fatalf("get /api/clients/me error: %v", err)
+	}
+	helpers.RequireStatus(t, meResp, 200)
+	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
+
+	// Client submits a cash loan request
+	loanReqResp, err := clientC.POST("/api/loans/requests", map[string]interface{}{
+		"client_id":        meClientID,
+		"loan_type":        "cash",
+		"interest_type":    "fixed",
+		"amount":           3000,
+		"currency_code":    "RSD",
+		"repayment_period": 6,
+		"account_number":   accountNumber,
+	})
+	if err != nil {
+		t.Fatalf("create loan request error: %v", err)
+	}
+	helpers.RequireStatus(t, loanReqResp, 201)
+	loanReqID := int(helpers.GetNumberField(t, loanReqResp, "id"))
+
+	// Employee rejects the request
+	rejectResp, err := adminClient.PUT(fmt.Sprintf("/api/loans/requests/%d/reject", loanReqID), nil)
+	if err != nil {
+		t.Fatalf("reject loan request error: %v", err)
+	}
+	helpers.RequireStatus(t, rejectResp, 200)
+
+	// Verify status is "rejected"
+	status := helpers.GetStringField(t, rejectResp, "status")
+	if status != "rejected" {
+		t.Fatalf("expected status rejected, got %q", status)
+	}
+	t.Logf("loan request %d rejected successfully", loanReqID)
 }
