@@ -57,7 +57,7 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 func (h *RoleHandler) GetRole(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 	resp, err := h.userClient.GetRole(c.Request.Context(), &userpb.GetRoleRequest{Id: id})
@@ -91,7 +91,7 @@ type createRoleRequest struct {
 func (h *RoleHandler) CreateRole(c *gin.Context) {
 	var req createRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.userClient.CreateRole(c.Request.Context(), &userpb.CreateRoleRequest{
@@ -128,12 +128,12 @@ type updateRolePermissionsRequest struct {
 func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 	var req updateRolePermissionsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.userClient.UpdateRolePermissions(c.Request.Context(), &userpb.UpdateRolePermissionsRequest{
@@ -199,12 +199,12 @@ type setEmployeeRolesRequest struct {
 func (h *RoleHandler) SetEmployeeRoles(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 	var req setEmployeeRolesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.userClient.SetEmployeeRoles(c.Request.Context(), &userpb.SetEmployeeRolesRequest{
@@ -241,12 +241,12 @@ type setEmployeePermissionsRequest struct {
 func (h *RoleHandler) SetEmployeeAdditionalPermissions(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 	var req setEmployeePermissionsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.userClient.SetEmployeeAdditionalPermissions(c.Request.Context(), &userpb.SetEmployeePermissionsRequest{
