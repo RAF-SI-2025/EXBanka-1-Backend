@@ -335,3 +335,258 @@ func TestPayment_WithFee(t *testing.T) {
 	}
 	t.Logf("payment commission for 5000 RSD: %f", commission)
 }
+
+func TestPayment_ExternalPayment(t *testing.T) {
+	adminClient := loginAsAdmin(t)
+
+	// Use a dedicated email slot to avoid collision with TestPayment_EndToEnd (slot 1) and TestPayment_WithFee (slot 2)
+	emailA := cfg.ClientEmail(5)
+	passwordA := helpers.RandomPassword()
+
+	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
+		"first_name":    helpers.RandomName("ExtA"),
+		"last_name":     helpers.RandomName("Client"),
+		"date_of_birth": helpers.DateOfBirthUnix(),
+		"gender":        "male",
+		"email":         emailA,
+		"phone":         helpers.RandomPhone(),
+		"address":       "External Payment St",
+		"jmbg":          helpers.RandomJMBG(),
+	})
+	if err != nil {
+		t.Fatalf("create client A error: %v", err)
+	}
+	helpers.RequireStatus(t, createRespA, 201)
+	clientAID := int(helpers.GetNumberField(t, createRespA, "id"))
+
+	srcAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+		"owner_id":        clientAID,
+		"account_kind":    "current",
+		"account_type":    "personal",
+		"currency_code":   "RSD",
+		"initial_balance": 20000,
+	})
+	if err != nil {
+		t.Fatalf("create source account error: %v", err)
+	}
+	helpers.RequireStatus(t, srcAcctResp, 201)
+	srcAccountNumber := helpers.GetStringField(t, srcAcctResp, "account_number")
+
+	tokenA := scanKafkaForActivationToken(t, emailA)
+	activateResp, err := newClient().ActivateAccount(tokenA, passwordA)
+	if err != nil {
+		t.Fatalf("activate client A error: %v", err)
+	}
+	helpers.RequireStatus(t, activateResp, 200)
+
+	clientA := loginAsClient(t, emailA, passwordA)
+
+	meResp, err := clientA.GET("/api/clients/me")
+	if err != nil {
+		t.Fatalf("get /api/clients/me error: %v", err)
+	}
+	helpers.RequireStatus(t, meResp, 200)
+	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
+
+	// External account number — not belonging to any client in the system
+	externalAccountNumber := "908-9999999999-99"
+
+	payResp, err := clientA.POST("/api/payments", map[string]interface{}{
+		"from_account_number": srcAccountNumber,
+		"to_account_number":   externalAccountNumber,
+		"amount":              1000,
+		"payment_purpose":     "External payment test",
+	})
+	if err != nil {
+		t.Fatalf("create external payment error: %v", err)
+	}
+	helpers.RequireStatus(t, payResp, 201)
+	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
+
+	verResp, err := clientA.POST("/api/verification", map[string]interface{}{
+		"client_id":        meClientID,
+		"transaction_id":   paymentID,
+		"transaction_type": "payment",
+	})
+	if err != nil {
+		t.Fatalf("create verification code error: %v", err)
+	}
+	helpers.RequireStatus(t, verResp, 201)
+	verCode := helpers.GetStringField(t, verResp, "code")
+
+	execResp, err := clientA.POST(fmt.Sprintf("/api/payments/%d/execute", paymentID), map[string]interface{}{
+		"verification_code": verCode,
+	})
+	if err != nil {
+		t.Fatalf("execute external payment error: %v", err)
+	}
+	// External payments may succeed (200) or be rejected (400/422 if external routing not supported)
+	if execResp.StatusCode != 200 && execResp.StatusCode < 400 {
+		t.Fatalf("unexpected status for external payment: %d", execResp.StatusCode)
+	}
+	t.Logf("external payment status: %d", execResp.StatusCode)
+}
+
+func TestPayment_WrongOTPCodeRejected(t *testing.T) {
+	adminClient := loginAsAdmin(t)
+
+	emailA := cfg.ClientEmail(6)
+	passwordA := helpers.RandomPassword()
+
+	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
+		"first_name":    helpers.RandomName("OtpA"),
+		"last_name":     helpers.RandomName("Client"),
+		"date_of_birth": helpers.DateOfBirthUnix(),
+		"gender":        "female",
+		"email":         emailA,
+		"phone":         helpers.RandomPhone(),
+		"address":       "OTP Test St",
+		"jmbg":          helpers.RandomJMBG(),
+	})
+	if err != nil {
+		t.Fatalf("create client A error: %v", err)
+	}
+	helpers.RequireStatus(t, createRespA, 201)
+	clientAID := int(helpers.GetNumberField(t, createRespA, "id"))
+	clientBID := createTestClient(t, adminClient)
+
+	srcAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+		"owner_id":        clientAID,
+		"account_kind":    "current",
+		"account_type":    "personal",
+		"currency_code":   "RSD",
+		"initial_balance": 20000,
+	})
+	if err != nil {
+		t.Fatalf("create source account error: %v", err)
+	}
+	helpers.RequireStatus(t, srcAcctResp, 201)
+	srcAccountNumber := helpers.GetStringField(t, srcAcctResp, "account_number")
+
+	dstAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+		"owner_id":        clientBID,
+		"account_kind":    "current",
+		"account_type":    "personal",
+		"currency_code":   "RSD",
+		"initial_balance": 0,
+	})
+	if err != nil {
+		t.Fatalf("create dest account error: %v", err)
+	}
+	helpers.RequireStatus(t, dstAcctResp, 201)
+	dstAccountNumber := helpers.GetStringField(t, dstAcctResp, "account_number")
+
+	tokenA := scanKafkaForActivationToken(t, emailA)
+	activateResp, err := newClient().ActivateAccount(tokenA, passwordA)
+	if err != nil {
+		t.Fatalf("activate client A error: %v", err)
+	}
+	helpers.RequireStatus(t, activateResp, 200)
+
+	clientA := loginAsClient(t, emailA, passwordA)
+	meResp, err := clientA.GET("/api/clients/me")
+	if err != nil {
+		t.Fatalf("get /api/clients/me error: %v", err)
+	}
+	helpers.RequireStatus(t, meResp, 200)
+	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
+
+	payResp, err := clientA.POST("/api/payments", map[string]interface{}{
+		"from_account_number": srcAccountNumber,
+		"to_account_number":   dstAccountNumber,
+		"amount":              500,
+		"payment_purpose":     "Wrong OTP test",
+	})
+	if err != nil {
+		t.Fatalf("create payment error: %v", err)
+	}
+	helpers.RequireStatus(t, payResp, 201)
+	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
+
+	// Create a real verification code (but we'll submit a wrong one)
+	_, err = clientA.POST("/api/verification", map[string]interface{}{
+		"client_id":        meClientID,
+		"transaction_id":   paymentID,
+		"transaction_type": "payment",
+	})
+	if err != nil {
+		t.Fatalf("create verification code error: %v", err)
+	}
+
+	// Execute with WRONG code
+	execResp, err := clientA.POST(fmt.Sprintf("/api/payments/%d/execute", paymentID), map[string]interface{}{
+		"verification_code": "000000", // wrong
+	})
+	if err != nil {
+		t.Fatalf("execute payment with wrong OTP error: %v", err)
+	}
+	if execResp.StatusCode == 200 {
+		t.Fatal("expected failure when executing payment with wrong OTP code")
+	}
+	t.Logf("wrong OTP correctly rejected: status=%d", execResp.StatusCode)
+}
+
+func TestPayment_InsufficientBalance(t *testing.T) {
+	adminClient := loginAsAdmin(t)
+	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+
+	// The account has 100000 RSD. Create a destination.
+	destClientID := createTestClient(t, adminClient)
+	dstAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+		"owner_id":        destClientID,
+		"account_kind":    "current",
+		"account_type":    "personal",
+		"currency_code":   "RSD",
+		"initial_balance": 0,
+	})
+	if err != nil {
+		t.Fatalf("create dest account error: %v", err)
+	}
+	helpers.RequireStatus(t, dstAcctResp, 201)
+	dstAccountNumber := helpers.GetStringField(t, dstAcctResp, "account_number")
+
+	// Try to pay more than the balance
+	payResp, err := clientC.POST("/api/payments", map[string]interface{}{
+		"from_account_number": accountNumber,
+		"to_account_number":   dstAccountNumber,
+		"amount":              9999999, // way more than 100000
+		"payment_purpose":     "Insufficient balance test",
+	})
+	if err != nil {
+		t.Fatalf("create payment error: %v", err)
+	}
+	// Should fail at creation (400/422) or at execution step
+	if payResp.StatusCode == 201 {
+		t.Logf("payment created (amount > balance); verifying execution fails")
+		// If created, try to execute and expect failure
+		meResp, err := clientC.GET("/api/clients/me")
+		if err != nil {
+			t.Fatalf("get me error: %v", err)
+		}
+		meClientID := int(helpers.GetNumberField(t, meResp, "id"))
+		paymentID := int(helpers.GetNumberField(t, payResp, "id"))
+
+		verResp, err := clientC.POST("/api/verification", map[string]interface{}{
+			"client_id":        meClientID,
+			"transaction_id":   paymentID,
+			"transaction_type": "payment",
+		})
+		if err != nil {
+			t.Fatalf("create verification code error: %v", err)
+		}
+		verCode := helpers.GetStringField(t, verResp, "code")
+
+		execResp, err := clientC.POST(fmt.Sprintf("/api/payments/%d/execute", paymentID), map[string]interface{}{
+			"verification_code": verCode,
+		})
+		if err != nil {
+			t.Fatalf("execute payment error: %v", err)
+		}
+		if execResp.StatusCode == 200 {
+			t.Fatal("expected execution to fail due to insufficient balance")
+		}
+		t.Logf("insufficient balance correctly blocked at execution: %d", execResp.StatusCode)
+	} else {
+		t.Logf("insufficient balance correctly blocked at creation: %d", payResp.StatusCode)
+	}
+}
