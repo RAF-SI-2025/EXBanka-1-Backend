@@ -194,10 +194,10 @@ func seedAdminUser(empSvc *service.EmployeeService, roleSvc *service.RoleService
 }
 
 // ensureAuthAccount calls auth-service's CreateAccount RPC with retries,
-// waiting up to ~30 seconds for auth-service to become available.
+// waiting up to ~5 minutes for auth-service to become available.
 func ensureAuthAccount(authClient authpb.AuthServiceClient, principalID int64, email, firstName, principalType string) {
-	const maxAttempts = 10
-	const retryDelay = 3 * time.Second
+	const maxAttempts = 60
+	const retryDelay = 5 * time.Second
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
