@@ -176,6 +176,8 @@ services:
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
       USER_DB_SSLMODE: disable
+      AUTH_GRPC_ADDR: "auth-service:50051"
+      ADMIN_EMAIL: "lsavic12123rn+admin@raf.rs"
     ports:
       - "50052:50052"
     depends_on:
@@ -196,7 +198,6 @@ services:
       AUTH_DB_NAME: auth_db
       AUTH_GRPC_ADDR: ":50051"
       USER_GRPC_ADDR: "user-service:50052"
-      CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       JWT_SECRET: docker-test-secret-change-me
       JWT_ACCESS_EXPIRY: 15m
@@ -204,6 +205,7 @@ services:
       REDIS_ADDR: redis:6379
       AUTH_DB_SSLMODE: disable
       FRONTEND_BASE_URL: "http://localhost:5173"
+      PASSWORD_PEPPER: "${PASSWORD_PEPPER}"
     ports:
       - "50051:50051"
     depends_on:
@@ -212,8 +214,6 @@ services:
       kafka:
         condition: service_healthy
       user-service:
-        condition: service_started
-      client-service:
         condition: service_started
       redis:
         condition: service_healthy
@@ -251,6 +251,7 @@ services:
       ACCOUNT_DB_PASSWORD: postgres
       ACCOUNT_DB_NAME: accountdb
       ACCOUNT_GRPC_ADDR: ":50055"
+      CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
     ports:
@@ -262,6 +263,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      client-service:
+        condition: service_started
 
   card-service:
     image: ghcr.io/raf-si-2025/card-service:${TAG:-latest}
@@ -322,6 +325,7 @@ services:
       CREDIT_GRPC_ADDR: ":50058"
       ACCOUNT_GRPC_ADDR: "account-service:50055"
       CLIENT_GRPC_ADDR: "client-service:50054"
+      USER_GRPC_ADDR: "user-service:50052"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
     ports:
@@ -336,6 +340,8 @@ services:
       account-service:
         condition: service_started
       client-service:
+        condition: service_started
+      user-service:
         condition: service_started
 
   notification-service:
