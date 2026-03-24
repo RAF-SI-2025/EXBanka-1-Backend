@@ -326,8 +326,8 @@ func TestTransfer_PaymentRecipientCRUD(t *testing.T) {
 	recipientID := int(helpers.GetNumberField(t, createResp, "id"))
 	t.Logf("payment recipient created: id=%d", recipientID)
 
-	// List payment recipients
-	listResp, err := clientC.GET("/api/payment-recipients")
+	// List payment recipients — route requires :client_id path parameter
+	listResp, err := clientC.GET(fmt.Sprintf("/api/payment-recipients/%d", clientID))
 	if err != nil {
 		t.Fatalf("list payment recipients error: %v", err)
 	}
