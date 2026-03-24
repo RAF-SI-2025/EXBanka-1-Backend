@@ -3653,13 +3653,76 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/exchange-rates": {
-            "get": {
+        "/api/exchange/calculate": {
+            "post": {
+                "description": "Returns the converted amount after applying the bank's selling rate and commission (informational only — no transaction is created)",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "exchange-rates"
+                    "exchange"
+                ],
+                "summary": "Calculate currency conversion",
+                "parameters": [
+                    {
+                        "description": "Conversion input",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.CalculateExchangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/exchange/rates": {
+            "get": {
+                "description": "Returns all current buy/sell rates for supported currencies against RSD",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exchange"
                 ],
                 "summary": "List exchange rates",
                 "responses": {
@@ -3682,13 +3745,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/exchange-rates/{from}/{to}": {
+        "/api/exchange/rates/{from}/{to}": {
             "get": {
+                "description": "Returns buy/sell rates for a specific currency pair",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "exchange-rates"
+                    "exchange"
                 ],
                 "summary": "Get exchange rate",
                 "parameters": [
@@ -6421,6 +6485,28 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "handler.CalculateExchangeRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "fromCurrency",
+                "toCurrency"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "string",
+                    "example": "100.00"
+                },
+                "fromCurrency": {
+                    "type": "string",
+                    "example": "EUR"
+                },
+                "toCurrency": {
+                    "type": "string",
+                    "example": "USD"
+                }
+            }
+        },
         "handler.activateRequest": {
             "type": "object",
             "required": [

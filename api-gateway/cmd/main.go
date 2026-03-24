@@ -111,7 +111,13 @@ func main() {
 	}
 	defer cardRequestConn.Close()
 
-	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, cfg.BootstrapSecret)
+	exchangeClient, exchangeConn, err := grpcclients.NewExchangeClient(cfg.ExchangeGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to exchange service: %v", err)
+	}
+	defer exchangeConn.Close()
+
+	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, cfg.BootstrapSecret)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,
