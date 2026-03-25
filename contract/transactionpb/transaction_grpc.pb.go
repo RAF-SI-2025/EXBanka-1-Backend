@@ -32,23 +32,6 @@ const (
 	TransactionService_ListPaymentRecipients_FullMethodName  = "/transaction.TransactionService/ListPaymentRecipients"
 	TransactionService_UpdatePaymentRecipient_FullMethodName = "/transaction.TransactionService/UpdatePaymentRecipient"
 	TransactionService_DeletePaymentRecipient_FullMethodName = "/transaction.TransactionService/DeletePaymentRecipient"
-	TransactionService_GetExchangeRate_FullMethodName        = "/transaction.TransactionService/GetExchangeRate"
-	TransactionService_ListExchangeRates_FullMethodName      = "/transaction.TransactionService/ListExchangeRates"
-	TransactionService_CreatePayment_FullMethodName            = "/transaction.TransactionService/CreatePayment"
-	TransactionService_ExecutePayment_FullMethodName           = "/transaction.TransactionService/ExecutePayment"
-	TransactionService_GetPayment_FullMethodName               = "/transaction.TransactionService/GetPayment"
-	TransactionService_ListPaymentsByAccount_FullMethodName    = "/transaction.TransactionService/ListPaymentsByAccount"
-	TransactionService_ListPaymentsByClient_FullMethodName     = "/transaction.TransactionService/ListPaymentsByClient"
-	TransactionService_CreateTransfer_FullMethodName           = "/transaction.TransactionService/CreateTransfer"
-	TransactionService_ExecuteTransfer_FullMethodName          = "/transaction.TransactionService/ExecuteTransfer"
-	TransactionService_GetTransfer_FullMethodName              = "/transaction.TransactionService/GetTransfer"
-	TransactionService_ListTransfersByClient_FullMethodName    = "/transaction.TransactionService/ListTransfersByClient"
-	TransactionService_CreatePaymentRecipient_FullMethodName   = "/transaction.TransactionService/CreatePaymentRecipient"
-	TransactionService_ListPaymentRecipients_FullMethodName    = "/transaction.TransactionService/ListPaymentRecipients"
-	TransactionService_UpdatePaymentRecipient_FullMethodName   = "/transaction.TransactionService/UpdatePaymentRecipient"
-	TransactionService_DeletePaymentRecipient_FullMethodName   = "/transaction.TransactionService/DeletePaymentRecipient"
-	TransactionService_CreateVerificationCode_FullMethodName   = "/transaction.TransactionService/CreateVerificationCode"
-	TransactionService_ValidateVerificationCode_FullMethodName = "/transaction.TransactionService/ValidateVerificationCode"
 )
 
 // TransactionServiceClient is the client API for TransactionService service.
@@ -68,8 +51,6 @@ type TransactionServiceClient interface {
 	ListPaymentRecipients(ctx context.Context, in *ListPaymentRecipientsRequest, opts ...grpc.CallOption) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(ctx context.Context, in *UpdatePaymentRecipientRequest, opts ...grpc.CallOption) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(ctx context.Context, in *DeletePaymentRecipientRequest, opts ...grpc.CallOption) (*DeletePaymentRecipientResponse, error)
-	GetExchangeRate(ctx context.Context, in *GetExchangeRateRequest, opts ...grpc.CallOption) (*ExchangeRateResponse, error)
-	ListExchangeRates(ctx context.Context, in *ListExchangeRatesRequest, opts ...grpc.CallOption) (*ListExchangeRatesResponse, error)
 }
 
 type transactionServiceClient struct {
@@ -210,26 +191,6 @@ func (c *transactionServiceClient) DeletePaymentRecipient(ctx context.Context, i
 	return out, nil
 }
 
-func (c *transactionServiceClient) CreateVerificationCode(ctx context.Context, in *CreateVerificationCodeRequest, opts ...grpc.CallOption) (*CreateVerificationCodeResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateVerificationCodeResponse)
-	err := c.cc.Invoke(ctx, TransactionService_CreateVerificationCode_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *transactionServiceClient) ValidateVerificationCode(ctx context.Context, in *ValidateVerificationCodeRequest, opts ...grpc.CallOption) (*ValidateVerificationCodeResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ValidateVerificationCodeResponse)
-	err := c.cc.Invoke(ctx, TransactionService_ValidateVerificationCode_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // TransactionServiceServer is the server API for TransactionService service.
 // All implementations must embed UnimplementedTransactionServiceServer
 // for forward compatibility.
@@ -247,8 +208,6 @@ type TransactionServiceServer interface {
 	ListPaymentRecipients(context.Context, *ListPaymentRecipientsRequest) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(context.Context, *UpdatePaymentRecipientRequest) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(context.Context, *DeletePaymentRecipientRequest) (*DeletePaymentRecipientResponse, error)
-	GetExchangeRate(context.Context, *GetExchangeRateRequest) (*ExchangeRateResponse, error)
-	ListExchangeRates(context.Context, *ListExchangeRatesRequest) (*ListExchangeRatesResponse, error)
 	mustEmbedUnimplementedTransactionServiceServer()
 }
 
@@ -297,12 +256,6 @@ func (UnimplementedTransactionServiceServer) UpdatePaymentRecipient(context.Cont
 }
 func (UnimplementedTransactionServiceServer) DeletePaymentRecipient(context.Context, *DeletePaymentRecipientRequest) (*DeletePaymentRecipientResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeletePaymentRecipient not implemented")
-}
-func (UnimplementedTransactionServiceServer) GetExchangeRate(context.Context, *GetExchangeRateRequest) (*ExchangeRateResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetExchangeRate not implemented")
-}
-func (UnimplementedTransactionServiceServer) ListExchangeRates(context.Context, *ListExchangeRatesRequest) (*ListExchangeRatesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListExchangeRates not implemented")
 }
 func (UnimplementedTransactionServiceServer) mustEmbedUnimplementedTransactionServiceServer() {}
 func (UnimplementedTransactionServiceServer) testEmbeddedByValue()                            {}
@@ -559,42 +512,6 @@ func _TransactionService_DeletePaymentRecipient_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TransactionService_GetExchangeRate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetExchangeRateRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TransactionServiceServer).GetExchangeRate(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TransactionService_GetExchangeRate_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TransactionServiceServer).GetExchangeRate(ctx, req.(*GetExchangeRateRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TransactionService_ListExchangeRates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListExchangeRatesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TransactionServiceServer).ListExchangeRates(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TransactionService_ListExchangeRates_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TransactionServiceServer).ListExchangeRates(ctx, req.(*ListExchangeRatesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // TransactionService_ServiceDesc is the grpc.ServiceDesc for TransactionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -653,14 +570,6 @@ var TransactionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeletePaymentRecipient",
 			Handler:    _TransactionService_DeletePaymentRecipient_Handler,
-		},
-		{
-			MethodName: "GetExchangeRate",
-			Handler:    _TransactionService_GetExchangeRate_Handler,
-		},
-		{
-			MethodName: "ListExchangeRates",
-			Handler:    _TransactionService_ListExchangeRates_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
