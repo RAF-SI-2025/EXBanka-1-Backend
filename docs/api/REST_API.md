@@ -912,7 +912,7 @@ Update the daily/monthly spending limits of an account. Requires a verification 
 |---|---|---|---|
 | `daily_limit` | float64 | No | New daily spending limit (must be >= 0) |
 | `monthly_limit` | float64 | No | New monthly spending limit (must be >= 0) |
-| `verification_code` | string | Yes | Verification code for authorization (obtained via `POST /api/verification`) |
+| `verification_code` | string | Yes | Verification code for authorization |
 
 > **Note:** At least one of `daily_limit` or `monthly_limit` should be provided. The `verification_code` is validated against the transaction service before the limits are applied.
 
@@ -1075,7 +1075,7 @@ Issue a new payment card linked to an account.
 
 Get a card by ID.
 
-**Authentication:** Any JWT (Employee or Client)
+**Authentication:** Employee JWT only (`AuthMiddleware` + `cards.read` permission). Clients must use `GET /api/me/cards/:id` instead.
 
 **Path Parameters:**
 
@@ -1466,9 +1466,12 @@ Initiate a new payment from a client account.
   "reference_number": "97 123456789",
   "payment_purpose": "Invoice #INV-2026-001",
   "status": "COMPLETED",
-  "timestamp": "2026-03-13T10:00:00Z"
+  "timestamp": "2026-03-13T10:00:00Z",
+  "verification_code_expires_at": 1743000300
 }
 ```
+
+> **Note:** A verification code has been sent to the client's registered email. Use it when calling the execute endpoint (`POST /api/me/payments/:id/execute`).
 
 ---
 
@@ -1529,7 +1532,7 @@ List payments for a specific account with filters.
 
 ### POST /api/me/payments/:id/execute
 
-Execute a pending payment after verification. The payment must have been created previously via `POST /api/me/payments` and a valid verification code must be obtained via `POST /api/me/verification`.
+Execute a pending payment after verification. The payment must have been created previously via `POST /api/me/payments`. A verification code is automatically sent to the client's registered email when the payment is created — use that code here.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1543,7 +1546,7 @@ Execute a pending payment after verification. The payment must have been created
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Verification code obtained from `POST /api/verification` |
+| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the payment was created |
 
 **Example Request:**
 ```json
@@ -1660,9 +1663,12 @@ Initiate a currency transfer between accounts.
   "exchange_rate": 117.23,
   "commission": 0.50,
   "timestamp": "2026-03-13T10:00:00Z",
-  "status": "pending_verification"
+  "status": "pending_verification",
+  "verification_code_expires_at": 1743000300
 }
 ```
+
+> **Note:** A verification code has been sent to the client's registered email. Use it when calling the execute endpoint (`POST /api/me/transfers/:id/execute`).
 
 ---
 
@@ -1719,7 +1725,7 @@ List transfers with optional filters. Pass `client_id` to filter by owner.
 
 ### POST /api/me/transfers/:id/execute
 
-Execute a pending transfer after verification. The transfer must have been created previously via `POST /api/me/transfers` and a valid verification code must be obtained via `POST /api/me/verification`.
+Execute a pending transfer after verification. The transfer must have been created previously via `POST /api/me/transfers`. A verification code is automatically sent to the client's registered email when the transfer is created — use that code here.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1733,7 +1739,7 @@ Execute a pending transfer after verification. The transfer must have been creat
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Verification code obtained from `POST /api/verification` |
+| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the transfer was created |
 
 **Example Request:**
 ```json
@@ -1858,86 +1864,7 @@ Delete a saved recipient. (Previously `DELETE /api/payment-recipients/:id` — n
 
 ---
 
-## 10. Verification Codes
-
-One-time verification codes for authorizing sensitive transactions (2FA).
-
----
-
-### ~~POST /api/verification~~ (moved — use POST /api/me/verification)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/verification` in the [Me — Self-Service](#20-me-self-service) section.
-
-### POST /api/me/verification
-
-Generate a one-time verification code for a transaction. The code is also sent to the client's email.
-
-**Authentication:** Any JWT (AnyAuthMiddleware)
-
-**Request Body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `client_id` | uint64 | Yes | Client ID |
-| `transaction_id` | uint64 | Yes | ID of the transaction to authorize |
-| `transaction_type` | string | Yes | `"PAYMENT"` or `"TRANSFER"` |
-
-**Example Request:**
-```json
-{
-  "client_id": 1,
-  "transaction_id": 42,
-  "transaction_type": "PAYMENT"
-}
-```
-
-**Response 201:**
-```json
-{
-  "code": "847291",
-  "expires_at": "2026-03-13T10:10:00Z"
-}
-```
-
----
-
-### ~~POST /api/verification/validate~~ (moved — use POST /api/me/verification/validate)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/verification/validate` in the [Me — Self-Service](#20-me-self-service) section.
-
-### POST /api/me/verification/validate
-
-Validate a verification code.
-
-**Authentication:** Any JWT (AnyAuthMiddleware)
-
-**Request Body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `client_id` | uint64 | Yes | Client ID |
-| `transaction_id` | uint64 | Yes | Transaction ID being verified |
-| `code` | string | Yes | 6-digit code received by email |
-
-**Example Request:**
-```json
-{
-  "client_id": 1,
-  "transaction_id": 42,
-  "code": "847291"
-}
-```
-
-**Response 200:**
-```json
-{
-  "valid": true
-}
-```
-
----
-
-## 11. Exchange Rates
+## 10. Exchange Rates
 
 Public endpoints — no authentication required.
 
@@ -3485,7 +3412,7 @@ Initiate a new payment. The authenticated principal must be the owner of the sou
 
 **Request Body:** Same as the old `POST /api/payments` — see [Section 7: Payments](#7-payments) for field documentation.
 
-**Response 201:** Payment object
+**Response 201:** Payment object (includes `verification_code_expires_at` Unix timestamp). A verification code is automatically sent to the client's registered email — use it when calling `POST /api/me/payments/:id/execute`.
 **Response 400:** Validation error
 
 ---
@@ -3545,7 +3472,7 @@ Execute a pending payment after verification.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Code from `POST /api/me/verification` |
+| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the payment was created |
 
 **Response 200:** Executed payment object
 
@@ -3559,7 +3486,7 @@ Initiate a currency transfer between accounts.
 
 **Request Body:** Same as the old `POST /api/transfers` — see [Section 8: Transfers](#8-transfers).
 
-**Response 201:** Transfer object
+**Response 201:** Transfer object (includes `verification_code_expires_at` Unix timestamp). A verification code is automatically sent to the client's registered email — use it when calling `POST /api/me/transfers/:id/execute`.
 
 ---
 
@@ -3618,7 +3545,7 @@ Execute a pending transfer after verification.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Code from `POST /api/me/verification` |
+| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the transfer was created |
 
 **Response 200:** Executed transfer object
 
@@ -3648,30 +3575,6 @@ List all saved recipients for the authenticated principal.
   "recipients": [ /* array of recipient objects */ ]
 }
 ```
-
----
-
-### POST /api/me/verification
-
-Generate a one-time verification code for a pending transaction.
-
-**Authentication:** Any JWT (AnyAuthMiddleware)
-
-**Request Body:** Same as the old `POST /api/verification` — see [Section 10: Verification Codes](#10-verification-codes).
-
-**Response 201:** Verification code object
-
----
-
-### POST /api/me/verification/validate
-
-Validate a verification code.
-
-**Authentication:** Any JWT (AnyAuthMiddleware)
-
-**Request Body:** Same as the old `POST /api/verification/validate` — see [Section 10: Verification Codes](#10-verification-codes).
-
-**Response 200:** `{"valid": true}`
 
 ---
 
