@@ -49,16 +49,17 @@ type createPaymentRequest struct {
 }
 
 // @Summary      Create payment
+// @Description  Creates a pending payment and automatically sends a verification code to the client's email.
 // @Tags         payments
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createPaymentRequest  true  "Payment data"
 // @Security     BearerAuth
-// @Success      201   {object}  map[string]interface{}
+// @Success      201   {object}  map[string]interface{}  "Payment created with verification_code_expires_at"
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/payments [post]
+// @Router       /api/me/payments [post]
 func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 	var req createPaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -282,16 +283,17 @@ type createTransferRequest struct {
 }
 
 // @Summary      Create transfer
+// @Description  Creates a pending transfer and automatically sends a verification code to the client's email.
 // @Tags         transfers
 // @Accept       json
 // @Produce      json
 // @Param        body  body  createTransferRequest  true  "Transfer data"
 // @Security     BearerAuth
-// @Success      201   {object}  map[string]interface{}
+// @Success      201   {object}  map[string]interface{}  "Transfer created with verification_code_expires_at"
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/transfers [post]
+// @Router       /api/me/transfers [post]
 func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	var req createTransferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

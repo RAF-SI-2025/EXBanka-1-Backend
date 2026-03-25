@@ -373,19 +373,6 @@ definitions:
     - from_account_number
     - to_account_number
     type: object
-  handler.createVerificationCodeRequest:
-    properties:
-      client_id:
-        type: integer
-      transaction_id:
-        type: integer
-      transaction_type:
-        type: string
-    required:
-    - client_id
-    - transaction_id
-    - transaction_type
-    type: object
   handler.createVirtualCardBody:
     properties:
       account_number:
@@ -560,10 +547,6 @@ definitions:
         type: number
       monthly_limit:
         type: number
-      verification_code:
-        type: string
-    required:
-    - verification_code
     type: object
   handler.updateAccountNameRequest:
     properties:
@@ -684,22 +667,6 @@ definitions:
         type: array
     required:
     - permission_codes
-    type: object
-  handler.validateVerificationCodeRequest:
-    properties:
-      client_id:
-        type: integer
-      code:
-        type: string
-      transaction_id:
-        type: integer
-      transaction_type:
-        type: string
-    required:
-    - client_id
-    - code
-    - transaction_id
-    - transaction_type
     type: object
   handler.verifyCardPinBody:
     properties:
@@ -4044,6 +4011,94 @@ paths:
       summary: Get current user profile
       tags:
       - me
+  /api/me/payments:
+    post:
+      consumes:
+      - application/json
+      description: Creates a pending payment and automatically sends a verification
+        code to the client's email.
+      parameters:
+      - description: Payment data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createPaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Payment created with verification_code_expires_at
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create payment
+      tags:
+      - payments
+  /api/me/transfers:
+    post:
+      consumes:
+      - application/json
+      description: Creates a pending transfer and automatically sends a verification
+        code to the client's email.
+      parameters:
+      - description: Transfer data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createTransferRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Transfer created with verification_code_expires_at
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create transfer
+      tags:
+      - transfers
   /api/payment-recipients:
     post:
       consumes:
@@ -4204,48 +4259,6 @@ paths:
       summary: Update payment recipient
       tags:
       - payment-recipients
-  /api/payments:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Payment data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.createPaymentRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Create payment
-      tags:
-      - payments
   /api/payments/{id}:
     get:
       parameters:
@@ -4663,48 +4676,6 @@ paths:
       summary: Update role permissions
       tags:
       - roles
-  /api/transfers:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Transfer data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.createTransferRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Create transfer
-      tags:
-      - transfers
   /api/transfers/{id}:
     get:
       parameters:
@@ -4838,90 +4809,6 @@ paths:
       summary: List transfers by client
       tags:
       - transfers
-  /api/verification:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Verification request
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.createVerificationCodeRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Create verification code
-      tags:
-      - verification
-  /api/verification/validate:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Code to validate
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.validateVerificationCodeRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Validate verification code
-      tags:
-      - verification
 securityDefinitions:
   BearerAuth:
     description: Enter "Bearer <token>"
