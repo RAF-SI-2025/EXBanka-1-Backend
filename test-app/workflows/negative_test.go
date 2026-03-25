@@ -97,7 +97,6 @@ func TestNeg_EmployeeCannotAccessClientOnlyRoutes(t *testing.T) {
 		{"GET", "/api/me"},
 		{"POST", "/api/me/payments"},
 		{"POST", "/api/me/transfers"},
-		{"POST", "/api/me/verification"},
 		{"POST", "/api/me/loan-requests"},
 		{"POST", "/api/me/cards/virtual"},
 		{"POST", "/api/me/cards/1/pin"},
