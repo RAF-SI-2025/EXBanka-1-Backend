@@ -326,9 +326,8 @@ func (h *AccountHandler) UpdateAccountName(c *gin.Context) {
 }
 
 type updateAccountLimitsRequest struct {
-	DailyLimit       *float64 `json:"daily_limit"`
-	MonthlyLimit     *float64 `json:"monthly_limit"`
-	VerificationCode string   `json:"verification_code" binding:"required"`
+	DailyLimit   *float64 `json:"daily_limit"`
+	MonthlyLimit *float64 `json:"monthly_limit"`
 }
 
 // @Summary      Update account limits
@@ -368,29 +367,6 @@ func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 			apiError(c, 400, ErrValidation, err.Error())
 			return
 		}
-	}
-
-	// Validate verification code before applying limit changes
-	uid, _ := c.Get("user_id")
-	clientID, ok := uid.(int64)
-	if !ok {
-		apiError(c, 401, ErrUnauthorized, "not authenticated")
-		return
-	}
-
-	validResp, err := h.transactionClient.ValidateVerificationCode(c.Request.Context(), &transactionpb.ValidateVerificationCodeRequest{
-		ClientId:        uint64(clientID),
-		TransactionId:   id,
-		TransactionType: "limit_change",
-		Code:            req.VerificationCode,
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	if !validResp.Valid {
-		apiError(c, 400, ErrValidation, "invalid verification code")
-		return
 	}
 
 	pbLimitsReq := &accountpb.UpdateAccountLimitsRequest{Id: id}

@@ -110,10 +110,6 @@ func Setup(
 			me.PUT("/payment-recipients/:id", txHandler.UpdatePaymentRecipient)
 			me.DELETE("/payment-recipients/:id", txHandler.DeletePaymentRecipient)
 
-			// Verification
-			me.POST("/verification", txHandler.CreateVerificationCode)
-			me.POST("/verification/validate", txHandler.ValidateVerificationCode)
-
 			// Loans
 			me.POST("/loan-requests", creditHandler.CreateLoanRequest)
 			me.GET("/loan-requests", creditHandler.ListMyLoanRequests)

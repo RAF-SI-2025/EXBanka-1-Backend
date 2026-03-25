@@ -81,6 +81,10 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(int64)
+	emailVal, _ := c.Get("email")
+	clientEmail, _ := emailVal.(string)
 	resp, err := h.txClient.CreatePayment(c.Request.Context(), &transactionpb.CreatePaymentRequest{
 		FromAccountNumber: req.FromAccountNumber,
 		ToAccountNumber:   req.ToAccountNumber,
@@ -89,6 +93,8 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 		PaymentCode:       req.PaymentCode,
 		ReferenceNumber:   req.ReferenceNumber,
 		PaymentPurpose:    req.PaymentPurpose,
+		ClientId:          uint64(uid),
+		ClientEmail:       clientEmail,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -317,12 +323,18 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	}
 	toCurrency = toAcc.CurrencyCode
 
+	userID, _ := c.Get("user_id")
+	uid, _ := userID.(int64)
+	emailVal, _ := c.Get("email")
+	clientEmail, _ := emailVal.(string)
 	resp, err := h.txClient.CreateTransfer(c.Request.Context(), &transactionpb.CreateTransferRequest{
 		FromAccountNumber: req.FromAccountNumber,
 		ToAccountNumber:   req.ToAccountNumber,
 		Amount:            fmt.Sprintf("%.4f", req.Amount),
 		FromCurrency:      fromCurrency,
 		ToCurrency:        toCurrency,
+		ClientId:          uint64(uid),
+		ClientEmail:       clientEmail,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -590,99 +602,6 @@ func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": resp.Success})
 }
 
-type createVerificationCodeRequest struct {
-	ClientID        uint64 `json:"client_id" binding:"required"`
-	TransactionID   uint64 `json:"transaction_id" binding:"required"`
-	TransactionType string `json:"transaction_type" binding:"required"`
-}
-
-// @Summary      Create verification code
-// @Tags         verification
-// @Accept       json
-// @Produce      json
-// @Param        body  body  createVerificationCodeRequest  true  "Verification request"
-// @Security     BearerAuth
-// @Success      201   {object}  map[string]interface{}
-// @Failure      400   {object}  map[string]string
-// @Failure      401   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /api/verification [post]
-func (h *TransactionHandler) CreateVerificationCode(c *gin.Context) {
-	var req createVerificationCodeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, 400, ErrValidation, err.Error())
-		return
-	}
-
-	txType, err := oneOf("transaction_type", req.TransactionType, "payment", "transfer")
-	if err != nil {
-		apiError(c, 400, ErrValidation, err.Error())
-		return
-	}
-
-	email, _ := c.Get("email")
-	clientEmail, _ := email.(string)
-
-	resp, err := h.txClient.CreateVerificationCode(c.Request.Context(), &transactionpb.CreateVerificationCodeRequest{
-		ClientId:        req.ClientID,
-		TransactionId:   req.TransactionID,
-		TransactionType: txType,
-		ClientEmail:     clientEmail,
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusCreated, gin.H{
-		"code":       resp.Code,
-		"expires_at": resp.ExpiresAt,
-	})
-}
-
-type validateVerificationCodeRequest struct {
-	ClientID        uint64 `json:"client_id" binding:"required"`
-	TransactionID   uint64 `json:"transaction_id" binding:"required"`
-	TransactionType string `json:"transaction_type" binding:"required"`
-	Code            string `json:"code" binding:"required"`
-}
-
-// @Summary      Validate verification code
-// @Tags         verification
-// @Accept       json
-// @Produce      json
-// @Param        body  body  validateVerificationCodeRequest  true  "Code to validate"
-// @Security     BearerAuth
-// @Success      200   {object}  map[string]interface{}
-// @Failure      400   {object}  map[string]string
-// @Failure      401   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /api/verification/validate [post]
-func (h *TransactionHandler) ValidateVerificationCode(c *gin.Context) {
-	var req validateVerificationCodeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, 400, ErrValidation, err.Error())
-		return
-	}
-
-	txType, err := oneOf("transaction_type", req.TransactionType, "payment", "transfer")
-	if err != nil {
-		apiError(c, 400, ErrValidation, err.Error())
-		return
-	}
-
-	resp, err := h.txClient.ValidateVerificationCode(c.Request.Context(), &transactionpb.ValidateVerificationCodeRequest{
-		ClientId:        req.ClientID,
-		TransactionId:   req.TransactionID,
-		Code:            req.Code,
-		TransactionType: txType,
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"valid": resp.Valid})
-}
-
 // ListMyPayments serves GET /api/me/payments.
 func (h *TransactionHandler) ListMyPayments(c *gin.Context) {
 	userID, _ := c.Get("user_id")
@@ -939,7 +858,7 @@ func (h *TransactionHandler) ListTransfers(c *gin.Context) {
 }
 
 func paymentToJSON(p *transactionpb.PaymentResponse) gin.H {
-	return gin.H{
+	h := gin.H{
 		"id":                  p.Id,
 		"from_account_number": p.FromAccountNumber,
 		"to_account_number":   p.ToAccountNumber,
@@ -953,10 +872,14 @@ func paymentToJSON(p *transactionpb.PaymentResponse) gin.H {
 		"status":              p.Status,
 		"timestamp":           p.Timestamp,
 	}
+	if p.VerificationCodeExpiresAt > 0 {
+		h["verification_code_expires_at"] = p.VerificationCodeExpiresAt
+	}
+	return h
 }
 
 func transferToJSON(t *transactionpb.TransferResponse) gin.H {
-	return gin.H{
+	h := gin.H{
 		"id":                  t.Id,
 		"from_account_number": t.FromAccountNumber,
 		"to_account_number":   t.ToAccountNumber,
@@ -967,6 +890,10 @@ func transferToJSON(t *transactionpb.TransferResponse) gin.H {
 		"timestamp":           t.Timestamp,
 		"status":              t.Status,
 	}
+	if t.VerificationCodeExpiresAt > 0 {
+		h["verification_code_expires_at"] = t.VerificationCodeExpiresAt
+	}
+	return h
 }
 
 func recipientToJSON(r *transactionpb.PaymentRecipientResponse) gin.H {
