@@ -138,7 +138,7 @@ func TestWorkflow_FullPaymentWithFee(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
 	// Set up client A with 50000 RSD
-	_, acctNumA, clientA, _ := setupActivatedClient(t, adminClient)
+	_, acctNumA, clientA, emailA := setupActivatedClient(t, adminClient)
 
 	// Set up client B — we only need an account number, not login
 	clientBEmail := nextClientEmail()
@@ -176,14 +176,6 @@ func TestWorkflow_FullPaymentWithFee(t *testing.T) {
 	balBBefore := getAccountBalance(t, adminClient, acctNumB)
 	_, bankBalBefore := getBankRSDAccount(t, adminClient)
 
-	// Get client A's own ID
-	meResp, err := clientA.GET("/api/me")
-	if err != nil {
-		t.Fatalf("WF-Fee: get me: %v", err)
-	}
-	helpers.RequireStatus(t, meResp, 200)
-	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
-
 	// Start Kafka listener
 	el := kafka.NewEventListener(cfg.KafkaBrokers)
 	el.Start()
@@ -202,17 +194,8 @@ func TestWorkflow_FullPaymentWithFee(t *testing.T) {
 	helpers.RequireStatus(t, payResp, 201)
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	// Request OTP
-	verResp, err := clientA.POST("/api/me/verification", map[string]interface{}{
-		"client_id":        meClientID,
-		"transaction_id":   paymentID,
-		"transaction_type": "payment",
-	})
-	if err != nil {
-		t.Fatalf("WF-Fee: create verification: %v", err)
-	}
-	helpers.RequireStatus(t, verResp, 201)
-	verCode := helpers.GetStringField(t, verResp, "code")
+	// Get verification code from Kafka
+	verCode := scanKafkaForVerificationCode(t, emailA)
 
 	// Execute payment
 	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
@@ -333,13 +316,6 @@ func TestWorkflow_FullCrossCurrencyTransfer(t *testing.T) {
 
 	clientC := loginAsClient(t, clientEmail, clientPassword)
 
-	meResp, err := clientC.GET("/api/me")
-	if err != nil {
-		t.Fatalf("WF-FX: get me: %v", err)
-	}
-	helpers.RequireStatus(t, meResp, 200)
-	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
-
 	eurBalBefore := getAccountBalance(t, adminClient, eurAccountNumber)
 	rsdBalBefore := getAccountBalance(t, adminClient, rsdAccountNumber)
 
@@ -374,16 +350,7 @@ func TestWorkflow_FullCrossCurrencyTransfer(t *testing.T) {
 	helpers.RequireStatus(t, tfrResp, 201)
 	transferID := int(helpers.GetNumberField(t, tfrResp, "id"))
 
-	verResp, err := clientC.POST("/api/me/verification", map[string]interface{}{
-		"client_id":        meClientID,
-		"transaction_id":   transferID,
-		"transaction_type": "transfer",
-	})
-	if err != nil {
-		t.Fatalf("WF-FX: create verification: %v", err)
-	}
-	helpers.RequireStatus(t, verResp, 201)
-	verCode := helpers.GetStringField(t, verResp, "code")
+	verCode := scanKafkaForVerificationCode(t, clientEmail)
 
 	execResp, err := clientC.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
 		"verification_code": verCode,

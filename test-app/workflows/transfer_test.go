@@ -109,14 +109,6 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 
 	client1 := loginAsClient(t, email1, password1)
 
-	// Get client 1's own ID from /api/me
-	meResp, err := client1.GET("/api/me")
-	if err != nil {
-		t.Fatalf("get /api/me error: %v", err)
-	}
-	helpers.RequireStatus(t, meResp, 200)
-	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
-
 	// Record balances and bank RSD account balance before
 	srcBalanceBefore := getAccountBalance(t, adminClient, acctNum1)
 	dstBalanceBefore := getAccountBalance(t, adminClient, acctNum2)
@@ -134,17 +126,8 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	helpers.RequireStatus(t, tfrResp, 201)
 	transferID := int(helpers.GetNumberField(t, tfrResp, "id"))
 
-	// Create verification code
-	verResp, err := client1.POST("/api/me/verification", map[string]interface{}{
-		"client_id":        meClientID,
-		"transaction_id":   transferID,
-		"transaction_type": "transfer",
-	})
-	if err != nil {
-		t.Fatalf("create verification code error: %v", err)
-	}
-	helpers.RequireStatus(t, verResp, 201)
-	verCode := helpers.GetStringField(t, verResp, "code")
+	// Get verification code from Kafka
+	verCode := scanKafkaForVerificationCode(t, email1)
 
 	// Execute transfer
 	execResp, err := client1.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
@@ -251,12 +234,6 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	helpers.RequireStatus(t, activateResp, 200)
 
 	client1 := loginAsClient(t, email1, password1)
-	meResp, err := client1.GET("/api/me")
-	if err != nil {
-		t.Fatalf("get /api/me error: %v", err)
-	}
-	helpers.RequireStatus(t, meResp, 200)
-	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
 
 	eurBalBefore := getAccountBalance(t, adminClient, eurAccountNumber)
 	rsdBalBefore := getAccountBalance(t, adminClient, rsdAccountNumber)
@@ -273,16 +250,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	helpers.RequireStatus(t, tfrResp, 201)
 	transferID := int(helpers.GetNumberField(t, tfrResp, "id"))
 
-	verResp, err := client1.POST("/api/me/verification", map[string]interface{}{
-		"client_id":        meClientID,
-		"transaction_id":   transferID,
-		"transaction_type": "transfer",
-	})
-	if err != nil {
-		t.Fatalf("create verification code error: %v", err)
-	}
-	helpers.RequireStatus(t, verResp, 201)
-	verCode := helpers.GetStringField(t, verResp, "code")
+	verCode := scanKafkaForVerificationCode(t, email1)
 
 	execResp, err := client1.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
 		"verification_code": verCode,
@@ -336,7 +304,7 @@ func TestTransfer_PaymentRecipientCRUD(t *testing.T) {
 
 func TestTransfer_InsufficientBalance(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
+	_, accountNumber, clientC, clientEmail := setupActivatedClient(t, adminClient)
 
 	// Second account for same client
 	meResp, err := clientC.GET("/api/me")
@@ -370,15 +338,7 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 	}
 	if tfrResp.StatusCode == 201 {
 		t.Logf("transfer created (amount > balance); verifying execution fails")
-		verResp, err := clientC.POST("/api/me/verification", map[string]interface{}{
-			"client_id":        meClientID,
-			"transaction_id":   int(helpers.GetNumberField(t, tfrResp, "id")),
-			"transaction_type": "transfer",
-		})
-		if err != nil {
-			t.Fatalf("create verification code error: %v", err)
-		}
-		verCode := helpers.GetStringField(t, verResp, "code")
+		verCode := scanKafkaForVerificationCode(t, clientEmail)
 		execResp, err := clientC.POST(fmt.Sprintf("/api/me/transfers/%d/execute", int(helpers.GetNumberField(t, tfrResp, "id"))), map[string]interface{}{
 			"verification_code": verCode,
 		})
