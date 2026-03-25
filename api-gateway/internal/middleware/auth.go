@@ -86,6 +86,19 @@ func AnyAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 	}
 }
 
+// RequireClientToken rejects requests that do not carry a client JWT.
+// Must be chained after AnyAuthMiddleware (which sets "system_type" in the context).
+func RequireClientToken() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		systemType, _ := c.Get("system_type")
+		if systemType != "client" {
+			abortWithError(c, http.StatusForbidden, "forbidden", "client token required")
+			return
+		}
+		c.Next()
+	}
+}
+
 func RequirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		perms, exists := c.Get("permissions")

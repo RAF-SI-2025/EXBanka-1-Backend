@@ -83,7 +83,7 @@ func Setup(
 		me := api.Group("/me")
 		me.Use(middleware.AnyAuthMiddleware(authClient))
 		{
-			me.GET("", meHandler.GetMe)
+			me.GET("", middleware.RequireClientToken(), meHandler.GetMe)
 
 			// Accounts
 			me.GET("/accounts", accountHandler.ListMyAccounts)
@@ -92,12 +92,12 @@ func Setup(
 			// Cards
 			me.GET("/cards", cardHandler.ListMyCards)
 			me.GET("/cards/:id", cardHandler.GetMyCard)
-			me.POST("/cards/:id/pin", cardHandler.SetCardPin)
-			me.POST("/cards/:id/verify-pin", cardHandler.VerifyCardPin)
-			me.POST("/cards/:id/temporary-block", cardHandler.TemporaryBlockCard)
+			me.POST("/cards/:id/pin", middleware.RequireClientToken(), cardHandler.SetCardPin)
+			me.POST("/cards/:id/verify-pin", middleware.RequireClientToken(), cardHandler.VerifyCardPin)
+			me.POST("/cards/:id/temporary-block", middleware.RequireClientToken(), cardHandler.TemporaryBlockCard)
 			me.POST("/cards/virtual", cardHandler.CreateVirtualCard)
-			me.POST("/cards/requests", cardHandler.CreateCardRequest)
-			me.GET("/cards/requests", cardHandler.ListMyCardRequests)
+			me.POST("/cards/requests", middleware.RequireClientToken(), cardHandler.CreateCardRequest)
+			me.GET("/cards/requests", middleware.RequireClientToken(), cardHandler.ListMyCardRequests)
 
 			// Payments
 			me.POST("/payments", txHandler.CreatePayment)
