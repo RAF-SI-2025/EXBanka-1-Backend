@@ -35,26 +35,13 @@ func TestPayment_EmployeeCanReadPayments(t *testing.T) {
 func TestPayment_UnauthenticatedCannotCreatePayment(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/payments", map[string]interface{}{
+	resp, err := c.POST("/api/me/payments", map[string]interface{}{
 		"from_account_number": "123",
 		"to_account_number":   "456",
 		"amount":              "100.00",
 		"payment_code":        "289",
 		"purpose":             "test",
 	})
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if resp.StatusCode != 401 {
-		t.Fatalf("expected 401, got %d", resp.StatusCode)
-	}
-}
-
-func TestPayment_VerificationCodeRequired(t *testing.T) {
-	t.Parallel()
-	// Verification code creation is client-only
-	c := newClient()
-	resp, err := c.POST("/api/verification", map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -148,14 +135,6 @@ func TestPayment_EndToEnd(t *testing.T) {
 
 	clientA := loginAsClient(t, emailA, passwordA)
 
-	// Get client A's own ID from /api/clients/me
-	meResp, err := clientA.GET("/api/clients/me")
-	if err != nil {
-		t.Fatalf("get /api/clients/me error: %v", err)
-	}
-	helpers.RequireStatus(t, meResp, 200)
-	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
-
 	// Record balances before
 	srcBalanceBefore := getAccountBalance(t, adminClient, srcAccountNumber)
 	dstBalanceBefore := getAccountBalance(t, adminClient, dstAccountNumber)
@@ -166,7 +145,7 @@ func TestPayment_EndToEnd(t *testing.T) {
 	defer el.Stop()
 
 	// Client A creates payment (500 RSD — below 1000 fee threshold)
-	payResp, err := clientA.POST("/api/payments", map[string]interface{}{
+	payResp, err := clientA.POST("/api/me/payments", map[string]interface{}{
 		"from_account_number": srcAccountNumber,
 		"to_account_number":   dstAccountNumber,
 		"amount":              500,
@@ -178,20 +157,10 @@ func TestPayment_EndToEnd(t *testing.T) {
 	helpers.RequireStatus(t, payResp, 201)
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	// Create verification code
-	verResp, err := clientA.POST("/api/verification", map[string]interface{}{
-		"client_id":        meClientID,
-		"transaction_id":   paymentID,
-		"transaction_type": "payment",
-	})
-	if err != nil {
-		t.Fatalf("create verification code error: %v", err)
-	}
-	helpers.RequireStatus(t, verResp, 201)
-	verCode := helpers.GetStringField(t, verResp, "code")
+	verCode := scanKafkaForVerificationCode(t, emailA)
 
 	// Execute payment
-	execResp, err := clientA.POST(fmt.Sprintf("/api/payments/%d/execute", paymentID), map[string]interface{}{
+	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": verCode,
 	})
 	if err != nil {
@@ -283,15 +252,8 @@ func TestPayment_WithFee(t *testing.T) {
 
 	clientA := loginAsClient(t, emailA, passwordA)
 
-	meResp, err := clientA.GET("/api/clients/me")
-	if err != nil {
-		t.Fatalf("get /api/clients/me error: %v", err)
-	}
-	helpers.RequireStatus(t, meResp, 200)
-	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
-
 	// Create payment of 5000 RSD (above 1000 fee threshold)
-	payResp, err := clientA.POST("/api/payments", map[string]interface{}{
+	payResp, err := clientA.POST("/api/me/payments", map[string]interface{}{
 		"from_account_number": srcAccountNumber,
 		"to_account_number":   dstAccountNumber,
 		"amount":              5000,
@@ -303,20 +265,10 @@ func TestPayment_WithFee(t *testing.T) {
 	helpers.RequireStatus(t, payResp, 201)
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	// Create verification code
-	verResp, err := clientA.POST("/api/verification", map[string]interface{}{
-		"client_id":        meClientID,
-		"transaction_id":   paymentID,
-		"transaction_type": "payment",
-	})
-	if err != nil {
-		t.Fatalf("create verification code error: %v", err)
-	}
-	helpers.RequireStatus(t, verResp, 201)
-	verCode := helpers.GetStringField(t, verResp, "code")
+	verCode := scanKafkaForVerificationCode(t, emailA)
 
 	// Execute payment
-	execResp, err := clientA.POST(fmt.Sprintf("/api/payments/%d/execute", paymentID), map[string]interface{}{
+	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": verCode,
 	})
 	if err != nil {
@@ -381,17 +333,10 @@ func TestPayment_ExternalPayment(t *testing.T) {
 
 	clientA := loginAsClient(t, emailA, passwordA)
 
-	meResp, err := clientA.GET("/api/clients/me")
-	if err != nil {
-		t.Fatalf("get /api/clients/me error: %v", err)
-	}
-	helpers.RequireStatus(t, meResp, 200)
-	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
-
 	// External account number — not belonging to any client in the system
 	externalAccountNumber := "908-9999999999-99"
 
-	payResp, err := clientA.POST("/api/payments", map[string]interface{}{
+	payResp, err := clientA.POST("/api/me/payments", map[string]interface{}{
 		"from_account_number": srcAccountNumber,
 		"to_account_number":   externalAccountNumber,
 		"amount":              1000,
@@ -411,18 +356,9 @@ func TestPayment_ExternalPayment(t *testing.T) {
 	}
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	verResp, err := clientA.POST("/api/verification", map[string]interface{}{
-		"client_id":        meClientID,
-		"transaction_id":   paymentID,
-		"transaction_type": "payment",
-	})
-	if err != nil {
-		t.Fatalf("create verification code error: %v", err)
-	}
-	helpers.RequireStatus(t, verResp, 201)
-	verCode := helpers.GetStringField(t, verResp, "code")
+	verCode := scanKafkaForVerificationCode(t, emailA)
 
-	execResp, err := clientA.POST(fmt.Sprintf("/api/payments/%d/execute", paymentID), map[string]interface{}{
+	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": verCode,
 	})
 	if err != nil {
@@ -492,14 +428,8 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	helpers.RequireStatus(t, activateResp, 200)
 
 	clientA := loginAsClient(t, emailA, passwordA)
-	meResp, err := clientA.GET("/api/clients/me")
-	if err != nil {
-		t.Fatalf("get /api/clients/me error: %v", err)
-	}
-	helpers.RequireStatus(t, meResp, 200)
-	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
 
-	payResp, err := clientA.POST("/api/payments", map[string]interface{}{
+	payResp, err := clientA.POST("/api/me/payments", map[string]interface{}{
 		"from_account_number": srcAccountNumber,
 		"to_account_number":   dstAccountNumber,
 		"amount":              500,
@@ -511,18 +441,8 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	helpers.RequireStatus(t, payResp, 201)
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	// Create a real verification code (but we'll submit a wrong one)
-	_, err = clientA.POST("/api/verification", map[string]interface{}{
-		"client_id":        meClientID,
-		"transaction_id":   paymentID,
-		"transaction_type": "payment",
-	})
-	if err != nil {
-		t.Fatalf("create verification code error: %v", err)
-	}
-
 	// Execute with WRONG code
-	execResp, err := clientA.POST(fmt.Sprintf("/api/payments/%d/execute", paymentID), map[string]interface{}{
+	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": "000000", // wrong
 	})
 	if err != nil {
@@ -536,7 +456,7 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 
 func TestPayment_InsufficientBalance(t *testing.T) {
 	adminClient := loginAsAdmin(t)
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	_, accountNumber, clientC, clientEmail := setupActivatedClient(t, adminClient)
 
 	// The account has 100000 RSD. Create a destination.
 	destClientID := createTestClient(t, adminClient)
@@ -554,7 +474,7 @@ func TestPayment_InsufficientBalance(t *testing.T) {
 	dstAccountNumber := helpers.GetStringField(t, dstAcctResp, "account_number")
 
 	// Try to pay more than the balance
-	payResp, err := clientC.POST("/api/payments", map[string]interface{}{
+	payResp, err := clientC.POST("/api/me/payments", map[string]interface{}{
 		"from_account_number": accountNumber,
 		"to_account_number":   dstAccountNumber,
 		"amount":              9999999, // way more than 100000
@@ -567,24 +487,10 @@ func TestPayment_InsufficientBalance(t *testing.T) {
 	if payResp.StatusCode == 201 {
 		t.Logf("payment created (amount > balance); verifying execution fails")
 		// If created, try to execute and expect failure
-		meResp, err := clientC.GET("/api/clients/me")
-		if err != nil {
-			t.Fatalf("get me error: %v", err)
-		}
-		meClientID := int(helpers.GetNumberField(t, meResp, "id"))
 		paymentID := int(helpers.GetNumberField(t, payResp, "id"))
+		verCode := scanKafkaForVerificationCode(t, clientEmail)
 
-		verResp, err := clientC.POST("/api/verification", map[string]interface{}{
-			"client_id":        meClientID,
-			"transaction_id":   paymentID,
-			"transaction_type": "payment",
-		})
-		if err != nil {
-			t.Fatalf("create verification code error: %v", err)
-		}
-		verCode := helpers.GetStringField(t, verResp, "code")
-
-		execResp, err := clientC.POST(fmt.Sprintf("/api/payments/%d/execute", paymentID), map[string]interface{}{
+		execResp, err := clientC.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
 			"verification_code": verCode,
 		})
 		if err != nil {

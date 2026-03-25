@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"net/http"
 	"regexp"
 	"strings"
 
@@ -104,7 +103,7 @@ func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
 		uid, _ := c.Get("user_id")
 		userID, ok := uid.(int64)
 		if !ok || uint64(userID) != pathClientID {
-			c.AbortWithStatusJSON(403, gin.H{"error": "clients can only access their own resources"})
+			c.AbortWithStatusJSON(403, gin.H{"error": gin.H{"code": "forbidden", "message": "clients can only access their own resources"}})
 			return false
 		}
 	}
@@ -112,69 +111,66 @@ func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
 }
 
 // ---------------------------------------------------------------------------
-// Structured error response helpers
+// Standardized error response helpers
 // ---------------------------------------------------------------------------
 
-// ErrorCode constants for machine-readable error identification.
+// Error code constants (lowercase, snake_case — machine-readable).
 const (
-	ErrCodeValidation           = "VALIDATION_ERROR"
-	ErrCodeNotFound             = "NOT_FOUND"
-	ErrCodeForbidden            = "FORBIDDEN"
-	ErrCodeInsufficientFunds    = "INSUFFICIENT_FUNDS"
-	ErrCodeLimitExceeded        = "LIMIT_EXCEEDED"
-	ErrCodeDuplicate            = "DUPLICATE"
-	ErrCodeVerificationRequired = "VERIFICATION_REQUIRED"
-	ErrCodeVerificationFailed   = "VERIFICATION_FAILED"
-	ErrCodeInternal             = "INTERNAL_ERROR"
+	ErrValidation   = "validation_error"
+	ErrUnauthorized = "unauthorized"
+	ErrForbidden    = "forbidden"
+	ErrNotFound     = "not_found"
+	ErrConflict     = "conflict"
+	ErrBusinessRule = "business_rule_violation"
+	ErrRateLimited  = "rate_limited"
+	ErrInternal     = "internal_error"
 )
 
-// APIError represents a structured error response.
-type APIError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Field   string `json:"field,omitempty"`
+// apiError sends a structured error JSON response.
+// Format: {"error": {"code": "...", "message": "...", "details": {...}}}
+// The `details` parameter is optional; pass nil or omit to skip it.
+func apiError(c *gin.Context, status int, code, message string, details ...map[string]interface{}) {
+	body := gin.H{"code": code, "message": message}
+	if len(details) > 0 && details[0] != nil {
+		body["details"] = details[0]
+	}
+	c.JSON(status, gin.H{"error": body})
 }
 
-// errorResponse sends a structured error JSON response.
-func errorResponse(c *gin.Context, httpStatus int, code, message string) {
-	c.JSON(httpStatus, gin.H{"error": APIError{Code: code, Message: message}})
+// apiErrorAbort is like apiError but also aborts the middleware chain.
+// Use this in middleware; use apiError in handlers.
+func apiErrorAbort(c *gin.Context, status int, code, message string) {
+	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": code, "message": message}})
 }
 
-// validationError sends a 400 error with field information.
-func validationError(c *gin.Context, field, message string) {
-	c.JSON(http.StatusBadRequest, gin.H{"error": APIError{
-		Code:    ErrCodeValidation,
-		Message: message,
-		Field:   field,
-	}})
-}
-
-// grpcToAPIError maps a gRPC error to an HTTP status and APIError.
-func grpcToAPIError(err error) (int, APIError) {
+// grpcToHTTPError maps a gRPC error to an HTTP status code and error code string.
+func grpcToHTTPError(err error) (int, string, string) {
 	s, ok := status.FromError(err)
 	if !ok {
-		return 500, APIError{Code: ErrCodeInternal, Message: err.Error()}
+		return 500, ErrInternal, err.Error()
 	}
 	switch s.Code() {
 	case codes.NotFound:
-		return 404, APIError{Code: ErrCodeNotFound, Message: s.Message()}
+		return 404, ErrNotFound, s.Message()
 	case codes.InvalidArgument:
-		return 400, APIError{Code: ErrCodeValidation, Message: s.Message()}
+		return 400, ErrValidation, s.Message()
+	case codes.Unauthenticated:
+		return 401, ErrUnauthorized, s.Message()
 	case codes.PermissionDenied:
-		return 403, APIError{Code: ErrCodeForbidden, Message: s.Message()}
+		return 403, ErrForbidden, s.Message()
 	case codes.AlreadyExists:
-		return 409, APIError{Code: ErrCodeDuplicate, Message: s.Message()}
+		return 409, ErrConflict, s.Message()
 	case codes.FailedPrecondition:
-		return 422, APIError{Code: ErrCodeLimitExceeded, Message: s.Message()}
+		return 409, ErrBusinessRule, s.Message()
 	case codes.ResourceExhausted:
-		return 429, APIError{Code: ErrCodeLimitExceeded, Message: s.Message()}
+		return 429, ErrRateLimited, s.Message()
 	default:
-		return 500, APIError{Code: ErrCodeInternal, Message: s.Message()}
+		return 500, ErrInternal, s.Message()
 	}
 }
 
 // handleGRPCError sends a structured error response based on a gRPC error.
 func handleGRPCError(c *gin.Context, err error) {
-	httpStatus, apiErr := grpcToAPIError(err)
-	c.JSON(httpStatus, gin.H{"error": apiErr})
+	httpStatus, code, message := grpcToHTTPError(err)
+	apiError(c, httpStatus, code, message)
 }

@@ -15,13 +15,13 @@ func ClientAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if header == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing authorization header"})
+			abortWithError(c, http.StatusUnauthorized, "unauthorized", "missing authorization header")
 			return
 		}
 
 		parts := strings.SplitN(header, " ", 2)
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid authorization format"})
+			abortWithError(c, http.StatusUnauthorized, "unauthorized", "invalid authorization format")
 			return
 		}
 
@@ -29,17 +29,17 @@ func ClientAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 			Token: parts[1],
 		})
 		if err != nil || !resp.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			abortWithError(c, http.StatusUnauthorized, "unauthorized", "invalid or expired token")
 			return
 		}
 
 		// Check by system_type first (new), fall back to role=="client" (legacy)
 		if resp.SystemType == "employee" {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "token not authorized for client routes"})
+			abortWithError(c, http.StatusForbidden, "forbidden", "token not authorized for client routes")
 			return
 		}
 		if resp.SystemType != "client" && resp.Role != "client" {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "client access required"})
+			abortWithError(c, http.StatusForbidden, "forbidden", "client access required")
 			return
 		}
 

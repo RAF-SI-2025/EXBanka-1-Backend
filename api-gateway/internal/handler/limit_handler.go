@@ -74,7 +74,7 @@ func NewLimitHandler(
 func (h *LimitHandler) GetEmployeeLimits(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid employee id"})
+		apiError(c, 400, ErrValidation, "invalid employee id")
 		return
 	}
 
@@ -105,13 +105,13 @@ func (h *LimitHandler) GetEmployeeLimits(c *gin.Context) {
 func (h *LimitHandler) SetEmployeeLimits(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid employee id"})
+		apiError(c, 400, ErrValidation, "invalid employee id")
 		return
 	}
 
 	var body setEmployeeLimitsBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -147,13 +147,13 @@ func (h *LimitHandler) SetEmployeeLimits(c *gin.Context) {
 func (h *LimitHandler) ApplyLimitTemplate(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid employee id"})
+		apiError(c, 400, ErrValidation, "invalid employee id")
 		return
 	}
 
 	var body applyLimitTemplateBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -203,7 +203,7 @@ func (h *LimitHandler) ListLimitTemplates(c *gin.Context) {
 func (h *LimitHandler) CreateLimitTemplate(c *gin.Context) {
 	var body createLimitTemplateBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -238,7 +238,7 @@ func (h *LimitHandler) CreateLimitTemplate(c *gin.Context) {
 func (h *LimitHandler) GetClientLimits(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client id"})
+		apiError(c, 400, ErrValidation, "invalid client id")
 		return
 	}
 
@@ -269,7 +269,7 @@ func (h *LimitHandler) GetClientLimits(c *gin.Context) {
 func (h *LimitHandler) SetClientLimits(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client id"})
+		apiError(c, 400, ErrValidation, "invalid client id")
 		return
 	}
 
@@ -278,7 +278,7 @@ func (h *LimitHandler) SetClientLimits(c *gin.Context) {
 
 	var body setClientLimitsBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 

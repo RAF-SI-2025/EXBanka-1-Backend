@@ -16,7 +16,7 @@ import (
 // access to the card request creation endpoint is rejected.
 func TestCardRequest_UnauthenticatedCannotCreateRequest(t *testing.T) {
 	c := newClient()
-	resp, err := c.POST("/api/cards/requests", map[string]interface{}{
+	resp, err := c.POST("/api/me/cards/requests", map[string]interface{}{
 		"account_number": "265-0000000001-00",
 		"card_brand":     "visa",
 	})
@@ -32,7 +32,7 @@ func TestCardRequest_UnauthenticatedCannotCreateRequest(t *testing.T) {
 // cannot submit a card request (client-only endpoint).
 func TestCardRequest_EmployeeCannotCreateRequest(t *testing.T) {
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/cards/requests", map[string]interface{}{
+	resp, err := c.POST("/api/me/cards/requests", map[string]interface{}{
 		"account_number": "265-0000000001-00",
 		"card_brand":     "visa",
 	})
@@ -102,7 +102,7 @@ func TestCardRequest_GetNonExistentRequest(t *testing.T) {
 // request returns an error (not 200).
 func TestCardRequest_ApproveNonExistentRequest(t *testing.T) {
 	c := loginAsAdmin(t)
-	resp, err := c.PUT("/api/cards/requests/999999/approve", nil)
+	resp, err := c.POST("/api/cards/requests/999999/approve", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestCardRequest_ApproveNonExistentRequest(t *testing.T) {
 // request returns an error (not 200).
 func TestCardRequest_RejectNonExistentRequest(t *testing.T) {
 	c := loginAsAdmin(t)
-	resp, err := c.PUT("/api/cards/requests/999999/reject", map[string]interface{}{
+	resp, err := c.POST("/api/cards/requests/999999/reject", map[string]interface{}{
 		"reason": "Test rejection",
 	})
 	if err != nil {
@@ -130,7 +130,7 @@ func TestCardRequest_RejectNonExistentRequest(t *testing.T) {
 // a reason returns HTTP 400.
 func TestCardRequest_RejectRequiresReason(t *testing.T) {
 	c := loginAsAdmin(t)
-	resp, err := c.PUT("/api/cards/requests/1/reject", map[string]interface{}{})
+	resp, err := c.POST("/api/cards/requests/1/reject", map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -166,10 +166,10 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
 	// Create client with funded RSD account and activate them
-	_, accountNumber, clientC := setupActivatedClient(t, adminClient)
+	_, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
 	// Client lists their requests before — should be empty or have prior requests
-	listBefore, err := clientC.GET("/api/cards/requests/me")
+	listBefore, err := clientC.GET("/api/me/cards/requests")
 	if err != nil {
 		t.Fatalf("list card requests before error: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	}
 
 	// Client submits a card request for their account (visa brand)
-	cardReqResp, err := clientC.POST("/api/cards/requests", map[string]interface{}{
+	cardReqResp, err := clientC.POST("/api/me/cards/requests", map[string]interface{}{
 		"account_number": accountNumber,
 		"card_brand":     "visa",
 	})
@@ -197,7 +197,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	t.Logf("card request id: %d", cardReqID)
 
 	// Client lists their requests — verify pending request appears
-	listAfter, err := clientC.GET("/api/cards/requests/me")
+	listAfter, err := clientC.GET("/api/me/cards/requests")
 	if err != nil {
 		t.Fatalf("list card requests after error: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	}
 
 	// Employee approves the request
-	approveResp, err := adminClient.PUT(fmt.Sprintf("/api/cards/requests/%d/approve", cardReqID), nil)
+	approveResp, err := adminClient.POST(fmt.Sprintf("/api/cards/requests/%d/approve", cardReqID), nil)
 	if err != nil {
 		t.Fatalf("approve card request error: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	}
 
 	// Verify an actual card now exists for that account
-	cardsResp, err := adminClient.GET(fmt.Sprintf("/api/cards/account/%s", accountNumber))
+	cardsResp, err := adminClient.GET(fmt.Sprintf("/api/cards?account_number=%s", accountNumber))
 	if err != nil {
 		t.Fatalf("get cards by account error: %v", err)
 	}

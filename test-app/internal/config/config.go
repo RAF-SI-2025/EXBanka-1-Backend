@@ -8,33 +8,28 @@ import (
 
 // Config holds test environment configuration.
 type Config struct {
-	GatewayURL      string
-	KafkaBrokers    string
-	BaseEmail       string // base email used to derive tagged addresses
-	Password        string
-	BootstrapSecret string
+	GatewayURL    string
+	KafkaBrokers  string
+	AdminEmail    string // email of the seeder-created admin account
+	AdminPassword string // password of the seeder-created admin account
+	BaseEmail     string // base email used to derive tagged addresses for test accounts
+	Password      string // password used when creating test accounts
 }
 
 // Load reads configuration from environment variables with defaults.
 func Load() *Config {
 	return &Config{
-		GatewayURL:      getEnv("TEST_GATEWAY_URL", "http://localhost:8080"),
-		KafkaBrokers:    getEnv("TEST_KAFKA_BROKERS", "localhost:9094"),
-		BaseEmail:       getEnv("TEST_BASE_EMAIL", "lsavic12123rn@raf.rs"),
-		Password:        "AdminAdmin2026!.",
-		BootstrapSecret: getEnv("BOOTSTRAP_SECRET", "dev-bootstrap-secret"),
+		GatewayURL:    getEnv("TEST_GATEWAY_URL", "http://localhost:8080"),
+		KafkaBrokers:  getEnv("TEST_KAFKA_BROKERS", "localhost:9094"),
+		AdminEmail:    getEnv("ADMIN_EMAIL", "admin@admin.com"),
+		AdminPassword: getEnv("ADMIN_PASSWORD", "AdminAdmin2026!."),
+		BaseEmail:     getEnv("TEST_BASE_EMAIL", "lsavic12123rn@raf.rs"),
+		Password:      "AdminAdmin2026!.",
 	}
 }
 
-// AdminEmail returns the base email with the +admin tag.
-// e.g. vlupsic11723rn@raf.rs → vlupsic11723rn+admin@raf.rs
-// This is the address used by the seeded admin employee account.
-func (c *Config) AdminEmail() string {
-	return buildTaggedEmail(c.BaseEmail, "admin")
-}
-
 // ClientEmail returns the base email with a numbered +clientN tag.
-// e.g. vlupsic11723rn@raf.rs + n=1 → vlupsic11723rn+client1@raf.rs
+// e.g. user@raf.rs + n=1 → user+client1@raf.rs
 // Use sequential numbers across tests to avoid email collisions.
 func (c *Config) ClientEmail(n int) string {
 	return buildTaggedEmail(c.BaseEmail, fmt.Sprintf("client%d", n))

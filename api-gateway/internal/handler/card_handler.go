@@ -68,20 +68,20 @@ type createCardRequest struct {
 func (h *CardHandler) CreateCard(c *gin.Context) {
 	var req createCardRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	ownerType, err := oneOf("owner_type", req.OwnerType, "client", "authorized_person")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	cardBrand := req.CardBrand
 	if cardBrand != "" {
 		cardBrand, err = oneOf("card_brand", cardBrand, "visa", "mastercard", "dinacard", "amex")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			apiError(c, 400, ErrValidation, err.Error())
 			return
 		}
 	}
@@ -110,7 +110,7 @@ func (h *CardHandler) CreateCard(c *gin.Context) {
 func (h *CardHandler) GetCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -161,7 +161,7 @@ func (h *CardHandler) ListCardsByAccount(c *gin.Context) {
 func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		apiError(c, 400, ErrValidation, "invalid client_id")
 		return
 	}
 	if !enforceClientSelf(c, clientID) {
@@ -200,7 +200,7 @@ func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 func (h *CardHandler) BlockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -219,7 +219,7 @@ func (h *CardHandler) BlockCard(c *gin.Context) {
 func (h *CardHandler) ClientBlockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -234,7 +234,7 @@ func (h *CardHandler) ClientBlockCard(c *gin.Context) {
 	uid, _ := c.Get("user_id")
 	userID, ok := uid.(int64)
 	if !ok || uint64(userID) != card.OwnerId {
-		c.JSON(http.StatusForbidden, gin.H{"error": "clients can only block their own cards"})
+		apiError(c, 403, ErrForbidden, "clients can only block their own cards")
 		return
 	}
 
@@ -259,7 +259,7 @@ func (h *CardHandler) ClientBlockCard(c *gin.Context) {
 func (h *CardHandler) UnblockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -284,7 +284,7 @@ func (h *CardHandler) UnblockCard(c *gin.Context) {
 func (h *CardHandler) DeactivateCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -321,7 +321,7 @@ type createAuthorizedPersonRequest struct {
 func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {
 	var req createAuthorizedPersonRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -368,25 +368,25 @@ func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {
 func (h *CardHandler) CreateVirtualCard(c *gin.Context) {
 	var body createVirtualCardBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	vcBrand, err := oneOf("card_brand", body.CardBrand, "visa", "mastercard", "dinacard", "amex")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	usageType, err := oneOf("usage_type", body.UsageType, "single_use", "multi_use")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := inRange("expiry_months", body.ExpiryMonths, 1, 3); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if usageType == "multi_use" && body.MaxUses < 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "multi_use cards must have max_uses >= 2"})
+		apiError(c, 400, ErrValidation, "multi_use cards must have max_uses >= 2")
 		return
 	}
 	resp, err := h.virtualCardClient.CreateVirtualCard(c.Request.Context(), &cardpb.CreateVirtualCardRequest{
@@ -399,7 +399,7 @@ func (h *CardHandler) CreateVirtualCard(c *gin.Context) {
 		CardLimit:     body.CardLimit,
 	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handleGRPCError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, resp)
@@ -422,16 +422,16 @@ func (h *CardHandler) CreateVirtualCard(c *gin.Context) {
 func (h *CardHandler) SetCardPin(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid card id"})
+		apiError(c, 400, ErrValidation, "invalid card id")
 		return
 	}
 	var body setCardPinBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := validatePin(body.Pin); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.virtualCardClient.SetCardPin(c.Request.Context(), &cardpb.SetCardPinRequest{
@@ -462,16 +462,16 @@ func (h *CardHandler) SetCardPin(c *gin.Context) {
 func (h *CardHandler) VerifyCardPin(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid card id"})
+		apiError(c, 400, ErrValidation, "invalid card id")
 		return
 	}
 	var body verifyCardPinBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := validatePin(body.Pin); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.virtualCardClient.VerifyCardPin(c.Request.Context(), &cardpb.VerifyCardPinRequest{
@@ -503,16 +503,16 @@ func (h *CardHandler) VerifyCardPin(c *gin.Context) {
 func (h *CardHandler) TemporaryBlockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid card id"})
+		apiError(c, 400, ErrValidation, "invalid card id")
 		return
 	}
 	var body temporaryBlockCardBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := inRange("duration_hours", body.DurationHours, 1, 720); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.virtualCardClient.TemporaryBlockCard(c.Request.Context(), &cardpb.TemporaryBlockCardRequest{
@@ -521,7 +521,7 @@ func (h *CardHandler) TemporaryBlockCard(c *gin.Context) {
 		Reason:        body.Reason,
 	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handleGRPCError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
@@ -556,20 +556,20 @@ type rejectCardRequestBody struct {
 func (h *CardHandler) CreateCardRequest(c *gin.Context) {
 	var body createCardRequestBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	cardBrand, err := oneOf("card_brand", body.CardBrand, "visa", "mastercard", "dinacard", "amex")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	uid, _ := c.Get("user_id")
 	userID, ok := uid.(int64)
 	if !ok || userID <= 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid client identity"})
+		apiError(c, 401, ErrUnauthorized, "invalid client identity")
 		return
 	}
 
@@ -603,7 +603,7 @@ func (h *CardHandler) ListMyCardRequests(c *gin.Context) {
 	uid, _ := c.Get("user_id")
 	userID, ok := uid.(int64)
 	if !ok || userID <= 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid client identity"})
+		apiError(c, 401, ErrUnauthorized, "invalid client identity")
 		return
 	}
 
@@ -653,7 +653,7 @@ func (h *CardHandler) ListCardRequests(c *gin.Context) {
 		var err error
 		statusFilter, err = oneOf("status", statusFilter, "pending", "approved", "rejected")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			apiError(c, 400, ErrValidation, err.Error())
 			return
 		}
 	}
@@ -700,7 +700,7 @@ func (h *CardHandler) ListCardRequests(c *gin.Context) {
 func (h *CardHandler) GetCardRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -730,14 +730,14 @@ func (h *CardHandler) GetCardRequest(c *gin.Context) {
 func (h *CardHandler) ApproveCardRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	uid, _ := c.Get("user_id")
 	employeeID, ok := uid.(int64)
 	if !ok || employeeID <= 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid employee identity"})
+		apiError(c, 401, ErrUnauthorized, "invalid employee identity")
 		return
 	}
 
@@ -775,20 +775,20 @@ func (h *CardHandler) ApproveCardRequest(c *gin.Context) {
 func (h *CardHandler) RejectCardRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var body rejectCardRequestBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	uid, _ := c.Get("user_id")
 	employeeID, ok := uid.(int64)
 	if !ok || employeeID <= 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid employee identity"})
+		apiError(c, 401, ErrUnauthorized, "invalid employee identity")
 		return
 	}
 
@@ -802,6 +802,97 @@ func (h *CardHandler) RejectCardRequest(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, cardRequestToJSON(resp))
+}
+
+// ListMyCards serves GET /api/me/cards.
+func (h *CardHandler) ListMyCards(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	resp, err := h.cardClient.ListCardsByClient(c.Request.Context(), &cardpb.ListCardsByClientRequest{ClientId: uint64(uid)})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	cards := make([]gin.H, 0, len(resp.Cards))
+	for _, card := range resp.Cards {
+		cards = append(cards, cardToJSON(card))
+	}
+	c.JSON(http.StatusOK, gin.H{"cards": cards})
+}
+
+// GetMyCard serves GET /api/me/cards/:id — fetches card and verifies ownership.
+func (h *CardHandler) GetMyCard(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.cardClient.GetCard(c.Request.Context(), &cardpb.GetCardRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if resp.OwnerId != uint64(uid) {
+		apiError(c, 403, ErrForbidden, "access denied")
+		return
+	}
+	c.JSON(http.StatusOK, cardToJSON(resp))
+}
+
+// ListCards serves GET /api/cards — filters via ?client_id=X or ?account_number=X.
+func (h *CardHandler) ListCards(c *gin.Context) {
+	clientIDStr := c.Query("client_id")
+	accountNumber := c.Query("account_number")
+
+	if clientIDStr != "" && accountNumber != "" {
+		apiError(c, 400, ErrValidation, "provide either client_id or account_number, not both")
+		return
+	}
+
+	if clientIDStr != "" {
+		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
+		if err != nil {
+			apiError(c, 400, ErrValidation, "invalid client_id")
+			return
+		}
+		resp, err := h.cardClient.ListCardsByClient(c.Request.Context(), &cardpb.ListCardsByClientRequest{ClientId: clientID})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		cards := make([]gin.H, 0, len(resp.Cards))
+		for _, card := range resp.Cards {
+			cards = append(cards, cardToJSON(card))
+		}
+		c.JSON(http.StatusOK, gin.H{"cards": cards})
+		return
+	}
+
+	if accountNumber != "" {
+		resp, err := h.cardClient.ListCardsByAccount(c.Request.Context(), &cardpb.ListCardsByAccountRequest{AccountNumber: accountNumber})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		cards := make([]gin.H, 0, len(resp.Cards))
+		for _, card := range resp.Cards {
+			cards = append(cards, cardToJSON(card))
+		}
+		c.JSON(http.StatusOK, gin.H{"cards": cards})
+		return
+	}
+
+	apiError(c, 400, ErrValidation, "provide client_id or account_number query parameter")
 }
 
 func cardToJSON(card *cardpb.CardResponse) gin.H {

@@ -8,8 +8,10 @@ use (
 	./client-service
 	./contract
 	./credit-service
+	./exchange-service
 	./notification-service
 	./test-app
+	./seeder
 	./transaction-service
 	./user-service
 )

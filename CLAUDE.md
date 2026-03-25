@@ -16,8 +16,9 @@ This is a Go workspace monorepo. Each service has its own self-contained directo
 ├── client-service/          # Bank client CRUD and credential management (gRPC, port 50054)
 ├── account-service/         # Bank accounts, currencies, companies (gRPC, port 50055)
 ├── card-service/            # Payment cards and authorized persons (gRPC, port 50056)
-├── transaction-service/     # Payments, transfers, exchange rates (gRPC, port 50057)
+├── transaction-service/     # Payments, transfers, currency conversion via exchange-service (gRPC, port 50057)
 ├── credit-service/          # Loan requests, loans, installments (gRPC, port 50058)
+├── exchange-service/        # Currency exchange rates and conversion (gRPC, port 50059)
 ├── docs/                    # API documentation and implementation plans
 ├── docker-compose.yml
 ├── Makefile
@@ -63,6 +64,7 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | `CARD_GRPC_ADDR` | localhost:50056 | card-service gRPC address |
 | `TRANSACTION_GRPC_ADDR` | localhost:50057 | transaction-service gRPC address |
 | `CREDIT_GRPC_ADDR` | localhost:50058 | credit-service gRPC address |
+| `EXCHANGE_GRPC_ADDR` | localhost:50059 | exchange-service gRPC address; also required by transaction-service |
 | `GATEWAY_HTTP_ADDR` | :8080 | |
 | `KAFKA_BROKERS` | localhost:9092 | |
 | `REDIS_ADDR` | localhost:6379 | Shared by auth + user services |
@@ -80,6 +82,7 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | card-service | 5436 |
 | transaction-service | 5437 |
 | credit-service | 5438 |
+| exchange-service | 5439 |
 
 **Note:** `credit-service` and `card-service` both depend on `CLIENT_GRPC_ADDR` and `ACCOUNT_GRPC_ADDR` in addition to their own gRPC addresses. Ensure these variables are set in their docker-compose environment sections.
 
@@ -142,10 +145,12 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 - Seeded at startup: 1 RSD + 1 EUR bank account.
 - Used for collecting transaction fees and loan installment credits.
 
-**NBS exchange rates** (transaction-service):
-- Exchange rates are synced from the National Bank of Serbia XML API every 6 hours.
-- Rates are seeded with hardcoded defaults on first startup; NBS sync failure on startup is non-fatal (log warning, keep seed rates).
-- Rates stored as both `CODE/RSD` and inverse `RSD/CODE` pairs.
+**Exchange rates** (exchange-service):
+- Exchange rates are synced from the open.er-api.com API every 6 hours (configurable via `EXCHANGE_SYNC_INTERVAL_HOURS`).
+- Rates are seeded with hardcoded defaults on first startup; external API sync failure is non-fatal (log warning, keep seed rates).
+- Rates stored as both `CODE/RSD` and inverse `RSD/CODE` pairs with buy/sell spread applied.
+- Transaction-service calls exchange-service via gRPC (`Convert` RPC) for cross-currency transfers; no commission applied at that layer.
+- Exchange-service config: `EXCHANGE_COMMISSION_RATE` (default 0.005), `EXCHANGE_SPREAD` (default 0.003), `EXCHANGE_API_KEY` (optional, for paid tier).
 
 **Transfer fees** (transaction-service):
 - Configurable fee rules stored in `transfer_fees` table (type: `percentage` or `fixed`, with `min_amount` threshold and `max_fee` cap).
@@ -192,6 +197,47 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
   - `fee_type`: `percentage`, `fixed`
   - `loan_type`: `cash`, `housing`, `auto`, `refinancing`, `student`
   - `interest_type`: `fixed`, `variable`
+
+## REST API Conventions
+
+**Route structure:**
+- `/api/me/*` — authenticated user's own resources. Ownership derived from JWT `user_id`, never from URL params. Protected by `AnyAuthMiddleware`.
+- `/api/<resource>` — general/admin/employee routes. Protected by `AuthMiddleware` + `RequirePermission`.
+- Collection filtering uses query params (`?client_id=X`, `?account_number=X`), not path segments (`/client/:id`).
+- When multiple filter params are provided on the same endpoint, return 400 — only one filter at a time.
+
+**HTTP verbs:**
+- `POST` for all state-change actions (approve, reject, block, unblock, deactivate, execute, temporary-block).
+- `PUT` only for idempotent full replacements (update employee, set permissions, set limits, update name).
+- `GET` for reads, `DELETE` for deletes.
+
+**Error handling:**
+- All error responses use the `apiError()` helper in `validation.go` — never raw `gin.H{"error": "string"}`.
+- Response format: `{"error": {"code": "...", "message": "...", "details": {...}}}` where `details` is optional.
+- HTTP status code must always match the error semantics — a 403 body never arrives with a 500 status.
+- gRPC error mapping (in `validation.go`):
+  - `InvalidArgument` → 400 `validation_error`
+  - `Unauthenticated` → 401 `unauthorized`
+  - `PermissionDenied` → 403 `forbidden`
+  - `NotFound` → 404 `not_found`
+  - `AlreadyExists` → 409 `conflict`
+  - `FailedPrecondition` → 409 `business_rule_violation`
+  - `ResourceExhausted` → 429 `rate_limited`
+  - Default → 500 `internal_error`
+- Middleware uses `abortWithError()` (local to middleware package) with the same JSON shape.
+
+**Middleware assignment:**
+- `AnyAuthMiddleware` for `/api/me/*` routes (accepts both client and employee tokens).
+- `AuthMiddleware` + `RequirePermission("...")` for employee/admin routes.
+- `ClientAuthMiddleware` is no longer routed but kept in codebase (may be useful for future client-only restrictions).
+- Public routes (auth, exchange rates) need no middleware.
+
+**When adding a new endpoint:**
+- If it's "user accesses their own resource" → add under `/api/me/*` with `AnyAuthMiddleware`.
+- If it's an employee/admin operation or general data → add under `/api/<resource>` with `AuthMiddleware`.
+- Use `apiError()` for all error responses, `handleGRPCError()` for gRPC errors.
+- Update swagger annotations, `docs/api/REST_API.md`, and `test-app` integration tests.
+- For `/api/me` handlers: create a `ListMy<Resource>` wrapper that extracts `user_id` from JWT context.
 
 ## Swagger Documentation Requirement
 

@@ -126,16 +126,60 @@ func scanKafkaForActivationToken(t *testing.T, email string) string {
 	return latestToken
 }
 
+// scanKafkaForVerificationCode reads the notification.send-email topic from the earliest
+// offset and returns the most recent TRANSACTION_VERIFICATION code sent to the given email.
+// Blocks up to 15 seconds; fails the test if no code is found.
+func scanKafkaForVerificationCode(t *testing.T, email string) string {
+	t.Helper()
+	r := kafkalib.NewReader(kafkalib.ReaderConfig{
+		Brokers:     []string{cfg.KafkaBrokers},
+		Topic:       "notification.send-email",
+		Partition:   0,
+		StartOffset: kafkalib.FirstOffset,
+		MaxWait:     500 * time.Millisecond,
+	})
+	defer r.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	var latestCode string
+	for {
+		msg, err := r.ReadMessage(ctx)
+		if err != nil {
+			break
+		}
+		var body struct {
+			To        string            `json:"to"`
+			EmailType string            `json:"email_type"`
+			Data      map[string]string `json:"data"`
+		}
+		if json.Unmarshal(msg.Value, &body) != nil {
+			continue
+		}
+		if body.To == email && body.EmailType == "TRANSACTION_VERIFICATION" {
+			if code := body.Data["verification_code"]; code != "" {
+				latestCode = code
+			}
+		}
+	}
+
+	if latestCode == "" {
+		t.Fatalf("scanKafkaForVerificationCode: no TRANSACTION_VERIFICATION code found for %s within 15s", email)
+	}
+	return latestCode
+}
+
 // setupActivatedClient creates a new bank client, creates a funded RSD account for them,
 // activates their account via the Kafka activation token, and returns the client's ID,
 // their account number, and an authenticated APIClient ready for use in tests.
 //
 // Uses a random email per call so repeated test runs don't collide on uniqueness constraints.
 // The account is funded with 100 000 RSD initial balance.
-func setupActivatedClient(t *testing.T, adminC *client.APIClient) (clientID int, accountNumber string, clientC *client.APIClient) {
+func setupActivatedClient(t *testing.T, adminC *client.APIClient) (clientID int, accountNumber string, clientC *client.APIClient, email string) {
 	t.Helper()
 
-	email := helpers.RandomEmail()
+	email = helpers.RandomEmail()
 	password := helpers.RandomPassword()
 
 	// Create client
@@ -179,7 +223,7 @@ func setupActivatedClient(t *testing.T, adminC *client.APIClient) (clientID int,
 
 	// Login as the new client
 	clientC = loginAsClient(t, email, password)
-	return clientID, accountNumber, clientC
+	return clientID, accountNumber, clientC, email
 }
 
 // parseJSONBalance extracts a balance field that may be a JSON number (float64) or

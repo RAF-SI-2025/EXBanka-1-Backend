@@ -374,7 +374,6 @@ services:
       CARD_GRPC_ADDR: "card-service:50056"
       TRANSACTION_GRPC_ADDR: "transaction-service:50057"
       CREDIT_GRPC_ADDR: "credit-service:50058"
-      BOOTSTRAP_SECRET: "${BOOTSTRAP_SECRET:-dev-bootstrap-secret}"
     ports:
       - "8080:8080"
     depends_on:
@@ -392,6 +391,26 @@ services:
         condition: service_started
       credit-service:
         condition: service_started
+
+  # ─── Seeder ───────────────────────────────────────────────────────────────
+  seeder:
+    image: ghcr.io/raf-si-2025/seeder:${TAG:-latest}
+    environment:
+      USER_GRPC_ADDR: "user-service:50052"
+      AUTH_GRPC_ADDR: "auth-service:50051"
+      KAFKA_BROKERS: "kafka:9092"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@admin.com}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-AdminAdmin2026!.}"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      auth-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+    restart: on-failure
 
 volumes:
   user_db_data:

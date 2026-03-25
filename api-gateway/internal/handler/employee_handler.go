@@ -93,7 +93,7 @@ func (h *EmployeeHandler) ListEmployees(c *gin.Context) {
 func (h *EmployeeHandler) GetEmployee(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -146,7 +146,7 @@ type createEmployeeRequest struct {
 func (h *EmployeeHandler) CreateEmployee(c *gin.Context) {
 	var req createEmployeeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -203,7 +203,7 @@ type updateEmployeeRequest struct {
 func (h *EmployeeHandler) UpdateEmployee(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -214,13 +214,13 @@ func (h *EmployeeHandler) UpdateEmployee(c *gin.Context) {
 		return
 	}
 	if target.Role == "EmployeeAdmin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "cannot edit admin employees"})
+		apiError(c, 403, ErrForbidden, "cannot edit admin employees")
 		return
 	}
 
 	var req updateEmployeeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 

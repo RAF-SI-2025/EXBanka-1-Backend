@@ -57,7 +57,6 @@ type TransactionGRPCHandler struct {
 	paymentSvc      *service.PaymentService
 	transferSvc     *service.TransferService
 	recipientSvc    *service.PaymentRecipientService
-	exchangeSvc     *service.ExchangeService
 	verificationSvc *service.VerificationService
 	producer        *kafka.Producer
 }
@@ -66,7 +65,6 @@ func NewTransactionGRPCHandler(
 	paymentSvc *service.PaymentService,
 	transferSvc *service.TransferService,
 	recipientSvc *service.PaymentRecipientService,
-	exchangeSvc *service.ExchangeService,
 	verificationSvc *service.VerificationService,
 	producer *kafka.Producer,
 ) *TransactionGRPCHandler {
@@ -74,7 +72,6 @@ func NewTransactionGRPCHandler(
 		paymentSvc:      paymentSvc,
 		transferSvc:     transferSvc,
 		recipientSvc:    recipientSvc,
-		exchangeSvc:     exchangeSvc,
 		verificationSvc: verificationSvc,
 		producer:        producer,
 	}
@@ -112,7 +109,30 @@ func (h *TransactionGRPCHandler) CreatePayment(ctx context.Context, req *pb.Crea
 		log.Printf("warn: failed to publish payment-created event: %v", err)
 	}
 
-	return paymentToProto(payment), nil
+	// Auto-generate verification code and email it to the client
+	var vcExpiresAt int64
+	if req.GetClientId() > 0 {
+		vc, code, vcErr := h.verificationSvc.CreateVerificationCode(ctx, req.GetClientId(), payment.ID, "payment")
+		if vcErr != nil {
+			log.Printf("warn: failed to create verification code for payment %d: %v", payment.ID, vcErr)
+		} else {
+			vcExpiresAt = vc.ExpiresAt.Unix()
+			if email := req.GetClientEmail(); email != "" {
+				_ = h.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
+					To:        email,
+					EmailType: kafkamsg.EmailTypeTransactionVerify,
+					Data: map[string]string{
+						"verification_code": code,
+						"expires_in":        "5 minutes",
+					},
+				})
+			}
+		}
+	}
+
+	resp := paymentToProto(payment)
+	resp.VerificationCodeExpiresAt = vcExpiresAt
+	return resp, nil
 }
 
 func (h *TransactionGRPCHandler) ExecutePayment(ctx context.Context, req *pb.ExecutePaymentRequest) (*pb.PaymentResponse, error) {
@@ -234,7 +254,30 @@ func (h *TransactionGRPCHandler) CreateTransfer(ctx context.Context, req *pb.Cre
 		log.Printf("warn: failed to publish transfer-created event: %v", err)
 	}
 
-	return transferToProto(transfer), nil
+	// Auto-generate verification code and email it to the client
+	var vcExpiresAt int64
+	if req.GetClientId() > 0 {
+		vc, code, vcErr := h.verificationSvc.CreateVerificationCode(ctx, req.GetClientId(), transfer.ID, "transfer")
+		if vcErr != nil {
+			log.Printf("warn: failed to create verification code for transfer %d: %v", transfer.ID, vcErr)
+		} else {
+			vcExpiresAt = vc.ExpiresAt.Unix()
+			if email := req.GetClientEmail(); email != "" {
+				_ = h.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
+					To:        email,
+					EmailType: kafkamsg.EmailTypeTransactionVerify,
+					Data: map[string]string{
+						"verification_code": code,
+						"expires_in":        "5 minutes",
+					},
+				})
+			}
+		}
+	}
+
+	resp := transferToProto(transfer)
+	resp.VerificationCodeExpiresAt = vcExpiresAt
+	return resp, nil
 }
 
 func (h *TransactionGRPCHandler) ExecuteTransfer(ctx context.Context, req *pb.ExecuteTransferRequest) (*pb.TransferResponse, error) {
@@ -343,66 +386,6 @@ func (h *TransactionGRPCHandler) DeletePaymentRecipient(ctx context.Context, req
 	return &pb.DeletePaymentRecipientResponse{Success: true}, nil
 }
 
-// ---- Exchange Rate RPCs ----
-
-func (h *TransactionGRPCHandler) GetExchangeRate(ctx context.Context, req *pb.GetExchangeRateRequest) (*pb.ExchangeRateResponse, error) {
-	rate, err := h.exchangeSvc.GetExchangeRate(req.GetFromCurrency(), req.GetToCurrency())
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "exchange rate not found: %v", err)
-	}
-	return exchangeRateToProto(rate), nil
-}
-
-func (h *TransactionGRPCHandler) ListExchangeRates(ctx context.Context, req *pb.ListExchangeRatesRequest) (*pb.ListExchangeRatesResponse, error) {
-	rates, err := h.exchangeSvc.ListExchangeRates()
-	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "list exchange rates: %v", err)
-	}
-
-	pbRates := make([]*pb.ExchangeRateResponse, 0, len(rates))
-	for i := range rates {
-		pbRates = append(pbRates, exchangeRateToProto(&rates[i]))
-	}
-	return &pb.ListExchangeRatesResponse{Rates: pbRates}, nil
-}
-
-// ---- Verification Code RPCs ----
-
-func (h *TransactionGRPCHandler) CreateVerificationCode(ctx context.Context, req *pb.CreateVerificationCodeRequest) (*pb.CreateVerificationCodeResponse, error) {
-	vc, code, err := h.verificationSvc.CreateVerificationCode(ctx, req.GetClientId(), req.GetTransactionId(), req.GetTransactionType())
-	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "create verification code: %v", err)
-	}
-
-	// Send verification code via email
-	if email := req.GetClientEmail(); email != "" {
-		_ = h.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-			To:        email,
-			EmailType: kafkamsg.EmailTypeTransactionVerify,
-			Data: map[string]string{
-				"verification_code": code,
-				"expires_in":        "5 minutes",
-			},
-		})
-	}
-
-	return &pb.CreateVerificationCodeResponse{
-		Code:      vc.Code,
-		ExpiresAt: vc.ExpiresAt.Unix(),
-	}, nil
-}
-
-func (h *TransactionGRPCHandler) ValidateVerificationCode(ctx context.Context, req *pb.ValidateVerificationCodeRequest) (*pb.ValidateVerificationCodeResponse, error) {
-	valid, remaining, err := h.verificationSvc.ValidateVerificationCode(req.GetClientId(), req.GetTransactionId(), req.GetTransactionType(), req.GetCode())
-	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "validate verification code: %v", err)
-	}
-	return &pb.ValidateVerificationCodeResponse{
-		Valid:             valid,
-		RemainingAttempts: int32(remaining),
-	}, nil
-}
-
 // ---- Helpers ----
 
 func paymentToProto(p *model.Payment) *pb.PaymentResponse {
@@ -446,12 +429,3 @@ func recipientToProto(r *model.PaymentRecipient) *pb.PaymentRecipientResponse {
 	}
 }
 
-func exchangeRateToProto(r *model.ExchangeRate) *pb.ExchangeRateResponse {
-	return &pb.ExchangeRateResponse{
-		FromCurrency: r.FromCurrency,
-		ToCurrency:   r.ToCurrency,
-		BuyRate:      r.BuyRate.StringFixed(4),
-		SellRate:     r.SellRate.StringFixed(4),
-		UpdatedAt:    r.UpdatedAt.String(),
-	}
-}

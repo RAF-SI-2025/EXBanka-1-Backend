@@ -46,7 +46,7 @@ type createClientRequest struct {
 func (h *ClientHandler) CreateClient(c *gin.Context) {
 	var req createClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -134,7 +134,7 @@ func (h *ClientHandler) ListClients(c *gin.Context) {
 func (h *ClientHandler) GetClient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -183,13 +183,13 @@ type updateClientRequest struct {
 func (h *ClientHandler) UpdateClient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var req updateClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -244,7 +244,7 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		apiError(c, 401, ErrUnauthorized, "not authenticated")
 		return
 	}
 
@@ -257,12 +257,12 @@ func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
 	case string:
 		parsedID, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user_id"})
+			apiError(c, 401, ErrUnauthorized, "invalid user_id")
 			return
 		}
 		id = parsedID
 	default:
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user_id"})
+		apiError(c, 401, ErrUnauthorized, "invalid user_id")
 		return
 	}
 

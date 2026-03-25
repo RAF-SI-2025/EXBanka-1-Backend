@@ -47,22 +47,22 @@ type createLoanRequestBody struct {
 func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 	var req createLoanRequestBody
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
 	loanType, err := oneOf("loan_type", req.LoanType, "cash", "housing", "auto", "refinancing", "student")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	interestType, err := oneOf("interest_type", req.InterestType, "fixed", "variable")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := positive("amount", req.Amount); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	allowedPeriods := map[string][]int32{
@@ -81,7 +81,7 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 			}
 		}
 		if !valid {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("repayment_period %d is not allowed for %s loans; allowed: %v", req.RepaymentPeriod, loanType, periods)})
+			apiError(c, 400, ErrValidation, fmt.Sprintf("repayment_period %d is not allowed for %s loans; allowed: %v", req.RepaymentPeriod, loanType, periods))
 			return
 		}
 	}
@@ -119,7 +119,7 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -149,13 +149,24 @@ func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	resp, err := h.creditClient.ListLoanRequests(c.Request.Context(), &creditpb.ListLoanRequestsReq{
+	req := &creditpb.ListLoanRequestsReq{
 		LoanTypeFilter:      c.Query("loan_type_filter"),
 		AccountNumberFilter: c.Query("account_number_filter"),
 		StatusFilter:        c.Query("status_filter"),
 		Page:                int32(page),
 		PageSize:            int32(pageSize),
-	})
+	}
+	// Query-param filtering: ?client_id=X
+	if clientIDStr := c.Query("client_id"); clientIDStr != "" {
+		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
+		if err != nil {
+			apiError(c, 400, ErrValidation, "invalid client_id query parameter")
+			return
+		}
+		req.ClientIdFilter = clientID
+	}
+
+	resp, err := h.creditClient.ListLoanRequests(c.Request.Context(), req)
 	if err != nil {
 		handleGRPCError(c, err)
 		return
@@ -184,7 +195,7 @@ func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -216,7 +227,7 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -240,7 +251,7 @@ func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 func (h *CreditHandler) GetLoan(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -267,7 +278,7 @@ func (h *CreditHandler) GetLoan(c *gin.Context) {
 func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		apiError(c, 400, ErrValidation, "invalid client_id")
 		return
 	}
 	if !enforceClientSelf(c, clientID) {
@@ -310,6 +321,32 @@ func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 // @Failure      500  {object}  map[string]string
 // @Router       /api/loans [get]
 func (h *CreditHandler) ListAllLoans(c *gin.Context) {
+	// Query-param filtering: ?client_id=X
+	if clientIDStr := c.Query("client_id"); clientIDStr != "" {
+		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
+		if err != nil {
+			apiError(c, 400, ErrValidation, "invalid client_id query parameter")
+			return
+		}
+		page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 32)
+		pageSize, _ := strconv.ParseInt(c.DefaultQuery("page_size", "20"), 10, 32)
+		resp, err := h.creditClient.ListLoansByClient(c.Request.Context(), &creditpb.ListLoansByClientReq{
+			ClientId: clientID,
+			Page:     int32(page),
+			PageSize: int32(pageSize),
+		})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		loans := make([]gin.H, 0, len(resp.Loans))
+		for _, l := range resp.Loans {
+			loans = append(loans, loanToJSON(l))
+		}
+		c.JSON(http.StatusOK, gin.H{"loans": loans, "total": resp.Total})
+		return
+	}
+
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
@@ -348,7 +385,7 @@ func (h *CreditHandler) ListAllLoans(c *gin.Context) {
 func (h *CreditHandler) GetInstallmentsByLoan(c *gin.Context) {
 	loanID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -390,7 +427,7 @@ func (h *CreditHandler) GetInstallmentsByLoan(c *gin.Context) {
 func (h *CreditHandler) ListLoanRequestsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid client_id"})
+		apiError(c, 400, ErrValidation, "invalid client_id")
 		return
 	}
 	if !enforceClientSelf(c, clientID) {
@@ -486,23 +523,23 @@ type createInterestRateTierBody struct {
 func (h *CreditHandler) CreateInterestRateTier(c *gin.Context) {
 	var req createInterestRateTierBody
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := nonNegative("amount_from", req.AmountFrom); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := nonNegative("amount_to", req.AmountTo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := nonNegative("fixed_rate", req.FixedRate); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := nonNegative("variable_base", req.VariableBase); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -543,29 +580,29 @@ type updateInterestRateTierBody struct {
 func (h *CreditHandler) UpdateInterestRateTier(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var req updateInterestRateTierBody
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := nonNegative("amount_from", req.AmountFrom); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := nonNegative("amount_to", req.AmountTo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := nonNegative("fixed_rate", req.FixedRate); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := nonNegative("variable_base", req.VariableBase); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -598,7 +635,7 @@ func (h *CreditHandler) UpdateInterestRateTier(c *gin.Context) {
 func (h *CreditHandler) DeleteInterestRateTier(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -656,17 +693,17 @@ type updateBankMarginBody struct {
 func (h *CreditHandler) UpdateBankMargin(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
 	var req updateBankMarginBody
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	if err := nonNegative("margin", req.Margin); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -696,7 +733,7 @@ func (h *CreditHandler) UpdateBankMargin(c *gin.Context) {
 func (h *CreditHandler) ApplyVariableRateUpdate(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		apiError(c, 400, ErrValidation, "invalid id")
 		return
 	}
 
@@ -730,6 +767,101 @@ func bankMarginToJSON(m *creditpb.BankMarginResponse) gin.H {
 		"created_at": m.CreatedAt,
 		"updated_at": m.UpdatedAt,
 	}
+}
+
+// ListMyLoans serves GET /api/me/loans.
+func (h *CreditHandler) ListMyLoans(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.creditClient.ListLoansByClient(c.Request.Context(), &creditpb.ListLoansByClientReq{
+		ClientId: uint64(uid),
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	loans := make([]gin.H, 0, len(resp.Loans))
+	for _, l := range resp.Loans {
+		loans = append(loans, loanToJSON(l))
+	}
+	c.JSON(http.StatusOK, gin.H{"loans": loans, "total": resp.Total})
+}
+
+// GetMyLoan serves GET /api/me/loans/:id.
+func (h *CreditHandler) GetMyLoan(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.creditClient.GetLoan(c.Request.Context(), &creditpb.GetLoanReq{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, loanToJSON(resp))
+}
+
+// GetMyInstallments serves GET /api/me/loans/:id/installments.
+func (h *CreditHandler) GetMyInstallments(c *gin.Context) {
+	loanID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	resp, err := h.creditClient.GetInstallmentsByLoan(c.Request.Context(), &creditpb.GetInstallmentsByLoanReq{LoanId: loanID})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	installments := make([]gin.H, 0, len(resp.Installments))
+	for _, inst := range resp.Installments {
+		installments = append(installments, gin.H{
+			"id":            inst.Id,
+			"loan_id":       inst.LoanId,
+			"amount":        inst.Amount,
+			"interest_rate": inst.InterestRate,
+			"currency_code": inst.CurrencyCode,
+			"expected_date": inst.ExpectedDate,
+			"actual_date":   inst.ActualDate,
+			"status":        inst.Status,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"installments": installments})
+}
+
+// ListMyLoanRequests serves GET /api/me/loan-requests.
+func (h *CreditHandler) ListMyLoanRequests(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.creditClient.ListLoanRequests(c.Request.Context(), &creditpb.ListLoanRequestsReq{
+		ClientIdFilter: uint64(uid),
+		Page:           int32(page),
+		PageSize:       int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	requests := make([]gin.H, 0, len(resp.Requests))
+	for _, r := range resp.Requests {
+		requests = append(requests, loanRequestToJSON(r))
+	}
+	c.JSON(http.StatusOK, gin.H{"requests": requests, "total": resp.Total})
 }
 
 func loanToJSON(l *creditpb.LoanResponse) gin.H {

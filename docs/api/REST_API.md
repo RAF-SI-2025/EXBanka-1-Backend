@@ -40,48 +40,14 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 10. [Verification Codes](#10-verification-codes)
 11. [Exchange Rates](#11-exchange-rates)
 12. [Loans](#12-loans)
-13. [Limits](#13-limits)
-14. [Bank Accounts](#14-bank-accounts)
-15. [Transfer Fees](#15-transfer-fees)
-16. [Interest Rate Tiers](#16-interest-rate-tiers)
-17. [Bank Margins](#17-bank-margins)
-18. [Card Requests](#18-card-requests)
-
----
-
-## Bootstrap
-
-### POST /api/bootstrap
-
-One-time admin account setup. Creates the system admin employee and provisions their auth account, triggering an activation email. Idempotent — safe to call multiple times (subsequent calls re-send the activation token if the account is not yet active).
-
-Returns `404 Not Found` when `BOOTSTRAP_SECRET` is not set in the api-gateway environment (disabled in production).
-
-**Authentication:** None (public). Protected by shared secret instead.
-
-**Request Body:**
-
-```json
-{
-  "secret": "dev-bootstrap-secret",
-  "email": "admin@example.com"
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `secret` | string | yes | Must match the `BOOTSTRAP_SECRET` env var configured in api-gateway |
-| `email` | string | yes | Email address to use for the admin account |
-
-**Responses:**
-
-| Status | Description |
-|---|---|
-| `200 OK` | Admin employee created (or already existed) and activation token published to Kafka |
-| `400 Bad Request` | Missing or invalid request body |
-| `401 Unauthorized` | Wrong bootstrap secret |
-| `404 Not Found` | Bootstrap endpoint disabled (`BOOTSTRAP_SECRET` not set) |
-| `500 Internal Server Error` | Failed to create employee or provision auth account |
+13. [Loan Requests](#13-loan-requests)
+14. [Limits](#14-limits)
+15. [Bank Accounts](#15-bank-accounts)
+16. [Transfer Fees](#16-transfer-fees)
+17. [Interest Rate Tiers](#17-interest-rate-tiers)
+18. [Bank Margins](#18-bank-margins)
+19. [Card Requests](#19-card-requests)
+20. [Me (Self-Service)](#20-me-self-service)
 
 ---
 
@@ -698,14 +664,9 @@ Get a single client by ID.
 
 ---
 
-### GET /api/clients/me
+### ~~GET /api/clients/me~~ (removed — use GET /api/me)
 
-Get the currently authenticated client's profile.
-
-**Authentication:** Client JWT
-
-**Response 200:** Client object
-**Response 401:** `{"error": "not authenticated"}`
+> **Removed.** Use `GET /api/me` instead. The new endpoint accepts both employee and client JWTs and returns the current principal's profile.
 
 ---
 
@@ -785,7 +746,7 @@ Create a new bank account.
 
 ### GET /api/accounts
 
-List all accounts with optional filters.
+List all accounts with optional filters. Pass `client_id` to filter by owner — this replaces the old `GET /api/accounts/client/:client_id` path. Clients looking for their own accounts should use `GET /api/me/accounts` instead.
 
 **Authentication:** Employee JWT + `accounts.read` permission
 
@@ -798,6 +759,7 @@ List all accounts with optional filters.
 | `name_filter` | string | Filter by account name |
 | `account_number_filter` | string | Filter by account number |
 | `type_filter` | string | Filter by account type |
+| `client_id` | int | Filter accounts belonging to a specific client (replaces `GET /api/accounts/client/:client_id`) |
 
 **Response 200:**
 ```json
@@ -867,34 +829,9 @@ Get an account by its account number.
 
 ---
 
-### GET /api/accounts/client/:client_id
+### ~~GET /api/accounts/client/:client_id~~ (removed)
 
-List all accounts belonging to a specific client. Clients can only access their own accounts (`:client_id` must match the JWT `user_id`).
-
-**Authentication:** Any JWT (Employee or Client)
-
-**Response 403:** `{"error": "clients can only access their own resources"}` (client accessing another client's data)
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `client_id` | int | Client ID |
-
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `page` | int | Page number (default: 1) |
-| `page_size` | int | Items per page (default: 20) |
-
-**Response 200:**
-```json
-{
-  "accounts": [ /* array of account objects */ ],
-  "total": 3
-}
-```
+> **Removed.** Employees should use `GET /api/accounts?client_id=X`. Clients should use `GET /api/me/accounts`.
 
 ---
 
@@ -939,7 +876,7 @@ Update the daily/monthly spending limits of an account. Requires a verification 
 |---|---|---|---|
 | `daily_limit` | float64 | No | New daily spending limit (must be >= 0) |
 | `monthly_limit` | float64 | No | New monthly spending limit (must be >= 0) |
-| `verification_code` | string | Yes | Verification code for authorization (obtained via `POST /api/verification`) |
+| `verification_code` | string | Yes | Verification code for authorization |
 
 > **Note:** At least one of `daily_limit` or `monthly_limit` should be provided. The `verification_code` is validated against the transaction service before the limits are applied.
 
@@ -1102,7 +1039,7 @@ Issue a new payment card linked to an account.
 
 Get a card by ID.
 
-**Authentication:** Any JWT (Employee or Client)
+**Authentication:** Employee JWT only (`AuthMiddleware` + `cards.read` permission). Clients must use `GET /api/me/cards/:id` instead.
 
 **Path Parameters:**
 
@@ -1115,57 +1052,50 @@ Get a card by ID.
 
 ---
 
-### GET /api/cards/account/:account_number
+### ~~GET /api/cards/account/:account_number~~ (removed)
 
-List all cards linked to a specific account.
+> **Removed.** Use `GET /api/cards?account_number=X` instead.
 
-**Authentication:** Any JWT (Employee or Client)
+---
 
-**Path Parameters:**
+### ~~GET /api/cards/client/:client_id~~ (removed)
+
+> **Removed.** Employees should use `GET /api/cards?client_id=X`. Clients should use `GET /api/me/cards`.
+
+---
+
+### GET /api/cards
+
+List cards with optional filters. Employees can filter by `client_id` or `account_number`. Exactly one filter should be provided; if neither is provided, all cards visible to the employee are returned.
+
+**Authentication:** Employee JWT + `cards.manage` permission
+
+**Query Parameters:**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `account_number` | string | Account number |
+| `client_id` | int | Filter cards belonging to a specific client |
+| `account_number` | string | Filter cards linked to a specific account number |
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
 
 **Response 200:**
 ```json
 {
-  "cards": [ /* array of card objects */ ]
+  "cards": [ /* array of card objects */ ],
+  "total": 5
 }
 ```
 
 ---
 
-### GET /api/cards/client/:client_id
+### POST /api/cards/:id/block
 
-List all cards belonging to a specific client. Clients can only access their own cards (`:client_id` must match the JWT `user_id`).
+Block a card (e.g., reported as lost or stolen). Method changed from `PUT` to `POST`.
 
-**Authentication:** Any JWT (Employee or Client)
+**Authentication:** Employee JWT + `cards.update` permission
 
-**Response 403:** `{"error": "clients can only access their own resources"}` (client accessing another client's data)
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `client_id` | int | Client ID |
-
-**Response 200:**
-```json
-{
-  "cards": [ /* array of card objects */ ]
-}
-```
-
----
-
-### PUT /api/cards/:id/block
-
-Block a card (e.g., reported as lost or stolen).
-
-**Authentication:** Employee JWT + `cards.update` permission **OR** Client JWT (own cards only)
-
-Employees with the `cards.update` permission can block any card. Clients can block their own cards only — the card's `owner_id` must match the authenticated client's `user_id`. If a client attempts to block a card that does not belong to them, a `403 Forbidden` error is returned.
+Employees with the `cards.update` permission can block any card. Clients who want to block their own card should use `POST /api/me/cards/:id/block` (see [Me — Self-Service](#20-me-self-service) below, though the temporary block for a duration is at `POST /api/me/cards/:id/temporary-block`).
 
 **Path Parameters:**
 
@@ -1175,15 +1105,13 @@ Employees with the `cards.update` permission can block any card. Clients can blo
 
 **Response 200:** Updated card object with `"status": "BLOCKED"`
 
-**Response 403:** `{"error": "clients can only block their own cards"}` (client attempting to block another client's card)
-
-**Response 404:** `{"error": "card not found"}` (card does not exist)
+**Response 404:** `{"error": {"code": "not_found", "message": "card not found"}}`
 
 ---
 
-### PUT /api/cards/:id/unblock
+### POST /api/cards/:id/unblock
 
-Unblock a previously blocked card. Only employees can unblock cards.
+Unblock a previously blocked card. Only employees can unblock cards. Method changed from `PUT` to `POST`.
 
 **Authentication:** Employee JWT + `cards.update` permission
 
@@ -1197,9 +1125,9 @@ Unblock a previously blocked card. Only employees can unblock cards.
 
 ---
 
-### PUT /api/cards/:id/deactivate
+### POST /api/cards/:id/deactivate
 
-Permanently deactivate a card.
+Permanently deactivate a card. Method changed from `PUT` to `POST`.
 
 **Authentication:** Employee JWT + `cards.update` permission
 
@@ -1249,11 +1177,17 @@ Create an authorized person who can also hold a card linked to an existing accou
 
 ---
 
-### POST /api/cards/virtual
+### ~~POST /api/cards/virtual~~ (moved — use POST /api/me/cards/virtual)
+
+> **Moved to `/api/me/*`.** See `POST /api/me/cards/virtual` in the [Me — Self-Service](#20-me-self-service) section.
+
+The documentation below is preserved for reference; the request/response shape is unchanged.
+
+### POST /api/me/cards/virtual
 
 Create a virtual card for a client account. Virtual cards can be single-use or multi-use and expire after 1-3 months.
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware — identity scoped to the token principal)
 
 **Request Body:**
 
@@ -1307,11 +1241,15 @@ Create a virtual card for a client account. Virtual cards can be single-use or m
 
 ---
 
-### POST /api/cards/:id/pin
+### ~~POST /api/cards/:id/pin~~ (moved — use POST /api/me/cards/:id/pin)
+
+> **Moved to `/api/me/*`.** See `POST /api/me/cards/:id/pin` in the [Me — Self-Service](#20-me-self-service) section. Request/response shape is unchanged.
+
+### POST /api/me/cards/:id/pin
 
 Set the 4-digit PIN for a card.
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Path Parameters:**
 
@@ -1349,11 +1287,15 @@ Set the 4-digit PIN for a card.
 
 ---
 
-### POST /api/cards/:id/verify-pin
+### ~~POST /api/cards/:id/verify-pin~~ (moved — use POST /api/me/cards/:id/verify-pin)
+
+> **Moved to `/api/me/*`.** See `POST /api/me/cards/:id/verify-pin` in the [Me — Self-Service](#20-me-self-service) section.
+
+### POST /api/me/cards/:id/verify-pin
 
 Verify the 4-digit PIN for a card. The card is permanently blocked after 3 consecutive failed attempts.
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Path Parameters:**
 
@@ -1391,11 +1333,15 @@ Verify the 4-digit PIN for a card. The card is permanently blocked after 3 conse
 
 ---
 
-### POST /api/cards/:id/temporary-block
+### ~~POST /api/cards/:id/temporary-block~~ (moved — use POST /api/me/cards/:id/temporary-block)
+
+> **Moved to `/api/me/*`.** See `POST /api/me/cards/:id/temporary-block` in the [Me — Self-Service](#20-me-self-service) section.
+
+### POST /api/me/cards/:id/temporary-block
 
 Temporarily block a card for a specified duration in hours. The card is automatically unblocked by a background job when the duration expires.
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Path Parameters:**
 
@@ -1435,11 +1381,15 @@ Payments are domestic/foreign transfers from one account to another with optiona
 
 ---
 
-### POST /api/payments
+### ~~POST /api/payments~~ (moved — use POST /api/me/payments)
+
+> **Moved to `/api/me/*`.** See `POST /api/me/payments` in the [Me — Self-Service](#20-me-self-service) section.
+
+### POST /api/me/payments
 
 Initiate a new payment from a client account.
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Request Body:**
 
@@ -1480,9 +1430,12 @@ Initiate a new payment from a client account.
   "reference_number": "97 123456789",
   "payment_purpose": "Invoice #INV-2026-001",
   "status": "COMPLETED",
-  "timestamp": "2026-03-13T10:00:00Z"
+  "timestamp": "2026-03-13T10:00:00Z",
+  "verification_code_expires_at": 1743000300
 }
 ```
+
+> **Note:** A verification code has been sent to the client's registered email. Use it when calling the execute endpoint (`POST /api/me/payments/:id/execute`).
 
 ---
 
@@ -1537,11 +1490,15 @@ List payments for a specific account with filters.
 
 ---
 
-### POST /api/payments/:id/execute
+### ~~POST /api/payments/:id/execute~~ (moved — use POST /api/me/payments/:id/execute)
 
-Execute a pending payment after verification. The payment must have been created previously via `POST /api/payments` and a valid verification code must be obtained via `POST /api/verification`.
+> **Moved to `/api/me/*`.** See `POST /api/me/payments/:id/execute` in the [Me — Self-Service](#20-me-self-service) section.
 
-**Authentication:** Client JWT
+### POST /api/me/payments/:id/execute
+
+Execute a pending payment after verification. The payment must have been created previously via `POST /api/me/payments`. A verification code is automatically sent to the client's registered email when the payment is created — use that code here.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Path Parameters:**
 
@@ -1553,7 +1510,7 @@ Execute a pending payment after verification. The payment must have been created
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Verification code obtained from `POST /api/verification` |
+| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the payment was created |
 
 **Example Request:**
 ```json
@@ -1590,59 +1547,39 @@ Execute a pending payment after verification. The payment must have been created
 
 ---
 
-### GET /api/payments/client/:client_id
+### ~~GET /api/payments/client/:client_id~~ (removed)
 
-Returns all payments where any of the client's accounts appears as sender or recipient.
-Equivalent to `GET /api/transfers/client/:client_id` but for payments.
+> **Removed.** Employees should use `GET /api/payments?client_id=X`. Clients should use `GET /api/me/payments`.
 
-**Authentication:** Required (employee or client; clients may only query their own `client_id`)
+---
 
-**Path parameters:**
+### GET /api/payments
 
-| Parameter   | Type    | Description |
-|-------------|---------|-------------|
-| `client_id` | integer | Client ID   |
+List payments with optional filters. For employees, pass `client_id` or `account_number` to filter. This endpoint replaces the old path-based `GET /api/payments/client/:client_id` and `GET /api/payments/account/:account_number`.
 
-**Query parameters:**
+**Authentication:** Employee JWT + `transactions.read` permission
 
-| Parameter   | Type    | Default | Description             |
-|-------------|---------|---------|-------------------------|
-| `page`      | integer | 1       | Page number             |
-| `page_size` | integer | 20      | Items per page          |
+**Query Parameters:**
 
-**Example request:**
-```
-GET /api/payments/client/42?page=1&page_size=20
-Authorization: Bearer <token>
-```
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `client_id` | integer | — | Filter payments where the client's accounts appear as sender or recipient |
+| `account_number` | string | — | Filter payments for a specific account number |
+| `page` | integer | 1 | Page number |
+| `page_size` | integer | 20 | Items per page |
+| `date_from` | string | — | Start date filter (RFC3339 or YYYY-MM-DD) |
+| `date_to` | string | — | End date filter (RFC3339 or YYYY-MM-DD) |
+| `status_filter` | string | — | Filter by status (e.g., `"COMPLETED"`, `"PENDING"`) |
+| `amount_min` | float64 | — | Minimum amount filter |
+| `amount_max` | float64 | — | Maximum amount filter |
 
 **Response 200:**
 ```json
 {
-  "payments": [
-    {
-      "id": 7,
-      "from_account_number": "115-0001234567-10",
-      "to_account_number": "115-0009876543-10",
-      "initial_amount": "500.0000",
-      "final_amount": "500.0000",
-      "commission": "0.0000",
-      "recipient_name": "John Doe",
-      "payment_code": "289",
-      "reference_number": "",
-      "payment_purpose": "Test",
-      "status": "completed",
-      "timestamp": "2026-03-24 10:30:00 +0000 UTC"
-    }
-  ],
-  "total": 1
+  "payments": [ /* array of payment objects */ ],
+  "total": 87
 }
 ```
-
-**Response 400:** `{ "error": "invalid client_id" }`
-**Response 401:** `{ "error": "not authenticated" }`
-**Response 403:** `{ "error": "forbidden" }` (client accessing another client's data)
-**Response 500:** `{ "error": "..." }`
 
 ---
 
@@ -1652,11 +1589,15 @@ Transfers are inter-account currency exchanges (can be same currency or cross-cu
 
 ---
 
-### POST /api/transfers
+### ~~POST /api/transfers~~ (moved — use POST /api/me/transfers)
+
+> **Moved to `/api/me/*`.** See `POST /api/me/transfers` in the [Me — Self-Service](#20-me-self-service) section.
+
+### POST /api/me/transfers
 
 Initiate a currency transfer between accounts.
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Request Body:**
 
@@ -1686,9 +1627,12 @@ Initiate a currency transfer between accounts.
   "exchange_rate": 117.23,
   "commission": 0.50,
   "timestamp": "2026-03-13T10:00:00Z",
-  "status": "pending_verification"
+  "status": "pending_verification",
+  "verification_code_expires_at": 1743000300
 }
 ```
+
+> **Note:** A verification code has been sent to the client's registered email. Use it when calling the execute endpoint (`POST /api/me/transfers/:id/execute`).
 
 ---
 
@@ -1709,24 +1653,23 @@ Get a transfer by ID.
 
 ---
 
-### GET /api/transfers/client/:client_id
+### ~~GET /api/transfers/client/:client_id~~ (removed)
 
-List all transfers for a specific client. Clients can only access their own transfers (`:client_id` must match the JWT `user_id`).
+> **Removed.** Employees should use `GET /api/transfers?client_id=X`. Clients should use `GET /api/me/transfers`.
 
-**Authentication:** Any JWT (Employee or Client)
+---
 
-**Response 403:** `{"error": "clients can only access their own resources"}` (client accessing another client's data)
+### GET /api/transfers
 
-**Path Parameters:**
+List transfers with optional filters. Pass `client_id` to filter by owner.
 
-| Parameter | Type | Description |
-|---|---|---|
-| `client_id` | int | Client ID |
+**Authentication:** Employee JWT + `transactions.read` permission
 
 **Query Parameters:**
 
 | Parameter | Type | Description |
 |---|---|---|
+| `client_id` | int | Filter transfers belonging to a specific client |
 | `page` | int | Page number (default: 1) |
 | `page_size` | int | Items per page (default: 20) |
 
@@ -1740,11 +1683,15 @@ List all transfers for a specific client. Clients can only access their own tran
 
 ---
 
-### POST /api/transfers/:id/execute
+### ~~POST /api/transfers/:id/execute~~ (moved — use POST /api/me/transfers/:id/execute)
 
-Execute a pending transfer after verification. The transfer must have been created previously via `POST /api/transfers` and a valid verification code must be obtained via `POST /api/verification`.
+> **Moved to `/api/me/*`.** See `POST /api/me/transfers/:id/execute` in the [Me — Self-Service](#20-me-self-service) section.
 
-**Authentication:** Client JWT
+### POST /api/me/transfers/:id/execute
+
+Execute a pending transfer after verification. The transfer must have been created previously via `POST /api/me/transfers`. A verification code is automatically sent to the client's registered email when the transfer is created — use that code here.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Path Parameters:**
 
@@ -1756,7 +1703,7 @@ Execute a pending transfer after verification. The transfer must have been creat
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Verification code obtained from `POST /api/verification` |
+| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the transfer was created |
 
 **Example Request:**
 ```json
@@ -1796,11 +1743,15 @@ Saved payment recipients (favorites) for a client.
 
 ---
 
-### POST /api/payment-recipients
+### ~~POST /api/payment-recipients~~ (moved — use POST /api/me/payment-recipients)
+
+> **Moved to `/api/me/*`.** See `POST /api/me/payment-recipients` in the [Me — Self-Service](#20-me-self-service) section.
+
+### POST /api/me/payment-recipients
 
 Save a new payment recipient.
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Request Body:**
 
@@ -1832,32 +1783,17 @@ Save a new payment recipient.
 
 ---
 
-### GET /api/payment-recipients/:client_id
+### ~~GET /api/payment-recipients/:client_id~~ (removed — use GET /api/me/payment-recipients)
 
-List all saved recipients for a client.
-
-**Authentication:** Client JWT
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `client_id` | int | Client ID |
-
-**Response 200:**
-```json
-{
-  "recipients": [ /* array of recipient objects */ ]
-}
-```
+> **Removed.** Use `GET /api/me/payment-recipients` instead. Identity is inferred from the JWT — no `client_id` path segment needed.
 
 ---
 
-### PUT /api/payment-recipients/:id
+### PUT /api/me/payment-recipients/:id
 
-Update a saved recipient.
+Update a saved recipient. (Previously `PUT /api/payment-recipients/:id` — now under `/api/me/*`.)
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Path Parameters:**
 
@@ -1876,11 +1812,11 @@ Update a saved recipient.
 
 ---
 
-### DELETE /api/payment-recipients/:id
+### DELETE /api/me/payment-recipients/:id
 
-Delete a saved recipient.
+Delete a saved recipient. (Previously `DELETE /api/payment-recipients/:id` — now under `/api/me/*`.)
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Path Parameters:**
 
@@ -1892,84 +1828,15 @@ Delete a saved recipient.
 
 ---
 
-## 10. Verification Codes
-
-One-time verification codes for authorizing sensitive transactions (2FA).
-
----
-
-### POST /api/verification
-
-Generate a one-time verification code for a transaction. The code is also sent to the client's email.
-
-**Authentication:** Client JWT
-
-**Request Body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `client_id` | uint64 | Yes | Client ID |
-| `transaction_id` | uint64 | Yes | ID of the transaction to authorize |
-| `transaction_type` | string | Yes | `"PAYMENT"` or `"TRANSFER"` |
-
-**Example Request:**
-```json
-{
-  "client_id": 1,
-  "transaction_id": 42,
-  "transaction_type": "PAYMENT"
-}
-```
-
-**Response 201:**
-```json
-{
-  "code": "847291",
-  "expires_at": "2026-03-13T10:10:00Z"
-}
-```
-
----
-
-### POST /api/verification/validate
-
-Validate a verification code.
-
-**Authentication:** Client JWT
-
-**Request Body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `client_id` | uint64 | Yes | Client ID |
-| `transaction_id` | uint64 | Yes | Transaction ID being verified |
-| `code` | string | Yes | 6-digit code received by email |
-
-**Example Request:**
-```json
-{
-  "client_id": 1,
-  "transaction_id": 42,
-  "code": "847291"
-}
-```
-
-**Response 200:**
-```json
-{
-  "valid": true
-}
-```
-
----
-
-## 11. Exchange Rates
+## 10. Exchange Rates
 
 Public endpoints — no authentication required.
 
+Supported currencies: `RSD`, `EUR`, `USD`, `CHF`, `GBP`, `JPY`, `CAD`, `AUD`.
+
 ---
 
-### GET /api/exchange-rates
+### GET /api/exchange/rates
 
 List all current exchange rates.
 
@@ -1982,8 +1849,8 @@ List all current exchange rates.
     {
       "from_currency": "EUR",
       "to_currency": "RSD",
-      "buy_rate": 116.50,
-      "sell_rate": 117.80,
+      "buy_rate": "116.5000",
+      "sell_rate": "117.8000",
       "updated_at": "2026-03-13T08:00:00Z"
     }
   ]
@@ -1992,7 +1859,7 @@ List all current exchange rates.
 
 ---
 
-### GET /api/exchange-rates/:from/:to
+### GET /api/exchange/rates/:from/:to
 
 Get the exchange rate between two specific currencies.
 
@@ -2010,27 +1877,82 @@ Get the exchange rate between two specific currencies.
 {
   "from_currency": "EUR",
   "to_currency": "RSD",
-  "buy_rate": 116.50,
-  "sell_rate": 117.80,
+  "buy_rate": "116.5000",
+  "sell_rate": "117.8000",
   "updated_at": "2026-03-13T08:00:00Z"
 }
 ```
 
-**Response 404:** `{"error": "exchange rate not found"}`
+**Response 404:** `{"error": {"code": "not_found", "message": "exchange rate not found"}}`
+
+---
+
+### POST /api/exchange/calculate
+
+Calculate a currency conversion including the bank's commission. Informational only — no transaction is created.
+
+**Authentication:** None (public)
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `fromCurrency` | string | yes | Source currency code (e.g. `EUR`) |
+| `toCurrency` | string | yes | Target currency code (e.g. `RSD`) |
+| `amount` | string | yes | Amount to convert (must be positive decimal) |
+
+**Example request:**
+```json
+POST /api/exchange/calculate
+Content-Type: application/json
+
+{
+  "fromCurrency": "EUR",
+  "toCurrency": "RSD",
+  "amount": "100.00"
+}
+```
+
+**Response 200:**
+```json
+{
+  "from_currency": "EUR",
+  "to_currency": "RSD",
+  "input_amount": "100.0000",
+  "converted_amount": "11700.0000",
+  "commission_rate": "0.005",
+  "effective_rate": "117.3000"
+}
+```
+
+A verification code has been sent to the client's registered email. Use it when calling the execute endpoint.
+
+| Code | Description |
+|---|---|
+| 200 | Conversion result |
+| 400 | Validation error (missing fields, invalid amount, unsupported currency) — `{"error": {"code": "validation_error", "message": "..."}}` |
+| 404 | Exchange rate not found for the requested pair |
+| 500 | Internal error |
 
 ---
 
 ## 12. Loans
 
-Loan request and loan management endpoints. Clients can apply and view their loans; employees can approve/reject and view all.
+Loan management endpoints. Employees can view all loans and approve/reject loan requests. Clients should use `GET /api/me/loans` and related `/api/me/*` routes to view and manage their own loans.
+
+Loan request management has been promoted to its own top-level section — see [Section 13: Loan Requests](#13-loan-requests).
 
 ---
 
-### POST /api/loans/requests
+### ~~POST /api/loans/requests~~ (moved — use POST /api/me/loan-requests)
+
+> **Moved.** Clients should use `POST /api/me/loan-requests`. See the [Me — Self-Service](#20-me-self-service) section.
+
+### POST /api/me/loan-requests
 
 Submit a new loan application.
 
-**Authentication:** Client JWT
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Request Body:**
 
@@ -2090,114 +2012,37 @@ Submit a new loan application.
 
 ---
 
-### GET /api/loans/requests
+### ~~GET /api/loans/requests~~ (moved — use GET /api/loan-requests)
 
-List all loan requests (employee view).
+> **Moved to top-level.** See `GET /api/loan-requests` in [Section 13: Loan Requests](#13-loan-requests).
 
-**Authentication:** Employee JWT + `credits.read` permission
+### ~~GET /api/loans/requests/:id~~ (moved — use GET /api/loan-requests/:id)
 
-**Query Parameters:**
+> **Moved to top-level.** See `GET /api/loan-requests/:id` in [Section 13: Loan Requests](#13-loan-requests).
 
-| Parameter | Type | Description |
-|---|---|---|
-| `page` | int | Page number (default: 1) |
-| `page_size` | int | Items per page (default: 20) |
-| `loan_type_filter` | string | Filter by loan type |
-| `account_number_filter` | string | Filter by account number |
-| `status_filter` | string | Filter by status (`"PENDING"`, `"APPROVED"`, `"REJECTED"`) |
+### ~~PUT /api/loans/requests/:id/approve~~ (moved and method changed — use POST /api/loan-requests/:id/approve)
 
-**Response 200:**
-```json
-{
-  "requests": [ /* array of loan request objects */ ],
-  "total": 23
-}
-```
+> **Moved and method changed to POST.** See `POST /api/loan-requests/:id/approve` in [Section 13: Loan Requests](#13-loan-requests).
+
+### ~~PUT /api/loans/requests/:id/reject~~ (moved and method changed — use POST /api/loan-requests/:id/reject)
+
+> **Moved and method changed to POST.** See `POST /api/loan-requests/:id/reject` in [Section 13: Loan Requests](#13-loan-requests).
 
 ---
 
-### GET /api/loans/requests/:id
+### ~~GET /api/loans/requests/client/:client_id~~ (removed — use GET /api/me/loan-requests)
 
-Get a single loan request by ID.
-
-**Authentication:** Employee JWT + `credits.read` permission
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `id` | int | Loan request ID |
-
-**Response 200:** Loan request object
-**Response 404:** `{"error": "loan request not found"}`
-
----
-
-### PUT /api/loans/requests/:id/approve
-
-Approve a loan request. Creates a loan and sends an approval email to the client.
-
-**Authentication:** Employee JWT + `credits.approve` permission
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `id` | int | Loan request ID |
-
-**Response 200:** Created loan object:
-```json
-{
-  "id": 1,
-  "loan_number": "LOAN-2026-000001",
-  "loan_type": "PERSONAL",
-  "account_number": "265-1234567890123-56",
-  "amount": 500000.00,
-  "repayment_period": 60,
-  "nominal_interest_rate": 6.5,
-  "effective_interest_rate": 6.73,
-  "contract_date": "2026-03-13",
-  "maturity_date": "2031-03-13",
-  "next_installment_amount": 9755.50,
-  "next_installment_date": "2026-04-13",
-  "remaining_debt": 500000.00,
-  "currency_code": "RSD",
-  "status": "ACTIVE",
-  "interest_type": "FIXED",
-  "created_at": "2026-03-13T10:00:00Z"
-}
-```
-
-**Response 500 (limit exceeded):**
-```json
-{
-  "error": "loan amount 500000.00 exceeds your approval limit of 100000.00"
-}
-```
-
-> **Note:** The approving employee's `MaxLoanApprovalAmount` limit is enforced. If the loan request amount exceeds the employee's configured limit, the approval is rejected.
-
----
-
-### PUT /api/loans/requests/:id/reject
-
-Reject a loan request. Sends a rejection email to the client.
-
-**Authentication:** Employee JWT + `credits.approve` permission
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `id` | int | Loan request ID |
-
-**Response 200:** Updated loan request object with `"status": "REJECTED"`
+> **Removed.** Clients should use `GET /api/me/loan-requests`. Employees should use `GET /api/loan-requests?client_id=X`.
 
 ---
 
 ### GET /api/loans
 
 List all active loans (employee view).
+
+### GET /api/loans
+
+List loans (employee view). Pass `client_id` to filter loans for a specific client — this replaces the old `GET /api/loans/client/:client_id`. Clients should use `GET /api/me/loans`.
 
 **Authentication:** Employee JWT + `credits.read` permission
 
@@ -2210,6 +2055,7 @@ List all active loans (employee view).
 | `loan_type_filter` | string | Filter by loan type |
 | `account_number_filter` | string | Filter by account number |
 | `status_filter` | string | Filter by status |
+| `client_id` | int | Filter loans belonging to a specific client (replaces `GET /api/loans/client/:client_id`) |
 
 **Response 200:**
 ```json
@@ -2238,65 +2084,15 @@ Get a single loan by ID.
 
 ---
 
-### GET /api/loans/client/:client_id
+### ~~GET /api/loans/client/:client_id~~ (removed)
 
-List all loans belonging to a specific client. Clients can only access their own loans (`:client_id` must match the JWT `user_id`).
-
-**Authentication:** Any JWT (Employee or Client)
-
-**Response 403:** `{"error": "clients can only access their own resources"}` (client accessing another client's data)
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `client_id` | int | Client ID |
-
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `page` | int | Page number (default: 1) |
-| `page_size` | int | Items per page (default: 20) |
-
-**Response 200:**
-```json
-{
-  "loans": [ /* array of loan objects */ ],
-  "total": 2
-}
-```
+> **Removed.** Employees should use `GET /api/loans?client_id=X`. Clients should use `GET /api/me/loans`.
 
 ---
 
-### GET /api/loans/requests/client/:client_id
+### ~~GET /api/loans/requests/client/:client_id~~ (removed)
 
-List all loan requests submitted by a specific client. Clients can only access their own loan requests (`:client_id` must match the JWT `user_id`).
-
-**Authentication:** Any JWT (Employee or Client)
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `client_id` | int | Client ID |
-
-**Query Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `page` | int | Page number (default: 1) |
-| `page_size` | int | Items per page (default: 20) |
-
-**Response 200:**
-```json
-{
-  "requests": [ { "id": 1, "loan_type": "cash", "amount": "500000.0000", "status": "pending" } ],
-  "total": 1
-}
-```
-
-**Response 403:** `{"error": "clients can only access their own resources"}` (client accessing another client's data)
+> **Removed.** Clients should use `GET /api/me/loan-requests`. Employees should use `GET /api/loan-requests?client_id=X`.
 
 ---
 
@@ -2332,7 +2128,114 @@ Get all installment records for a loan.
 
 ---
 
-## 13. Limits
+## 13. Loan Requests
+
+Loan request management endpoints (employee-facing). These routes have been promoted from the `/api/loans/requests/` sub-path to the top-level `/api/loan-requests/`. Clients should use the `/api/me/loan-requests` routes instead.
+
+---
+
+### GET /api/loan-requests
+
+List all loan requests (employee view). Previously `GET /api/loans/requests`.
+
+**Authentication:** Employee JWT + `credits.read` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+| `loan_type_filter` | string | Filter by loan type |
+| `account_number_filter` | string | Filter by account number |
+| `status_filter` | string | Filter by status (`"PENDING"`, `"APPROVED"`, `"REJECTED"`) |
+| `client_id` | int | Filter loan requests for a specific client |
+
+**Response 200:**
+```json
+{
+  "requests": [ /* array of loan request objects */ ],
+  "total": 23
+}
+```
+
+---
+
+### GET /api/loan-requests/:id
+
+Get a single loan request by ID. Previously `GET /api/loans/requests/:id`.
+
+**Authentication:** Employee JWT + `credits.read` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Loan request ID |
+
+**Response 200:** Loan request object
+**Response 404:** `{"error": {"code": "not_found", "message": "loan request not found"}}`
+
+---
+
+### POST /api/loan-requests/:id/approve
+
+Approve a loan request. Creates a loan and sends an approval email to the client. Previously `PUT /api/loans/requests/:id/approve` — method changed to POST.
+
+**Authentication:** Employee JWT + `credits.approve` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Loan request ID |
+
+**Response 200:** Created loan object:
+```json
+{
+  "id": 1,
+  "loan_number": "LOAN-2026-000001",
+  "loan_type": "PERSONAL",
+  "account_number": "265-1234567890123-56",
+  "amount": 500000.00,
+  "repayment_period": 60,
+  "nominal_interest_rate": 6.5,
+  "effective_interest_rate": 6.73,
+  "contract_date": "2026-03-13",
+  "maturity_date": "2031-03-13",
+  "next_installment_amount": 9755.50,
+  "next_installment_date": "2026-04-13",
+  "remaining_debt": 500000.00,
+  "currency_code": "RSD",
+  "status": "ACTIVE",
+  "interest_type": "FIXED",
+  "created_at": "2026-03-13T10:00:00Z"
+}
+```
+
+**Response 409:** `{"error": {"code": "business_rule_violation", "message": "loan amount 500000.00 exceeds your approval limit of 100000.00"}}`
+
+> **Note:** The approving employee's `MaxLoanApprovalAmount` limit is enforced. If the loan request amount exceeds the employee's configured limit, the approval is rejected with `409 Conflict`.
+
+---
+
+### POST /api/loan-requests/:id/reject
+
+Reject a loan request. Sends a rejection email to the client. Previously `PUT /api/loans/requests/:id/reject` — method changed to POST.
+
+**Authentication:** Employee JWT + `credits.approve` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Loan request ID |
+
+**Response 200:** Updated loan request object with `"status": "REJECTED"`
+
+---
+
+## 14. Limits
 
 Manage transaction and approval limits for employees, and transaction limits for bank clients.
 
@@ -2623,9 +2526,26 @@ All error responses follow this format:
 
 ```json
 {
-  "error": "human-readable error message"
+  "error": {
+    "code": "snake_case_error_code",
+    "message": "Human-readable error message"
+  }
 }
 ```
+
+The `code` field is a stable machine-readable string. The `message` field is human-readable and suitable for display.
+
+**Common error codes:**
+
+| `code` | HTTP Status | Meaning |
+|---|---|---|
+| `validation_error` | 400 | Request body or query param validation failed |
+| `invalid_input` | 400 | Malformed or out-of-range value |
+| `not_authenticated` | 401 | Missing or invalid bearer token |
+| `forbidden` | 403 | Authenticated but insufficient permissions |
+| `not_found` | 404 | Requested resource does not exist |
+| `business_rule_violation` | 409 | Operation violates a business rule (e.g., card already blocked) |
+| `internal_error` | 500 | Unexpected server-side failure |
 
 **Common HTTP Status Codes:**
 
@@ -2637,11 +2557,12 @@ All error responses follow this format:
 | 401 | Unauthenticated (missing or invalid token) |
 | 403 | Forbidden (insufficient permissions or wrong role) |
 | 404 | Resource not found |
+| 409 | Business rule violation (gRPC FailedPrecondition) |
 | 500 | Internal server error |
 
 ---
 
-## 14. Bank Accounts
+## 15. Bank Accounts
 
 Bank account management endpoints allow administrators to manage internal bank-owned accounts used for fee collection and loan repayments. The bank must always maintain at least one RSD account and at least one foreign currency account.
 
@@ -2757,7 +2678,7 @@ Delete a bank-owned account by ID.
 
 ---
 
-## 15. Transfer Fees
+## 16. Transfer Fees
 
 Configurable fee rules applied to payments and transfers. Multiple active fee rules can apply to the same transaction — they stack additively. For example, a percentage fee AND a fixed fee can both apply to the same transaction.
 
@@ -2895,7 +2816,7 @@ Deactivate a fee rule. The rule is not deleted from the database — it is soft-
 
 ---
 
-## 16. Interest Rate Tiers
+## 17. Interest Rate Tiers
 
 Interest rate tier management for loan interest rate configuration. Each tier defines the fixed and variable base rates for a loan amount range.
 
@@ -3084,7 +3005,7 @@ Apply a variable rate update to all active variable-rate loans whose amount fall
 
 ---
 
-## 17. Bank Margins
+## 18. Bank Margins
 
 Bank margin management for loan interest rate calculation. Each loan type has a configurable margin that is added to the variable base rate from the interest rate tier.
 
@@ -3177,17 +3098,21 @@ Update the margin for a specific loan type.
 
 ---
 
-## 18. Card Requests
+## 19. Card Requests
 
 Card requests allow clients to request a card for one of their accounts. Employees with `cards.approve` permission can approve or reject these requests.
 
 ---
 
-### POST /api/cards/requests
+### ~~POST /api/cards/requests~~ (moved — use POST /api/me/cards/requests)
+
+> **Moved to `/api/me/*`.** See `POST /api/me/cards/requests` in [Section 20: Me — Self-Service](#20-me-self-service).
+
+### POST /api/me/cards/requests
 
 Client submits a request to obtain a card for one of their accounts.
 
-**Authentication:** Client JWT (ClientBearerAuth)
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Request Body:**
 
@@ -3234,11 +3159,15 @@ Client submits a request to obtain a card for one of their accounts.
 
 ---
 
-### GET /api/cards/requests/me
+### ~~GET /api/cards/requests/me~~ (moved — use GET /api/me/cards/requests)
 
-Returns all card requests submitted by the authenticated client.
+> **Moved to `/api/me/*`.** See `GET /api/me/cards/requests` in [Section 20: Me — Self-Service](#20-me-self-service).
 
-**Authentication:** Client JWT (ClientBearerAuth)
+### GET /api/me/cards/requests
+
+Returns all card requests submitted by the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
 **Query Parameters:**
 
@@ -3320,9 +3249,9 @@ Returns a single card request by ID.
 
 ---
 
-### PUT /api/cards/requests/:id/approve
+### POST /api/cards/requests/:id/approve
 
-Employee approves a pending card request. This creates the actual card.
+Employee approves a pending card request. This creates the actual card. Method changed from `PUT` to `POST`.
 
 **Authentication:** Employee JWT with `cards.approve` permission
 
@@ -3347,14 +3276,14 @@ Employee approves a pending card request. This creates the actual card.
 | 401 | Unauthorized |
 | 403 | Forbidden (missing permission) |
 | 404 | Card request not found |
-| 422 | Request already processed (not pending) |
+| 409 | Request already processed (not pending) — `business_rule_violation` |
 | 500 | Internal server error |
 
 ---
 
-### PUT /api/cards/requests/:id/reject
+### POST /api/cards/requests/:id/reject
 
-Employee rejects a pending card request with a reason.
+Employee rejects a pending card request with a reason. Method changed from `PUT` to `POST`.
 
 **Authentication:** Employee JWT with `cards.approve` permission
 
@@ -3386,8 +3315,377 @@ Employee rejects a pending card request with a reason.
 | 401 | Unauthorized |
 | 403 | Forbidden (missing permission) |
 | 404 | Card request not found |
-| 422 | Request already processed (not pending) |
+| 409 | Request already processed (not pending) — `business_rule_violation` |
 | 500 | Internal server error |
+
+---
+
+## 20. Me (Self-Service)
+
+The `/api/me/*` route group provides self-service access for both employees and bank clients. All routes in this group are protected by `AnyAuthMiddleware`, which accepts any valid JWT (employee or client). Results are automatically scoped to the authenticated principal — no `client_id` path segment is needed.
+
+This group replaces all the old `clientProtected` routes that were previously scattered across other sections.
+
+---
+
+### GET /api/me
+
+Get the currently authenticated principal's profile. Replaces `GET /api/clients/me`.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Response 200 (client):** Client profile object
+**Response 200 (employee):** Employee profile object
+**Response 401:** `{"error": {"code": "not_authenticated", "message": "..."}}`
+
+---
+
+### GET /api/me/accounts
+
+List accounts belonging to the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+
+**Response 200:**
+```json
+{
+  "accounts": [ /* array of account objects */ ],
+  "total": 3
+}
+```
+
+---
+
+### GET /api/me/accounts/:id
+
+Get a single account by ID, scoped to the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Account ID |
+
+**Response 200:** Account object
+**Response 404:** `{"error": {"code": "not_found", "message": "account not found"}}`
+
+---
+
+### GET /api/me/cards
+
+List all cards belonging to the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+
+**Response 200:**
+```json
+{
+  "cards": [ /* array of card objects */ ]
+}
+```
+
+---
+
+### GET /api/me/cards/:id
+
+Get a single card by ID, scoped to the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Card ID |
+
+**Response 200:** Card object
+**Response 404:** `{"error": {"code": "not_found", "message": "card not found"}}`
+
+---
+
+### POST /api/me/payments
+
+Initiate a new payment. The authenticated principal must be the owner of the source account.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:** Same as the old `POST /api/payments` — see [Section 7: Payments](#7-payments) for field documentation.
+
+**Response 201:** Payment object (includes `verification_code_expires_at` Unix timestamp). A verification code is automatically sent to the client's registered email — use it when calling `POST /api/me/payments/:id/execute`.
+**Response 400:** Validation error
+
+---
+
+### GET /api/me/payments
+
+List payments for the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+
+**Response 200:**
+```json
+{
+  "payments": [ /* array of payment objects */ ],
+  "total": 12
+}
+```
+
+---
+
+### GET /api/me/payments/:id
+
+Get a single payment by ID, scoped to the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Payment ID |
+
+**Response 200:** Payment object
+
+---
+
+### POST /api/me/payments/:id/execute
+
+Execute a pending payment after verification.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Payment ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the payment was created |
+
+**Response 200:** Executed payment object
+
+---
+
+### POST /api/me/transfers
+
+Initiate a currency transfer between accounts.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:** Same as the old `POST /api/transfers` — see [Section 8: Transfers](#8-transfers).
+
+**Response 201:** Transfer object (includes `verification_code_expires_at` Unix timestamp). A verification code is automatically sent to the client's registered email — use it when calling `POST /api/me/transfers/:id/execute`.
+
+---
+
+### GET /api/me/transfers
+
+List transfers for the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+
+**Response 200:**
+```json
+{
+  "transfers": [ /* array of transfer objects */ ],
+  "total": 5
+}
+```
+
+---
+
+### GET /api/me/transfers/:id
+
+Get a single transfer by ID.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Transfer ID |
+
+**Response 200:** Transfer object
+
+---
+
+### POST /api/me/transfers/:id/execute
+
+Execute a pending transfer after verification.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Transfer ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the transfer was created |
+
+**Response 200:** Executed transfer object
+
+---
+
+### POST /api/me/payment-recipients
+
+Save a new payment recipient.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:** Same as the old `POST /api/payment-recipients` — see [Section 9: Payment Recipients](#9-payment-recipients).
+
+**Response 201:** Recipient object
+
+---
+
+### GET /api/me/payment-recipients
+
+List all saved recipients for the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Response 200:**
+```json
+{
+  "recipients": [ /* array of recipient objects */ ]
+}
+```
+
+---
+
+### POST /api/me/loan-requests
+
+Submit a new loan application.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:** Same as the old `POST /api/loans/requests` — see [Section 12: Loans](#12-loans) for field documentation.
+
+**Response 201:** Loan request object
+
+---
+
+### GET /api/me/loan-requests
+
+List all loan requests submitted by the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+
+**Response 200:**
+```json
+{
+  "requests": [ /* array of loan request objects */ ],
+  "total": 2
+}
+```
+
+---
+
+### GET /api/me/loans
+
+List all loans belonging to the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+
+**Response 200:**
+```json
+{
+  "loans": [ /* array of loan objects */ ],
+  "total": 2
+}
+```
+
+---
+
+### GET /api/me/loans/:id
+
+Get a single loan by ID, scoped to the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Loan ID |
+
+**Response 200:** Loan object
+**Response 404:** `{"error": {"code": "not_found", "message": "loan not found"}}`
+
+---
+
+### GET /api/me/loans/:id/installments
+
+Get all installment records for a loan belonging to the authenticated principal.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Loan ID |
+
+**Response 200:**
+```json
+{
+  "installments": [ /* array of installment objects */ ]
+}
+```
 
 ---
 
@@ -3405,16 +3703,20 @@ Passwords for both employees and clients must satisfy:
 
 1. **Token expiry:** Access tokens expire after 15 minutes. Implement automatic refresh using the refresh token before expiry.
 
-2. **Client vs Employee routes:** The API gateway uses separate middleware for employee and client JWTs. Do not use a client token to call employee endpoints or vice versa.
+2. **Client vs Employee routes:** Employee routes require an employee JWT with specific permissions. Client self-service routes are under `/api/me/*` and accept any valid JWT (employee or client). Do not use a client token to call employee-only endpoints.
 
-3. **Pagination:** All list endpoints support `page` (1-based) and `page_size` query parameters. Default page size is 20.
+3. **Error format:** All error responses are structured objects: `{"error": {"code": "...", "message": "..."}}`. Parse `error.code` for programmatic error handling and `error.message` for display.
 
-4. **Date fields:** `date_of_birth` is a Unix timestamp in seconds. Convert to/from a date object in your application.
+4. **Pagination:** All list endpoints support `page` (1-based) and `page_size` query parameters. Default page size is 20.
 
-5. **Account numbers:** Account numbers follow the format `265-XXXXXXXXXXX-YY` (Serbian bank account format with control digits).
+5. **Date fields:** `date_of_birth` is a Unix timestamp in seconds. Convert to/from a date object in your application.
 
-6. **Card numbers:** The full card number and CVV are only returned in the create card response. Subsequent reads return a masked card number (e.g., `**** **** **** 4242`).
+6. **Account numbers:** Account numbers follow the format `265-XXXXXXXXXXX-YY` (Serbian bank account format with control digits).
 
-7. **JMBG:** The 13-digit Serbian national ID. Validated server-side for exact length and uniqueness.
+7. **Card numbers:** The full card number and CVV are only returned in the create card response. Subsequent reads return a masked card number (e.g., `**** **** **** 4242`).
 
-8. **CORS:** The API Gateway allows all origins with `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` methods and `Authorization`, `Content-Type` headers.
+8. **JMBG:** The 13-digit Serbian national ID. Validated server-side for exact length and uniqueness.
+
+9. **CORS:** The API Gateway allows all origins with `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` methods and `Authorization`, `Content-Type` headers.
+
+10. **Migration:** If upgrading from the previous API, see `docs/api/MIGRATION.md` for a full old→new route mapping and breaking change notes.

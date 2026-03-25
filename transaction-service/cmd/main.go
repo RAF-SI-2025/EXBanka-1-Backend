@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
@@ -17,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	shared "github.com/exbanka/contract/shared"
 	pb "github.com/exbanka/contract/transactionpb"
 	"github.com/exbanka/transaction-service/internal/cache"
@@ -24,7 +24,6 @@ import (
 	"github.com/exbanka/transaction-service/internal/handler"
 	kafkaprod "github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
-	nbs "github.com/exbanka/transaction-service/internal/nbs"
 	"github.com/exbanka/transaction-service/internal/repository"
 	"github.com/exbanka/transaction-service/internal/service"
 )
@@ -42,13 +41,10 @@ func main() {
 		&model.Transfer{},
 		&model.PaymentRecipient{},
 		&model.VerificationCode{},
-		&model.ExchangeRate{},
 		&model.TransferFee{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
-
-	model.SeedExchangeRates(db)
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
@@ -82,29 +78,19 @@ func main() {
 	defer accountConn.Close()
 	accountClient := accountpb.NewAccountServiceClient(accountConn)
 
+	// Connect to exchange-service
+	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to exchange service: %v", err)
+	}
+	defer exchangeConn.Close()
+	exchangeGRPCClient := exchangepb.NewExchangeServiceClient(exchangeConn)
+	exchangeClient := service.NewGRPCExchangeClient(exchangeGRPCClient)
+
 	paymentRepo := repository.NewPaymentRepository(db)
 	transferRepo := repository.NewTransferRepository(db)
 	recipientRepo := repository.NewPaymentRecipientRepository(db)
 	vcRepo := repository.NewVerificationCodeRepository(db)
-	exchangeRepo := repository.NewExchangeRateRepository(db)
-
-	exchangeSvc := service.NewExchangeService(exchangeRepo)
-
-	// NBS exchange rate sync (every 6 hours)
-	nbsClient := nbs.NewClient()
-	// Initial sync on startup (log warning on failure, don't crash)
-	if err := exchangeSvc.SyncFromNBS(context.Background(), nbsClient); err != nil {
-		log.Printf("warn: initial NBS sync failed, using seed rates: %v", err)
-	}
-	// Periodic sync
-	go func() {
-		ticker := time.NewTicker(6 * time.Hour)
-		for range ticker.C {
-			if err := exchangeSvc.SyncFromNBS(context.Background(), nbsClient); err != nil {
-				log.Printf("warn: periodic NBS sync failed: %v", err)
-			}
-		}
-	}()
 
 	feeRepo := repository.NewTransferFeeRepository(db)
 	feeSvc := service.NewFeeService(feeRepo)
@@ -135,7 +121,7 @@ func main() {
 	}
 
 	paymentSvc := service.NewPaymentService(paymentRepo, accountClient, feeSvc, producer, bankRSDAccountNumber)
-	transferSvc := service.NewTransferService(transferRepo, exchangeSvc, accountClient, feeSvc, producer, bankRSDAccountNumber)
+	transferSvc := service.NewTransferService(transferRepo, exchangeClient, accountClient, feeSvc, producer, bankRSDAccountNumber)
 	recipientSvc := service.NewPaymentRecipientService(recipientRepo)
 	verificationSvc := service.NewVerificationService(vcRepo, paymentRepo, transferRepo)
 
@@ -143,7 +129,6 @@ func main() {
 		paymentSvc,
 		transferSvc,
 		recipientSvc,
-		exchangeSvc,
 		verificationSvc,
 		producer,
 	)

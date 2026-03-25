@@ -35,7 +35,7 @@ func TestNeg_NoTokenOnProtectedRoutes(t *testing.T) {
 		{"POST", "/api/bank-accounts"},
 		{"GET", "/api/interest-rate-tiers"},
 		{"GET", "/api/bank-margins"},
-		{"GET", "/api/loans/requests"},
+		{"GET", "/api/loan-requests"},
 		{"GET", "/api/loans"},
 		{"GET", "/api/currencies"},
 	}
@@ -94,16 +94,15 @@ func TestNeg_EmployeeCannotAccessClientOnlyRoutes(t *testing.T) {
 		method string
 		path   string
 	}{
-		{"GET", "/api/clients/me"},
-		{"POST", "/api/payments"},
-		{"POST", "/api/transfers"},
-		{"POST", "/api/verification"},
-		{"POST", "/api/loans/requests"},
-		{"POST", "/api/cards/virtual"},
-		{"POST", "/api/cards/1/pin"},
-		{"POST", "/api/cards/1/verify-pin"},
-		{"POST", "/api/cards/1/temporary-block"},
-		{"POST", "/api/payment-recipients"},
+		{"GET", "/api/me"},
+		{"POST", "/api/me/payments"},
+		{"POST", "/api/me/transfers"},
+		{"POST", "/api/me/loan-requests"},
+		{"POST", "/api/me/cards/virtual"},
+		{"POST", "/api/me/cards/1/pin"},
+		{"POST", "/api/me/cards/1/verify-pin"},
+		{"POST", "/api/me/cards/1/temporary-block"},
+		{"POST", "/api/me/payment-recipients"},
 	}
 
 	for _, r := range clientOnlyRoutes {
@@ -200,7 +199,7 @@ func TestNeg_PublicRoutesNoAuth(t *testing.T) {
 	}
 
 	// Exchange rates (public)
-	resp, err = c.GET("/api/exchange-rates")
+	resp, err = c.GET("/api/exchange/rates")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
