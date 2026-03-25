@@ -320,7 +320,7 @@ func TestWorkflow_FullCrossCurrencyTransfer(t *testing.T) {
 	rsdBalBefore := getAccountBalance(t, adminClient, rsdAccountNumber)
 
 	// Lookup EUR/RSD exchange rate (to estimate expected RSD increase)
-	rateResp, err := newClient().GET("/api/exchange-rates/EUR/RSD")
+	rateResp, err := newClient().GET("/api/exchange/rates/EUR/RSD")
 	if err != nil {
 		t.Fatalf("WF-FX: get exchange rate: %v", err)
 	}

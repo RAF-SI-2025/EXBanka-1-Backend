@@ -199,7 +199,7 @@ func TestNeg_PublicRoutesNoAuth(t *testing.T) {
 	}
 
 	// Exchange rates (public)
-	resp, err = c.GET("/api/exchange-rates")
+	resp, err = c.GET("/api/exchange/rates")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
