@@ -1229,214 +1229,6 @@ func (x *PaymentRecipientResponse) GetCreatedAt() string {
 	return ""
 }
 
-type GetExchangeRateRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	FromCurrency  string                 `protobuf:"bytes,1,opt,name=from_currency,json=fromCurrency,proto3" json:"from_currency,omitempty"`
-	ToCurrency    string                 `protobuf:"bytes,2,opt,name=to_currency,json=toCurrency,proto3" json:"to_currency,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetExchangeRateRequest) Reset() {
-	*x = GetExchangeRateRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[18]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetExchangeRateRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetExchangeRateRequest) ProtoMessage() {}
-
-func (x *GetExchangeRateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[18]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetExchangeRateRequest.ProtoReflect.Descriptor instead.
-func (*GetExchangeRateRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{18}
-}
-
-func (x *GetExchangeRateRequest) GetFromCurrency() string {
-	if x != nil {
-		return x.FromCurrency
-	}
-	return ""
-}
-
-func (x *GetExchangeRateRequest) GetToCurrency() string {
-	if x != nil {
-		return x.ToCurrency
-	}
-	return ""
-}
-
-type ListExchangeRatesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListExchangeRatesRequest) Reset() {
-	*x = ListExchangeRatesRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[19]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListExchangeRatesRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListExchangeRatesRequest) ProtoMessage() {}
-
-func (x *ListExchangeRatesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[19]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListExchangeRatesRequest.ProtoReflect.Descriptor instead.
-func (*ListExchangeRatesRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{19}
-}
-
-type ExchangeRateResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	FromCurrency  string                 `protobuf:"bytes,1,opt,name=from_currency,json=fromCurrency,proto3" json:"from_currency,omitempty"`
-	ToCurrency    string                 `protobuf:"bytes,2,opt,name=to_currency,json=toCurrency,proto3" json:"to_currency,omitempty"`
-	BuyRate       string                 `protobuf:"bytes,3,opt,name=buy_rate,json=buyRate,proto3" json:"buy_rate,omitempty"`
-	SellRate      string                 `protobuf:"bytes,4,opt,name=sell_rate,json=sellRate,proto3" json:"sell_rate,omitempty"`
-	UpdatedAt     string                 `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ExchangeRateResponse) Reset() {
-	*x = ExchangeRateResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[20]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ExchangeRateResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ExchangeRateResponse) ProtoMessage() {}
-
-func (x *ExchangeRateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[20]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ExchangeRateResponse.ProtoReflect.Descriptor instead.
-func (*ExchangeRateResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{20}
-}
-
-func (x *ExchangeRateResponse) GetFromCurrency() string {
-	if x != nil {
-		return x.FromCurrency
-	}
-	return ""
-}
-
-func (x *ExchangeRateResponse) GetToCurrency() string {
-	if x != nil {
-		return x.ToCurrency
-	}
-	return ""
-}
-
-func (x *ExchangeRateResponse) GetBuyRate() string {
-	if x != nil {
-		return x.BuyRate
-	}
-	return ""
-}
-
-func (x *ExchangeRateResponse) GetSellRate() string {
-	if x != nil {
-		return x.SellRate
-	}
-	return ""
-}
-
-func (x *ExchangeRateResponse) GetUpdatedAt() string {
-	if x != nil {
-		return x.UpdatedAt
-	}
-	return ""
-}
-
-type ListExchangeRatesResponse struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Rates         []*ExchangeRateResponse `protobuf:"bytes,1,rep,name=rates,proto3" json:"rates,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListExchangeRatesResponse) Reset() {
-	*x = ListExchangeRatesResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[21]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListExchangeRatesResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListExchangeRatesResponse) ProtoMessage() {}
-
-func (x *ListExchangeRatesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[21]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ListExchangeRatesResponse.ProtoReflect.Descriptor instead.
-func (*ListExchangeRatesResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{21}
-}
-
-func (x *ListExchangeRatesResponse) GetRates() []*ExchangeRateResponse {
-	if x != nil {
-		return x.Rates
-	}
-	return nil
-}
-
 type CreateVerificationCodeRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ClientId        uint64                 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
@@ -1449,7 +1241,7 @@ type CreateVerificationCodeRequest struct {
 
 func (x *CreateVerificationCodeRequest) Reset() {
 	*x = CreateVerificationCodeRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[22]
+	mi := &file_transaction_transaction_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1461,7 +1253,7 @@ func (x *CreateVerificationCodeRequest) String() string {
 func (*CreateVerificationCodeRequest) ProtoMessage() {}
 
 func (x *CreateVerificationCodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[22]
+	mi := &file_transaction_transaction_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1474,7 +1266,7 @@ func (x *CreateVerificationCodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateVerificationCodeRequest.ProtoReflect.Descriptor instead.
 func (*CreateVerificationCodeRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{22}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CreateVerificationCodeRequest) GetClientId() uint64 {
@@ -1515,7 +1307,7 @@ type CreateVerificationCodeResponse struct {
 
 func (x *CreateVerificationCodeResponse) Reset() {
 	*x = CreateVerificationCodeResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[23]
+	mi := &file_transaction_transaction_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1527,7 +1319,7 @@ func (x *CreateVerificationCodeResponse) String() string {
 func (*CreateVerificationCodeResponse) ProtoMessage() {}
 
 func (x *CreateVerificationCodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[23]
+	mi := &file_transaction_transaction_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1540,7 +1332,7 @@ func (x *CreateVerificationCodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateVerificationCodeResponse.ProtoReflect.Descriptor instead.
 func (*CreateVerificationCodeResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{23}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CreateVerificationCodeResponse) GetCode() string {
@@ -1569,7 +1361,7 @@ type ValidateVerificationCodeRequest struct {
 
 func (x *ValidateVerificationCodeRequest) Reset() {
 	*x = ValidateVerificationCodeRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[24]
+	mi := &file_transaction_transaction_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1581,7 +1373,7 @@ func (x *ValidateVerificationCodeRequest) String() string {
 func (*ValidateVerificationCodeRequest) ProtoMessage() {}
 
 func (x *ValidateVerificationCodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[24]
+	mi := &file_transaction_transaction_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1594,7 +1386,7 @@ func (x *ValidateVerificationCodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateVerificationCodeRequest.ProtoReflect.Descriptor instead.
 func (*ValidateVerificationCodeRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{24}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ValidateVerificationCodeRequest) GetClientId() uint64 {
@@ -1635,7 +1427,7 @@ type ValidateVerificationCodeResponse struct {
 
 func (x *ValidateVerificationCodeResponse) Reset() {
 	*x = ValidateVerificationCodeResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[25]
+	mi := &file_transaction_transaction_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1647,7 +1439,7 @@ func (x *ValidateVerificationCodeResponse) String() string {
 func (*ValidateVerificationCodeResponse) ProtoMessage() {}
 
 func (x *ValidateVerificationCodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[25]
+	mi := &file_transaction_transaction_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1660,7 +1452,7 @@ func (x *ValidateVerificationCodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateVerificationCodeResponse.ProtoReflect.Descriptor instead.
 func (*ValidateVerificationCodeResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{25}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ValidateVerificationCodeResponse) GetValid() bool {
@@ -1688,7 +1480,7 @@ type ExecutePaymentRequest struct {
 
 func (x *ExecutePaymentRequest) Reset() {
 	*x = ExecutePaymentRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[26]
+	mi := &file_transaction_transaction_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1700,7 +1492,7 @@ func (x *ExecutePaymentRequest) String() string {
 func (*ExecutePaymentRequest) ProtoMessage() {}
 
 func (x *ExecutePaymentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[26]
+	mi := &file_transaction_transaction_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1713,7 +1505,7 @@ func (x *ExecutePaymentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecutePaymentRequest.ProtoReflect.Descriptor instead.
 func (*ExecutePaymentRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{26}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ExecutePaymentRequest) GetPaymentId() uint64 {
@@ -1748,7 +1540,7 @@ type ExecuteTransferRequest struct {
 
 func (x *ExecuteTransferRequest) Reset() {
 	*x = ExecuteTransferRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[27]
+	mi := &file_transaction_transaction_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1760,7 +1552,7 @@ func (x *ExecuteTransferRequest) String() string {
 func (*ExecuteTransferRequest) ProtoMessage() {}
 
 func (x *ExecuteTransferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[27]
+	mi := &file_transaction_transaction_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1773,7 +1565,7 @@ func (x *ExecuteTransferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteTransferRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteTransferRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{27}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ExecuteTransferRequest) GetTransferId() uint64 {
@@ -1805,7 +1597,7 @@ type ListFeesRequest struct {
 
 func (x *ListFeesRequest) Reset() {
 	*x = ListFeesRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[28]
+	mi := &file_transaction_transaction_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1817,7 +1609,7 @@ func (x *ListFeesRequest) String() string {
 func (*ListFeesRequest) ProtoMessage() {}
 
 func (x *ListFeesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[28]
+	mi := &file_transaction_transaction_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1830,7 +1622,7 @@ func (x *ListFeesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFeesRequest.ProtoReflect.Descriptor instead.
 func (*ListFeesRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{28}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{24}
 }
 
 type ListFeesResponse struct {
@@ -1842,7 +1634,7 @@ type ListFeesResponse struct {
 
 func (x *ListFeesResponse) Reset() {
 	*x = ListFeesResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[29]
+	mi := &file_transaction_transaction_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1854,7 +1646,7 @@ func (x *ListFeesResponse) String() string {
 func (*ListFeesResponse) ProtoMessage() {}
 
 func (x *ListFeesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[29]
+	mi := &file_transaction_transaction_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1867,7 +1659,7 @@ func (x *ListFeesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFeesResponse.ProtoReflect.Descriptor instead.
 func (*ListFeesResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{29}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ListFeesResponse) GetFees() []*TransferFeeResponse {
@@ -1892,7 +1684,7 @@ type CreateFeeRequest struct {
 
 func (x *CreateFeeRequest) Reset() {
 	*x = CreateFeeRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[30]
+	mi := &file_transaction_transaction_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1904,7 +1696,7 @@ func (x *CreateFeeRequest) String() string {
 func (*CreateFeeRequest) ProtoMessage() {}
 
 func (x *CreateFeeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[30]
+	mi := &file_transaction_transaction_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1917,7 +1709,7 @@ func (x *CreateFeeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateFeeRequest.ProtoReflect.Descriptor instead.
 func (*CreateFeeRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{30}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CreateFeeRequest) GetName() string {
@@ -1986,7 +1778,7 @@ type UpdateFeeRequest struct {
 
 func (x *UpdateFeeRequest) Reset() {
 	*x = UpdateFeeRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[31]
+	mi := &file_transaction_transaction_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1998,7 +1790,7 @@ func (x *UpdateFeeRequest) String() string {
 func (*UpdateFeeRequest) ProtoMessage() {}
 
 func (x *UpdateFeeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[31]
+	mi := &file_transaction_transaction_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2011,7 +1803,7 @@ func (x *UpdateFeeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateFeeRequest.ProtoReflect.Descriptor instead.
 func (*UpdateFeeRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{31}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *UpdateFeeRequest) GetId() uint64 {
@@ -2086,7 +1878,7 @@ type DeleteFeeRequest struct {
 
 func (x *DeleteFeeRequest) Reset() {
 	*x = DeleteFeeRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[32]
+	mi := &file_transaction_transaction_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2098,7 +1890,7 @@ func (x *DeleteFeeRequest) String() string {
 func (*DeleteFeeRequest) ProtoMessage() {}
 
 func (x *DeleteFeeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[32]
+	mi := &file_transaction_transaction_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2111,7 +1903,7 @@ func (x *DeleteFeeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFeeRequest.ProtoReflect.Descriptor instead.
 func (*DeleteFeeRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{32}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *DeleteFeeRequest) GetId() uint64 {
@@ -2131,7 +1923,7 @@ type DeleteFeeResponse struct {
 
 func (x *DeleteFeeResponse) Reset() {
 	*x = DeleteFeeResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[33]
+	mi := &file_transaction_transaction_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2143,7 +1935,7 @@ func (x *DeleteFeeResponse) String() string {
 func (*DeleteFeeResponse) ProtoMessage() {}
 
 func (x *DeleteFeeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[33]
+	mi := &file_transaction_transaction_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2156,7 +1948,7 @@ func (x *DeleteFeeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFeeResponse.ProtoReflect.Descriptor instead.
 func (*DeleteFeeResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{33}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *DeleteFeeResponse) GetSuccess() bool {
@@ -2190,7 +1982,7 @@ type TransferFeeResponse struct {
 
 func (x *TransferFeeResponse) Reset() {
 	*x = TransferFeeResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[34]
+	mi := &file_transaction_transaction_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2202,7 +1994,7 @@ func (x *TransferFeeResponse) String() string {
 func (*TransferFeeResponse) ProtoMessage() {}
 
 func (x *TransferFeeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[34]
+	mi := &file_transaction_transaction_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2215,7 +2007,7 @@ func (x *TransferFeeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TransferFeeResponse.ProtoReflect.Descriptor instead.
 func (*TransferFeeResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{34}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *TransferFeeResponse) GetId() uint64 {
@@ -2386,22 +2178,7 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x0erecipient_name\x18\x03 \x01(\tR\rrecipientName\x12%\n" +
 	"\x0eaccount_number\x18\x04 \x01(\tR\raccountNumber\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\tR\tcreatedAt\"^\n" +
-	"\x16GetExchangeRateRequest\x12#\n" +
-	"\rfrom_currency\x18\x01 \x01(\tR\ffromCurrency\x12\x1f\n" +
-	"\vto_currency\x18\x02 \x01(\tR\n" +
-	"toCurrency\"\x1a\n" +
-	"\x18ListExchangeRatesRequest\"\xb3\x01\n" +
-	"\x14ExchangeRateResponse\x12#\n" +
-	"\rfrom_currency\x18\x01 \x01(\tR\ffromCurrency\x12\x1f\n" +
-	"\vto_currency\x18\x02 \x01(\tR\n" +
-	"toCurrency\x12\x19\n" +
-	"\bbuy_rate\x18\x03 \x01(\tR\abuyRate\x12\x1b\n" +
-	"\tsell_rate\x18\x04 \x01(\tR\bsellRate\x12\x1d\n" +
-	"\n" +
-	"updated_at\x18\x05 \x01(\tR\tupdatedAt\"T\n" +
-	"\x19ListExchangeRatesResponse\x127\n" +
-	"\x05rates\x18\x01 \x03(\v2!.transaction.ExchangeRateResponseR\x05rates\"\xb1\x01\n" +
+	"created_at\x18\x05 \x01(\tR\tcreatedAt\"\xb1\x01\n" +
 	"\x1dCreateVerificationCodeRequest\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12%\n" +
 	"\x0etransaction_id\x18\x02 \x01(\x04R\rtransactionId\x12)\n" +
@@ -2467,7 +2244,7 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\amax_fee\x18\x06 \x01(\tR\x06maxFee\x12)\n" +
 	"\x10transaction_type\x18\a \x01(\tR\x0ftransactionType\x12#\n" +
 	"\rcurrency_code\x18\b \x01(\tR\fcurrencyCode\x12\x16\n" +
-	"\x06active\x18\t \x01(\bR\x06active2\x9d\r\n" +
+	"\x06active\x18\t \x01(\bR\x06active2\xde\v\n" +
 	"\x12TransactionService\x12P\n" +
 	"\rCreatePayment\x12!.transaction.CreatePaymentRequest\x1a\x1c.transaction.PaymentResponse\x12R\n" +
 	"\x0eExecutePayment\x12\".transaction.ExecutePaymentRequest\x1a\x1c.transaction.PaymentResponse\x12J\n" +
@@ -2482,9 +2259,7 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x16CreatePaymentRecipient\x12*.transaction.CreatePaymentRecipientRequest\x1a%.transaction.PaymentRecipientResponse\x12n\n" +
 	"\x15ListPaymentRecipients\x12).transaction.ListPaymentRecipientsRequest\x1a*.transaction.ListPaymentRecipientsResponse\x12k\n" +
 	"\x16UpdatePaymentRecipient\x12*.transaction.UpdatePaymentRecipientRequest\x1a%.transaction.PaymentRecipientResponse\x12q\n" +
-	"\x16DeletePaymentRecipient\x12*.transaction.DeletePaymentRecipientRequest\x1a+.transaction.DeletePaymentRecipientResponse\x12Y\n" +
-	"\x0fGetExchangeRate\x12#.transaction.GetExchangeRateRequest\x1a!.transaction.ExchangeRateResponse\x12b\n" +
-	"\x11ListExchangeRates\x12%.transaction.ListExchangeRatesRequest\x1a&.transaction.ListExchangeRatesResponse\x12q\n" +
+	"\x16DeletePaymentRecipient\x12*.transaction.DeletePaymentRecipientRequest\x1a+.transaction.DeletePaymentRecipientResponse\x12q\n" +
 	"\x16CreateVerificationCode\x12*.transaction.CreateVerificationCodeRequest\x1a+.transaction.CreateVerificationCodeResponse\x12w\n" +
 	"\x18ValidateVerificationCode\x12,.transaction.ValidateVerificationCodeRequest\x1a-.transaction.ValidateVerificationCodeResponse2\xbd\x02\n" +
 	"\n" +
@@ -2506,7 +2281,7 @@ func file_transaction_transaction_proto_rawDescGZIP() []byte {
 	return file_transaction_transaction_proto_rawDescData
 }
 
-var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
+var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_transaction_transaction_proto_goTypes = []any{
 	(*CreatePaymentRequest)(nil),             // 0: transaction.CreatePaymentRequest
 	(*GetPaymentRequest)(nil),                // 1: transaction.GetPaymentRequest
@@ -2526,77 +2301,68 @@ var file_transaction_transaction_proto_goTypes = []any{
 	(*DeletePaymentRecipientRequest)(nil),    // 15: transaction.DeletePaymentRecipientRequest
 	(*DeletePaymentRecipientResponse)(nil),   // 16: transaction.DeletePaymentRecipientResponse
 	(*PaymentRecipientResponse)(nil),         // 17: transaction.PaymentRecipientResponse
-	(*GetExchangeRateRequest)(nil),           // 18: transaction.GetExchangeRateRequest
-	(*ListExchangeRatesRequest)(nil),         // 19: transaction.ListExchangeRatesRequest
-	(*ExchangeRateResponse)(nil),             // 20: transaction.ExchangeRateResponse
-	(*ListExchangeRatesResponse)(nil),        // 21: transaction.ListExchangeRatesResponse
-	(*CreateVerificationCodeRequest)(nil),    // 22: transaction.CreateVerificationCodeRequest
-	(*CreateVerificationCodeResponse)(nil),   // 23: transaction.CreateVerificationCodeResponse
-	(*ValidateVerificationCodeRequest)(nil),  // 24: transaction.ValidateVerificationCodeRequest
-	(*ValidateVerificationCodeResponse)(nil), // 25: transaction.ValidateVerificationCodeResponse
-	(*ExecutePaymentRequest)(nil),            // 26: transaction.ExecutePaymentRequest
-	(*ExecuteTransferRequest)(nil),           // 27: transaction.ExecuteTransferRequest
-	(*ListFeesRequest)(nil),                  // 28: transaction.ListFeesRequest
-	(*ListFeesResponse)(nil),                 // 29: transaction.ListFeesResponse
-	(*CreateFeeRequest)(nil),                 // 30: transaction.CreateFeeRequest
-	(*UpdateFeeRequest)(nil),                 // 31: transaction.UpdateFeeRequest
-	(*DeleteFeeRequest)(nil),                 // 32: transaction.DeleteFeeRequest
-	(*DeleteFeeResponse)(nil),                // 33: transaction.DeleteFeeResponse
-	(*TransferFeeResponse)(nil),              // 34: transaction.TransferFeeResponse
+	(*CreateVerificationCodeRequest)(nil),    // 18: transaction.CreateVerificationCodeRequest
+	(*CreateVerificationCodeResponse)(nil),   // 19: transaction.CreateVerificationCodeResponse
+	(*ValidateVerificationCodeRequest)(nil),  // 20: transaction.ValidateVerificationCodeRequest
+	(*ValidateVerificationCodeResponse)(nil), // 21: transaction.ValidateVerificationCodeResponse
+	(*ExecutePaymentRequest)(nil),            // 22: transaction.ExecutePaymentRequest
+	(*ExecuteTransferRequest)(nil),           // 23: transaction.ExecuteTransferRequest
+	(*ListFeesRequest)(nil),                  // 24: transaction.ListFeesRequest
+	(*ListFeesResponse)(nil),                 // 25: transaction.ListFeesResponse
+	(*CreateFeeRequest)(nil),                 // 26: transaction.CreateFeeRequest
+	(*UpdateFeeRequest)(nil),                 // 27: transaction.UpdateFeeRequest
+	(*DeleteFeeRequest)(nil),                 // 28: transaction.DeleteFeeRequest
+	(*DeleteFeeResponse)(nil),                // 29: transaction.DeleteFeeResponse
+	(*TransferFeeResponse)(nil),              // 30: transaction.TransferFeeResponse
 }
 var file_transaction_transaction_proto_depIdxs = []int32{
 	5,  // 0: transaction.ListPaymentsResponse.payments:type_name -> transaction.PaymentResponse
 	10, // 1: transaction.ListTransfersResponse.transfers:type_name -> transaction.TransferResponse
 	17, // 2: transaction.ListPaymentRecipientsResponse.recipients:type_name -> transaction.PaymentRecipientResponse
-	20, // 3: transaction.ListExchangeRatesResponse.rates:type_name -> transaction.ExchangeRateResponse
-	34, // 4: transaction.ListFeesResponse.fees:type_name -> transaction.TransferFeeResponse
-	0,  // 5: transaction.TransactionService.CreatePayment:input_type -> transaction.CreatePaymentRequest
-	26, // 6: transaction.TransactionService.ExecutePayment:input_type -> transaction.ExecutePaymentRequest
-	1,  // 7: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
-	2,  // 8: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
-	4,  // 9: transaction.TransactionService.ListPaymentsByClient:input_type -> transaction.ListPaymentsByClientRequest
-	6,  // 10: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
-	27, // 11: transaction.TransactionService.ExecuteTransfer:input_type -> transaction.ExecuteTransferRequest
-	7,  // 12: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
-	8,  // 13: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
-	11, // 14: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
-	12, // 15: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
-	14, // 16: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
-	15, // 17: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
-	18, // 18: transaction.TransactionService.GetExchangeRate:input_type -> transaction.GetExchangeRateRequest
-	19, // 19: transaction.TransactionService.ListExchangeRates:input_type -> transaction.ListExchangeRatesRequest
-	22, // 20: transaction.TransactionService.CreateVerificationCode:input_type -> transaction.CreateVerificationCodeRequest
-	24, // 21: transaction.TransactionService.ValidateVerificationCode:input_type -> transaction.ValidateVerificationCodeRequest
-	28, // 22: transaction.FeeService.ListFees:input_type -> transaction.ListFeesRequest
-	30, // 23: transaction.FeeService.CreateFee:input_type -> transaction.CreateFeeRequest
-	31, // 24: transaction.FeeService.UpdateFee:input_type -> transaction.UpdateFeeRequest
-	32, // 25: transaction.FeeService.DeleteFee:input_type -> transaction.DeleteFeeRequest
-	5,  // 26: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
-	5,  // 27: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
-	5,  // 28: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
-	3,  // 29: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
-	3,  // 30: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
-	10, // 31: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
-	10, // 32: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
-	10, // 33: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
-	9,  // 34: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
-	17, // 35: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	13, // 36: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
-	17, // 37: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	16, // 38: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
-	20, // 39: transaction.TransactionService.GetExchangeRate:output_type -> transaction.ExchangeRateResponse
-	21, // 40: transaction.TransactionService.ListExchangeRates:output_type -> transaction.ListExchangeRatesResponse
-	23, // 41: transaction.TransactionService.CreateVerificationCode:output_type -> transaction.CreateVerificationCodeResponse
-	25, // 42: transaction.TransactionService.ValidateVerificationCode:output_type -> transaction.ValidateVerificationCodeResponse
-	29, // 43: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
-	34, // 44: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
-	34, // 45: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
-	33, // 46: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
-	26, // [26:47] is the sub-list for method output_type
-	5,  // [5:26] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	30, // 3: transaction.ListFeesResponse.fees:type_name -> transaction.TransferFeeResponse
+	0,  // 4: transaction.TransactionService.CreatePayment:input_type -> transaction.CreatePaymentRequest
+	22, // 5: transaction.TransactionService.ExecutePayment:input_type -> transaction.ExecutePaymentRequest
+	1,  // 6: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
+	2,  // 7: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
+	4,  // 8: transaction.TransactionService.ListPaymentsByClient:input_type -> transaction.ListPaymentsByClientRequest
+	6,  // 9: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
+	23, // 10: transaction.TransactionService.ExecuteTransfer:input_type -> transaction.ExecuteTransferRequest
+	7,  // 11: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
+	8,  // 12: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
+	11, // 13: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
+	12, // 14: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
+	14, // 15: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
+	15, // 16: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
+	18, // 17: transaction.TransactionService.CreateVerificationCode:input_type -> transaction.CreateVerificationCodeRequest
+	20, // 18: transaction.TransactionService.ValidateVerificationCode:input_type -> transaction.ValidateVerificationCodeRequest
+	24, // 19: transaction.FeeService.ListFees:input_type -> transaction.ListFeesRequest
+	26, // 20: transaction.FeeService.CreateFee:input_type -> transaction.CreateFeeRequest
+	27, // 21: transaction.FeeService.UpdateFee:input_type -> transaction.UpdateFeeRequest
+	28, // 22: transaction.FeeService.DeleteFee:input_type -> transaction.DeleteFeeRequest
+	5,  // 23: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
+	5,  // 24: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
+	5,  // 25: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
+	3,  // 26: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
+	3,  // 27: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
+	10, // 28: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
+	10, // 29: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
+	10, // 30: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
+	9,  // 31: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
+	17, // 32: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	13, // 33: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
+	17, // 34: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	16, // 35: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
+	19, // 36: transaction.TransactionService.CreateVerificationCode:output_type -> transaction.CreateVerificationCodeResponse
+	21, // 37: transaction.TransactionService.ValidateVerificationCode:output_type -> transaction.ValidateVerificationCodeResponse
+	25, // 38: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
+	30, // 39: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
+	30, // 40: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
+	29, // 41: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
+	23, // [23:42] is the sub-list for method output_type
+	4,  // [4:23] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_transaction_transaction_proto_init() }
@@ -2611,7 +2377,7 @@ func file_transaction_transaction_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_transaction_transaction_proto_rawDesc), len(file_transaction_transaction_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   35,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

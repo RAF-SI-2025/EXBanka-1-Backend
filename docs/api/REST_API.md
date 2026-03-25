@@ -1963,15 +1963,23 @@ Validate a verification code.
 
 ---
 
-## 11. Exchange Rates
+## 11. Exchange (Menjačnica)
 
-Public endpoints — no authentication required.
+Exchange rate lookup and currency conversion endpoints. All public — no authentication required.
+
+Rates are fetched from `open.er-api.com` every 6 hours and stored in the exchange-service database. The bank applies a configurable spread (±0.3% by default) to derive buy/sell rates from mid-market, and a commission (0.5% by default) on informational `Calculate` calls.
+
+Supported currencies: `RSD`, `EUR`, `USD`, `CHF`, `GBP`, `JPY`, `CAD`, `AUD`
+
+**Backward-compatible aliases** (delegate to the same handlers):
+- `GET /api/exchange-rates` → same as `GET /api/exchange/rates`
+- `GET /api/exchange-rates/:from/:to` → same as `GET /api/exchange/rates/:from/:to`
 
 ---
 
-### GET /api/exchange-rates
+### GET /api/exchange/rates
 
-List all current exchange rates.
+List all current buy/sell rates for supported currencies against RSD.
 
 **Authentication:** None (public)
 
@@ -1982,19 +1990,21 @@ List all current exchange rates.
     {
       "from_currency": "EUR",
       "to_currency": "RSD",
-      "buy_rate": 116.50,
-      "sell_rate": 117.80,
+      "buy_rate": "116.500000",
+      "sell_rate": "117.800000",
       "updated_at": "2026-03-13T08:00:00Z"
     }
   ]
 }
 ```
 
+**Response 500:** `{"error": "..."}`
+
 ---
 
-### GET /api/exchange-rates/:from/:to
+### GET /api/exchange/rates/:from/:to
 
-Get the exchange rate between two specific currencies.
+Get the buy/sell rates for a specific currency pair.
 
 **Authentication:** None (public)
 
@@ -2002,21 +2012,62 @@ Get the exchange rate between two specific currencies.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `from` | string | Source currency code (e.g., `EUR`) |
-| `to` | string | Target currency code (e.g., `RSD`) |
+| `from` | string | Source currency code (e.g., `EUR`) — case-insensitive |
+| `to` | string | Target currency code (e.g., `RSD`) — case-insensitive |
 
 **Response 200:**
 ```json
 {
   "from_currency": "EUR",
   "to_currency": "RSD",
-  "buy_rate": 116.50,
-  "sell_rate": 117.80,
+  "buy_rate": "116.500000",
+  "sell_rate": "117.800000",
   "updated_at": "2026-03-13T08:00:00Z"
 }
 ```
 
 **Response 404:** `{"error": "exchange rate not found"}`
+
+---
+
+### POST /api/exchange/calculate
+
+Calculate the converted amount for a currency exchange, including the bank's selling rate and commission. **Informational only — no transaction is created.**
+
+**Authentication:** None (public)
+
+**Request Body:**
+```json
+{
+  "fromCurrency": "EUR",
+  "toCurrency": "USD",
+  "amount": "100.00"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `fromCurrency` | string | Yes | Source currency code (case-insensitive) |
+| `toCurrency` | string | Yes | Target currency code (case-insensitive) |
+| `amount` | string | Yes | Positive decimal amount in source currency |
+
+**Response 200:**
+```json
+{
+  "from_currency": "EUR",
+  "to_currency": "USD",
+  "input_amount": "100.0000",
+  "converted_amount": "106.3215",
+  "commission_rate": "0.005",
+  "effective_rate": "0.107370"
+}
+```
+
+**Response 400:** `{"error": "amount must be a positive number"}` or `{"error": "unsupported fromCurrency: XYZ"}`
+
+**Response 404:** `{"error": "exchange rate not found for ..."}` (rate pair not available)
+
+**Response 500:** `{"error": "..."}`
 
 ---
 

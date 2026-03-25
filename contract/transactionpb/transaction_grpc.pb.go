@@ -32,8 +32,6 @@ const (
 	TransactionService_ListPaymentRecipients_FullMethodName    = "/transaction.TransactionService/ListPaymentRecipients"
 	TransactionService_UpdatePaymentRecipient_FullMethodName   = "/transaction.TransactionService/UpdatePaymentRecipient"
 	TransactionService_DeletePaymentRecipient_FullMethodName   = "/transaction.TransactionService/DeletePaymentRecipient"
-	TransactionService_GetExchangeRate_FullMethodName          = "/transaction.TransactionService/GetExchangeRate"
-	TransactionService_ListExchangeRates_FullMethodName        = "/transaction.TransactionService/ListExchangeRates"
 	TransactionService_CreateVerificationCode_FullMethodName   = "/transaction.TransactionService/CreateVerificationCode"
 	TransactionService_ValidateVerificationCode_FullMethodName = "/transaction.TransactionService/ValidateVerificationCode"
 )
@@ -55,8 +53,6 @@ type TransactionServiceClient interface {
 	ListPaymentRecipients(ctx context.Context, in *ListPaymentRecipientsRequest, opts ...grpc.CallOption) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(ctx context.Context, in *UpdatePaymentRecipientRequest, opts ...grpc.CallOption) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(ctx context.Context, in *DeletePaymentRecipientRequest, opts ...grpc.CallOption) (*DeletePaymentRecipientResponse, error)
-	GetExchangeRate(ctx context.Context, in *GetExchangeRateRequest, opts ...grpc.CallOption) (*ExchangeRateResponse, error)
-	ListExchangeRates(ctx context.Context, in *ListExchangeRatesRequest, opts ...grpc.CallOption) (*ListExchangeRatesResponse, error)
 	CreateVerificationCode(ctx context.Context, in *CreateVerificationCodeRequest, opts ...grpc.CallOption) (*CreateVerificationCodeResponse, error)
 	ValidateVerificationCode(ctx context.Context, in *ValidateVerificationCodeRequest, opts ...grpc.CallOption) (*ValidateVerificationCodeResponse, error)
 }
@@ -199,26 +195,6 @@ func (c *transactionServiceClient) DeletePaymentRecipient(ctx context.Context, i
 	return out, nil
 }
 
-func (c *transactionServiceClient) GetExchangeRate(ctx context.Context, in *GetExchangeRateRequest, opts ...grpc.CallOption) (*ExchangeRateResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ExchangeRateResponse)
-	err := c.cc.Invoke(ctx, TransactionService_GetExchangeRate_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *transactionServiceClient) ListExchangeRates(ctx context.Context, in *ListExchangeRatesRequest, opts ...grpc.CallOption) (*ListExchangeRatesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListExchangeRatesResponse)
-	err := c.cc.Invoke(ctx, TransactionService_ListExchangeRates_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *transactionServiceClient) CreateVerificationCode(ctx context.Context, in *CreateVerificationCodeRequest, opts ...grpc.CallOption) (*CreateVerificationCodeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateVerificationCodeResponse)
@@ -256,8 +232,6 @@ type TransactionServiceServer interface {
 	ListPaymentRecipients(context.Context, *ListPaymentRecipientsRequest) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(context.Context, *UpdatePaymentRecipientRequest) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(context.Context, *DeletePaymentRecipientRequest) (*DeletePaymentRecipientResponse, error)
-	GetExchangeRate(context.Context, *GetExchangeRateRequest) (*ExchangeRateResponse, error)
-	ListExchangeRates(context.Context, *ListExchangeRatesRequest) (*ListExchangeRatesResponse, error)
 	CreateVerificationCode(context.Context, *CreateVerificationCodeRequest) (*CreateVerificationCodeResponse, error)
 	ValidateVerificationCode(context.Context, *ValidateVerificationCodeRequest) (*ValidateVerificationCodeResponse, error)
 	mustEmbedUnimplementedTransactionServiceServer()
@@ -308,12 +282,6 @@ func (UnimplementedTransactionServiceServer) UpdatePaymentRecipient(context.Cont
 }
 func (UnimplementedTransactionServiceServer) DeletePaymentRecipient(context.Context, *DeletePaymentRecipientRequest) (*DeletePaymentRecipientResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeletePaymentRecipient not implemented")
-}
-func (UnimplementedTransactionServiceServer) GetExchangeRate(context.Context, *GetExchangeRateRequest) (*ExchangeRateResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetExchangeRate not implemented")
-}
-func (UnimplementedTransactionServiceServer) ListExchangeRates(context.Context, *ListExchangeRatesRequest) (*ListExchangeRatesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListExchangeRates not implemented")
 }
 func (UnimplementedTransactionServiceServer) CreateVerificationCode(context.Context, *CreateVerificationCodeRequest) (*CreateVerificationCodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateVerificationCode not implemented")
@@ -576,42 +544,6 @@ func _TransactionService_DeletePaymentRecipient_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TransactionService_GetExchangeRate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetExchangeRateRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TransactionServiceServer).GetExchangeRate(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TransactionService_GetExchangeRate_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TransactionServiceServer).GetExchangeRate(ctx, req.(*GetExchangeRateRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _TransactionService_ListExchangeRates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListExchangeRatesRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TransactionServiceServer).ListExchangeRates(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: TransactionService_ListExchangeRates_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TransactionServiceServer).ListExchangeRates(ctx, req.(*ListExchangeRatesRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _TransactionService_CreateVerificationCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateVerificationCodeRequest)
 	if err := dec(in); err != nil {
@@ -706,14 +638,6 @@ var TransactionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeletePaymentRecipient",
 			Handler:    _TransactionService_DeletePaymentRecipient_Handler,
-		},
-		{
-			MethodName: "GetExchangeRate",
-			Handler:    _TransactionService_GetExchangeRate_Handler,
-		},
-		{
-			MethodName: "ListExchangeRates",
-			Handler:    _TransactionService_ListExchangeRates_Handler,
 		},
 		{
 			MethodName: "CreateVerificationCode",

@@ -19,9 +19,6 @@ service TransactionService {
   rpc UpdatePaymentRecipient(UpdatePaymentRecipientRequest) returns (PaymentRecipientResponse);
   rpc DeletePaymentRecipient(DeletePaymentRecipientRequest) returns (DeletePaymentRecipientResponse);
 
-  rpc GetExchangeRate(GetExchangeRateRequest) returns (ExchangeRateResponse);
-  rpc ListExchangeRates(ListExchangeRatesRequest) returns (ListExchangeRatesResponse);
-
   rpc CreateVerificationCode(CreateVerificationCodeRequest) returns (CreateVerificationCodeResponse);
   rpc ValidateVerificationCode(ValidateVerificationCodeRequest) returns (ValidateVerificationCodeResponse);
 }
@@ -138,23 +135,6 @@ message PaymentRecipientResponse {
   string account_number = 4;
   string created_at = 5;
 }
-
-message GetExchangeRateRequest {
-  string from_currency = 1;
-  string to_currency = 2;
-}
-
-message ListExchangeRatesRequest {}
-
-message ExchangeRateResponse {
-  string from_currency = 1;
-  string to_currency = 2;
-  string buy_rate = 3;
-  string sell_rate = 4;
-  string updated_at = 5;
-}
-
-message ListExchangeRatesResponse { repeated ExchangeRateResponse rates = 1; }
 
 message CreateVerificationCodeRequest {
   uint64 client_id = 1;

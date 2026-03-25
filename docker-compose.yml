@@ -150,6 +150,22 @@ services:
       timeout: 5s
       retries: 5
 
+  exchange-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: exchangedb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5439:5432"
+    volumes:
+      - exchange-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   # ─── Services ─────────────────────────────────────────────────────────────
 
   user-service:
@@ -318,6 +334,7 @@ services:
       ACCOUNT_GRPC_ADDR: "account-service:50055"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      EXCHANGE_GRPC_ADDR: "exchange-service:50059"
     ports:
       - "50057:50057"
     depends_on:
@@ -328,6 +345,8 @@ services:
       redis:
         condition: service_healthy
       account-service:
+        condition: service_started
+      exchange-service:
         condition: service_started
 
   credit-service:
@@ -362,6 +381,35 @@ services:
       user-service:
         condition: service_started
 
+  exchange-service:
+    build:
+      context: .
+      dockerfile: exchange-service/Dockerfile
+    environment:
+      EXCHANGE_DB_HOST: exchange-db
+      EXCHANGE_DB_PORT: "5432"
+      EXCHANGE_DB_USER: postgres
+      EXCHANGE_DB_PASSWORD: postgres
+      EXCHANGE_DB_NAME: exchangedb
+      EXCHANGE_GRPC_ADDR: ":50059"
+      KAFKA_BROKERS: kafka:9092
+      EXCHANGE_COMMISSION_RATE: "0.005"
+      EXCHANGE_SPREAD: "0.003"
+      EXCHANGE_DB_SSLMODE: disable
+    ports:
+      - "50059:50059"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 50059 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      exchange-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
   # ─── API Gateway ──────────────────────────────────────────────────────────
 
   api-gateway:
@@ -378,6 +426,7 @@ services:
       TRANSACTION_GRPC_ADDR: "transaction-service:50057"
       CREDIT_GRPC_ADDR: "credit-service:50058"
       BOOTSTRAP_SECRET: "${BOOTSTRAP_SECRET:-dev-bootstrap-secret}"
+      EXCHANGE_GRPC_ADDR: "exchange-service:50059"
     ports:
       - "8080:8080"
     depends_on:
@@ -395,6 +444,8 @@ services:
         condition: service_started
       credit-service:
         condition: service_started
+      exchange-service:
+        condition: service_started
 
 volumes:
   user_db_data:
@@ -405,3 +456,4 @@ volumes:
   card-db-data:
   transaction-db-data:
   credit-db-data:
+  exchange-db-data:

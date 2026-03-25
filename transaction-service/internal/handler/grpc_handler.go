@@ -57,7 +57,6 @@ type TransactionGRPCHandler struct {
 	paymentSvc      *service.PaymentService
 	transferSvc     *service.TransferService
 	recipientSvc    *service.PaymentRecipientService
-	exchangeSvc     *service.ExchangeService
 	verificationSvc *service.VerificationService
 	producer        *kafka.Producer
 }
@@ -66,7 +65,6 @@ func NewTransactionGRPCHandler(
 	paymentSvc *service.PaymentService,
 	transferSvc *service.TransferService,
 	recipientSvc *service.PaymentRecipientService,
-	exchangeSvc *service.ExchangeService,
 	verificationSvc *service.VerificationService,
 	producer *kafka.Producer,
 ) *TransactionGRPCHandler {
@@ -74,7 +72,6 @@ func NewTransactionGRPCHandler(
 		paymentSvc:      paymentSvc,
 		transferSvc:     transferSvc,
 		recipientSvc:    recipientSvc,
-		exchangeSvc:     exchangeSvc,
 		verificationSvc: verificationSvc,
 		producer:        producer,
 	}
@@ -343,29 +340,6 @@ func (h *TransactionGRPCHandler) DeletePaymentRecipient(ctx context.Context, req
 	return &pb.DeletePaymentRecipientResponse{Success: true}, nil
 }
 
-// ---- Exchange Rate RPCs ----
-
-func (h *TransactionGRPCHandler) GetExchangeRate(ctx context.Context, req *pb.GetExchangeRateRequest) (*pb.ExchangeRateResponse, error) {
-	rate, err := h.exchangeSvc.GetExchangeRate(req.GetFromCurrency(), req.GetToCurrency())
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "exchange rate not found: %v", err)
-	}
-	return exchangeRateToProto(rate), nil
-}
-
-func (h *TransactionGRPCHandler) ListExchangeRates(ctx context.Context, req *pb.ListExchangeRatesRequest) (*pb.ListExchangeRatesResponse, error) {
-	rates, err := h.exchangeSvc.ListExchangeRates()
-	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "list exchange rates: %v", err)
-	}
-
-	pbRates := make([]*pb.ExchangeRateResponse, 0, len(rates))
-	for i := range rates {
-		pbRates = append(pbRates, exchangeRateToProto(&rates[i]))
-	}
-	return &pb.ListExchangeRatesResponse{Rates: pbRates}, nil
-}
-
 // ---- Verification Code RPCs ----
 
 func (h *TransactionGRPCHandler) CreateVerificationCode(ctx context.Context, req *pb.CreateVerificationCodeRequest) (*pb.CreateVerificationCodeResponse, error) {
@@ -446,12 +420,3 @@ func recipientToProto(r *model.PaymentRecipient) *pb.PaymentRecipientResponse {
 	}
 }
 
-func exchangeRateToProto(r *model.ExchangeRate) *pb.ExchangeRateResponse {
-	return &pb.ExchangeRateResponse{
-		FromCurrency: r.FromCurrency,
-		ToCurrency:   r.ToCurrency,
-		BuyRate:      r.BuyRate.StringFixed(4),
-		SellRate:     r.SellRate.StringFixed(4),
-		UpdatedAt:    r.UpdatedAt.String(),
-	}
-}

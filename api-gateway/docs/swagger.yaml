@@ -1,5 +1,21 @@
 basePath: /
 definitions:
+  handler.CalculateExchangeRequest:
+    properties:
+      amount:
+        example: "100.00"
+        type: string
+      fromCurrency:
+        example: EUR
+        type: string
+      toCurrency:
+        example: USD
+        type: string
+    required:
+    - amount
+    - fromCurrency
+    - toCurrency
+    type: object
   handler.activateRequest:
     properties:
       confirm_password:
@@ -3097,8 +3113,52 @@ paths:
       summary: Set employee roles
       tags:
       - employees
-  /api/exchange-rates:
+  /api/exchange/calculate:
+    post:
+      consumes:
+      - application/json
+      description: Returns the converted amount after applying the bank's selling
+        rate and commission (informational only — no transaction is created)
+      parameters:
+      - description: Conversion input
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CalculateExchangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Calculate currency conversion
+      tags:
+      - exchange
+  /api/exchange/rates:
     get:
+      description: Returns all current buy/sell rates for supported currencies against
+        RSD
       produces:
       - application/json
       responses:
@@ -3115,9 +3175,10 @@ paths:
             type: object
       summary: List exchange rates
       tags:
-      - exchange-rates
-  /api/exchange-rates/{from}/{to}:
+      - exchange
+  /api/exchange/rates/{from}/{to}:
     get:
+      description: Returns buy/sell rates for a specific currency pair
       parameters:
       - description: Source currency (e.g. EUR)
         in: path
@@ -3145,7 +3206,7 @@ paths:
             type: object
       summary: Get exchange rate
       tags:
-      - exchange-rates
+      - exchange
   /api/fees:
     get:
       description: Returns all configurable fee rules. Requires fees.manage permission.

@@ -8,6 +8,7 @@ use (
 	./client-service
 	./contract
 	./credit-service
+	./exchange-service
 	./notification-service
 	./test-app
 	./transaction-service

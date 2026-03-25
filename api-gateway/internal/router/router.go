@@ -13,6 +13,7 @@ import (
 	cardpb "github.com/exbanka/contract/cardpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	creditpb "github.com/exbanka/contract/creditpb"
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 	userpb "github.com/exbanka/contract/userpb"
 )
@@ -31,6 +32,7 @@ func Setup(
 	bankAccountClient accountpb.BankAccountServiceClient,
 	feeClient transactionpb.FeeServiceClient,
 	cardRequestClient cardpb.CardRequestServiceClient,
+	exchangeClient exchangepb.ExchangeServiceClient,
 	bootstrapSecret string,
 ) *gin.Engine {
 	r := gin.Default()
@@ -51,7 +53,7 @@ func Setup(
 	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient, txClient)
 	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient)
 	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient)
-	exchangeHandler := handler.NewExchangeHandler(txClient)
+	exchangeHandler := handler.NewExchangeHandler(exchangeClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
 
 	api := r.Group("/api")
@@ -69,9 +71,12 @@ func Setup(
 			auth.POST("/activate", authHandler.ActivateAccount)
 		}
 
-		// Public exchange rate routes
+		// Public exchange rate routes (backward-compat + new paths)
 		api.GET("/exchange-rates", exchangeHandler.ListExchangeRates)
 		api.GET("/exchange-rates/:from/:to", exchangeHandler.GetExchangeRate)
+		api.GET("/exchange/rates", exchangeHandler.ListExchangeRates)
+		api.GET("/exchange/rates/:from/:to", exchangeHandler.GetExchangeRate)
+		api.POST("/exchange/calculate", exchangeHandler.CalculateExchange)
 
 		// Employee-protected routes
 		protected := api.Group("/")
