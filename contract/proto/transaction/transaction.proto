@@ -22,8 +22,6 @@ service TransactionService {
   rpc GetExchangeRate(GetExchangeRateRequest) returns (ExchangeRateResponse);
   rpc ListExchangeRates(ListExchangeRatesRequest) returns (ListExchangeRatesResponse);
 
-  rpc CreateVerificationCode(CreateVerificationCodeRequest) returns (CreateVerificationCodeResponse);
-  rpc ValidateVerificationCode(ValidateVerificationCodeRequest) returns (ValidateVerificationCodeResponse);
 }
 
 message CreatePaymentRequest {
@@ -34,6 +32,8 @@ message CreatePaymentRequest {
   string payment_code = 5;
   string reference_number = 6;
   string payment_purpose = 7;
+  uint64 client_id = 8;
+  string client_email = 9;
 }
 
 message GetPaymentRequest { uint64 id = 1; }
@@ -74,6 +74,7 @@ message PaymentResponse {
   string payment_purpose = 10;
   string status = 11;
   string timestamp = 12;
+  int64 verification_code_expires_at = 13;
 }
 
 message CreateTransferRequest {
@@ -82,6 +83,8 @@ message CreateTransferRequest {
   string amount = 3;
   string from_currency = 4;
   string to_currency = 5;
+  uint64 client_id = 6;
+  string client_email = 7;
 }
 
 message GetTransferRequest { uint64 id = 1; }
@@ -108,6 +111,7 @@ message TransferResponse {
   string commission = 7;
   string timestamp = 8;
   string status = 9;
+  int64 verification_code_expires_at = 10;
 }
 
 message CreatePaymentRecipientRequest {
@@ -155,30 +159,6 @@ message ExchangeRateResponse {
 }
 
 message ListExchangeRatesResponse { repeated ExchangeRateResponse rates = 1; }
-
-message CreateVerificationCodeRequest {
-  uint64 client_id = 1;
-  uint64 transaction_id = 2;
-  string transaction_type = 3;
-  string client_email = 4;
-}
-
-message CreateVerificationCodeResponse {
-  string code = 1;
-  int64 expires_at = 2;
-}
-
-message ValidateVerificationCodeRequest {
-  uint64 client_id = 1;
-  uint64 transaction_id = 2;
-  string code = 3;
-  string transaction_type = 4;
-}
-
-message ValidateVerificationCodeResponse {
-  bool valid = 1;
-  int32 remaining_attempts = 2;
-}
 
 message ExecutePaymentRequest {
   uint64 payment_id = 1;
