@@ -33,7 +33,6 @@ func Setup(
 	feeClient transactionpb.FeeServiceClient,
 	cardRequestClient cardpb.CardRequestServiceClient,
 	exchangeClient exchangepb.ExchangeServiceClient,
-	bootstrapSecret string,
 ) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
@@ -44,7 +43,6 @@ func Setup(
 		AllowCredentials: false,
 	}))
 
-	bootstrapHandler := handler.NewBootstrapHandler(userClient, authClient, bootstrapSecret)
 	authHandler := handler.NewAuthHandler(authClient)
 	empHandler := handler.NewEmployeeHandler(userClient, authClient)
 	roleHandler := handler.NewRoleHandler(userClient)
@@ -60,7 +58,6 @@ func Setup(
 	api := r.Group("/api")
 	{
 		// Public routes
-		api.POST("/bootstrap", bootstrapHandler.Bootstrap)
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", authHandler.Login)
@@ -71,9 +68,7 @@ func Setup(
 			auth.POST("/activate", authHandler.ActivateAccount)
 		}
 
-		// Public exchange rate routes (backward-compat + new paths)
-		api.GET("/exchange-rates", exchangeHandler.ListExchangeRates)
-		api.GET("/exchange-rates/:from/:to", exchangeHandler.GetExchangeRate)
+		// Public exchange rate routes
 		api.GET("/exchange/rates", exchangeHandler.ListExchangeRates)
 		api.GET("/exchange/rates/:from/:to", exchangeHandler.GetExchangeRate)
 		api.POST("/exchange/calculate", exchangeHandler.CalculateExchange)

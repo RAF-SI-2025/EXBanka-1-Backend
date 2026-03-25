@@ -11,6 +11,7 @@ use (
 	./exchange-service
 	./notification-service
 	./test-app
+	./seeder
 	./transaction-service
 	./user-service
 )

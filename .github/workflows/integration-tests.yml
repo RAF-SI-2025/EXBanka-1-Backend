@@ -34,7 +34,6 @@ jobs:
         env:
           TEST_GATEWAY_URL: http://localhost:8080
           TEST_KAFKA_BROKERS: localhost:9094
-          BOOTSTRAP_SECRET: dev-bootstrap-secret
         run: |
           gotestsum \
             --junitfile test-results.xml \

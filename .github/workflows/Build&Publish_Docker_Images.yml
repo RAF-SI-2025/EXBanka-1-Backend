@@ -33,6 +33,7 @@ jobs:
           - transaction-service
           - credit-service
           - exchange-service
+          - seeder
 
     steps:
       - name: Checkout repository

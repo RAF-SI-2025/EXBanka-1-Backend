@@ -14,7 +14,6 @@ type Config struct {
 	TransactionGRPCAddr string
 	CreditGRPCAddr      string
 	ExchangeGRPCAddr    string
-	BootstrapSecret     string
 }
 
 func Load() *Config {
@@ -28,7 +27,6 @@ func Load() *Config {
 		TransactionGRPCAddr: getEnv("TRANSACTION_GRPC_ADDR", "localhost:50057"),
 		CreditGRPCAddr:      getEnv("CREDIT_GRPC_ADDR", "localhost:50058"),
 		ExchangeGRPCAddr:    getEnv("EXCHANGE_GRPC_ADDR", "localhost:50059"),
-		BootstrapSecret:     getEnv("BOOTSTRAP_SECRET", ""),
 	}
 }
 

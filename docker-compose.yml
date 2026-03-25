@@ -425,7 +425,6 @@ services:
       CARD_GRPC_ADDR: "card-service:50056"
       TRANSACTION_GRPC_ADDR: "transaction-service:50057"
       CREDIT_GRPC_ADDR: "credit-service:50058"
-      BOOTSTRAP_SECRET: "${BOOTSTRAP_SECRET:-dev-bootstrap-secret}"
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
     ports:
       - "8080:8080"
@@ -446,6 +445,30 @@ services:
         condition: service_started
       exchange-service:
         condition: service_started
+
+  # ─── Seeder ───────────────────────────────────────────────────────────────
+  # One-shot job: provisions the default admin account on first startup.
+  # Idempotent — safe to re-run; exits 0 if admin is already active.
+  seeder:
+    build:
+      context: .
+      dockerfile: seeder/Dockerfile
+    environment:
+      USER_GRPC_ADDR: "user-service:50052"
+      AUTH_GRPC_ADDR: "auth-service:50051"
+      KAFKA_BROKERS: "kafka:9092"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@admin.com}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-AdminAdmin2026!.}"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      auth-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+    restart: on-failure
 
 volumes:
   user_db_data:

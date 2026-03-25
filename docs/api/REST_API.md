@@ -51,42 +51,6 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 
 ---
 
-## Bootstrap
-
-### POST /api/bootstrap
-
-One-time admin account setup. Creates the system admin employee and provisions their auth account, triggering an activation email. Idempotent — safe to call multiple times (subsequent calls re-send the activation token if the account is not yet active).
-
-Returns `404 Not Found` when `BOOTSTRAP_SECRET` is not set in the api-gateway environment (disabled in production).
-
-**Authentication:** None (public). Protected by shared secret instead.
-
-**Request Body:**
-
-```json
-{
-  "secret": "dev-bootstrap-secret",
-  "email": "admin@example.com"
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `secret` | string | yes | Must match the `BOOTSTRAP_SECRET` env var configured in api-gateway |
-| `email` | string | yes | Email address to use for the admin account |
-
-**Responses:**
-
-| Status | Description |
-|---|---|
-| `200 OK` | Admin employee created (or already existed) and activation token published to Kafka |
-| `400 Bad Request` | Missing or invalid request body |
-| `401 Unauthorized` | Wrong bootstrap secret |
-| `404 Not Found` | Bootstrap endpoint disabled (`BOOTSTRAP_SECRET` not set) |
-| `500 Internal Server Error` | Failed to create employee or provision auth account |
-
----
-
 ## 1. Auth
 
 ### POST /api/auth/login
@@ -1866,7 +1830,7 @@ Delete a saved recipient. (Previously `DELETE /api/payment-recipients/:id` — n
 
 ## 10. Exchange Rates
 
-Public endpoints — no authentication required. Canonical paths are `/api/exchange/rates` and `/api/exchange/calculate`. The legacy `/api/exchange-rates` paths are kept as backward-compatible aliases.
+Public endpoints — no authentication required.
 
 Supported currencies: `RSD`, `EUR`, `USD`, `CHF`, `GBP`, `JPY`, `CAD`, `AUD`.
 
@@ -1874,7 +1838,7 @@ Supported currencies: `RSD`, `EUR`, `USD`, `CHF`, `GBP`, `JPY`, `CAD`, `AUD`.
 
 ### GET /api/exchange/rates
 
-List all current exchange rates. Also accessible via `GET /api/exchange-rates` (alias).
+List all current exchange rates.
 
 **Authentication:** None (public)
 
@@ -1897,7 +1861,7 @@ List all current exchange rates. Also accessible via `GET /api/exchange-rates` (
 
 ### GET /api/exchange/rates/:from/:to
 
-Get the exchange rate between two specific currencies. Also accessible via `GET /api/exchange-rates/:from/:to` (alias).
+Get the exchange rate between two specific currencies.
 
 **Authentication:** None (public)
 

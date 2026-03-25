@@ -117,7 +117,7 @@ func main() {
 	}
 	defer exchangeConn.Close()
 
-	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, cfg.BootstrapSecret)
+	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,
