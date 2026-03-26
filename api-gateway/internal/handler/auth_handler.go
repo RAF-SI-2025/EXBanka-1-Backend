@@ -35,7 +35,7 @@ type loginRequest struct {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -44,7 +44,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		Password: req.Password,
 	})
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		handleGRPCError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -71,7 +71,7 @@ type refreshRequest struct {
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -79,7 +79,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		RefreshToken: req.RefreshToken,
 	})
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
+		handleGRPCError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -105,7 +105,7 @@ type passwordResetRequest struct {
 func (h *AuthHandler) RequestPasswordReset(c *gin.Context) {
 	var req passwordResetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -134,7 +134,7 @@ type resetPasswordRequest struct {
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req resetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -144,7 +144,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		ConfirmPassword: req.ConfirmPassword,
 	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handleGRPCError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "password reset successfully"})
@@ -169,7 +169,7 @@ type activateRequest struct {
 func (h *AuthHandler) ActivateAccount(c *gin.Context) {
 	var req activateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 
@@ -179,7 +179,7 @@ func (h *AuthHandler) ActivateAccount(c *gin.Context) {
 		ConfirmPassword: req.ConfirmPassword,
 	})
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		handleGRPCError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "account activated successfully"})
@@ -201,7 +201,7 @@ type logoutRequest struct {
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req logoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 

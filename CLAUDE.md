@@ -13,17 +13,21 @@ This is a Go workspace monorepo. Each service has its own self-contained directo
 ├── auth-service/            # JWT token lifecycle and password workflows (gRPC, port 50051)
 ├── user-service/            # Employee CRUD and credential management (gRPC, port 50052)
 ├── notification-service/    # Email/push notification delivery (gRPC port 50053, Kafka consumer)
+├── client-service/          # Bank client CRUD and credential management (gRPC, port 50054)
+├── account-service/         # Bank accounts, currencies, companies (gRPC, port 50055)
+├── card-service/            # Payment cards and authorized persons (gRPC, port 50056)
+├── transaction-service/     # Payments, transfers, currency conversion via exchange-service (gRPC, port 50057)
+├── credit-service/          # Loan requests, loans, installments (gRPC, port 50058)
+├── exchange-service/        # Currency exchange rates and conversion (gRPC, port 50059)
 ├── docs/                    # API documentation and implementation plans
 ├── docker-compose.yml
 ├── Makefile
 └── go.work
 ```
 
-Development happens in git worktrees under `.worktrees/`. Each worktree checks out a feature branch of the full repo.
-
 ## Commands
 
-All commands should be run from the active worktree root (e.g., `.worktrees/api-gateway/`).
+All commands should be run from the repo root.
 
 ```bash
 make proto        # Regenerate protobuf Go files (run after editing .proto files)
@@ -46,7 +50,7 @@ cd notification-service && go build -o bin/notification-service ./cmd
 
 ## Environment
 
-Copy `.env.example` to `.env` in the active worktree root. Key variables:
+Each service reads its `.env` file by walking up the directory tree from its working directory until it finds one. Place a `.env` file at the repo root (or within the service directory) containing the required variables. Key variables:
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -55,6 +59,12 @@ Copy `.env.example` to `.env` in the active worktree root. Key variables:
 | `JWT_ACCESS_EXPIRY` / `JWT_REFRESH_EXPIRY` | 15m / 168h | |
 | `AUTH_GRPC_ADDR` / `USER_GRPC_ADDR` | localhost:50051 / :50052 | |
 | `NOTIFICATION_GRPC_ADDR` | :50053 | |
+| `CLIENT_GRPC_ADDR` | localhost:50054 | client-service gRPC address; also required by credit-service and card-service |
+| `ACCOUNT_GRPC_ADDR` | localhost:50055 | account-service gRPC address; also required by credit-service and card-service |
+| `CARD_GRPC_ADDR` | localhost:50056 | card-service gRPC address |
+| `TRANSACTION_GRPC_ADDR` | localhost:50057 | transaction-service gRPC address |
+| `CREDIT_GRPC_ADDR` | localhost:50058 | credit-service gRPC address |
+| `EXCHANGE_GRPC_ADDR` | localhost:50059 | exchange-service gRPC address; also required by transaction-service |
 | `GATEWAY_HTTP_ADDR` | :8080 | |
 | `KAFKA_BROKERS` | localhost:9092 | |
 | `REDIS_ADDR` | localhost:6379 | Shared by auth + user services |
@@ -62,6 +72,19 @@ Copy `.env.example` to `.env` in the active worktree root. Key variables:
 | `SMTP_USER` / `SMTP_PASSWORD` | *(must set)* | Gmail app password |
 | `SMTP_FROM` | *(must set)* | Sender email address |
 | `FRONTEND_BASE_URL` | http://localhost:3000 | Base URL for links in emails |
+
+**New service DB ports (if running separate DBs):**
+
+| Service | Default DB Port |
+|---|---|
+| client-service | 5434 |
+| account-service | 5435 |
+| card-service | 5436 |
+| transaction-service | 5437 |
+| credit-service | 5438 |
+| exchange-service | 5439 |
+
+**Note:** `credit-service` and `card-service` both depend on `CLIENT_GRPC_ADDR` and `ACCOUNT_GRPC_ADDR` in addition to their own gRPC addresses. Ensure these variables are set in their docker-compose environment sections.
 
 ## Architecture
 
@@ -97,14 +120,51 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 
 ## Key Domain Concepts
 
-**Roles & permissions** (defined in `user-service/internal/service/role_service.go`):
-- `EmployeeBasic` → clients/accounts/cards/credits access
-- `EmployeeAgent` → adds securities trading
-- `EmployeeSupervisor` → adds agents/OTC/funds management
-- `EmployeeAdmin` → adds employees management
+**Roles & permissions** (stored in `user_db`, seeded from `user-service/internal/service/role_service.go`):
+- Roles (`EmployeeBasic`, `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin`) are stored in the `roles` table with their associated `permissions` in a `role_permissions` join table.
+- Employees can have multiple roles (`employee_roles`) and additional per-employee permissions (`employee_additional_permissions`).
+- Default seed: `EmployeeBasic` → clients/accounts/cards/credits access; `EmployeeAgent` → adds securities trading; `EmployeeSupervisor` → adds agents/OTC/funds management; `EmployeeAdmin` → adds employees management.
+
+**Employee limits** (stored in `user_db`, `employee_limits` table):
+- Each employee has configurable limits: `MaxLoanApprovalAmount`, `MaxSingleTransaction`, `MaxDailyTransaction`, `MaxClientDailyLimit`, `MaxClientMonthlyLimit` (all `decimal.Decimal`).
+- Limit templates (`limit_templates`) allow bulk-assigning limits by template name (e.g., `BasicTeller`).
+
+**Client limits** (stored in `client_db`, `client_limits` table):
+- Clients have `DailyLimit`, `MonthlyLimit`, `TransferLimit`.
+- When an employee sets client limits, the values are constrained to not exceed the employee's own `MaxClientDailyLimit` and `MaxClientMonthlyLimit`.
+
+**Virtual cards** (card-service):
+- Cards can be physical or virtual (`is_virtual` field).
+- Virtual cards have `usage_type`: `single_use` (expires after one use), `multi_use` (has `max_uses` counter), or `unlimited`.
+- All cards support PIN management (bcrypt-hashed, 4 digits, locked after 3 failed attempts).
+- Temporary block: `CardBlock` record with optional `ExpiresAt` — auto-unblocked by background goroutine every minute.
+
+**Bank account management** (account-service):
+- Bank-owned accounts are flagged with `is_bank_account = true` and `owner_id = 1_000_000_000` (sentinel).
+- The bank must maintain at least one RSD account and one foreign currency account at all times (enforced on delete).
+- Seeded at startup: 1 RSD + 1 EUR bank account.
+- Used for collecting transaction fees and loan installment credits.
+
+**Exchange rates** (exchange-service):
+- Exchange rates are synced from the open.er-api.com API every 6 hours (configurable via `EXCHANGE_SYNC_INTERVAL_HOURS`).
+- Rates are seeded with hardcoded defaults on first startup; external API sync failure is non-fatal (log warning, keep seed rates).
+- Rates stored as both `CODE/RSD` and inverse `RSD/CODE` pairs with buy/sell spread applied.
+- Transaction-service calls exchange-service via gRPC (`Convert` RPC) for cross-currency transfers; no commission applied at that layer.
+- Exchange-service config: `EXCHANGE_COMMISSION_RATE` (default 0.005), `EXCHANGE_SPREAD` (default 0.003), `EXCHANGE_API_KEY` (optional, for paid tier).
+
+**Transfer fees** (transaction-service):
+- Configurable fee rules stored in `transfer_fees` table (type: `percentage` or `fixed`, with `min_amount` threshold and `max_fee` cap).
+- Multiple matching rules are cumulative (stack).
+- Fee lookup failure (DB error) REJECTS the transaction (not silently ignored).
+- Default seed: 0.1% percentage fee for all transactions >= 1000 RSD.
+- Collected fees are credited to the bank's own RSD account after each transaction.
+
+**Auth token system type** (auth-service):
+- JWT claims include a `system_type` field: `employee` for employee logins, `client` for client logins.
+- Middleware uses `system_type` to route to `AuthMiddleware` (employee) or `ClientAuthMiddleware` (client).
 
 **Token types** (auth-service):
-- Access token: short-lived JWT (15 min), stateless validation (cached in Redis)
+- Access token: short-lived JWT (15 min), stateless validation. Claims include `user_id`, `roles []string`, `permissions []string`, and `system_type` (`employee` or `client`).
 - Refresh token: long-lived (168h), stored in `auth_db` and revocable
 - Activation token: 24h, triggers email with activation link via Kafka → notification-service
 - Password reset token: 1h, triggers email with reset link via Kafka → notification-service
@@ -113,10 +173,123 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 
 **Employee creation flow:** API Gateway → User service (create employee) → Auth service (create activation token) → Kafka → Notification service (send activation email).
 
+**Client login flow:** API Gateway (`POST /api/auth/client-login`) → Auth service (`ClientLogin` RPC) → Client service (`ValidateCredentials` RPC) → Auth service generates JWT with `role="client"` and issues refresh token. The client JWT is then validated by `ClientAuthMiddleware` in the API Gateway for client-protected routes.
+
 **JMBG (Jedinstveni Matični Broj Građana):**
 - Unique 13-digit national identification number required for all employees
 - Validated on create and update (exactly 13 digits)
 - Stored with unique index in user_db
+
+## API Gateway Input Validation Requirement
+
+**The API gateway must validate all input data before forwarding to gRPC services.** This is a hard requirement — not optional.
+
+- All string enum fields must be validated against their allowed values using the `oneOf()` helper in `api-gateway/internal/handler/validation.go`. This helper also normalizes input to lowercase, making validation case-insensitive (e.g., `"FOREIGN"` becomes `"foreign"`).
+- Numeric fields must be validated for range and sign: amounts must be positive (`positive()`), limits must be non-negative (`nonNegative()`), ranges must be checked with `inRange()`.
+- Format-constrained fields (e.g., PIN must be 4 digits) must be validated with format-specific helpers (e.g., `validatePin()`).
+- When adding a new endpoint or field, add validation in the gateway handler BEFORE the gRPC call. Return HTTP 400 with a clear error message on validation failure.
+- Known enum values (keep in sync with service-layer validation):
+  - `account_kind`: `current`, `foreign`
+  - `account status`: `active`, `inactive`
+  - `card_brand`: `visa`, `mastercard`, `dinacard`, `amex`
+  - `owner_type`: `client`, `authorized_person`
+  - `usage_type`: `single_use`, `multi_use`
+  - `fee_type`: `percentage`, `fixed`
+  - `loan_type`: `cash`, `housing`, `auto`, `refinancing`, `student`
+  - `interest_type`: `fixed`, `variable`
+
+## REST API Conventions
+
+**Route structure:**
+- `/api/me/*` — authenticated user's own resources. Ownership derived from JWT `user_id`, never from URL params. Protected by `AnyAuthMiddleware`.
+- `/api/<resource>` — general/admin/employee routes. Protected by `AuthMiddleware` + `RequirePermission`.
+- Collection filtering uses query params (`?client_id=X`, `?account_number=X`), not path segments (`/client/:id`).
+- When multiple filter params are provided on the same endpoint, return 400 — only one filter at a time.
+
+**HTTP verbs:**
+- `POST` for all state-change actions (approve, reject, block, unblock, deactivate, execute, temporary-block).
+- `PUT` only for idempotent full replacements (update employee, set permissions, set limits, update name).
+- `GET` for reads, `DELETE` for deletes.
+
+**Error handling:**
+- All error responses use the `apiError()` helper in `validation.go` — never raw `gin.H{"error": "string"}`.
+- Response format: `{"error": {"code": "...", "message": "...", "details": {...}}}` where `details` is optional.
+- HTTP status code must always match the error semantics — a 403 body never arrives with a 500 status.
+- gRPC error mapping (in `validation.go`):
+  - `InvalidArgument` → 400 `validation_error`
+  - `Unauthenticated` → 401 `unauthorized`
+  - `PermissionDenied` → 403 `forbidden`
+  - `NotFound` → 404 `not_found`
+  - `AlreadyExists` → 409 `conflict`
+  - `FailedPrecondition` → 409 `business_rule_violation`
+  - `ResourceExhausted` → 429 `rate_limited`
+  - Default → 500 `internal_error`
+- Middleware uses `abortWithError()` (local to middleware package) with the same JSON shape.
+
+**Middleware assignment:**
+- `AnyAuthMiddleware` for `/api/me/*` routes (accepts both client and employee tokens).
+- `AuthMiddleware` + `RequirePermission("...")` for employee/admin routes.
+- `ClientAuthMiddleware` is no longer routed but kept in codebase (may be useful for future client-only restrictions).
+- Public routes (auth, exchange rates) need no middleware.
+
+**When adding a new endpoint:**
+- If it's "user accesses their own resource" → add under `/api/me/*` with `AnyAuthMiddleware`.
+- If it's an employee/admin operation or general data → add under `/api/<resource>` with `AuthMiddleware`.
+- Use `apiError()` for all error responses, `handleGRPCError()` for gRPC errors.
+- Update swagger annotations, `docs/api/REST_API.md`, and `test-app` integration tests.
+- For `/api/me` handlers: create a `ListMy<Resource>` wrapper that extracts `user_id` from JWT context.
+
+## Swagger Documentation Requirement
+
+**Every route added or changed in `api-gateway` must have up-to-date Swagger annotations.** This is a hard requirement — not optional.
+
+- Every handler function exposed via the router must have a `// @Summary`, `// @Tags`, `// @Param`, `// @Success`, `// @Failure`, and `// @Router` godoc annotation.
+- After adding or modifying any route or handler, regenerate the docs: `make swagger` (or `cd api-gateway && swag init -g cmd/main.go --output docs`).
+- Swagger is **not dynamic** — the generated files in `api-gateway/docs/` must be committed alongside handler changes.
+- `make build` runs `swag init` automatically before compiling.
+
+## REST API Documentation Requirement
+
+**Every route added, changed, or removed in `api-gateway` must be reflected in `docs/api/REST_API.md`.** This is a hard requirement — not optional.
+
+- Add a new section or subsection for every new endpoint, following the existing format (authentication, path/query parameters, request body, example request, and all response codes).
+- Update existing sections when request/response shapes, authentication requirements, or behavior changes.
+- Remove sections for any deleted routes.
+- `docs/api/REST_API.md` must be committed alongside handler and router changes.
+
+## Kafka Event Publishing Requirement
+
+**All services must publish Kafka events for every significant action they perform.** This is a hard requirement — not optional.
+
+- Every create, update, delete, and state-change operation in a service's business logic layer must result in a Kafka event being published.
+- Events must be published from the `service/` layer (not handler or repository).
+- Use the existing `kafka/producer.go` pattern within each service.
+- Event topic naming convention: `<service>.<action>` (e.g., `user.employee-created`, `auth.token-activated`, `notification.email-sent`).
+- Define event payload structs in `contract/` so other services can consume them.
+
+## Kafka Topic Pre-Creation Requirement
+
+**Every service that uses Kafka must pre-create its topics on startup using `EnsureTopics`.** This is a hard requirement — not optional.
+
+- Without pre-creation, Kafka consumer groups that start before topics exist get assigned 0 partitions and never receive messages (partition assignment race condition).
+- Every service has a `internal/kafka/topics.go` file containing the `EnsureTopics(broker string, topics ...string)` function. This function connects to the Kafka controller and creates topics idempotently (no error if they already exist).
+- In `cmd/main.go`, call `kafkaprod.EnsureTopics(cfg.KafkaBrokers, ...)` immediately after creating the producer, listing **all topics the service produces to AND consumes from**.
+- When adding a new Kafka topic (new event type in `contract/kafka/messages.go`), add it to the `EnsureTopics` call in every service that produces or consumes that topic.
+- The function retries Kafka connection up to 10 times (2s apart) to handle startup ordering in Docker Compose.
+
+## Docker Compose Requirement
+
+**When adding or modifying a service, `docker-compose.yml` must be updated to match.** This is a hard requirement — not optional.
+
+- If a service's `config.go` adds a new environment variable (e.g., a gRPC address to another service, a DB setting, or any external dependency), add that variable to the service's `environment:` block in `docker-compose.yml`.
+- gRPC addresses must use Docker service names, not `localhost` (e.g., `client-service:50054`, not `localhost:50054`).
+- If a service depends on another service at runtime (DB, Kafka, Redis, or another gRPC service), add a `depends_on:` entry for it.
+- When adding a new service, add its DB, its service definition, the volume, and wire it into the `api-gateway` environment and `depends_on`.
+- `docker-compose.yml` must be committed alongside service changes.
+
+## Implementation Plans
+
+Before starting any feature or bug fix, read the existing implementation plans in `docs/superpowers/plans/`. These plans contain context, decisions, and scope that must inform your work. Plans are Markdown files named by date and feature (e.g., `2026-03-12-feature-name.md`).
 
 ## Proto Code Generation
 

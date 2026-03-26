@@ -12,7 +12,10 @@ service AuthService {
   rpc RequestPasswordReset(PasswordResetRequest) returns (PasswordResetResponse);
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
   rpc ActivateAccount(ActivateAccountRequest) returns (ActivateAccountResponse);
-  rpc CreateActivationToken(CreateActivationTokenRequest) returns (CreateActivationTokenResponse);
+  rpc SetAccountStatus(SetAccountStatusRequest) returns (SetAccountStatusResponse);
+  rpc GetAccountStatus(GetAccountStatusRequest) returns (GetAccountStatusResponse);
+  rpc GetAccountStatusBatch(GetAccountStatusBatchRequest) returns (GetAccountStatusBatchResponse);
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
 }
 
 message LoginRequest {
@@ -35,6 +38,8 @@ message ValidateTokenResponse {
   string email = 3;
   string role = 4;
   repeated string permissions = 5;
+  string system_type = 6;
+  repeated string roles = 7;
 }
 
 message RefreshTokenRequest {
@@ -82,12 +87,48 @@ message LogoutResponse {
   bool success = 1;
 }
 
-message CreateActivationTokenRequest {
-  int64 user_id = 1;
-  string email = 2;
-  string first_name = 3;
+message SetAccountStatusRequest {
+  string principal_type = 1;
+  int64 principal_id = 2;
+  bool active = 3;
 }
 
-message CreateActivationTokenResponse {
+message SetAccountStatusResponse {
+  bool success = 1;
+}
+
+message GetAccountStatusRequest {
+  string principal_type = 1;
+  int64 principal_id = 2;
+}
+
+message GetAccountStatusResponse {
+  string status = 1;
+  bool active = 2;
+}
+
+message GetAccountStatusBatchRequest {
+  string principal_type = 1;
+  repeated int64 principal_ids = 2;
+}
+
+message AccountStatusEntry {
+  int64 principal_id = 1;
+  string status = 2;
+  bool active = 3;
+}
+
+message GetAccountStatusBatchResponse {
+  repeated AccountStatusEntry entries = 1;
+}
+
+message CreateAccountRequest {
+  int64 principal_id = 1;
+  string email = 2;
+  string first_name = 3;
+  string principal_type = 4;
+}
+
+message CreateAccountResponse {
   bool success = 1;
 }

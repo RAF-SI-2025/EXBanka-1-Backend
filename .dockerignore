@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+docs
+*.md
+docker-compose.yml
+Makefile
+go.work
+go.work.sum
+.env
+.env.*
+**/bin/

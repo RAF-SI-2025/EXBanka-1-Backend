@@ -26,7 +26,10 @@ const (
 	AuthService_RequestPasswordReset_FullMethodName  = "/auth.AuthService/RequestPasswordReset"
 	AuthService_ResetPassword_FullMethodName         = "/auth.AuthService/ResetPassword"
 	AuthService_ActivateAccount_FullMethodName       = "/auth.AuthService/ActivateAccount"
-	AuthService_CreateActivationToken_FullMethodName = "/auth.AuthService/CreateActivationToken"
+	AuthService_SetAccountStatus_FullMethodName      = "/auth.AuthService/SetAccountStatus"
+	AuthService_GetAccountStatus_FullMethodName      = "/auth.AuthService/GetAccountStatus"
+	AuthService_GetAccountStatusBatch_FullMethodName = "/auth.AuthService/GetAccountStatusBatch"
+	AuthService_CreateAccount_FullMethodName         = "/auth.AuthService/CreateAccount"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -40,7 +43,10 @@ type AuthServiceClient interface {
 	RequestPasswordReset(ctx context.Context, in *PasswordResetRequest, opts ...grpc.CallOption) (*PasswordResetResponse, error)
 	ResetPassword(ctx context.Context, in *ResetPasswordRequest, opts ...grpc.CallOption) (*ResetPasswordResponse, error)
 	ActivateAccount(ctx context.Context, in *ActivateAccountRequest, opts ...grpc.CallOption) (*ActivateAccountResponse, error)
-	CreateActivationToken(ctx context.Context, in *CreateActivationTokenRequest, opts ...grpc.CallOption) (*CreateActivationTokenResponse, error)
+	SetAccountStatus(ctx context.Context, in *SetAccountStatusRequest, opts ...grpc.CallOption) (*SetAccountStatusResponse, error)
+	GetAccountStatus(ctx context.Context, in *GetAccountStatusRequest, opts ...grpc.CallOption) (*GetAccountStatusResponse, error)
+	GetAccountStatusBatch(ctx context.Context, in *GetAccountStatusBatchRequest, opts ...grpc.CallOption) (*GetAccountStatusBatchResponse, error)
+	CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error)
 }
 
 type authServiceClient struct {
@@ -121,10 +127,40 @@ func (c *authServiceClient) ActivateAccount(ctx context.Context, in *ActivateAcc
 	return out, nil
 }
 
-func (c *authServiceClient) CreateActivationToken(ctx context.Context, in *CreateActivationTokenRequest, opts ...grpc.CallOption) (*CreateActivationTokenResponse, error) {
+func (c *authServiceClient) SetAccountStatus(ctx context.Context, in *SetAccountStatusRequest, opts ...grpc.CallOption) (*SetAccountStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateActivationTokenResponse)
-	err := c.cc.Invoke(ctx, AuthService_CreateActivationToken_FullMethodName, in, out, cOpts...)
+	out := new(SetAccountStatusResponse)
+	err := c.cc.Invoke(ctx, AuthService_SetAccountStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetAccountStatus(ctx context.Context, in *GetAccountStatusRequest, opts ...grpc.CallOption) (*GetAccountStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAccountStatusResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetAccountStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetAccountStatusBatch(ctx context.Context, in *GetAccountStatusBatchRequest, opts ...grpc.CallOption) (*GetAccountStatusBatchResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAccountStatusBatchResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetAccountStatusBatch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateAccountResponse)
+	err := c.cc.Invoke(ctx, AuthService_CreateAccount_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +178,10 @@ type AuthServiceServer interface {
 	RequestPasswordReset(context.Context, *PasswordResetRequest) (*PasswordResetResponse, error)
 	ResetPassword(context.Context, *ResetPasswordRequest) (*ResetPasswordResponse, error)
 	ActivateAccount(context.Context, *ActivateAccountRequest) (*ActivateAccountResponse, error)
-	CreateActivationToken(context.Context, *CreateActivationTokenRequest) (*CreateActivationTokenResponse, error)
+	SetAccountStatus(context.Context, *SetAccountStatusRequest) (*SetAccountStatusResponse, error)
+	GetAccountStatus(context.Context, *GetAccountStatusRequest) (*GetAccountStatusResponse, error)
+	GetAccountStatusBatch(context.Context, *GetAccountStatusBatchRequest) (*GetAccountStatusBatchResponse, error)
+	CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
 
@@ -174,8 +213,17 @@ func (UnimplementedAuthServiceServer) ResetPassword(context.Context, *ResetPassw
 func (UnimplementedAuthServiceServer) ActivateAccount(context.Context, *ActivateAccountRequest) (*ActivateAccountResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ActivateAccount not implemented")
 }
-func (UnimplementedAuthServiceServer) CreateActivationToken(context.Context, *CreateActivationTokenRequest) (*CreateActivationTokenResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method CreateActivationToken not implemented")
+func (UnimplementedAuthServiceServer) SetAccountStatus(context.Context, *SetAccountStatusRequest) (*SetAccountStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetAccountStatus not implemented")
+}
+func (UnimplementedAuthServiceServer) GetAccountStatus(context.Context, *GetAccountStatusRequest) (*GetAccountStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAccountStatus not implemented")
+}
+func (UnimplementedAuthServiceServer) GetAccountStatusBatch(context.Context, *GetAccountStatusBatchRequest) (*GetAccountStatusBatchResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAccountStatusBatch not implemented")
+}
+func (UnimplementedAuthServiceServer) CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateAccount not implemented")
 }
 func (UnimplementedAuthServiceServer) mustEmbedUnimplementedAuthServiceServer() {}
 func (UnimplementedAuthServiceServer) testEmbeddedByValue()                     {}
@@ -324,20 +372,74 @@ func _AuthService_ActivateAccount_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AuthService_CreateActivationToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateActivationTokenRequest)
+func _AuthService_SetAccountStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAccountStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AuthServiceServer).CreateActivationToken(ctx, in)
+		return srv.(AuthServiceServer).SetAccountStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: AuthService_CreateActivationToken_FullMethodName,
+		FullMethod: AuthService_SetAccountStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).CreateActivationToken(ctx, req.(*CreateActivationTokenRequest))
+		return srv.(AuthServiceServer).SetAccountStatus(ctx, req.(*SetAccountStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetAccountStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetAccountStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetAccountStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetAccountStatus(ctx, req.(*GetAccountStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetAccountStatusBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountStatusBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetAccountStatusBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetAccountStatusBatch_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetAccountStatusBatch(ctx, req.(*GetAccountStatusBatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_CreateAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateAccountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).CreateAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_CreateAccount_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).CreateAccount(ctx, req.(*CreateAccountRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -378,8 +480,20 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AuthService_ActivateAccount_Handler,
 		},
 		{
-			MethodName: "CreateActivationToken",
-			Handler:    _AuthService_CreateActivationToken_Handler,
+			MethodName: "SetAccountStatus",
+			Handler:    _AuthService_SetAccountStatus_Handler,
+		},
+		{
+			MethodName: "GetAccountStatus",
+			Handler:    _AuthService_GetAccountStatus_Handler,
+		},
+		{
+			MethodName: "GetAccountStatusBatch",
+			Handler:    _AuthService_GetAccountStatusBatch_Handler,
+		},
+		{
+			MethodName: "CreateAccount",
+			Handler:    _AuthService_CreateAccount_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

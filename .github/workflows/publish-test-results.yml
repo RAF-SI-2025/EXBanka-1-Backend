@@ -1,0 +1,31 @@
+name: Publish Test Results
+
+on:
+  workflow_run:
+    workflows: [Integration Tests]
+    types: [completed]
+
+jobs:
+  publish:
+    name: Publish Integration Test Results
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      pull-requests: write
+
+    steps:
+      - name: Download test results artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        with:
+          name: Integration Test Results
+          path: test-results.xml
+          reporter: java-junit
+          fail-on-error: false
+          fail-on-empty: true

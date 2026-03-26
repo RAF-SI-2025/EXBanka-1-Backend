@@ -1,0 +1,215 @@
+syntax = "proto3";
+package credit;
+option go_package = "github.com/exbanka/contract/creditpb;creditpb";
+
+service CreditService {
+  rpc CreateLoanRequest(CreateLoanRequestReq) returns (LoanRequestResponse);
+  rpc GetLoanRequest(GetLoanRequestReq) returns (LoanRequestResponse);
+  rpc ListLoanRequests(ListLoanRequestsReq) returns (ListLoanRequestsResponse);
+  rpc ApproveLoanRequest(ApproveLoanRequestReq) returns (LoanResponse);
+  rpc RejectLoanRequest(RejectLoanRequestReq) returns (LoanRequestResponse);
+
+  rpc GetLoan(GetLoanReq) returns (LoanResponse);
+  rpc ListLoansByClient(ListLoansByClientReq) returns (ListLoansResponse);
+  rpc ListAllLoans(ListAllLoansReq) returns (ListLoansResponse);
+
+  rpc GetInstallmentsByLoan(GetInstallmentsByLoanReq) returns (ListInstallmentsResponse);
+
+  // Interest Rate Tier management
+  rpc ListInterestRateTiers(ListInterestRateTiersRequest) returns (ListInterestRateTiersResponse);
+  rpc CreateInterestRateTier(CreateInterestRateTierRequest) returns (InterestRateTierResponse);
+  rpc UpdateInterestRateTier(UpdateInterestRateTierRequest) returns (InterestRateTierResponse);
+  rpc DeleteInterestRateTier(DeleteInterestRateTierRequest) returns (DeleteResponse);
+
+  // Bank Margin management
+  rpc ListBankMargins(ListBankMarginsRequest) returns (ListBankMarginsResponse);
+  rpc UpdateBankMargin(UpdateBankMarginRequest) returns (BankMarginResponse);
+
+  // Variable rate propagation
+  rpc ApplyVariableRateUpdate(ApplyVariableRateUpdateRequest) returns (ApplyVariableRateUpdateResponse);
+}
+
+message CreateLoanRequestReq {
+  uint64 client_id = 1;
+  string loan_type = 2;
+  string interest_type = 3;
+  string amount = 4;
+  string currency_code = 5;
+  string purpose = 6;
+  string monthly_salary = 7;
+  string employment_status = 8;
+  int32 employment_period = 9;
+  int32 repayment_period = 10;
+  string phone = 11;
+  string account_number = 12;
+}
+
+message GetLoanRequestReq { uint64 id = 1; }
+
+message ListLoanRequestsReq {
+  string loan_type_filter = 1;
+  string account_number_filter = 2;
+  string status_filter = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+  uint64 client_id_filter = 6;
+}
+
+message ListLoanRequestsResponse {
+  repeated LoanRequestResponse requests = 1;
+  int64 total = 2;
+}
+
+message ApproveLoanRequestReq {
+  uint64 request_id = 1;
+  uint64 employee_id = 2;
+}
+message RejectLoanRequestReq { uint64 request_id = 1; }
+
+message LoanRequestResponse {
+  uint64 id = 1;
+  uint64 client_id = 2;
+  string loan_type = 3;
+  string interest_type = 4;
+  string amount = 5;
+  string currency_code = 6;
+  string purpose = 7;
+  string monthly_salary = 8;
+  string employment_status = 9;
+  int32 employment_period = 10;
+  int32 repayment_period = 11;
+  string phone = 12;
+  string account_number = 13;
+  string status = 14;
+  string created_at = 15;
+}
+
+message GetLoanReq { uint64 id = 1; }
+
+message ListLoansByClientReq {
+  uint64 client_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ListAllLoansReq {
+  string loan_type_filter = 1;
+  string account_number_filter = 2;
+  string status_filter = 3;
+  int32 page = 4;
+  int32 page_size = 5;
+}
+
+message ListLoansResponse {
+  repeated LoanResponse loans = 1;
+  int64 total = 2;
+}
+
+message LoanResponse {
+  uint64 id = 1;
+  string loan_number = 2;
+  string loan_type = 3;
+  string account_number = 4;
+  string amount = 5;
+  int32 repayment_period = 6;
+  string nominal_interest_rate = 7;
+  string effective_interest_rate = 8;
+  string contract_date = 9;
+  string maturity_date = 10;
+  string next_installment_amount = 11;
+  string next_installment_date = 12;
+  string remaining_debt = 13;
+  string currency_code = 14;
+  string status = 15;
+  string interest_type = 16;
+  string created_at = 17;
+}
+
+message GetInstallmentsByLoanReq { uint64 loan_id = 1; }
+
+message ListInstallmentsResponse { repeated InstallmentResponse installments = 1; }
+
+message InstallmentResponse {
+  uint64 id = 1;
+  uint64 loan_id = 2;
+  string amount = 3;
+  string interest_rate = 4;
+  string currency_code = 5;
+  string expected_date = 6;
+  string actual_date = 7;
+  string status = 8;
+}
+
+// --- Interest Rate Tier messages ---
+
+message ListInterestRateTiersRequest {}
+
+message ListInterestRateTiersResponse {
+  repeated InterestRateTierResponse tiers = 1;
+}
+
+message InterestRateTierResponse {
+  uint64 id = 1;
+  string amount_from = 2;
+  string amount_to = 3;
+  string fixed_rate = 4;
+  string variable_base = 5;
+  bool active = 6;
+  string created_at = 7;
+  string updated_at = 8;
+}
+
+message CreateInterestRateTierRequest {
+  string amount_from = 1;
+  string amount_to = 2;
+  string fixed_rate = 3;
+  string variable_base = 4;
+}
+
+message UpdateInterestRateTierRequest {
+  uint64 id = 1;
+  string amount_from = 2;
+  string amount_to = 3;
+  string fixed_rate = 4;
+  string variable_base = 5;
+}
+
+message DeleteInterestRateTierRequest {
+  uint64 id = 1;
+}
+
+message DeleteResponse {
+  bool success = 1;
+}
+
+// --- Bank Margin messages ---
+
+message ListBankMarginsRequest {}
+
+message ListBankMarginsResponse {
+  repeated BankMarginResponse margins = 1;
+}
+
+message BankMarginResponse {
+  uint64 id = 1;
+  string loan_type = 2;
+  string margin = 3;
+  bool active = 4;
+  string created_at = 5;
+  string updated_at = 6;
+}
+
+message UpdateBankMarginRequest {
+  uint64 id = 1;
+  string margin = 2;
+}
+
+// --- Variable rate propagation messages ---
+
+message ApplyVariableRateUpdateRequest {
+  uint64 tier_id = 1;
+}
+
+message ApplyVariableRateUpdateResponse {
+  int32 affected_loans = 1;
+}

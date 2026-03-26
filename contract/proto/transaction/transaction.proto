@@ -1,0 +1,207 @@
+syntax = "proto3";
+package transaction;
+option go_package = "github.com/exbanka/contract/transactionpb;transactionpb";
+
+service TransactionService {
+  rpc CreatePayment(CreatePaymentRequest) returns (PaymentResponse);
+  rpc ExecutePayment(ExecutePaymentRequest) returns (PaymentResponse);
+  rpc GetPayment(GetPaymentRequest) returns (PaymentResponse);
+  rpc ListPaymentsByAccount(ListPaymentsByAccountRequest) returns (ListPaymentsResponse);
+  rpc ListPaymentsByClient(ListPaymentsByClientRequest) returns (ListPaymentsResponse);
+
+  rpc CreateTransfer(CreateTransferRequest) returns (TransferResponse);
+  rpc ExecuteTransfer(ExecuteTransferRequest) returns (TransferResponse);
+  rpc GetTransfer(GetTransferRequest) returns (TransferResponse);
+  rpc ListTransfersByClient(ListTransfersByClientRequest) returns (ListTransfersResponse);
+
+  rpc CreatePaymentRecipient(CreatePaymentRecipientRequest) returns (PaymentRecipientResponse);
+  rpc ListPaymentRecipients(ListPaymentRecipientsRequest) returns (ListPaymentRecipientsResponse);
+  rpc UpdatePaymentRecipient(UpdatePaymentRecipientRequest) returns (PaymentRecipientResponse);
+  rpc DeletePaymentRecipient(DeletePaymentRecipientRequest) returns (DeletePaymentRecipientResponse);
+
+}
+
+message CreatePaymentRequest {
+  string from_account_number = 1;
+  string to_account_number = 2;
+  string amount = 3;
+  string recipient_name = 4;
+  string payment_code = 5;
+  string reference_number = 6;
+  string payment_purpose = 7;
+  uint64 client_id = 8;
+  string client_email = 9;
+}
+
+message GetPaymentRequest { uint64 id = 1; }
+
+message ListPaymentsByAccountRequest {
+  string account_number = 1;
+  string date_from = 2;
+  string date_to = 3;
+  string status_filter = 4;
+  string amount_min = 5;
+  string amount_max = 6;
+  int32 page = 7;
+  int32 page_size = 8;
+}
+
+message ListPaymentsResponse {
+  repeated PaymentResponse payments = 1;
+  int64 total = 2;
+}
+
+message ListPaymentsByClientRequest {
+  uint64 client_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  repeated string account_numbers = 4;
+}
+
+message PaymentResponse {
+  uint64 id = 1;
+  string from_account_number = 2;
+  string to_account_number = 3;
+  string initial_amount = 4;
+  string final_amount = 5;
+  string commission = 6;
+  string recipient_name = 7;
+  string payment_code = 8;
+  string reference_number = 9;
+  string payment_purpose = 10;
+  string status = 11;
+  string timestamp = 12;
+  int64 verification_code_expires_at = 13;
+}
+
+message CreateTransferRequest {
+  string from_account_number = 1;
+  string to_account_number = 2;
+  string amount = 3;
+  string from_currency = 4;
+  string to_currency = 5;
+  uint64 client_id = 6;
+  string client_email = 7;
+}
+
+message GetTransferRequest { uint64 id = 1; }
+
+message ListTransfersByClientRequest {
+  uint64 client_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  repeated string account_numbers = 4;
+}
+
+message ListTransfersResponse {
+  repeated TransferResponse transfers = 1;
+  int64 total = 2;
+}
+
+message TransferResponse {
+  uint64 id = 1;
+  string from_account_number = 2;
+  string to_account_number = 3;
+  string initial_amount = 4;
+  string final_amount = 5;
+  string exchange_rate = 6;
+  string commission = 7;
+  string timestamp = 8;
+  string status = 9;
+  int64 verification_code_expires_at = 10;
+}
+
+message CreatePaymentRecipientRequest {
+  uint64 client_id = 1;
+  string recipient_name = 2;
+  string account_number = 3;
+}
+
+message ListPaymentRecipientsRequest { uint64 client_id = 1; }
+
+message ListPaymentRecipientsResponse {
+  repeated PaymentRecipientResponse recipients = 1;
+}
+
+message UpdatePaymentRecipientRequest {
+  uint64 id = 1;
+  optional string recipient_name = 2;
+  optional string account_number = 3;
+}
+
+message DeletePaymentRecipientRequest { uint64 id = 1; }
+message DeletePaymentRecipientResponse { bool success = 1; }
+
+message PaymentRecipientResponse {
+  uint64 id = 1;
+  uint64 client_id = 2;
+  string recipient_name = 3;
+  string account_number = 4;
+  string created_at = 5;
+}
+
+message ExecutePaymentRequest {
+  uint64 payment_id = 1;
+  uint64 client_id = 2;
+  string verification_code = 3;
+}
+
+message ExecuteTransferRequest {
+  uint64 transfer_id = 1;
+  uint64 client_id = 2;
+  string verification_code = 3;
+}
+
+service FeeService {
+  rpc ListFees(ListFeesRequest) returns (ListFeesResponse);
+  rpc CreateFee(CreateFeeRequest) returns (TransferFeeResponse);
+  rpc UpdateFee(UpdateFeeRequest) returns (TransferFeeResponse);
+  rpc DeleteFee(DeleteFeeRequest) returns (DeleteFeeResponse);
+}
+
+message ListFeesRequest {}
+
+message ListFeesResponse {
+  repeated TransferFeeResponse fees = 1;
+}
+
+message CreateFeeRequest {
+  string name = 1;
+  string fee_type = 2;
+  string fee_value = 3;
+  string min_amount = 4;
+  string max_fee = 5;
+  string transaction_type = 6;
+  string currency_code = 7;
+}
+
+message UpdateFeeRequest {
+  uint64 id = 1;
+  string name = 2;
+  string fee_type = 3;
+  string fee_value = 4;
+  string min_amount = 5;
+  string max_fee = 6;
+  string transaction_type = 7;
+  string currency_code = 8;
+  bool active = 9;
+}
+
+message DeleteFeeRequest { uint64 id = 1; }
+
+message DeleteFeeResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message TransferFeeResponse {
+  uint64 id = 1;
+  string name = 2;
+  string fee_type = 3;
+  string fee_value = 4;
+  string min_amount = 5;
+  string max_fee = 6;
+  string transaction_type = 7;
+  string currency_code = 8;
+  bool active = 9;
+}

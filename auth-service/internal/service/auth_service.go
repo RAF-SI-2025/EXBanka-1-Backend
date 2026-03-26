@@ -21,47 +21,179 @@ import (
 )
 
 type AuthService struct {
-	tokenRepo       *repository.TokenRepository
-	jwtService      *JWTService
-	userClient      userpb.UserServiceClient
-	producer        *kafkaprod.Producer
-	cache           *cache.RedisCache
-	refreshExp      time.Duration
-	frontendBaseURL string
+	tokenRepo        *repository.TokenRepository
+	loginAttemptRepo *repository.LoginAttemptRepository
+	totpRepo         *repository.TOTPRepository
+	totpSvc          *TOTPService
+	jwtService       *JWTService
+	accountRepo      *repository.AccountRepository
+	userClient       userpb.UserServiceClient
+	producer         *kafkaprod.Producer
+	cache            *cache.RedisCache
+	refreshExp       time.Duration
+	frontendBaseURL  string
+	pepper           string
 }
 
 func NewAuthService(
 	tokenRepo *repository.TokenRepository,
+	loginAttemptRepo *repository.LoginAttemptRepository,
+	totpRepo *repository.TOTPRepository,
+	totpSvc *TOTPService,
 	jwtService *JWTService,
+	accountRepo *repository.AccountRepository,
 	userClient userpb.UserServiceClient,
 	producer *kafkaprod.Producer,
 	cache *cache.RedisCache,
 	refreshExp time.Duration,
 	frontendBaseURL string,
+	pepper string,
 ) *AuthService {
 	return &AuthService{
-		tokenRepo:       tokenRepo,
-		jwtService:      jwtService,
-		userClient:      userClient,
-		producer:        producer,
-		cache:           cache,
-		refreshExp:      refreshExp,
-		frontendBaseURL: frontendBaseURL,
+		tokenRepo:        tokenRepo,
+		loginAttemptRepo: loginAttemptRepo,
+		totpRepo:         totpRepo,
+		totpSvc:          totpSvc,
+		jwtService:       jwtService,
+		accountRepo:      accountRepo,
+		userClient:       userClient,
+		producer:         producer,
+		cache:            cache,
+		refreshExp:       refreshExp,
+		frontendBaseURL:  frontendBaseURL,
+		pepper:           pepper,
 	}
 }
 
-func (s *AuthService) Login(ctx context.Context, email, password string) (string, string, error) {
-	resp, err := s.userClient.ValidateCredentials(ctx, &userpb.ValidateCredentialsRequest{
-		Email:    email,
-		Password: password,
-	})
-	if err != nil || !resp.Valid {
-		return "", "", errors.New("invalid credentials")
-	}
-
-	accessToken, err := s.jwtService.GenerateAccessToken(resp.UserId, resp.Email, resp.Role, resp.Permissions)
+// Setup2FA generates a TOTP secret for a user (pending confirmation).
+func (s *AuthService) Setup2FA(ctx context.Context, userID int64, email string) (string, string, error) {
+	secret, url, err := s.totpSvc.GenerateSecret(email, "EXBanka")
 	if err != nil {
 		return "", "", err
+	}
+	totpRecord := &model.TOTPSecret{
+		UserID:  userID,
+		Secret:  secret,
+		Enabled: false,
+	}
+	// Delete any existing pending setup
+	_ = s.totpRepo.Delete(userID)
+	if err := s.totpRepo.Create(totpRecord); err != nil {
+		return "", "", err
+	}
+	return secret, url, nil
+}
+
+// Verify2FA confirms the TOTP code and enables 2FA for the user.
+func (s *AuthService) Verify2FA(ctx context.Context, userID int64, code string) (bool, error) {
+	totpRecord, err := s.totpRepo.GetByUserID(userID)
+	if err != nil {
+		return false, fmt.Errorf("2FA not set up")
+	}
+	if !s.totpSvc.ValidateCode(totpRecord.Secret, code) {
+		return false, nil
+	}
+	return true, s.totpRepo.Enable(userID)
+}
+
+// Disable2FA removes 2FA for the user after verifying the current code.
+func (s *AuthService) Disable2FA(ctx context.Context, userID int64, code string) (bool, error) {
+	totpRecord, err := s.totpRepo.GetByUserID(userID)
+	if err != nil {
+		return false, fmt.Errorf("2FA not set up")
+	}
+	if !s.totpSvc.ValidateCode(totpRecord.Secret, code) {
+		return false, nil
+	}
+	return true, s.totpRepo.Delete(userID)
+}
+
+// Login authenticates both employees and bank clients using the unified Account table.
+func (s *AuthService) Login(ctx context.Context, email, password string) (string, string, error) {
+	const maxFailedAttempts = 5
+	const lockoutWindow = 15 * time.Minute
+	const lockoutDuration = 30 * time.Minute
+
+	// Check if account is locked
+	lock, err := s.loginAttemptRepo.GetActiveLock(email)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to check account lock: %w", err)
+	}
+	if lock != nil {
+		remaining := time.Until(lock.ExpiresAt).Minutes()
+		return "", "", fmt.Errorf("account locked due to too many failed attempts, try again in %.0f minutes", remaining)
+	}
+
+	// Look up account by email
+	account, err := s.accountRepo.GetByEmail(email)
+	if err != nil {
+		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
+		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
+		if freshCount >= maxFailedAttempts {
+			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+		}
+		remaining := int(maxFailedAttempts - freshCount)
+		return "", "", fmt.Errorf("no account found with email %s (%d attempts remaining before lockout)", email, remaining)
+	}
+
+	// Check account status
+	if account.Status == model.AccountStatusPending {
+		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
+		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
+		if freshCount >= maxFailedAttempts {
+			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+		}
+		remaining := int(maxFailedAttempts - freshCount)
+		return "", "", fmt.Errorf("account not yet activated (%d attempts remaining before lockout)", remaining)
+	}
+	if account.Status != model.AccountStatusActive {
+		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
+		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
+		if freshCount >= maxFailedAttempts {
+			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+		}
+		remaining := int(maxFailedAttempts - freshCount)
+		return "", "", fmt.Errorf("account is disabled (%d attempts remaining before lockout)", remaining)
+	}
+
+	// Verify password
+	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(PepperPassword(s.pepper, password))); err != nil {
+		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
+		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
+		if freshCount >= maxFailedAttempts {
+			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+		}
+		remaining := int(maxFailedAttempts - freshCount)
+		return "", "", fmt.Errorf("incorrect password for %s (%d attempts remaining before lockout)", email, remaining)
+	}
+
+	_ = s.loginAttemptRepo.RecordAttempt(email, "", true)
+
+	var accessToken string
+
+	switch account.PrincipalType {
+	case model.PrincipalTypeEmployee:
+		userResp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: account.PrincipalID})
+		if err != nil {
+			return "", "", fmt.Errorf("failed to fetch employee data: %w", err)
+		}
+		loginRoles := userResp.Roles
+		if len(loginRoles) == 0 && userResp.Role != "" {
+			loginRoles = []string{userResp.Role}
+		}
+		accessToken, err = s.jwtService.GenerateAccessToken(account.PrincipalID, account.Email, loginRoles, userResp.Permissions, "employee")
+		if err != nil {
+			return "", "", err
+		}
+	default: // client
+		accessToken, err = s.jwtService.GenerateAccessToken(account.PrincipalID, account.Email, []string{"client"}, nil, "client")
+		if err != nil {
+			return "", "", err
+		}
 	}
 
 	refreshToken, err := generateToken()
@@ -69,9 +201,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 	if err := s.tokenRepo.CreateRefreshToken(&model.RefreshToken{
-		UserID:    resp.UserId,
-		Token:     refreshToken,
-		ExpiresAt: time.Now().Add(s.refreshExp),
+		AccountID:  account.ID,
+		Token:      refreshToken,
+		ExpiresAt:  time.Now().Add(s.refreshExp),
+		SystemType: account.PrincipalType,
 	}); err != nil {
 		return "", "", err
 	}
@@ -86,6 +219,13 @@ func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	if s.cache != nil {
 		var cached Claims
 		if err := s.cache.Get(context.Background(), cacheKey, &cached); err == nil {
+			// Check if token has been blacklisted by JTI
+			if cached.ID != "" {
+				blacklisted, _ := s.cache.Exists(context.Background(), "blacklist:"+cached.ID)
+				if blacklisted {
+					return nil, fmt.Errorf("access token has been revoked; please log in again")
+				}
+			}
 			return &cached, nil
 		}
 	}
@@ -93,6 +233,14 @@ func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	claims, err := s.jwtService.ValidateToken(tokenString)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check blacklist by JTI
+	if claims.ID != "" && s.cache != nil {
+		blacklisted, _ := s.cache.Exists(context.Background(), "blacklist:"+claims.ID)
+		if blacklisted {
+			return nil, fmt.Errorf("access token has been revoked; please log in again")
+		}
 	}
 
 	// Cache with TTL = remaining token lifetime
@@ -106,6 +254,14 @@ func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
+// RevokeAccessToken adds a JWT JTI to the Redis blacklist until it would naturally expire.
+func (s *AuthService) RevokeAccessToken(ctx context.Context, jti string, remainingTTL time.Duration) error {
+	if s.cache == nil {
+		return nil // gracefully skip if no Redis
+	}
+	return s.cache.Set(ctx, "blacklist:"+jti, "revoked", remainingTTL)
+}
+
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
@@ -114,26 +270,52 @@ func hashToken(token string) string {
 func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) (string, string, error) {
 	rt, err := s.tokenRepo.GetRefreshToken(refreshTokenStr)
 	if err != nil {
-		return "", "", errors.New("invalid refresh token")
+		return "", "", errors.New("refresh token has been revoked")
 	}
 	if time.Now().After(rt.ExpiresAt) {
-		return "", "", errors.New("refresh token expired")
+		return "", "", errors.New("refresh token expired; please log in again")
+	}
+
+	// Look up account by AccountID
+	var acct model.Account
+	if err := s.accountRepo.GetByID(rt.AccountID, &acct); err != nil {
+		return "", "", errors.New("account not found")
+	}
+	if acct.Status != model.AccountStatusActive {
+		return "", "", errors.New("account is disabled")
 	}
 
 	if err := s.tokenRepo.RevokeRefreshToken(refreshTokenStr); err != nil {
 		return "", "", fmt.Errorf("failed to revoke old refresh token: %w", err)
 	}
 
-	userResp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: rt.UserID})
-	if err != nil {
-		return "", "", errors.New("user not found")
+	systemType := rt.SystemType
+	if systemType == "" {
+		systemType = "employee" // backwards compat for existing tokens without system_type
 	}
 
-	accessToken, err := s.jwtService.GenerateAccessToken(
-		userResp.Id, userResp.Email, userResp.Role, userResp.Permissions,
-	)
-	if err != nil {
-		return "", "", err
+	var accessToken string
+
+	if systemType == "client" {
+		accessToken, err = s.jwtService.GenerateAccessToken(acct.PrincipalID, acct.Email, []string{"client"}, nil, "client")
+		if err != nil {
+			return "", "", err
+		}
+	} else {
+		userResp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: acct.PrincipalID})
+		if err != nil {
+			return "", "", errors.New("user not found")
+		}
+		refreshRoles := userResp.Roles
+		if len(refreshRoles) == 0 && userResp.Role != "" {
+			refreshRoles = []string{userResp.Role}
+		}
+		accessToken, err = s.jwtService.GenerateAccessToken(
+			userResp.Id, userResp.Email, refreshRoles, userResp.Permissions, "employee",
+		)
+		if err != nil {
+			return "", "", err
+		}
 	}
 
 	newRefreshToken, err := generateToken()
@@ -141,9 +323,10 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) 
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 	if err := s.tokenRepo.CreateRefreshToken(&model.RefreshToken{
-		UserID:    rt.UserID,
-		Token:     newRefreshToken,
-		ExpiresAt: time.Now().Add(s.refreshExp),
+		AccountID:  acct.ID,
+		Token:      newRefreshToken,
+		ExpiresAt:  time.Now().Add(s.refreshExp),
+		SystemType: systemType,
 	}); err != nil {
 		return "", "", err
 	}
@@ -155,13 +338,29 @@ func (s *AuthService) Logout(ctx context.Context, refreshTokenStr string) error 
 	return s.tokenRepo.RevokeRefreshToken(refreshTokenStr)
 }
 
-func (s *AuthService) CreateActivationToken(ctx context.Context, userID int64, email, firstName string) error {
+// CreateAccountAndActivationToken creates an Account (if not already present) and sends an activation email.
+func (s *AuthService) CreateAccountAndActivationToken(ctx context.Context, principalID int64, email, firstName, principalType string) error {
+	// Idempotent: check if account already exists
+	account, err := s.accountRepo.GetByEmail(email)
+	if err != nil {
+		// Account does not exist — create it
+		account = &model.Account{
+			Email:         email,
+			Status:        model.AccountStatusPending,
+			PrincipalType: principalType,
+			PrincipalID:   principalID,
+		}
+		if err := s.accountRepo.Create(account); err != nil {
+			return fmt.Errorf("failed to create account: %w", err)
+		}
+	}
+
 	token, err := generateToken()
 	if err != nil {
 		return err
 	}
 	if err := s.tokenRepo.CreateActivationToken(&model.ActivationToken{
-		UserID:    userID,
+		AccountID: account.ID,
 		Token:     token,
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}); err != nil {
@@ -180,7 +379,7 @@ func (s *AuthService) CreateActivationToken(ctx context.Context, userID int64, e
 }
 
 func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {
-	user, err := s.userClient.GetUserByEmail(ctx, &userpb.GetUserByEmailRequest{Email: email})
+	account, err := s.accountRepo.GetByEmail(email)
 	if err != nil {
 		return nil // Don't reveal if email exists
 	}
@@ -190,7 +389,7 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 		return err
 	}
 	if err := s.tokenRepo.CreatePasswordResetToken(&model.PasswordResetToken{
-		UserID:    user.Id,
+		AccountID: account.ID,
 		Token:     token,
 		ExpiresAt: time.Now().Add(1 * time.Hour),
 	}); err != nil {
@@ -208,7 +407,7 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 
 func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, confirmPassword string) error {
 	if newPassword != confirmPassword {
-		return errors.New("passwords do not match")
+		return errors.New("password and confirmation do not match")
 	}
 	if err := validatePassword(newPassword); err != nil {
 		return err
@@ -216,29 +415,25 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, 
 
 	prt, err := s.tokenRepo.GetPasswordResetToken(tokenStr)
 	if err != nil {
-		return errors.New("invalid or expired token")
+		return errors.New("invalid or expired password reset token; request a new password reset")
 	}
 	if time.Now().After(prt.ExpiresAt) {
-		return errors.New("token expired")
+		return errors.New("password reset token expired; request a new password reset")
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, newPassword)), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 
-	_, err = s.userClient.SetPassword(ctx, &userpb.SetPasswordRequest{
-		UserId:       prt.UserID,
-		PasswordHash: string(hash),
-	})
-	if err != nil {
+	if err := s.accountRepo.SetPassword(prt.AccountID, string(hash)); err != nil {
 		return fmt.Errorf("failed to set password: %w", err)
 	}
 
 	if err := s.tokenRepo.MarkPasswordResetUsed(tokenStr); err != nil {
 		log.Printf("warn: failed to mark password reset token used (token may be replayable): %v", err)
 	}
-	if err := s.tokenRepo.RevokeAllForUser(prt.UserID); err != nil {
+	if err := s.tokenRepo.RevokeAllForAccount(prt.AccountID); err != nil {
 		log.Printf("warn: failed to revoke all sessions after password reset: %v", err)
 	}
 
@@ -261,33 +456,96 @@ func (s *AuthService) ActivateAccount(ctx context.Context, tokenStr, password, c
 		return errors.New("token expired")
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, password)), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 
-	_, err = s.userClient.SetPassword(ctx, &userpb.SetPasswordRequest{
-		UserId:       at.UserID,
-		PasswordHash: string(hash),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to set password: %w", err)
+	if err := s.accountRepo.SetPasswordAndActivate(at.AccountID, string(hash)); err != nil {
+		return fmt.Errorf("failed to activate account: %w", err)
 	}
 
 	if err := s.tokenRepo.MarkActivationUsed(tokenStr); err != nil {
 		log.Printf("warn: failed to mark activation token used (token may be replayable): %v", err)
 	}
 
-	user, _ := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: at.UserID})
-	if user != nil {
+	// Send confirmation email
+	var acct model.Account
+	if err := s.accountRepo.GetByID(at.AccountID, &acct); err != nil {
+		return nil // account activated; confirmation email failure is non-fatal
+	}
+
+	var firstName string
+	if acct.PrincipalType == model.PrincipalTypeEmployee {
+		user, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: acct.PrincipalID})
+		if err == nil && user != nil {
+			firstName = user.FirstName
+		}
+	}
+
+	if acct.Email != "" {
 		_ = s.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-			To:        user.Email,
+			To:        acct.Email,
 			EmailType: kafkamsg.EmailTypeConfirmation,
-			Data:      map[string]string{"first_name": user.FirstName},
+			Data:      map[string]string{"first_name": firstName},
 		})
 	}
 
 	return nil
+}
+
+// SetAccountStatus enables or disables an account identified by principalType + principalID.
+func (s *AuthService) SetAccountStatus(ctx context.Context, principalType string, principalID int64, active bool) error {
+	status := model.AccountStatusActive
+	if !active {
+		status = model.AccountStatusDisabled
+	}
+
+	if !active {
+		// Get account so we can revoke its tokens
+		acct, err := s.accountRepo.GetByPrincipal(principalType, principalID)
+		if err != nil {
+			return fmt.Errorf("account not found: %w", err)
+		}
+		if revokeErr := s.tokenRepo.RevokeAllForAccount(acct.ID); revokeErr != nil {
+			return fmt.Errorf("account disabled but failed to revoke sessions: %w", revokeErr)
+		}
+	}
+
+	if err := s.accountRepo.SetStatusByPrincipal(principalType, principalID, status); err != nil {
+		return err
+	}
+
+	if err := s.producer.Publish(ctx, kafkamsg.TopicAuthAccountStatusChanged, kafkamsg.AuthAccountStatusChangedMessage{
+		PrincipalType: principalType,
+		PrincipalID:   principalID,
+		Status:        string(status),
+	}); err != nil {
+		log.Printf("warn: failed to publish account status changed event for %s/%d: %v", principalType, principalID, err)
+	}
+	return nil
+}
+
+// GetAccountStatus returns the status string and active bool for a given principal.
+func (s *AuthService) GetAccountStatus(ctx context.Context, principalType string, principalID int64) (string, bool, error) {
+	acct, err := s.accountRepo.GetByPrincipal(principalType, principalID)
+	if err != nil {
+		return "", false, err
+	}
+	return acct.Status, acct.Status == model.AccountStatusActive, nil
+}
+
+// GetAccountStatusBatch returns a map of principalID → Account for batch status lookups.
+func (s *AuthService) GetAccountStatusBatch(ctx context.Context, principalType string, principalIDs []int64) (map[int64]model.Account, error) {
+	ptrs, err := s.accountRepo.GetByPrincipals(principalType, principalIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[int64]model.Account, len(ptrs))
+	for k, v := range ptrs {
+		result[k] = *v
+	}
+	return result, nil
 }
 
 func validatePassword(password string) error {

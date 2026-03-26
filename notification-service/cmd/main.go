@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	notifpb "github.com/exbanka/contract/notificationpb"
+	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/notification-service/internal/config"
 	"github.com/exbanka/notification-service/internal/consumer"
 	"github.com/exbanka/notification-service/internal/handler"
@@ -32,6 +33,13 @@ func main() {
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 
+	// Pre-create Kafka topics before starting consumers to avoid
+	// partition assignment race condition on fresh startup.
+	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+		"notification.send-email",
+		"notification.email-sent",
+	)
+
 	// Kafka consumer (email events)
 	emailConsumer := consumer.NewEmailConsumer(cfg.KafkaBrokers, emailSender, producer)
 	defer emailConsumer.Close()
@@ -49,6 +57,7 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 	notifpb.RegisterNotificationServiceServer(grpcServer, handler.NewGRPCHandler(emailSender))
+	shared.RegisterHealthCheck(grpcServer, "notification-service")
 	reflection.Register(grpcServer)
 
 	// Graceful shutdown

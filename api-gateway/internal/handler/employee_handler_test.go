@@ -11,8 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-
-	userpb "github.com/exbanka/contract/userpb"
 )
 
 func TestCreateEmployee_MissingRequired(t *testing.T) {
@@ -75,29 +73,4 @@ func TestGetEmployee_InvalidID(t *testing.T) {
 	})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestEmployeeToJSON(t *testing.T) {
-	resp := &userpb.EmployeeResponse{
-		Id:          1,
-		FirstName:   "John",
-		LastName:    "Doe",
-		DateOfBirth: 946684800,
-		Gender:      "M",
-		Email:       "john@test.com",
-		Phone:       "123456",
-		Address:     "123 St",
-		Username:    "johndoe",
-		Position:    "Teller",
-		Department:  "Retail",
-		Active:      true,
-		Role:        "EmployeeBasic",
-		Permissions: []string{"clients.read"},
-		Jmbg:        "0101990710024",
-	}
-	result := employeeToJSON(resp)
-	assert.Equal(t, int64(1), result["id"])
-	assert.Equal(t, "John", result["first_name"])
-	assert.Equal(t, "0101990710024", result["jmbg"])
-	assert.Equal(t, "EmployeeBasic", result["role"])
 }

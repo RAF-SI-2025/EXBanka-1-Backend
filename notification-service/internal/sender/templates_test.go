@@ -19,7 +19,7 @@ func TestBuildEmail_Activation(t *testing.T) {
 
 	assert.Equal(t, "Activate Your EXBanka Account", subject)
 	assert.Contains(t, body, "John")
-	assert.Contains(t, body, "http://localhost:3000/activate?token=abc123")
+	assert.Contains(t, body, "http://localhost:5173/activate?token=abc123")
 	assert.Contains(t, body, "Activate Account")
 	assert.Contains(t, body, "24 hours")
 }
@@ -32,7 +32,7 @@ func TestBuildEmail_PasswordReset(t *testing.T) {
 	subject, body := BuildEmail(kafkamsg.EmailTypePasswordReset, data)
 
 	assert.Equal(t, "Password Reset Request", subject)
-	assert.Contains(t, body, "http://localhost:3000/reset-password?token=reset123")
+	assert.Contains(t, body, "http://localhost:5173/reset-password?token=reset123")
 	assert.Contains(t, body, "Reset Password")
 	assert.Contains(t, body, "1 hour")
 }

@@ -1,9 +1,17 @@
-go 1.25.0
+go 1.26.1
 
 use (
+	./account-service
 	./api-gateway
 	./auth-service
+	./card-service
+	./client-service
 	./contract
+	./credit-service
+	./exchange-service
 	./notification-service
+	./test-app
+	./seeder
+	./transaction-service
 	./user-service
 )

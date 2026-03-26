@@ -1,0 +1,58 @@
+syntax = "proto3";
+package exchange;
+option go_package = "github.com/exbanka/contract/exchangepb;exchangepb";
+
+service ExchangeService {
+  // ListRates returns all stored currency-pair rates against RSD.
+  rpc ListRates(ListRatesRequest) returns (ListRatesResponse);
+  // GetRate returns the rate for a single currency pair.
+  rpc GetRate(GetRateRequest) returns (RateResponse);
+  // Calculate is informational: returns the converted amount after applying
+  // the bank's selling rate and the configured commission (default 0.5%).
+  rpc Calculate(CalculateRequest) returns (CalculateResponse);
+  // Convert performs a raw sell-rate conversion with no commission.
+  // Used internally by the transaction service.
+  rpc Convert(ConvertRequest) returns (ConvertResponse);
+}
+
+message ListRatesRequest {}
+message ListRatesResponse { repeated RateResponse rates = 1; }
+
+message GetRateRequest {
+  string from_currency = 1;
+  string to_currency   = 2;
+}
+
+message RateResponse {
+  string from_currency = 1;
+  string to_currency   = 2;
+  string buy_rate      = 3;
+  string sell_rate     = 4;
+  string updated_at    = 5;
+}
+
+message CalculateRequest {
+  string from_currency = 1;
+  string to_currency   = 2;
+  string amount        = 3;
+}
+
+message CalculateResponse {
+  string from_currency     = 1;
+  string to_currency       = 2;
+  string input_amount      = 3;
+  string converted_amount  = 4;
+  string commission_rate   = 5;
+  string effective_rate    = 6;
+}
+
+message ConvertRequest {
+  string from_currency = 1;
+  string to_currency   = 2;
+  string amount        = 3;
+}
+
+message ConvertResponse {
+  string converted_amount = 1;
+  string effective_rate   = 2;
+}

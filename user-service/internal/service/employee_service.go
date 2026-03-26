@@ -2,15 +2,15 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/user-service/internal/cache"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
@@ -20,30 +20,63 @@ type EmployeeService struct {
 	repo     EmployeeRepo
 	producer *kafkaprod.Producer
 	cache    *cache.RedisCache
+	roleSvc  *RoleService
 }
 
-func NewEmployeeService(repo EmployeeRepo, producer *kafkaprod.Producer, cache *cache.RedisCache) *EmployeeService {
-	return &EmployeeService{repo: repo, producer: producer, cache: cache}
+func NewEmployeeService(repo EmployeeRepo, producer *kafkaprod.Producer, cache *cache.RedisCache, roleSvc *RoleService) *EmployeeService {
+	return &EmployeeService{repo: repo, producer: producer, cache: cache, roleSvc: roleSvc}
+}
+
+// ResolvePermissions collects all unique permission codes for an employee
+// from their assigned roles and additional permissions.
+func (s *EmployeeService) ResolvePermissions(emp *model.Employee) []string {
+	seen := make(map[string]bool)
+	var codes []string
+	for _, role := range emp.Roles {
+		for _, perm := range role.Permissions {
+			if !seen[perm.Code] {
+				seen[perm.Code] = true
+				codes = append(codes, perm.Code)
+			}
+		}
+	}
+	for _, perm := range emp.AdditionalPermissions {
+		if !seen[perm.Code] {
+			seen[perm.Code] = true
+			codes = append(codes, perm.Code)
+		}
+	}
+	return codes
 }
 
 func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employee) error {
-	if !ValidRole(emp.Role) {
-		return errors.New("invalid role")
-	}
 	if err := ValidateJMBG(emp.JMBG); err != nil {
 		return err
 	}
-
-	salt := generateSalt()
-	emp.Salt = salt
-	emp.PasswordHash = "" // no password until activation
-	emp.Activated = false
 
 	if err := s.repo.Create(emp); err != nil {
 		return fmt.Errorf("create employee: %w", err)
 	}
 
+	roleNames := extractRoleNames(emp.Roles)
+
+	if s.producer != nil {
+		if err := s.producer.PublishEmployeeCreated(ctx, kafkamsg.EmployeeCreatedMessage{
+			EmployeeID: emp.ID,
+			Email:      emp.Email,
+			FirstName:  emp.FirstName,
+			LastName:   emp.LastName,
+			Roles:      roleNames,
+		}); err != nil {
+			log.Printf("warn: failed to publish employee-created event: %v", err)
+		}
+	}
+
 	return nil
+}
+
+func (s *EmployeeService) GetEmployeeByEmail(email string) (*model.Employee, error) {
+	return s.repo.GetByEmail(email)
 }
 
 func (s *EmployeeService) GetEmployee(id int64) (*model.Employee, error) {
@@ -55,27 +88,7 @@ func (s *EmployeeService) GetEmployee(id int64) (*model.Employee, error) {
 		}
 	}
 
-	emp, err := s.repo.GetByID(id)
-	if err != nil {
-		return nil, err
-	}
-
-	if s.cache != nil {
-		_ = s.cache.Set(context.Background(), cacheKey, emp, 5*time.Minute)
-	}
-	return emp, nil
-}
-
-func (s *EmployeeService) GetByEmail(email string) (*model.Employee, error) {
-	cacheKey := "employee:email:" + email
-	if s.cache != nil {
-		var cached model.Employee
-		if err := s.cache.Get(context.Background(), cacheKey, &cached); err == nil {
-			return &cached, nil
-		}
-	}
-
-	emp, err := s.repo.GetByEmail(email)
+	emp, err := s.repo.GetByIDWithRoles(id)
 	if err != nil {
 		return nil, err
 	}
@@ -90,18 +103,12 @@ func (s *EmployeeService) ListEmployees(emailFilter, nameFilter, positionFilter 
 	return s.repo.List(emailFilter, nameFilter, positionFilter, page, pageSize)
 }
 
-func (s *EmployeeService) UpdateEmployee(id int64, updates map[string]interface{}) (*model.Employee, error) {
-	emp, err := s.repo.GetByID(id)
+func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates map[string]interface{}) (*model.Employee, error) {
+	emp, err := s.repo.GetByIDWithRoles(id)
 	if err != nil {
 		return nil, err
 	}
 
-	if role, ok := updates["role"].(string); ok {
-		if !ValidRole(role) {
-			return nil, errors.New("invalid role")
-		}
-		emp.Role = role
-	}
 	if v, ok := updates["last_name"].(string); ok {
 		emp.LastName = v
 	}
@@ -120,12 +127,6 @@ func (s *EmployeeService) UpdateEmployee(id int64, updates map[string]interface{
 	if v, ok := updates["department"].(string); ok {
 		emp.Department = v
 	}
-	if v, ok := updates["active"].(*bool); ok {
-		emp.Active = *v
-	}
-	if v, ok := updates["active"].(bool); ok {
-		emp.Active = v
-	}
 	if v, ok := updates["jmbg"].(string); ok {
 		if err := ValidateJMBG(v); err != nil {
 			return nil, err
@@ -140,22 +141,86 @@ func (s *EmployeeService) UpdateEmployee(id int64, updates map[string]interface{
 		_ = s.cache.Delete(context.Background(), "employee:id:"+strconv.FormatInt(id, 10))
 		_ = s.cache.Delete(context.Background(), "employee:email:"+emp.Email)
 	}
+
+	roleNames := extractRoleNames(emp.Roles)
+
+	if s.producer != nil {
+		if err := s.producer.PublishEmployeeUpdated(ctx, kafkamsg.EmployeeCreatedMessage{
+			EmployeeID: emp.ID,
+			Email:      emp.Email,
+			FirstName:  emp.FirstName,
+			LastName:   emp.LastName,
+			Roles:      roleNames,
+		}); err != nil {
+			log.Printf("warn: failed to publish employee-updated event: %v", err)
+		}
+	}
+
 	return emp, nil
 }
 
-func (s *EmployeeService) ValidateCredentials(email, password string) (*model.Employee, bool) {
-	emp, err := s.repo.GetByEmail(email)
-	if err != nil || !emp.Active || !emp.Activated {
-		return nil, false
+// SetEmployeeRoles replaces the roles associated with an employee.
+func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64, roleNames []string) error {
+	if _, err := s.repo.GetByID(employeeID); err != nil {
+		return fmt.Errorf("employee %d not found: %w", employeeID, err)
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(emp.PasswordHash), []byte(password)); err != nil {
-		return nil, false
+
+	if s.roleSvc != nil {
+		for _, name := range roleNames {
+			if !s.roleSvc.ValidRole(name) {
+				return fmt.Errorf("invalid role: %s", name)
+			}
+		}
 	}
-	return emp, true
+
+	roles, err := s.roleSvc.GetRolesByNames(roleNames)
+	if err != nil {
+		return err
+	}
+
+	if err := s.repo.SetEmployeeRoles(employeeID, roles); err != nil {
+		return err
+	}
+
+	// Invalidate cache
+	if s.cache != nil {
+		_ = s.cache.Delete(ctx, "employee:id:"+strconv.FormatInt(employeeID, 10))
+		emp, err2 := s.repo.GetByID(employeeID)
+		if err2 == nil {
+			_ = s.cache.Delete(ctx, "employee:email:"+emp.Email)
+		}
+	}
+	return nil
 }
 
-func (s *EmployeeService) SetPassword(userID int64, hash string) error {
-	return s.repo.SetPassword(userID, hash)
+// SetEmployeeAdditionalPermissions replaces the additional permissions for an employee.
+func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, employeeID int64, permCodes []string) error {
+	if _, err := s.repo.GetByID(employeeID); err != nil {
+		return fmt.Errorf("employee %d not found: %w", employeeID, err)
+	}
+
+	perms, err := s.roleSvc.GetPermissionsByCodes(permCodes)
+	if err != nil {
+		return err
+	}
+
+	if len(perms) != len(permCodes) {
+		return errors.New("one or more permission codes are invalid")
+	}
+
+	if err := s.repo.SetAdditionalPermissions(employeeID, perms); err != nil {
+		return err
+	}
+
+	// Invalidate cache
+	if s.cache != nil {
+		_ = s.cache.Delete(ctx, "employee:id:"+strconv.FormatInt(employeeID, 10))
+		emp, err2 := s.repo.GetByID(employeeID)
+		if err2 == nil {
+			_ = s.cache.Delete(ctx, "employee:email:"+emp.Email)
+		}
+	}
+	return nil
 }
 
 func ValidatePassword(password string) error {
@@ -186,10 +251,10 @@ func HashPassword(password string) (string, error) {
 	return string(bytes), err
 }
 
-func generateSalt() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand unavailable: " + err.Error())
+func extractRoleNames(roles []model.Role) []string {
+	names := make([]string, 0, len(roles))
+	for _, r := range roles {
+		names = append(names, r.Name)
 	}
-	return hex.EncodeToString(b)
+	return names
 }

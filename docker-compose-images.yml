@@ -1,0 +1,423 @@
+# Docker Compose for frontend team — pulls pre-built images from ghcr.io
+#
+# Usage:
+#   1. Log in to GitHub Container Registry:
+#      echo $GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+#
+#   2. Run the latest build:
+#      docker compose -f docker-compose-images.yml up -d
+#
+#      Or pin to a specific PR:
+#      TAG=pr-42 docker compose -f docker-compose-images.yml up -d
+#
+#   3. API Gateway is available at http://localhost:8080
+#      Swagger UI at http://localhost:8080/swagger/index.html
+
+services:
+
+  # ─── Third-party infrastructure ───────────────────────────────────────────
+
+  kafka:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:9094
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:9094
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Databases ────────────────────────────────────────────────────────────
+
+  user-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: user_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - user_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  auth-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  client-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: clientdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - client-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  account-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: accountdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - account-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  card-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: carddb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - card-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  transaction-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: transactiondb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5437:5432"
+    volumes:
+      - transaction-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  credit-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: creditdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5438:5432"
+    volumes:
+      - credit-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Services ─────────────────────────────────────────────────────────────
+
+  user-service:
+    image: ghcr.io/raf-si-2025/user-service:${TAG:-latest}
+    environment:
+      USER_DB_HOST: user-db
+      USER_DB_PORT: "5432"
+      USER_DB_USER: postgres
+      USER_DB_PASSWORD: postgres
+      USER_DB_NAME: user_db
+      USER_GRPC_ADDR: ":50052"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+      USER_DB_SSLMODE: disable
+    ports:
+      - "50052:50052"
+    depends_on:
+      user-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  auth-service:
+    image: ghcr.io/raf-si-2025/auth-service:${TAG:-latest}
+    environment:
+      AUTH_DB_HOST: auth-db
+      AUTH_DB_PORT: "5432"
+      AUTH_DB_USER: postgres
+      AUTH_DB_PASSWORD: postgres
+      AUTH_DB_NAME: auth_db
+      AUTH_GRPC_ADDR: ":50051"
+      USER_GRPC_ADDR: "user-service:50052"
+      KAFKA_BROKERS: kafka:9092
+      JWT_SECRET: docker-test-secret-change-me
+      JWT_ACCESS_EXPIRY: 15m
+      JWT_REFRESH_EXPIRY: 168h
+      REDIS_ADDR: redis:6379
+      AUTH_DB_SSLMODE: disable
+      FRONTEND_BASE_URL: "http://localhost:5173"
+      PASSWORD_PEPPER: "${PASSWORD_PEPPER}"
+    ports:
+      - "50051:50051"
+    depends_on:
+      auth-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  notification-service:
+    image: ghcr.io/raf-si-2025/notification-service:${TAG:-latest}
+    environment:
+      NOTIFICATION_GRPC_ADDR: ":50053"
+      KAFKA_BROKERS: kafka:9092
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-thebiggestdouchebagaround@gmail.com}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-eebu yksy isfx nanl}
+      SMTP_FROM: ${SMTP_FROM:-thebiggestdouchebagaround@gmail.com}
+    ports:
+      - "50053:50053"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  client-service:
+    image: ghcr.io/raf-si-2025/client-service:${TAG:-latest}
+    environment:
+      CLIENT_DB_HOST: client-db
+      CLIENT_DB_PORT: "5432"
+      CLIENT_DB_USER: postgres
+      CLIENT_DB_PASSWORD: postgres
+      CLIENT_DB_NAME: clientdb
+      CLIENT_GRPC_ADDR: ":50054"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+      USER_GRPC_ADDR: "user-service:50052"
+    ports:
+      - "50054:50054"
+    depends_on:
+      client-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+
+  account-service:
+    image: ghcr.io/raf-si-2025/account-service:${TAG:-latest}
+    environment:
+      ACCOUNT_DB_HOST: account-db
+      ACCOUNT_DB_PORT: "5432"
+      ACCOUNT_DB_USER: postgres
+      ACCOUNT_DB_PASSWORD: postgres
+      ACCOUNT_DB_NAME: accountdb
+      ACCOUNT_GRPC_ADDR: ":50055"
+      CLIENT_GRPC_ADDR: "client-service:50054"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+    ports:
+      - "50055:50055"
+    depends_on:
+      account-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      client-service:
+        condition: service_started
+
+  card-service:
+    image: ghcr.io/raf-si-2025/card-service:${TAG:-latest}
+    environment:
+      CARD_DB_HOST: card-db
+      CARD_DB_PORT: "5432"
+      CARD_DB_USER: postgres
+      CARD_DB_PASSWORD: postgres
+      CARD_DB_NAME: carddb
+      CARD_GRPC_ADDR: ":50056"
+      CLIENT_GRPC_ADDR: "client-service:50054"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+    ports:
+      - "50056:50056"
+    depends_on:
+      card-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      client-service:
+        condition: service_started
+
+  transaction-service:
+    image: ghcr.io/raf-si-2025/transaction-service:${TAG:-latest}
+    environment:
+      TRANSACTION_DB_HOST: transaction-db
+      TRANSACTION_DB_PORT: "5432"
+      TRANSACTION_DB_USER: postgres
+      TRANSACTION_DB_PASSWORD: postgres
+      TRANSACTION_DB_NAME: transactiondb
+      TRANSACTION_GRPC_ADDR: ":50057"
+      ACCOUNT_GRPC_ADDR: "account-service:50055"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+    ports:
+      - "50057:50057"
+    depends_on:
+      transaction-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      account-service:
+        condition: service_started
+
+  credit-service:
+    image: ghcr.io/raf-si-2025/credit-service:${TAG:-latest}
+    environment:
+      CREDIT_DB_HOST: credit-db
+      CREDIT_DB_PORT: "5432"
+      CREDIT_DB_USER: postgres
+      CREDIT_DB_PASSWORD: postgres
+      CREDIT_DB_NAME: creditdb
+      CREDIT_GRPC_ADDR: ":50058"
+      ACCOUNT_GRPC_ADDR: "account-service:50055"
+      CLIENT_GRPC_ADDR: "client-service:50054"
+      USER_GRPC_ADDR: "user-service:50052"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
+    ports:
+      - "50058:50058"
+    depends_on:
+      credit-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      account-service:
+        condition: service_started
+      client-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+
+  # ─── API Gateway ──────────────────────────────────────────────────────────
+
+  api-gateway:
+    image: ghcr.io/raf-si-2025/api-gateway:${TAG:-latest}
+    environment:
+      GATEWAY_HTTP_ADDR: ":8080"
+      AUTH_GRPC_ADDR: "auth-service:50051"
+      USER_GRPC_ADDR: "user-service:50052"
+      CLIENT_GRPC_ADDR: "client-service:50054"
+      ACCOUNT_GRPC_ADDR: "account-service:50055"
+      CARD_GRPC_ADDR: "card-service:50056"
+      TRANSACTION_GRPC_ADDR: "transaction-service:50057"
+      CREDIT_GRPC_ADDR: "credit-service:50058"
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      client-service:
+        condition: service_started
+      account-service:
+        condition: service_started
+      card-service:
+        condition: service_started
+      transaction-service:
+        condition: service_started
+      credit-service:
+        condition: service_started
+
+  # ─── Seeder ───────────────────────────────────────────────────────────────
+  seeder:
+    image: ghcr.io/raf-si-2025/seeder:${TAG:-latest}
+    environment:
+      USER_GRPC_ADDR: "user-service:50052"
+      AUTH_GRPC_ADDR: "auth-service:50051"
+      KAFKA_BROKERS: "kafka:9092"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@admin.com}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-AdminAdmin2026!.}"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      auth-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+    restart: on-failure
+
+volumes:
+  user_db_data:
+  auth_db_data:
+  redis_data:
+  client-db-data:
+  account-db-data:
+  card-db-data:
+  transaction-db-data:
+  credit-db-data:

@@ -1,17 +1,26 @@
 package service
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
+func generateJTI() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 type Claims struct {
 	UserID      int64    `json:"user_id"`
 	Email       string   `json:"email"`
-	Role        string   `json:"role"`
+	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
+	SystemType  string   `json:"system_type"` // "employee" or "client"
 	jwt.RegisteredClaims
 }
 
@@ -27,13 +36,15 @@ func NewJWTService(secret string, accessExpiry time.Duration) *JWTService {
 	}
 }
 
-func (s *JWTService) GenerateAccessToken(userID int64, email, role string, permissions []string) (string, error) {
+func (s *JWTService) GenerateAccessToken(userID int64, email string, roles []string, permissions []string, systemType string) (string, error) {
 	claims := &Claims{
 		UserID:      userID,
 		Email:       email,
-		Role:        role,
+		Roles:       roles,
 		Permissions: permissions,
+		SystemType:  systemType,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        generateJTI(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessExpiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},

@@ -55,6 +55,7 @@ func (c *EmailConsumer) handleMessage(ctx context.Context, data []byte) {
 		log.Printf("error unmarshaling email message: %v", err)
 		return
 	}
+	log.Printf("[DEV] email queued | type=%s to=%s data=%v", emailMsg.EmailType, emailMsg.To, emailMsg.Data)
 
 	subject, body := sender.BuildEmail(emailMsg.EmailType, emailMsg.Data)
 	err := c.sender.Send(emailMsg.To, subject, body)

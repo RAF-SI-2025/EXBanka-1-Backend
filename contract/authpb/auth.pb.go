@@ -176,6 +176,8 @@ type ValidateTokenResponse struct {
 	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
 	Permissions   []string               `protobuf:"bytes,5,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	SystemType    string                 `protobuf:"bytes,6,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
+	Roles         []string               `protobuf:"bytes,7,rep,name=roles,proto3" json:"roles,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -241,6 +243,20 @@ func (x *ValidateTokenResponse) GetRole() string {
 func (x *ValidateTokenResponse) GetPermissions() []string {
 	if x != nil {
 		return x.Permissions
+	}
+	return nil
+}
+
+func (x *ValidateTokenResponse) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
+}
+
+func (x *ValidateTokenResponse) GetRoles() []string {
+	if x != nil {
+		return x.Roles
 	}
 	return nil
 }
@@ -725,29 +741,29 @@ func (x *LogoutResponse) GetSuccess() bool {
 	return false
 }
 
-type CreateActivationTokenRequest struct {
+type SetAccountStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
-	FirstName     string                 `protobuf:"bytes,3,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
+	PrincipalType string                 `protobuf:"bytes,1,opt,name=principal_type,json=principalType,proto3" json:"principal_type,omitempty"`
+	PrincipalId   int64                  `protobuf:"varint,2,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	Active        bool                   `protobuf:"varint,3,opt,name=active,proto3" json:"active,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateActivationTokenRequest) Reset() {
-	*x = CreateActivationTokenRequest{}
+func (x *SetAccountStatusRequest) Reset() {
+	*x = SetAccountStatusRequest{}
 	mi := &file_auth_auth_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateActivationTokenRequest) String() string {
+func (x *SetAccountStatusRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateActivationTokenRequest) ProtoMessage() {}
+func (*SetAccountStatusRequest) ProtoMessage() {}
 
-func (x *CreateActivationTokenRequest) ProtoReflect() protoreflect.Message {
+func (x *SetAccountStatusRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_auth_auth_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -759,53 +775,53 @@ func (x *CreateActivationTokenRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateActivationTokenRequest.ProtoReflect.Descriptor instead.
-func (*CreateActivationTokenRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetAccountStatusRequest.ProtoReflect.Descriptor instead.
+func (*SetAccountStatusRequest) Descriptor() ([]byte, []int) {
 	return file_auth_auth_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *CreateActivationTokenRequest) GetUserId() int64 {
+func (x *SetAccountStatusRequest) GetPrincipalType() string {
 	if x != nil {
-		return x.UserId
+		return x.PrincipalType
+	}
+	return ""
+}
+
+func (x *SetAccountStatusRequest) GetPrincipalId() int64 {
+	if x != nil {
+		return x.PrincipalId
 	}
 	return 0
 }
 
-func (x *CreateActivationTokenRequest) GetEmail() string {
+func (x *SetAccountStatusRequest) GetActive() bool {
 	if x != nil {
-		return x.Email
+		return x.Active
 	}
-	return ""
+	return false
 }
 
-func (x *CreateActivationTokenRequest) GetFirstName() string {
-	if x != nil {
-		return x.FirstName
-	}
-	return ""
-}
-
-type CreateActivationTokenResponse struct {
+type SetAccountStatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateActivationTokenResponse) Reset() {
-	*x = CreateActivationTokenResponse{}
+func (x *SetAccountStatusResponse) Reset() {
+	*x = SetAccountStatusResponse{}
 	mi := &file_auth_auth_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateActivationTokenResponse) String() string {
+func (x *SetAccountStatusResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateActivationTokenResponse) ProtoMessage() {}
+func (*SetAccountStatusResponse) ProtoMessage() {}
 
-func (x *CreateActivationTokenResponse) ProtoReflect() protoreflect.Message {
+func (x *SetAccountStatusResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_auth_auth_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -817,12 +833,384 @@ func (x *CreateActivationTokenResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateActivationTokenResponse.ProtoReflect.Descriptor instead.
-func (*CreateActivationTokenResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use SetAccountStatusResponse.ProtoReflect.Descriptor instead.
+func (*SetAccountStatusResponse) Descriptor() ([]byte, []int) {
 	return file_auth_auth_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *CreateActivationTokenResponse) GetSuccess() bool {
+func (x *SetAccountStatusResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+type GetAccountStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PrincipalType string                 `protobuf:"bytes,1,opt,name=principal_type,json=principalType,proto3" json:"principal_type,omitempty"`
+	PrincipalId   int64                  `protobuf:"varint,2,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountStatusRequest) Reset() {
+	*x = GetAccountStatusRequest{}
+	mi := &file_auth_auth_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountStatusRequest) ProtoMessage() {}
+
+func (x *GetAccountStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_auth_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetAccountStatusRequest) Descriptor() ([]byte, []int) {
+	return file_auth_auth_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *GetAccountStatusRequest) GetPrincipalType() string {
+	if x != nil {
+		return x.PrincipalType
+	}
+	return ""
+}
+
+func (x *GetAccountStatusRequest) GetPrincipalId() int64 {
+	if x != nil {
+		return x.PrincipalId
+	}
+	return 0
+}
+
+type GetAccountStatusResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Active        bool                   `protobuf:"varint,2,opt,name=active,proto3" json:"active,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountStatusResponse) Reset() {
+	*x = GetAccountStatusResponse{}
+	mi := &file_auth_auth_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountStatusResponse) ProtoMessage() {}
+
+func (x *GetAccountStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_auth_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetAccountStatusResponse) Descriptor() ([]byte, []int) {
+	return file_auth_auth_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GetAccountStatusResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *GetAccountStatusResponse) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+type GetAccountStatusBatchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PrincipalType string                 `protobuf:"bytes,1,opt,name=principal_type,json=principalType,proto3" json:"principal_type,omitempty"`
+	PrincipalIds  []int64                `protobuf:"varint,2,rep,packed,name=principal_ids,json=principalIds,proto3" json:"principal_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountStatusBatchRequest) Reset() {
+	*x = GetAccountStatusBatchRequest{}
+	mi := &file_auth_auth_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountStatusBatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountStatusBatchRequest) ProtoMessage() {}
+
+func (x *GetAccountStatusBatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_auth_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountStatusBatchRequest.ProtoReflect.Descriptor instead.
+func (*GetAccountStatusBatchRequest) Descriptor() ([]byte, []int) {
+	return file_auth_auth_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GetAccountStatusBatchRequest) GetPrincipalType() string {
+	if x != nil {
+		return x.PrincipalType
+	}
+	return ""
+}
+
+func (x *GetAccountStatusBatchRequest) GetPrincipalIds() []int64 {
+	if x != nil {
+		return x.PrincipalIds
+	}
+	return nil
+}
+
+type AccountStatusEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PrincipalId   int64                  `protobuf:"varint,1,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Active        bool                   `protobuf:"varint,3,opt,name=active,proto3" json:"active,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountStatusEntry) Reset() {
+	*x = AccountStatusEntry{}
+	mi := &file_auth_auth_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountStatusEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountStatusEntry) ProtoMessage() {}
+
+func (x *AccountStatusEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_auth_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountStatusEntry.ProtoReflect.Descriptor instead.
+func (*AccountStatusEntry) Descriptor() ([]byte, []int) {
+	return file_auth_auth_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *AccountStatusEntry) GetPrincipalId() int64 {
+	if x != nil {
+		return x.PrincipalId
+	}
+	return 0
+}
+
+func (x *AccountStatusEntry) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *AccountStatusEntry) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+type GetAccountStatusBatchResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*AccountStatusEntry  `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAccountStatusBatchResponse) Reset() {
+	*x = GetAccountStatusBatchResponse{}
+	mi := &file_auth_auth_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAccountStatusBatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAccountStatusBatchResponse) ProtoMessage() {}
+
+func (x *GetAccountStatusBatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_auth_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAccountStatusBatchResponse.ProtoReflect.Descriptor instead.
+func (*GetAccountStatusBatchResponse) Descriptor() ([]byte, []int) {
+	return file_auth_auth_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *GetAccountStatusBatchResponse) GetEntries() []*AccountStatusEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+type CreateAccountRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PrincipalId   int64                  `protobuf:"varint,1,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	FirstName     string                 `protobuf:"bytes,3,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
+	PrincipalType string                 `protobuf:"bytes,4,opt,name=principal_type,json=principalType,proto3" json:"principal_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateAccountRequest) Reset() {
+	*x = CreateAccountRequest{}
+	mi := &file_auth_auth_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAccountRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAccountRequest) ProtoMessage() {}
+
+func (x *CreateAccountRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_auth_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAccountRequest.ProtoReflect.Descriptor instead.
+func (*CreateAccountRequest) Descriptor() ([]byte, []int) {
+	return file_auth_auth_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *CreateAccountRequest) GetPrincipalId() int64 {
+	if x != nil {
+		return x.PrincipalId
+	}
+	return 0
+}
+
+func (x *CreateAccountRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *CreateAccountRequest) GetFirstName() string {
+	if x != nil {
+		return x.FirstName
+	}
+	return ""
+}
+
+func (x *CreateAccountRequest) GetPrincipalType() string {
+	if x != nil {
+		return x.PrincipalType
+	}
+	return ""
+}
+
+type CreateAccountResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateAccountResponse) Reset() {
+	*x = CreateAccountResponse{}
+	mi := &file_auth_auth_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAccountResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAccountResponse) ProtoMessage() {}
+
+func (x *CreateAccountResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_auth_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAccountResponse.ProtoReflect.Descriptor instead.
+func (*CreateAccountResponse) Descriptor() ([]byte, []int) {
+	return file_auth_auth_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *CreateAccountResponse) GetSuccess() bool {
 	if x != nil {
 		return x.Success
 	}
@@ -841,13 +1229,16 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\",\n" +
 	"\x14ValidateTokenRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"\x92\x01\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\xc9\x01\n" +
 	"\x15ValidateTokenResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x12\n" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12 \n" +
-	"\vpermissions\x18\x05 \x03(\tR\vpermissions\":\n" +
+	"\vpermissions\x18\x05 \x03(\tR\vpermissions\x12\x1f\n" +
+	"\vsystem_type\x18\x06 \x01(\tR\n" +
+	"systemType\x12\x14\n" +
+	"\x05roles\x18\a \x03(\tR\x05roles\":\n" +
 	"\x13RefreshTokenRequest\x12#\n" +
 	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"^\n" +
 	"\x14RefreshTokenResponse\x12!\n" +
@@ -872,14 +1263,36 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\rLogoutRequest\x12#\n" +
 	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"*\n" +
 	"\x0eLogoutResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"l\n" +
-	"\x1cCreateActivationTokenRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x14\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"{\n" +
+	"\x17SetAccountStatusRequest\x12%\n" +
+	"\x0eprincipal_type\x18\x01 \x01(\tR\rprincipalType\x12!\n" +
+	"\fprincipal_id\x18\x02 \x01(\x03R\vprincipalId\x12\x16\n" +
+	"\x06active\x18\x03 \x01(\bR\x06active\"4\n" +
+	"\x18SetAccountStatusResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"c\n" +
+	"\x17GetAccountStatusRequest\x12%\n" +
+	"\x0eprincipal_type\x18\x01 \x01(\tR\rprincipalType\x12!\n" +
+	"\fprincipal_id\x18\x02 \x01(\x03R\vprincipalId\"J\n" +
+	"\x18GetAccountStatusResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x16\n" +
+	"\x06active\x18\x02 \x01(\bR\x06active\"j\n" +
+	"\x1cGetAccountStatusBatchRequest\x12%\n" +
+	"\x0eprincipal_type\x18\x01 \x01(\tR\rprincipalType\x12#\n" +
+	"\rprincipal_ids\x18\x02 \x03(\x03R\fprincipalIds\"g\n" +
+	"\x12AccountStatusEntry\x12!\n" +
+	"\fprincipal_id\x18\x01 \x01(\x03R\vprincipalId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
+	"\x06active\x18\x03 \x01(\bR\x06active\"S\n" +
+	"\x1dGetAccountStatusBatchResponse\x122\n" +
+	"\aentries\x18\x01 \x03(\v2\x18.auth.AccountStatusEntryR\aentries\"\x95\x01\n" +
+	"\x14CreateAccountRequest\x12!\n" +
+	"\fprincipal_id\x18\x01 \x01(\x03R\vprincipalId\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1d\n" +
 	"\n" +
-	"first_name\x18\x03 \x01(\tR\tfirstName\"9\n" +
-	"\x1dCreateActivationTokenResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2\xd2\x04\n" +
+	"first_name\x18\x03 \x01(\tR\tfirstName\x12%\n" +
+	"\x0eprincipal_type\x18\x04 \x01(\tR\rprincipalType\"1\n" +
+	"\x15CreateAccountResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\xc2\x06\n" +
 	"\vAuthService\x120\n" +
 	"\x05Login\x12\x12.auth.LoginRequest\x1a\x13.auth.LoginResponse\x12H\n" +
 	"\rValidateToken\x12\x1a.auth.ValidateTokenRequest\x1a\x1b.auth.ValidateTokenResponse\x12E\n" +
@@ -887,8 +1300,11 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\x06Logout\x12\x13.auth.LogoutRequest\x1a\x14.auth.LogoutResponse\x12O\n" +
 	"\x14RequestPasswordReset\x12\x1a.auth.PasswordResetRequest\x1a\x1b.auth.PasswordResetResponse\x12H\n" +
 	"\rResetPassword\x12\x1a.auth.ResetPasswordRequest\x1a\x1b.auth.ResetPasswordResponse\x12N\n" +
-	"\x0fActivateAccount\x12\x1c.auth.ActivateAccountRequest\x1a\x1d.auth.ActivateAccountResponse\x12`\n" +
-	"\x15CreateActivationToken\x12\".auth.CreateActivationTokenRequest\x1a#.auth.CreateActivationTokenResponseB+Z)github.com/exbanka/contract/authpb;authpbb\x06proto3"
+	"\x0fActivateAccount\x12\x1c.auth.ActivateAccountRequest\x1a\x1d.auth.ActivateAccountResponse\x12Q\n" +
+	"\x10SetAccountStatus\x12\x1d.auth.SetAccountStatusRequest\x1a\x1e.auth.SetAccountStatusResponse\x12Q\n" +
+	"\x10GetAccountStatus\x12\x1d.auth.GetAccountStatusRequest\x1a\x1e.auth.GetAccountStatusResponse\x12`\n" +
+	"\x15GetAccountStatusBatch\x12\".auth.GetAccountStatusBatchRequest\x1a#.auth.GetAccountStatusBatchResponse\x12H\n" +
+	"\rCreateAccount\x12\x1a.auth.CreateAccountRequest\x1a\x1b.auth.CreateAccountResponseB+Z)github.com/exbanka/contract/authpb;authpbb\x06proto3"
 
 var (
 	file_auth_auth_proto_rawDescOnce sync.Once
@@ -902,7 +1318,7 @@ func file_auth_auth_proto_rawDescGZIP() []byte {
 	return file_auth_auth_proto_rawDescData
 }
 
-var file_auth_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_auth_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_auth_auth_proto_goTypes = []any{
 	(*LoginRequest)(nil),                  // 0: auth.LoginRequest
 	(*LoginResponse)(nil),                 // 1: auth.LoginResponse
@@ -918,31 +1334,45 @@ var file_auth_auth_proto_goTypes = []any{
 	(*ActivateAccountResponse)(nil),       // 11: auth.ActivateAccountResponse
 	(*LogoutRequest)(nil),                 // 12: auth.LogoutRequest
 	(*LogoutResponse)(nil),                // 13: auth.LogoutResponse
-	(*CreateActivationTokenRequest)(nil),  // 14: auth.CreateActivationTokenRequest
-	(*CreateActivationTokenResponse)(nil), // 15: auth.CreateActivationTokenResponse
+	(*SetAccountStatusRequest)(nil),       // 14: auth.SetAccountStatusRequest
+	(*SetAccountStatusResponse)(nil),      // 15: auth.SetAccountStatusResponse
+	(*GetAccountStatusRequest)(nil),       // 16: auth.GetAccountStatusRequest
+	(*GetAccountStatusResponse)(nil),      // 17: auth.GetAccountStatusResponse
+	(*GetAccountStatusBatchRequest)(nil),  // 18: auth.GetAccountStatusBatchRequest
+	(*AccountStatusEntry)(nil),            // 19: auth.AccountStatusEntry
+	(*GetAccountStatusBatchResponse)(nil), // 20: auth.GetAccountStatusBatchResponse
+	(*CreateAccountRequest)(nil),          // 21: auth.CreateAccountRequest
+	(*CreateAccountResponse)(nil),         // 22: auth.CreateAccountResponse
 }
 var file_auth_auth_proto_depIdxs = []int32{
-	0,  // 0: auth.AuthService.Login:input_type -> auth.LoginRequest
-	2,  // 1: auth.AuthService.ValidateToken:input_type -> auth.ValidateTokenRequest
-	4,  // 2: auth.AuthService.RefreshToken:input_type -> auth.RefreshTokenRequest
-	12, // 3: auth.AuthService.Logout:input_type -> auth.LogoutRequest
-	6,  // 4: auth.AuthService.RequestPasswordReset:input_type -> auth.PasswordResetRequest
-	8,  // 5: auth.AuthService.ResetPassword:input_type -> auth.ResetPasswordRequest
-	10, // 6: auth.AuthService.ActivateAccount:input_type -> auth.ActivateAccountRequest
-	14, // 7: auth.AuthService.CreateActivationToken:input_type -> auth.CreateActivationTokenRequest
-	1,  // 8: auth.AuthService.Login:output_type -> auth.LoginResponse
-	3,  // 9: auth.AuthService.ValidateToken:output_type -> auth.ValidateTokenResponse
-	5,  // 10: auth.AuthService.RefreshToken:output_type -> auth.RefreshTokenResponse
-	13, // 11: auth.AuthService.Logout:output_type -> auth.LogoutResponse
-	7,  // 12: auth.AuthService.RequestPasswordReset:output_type -> auth.PasswordResetResponse
-	9,  // 13: auth.AuthService.ResetPassword:output_type -> auth.ResetPasswordResponse
-	11, // 14: auth.AuthService.ActivateAccount:output_type -> auth.ActivateAccountResponse
-	15, // 15: auth.AuthService.CreateActivationToken:output_type -> auth.CreateActivationTokenResponse
-	8,  // [8:16] is the sub-list for method output_type
-	0,  // [0:8] is the sub-list for method input_type
-	0,  // [0:0] is the sub-list for extension type_name
-	0,  // [0:0] is the sub-list for extension extendee
-	0,  // [0:0] is the sub-list for field type_name
+	19, // 0: auth.GetAccountStatusBatchResponse.entries:type_name -> auth.AccountStatusEntry
+	0,  // 1: auth.AuthService.Login:input_type -> auth.LoginRequest
+	2,  // 2: auth.AuthService.ValidateToken:input_type -> auth.ValidateTokenRequest
+	4,  // 3: auth.AuthService.RefreshToken:input_type -> auth.RefreshTokenRequest
+	12, // 4: auth.AuthService.Logout:input_type -> auth.LogoutRequest
+	6,  // 5: auth.AuthService.RequestPasswordReset:input_type -> auth.PasswordResetRequest
+	8,  // 6: auth.AuthService.ResetPassword:input_type -> auth.ResetPasswordRequest
+	10, // 7: auth.AuthService.ActivateAccount:input_type -> auth.ActivateAccountRequest
+	14, // 8: auth.AuthService.SetAccountStatus:input_type -> auth.SetAccountStatusRequest
+	16, // 9: auth.AuthService.GetAccountStatus:input_type -> auth.GetAccountStatusRequest
+	18, // 10: auth.AuthService.GetAccountStatusBatch:input_type -> auth.GetAccountStatusBatchRequest
+	21, // 11: auth.AuthService.CreateAccount:input_type -> auth.CreateAccountRequest
+	1,  // 12: auth.AuthService.Login:output_type -> auth.LoginResponse
+	3,  // 13: auth.AuthService.ValidateToken:output_type -> auth.ValidateTokenResponse
+	5,  // 14: auth.AuthService.RefreshToken:output_type -> auth.RefreshTokenResponse
+	13, // 15: auth.AuthService.Logout:output_type -> auth.LogoutResponse
+	7,  // 16: auth.AuthService.RequestPasswordReset:output_type -> auth.PasswordResetResponse
+	9,  // 17: auth.AuthService.ResetPassword:output_type -> auth.ResetPasswordResponse
+	11, // 18: auth.AuthService.ActivateAccount:output_type -> auth.ActivateAccountResponse
+	15, // 19: auth.AuthService.SetAccountStatus:output_type -> auth.SetAccountStatusResponse
+	17, // 20: auth.AuthService.GetAccountStatus:output_type -> auth.GetAccountStatusResponse
+	20, // 21: auth.AuthService.GetAccountStatusBatch:output_type -> auth.GetAccountStatusBatchResponse
+	22, // 22: auth.AuthService.CreateAccount:output_type -> auth.CreateAccountResponse
+	12, // [12:23] is the sub-list for method output_type
+	1,  // [1:12] is the sub-list for method input_type
+	1,  // [1:1] is the sub-list for extension type_name
+	1,  // [1:1] is the sub-list for extension extendee
+	0,  // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_auth_auth_proto_init() }
@@ -956,7 +1386,7 @@ func file_auth_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_auth_auth_proto_rawDesc), len(file_auth_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

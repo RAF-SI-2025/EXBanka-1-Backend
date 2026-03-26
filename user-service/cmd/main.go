@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"time"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"google.golang.org/grpc"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	shared "github.com/exbanka/contract/shared"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/cache"
 	"github.com/exbanka/user-service/internal/config"
@@ -27,12 +30,30 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Employee{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.Permission{},
+		&model.Role{},
+		&model.Employee{},
+		&model.EmployeeLimit{},
+		&model.LimitTemplate{},
+	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
+
+	// Pre-create Kafka topics before any publishing to avoid
+	// partition assignment race condition for downstream consumers.
+	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+		"user.employee-created",
+		"user.employee-updated",
+		"user.employee-limits-updated",
+		"user.limit-template-created",
+		"user.limit-template-updated",
+		"user.limit-template-deleted",
+		"notification.send-email",
+	)
 
 	var redisCache *cache.RedisCache
 	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
@@ -44,13 +65,30 @@ func main() {
 	}
 
 	repo := repository.NewEmployeeRepository(db)
-	empService := service.NewEmployeeService(repo, producer, redisCache)
+	permRepo := repository.NewPermissionRepository(db)
+	roleRepo := repository.NewRoleRepository(db)
+	employeeLimitRepo := repository.NewEmployeeLimitRepository(db)
+	limitTemplateRepo := repository.NewLimitTemplateRepository(db)
 
-	if err := seedAdminUser(repo); err != nil {
-		log.Printf("warn: seed admin user: %v", err)
+	roleSvc := service.NewRoleService(roleRepo, permRepo)
+
+	// Seed roles and permissions on startup
+	if err := roleSvc.SeedRolesAndPermissions(); err != nil {
+		log.Fatalf("failed to seed roles and permissions: %v", err)
 	}
 
-	grpcHandler := handler.NewUserGRPCHandler(empService)
+	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc)
+	limitSvc := service.NewLimitService(employeeLimitRepo, limitTemplateRepo, producer)
+
+	if err := limitSvc.SeedDefaultTemplates(); err != nil {
+		log.Fatalf("failed to seed default limit templates: %v", err)
+	}
+
+	limitCron := service.NewLimitCronService(employeeLimitRepo)
+	limitCron.Start()
+
+	grpcHandler := handler.NewUserGRPCHandler(empService, roleSvc)
+	limitHandler := handler.NewLimitGRPCHandler(limitSvc)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -59,41 +97,23 @@ func main() {
 
 	s := grpc.NewServer()
 	pb.RegisterUserServiceServer(s, grpcHandler)
+	pb.RegisterEmployeeLimitServiceServer(s, limitHandler)
+	shared.RegisterHealthCheck(s, "user-service")
 
-	fmt.Printf("user service listening on %s\n", cfg.GRPCAddr)
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-	}
-}
+	// Start gRPC server in goroutine
+	go func() {
+		fmt.Printf("user service listening on %s\n", cfg.GRPCAddr)
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("gRPC server failed: %v", err)
+		}
+	}()
 
-func seedAdminUser(repo *repository.EmployeeRepository) error {
-	if _, err := repo.GetByEmail("admin@admin.admin"); err == nil {
-		return nil // already exists
-	}
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
 
-	hash, err := service.HashPassword("AdminAdmin2026.!")
-	if err != nil {
-		return err
-	}
-
-	admin := &model.Employee{
-		FirstName:    "Admin",
-		LastName:     "Admin",
-		DateOfBirth:  time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC),
-		Gender:       "M",
-		Email:        "admin@admin.admin",
-		Phone:        "+38600000000",
-		Address:      "Admin Street 1",
-		JMBG:         "0000000000000",
-		Username:     "admin",
-		PasswordHash: hash,
-		Salt:         "",
-		Position:     "Administrator",
-		Department:   "IT",
-		Active:       true,
-		Role:         "EmployeeAdmin",
-		Activated:    true,
-	}
-
-	return repo.Create(admin)
+	log.Println("Shutting down gracefully...")
+	s.GracefulStop()
+	log.Println("Server stopped")
 }
