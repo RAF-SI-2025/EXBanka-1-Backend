@@ -21,11 +21,13 @@ import (
 
 type mockAccountClientForLoan struct {
 	updateBalanceErr error
-	calls            []string
+	calls            []string // account numbers
+	amounts          []string // amounts passed to UpdateBalance
 }
 
 func (m *mockAccountClientForLoan) UpdateBalance(_ context.Context, req *accountpb.UpdateBalanceRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
 	m.calls = append(m.calls, req.AccountNumber)
+	m.amounts = append(m.amounts, req.Amount)
 	return &accountpb.AccountResponse{}, m.updateBalanceErr
 }
 func (m *mockAccountClientForLoan) GetAccountByNumber(_ context.Context, req *accountpb.GetAccountByNumberRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
@@ -194,6 +196,9 @@ func TestApproveLoan_DisbursesOnSuccess(t *testing.T) {
 	require.Len(t, client.calls, 1, "UpdateBalance must be called exactly once")
 	assert.Equal(t, "ACC-TEST-001", client.calls[0])
 
+	require.Len(t, client.amounts, 1)
+	assert.Equal(t, "10000.0000", client.amounts[0], "disbursement amount must match loan amount in StringFixed(4) format")
+
 	require.NotEmpty(t, loanRepo.updateSeen)
 	assert.Equal(t, "active", loanRepo.updateSeen[len(loanRepo.updateSeen)-1])
 }
@@ -217,10 +222,11 @@ func TestApproveLoan_SoftFailOnDisbursementError(t *testing.T) {
 }
 
 func TestApproveLoan_NilAccountClient(t *testing.T) {
-	svc, reqRepo, _ := buildDisbursementSvc(t, nil)
+	svc, reqRepo, loanRepo := buildDisbursementSvc(t, nil)
 	req := seedPendingRequest(t, reqRepo)
 
 	loan, err := svc.ApproveLoanRequest(context.Background(), req.ID, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "approved", loan.Status)
+	assert.Empty(t, loanRepo.updateSeen, "loanRepo.Update must not be called when accountClient is nil")
 }
