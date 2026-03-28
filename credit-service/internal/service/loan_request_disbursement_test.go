@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
@@ -199,8 +199,8 @@ func TestApproveLoan_DisbursesOnSuccess(t *testing.T) {
 	require.Len(t, client.amounts, 1)
 	assert.Equal(t, "10000.0000", client.amounts[0], "disbursement amount must match loan amount in StringFixed(4) format")
 
-	require.NotEmpty(t, loanRepo.updateSeen)
-	assert.Equal(t, "active", loanRepo.updateSeen[len(loanRepo.updateSeen)-1])
+	require.Len(t, loanRepo.updateSeen, 1, "loanRepo.Update must be called exactly once on success")
+	assert.Equal(t, "active", loanRepo.updateSeen[0])
 }
 
 func TestApproveLoan_SoftFailOnDisbursementError(t *testing.T) {
@@ -228,5 +228,6 @@ func TestApproveLoan_NilAccountClient(t *testing.T) {
 	loan, err := svc.ApproveLoanRequest(context.Background(), req.ID, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "approved", loan.Status)
+	assert.Len(t, loanRepo.loans, 1, "loan must be created even when accountClient is nil")
 	assert.Empty(t, loanRepo.updateSeen, "loanRepo.Update must not be called when accountClient is nil")
 }
