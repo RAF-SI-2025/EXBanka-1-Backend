@@ -15,26 +15,44 @@ import (
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
-	"github.com/exbanka/transaction-service/internal/repository"
 )
 
-type TransferService struct {
-	transferRepo   *repository.TransferRepository
-	exchangeClient ExchangeClientIface
-	accountClient  accountpb.AccountServiceClient
-	feeSvc         *FeeService
-	producer       *kafka.Producer
-	bankRSDAccount string // account number of bank's RSD account
+// TransferRepo abstracts persistence for TransferService (enables unit testing without a real DB).
+type TransferRepo interface {
+	Create(t *model.Transfer) error
+	GetByID(id uint64) (*model.Transfer, error)
+	GetByIdempotencyKey(key string) (*model.Transfer, error)
+	UpdateStatus(id uint64, status string) error
+	UpdateStatusWithReason(id uint64, status, reason string) error
+	ListByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Transfer, int64, error)
 }
 
-func NewTransferService(transferRepo *repository.TransferRepository, exchangeClient ExchangeClientIface, accountClient accountpb.AccountServiceClient, feeSvc *FeeService, producer *kafka.Producer, bankRSDAccount string) *TransferService {
+type TransferService struct {
+	transferRepo      TransferRepo
+	exchangeClient    ExchangeClientIface
+	accountClient     accountpb.AccountServiceClient
+	bankAccountClient accountpb.BankAccountServiceClient
+	feeSvc            *FeeService
+	producer          *kafka.Producer
+	retryConfig       shared.RetryConfig
+}
+
+func NewTransferService(
+	transferRepo TransferRepo,
+	exchangeClient ExchangeClientIface,
+	accountClient accountpb.AccountServiceClient,
+	bankAccountClient accountpb.BankAccountServiceClient,
+	feeSvc *FeeService,
+	producer *kafka.Producer,
+) *TransferService {
 	return &TransferService{
-		transferRepo:   transferRepo,
-		exchangeClient: exchangeClient,
-		accountClient:  accountClient,
-		feeSvc:         feeSvc,
-		producer:       producer,
-		bankRSDAccount: bankRSDAccount,
+		transferRepo:      transferRepo,
+		exchangeClient:    exchangeClient,
+		accountClient:     accountClient,
+		bankAccountClient: bankAccountClient,
+		feeSvc:            feeSvc,
+		producer:          producer,
+		retryConfig:       shared.DefaultRetryConfig,
 	}
 }
 
@@ -86,7 +104,7 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 	// Validate that both accounts belong to the same client (transfers are intra-client only)
 	if s.accountClient != nil {
 		var fromAccount, toAccount *accountpb.AccountResponse
-		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
 			var e error
 			fromAccount, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 				AccountNumber: transfer.FromAccountNumber,
@@ -95,7 +113,7 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		}); err != nil {
 			return fmt.Errorf("failed to fetch sender account %s: %w", transfer.FromAccountNumber, err)
 		}
-		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
 			var e error
 			toAccount, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 				AccountNumber: transfer.ToAccountNumber,
@@ -195,7 +213,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 	// Re-check spending limits at execution time
 	if s.accountClient != nil {
 		var fromAccount *accountpb.AccountResponse
-		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
 			var e error
 			fromAccount, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 				AccountNumber: transfer.FromAccountNumber,
@@ -224,63 +242,201 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		}
 	}
 
-	// Debit sender account (in from-currency)
-	if s.accountClient != nil {
-		debitAmt := totalDebit.Neg().StringFixed(4)
-		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
-			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-				AccountNumber:   transfer.FromAccountNumber,
-				Amount:          debitAmt,
-				UpdateAvailable: true,
-			})
-			return e
-		}); err != nil {
-			reason := fmt.Sprintf("debit failed: %v", err)
+	isCrossCurrency := transfer.FromCurrency != transfer.ToCurrency &&
+		transfer.FromCurrency != "" && transfer.ToCurrency != ""
+
+	if isCrossCurrency {
+		// Cross-currency: route through bank accounts.
+		// Step 1: debit user FROM account (InitialAmount + Commission)
+		// Step 2: credit bank FROM-currency account (same amount — commission absorbed here)
+		// Step 3: debit bank TO-currency account (FinalAmount, converted)
+		// Step 4: credit user TO account (FinalAmount)
+		// Each step failure reverses all prior steps.
+
+		if s.accountClient == nil || s.bankAccountClient == nil {
+			reason := "cross-currency transfer requires both accountClient and bankAccountClient"
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
 			s.publishTransferFailed(ctx, transfer, reason)
-			return fmt.Errorf("failed to debit sender account: %w", err)
+			return fmt.Errorf("%s", reason)
 		}
-	}
 
-	// Credit recipient account (in to-currency, converted amount)
-	if s.accountClient != nil {
-		creditAmt := convertedAmount.StringFixed(4)
-		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+		bankAccountsResp, err := s.bankAccountClient.ListBankAccounts(ctx, &accountpb.ListBankAccountsRequest{})
+		if err != nil {
+			reason := fmt.Sprintf("failed to fetch bank accounts: %v", err)
+			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			s.publishTransferFailed(ctx, transfer, reason)
+			return fmt.Errorf("%s", reason)
+		}
+
+		bankFromAccount, err := findBankAccountByCurrency(bankAccountsResp.GetAccounts(), transfer.FromCurrency)
+		if err != nil {
+			reason := fmt.Sprintf("no bank account for from-currency %s: %v", transfer.FromCurrency, err)
+			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			s.publishTransferFailed(ctx, transfer, reason)
+			return fmt.Errorf("%s", reason)
+		}
+
+		bankToAccount, err := findBankAccountByCurrency(bankAccountsResp.GetAccounts(), transfer.ToCurrency)
+		if err != nil {
+			reason := fmt.Sprintf("no bank account for to-currency %s: %v", transfer.ToCurrency, err)
+			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			s.publishTransferFailed(ctx, transfer, reason)
+			return fmt.Errorf("%s", reason)
+		}
+
+		// Step 1: Debit user FROM account.
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
 			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-				AccountNumber:   transfer.ToAccountNumber,
-				Amount:          creditAmt,
+				AccountNumber:   transfer.FromAccountNumber,
+				Amount:          totalDebit.Neg().StringFixed(4),
 				UpdateAvailable: true,
 			})
 			return e
 		}); err != nil {
-			// Compensating transaction: reverse the debit
-			reverseAmt := totalDebit.StringFixed(4)
-			_ = shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+			reason := fmt.Sprintf("step1 debit user failed: %v", err)
+			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			s.publishTransferFailed(ctx, transfer, reason)
+			return fmt.Errorf("cross-currency transfer failed at step 1: %w", err)
+		}
+
+		// Step 2: Credit bank FROM-currency account.
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
+			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   bankFromAccount,
+				Amount:          totalDebit.StringFixed(4),
+				UpdateAvailable: true,
+			})
+			return e
+		}); err != nil {
+			// Reverse step 1.
+			_ = shared.Retry(ctx, s.retryConfig, func() error {
 				_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 					AccountNumber:   transfer.FromAccountNumber,
-					Amount:          reverseAmt,
+					Amount:          totalDebit.StringFixed(4),
 					UpdateAvailable: true,
 				})
 				return e
 			})
-			reason := fmt.Sprintf("credit failed (debit reversed): %v", err)
+			reason := fmt.Sprintf("step2 credit bank FROM failed (step1 reversed): %v", err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
 			s.publishTransferFailed(ctx, transfer, reason)
-			return fmt.Errorf("failed to credit recipient account: %w", err)
+			return fmt.Errorf("cross-currency transfer failed at step 2: %w", err)
 		}
-	}
 
-	// Credit commission to bank's own RSD account (best-effort)
-	if s.bankRSDAccount != "" && transfer.Commission.IsPositive() {
-		commissionAmt := transfer.Commission.StringFixed(4)
-		_ = shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+		// Step 3: Debit bank TO-currency account.
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
 			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-				AccountNumber:   s.bankRSDAccount,
-				Amount:          commissionAmt,
+				AccountNumber:   bankToAccount,
+				Amount:          convertedAmount.Neg().StringFixed(4),
 				UpdateAvailable: true,
 			})
 			return e
-		})
+		}); err != nil {
+			// Reverse steps 2 and 1.
+			_ = shared.Retry(ctx, s.retryConfig, func() error {
+				_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+					AccountNumber:   bankFromAccount,
+					Amount:          totalDebit.Neg().StringFixed(4),
+					UpdateAvailable: true,
+				})
+				return e
+			})
+			_ = shared.Retry(ctx, s.retryConfig, func() error {
+				_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+					AccountNumber:   transfer.FromAccountNumber,
+					Amount:          totalDebit.StringFixed(4),
+					UpdateAvailable: true,
+				})
+				return e
+			})
+			reason := fmt.Sprintf("step3 debit bank TO failed (steps 1-2 reversed): %v", err)
+			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			s.publishTransferFailed(ctx, transfer, reason)
+			return fmt.Errorf("cross-currency transfer failed at step 3: %w", err)
+		}
+
+		// Step 4: Credit user TO account.
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
+			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   transfer.ToAccountNumber,
+				Amount:          convertedAmount.StringFixed(4),
+				UpdateAvailable: true,
+			})
+			return e
+		}); err != nil {
+			// Reverse steps 3, 2, and 1.
+			_ = shared.Retry(ctx, s.retryConfig, func() error {
+				_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+					AccountNumber:   bankToAccount,
+					Amount:          convertedAmount.StringFixed(4),
+					UpdateAvailable: true,
+				})
+				return e
+			})
+			_ = shared.Retry(ctx, s.retryConfig, func() error {
+				_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+					AccountNumber:   bankFromAccount,
+					Amount:          totalDebit.Neg().StringFixed(4),
+					UpdateAvailable: true,
+				})
+				return e
+			})
+			_ = shared.Retry(ctx, s.retryConfig, func() error {
+				_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+					AccountNumber:   transfer.FromAccountNumber,
+					Amount:          totalDebit.StringFixed(4),
+					UpdateAvailable: true,
+				})
+				return e
+			})
+			reason := fmt.Sprintf("step4 credit user TO failed (all steps reversed): %v", err)
+			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			s.publishTransferFailed(ctx, transfer, reason)
+			return fmt.Errorf("cross-currency transfer failed at step 4: %w", err)
+		}
+
+	} else {
+		// Same-currency: direct debit/credit, no bank intermediate.
+		if s.accountClient != nil {
+			debitAmt := totalDebit.Neg().StringFixed(4)
+			if err := shared.Retry(ctx, s.retryConfig, func() error {
+				_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+					AccountNumber:   transfer.FromAccountNumber,
+					Amount:          debitAmt,
+					UpdateAvailable: true,
+				})
+				return e
+			}); err != nil {
+				reason := fmt.Sprintf("debit failed: %v", err)
+				_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+				s.publishTransferFailed(ctx, transfer, reason)
+				return fmt.Errorf("failed to debit sender account: %w", err)
+			}
+
+			creditAmt := convertedAmount.StringFixed(4)
+			if err := shared.Retry(ctx, s.retryConfig, func() error {
+				_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+					AccountNumber:   transfer.ToAccountNumber,
+					Amount:          creditAmt,
+					UpdateAvailable: true,
+				})
+				return e
+			}); err != nil {
+				// Compensating: reverse the debit.
+				_ = shared.Retry(ctx, s.retryConfig, func() error {
+					_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+						AccountNumber:   transfer.FromAccountNumber,
+						Amount:          totalDebit.StringFixed(4),
+						UpdateAvailable: true,
+					})
+					return e
+				})
+				reason := fmt.Sprintf("credit failed (debit reversed): %v", err)
+				_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+				s.publishTransferFailed(ctx, transfer, reason)
+				return fmt.Errorf("failed to credit recipient account: %w", err)
+			}
+		}
 	}
 
 	// Mark transfer completed
@@ -299,4 +455,15 @@ func (s *TransferService) GetTransfer(id uint64) (*model.Transfer, error) {
 
 func (s *TransferService) ListTransfersByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Transfer, int64, error) {
 	return s.transferRepo.ListByAccountNumbers(accountNumbers, page, pageSize)
+}
+
+// findBankAccountByCurrency returns the account number of the first bank account
+// matching the given currency from the provided list.
+func findBankAccountByCurrency(accounts []*accountpb.AccountResponse, currency string) (string, error) {
+	for _, a := range accounts {
+		if a.GetCurrencyCode() == currency {
+			return a.GetAccountNumber(), nil
+		}
+	}
+	return "", fmt.Errorf("no bank account found for currency %s", currency)
 }

@@ -121,7 +121,7 @@ func main() {
 	}
 
 	paymentSvc := service.NewPaymentService(paymentRepo, accountClient, feeSvc, producer, bankRSDAccountNumber)
-	transferSvc := service.NewTransferService(transferRepo, exchangeClient, accountClient, feeSvc, producer, bankRSDAccountNumber)
+	transferSvc := service.NewTransferService(transferRepo, exchangeClient, accountClient, bankClient, feeSvc, producer)
 	recipientSvc := service.NewPaymentRecipientService(recipientRepo)
 	verificationSvc := service.NewVerificationService(vcRepo, paymentRepo, transferRepo)
 
