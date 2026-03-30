@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Specification Reference
+
+**Before implementing any new feature, read `Specification.md` in the repo root.** It contains the complete system specification: every entity, API route, pattern, convention, Kafka topic, enum value, and business rule. Use it as the single source of truth instead of scanning the entire codebase. The "Adding a New Feature Checklist" section (Section 4) is the step-by-step guide for full-stack feature implementation.
+
+**After implementing any feature or change, update `Specification.md` to reflect what was added or modified.** This includes: new API routes (Section 17), new or changed entities (Section 18), new Kafka topics or message types (Section 19), new enum values (Section 20), new business rules (Section 21), new gRPC service definitions (Section 11), new permissions (Section 6), and any changes to the gateway client wiring (Section 3). The spec must always match the current state of the codebase.
+
 ## Repository Layout
 
 This is a Go workspace monorepo. Each service has its own self-contained directory at the repo root:
