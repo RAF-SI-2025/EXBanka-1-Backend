@@ -24,10 +24,11 @@ type CardService struct {
 	authRepo  *repository.AuthorizedPersonRepository
 	producer  *kafkaprod.Producer
 	cache     *cache.RedisCache
+	db        *gorm.DB
 }
 
-func NewCardService(cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, authRepo *repository.AuthorizedPersonRepository, producer *kafkaprod.Producer, cache *cache.RedisCache) *CardService {
-	return &CardService{cardRepo: cardRepo, blockRepo: blockRepo, authRepo: authRepo, producer: producer, cache: cache}
+func NewCardService(cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, authRepo *repository.AuthorizedPersonRepository, producer *kafkaprod.Producer, cache *cache.RedisCache, db *gorm.DB) *CardService {
+	return &CardService{cardRepo: cardRepo, blockRepo: blockRepo, authRepo: authRepo, producer: producer, cache: cache, db: db}
 }
 
 func (s *CardService) CreateCard(ctx context.Context, accountNumber string, ownerID uint64, ownerType, cardBrand string) (*model.Card, string, error) {
@@ -97,48 +98,66 @@ func (s *CardService) ListCardsByClient(clientID uint64) ([]model.Card, error) {
 }
 
 func (s *CardService) BlockCard(id uint64) (*model.Card, error) {
-	card, err := s.cardRepo.GetByID(id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("card %d not found", id)
+	var card *model.Card
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var e error
+		card, e = s.cardRepo.GetByIDForUpdate(tx, id)
+		if e != nil {
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("card %d not found", id)
+			}
+			return e
 		}
-		return nil, err
-	}
-	if card.Status == "blocked" {
-		return nil, fmt.Errorf("card %d is already blocked", id)
-	}
-	if card.Status == "deactivated" {
-		return nil, fmt.Errorf("card %d is deactivated and cannot be blocked", id)
-	}
-	return s.cardRepo.UpdateStatus(id, "blocked")
+		if card.Status == "blocked" {
+			return fmt.Errorf("card %d is already blocked", id)
+		}
+		if card.Status == "deactivated" {
+			return fmt.Errorf("card %d is deactivated and cannot be blocked", id)
+		}
+		card.Status = "blocked"
+		return tx.Save(card).Error
+	})
+	return card, err
 }
 
 func (s *CardService) UnblockCard(id uint64) (*model.Card, error) {
-	card, err := s.cardRepo.GetByID(id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("card %d not found", id)
+	var card *model.Card
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var e error
+		card, e = s.cardRepo.GetByIDForUpdate(tx, id)
+		if e != nil {
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("card %d not found", id)
+			}
+			return e
 		}
-		return nil, err
-	}
-	if card.Status != "blocked" {
-		return nil, fmt.Errorf("card %d is not blocked", id)
-	}
-	return s.cardRepo.UpdateStatus(id, "active")
+		if card.Status != "blocked" {
+			return fmt.Errorf("card %d is not blocked", id)
+		}
+		card.Status = "active"
+		return tx.Save(card).Error
+	})
+	return card, err
 }
 
 func (s *CardService) DeactivateCard(id uint64) (*model.Card, error) {
-	card, err := s.cardRepo.GetByID(id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("card %d not found", id)
+	var card *model.Card
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var e error
+		card, e = s.cardRepo.GetByIDForUpdate(tx, id)
+		if e != nil {
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("card %d not found", id)
+			}
+			return e
 		}
-		return nil, err
-	}
-	if card.Status == "deactivated" {
-		return nil, fmt.Errorf("card %d is already deactivated", id)
-	}
-	return s.cardRepo.UpdateStatus(id, "deactivated")
+		if card.Status == "deactivated" {
+			return fmt.Errorf("card %d is already deactivated", id)
+		}
+		card.Status = "deactivated"
+		return tx.Save(card).Error
+	})
+	return card, err
 }
 
 func (s *CardService) CreateAuthorizedPerson(ctx context.Context, ap *model.AuthorizedPerson) error {
@@ -224,50 +243,59 @@ func (s *CardService) SetPin(cardID uint64, pin string) error {
 }
 
 func (s *CardService) VerifyPin(cardID uint64, pin string) (bool, error) {
-	card, err := s.cardRepo.GetByID(cardID)
-	if err != nil {
-		return false, err
-	}
-	if card.PinAttempts >= 3 {
-		return false, errors.New("card blocked due to too many failed PIN attempts")
-	}
-	err = bcrypt.CompareHashAndPassword([]byte(card.PinHash), []byte(pin))
-	if err != nil {
-		card.PinAttempts++
-		if card.PinAttempts >= 3 {
-			card.Status = "blocked"
+	var ok bool
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		card, e := s.cardRepo.GetByIDForUpdate(tx, cardID)
+		if e != nil {
+			return e
 		}
-		_ = s.cardRepo.Update(card)
-		return false, nil
-	}
-	card.PinAttempts = 0
-	_ = s.cardRepo.Update(card)
-	return true, nil
+		if card.PinAttempts >= 3 {
+			return errors.New("card blocked due to too many failed PIN attempts")
+		}
+		if e = bcrypt.CompareHashAndPassword([]byte(card.PinHash), []byte(pin)); e != nil {
+			card.PinAttempts++
+			if card.PinAttempts >= 3 {
+				card.Status = "blocked"
+			}
+			ok = false
+			return tx.Save(card).Error
+		}
+		card.PinAttempts = 0
+		ok = true
+		return tx.Save(card).Error
+	})
+	return ok, err
 }
 
 func (s *CardService) TemporaryBlockCard(ctx context.Context, cardID uint64, durationHours int, reason string) (*model.Card, error) {
 	if durationHours <= 0 || durationHours > 720 {
 		return nil, errors.New("duration_hours must be between 1 and 720")
 	}
-	card, err := s.cardRepo.GetByID(cardID)
+	expiresAt := time.Now().Add(time.Duration(durationHours) * time.Hour)
+	var card *model.Card
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var e error
+		card, e = s.cardRepo.GetByIDForUpdate(tx, cardID)
+		if e != nil {
+			return e
+		}
+		card.Status = "blocked"
+		if e = tx.Save(card).Error; e != nil {
+			return e
+		}
+		block := &model.CardBlock{
+			CardID:    cardID,
+			Reason:    reason,
+			BlockedAt: time.Now(),
+			ExpiresAt: &expiresAt,
+			Active:    true,
+		}
+		return tx.Create(block).Error
+	})
 	if err != nil {
 		return nil, err
 	}
-	card.Status = "blocked"
-	if err := s.cardRepo.Update(card); err != nil {
-		return nil, err
-	}
-	expiresAt := time.Now().Add(time.Duration(durationHours) * time.Hour)
-	block := &model.CardBlock{
-		CardID:    cardID,
-		Reason:    reason,
-		BlockedAt: time.Now(),
-		ExpiresAt: &expiresAt,
-		Active:    true,
-	}
-	if err := s.blockRepo.Create(block); err != nil {
-		return nil, err
-	}
+	// Publish Kafka event after the transaction commits (not inside TX).
 	_ = s.producer.PublishCardTemporaryBlocked(ctx, kafkamsg.CardTemporaryBlockedMessage{
 		CardID:    card.ID,
 		ExpiresAt: expiresAt.Format(time.RFC3339),
@@ -277,19 +305,21 @@ func (s *CardService) TemporaryBlockCard(ctx context.Context, cardID uint64, dur
 }
 
 func (s *CardService) UseCard(cardID uint64) error {
-	card, err := s.cardRepo.GetByID(cardID)
-	if err != nil {
-		return err
-	}
-	if !card.IsVirtual || card.UsageType == "unlimited" {
-		return nil
-	}
-	if card.UsesRemaining <= 0 {
-		return errors.New("virtual card has no remaining uses")
-	}
-	card.UsesRemaining--
-	if card.UsesRemaining == 0 {
-		card.Status = "deactivated"
-	}
-	return s.cardRepo.Update(card)
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		card, err := s.cardRepo.GetByIDForUpdate(tx, cardID)
+		if err != nil {
+			return err
+		}
+		if !card.IsVirtual || card.UsageType == "unlimited" {
+			return nil
+		}
+		if card.UsesRemaining <= 0 {
+			return errors.New("virtual card has no remaining uses")
+		}
+		card.UsesRemaining--
+		if card.UsesRemaining == 0 {
+			card.Status = "deactivated"
+		}
+		return tx.Save(card).Error
+	})
 }

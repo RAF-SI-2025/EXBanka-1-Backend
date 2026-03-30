@@ -7,6 +7,7 @@ import (
 	"github.com/exbanka/card-service/internal/model"
 	shared "github.com/exbanka/contract/shared"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type CardRepository struct {
@@ -19,6 +20,16 @@ func NewCardRepository(db *gorm.DB) *CardRepository {
 
 func (r *CardRepository) Create(card *model.Card) error {
 	return r.db.Create(card).Error
+}
+
+// GetByIDForUpdate fetches a card by ID with SELECT FOR UPDATE.
+// Must be called within an active transaction (tx *gorm.DB).
+func (r *CardRepository) GetByIDForUpdate(tx *gorm.DB, id uint64) (*model.Card, error) {
+	var card model.Card
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&card, id).Error; err != nil {
+		return nil, err
+	}
+	return &card, nil
 }
 
 func (r *CardRepository) GetByID(id uint64) (*model.Card, error) {
