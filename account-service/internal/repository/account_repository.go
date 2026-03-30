@@ -1,10 +1,13 @@
 package repository
 
 import (
+	"fmt"
+
 	"github.com/shopspring/decimal"
 
 	"github.com/exbanka/account-service/internal/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type AccountRepository struct {
@@ -163,15 +166,57 @@ func (r *AccountRepository) ListActiveAccountsWithMaintenanceFee() ([]model.Acco
 	return accounts, err
 }
 
+// UpdateBalance atomically locks the account row with SELECT FOR UPDATE, enforces
+// spending limits for debits on client accounts, checks sufficient funds, then
+// updates balance (and optionally available_balance) and spending counters in a
+// single transaction. This eliminates the TOCTOU race between separate
+// GetByNumber → UpdateBalance → UpdateSpending calls.
 func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		// Lock the row for the duration of this transaction.
+		var acct model.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("account_number = ?", accountNumber).
+			First(&acct).Error; err != nil {
+			return err
+		}
+
+		isDebit := amount.IsNegative()
+
+		// For debits on client accounts, enforce spending limits inside the lock.
+		if isDebit && !acct.IsBankAccount {
+			debitAbs := amount.Abs()
+			if !acct.DailyLimit.IsZero() && acct.DailySpending.Add(debitAbs).GreaterThan(acct.DailyLimit) {
+				return fmt.Errorf("limit_exceeded: daily spending limit exceeded on account %s: current %s + debit %s > limit %s",
+					accountNumber, acct.DailySpending.StringFixed(4), debitAbs.StringFixed(4), acct.DailyLimit.StringFixed(4))
+			}
+			if !acct.MonthlyLimit.IsZero() && acct.MonthlySpending.Add(debitAbs).GreaterThan(acct.MonthlyLimit) {
+				return fmt.Errorf("limit_exceeded: monthly spending limit exceeded on account %s: current %s + debit %s > limit %s",
+					accountNumber, acct.MonthlySpending.StringFixed(4), debitAbs.StringFixed(4), acct.MonthlyLimit.StringFixed(4))
+			}
+		}
+
+		// Check sufficient funds for debits.
+		if isDebit && acct.AvailableBalance.Add(amount).IsNegative() {
+			return fmt.Errorf("insufficient funds on account %s: available %s, debit %s",
+				accountNumber, acct.AvailableBalance.StringFixed(4), amount.Abs().StringFixed(4))
+		}
+
+		// Build the update map and apply atomically.
 		updates := map[string]interface{}{
 			"balance": gorm.Expr("balance + ?", amount),
 		}
 		if updateAvailable {
 			updates["available_balance"] = gorm.Expr("available_balance + ?", amount)
 		}
-		result := tx.Session(&gorm.Session{SkipHooks: true}).Model(&model.Account{}).Where("account_number = ?", accountNumber).Updates(updates)
+		if isDebit && !acct.IsBankAccount {
+			debitAbs := amount.Abs()
+			updates["daily_spending"] = gorm.Expr("daily_spending + ?", debitAbs)
+			updates["monthly_spending"] = gorm.Expr("monthly_spending + ?", debitAbs)
+		}
+
+		result := tx.Session(&gorm.Session{SkipHooks: true}).
+			Model(&model.Account{}).Where("id = ?", acct.ID).Updates(updates)
 		if result.Error != nil {
 			return result.Error
 		}

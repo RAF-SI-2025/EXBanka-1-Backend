@@ -162,29 +162,9 @@ func (s *AccountService) UpdateAccountStatus(id uint64, newStatus string) error 
 }
 
 func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
-	account, err := s.repo.GetByNumber(accountNumber)
-	if err != nil {
-		return fmt.Errorf("account %s not found", accountNumber)
-	}
-
-	if amount.IsNegative() && account.AvailableBalance.Add(amount).IsNegative() {
-		return fmt.Errorf("insufficient funds on account %s: balance %s, debit %s",
-			accountNumber, account.AvailableBalance.StringFixed(4), amount.Abs().StringFixed(4))
-	}
-
-	if err := s.repo.UpdateBalance(accountNumber, amount, updateAvailable); err != nil {
-		return err
-	}
-
-	// Track spending for debit operations on client (non-bank) accounts.
-	if amount.IsNegative() && !account.IsBankAccount {
-		if err := s.repo.UpdateSpending(accountNumber, amount.Abs()); err != nil {
-			// Non-fatal: log but do not fail the balance update.
-			_ = err
-		}
-	}
-
-	return nil
+	// All checks (funds, spending limits) and updates (balance, spending) are
+	// performed atomically inside a single SELECT FOR UPDATE transaction in the repo.
+	return s.repo.UpdateBalance(accountNumber, amount, updateAvailable)
 }
 
 func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountName string) (*model.Account, error) {

@@ -121,7 +121,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			return fmt.Errorf("payments must be between accounts of different clients; use transfers for same-client transactions")
 		}
 
-		// 4. Spending limit pre-check
+		// 4. Spending limit pre-check (advisory only — the authoritative check happens
+		// atomically inside account-service's UpdateBalance within a FOR UPDATE transaction).
 		dailyLimit, _ := decimal.NewFromString(fromAccount.GetDailyLimit())
 		monthlyLimit, _ := decimal.NewFromString(fromAccount.GetMonthlyLimit())
 		dailySpending, _ := decimal.NewFromString(fromAccount.GetDailySpending())
