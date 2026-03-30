@@ -1,9 +1,11 @@
 package repository
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/exbanka/card-service/internal/model"
+	shared "github.com/exbanka/contract/shared"
 	"gorm.io/gorm"
 )
 
@@ -49,14 +51,25 @@ func (r *CardRepository) UpdateStatus(id uint64, status string) (*model.Card, er
 		return nil, err
 	}
 	card.Status = status
-	if err := r.db.Save(&card).Error; err != nil {
-		return nil, err
+	result := r.db.Save(&card)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return nil, fmt.Errorf("%w: card %d was modified concurrently", shared.ErrOptimisticLock, id)
 	}
 	return &card, nil
 }
 
 func (r *CardRepository) Update(card *model.Card) error {
-	return r.db.Save(card).Error
+	result := r.db.Save(card)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("%w: card %d was modified concurrently", shared.ErrOptimisticLock, card.ID)
+	}
+	return nil
 }
 
 func (r *CardRepository) FindExpiredVirtual(now time.Time) ([]model.Card, error) {

@@ -1,11 +1,12 @@
 package repository
 
 import (
+	"fmt"
 	"time"
 
-	"gorm.io/gorm"
-
+	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/transaction-service/internal/model"
+	"gorm.io/gorm"
 )
 
 type PaymentRepository struct {
@@ -82,14 +83,36 @@ func (r *PaymentRepository) GetByIdempotencyKey(key string) (*model.Payment, err
 }
 
 func (r *PaymentRepository) UpdateStatus(id uint64, status string) error {
-	return r.db.Session(&gorm.Session{SkipHooks: true}).Model(&model.Payment{}).Where("id = ?", id).Update("status", status).Error
+	var payment model.Payment
+	if err := r.db.First(&payment, id).Error; err != nil {
+		return err
+	}
+	payment.Status = status
+	res := r.db.Save(&payment)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("%w: payment %d", shared.ErrOptimisticLock, id)
+	}
+	return nil
 }
 
 func (r *PaymentRepository) UpdateStatusWithReason(id uint64, status, reason string) error {
-	return r.db.Session(&gorm.Session{SkipHooks: true}).Model(&model.Payment{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":         status,
-		"failure_reason": reason,
-	}).Error
+	var payment model.Payment
+	if err := r.db.First(&payment, id).Error; err != nil {
+		return err
+	}
+	payment.Status = status
+	payment.FailureReason = reason
+	res := r.db.Save(&payment)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("%w: payment %d", shared.ErrOptimisticLock, id)
+	}
+	return nil
 }
 
 // ListByAccountNumbers returns all payments where the given account numbers appear

@@ -1,9 +1,11 @@
 package repository
 
 import (
-	"gorm.io/gorm"
+	"fmt"
 
+	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/transaction-service/internal/model"
+	"gorm.io/gorm"
 )
 
 type TransferRepository struct {
@@ -35,14 +37,36 @@ func (r *TransferRepository) GetByIdempotencyKey(key string) (*model.Transfer, e
 }
 
 func (r *TransferRepository) UpdateStatus(id uint64, status string) error {
-	return r.db.Session(&gorm.Session{SkipHooks: true}).Model(&model.Transfer{}).Where("id = ?", id).Update("status", status).Error
+	var transfer model.Transfer
+	if err := r.db.First(&transfer, id).Error; err != nil {
+		return err
+	}
+	transfer.Status = status
+	res := r.db.Save(&transfer)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("%w: transfer %d", shared.ErrOptimisticLock, id)
+	}
+	return nil
 }
 
 func (r *TransferRepository) UpdateStatusWithReason(id uint64, status, reason string) error {
-	return r.db.Session(&gorm.Session{SkipHooks: true}).Model(&model.Transfer{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"status":         status,
-		"failure_reason": reason,
-	}).Error
+	var transfer model.Transfer
+	if err := r.db.First(&transfer, id).Error; err != nil {
+		return err
+	}
+	transfer.Status = status
+	transfer.FailureReason = reason
+	res := r.db.Save(&transfer)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("%w: transfer %d", shared.ErrOptimisticLock, id)
+	}
+	return nil
 }
 
 func (r *TransferRepository) ListByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Transfer, int64, error) {

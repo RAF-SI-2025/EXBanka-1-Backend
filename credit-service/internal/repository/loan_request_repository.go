@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"fmt"
+
 	"github.com/exbanka/credit-service/internal/model"
 	"gorm.io/gorm"
 )
@@ -26,7 +28,14 @@ func (r *LoanRequestRepository) GetByID(id uint64) (*model.LoanRequest, error) {
 }
 
 func (r *LoanRequestRepository) Update(req *model.LoanRequest) error {
-	return r.db.Save(req).Error
+	result := r.db.Save(req)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("optimistic lock conflict: loan request %d was modified concurrently", req.ID)
+	}
+	return nil
 }
 
 func (r *LoanRequestRepository) List(typeFilter, accountFilter, statusFilter string, clientID uint64, page, pageSize int) ([]model.LoanRequest, int64, error) {
