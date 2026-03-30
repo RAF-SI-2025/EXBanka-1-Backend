@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/shopspring/decimal"
@@ -37,16 +38,13 @@ func (r *ClientLimitRepository) GetByClientID(clientID int64) (*model.ClientLimi
 }
 
 // Upsert creates or updates the client limit for a client.
+// Uses ON CONFLICT DO UPDATE to eliminate the TOCTOU race between SELECT and INSERT.
 func (r *ClientLimitRepository) Upsert(limit *model.ClientLimit) error {
-	var existing model.ClientLimit
-	err := r.db.Where("client_id = ?", limit.ClientID).First(&existing).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return r.db.Create(limit).Error
-		}
-		return err
-	}
-	limit.ID = existing.ID
-	limit.CreatedAt = existing.CreatedAt
-	return r.db.Save(limit).Error
+	return r.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "client_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"daily_limit", "monthly_limit", "transfer_limit",
+			"set_by_employee", "updated_at",
+		}),
+	}).Create(limit).Error
 }
