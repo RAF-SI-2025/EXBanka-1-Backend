@@ -120,7 +120,7 @@ func main() {
 		if existingCurrencies[c.Code] {
 			continue
 		}
-		if _, err := accountService.CreateBankAccount(c.Code, c.Kind, c.Name); err != nil {
+		if _, err := accountService.CreateBankAccount(c.Code, c.Kind, c.Name, decimal.NewFromInt(10_000_000)); err != nil {
 			log.Printf("warn: failed to seed bank %s account: %v", c.Code, err)
 		} else {
 			log.Printf("Seeded bank %s account", c.Code)

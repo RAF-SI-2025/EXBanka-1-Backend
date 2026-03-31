@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -25,7 +26,7 @@ func NewBankAccountGRPCHandler(accountSvc *service.AccountService, producer *kaf
 }
 
 func (h *BankAccountGRPCHandler) CreateBankAccount(ctx context.Context, req *pb.CreateBankAccountRequest) (*pb.AccountResponse, error) {
-	account, err := h.accountSvc.CreateBankAccount(req.CurrencyCode, req.AccountKind, req.AccountName)
+	account, err := h.accountSvc.CreateBankAccount(req.CurrencyCode, req.AccountKind, req.AccountName, decimal.Zero)
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to create bank account: %v", err)
 	}

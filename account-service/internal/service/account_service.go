@@ -170,7 +170,7 @@ func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Deci
 	return s.repo.UpdateBalance(accountNumber, amount, updateAvailable)
 }
 
-func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountName string) (*model.Account, error) {
+func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountName string, initialBalance decimal.Decimal) (*model.Account, error) {
 	if accountKind != "current" && accountKind != "foreign" {
 		return nil, fmt.Errorf("account kind must be 'current' or 'foreign'; got: %s", accountKind)
 	}
@@ -189,13 +189,15 @@ func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountNam
 	}
 
 	account := &model.Account{
-		OwnerID:       BankOwnerID,
-		OwnerName:     "EX Banka",
-		AccountName:   accountName,
-		CurrencyCode:  currencyCode,
-		AccountKind:   accountKind,
-		AccountType:   "bank",
-		IsBankAccount: true,
+		OwnerID:          BankOwnerID,
+		OwnerName:        "EX Banka",
+		AccountName:      accountName,
+		CurrencyCode:     currencyCode,
+		AccountKind:      accountKind,
+		AccountType:      "bank",
+		IsBankAccount:    true,
+		Balance:          initialBalance,
+		AvailableBalance: initialBalance,
 	}
 	account.AccountNumber = GenerateAccountNumber(account.AccountKind)
 	account.ExpiresAt = time.Now().AddDate(50, 0, 0) // 50-year expiry for bank accounts
