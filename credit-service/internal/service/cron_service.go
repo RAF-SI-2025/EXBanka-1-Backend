@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -12,6 +13,7 @@ import (
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/credit-service/internal/kafka"
 	"github.com/exbanka/credit-service/internal/model"
+	"github.com/exbanka/credit-service/internal/repository"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -222,9 +224,41 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 		}
 	}
 
-	// Mark installment as paid
+	// Mark installment as paid.
+	// If this DB write fails, the money already moved — compensate both steps
+	// to prevent double-charging on the next cron cycle.
+	amtDecimal, parseErr := decimal.NewFromString(amount)
+	if parseErr != nil {
+		log.Printf("CronService: CRITICAL: failed to parse installment amount %q for compensation of installment %d: %v — manual review required", amount, installmentID, parseErr)
+		return
+	}
 	if err := c.installService.MarkInstallmentPaid(installmentID); err != nil {
-		log.Printf("CronService: failed to mark installment %d as paid: %v", installmentID, err)
+		if errors.Is(err, repository.ErrInstallmentAlreadyPaid) {
+			log.Printf("CronService: installment %d already paid — skipping compensation", installmentID)
+			return
+		}
+		log.Printf("CronService: mark-paid failed for installment %d: %v — compensating debit+credit", installmentID, err)
+		// Reverse bank credit (debit the bank account back)
+		if c.accountClient != nil && c.bankRSDAccount != "" {
+			if _, compErr := c.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   c.bankRSDAccount,
+				Amount:          amtDecimal.Neg().StringFixed(4),
+				UpdateAvailable: true,
+			}); compErr != nil {
+				log.Printf("CronService: CRITICAL: bank compensation failed for installment %d: %v — manual review required", installmentID, compErr)
+			}
+		}
+		// Reverse client debit (credit the borrower account back)
+		if c.accountClient != nil {
+			if _, compErr := c.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   loan.AccountNumber,
+				Amount:          amtDecimal.StringFixed(4),
+				UpdateAvailable: true,
+			}); compErr != nil {
+				log.Printf("CronService: CRITICAL: client compensation failed for installment %d: %v — manual review required", installmentID, compErr)
+			}
+		}
+		return
 	}
 
 	// Publish success event
