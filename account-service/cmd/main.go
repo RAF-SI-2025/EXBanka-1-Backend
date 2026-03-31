@@ -82,7 +82,7 @@ func main() {
 	currencyRepo := repository.NewCurrencyRepository(db)
 	ledgerRepo := repository.NewLedgerRepository(db)
 
-	accountService := service.NewAccountService(accountRepo)
+	accountService := service.NewAccountService(accountRepo, db)
 	companyService := service.NewCompanyService(companyRepo)
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)

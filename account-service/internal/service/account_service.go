@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
@@ -19,10 +21,11 @@ const StateOwnerID uint64 = 2_000_000_000
 
 type AccountService struct {
 	repo *repository.AccountRepository
+	db   *gorm.DB
 }
 
-func NewAccountService(repo *repository.AccountRepository) *AccountService {
-	return &AccountService{repo: repo}
+func NewAccountService(repo *repository.AccountRepository, db *gorm.DB) *AccountService {
+	return &AccountService{repo: repo, db: db}
 }
 
 func maintenanceFeeByType(accountType string) decimal.Decimal {
@@ -206,36 +209,45 @@ func (s *AccountService) ListBankAccounts() ([]model.Account, error) {
 }
 
 func (s *AccountService) DeleteBankAccount(id uint64) error {
-	account, err := s.repo.GetByID(id)
-	if err != nil {
-		return err
-	}
-	if !account.IsBankAccount {
-		return fmt.Errorf("account %d is not a bank account", id)
-	}
-	bankAccounts, err := s.repo.ListBankAccounts()
-	if err != nil {
-		return err
-	}
-	rsdCount := 0
-	foreignCount := 0
-	for _, a := range bankAccounts {
-		if a.ID == id {
-			continue
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Lock ALL bank accounts to prevent concurrent deletion races.
+		// Two concurrent deletes could both see enough remaining accounts and
+		// both succeed, violating the "at least 1 RSD + 1 foreign" constraint.
+		var bankAccounts []model.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("is_bank_account = ? AND status != ?", true, "deactivated").
+			Find(&bankAccounts).Error; err != nil {
+			return err
 		}
-		if a.CurrencyCode == "RSD" {
-			rsdCount++
-		} else {
-			foreignCount++
+
+		var target *model.Account
+		rsdCount, foreignCount := 0, 0
+		for i := range bankAccounts {
+			a := &bankAccounts[i]
+			if a.ID == id {
+				target = a
+				continue
+			}
+			if a.CurrencyCode == "RSD" {
+				rsdCount++
+			} else {
+				foreignCount++
+			}
 		}
-	}
-	if account.CurrencyCode == "RSD" && rsdCount == 0 {
-		return errors.New("cannot delete: bank must maintain at least one RSD account")
-	}
-	if account.CurrencyCode != "RSD" && foreignCount == 0 {
-		return errors.New("cannot delete: bank must maintain at least one foreign currency account")
-	}
-	return s.repo.SoftDelete(id)
+		if target == nil {
+			return fmt.Errorf("bank account %d not found", id)
+		}
+		if !target.IsBankAccount {
+			return fmt.Errorf("account %d is not a bank account", id)
+		}
+		if target.CurrencyCode == "RSD" && rsdCount == 0 {
+			return errors.New("cannot delete: bank must maintain at least one RSD account")
+		}
+		if target.CurrencyCode != "RSD" && foreignCount == 0 {
+			return errors.New("cannot delete: bank must maintain at least one foreign currency account")
+		}
+		return tx.Delete(target).Error
+	})
 }
 
 func (s *AccountService) GetBankRSDAccount() (*model.Account, error) {

@@ -27,6 +27,7 @@
 19. [Complete Kafka Topic Reference](#19-complete-kafka-topic-reference) (incl. EmailType enum, Message Structs)
 20. [Known Enum Values](#20-known-enum-values)
 21. [Sentinel Values & Business Rules](#21-sentinel-values--business-rules)
+22. [Concurrency & Transaction Safety](#22-concurrency--transaction-safety) (incl. Optimistic Locking, Saga Pattern, Spending Limits, Anti-Patterns)
 
 ---
 
@@ -1620,3 +1621,105 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - Redis unavailable → log warning, continue without cache
 - Kafka publish failure → log warning, don't fail main operation
 - Exchange rate sync failure → log warning, keep seed rates
+
+## 22. Concurrency & Transaction Safety
+
+This is a banking system. All code must be concurrency-safe with proper transaction isolation, optimistic locking, and rollback guarantees.
+
+### 22.1 Optimistic Locking
+
+Every mutable model with a `Version int64` field uses a GORM `BeforeUpdate` hook to enforce optimistic locking:
+
+```go
+func (m *MyModel) BeforeUpdate(tx *gorm.DB) error {
+    tx.Statement.Where("version = ?", m.Version)
+    m.Version++
+    return nil
+}
+```
+
+**Rules:**
+- Every `db.Save()` on a versioned model must check `result.RowsAffected == 0` → return `shared.ErrOptimisticLock`
+- Never use `db.Model(&Struct{}).Updates(map...)` on versioned models — the zero-value struct has `Version=0`, so the hook adds `WHERE version = 0` (matches nothing). Always load the struct first, modify fields, then `db.Save()`.
+- For bulk updates that intentionally skip version checks (spending resets, overdue marking), use `db.Session(&gorm.Session{SkipHooks: true})`.
+
+**Versioned models:** Account, Company, Card, Loan, LoanRequest, Installment, Payment, Transfer, ExchangeRate, Client, ClientLimit, Employee, EmployeeLimit.
+
+### 22.2 Transaction Requirements
+
+| Pattern | Required Protection |
+|---------|-------------------|
+| Read → check condition → write (read-modify-write) | `SELECT FOR UPDATE` inside `db.Transaction()` |
+| Multiple writes to same DB (create + update, debit + credit) | `db.Transaction()` wrapping all writes |
+| Upsert (check existence → create or update) | PostgreSQL `ON CONFLICT` via `clause.OnConflict{}` |
+| Bulk write (reset counters, mark overdue) | Single `UPDATE ... WHERE` statement (inherently atomic) |
+| Cross-service gRPC multi-step (debit A → credit B) | Saga log pattern with persistent compensation |
+
+**SELECT FOR UPDATE pattern:**
+```go
+db.Transaction(func(tx *gorm.DB) error {
+    tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&entity, id)
+    // ... check conditions, modify ...
+    return tx.Save(&entity).Error
+})
+```
+
+**ON CONFLICT upsert pattern:**
+```go
+tx.Clauses(clause.OnConflict{
+    Columns:   []clause.Column{{Name: "unique_field"}},
+    DoUpdates: clause.AssignmentColumns([]string{"field1", "field2", "updated_at"}),
+}).Create(&entity)
+```
+
+### 22.3 Saga Log Pattern (Cross-Service)
+
+When a business operation spans multiple gRPC calls (e.g., 4-step cross-currency transfer), use the persistent saga log (`transaction-service/internal/model/saga_log.go`):
+
+1. Record each step as `pending` in `saga_logs` table BEFORE executing the gRPC call
+2. On success: mark step `completed`
+3. On failure: mark step `failed`, record compensation steps as `compensating`, execute compensations
+4. If compensation fails: leave in `compensating` status for background recovery goroutine
+5. Kafka events published AFTER transaction commits (never inside the TX)
+
+**Saga log fields:** `SagaID`, `TransactionID`, `TransactionType`, `StepNumber`, `StepName`, `Status`, `IsCompensation`, `AccountNumber`, `Amount` (decimal), `CompensationOf`, `ErrorMessage`
+
+### 22.4 Spending Limits
+
+Spending limits (daily/monthly) are enforced **atomically** inside `account-service`'s `UpdateBalance` repository method:
+
+1. `SELECT FOR UPDATE` locks the account row
+2. Check `daily_spending + debit <= daily_limit` inside the lock
+3. Check `monthly_spending + debit <= monthly_limit` inside the lock
+4. Check sufficient funds
+5. Update balance + spending counters in same transaction
+
+Transaction-service/payment-service may perform advisory pre-checks via gRPC reads, but these are NOT authoritative.
+
+### 22.5 Background Goroutines
+
+All cron/background goroutines must:
+- Accept `context.Context` and honor `ctx.Done()` for graceful shutdown
+- Use `defer ticker.Stop()` for tickers
+- Use `select { case <-time.After(...): ... case <-ctx.Done(): return }` instead of `time.Sleep()`
+- Wrap multi-step operations in transactions (e.g., unblock card = deactivate block + update card status)
+
+### 22.6 Exemplary Implementations
+
+Reference these when adding new concurrent code:
+- **Exchange rate upsert:** `exchange-service/internal/repository/exchange_rate_repository.go` — TX + FOR UPDATE + version increment
+- **Ledger debit/credit:** `account-service/internal/repository/ledger_repository.go` — FOR UPDATE + balance check + ledger entry + spending update (non-bank accounts) in single TX
+- **Ledger transfer:** `account-service/internal/service/ledger_service.go` — atomic debit+credit in single TX
+
+### 22.7 Anti-Patterns (NEVER Do These)
+
+| Anti-Pattern | What To Do Instead |
+|---|---|
+| `db.Model(&Struct{}).Update("field", val)` on versioned model | Load struct, modify field, `db.Save()` |
+| Read-then-write without transaction | Wrap in `db.Transaction()` with FOR UPDATE |
+| SELECT → INSERT (upsert) | Use `clause.OnConflict{}` |
+| Separate debit + credit calls (not in TX) | Use `LedgerService.Transfer()` or single TX |
+| `time.Sleep()` in goroutine | `select { case <-time.After(): ... case <-ctx.Done(): }` |
+| Ignore `RowsAffected == 0` after Save | Check and return `ErrOptimisticLock` |
+| Kafka publish inside DB transaction | Publish AFTER `db.Transaction()` returns nil |
+| Best-effort commission/fee collection | Use saga log; commission must be guaranteed |

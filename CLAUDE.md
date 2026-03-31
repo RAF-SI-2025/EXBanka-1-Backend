@@ -283,6 +283,61 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 - When adding a new Kafka topic (new event type in `contract/kafka/messages.go`), add it to the `EnsureTopics` call in every service that produces or consumes that topic.
 - The function retries Kafka connection up to 10 times (2s apart) to handle startup ordering in Docker Compose.
 
+## Concurrency & Transaction Safety Requirement
+
+**All code in this banking system must be concurrency-safe.** This is a hard requirement — not optional. Every service handles real money and must be bank-grade safe.
+
+### Optimistic Locking (Version Field)
+
+- Every model with a `Version int64` field **MUST** have a `BeforeUpdate` GORM hook that enforces version matching:
+  ```go
+  func (m *MyModel) BeforeUpdate(tx *gorm.DB) error {
+      tx.Statement.Where("version = ?", m.Version)
+      m.Version++
+      return nil
+  }
+  ```
+- **NEVER** use `db.Model(&MyModel{}).Updates(map...)` on a versioned model — this creates a zero-value struct with `Version=0`, and the hook adds `WHERE version = 0` which matches nothing. Always load the struct first, modify it, then call `db.Save(&struct)`.
+- For bulk updates that intentionally skip version checks (e.g., spending resets, overdue marking), use `db.Session(&gorm.Session{SkipHooks: true})`.
+- After every `db.Save()` on a versioned model, check `result.RowsAffected == 0` for optimistic lock conflict and return `shared.ErrOptimisticLock`.
+- Models currently with Version fields: `Account`, `Company`, `Card`, `Loan`, `LoanRequest`, `Installment`, `Payment`, `Transfer`, `ExchangeRate`, `Client`, `ClientLimit`, `Employee`, `EmployeeLimit`.
+
+### Transaction Requirements
+
+- **Every multi-step DB write** (create + update, debit + credit, status check + status change) **MUST** be wrapped in `db.Transaction(func(tx *gorm.DB) error { ... })`. No exceptions.
+- **Every read-modify-write pattern** (read value → check condition → update) **MUST** use `SELECT FOR UPDATE` inside a transaction:
+  ```go
+  db.Transaction(func(tx *gorm.DB) error {
+      tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&entity, id)
+      // ... modify entity ...
+      return tx.Save(&entity).Error
+  })
+  ```
+- **Upsert operations** (check existence → create or update) **MUST** use PostgreSQL `ON CONFLICT` via GORM's `clause.OnConflict{}` — never SELECT-then-INSERT.
+
+### Cross-Service Operations (Saga Pattern)
+
+- When a business operation spans multiple gRPC calls to different services (e.g., transfer: debit account A → credit account B), use the **saga log pattern** (`transaction-service/internal/model/saga_log.go`).
+- Each saga step is recorded as `pending` before execution, marked `completed` on success, or triggers compensation steps marked `compensating`.
+- Failed compensations remain in `compensating` status for background recovery.
+- **Kafka events MUST be published AFTER the DB transaction commits**, not inside the transaction.
+
+### Spending Limits
+
+- Spending limits (daily/monthly) are enforced **atomically** inside `account-service`'s `UpdateBalance` method, within a `SELECT FOR UPDATE` transaction. This is the **authoritative** check.
+- Transaction-service and payment-service may perform advisory pre-checks via gRPC reads, but these are NOT authoritative — they are early-exit optimizations only.
+
+### Background Goroutines
+
+- All background goroutines (cron jobs, tickers) **MUST** accept `context.Context` and honor cancellation via `ctx.Done()`.
+- Tickers **MUST** be stopped with `defer ticker.Stop()`.
+- Use `select { case <-time.After(...): ... case <-ctx.Done(): return }` instead of bare `time.Sleep()`.
+
+### Key Patterns Reference
+
+- **Exemplary implementation:** `exchange-service/internal/repository/exchange_rate_repository.go` `Upsert()` — uses `db.Transaction` + `clause.Locking{Strength: "UPDATE"}` + version increment.
+- **Exemplary implementation:** `account-service/internal/repository/ledger_repository.go` `DebitWithLock`/`CreditWithLock` — uses FOR UPDATE + balance check + ledger entry + spending update (for non-bank accounts) in single TX.
+
 ## Docker Compose Requirement
 
 **When adding or modifying a service, `docker-compose.yml` must be updated to match.** This is a hard requirement — not optional.

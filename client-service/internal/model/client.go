@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type Client struct {
 	ID          uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -14,4 +18,11 @@ type Client struct {
 	JMBG        string    `gorm:"uniqueIndex;size:13" json:"jmbg"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	Version     int64     `gorm:"not null;default:1" json:"version"`
+}
+
+func (c *Client) BeforeUpdate(tx *gorm.DB) error {
+	tx.Statement.Where("version = ?", c.Version)
+	c.Version++
+	return nil
 }
