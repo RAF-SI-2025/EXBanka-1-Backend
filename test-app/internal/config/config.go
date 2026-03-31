@@ -23,7 +23,7 @@ func Load() *Config {
 		KafkaBrokers:  getEnv("TEST_KAFKA_BROKERS", "localhost:9094"),
 		AdminEmail:    getEnv("ADMIN_EMAIL", "admin@admin.com"),
 		AdminPassword: getEnv("ADMIN_PASSWORD", "AdminAdmin2026!."),
-		BaseEmail:     getEnv("TEST_BASE_EMAIL", "lsavic12123rn@raf.rs"),
+		BaseEmail:     getEnv("TEST_BASE_EMAIL", "lsavic12123rn+test@raf.rs"),
 		Password:      "AdminAdmin2026!.",
 	}
 }
