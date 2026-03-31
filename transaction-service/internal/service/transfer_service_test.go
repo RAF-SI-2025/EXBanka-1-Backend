@@ -73,9 +73,10 @@ type balanceCall struct {
 }
 
 type mockAccountClientForTransfer struct {
-	calls      []balanceCall
-	failOnCall int // 0 = never fail; N = fail on the Nth UpdateBalance call
-	callCount  int
+	calls          []balanceCall
+	failOnCall     int // 0 = never fail; N = fail on the Nth UpdateBalance call
+	callCount      int
+	ownerOverrides map[string]uint64 // optional: account number → owner ID
 }
 
 func (m *mockAccountClientForTransfer) UpdateBalance(_ context.Context, req *accountpb.UpdateBalanceRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
@@ -97,7 +98,13 @@ func (m *mockAccountClientForTransfer) GetAccountByNumber(_ context.Context, req
 	if req.AccountNumber == "TO-EUR-001" {
 		currency = "EUR"
 	}
-	return &accountpb.AccountResponse{AccountNumber: req.AccountNumber, CurrencyCode: currency, OwnerId: 1}, nil
+	ownerID := uint64(1)
+	if m.ownerOverrides != nil {
+		if id, ok := m.ownerOverrides[req.AccountNumber]; ok {
+			ownerID = id
+		}
+	}
+	return &accountpb.AccountResponse{AccountNumber: req.AccountNumber, CurrencyCode: currency, OwnerId: ownerID}, nil
 }
 func (m *mockAccountClientForTransfer) ListAccountsByClient(_ context.Context, _ *accountpb.ListAccountsByClientRequest, _ ...grpc.CallOption) (*accountpb.ListAccountsResponse, error) {
 	return nil, nil

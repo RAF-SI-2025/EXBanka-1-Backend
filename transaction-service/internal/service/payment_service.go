@@ -36,6 +36,7 @@ type PaymentService struct {
 	producer       *kafka.Producer
 	bankRSDAccount string // account number of bank's RSD account
 	sagaRepo       *repository.SagaLogRepository // nil-safe: saga logging skipped when nil
+	retryConfig    shared.RetryConfig
 }
 
 func NewPaymentService(paymentRepo PaymentRepo, accountClient accountpb.AccountServiceClient, feeSvc *FeeService, producer *kafka.Producer, bankRSDAccount string, sagaRepo *repository.SagaLogRepository) *PaymentService {
@@ -46,6 +47,7 @@ func NewPaymentService(paymentRepo PaymentRepo, accountClient accountpb.AccountS
 		producer:       producer,
 		bankRSDAccount: bankRSDAccount,
 		sagaRepo:       sagaRepo,
+		retryConfig:    shared.DefaultRetryConfig,
 	}
 }
 
@@ -102,7 +104,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 	// 3. Client ownership validation: payments must be between accounts of different clients
 	if s.accountClient != nil {
 		var fromAccount, toAccount *accountpb.AccountResponse
-		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
 			var e error
 			fromAccount, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 				AccountNumber: payment.FromAccountNumber,
@@ -111,7 +113,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 		}); err != nil {
 			return fmt.Errorf("failed to fetch sender account %s: %w", payment.FromAccountNumber, err)
 		}
-		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
 			var e error
 			toAccount, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 				AccountNumber: payment.ToAccountNumber,
@@ -183,7 +185,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 	// Re-check spending limits at execution time
 	if s.accountClient != nil {
 		var acctResp *accountpb.AccountResponse
-		if err := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+		if err := shared.Retry(ctx, s.retryConfig, func() error {
 			var e error
 			acctResp, e = s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 				AccountNumber: payment.FromAccountNumber,
@@ -212,7 +214,8 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 		}
 	}
 
-	// Debit sender and credit recipient via saga-logged steps for durable compensation.
+	// Debit sender, credit recipient, and (when commission applies) credit bank — all
+	// as saga-logged steps so compensation is automatic if any step fails.
 	if s.accountClient != nil {
 		steps := []sagaStep{
 			{
@@ -220,7 +223,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 				accountNumber: payment.FromAccountNumber,
 				amount:        totalDebit.Neg(),
 				execute: func(ctx context.Context) error {
-					return shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: payment.FromAccountNumber, Amount: totalDebit.Neg().StringFixed(4), UpdateAvailable: true,
 						})
@@ -233,7 +236,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 				accountNumber: payment.ToAccountNumber,
 				amount:        payment.InitialAmount,
 				execute: func(ctx context.Context) error {
-					return shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
+					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: payment.ToAccountNumber, Amount: payment.InitialAmount.StringFixed(4), UpdateAvailable: true,
 						})
@@ -242,26 +245,34 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 				},
 			},
 		}
-		if err := executeWithSaga(ctx, s.sagaRepo, s.accountClient, shared.DefaultRetryConfig, payment.ID, "payment", steps); err != nil {
+		// Commission credit is a saga step so it can be compensated if it fails after
+		// debit_sender and credit_recipient have already executed.
+		if s.bankRSDAccount != "" && payment.Commission.IsPositive() {
+			commAmt := payment.Commission
+			bankAcct := s.bankRSDAccount
+			steps = append(steps, sagaStep{
+				name:          "credit_bank_commission",
+				accountNumber: bankAcct,
+				amount:        commAmt,
+				execute: func(ctx context.Context) error {
+					return shared.Retry(ctx, s.retryConfig, func() error {
+						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+							AccountNumber:   bankAcct,
+							Amount:          commAmt.StringFixed(4),
+							UpdateAvailable: true,
+						})
+						return e
+					})
+				},
+			})
+		}
+		if err := executeWithSaga(ctx, s.sagaRepo, s.accountClient, s.retryConfig, payment.ID, "payment", steps); err != nil {
 			reason := fmt.Sprintf("payment execution failed for %s → %s amount %s %s: %v",
 				payment.FromAccountNumber, payment.ToAccountNumber, totalDebit.StringFixed(4), currency, err)
 			_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
 			s.publishPaymentFailed(ctx, payment, reason)
 			return fmt.Errorf("payment %d execution failed: %w", payment.ID, err)
 		}
-	}
-
-	// Credit commission to bank's own RSD account (best-effort)
-	if s.bankRSDAccount != "" && payment.Commission.IsPositive() {
-		commissionAmt := payment.Commission.StringFixed(4)
-		_ = shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
-			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-				AccountNumber:   s.bankRSDAccount,
-				Amount:          commissionAmt,
-				UpdateAvailable: true,
-			})
-			return e
-		})
 	}
 
 	// Mark payment completed
