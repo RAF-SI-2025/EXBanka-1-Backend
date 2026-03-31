@@ -37,16 +37,6 @@ definitions:
     required:
     - template_name
     type: object
-  handler.bootstrapRequest:
-    properties:
-      email:
-        type: string
-      secret:
-        type: string
-    required:
-    - email
-    - secret
-    type: object
   handler.createAccountRequest:
     properties:
       account_category:
@@ -1441,53 +1431,6 @@ paths:
       summary: Update bank margin
       tags:
       - rate-config
-  /api/bootstrap:
-    post:
-      consumes:
-      - application/json
-      description: |-
-        Creates the admin employee in user-service and provisions an auth account +
-        activation token in auth-service, which publishes the token to the
-        notification.send-email Kafka topic. Protected by the BOOTSTRAP_SECRET env var;
-        returns 404 when the secret is not configured (safe for production).
-        Idempotent: safe to call multiple times (each call issues a fresh activation token).
-      parameters:
-      - description: Bootstrap credentials
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.bootstrapRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 'message: bootstrap complete'
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: bad request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: not found (secret not set or wrong)
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: upstream error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Seed the initial admin employee (test/dev only)
-      tags:
-      - bootstrap
   /api/cards:
     post:
       consumes:

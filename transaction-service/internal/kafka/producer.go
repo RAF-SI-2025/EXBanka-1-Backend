@@ -56,6 +56,10 @@ func (p *Producer) PublishTransferFailed(ctx context.Context, msg kafkamsg.Trans
 	return p.publish(ctx, kafkamsg.TopicTransferFailed, msg)
 }
 
+func (p *Producer) PublishSagaDeadLetter(ctx context.Context, msg kafkamsg.SagaDeadLetterMessage) error {
+	return p.publish(ctx, kafkamsg.TopicSagaDeadLetter, msg)
+}
+
 func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error {
 	return p.publish(ctx, kafkamsg.TopicSendEmail, msg)
 }

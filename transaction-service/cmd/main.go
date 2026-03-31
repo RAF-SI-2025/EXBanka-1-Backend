@@ -59,6 +59,7 @@ func main() {
 		"transaction.transfer-created",
 		"transaction.transfer-completed",
 		"transaction.transfer-failed",
+		"transaction.saga-dead-letter",
 		"notification.send-email",
 	)
 

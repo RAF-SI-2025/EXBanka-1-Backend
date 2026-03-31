@@ -1146,70 +1146,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/bootstrap": {
-            "post": {
-                "description": "Creates the admin employee in user-service and provisions an auth account +\nactivation token in auth-service, which publishes the token to the\nnotification.send-email Kafka topic. Protected by the BOOTSTRAP_SECRET env var;\nreturns 404 when the secret is not configured (safe for production).\nIdempotent: safe to call multiple times (each call issues a fresh activation token).",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "bootstrap"
-                ],
-                "summary": "Seed the initial admin employee (test/dev only)",
-                "parameters": [
-                    {
-                        "description": "Bootstrap credentials",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.bootstrapRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "message: bootstrap complete",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "bad request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "not found (secret not set or wrong)",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "upstream error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/cards": {
             "post": {
                 "security": [
@@ -6452,21 +6388,6 @@ const docTemplate = `{
                 "template_name": {
                     "type": "string",
                     "example": "BasicTeller"
-                }
-            }
-        },
-        "handler.bootstrapRequest": {
-            "type": "object",
-            "required": [
-                "email",
-                "secret"
-            ],
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "secret": {
-                    "type": "string"
                 }
             }
         },

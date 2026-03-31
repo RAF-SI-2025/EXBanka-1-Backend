@@ -18,6 +18,15 @@ import (
 	"github.com/exbanka/transaction-service/internal/repository"
 )
 
+// maxSagaCompensationRetries is the number of recovery-loop failures after which
+// a compensating step is moved to the dead-letter queue.
+const maxSagaCompensationRetries = 10
+
+// sagaPublisher is the subset of *kafka.Producer used by the recovery goroutine.
+type sagaPublisher interface {
+	PublishSagaDeadLetter(ctx context.Context, msg kafkamsg.SagaDeadLetterMessage) error
+}
+
 // TransferRepo abstracts persistence for TransferService (enables unit testing without a real DB).
 type TransferRepo interface {
 	Create(t *model.Transfer) error
@@ -37,6 +46,7 @@ type TransferService struct {
 	producer          *kafka.Producer
 	retryConfig       shared.RetryConfig
 	sagaRepo          *repository.SagaLogRepository // nil-safe: saga logging skipped when nil
+	dlPublisher       sagaPublisher                 // nil-safe: dead-letter publishing skipped when nil
 }
 
 func NewTransferService(
@@ -57,6 +67,7 @@ func NewTransferService(
 		producer:          producer,
 		retryConfig:       shared.DefaultRetryConfig,
 		sagaRepo:          sagaRepo,
+		dlPublisher:       producer,
 	}
 }
 
@@ -411,9 +422,74 @@ func (s *TransferService) ListTransfersByAccountNumbers(accountNumbers []string,
 	return s.transferRepo.ListByAccountNumbers(accountNumbers, page, pageSize)
 }
 
+// runRecoveryTick processes one pass of the compensation recovery loop.
+// For each compensating saga step it attempts UpdateBalance; on success it marks the
+// step completed, on failure it increments RetryCount and — when the count reaches
+// maxSagaCompensationRetries — publishes a dead-letter Kafka event and moves the step
+// to "dead_letter" so it is no longer retried.
+func (s *TransferService) runRecoveryTick(ctx context.Context) {
+	if s.sagaRepo == nil || s.accountClient == nil {
+		return
+	}
+	pending, err := s.sagaRepo.FindPendingCompensations()
+	if err != nil {
+		log.Printf("saga recovery: failed to fetch pending compensations: %v", err)
+		return
+	}
+	for _, comp := range pending {
+		comp := comp
+		retryErr := shared.Retry(ctx, s.retryConfig, func() error {
+			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   comp.AccountNumber,
+				Amount:          comp.Amount.StringFixed(4),
+				UpdateAvailable: true,
+			})
+			return e
+		})
+		if retryErr != nil {
+			_ = s.sagaRepo.IncrementRetryCount(comp.ID)
+			// comp.RetryCount was loaded at the start of this tick and is stale
+			// after IncrementRetryCount. Because StartCompensationRecovery runs
+			// as a single goroutine (one tick at a time), no other writer can
+			// change retry_count concurrently — so comp.RetryCount+1 is always
+			// the correct post-increment value.
+			updatedCount := comp.RetryCount + 1
+			if updatedCount >= maxSagaCompensationRetries {
+				dlMsg := kafkamsg.SagaDeadLetterMessage{
+					SagaLogID:       comp.ID,
+					SagaID:          comp.SagaID,
+					TransactionID:   comp.TransactionID,
+					TransactionType: comp.TransactionType,
+					StepName:        comp.StepName,
+					AccountNumber:   comp.AccountNumber,
+					Amount:          comp.Amount.StringFixed(4),
+					RetryCount:      updatedCount,
+					LastError:       retryErr.Error(),
+				}
+				if s.dlPublisher != nil {
+					if pubErr := s.dlPublisher.PublishSagaDeadLetter(ctx, dlMsg); pubErr != nil {
+						log.Printf("saga recovery: failed to publish dead-letter for comp %d: %v", comp.ID, pubErr)
+					}
+				}
+				_ = s.sagaRepo.MarkDeadLetter(comp.ID, retryErr.Error())
+				log.Printf("saga recovery: compensation %d moved to dead-letter after %d retries (account %s amount %s)",
+					comp.ID, updatedCount, comp.AccountNumber, comp.Amount.StringFixed(4))
+			} else {
+				log.Printf("saga recovery: compensation %d still failing (retry %d/%d) for account %s: %v",
+					comp.ID, updatedCount, maxSagaCompensationRetries, comp.AccountNumber, retryErr)
+			}
+		} else {
+			_ = s.sagaRepo.CompleteStep(comp.ID)
+			log.Printf("saga recovery: compensation %d succeeded for account %s amount %s",
+				comp.ID, comp.AccountNumber, comp.Amount.StringFixed(4))
+		}
+	}
+}
+
 // StartCompensationRecovery starts a background goroutine that periodically retries
 // all saga log entries in "compensating" status. These are compensation steps that
-// previously failed to execute; the recovery loop retries them until they succeed.
+// previously failed to execute; the recovery loop retries them until they succeed or
+// reach maxSagaCompensationRetries failures, at which point they are moved to dead_letter.
 // Both transfer and payment compensations are handled here because both only require
 // an accountClient.UpdateBalance call.
 func (s *TransferService) StartCompensationRecovery(ctx context.Context) {
@@ -423,34 +499,7 @@ func (s *TransferService) StartCompensationRecovery(ctx context.Context) {
 		for {
 			select {
 			case <-ticker.C:
-				if s.sagaRepo == nil || s.accountClient == nil {
-					continue
-				}
-				pending, err := s.sagaRepo.FindPendingCompensations()
-				if err != nil {
-					log.Printf("saga recovery: failed to fetch pending compensations: %v", err)
-					continue
-				}
-				for _, comp := range pending {
-					compID := comp.ID
-					amtStr := comp.Amount.StringFixed(4)
-					retryErr := shared.Retry(ctx, s.retryConfig, func() error {
-						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
-							AccountNumber:   comp.AccountNumber,
-							Amount:          amtStr,
-							UpdateAvailable: true,
-						})
-						return e
-					})
-					if retryErr != nil {
-						log.Printf("saga recovery: compensation %d still failing for account %s amount %s: %v",
-							compID, comp.AccountNumber, amtStr, retryErr)
-					} else {
-						_ = s.sagaRepo.CompleteStep(compID)
-						log.Printf("saga recovery: compensation %d succeeded for account %s amount %s",
-							compID, comp.AccountNumber, amtStr)
-					}
-				}
+				s.runRecoveryTick(ctx)
 			case <-ctx.Done():
 				return
 			}

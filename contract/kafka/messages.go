@@ -51,6 +51,7 @@ const (
 	TopicTransferCreated      = "transaction.transfer-created"
 	TopicTransferCompleted    = "transaction.transfer-completed"
 	TopicTransferFailed       = "transaction.transfer-failed"
+	TopicSagaDeadLetter       = "transaction.saga-dead-letter"
 	TopicLoanRequested        = "credit.loan-requested"
 	TopicLoanApproved         = "credit.loan-approved"
 	TopicLoanRejected         = "credit.loan-rejected"
@@ -136,6 +137,20 @@ type PaymentFailedMessage struct {
 	ToAccountNumber   string `json:"to_account_number"`
 	Amount            string `json:"amount"`
 	FailureReason     string `json:"failure_reason"`
+}
+
+// SagaDeadLetterMessage is published when a compensation step has failed
+// MaxSagaRetries times and requires manual intervention.
+type SagaDeadLetterMessage struct {
+	SagaLogID       uint64 `json:"saga_log_id"`
+	SagaID          string `json:"saga_id"`
+	TransactionID   uint64 `json:"transaction_id"`
+	TransactionType string `json:"transaction_type"` // "transfer" or "payment"
+	StepName        string `json:"step_name"`
+	AccountNumber   string `json:"account_number"`
+	Amount          string `json:"amount"`
+	RetryCount      int    `json:"retry_count"`
+	LastError       string `json:"last_error"`
 }
 
 // TransferFailedMessage is published when a transfer fails at any stage.

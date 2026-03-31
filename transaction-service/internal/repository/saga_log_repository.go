@@ -34,12 +34,28 @@ func (r *SagaLogRepository) FailStep(id uint64, errMsg string) error {
 		Updates(map[string]interface{}{"status": "failed", "error_message": errMsg}).Error
 }
 
-// FindPendingCompensations returns all saga steps still in "compensating" status
-// (i.e., compensation was attempted but failed; eligible for retry by the recovery goroutine).
+// FindPendingCompensations returns all saga steps in "compensating" status.
+// "dead_letter" entries are excluded automatically because their status differs.
 func (r *SagaLogRepository) FindPendingCompensations() ([]model.SagaLog, error) {
 	var logs []model.SagaLog
 	err := r.db.Where("status = ?", "compensating").Find(&logs).Error
 	return logs, err
+}
+
+// IncrementRetryCount atomically increments the retry_count for a compensating step.
+func (r *SagaLogRepository) IncrementRetryCount(id uint64) error {
+	return r.db.Model(&model.SagaLog{}).Where("id = ?", id).
+		UpdateColumn("retry_count", gorm.Expr("retry_count + 1")).Error
+}
+
+// MarkDeadLetter sets a saga step's status to "dead_letter" so the recovery loop
+// stops retrying it. Called after RetryCount reaches the configured maximum.
+func (r *SagaLogRepository) MarkDeadLetter(id uint64, errMsg string) error {
+	return r.db.Model(&model.SagaLog{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"status":        "dead_letter",
+			"error_message": errMsg,
+		}).Error
 }
 
 // GetBySagaID returns all steps for a given saga, ordered by step number.
