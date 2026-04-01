@@ -33,7 +33,7 @@ type createVerificationReq struct {
 // @Produce json
 // @Security BearerAuth
 // @Param body body createVerificationReq true "Challenge data"
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/verifications [post]
 func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 	var req createVerificationReq
@@ -82,7 +82,7 @@ func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "Challenge ID"
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/verifications/{id}/status [get]
 func (h *VerificationHandler) GetVerificationStatus(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -118,7 +118,7 @@ type submitCodeReq struct {
 // @Security BearerAuth
 // @Param id path int true "Challenge ID"
 // @Param body body submitCodeReq true "Verification code"
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/verifications/{id}/code [post]
 func (h *VerificationHandler) SubmitVerificationCode(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -152,7 +152,7 @@ func (h *VerificationHandler) SubmitVerificationCode(c *gin.Context) {
 // @Tags mobile-verifications
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/mobile/verifications/pending [get]
 func (h *VerificationHandler) GetPendingVerifications(c *gin.Context) {
 	userID := c.GetInt64("user_id")
@@ -191,7 +191,7 @@ type submitMobileVerificationReq struct {
 // @Security BearerAuth
 // @Param challenge_id path int true "Challenge ID"
 // @Param body body submitMobileVerificationReq true "Verification response"
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/mobile/verifications/{challenge_id}/submit [post]
 func (h *VerificationHandler) SubmitMobileVerification(c *gin.Context) {
 	challengeID, err := strconv.ParseUint(c.Param("challenge_id"), 10, 64)
@@ -229,7 +229,7 @@ func (h *VerificationHandler) SubmitMobileVerification(c *gin.Context) {
 // @Security BearerAuth
 // @Param challenge_id path int true "Challenge ID"
 // @Param token query string true "QR verification token"
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/verify/{challenge_id} [post]
 func (h *VerificationHandler) VerifyQR(c *gin.Context) {
 	challengeID, err := strconv.ParseUint(c.Param("challenge_id"), 10, 64)

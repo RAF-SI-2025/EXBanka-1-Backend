@@ -16,6 +16,19 @@ definitions:
     - fromCurrency
     - toCurrency
     type: object
+  handler.activateDeviceReq:
+    properties:
+      code:
+        type: string
+      device_name:
+        type: string
+      email:
+        type: string
+    required:
+    - code
+    - device_name
+    - email
+    type: object
   handler.activateRequest:
     properties:
       confirm_password:
@@ -379,6 +392,18 @@ definitions:
     - from_account_number
     - to_account_number
     type: object
+  handler.createVerificationReq:
+    properties:
+      method:
+        type: string
+      source_id:
+        type: integer
+      source_service:
+        type: string
+    required:
+    - source_id
+    - source_service
+    type: object
   handler.createVirtualCardBody:
     properties:
       account_number:
@@ -448,6 +473,13 @@ definitions:
     required:
     - email
     type: object
+  handler.refreshMobileReq:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
   handler.refreshRequest:
     properties:
       refresh_token:
@@ -462,6 +494,13 @@ definitions:
         type: string
     required:
     - reason
+    type: object
+  handler.requestActivationReq:
+    properties:
+      email:
+        type: string
+    required:
+    - email
     type: object
   handler.resetPasswordRequest:
     properties:
@@ -535,6 +574,20 @@ definitions:
         type: array
     required:
     - role_names
+    type: object
+  handler.submitCodeReq:
+    properties:
+      code:
+        type: string
+    required:
+    - code
+    type: object
+  handler.submitMobileVerificationReq:
+    properties:
+      response:
+        type: string
+    required:
+    - response
     type: object
   handler.temporaryBlockCardBody:
     properties:
@@ -4103,6 +4156,168 @@ paths:
       summary: Create transfer
       tags:
       - transfers
+  /api/mobile/auth/activate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Activation data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.activateDeviceReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Activate mobile device with code
+      tags:
+      - mobile-auth
+  /api/mobile/auth/refresh:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Refresh token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.refreshMobileReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Refresh mobile token
+      tags:
+      - mobile-auth
+  /api/mobile/auth/request-activation:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Email
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.requestActivationReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Request mobile app activation code
+      tags:
+      - mobile-auth
+  /api/mobile/device:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current device info
+      tags:
+      - mobile-device
+  /api/mobile/device/deactivate:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Deactivate current device
+      tags:
+      - mobile-device
+  /api/mobile/device/transfer:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Transfer device (deactivate current + send new activation code)
+      tags:
+      - mobile-device
+  /api/mobile/verifications/{challenge_id}/submit:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Challenge ID
+        in: path
+        name: challenge_id
+        required: true
+        type: integer
+      - description: Verification response
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.submitMobileVerificationReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Submit mobile verification response
+      tags:
+      - mobile-verifications
+  /api/mobile/verifications/pending:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get pending mobile verifications (mobile polling)
+      tags:
+      - mobile-verifications
   /api/payment-recipients:
     post:
       consumes:
@@ -4813,6 +5028,106 @@ paths:
       summary: List transfers by client
       tags:
       - transfers
+  /api/verifications:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Challenge data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createVerificationReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create verification challenge
+      tags:
+      - verifications
+  /api/verifications/{id}/code:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Challenge ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Verification code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.submitCodeReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Submit verification code (browser, code_pull method)
+      tags:
+      - verifications
+  /api/verifications/{id}/status:
+    get:
+      parameters:
+      - description: Challenge ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get verification challenge status
+      tags:
+      - verifications
+  /api/verify/{challenge_id}:
+    post:
+      parameters:
+      - description: Challenge ID
+        in: path
+        name: challenge_id
+        required: true
+        type: integer
+      - description: QR verification token
+        in: query
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: QR code verification (mobile scans QR)
+      tags:
+      - mobile-verifications
 securityDefinitions:
   BearerAuth:
     description: Enter "Bearer <token>"

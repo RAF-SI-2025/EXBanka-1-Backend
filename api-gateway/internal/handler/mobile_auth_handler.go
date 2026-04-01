@@ -24,7 +24,7 @@ type requestActivationReq struct {
 // @Accept json
 // @Produce json
 // @Param body body requestActivationReq true "Email"
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/mobile/auth/request-activation [post]
 func (h *MobileAuthHandler) RequestActivation(c *gin.Context) {
 	var req requestActivationReq
@@ -54,8 +54,8 @@ type activateDeviceReq struct {
 // @Accept json
 // @Produce json
 // @Param body body activateDeviceReq true "Activation data"
-// @Success 200 {object} gin.H
-// @Failure 400 {object} gin.H
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]interface{}
 // @Router /api/mobile/auth/activate [post]
 func (h *MobileAuthHandler) ActivateDevice(c *gin.Context) {
 	var req activateDeviceReq
@@ -94,7 +94,7 @@ type refreshMobileReq struct {
 // @Accept json
 // @Produce json
 // @Param body body refreshMobileReq true "Refresh token"
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/mobile/auth/refresh [post]
 func (h *MobileAuthHandler) RefreshMobileToken(c *gin.Context) {
 	var req refreshMobileReq
@@ -126,7 +126,7 @@ func (h *MobileAuthHandler) RefreshMobileToken(c *gin.Context) {
 // @Tags mobile-device
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/mobile/device [get]
 func (h *MobileAuthHandler) GetDeviceInfo(c *gin.Context) {
 	userID := c.GetInt64("user_id")
@@ -150,7 +150,7 @@ func (h *MobileAuthHandler) GetDeviceInfo(c *gin.Context) {
 // @Tags mobile-device
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/mobile/device/deactivate [post]
 func (h *MobileAuthHandler) DeactivateDevice(c *gin.Context) {
 	userID := c.GetInt64("user_id")
@@ -175,7 +175,7 @@ type transferDeviceReq struct {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} gin.H
+// @Success 200 {object} map[string]interface{}
 // @Router /api/mobile/device/transfer [post]
 func (h *MobileAuthHandler) TransferDevice(c *gin.Context) {
 	userID := c.GetInt64("user_id")
