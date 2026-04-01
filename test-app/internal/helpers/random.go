@@ -3,6 +3,7 @@ package helpers
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
 	"time"
 )
 
@@ -42,6 +43,11 @@ func RandomPassword() string {
 func RandomAmount(min, max float64) string {
 	val := min + rng.Float64()*(max-min)
 	return fmt.Sprintf("%.2f", val)
+}
+
+// FormatID converts an int to its string representation for URL paths.
+func FormatID(id int) string {
+	return strconv.Itoa(id)
 }
 
 // DateOfBirthUnix returns a Unix timestamp for a date of birth (age 25-50).
