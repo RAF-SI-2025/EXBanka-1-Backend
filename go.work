@@ -12,6 +12,7 @@ use (
 	./notification-service
 	./test-app
 	./seeder
+	./stock-service
 	./transaction-service
 	./user-service
 )
