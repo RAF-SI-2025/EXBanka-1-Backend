@@ -52,6 +52,13 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 22. [Mobile Verification](#22-mobile-verification)
 23. [Browser Verification](#23-browser-verification)
 24. [WebSocket](#24-websocket)
+25. [Stock Exchanges](#25-stock-exchanges)
+26. [Securities](#26-securities)
+27. [Orders](#27-orders)
+28. [Portfolio](#28-portfolio)
+29. [OTC Offers](#29-otc-offers)
+30. [Actuaries](#30-actuaries)
+31. [Tax](#31-tax)
 
 ---
 
@@ -2046,10 +2053,6 @@ Submit a new loan application.
 
 ### GET /api/loans
 
-List all active loans (employee view).
-
-### GET /api/loans
-
 List loans (employee view). Pass `client_id` to filter loans for a specific client — this replaces the old `GET /api/loans/client/:client_id`. Clients should use `GET /api/me/loans`.
 
 **Authentication:** Employee JWT + `credits.read` permission
@@ -3954,9 +3957,9 @@ Poll for pending verification items delivered to this device.
 ```
 
 The `display_data` contents depend on the verification method:
-- **code_pull:** `{ "code": "482916" }` — display the code to the user
-- **number_match:** `{ "options": [17, 42, 68, 85, 31] }` — show 5 numbers for the user to pick
-- **qr_scan:** not delivered via polling (QR is scanned directly)
+- **code_pull:** `{ "code": "482916" }` — display the code to the user so they can type it into the browser
+
+> **Note:** `qr_scan` and `number_match` methods are planned but not yet available.
 
 ---
 
@@ -3976,7 +3979,7 @@ Submit a verification response from the mobile app.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `response` | string | Yes | The verification response (6-digit code for code_pull, number string for number_match) |
+| `response` | string | Yes | The verification response (6-digit code for code_pull) |
 
 **Example Request (code_pull):**
 ```json
@@ -3985,12 +3988,7 @@ Submit a verification response from the mobile app.
 }
 ```
 
-**Example Request (number_match):**
-```json
-{
-  "response": "42"
-}
-```
+> **Note:** Currently only `code_pull` responses are supported on mobile. `number_match` is planned for a future release.
 
 **Response 200:**
 ```json
@@ -4010,6 +4008,8 @@ Submit a verification response from the mobile app.
 ---
 
 ### POST /api/verify/:challenge_id
+
+> **Note:** This endpoint is for the `qr_scan` method which is not yet available. Documented for future reference.
 
 QR code verification endpoint. The mobile app scans a QR code displayed on the browser, extracts the URL and token, and POSTs here.
 
@@ -4061,7 +4061,7 @@ Create a new verification challenge for a pending transaction.
 |---|---|---|---|
 | `source_service` | string | Yes | Source service: `transaction`, `payment`, `transfer` |
 | `source_id` | uint64 | Yes | The payment/transfer ID that triggered verification |
-| `method` | string | No | `code_pull` (default), `qr_scan`, `number_match`, `email` |
+| `method` | string | No | `code_pull` (default) or `email`. Other methods (`qr_scan`, `number_match`) are not yet available. |
 
 **Example Request:**
 ```json
@@ -4082,9 +4082,10 @@ Create a new verification challenge for a pending transaction.
 ```
 
 The `challenge_data` contents depend on the method:
-- **code_pull:** `{}` (code is delivered to mobile, not shown in browser)
-- **qr_scan:** `{ "token": "abc123...", "verify_url": "/api/verify/123" }` — render as QR code
-- **number_match:** `{ "target": 42 }` — display the target number prominently
+- **code_pull:** `{}` (code is delivered to mobile app; if no mobile app registered, use `email` method instead)
+- **email:** `{}` (code is sent via email to the user's registered address)
+
+> **Note:** `qr_scan` and `number_match` methods are planned but not yet available.
 
 | Status | Description |
 |---|---|
@@ -4197,8 +4198,696 @@ X-Device-ID: <device_id>
 
 ---
 
-## Stock Trading (Coming Soon)
+## 25. Stock Exchanges
 
-Stock trading endpoints are defined in the implementation plan at
-`docs/superpowers/plans/2026-03-31-stock-trading-api-surface.md`.
-Full documentation will be added as each feature is implemented.
+### GET /api/stock-exchanges
+
+List all stock exchanges with pagination.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Search term for filtering |
+
+**Response 200:**
+```json
+{
+  "exchanges": [ ],
+  "total_count": 5
+}
+```
+
+---
+
+### GET /api/stock-exchanges/:id
+
+Get a specific stock exchange by ID.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Exchange ID |
+
+**Response 200:** Stock exchange object.
+
+---
+
+### POST /api/stock-exchanges/testing-mode
+
+Enable or disable testing mode for stock exchanges.
+
+**Authentication:** Employee JWT + `exchanges.manage` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | Yes | Whether testing mode is enabled |
+
+**Response 200:**
+```json
+{
+  "testing_mode": true
+}
+```
+
+---
+
+### GET /api/stock-exchanges/testing-mode
+
+Get current testing mode status.
+
+**Authentication:** Employee JWT + `exchanges.manage` permission
+
+**Response 200:**
+```json
+{
+  "testing_mode": false
+}
+```
+
+---
+
+## 26. Securities
+
+All securities endpoints require any valid JWT (AnyAuthMiddleware).
+
+### GET /api/securities/stocks
+
+List stocks with filtering and sorting.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Name/symbol search |
+| `exchange_acronym` | string | Filter by exchange |
+| `min_price` | string | Minimum price filter |
+| `max_price` | string | Maximum price filter |
+| `min_volume` | int | Minimum volume filter |
+| `max_volume` | int | Maximum volume filter |
+| `sort_by` | string | `price`, `volume`, `change`, or `margin` |
+| `sort_order` | string | `asc` (default) or `desc` |
+
+**Response 200:**
+```json
+{
+  "stocks": [ ],
+  "total_count": 100
+}
+```
+
+---
+
+### GET /api/securities/stocks/:id
+
+Get details of a specific stock.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Stock ID |
+
+---
+
+### GET /api/securities/stocks/:id/history
+
+Get stock price history.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Stock ID |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `period` | string | `day`, `week`, `month` (default), `year`, `5y`, `all` |
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 30) |
+
+**Response 200:**
+```json
+{
+  "history": [ ],
+  "total_count": 30
+}
+```
+
+---
+
+### GET /api/securities/futures
+
+List futures contracts.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Search term |
+| `exchange_acronym` | string | Filter by exchange |
+| `min_price` | string | Minimum price |
+| `max_price` | string | Maximum price |
+| `settlement_date_from` | string | ISO date |
+| `settlement_date_to` | string | ISO date |
+| `sort_by` | string | Sort field |
+| `sort_order` | string | `asc` (default) or `desc` |
+
+**Response 200:**
+```json
+{
+  "futures": [ ],
+  "total_count": 50
+}
+```
+
+---
+
+### GET /api/securities/futures/:id
+
+Get a specific futures contract.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Futures contract ID |
+
+---
+
+### GET /api/securities/futures/:id/history
+
+Get futures price history. Same query parameters as stocks history.
+
+---
+
+### GET /api/securities/forex
+
+List forex currency pairs.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Search term |
+| `base_currency` | string | ISO currency code |
+| `quote_currency` | string | ISO currency code |
+| `liquidity` | string | `high`, `medium`, or `low` |
+| `sort_by` | string | Sort field |
+| `sort_order` | string | `asc` (default) or `desc` |
+
+**Response 200:**
+```json
+{
+  "forex_pairs": [ ],
+  "total_count": 20
+}
+```
+
+---
+
+### GET /api/securities/forex/:id
+
+Get a specific forex pair.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Forex pair ID |
+
+---
+
+### GET /api/securities/forex/:id/history
+
+Get forex pair price history. Same query parameters as stocks history.
+
+---
+
+### GET /api/securities/options
+
+List options contracts for a stock.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `stock_id` | int | **Required.** Parent stock ID |
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+| `option_type` | string | `call` or `put` |
+| `settlement_date` | string | Filter by settlement date |
+| `min_strike` | string | Minimum strike price |
+| `max_strike` | string | Maximum strike price |
+
+**Response 200:**
+```json
+{
+  "options": [ ],
+  "total_count": 15
+}
+```
+
+---
+
+### GET /api/securities/options/:id
+
+Get a specific options contract.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Option ID |
+
+---
+
+## 27. Orders
+
+### POST /api/me/orders
+
+Create a new stock order.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `listing_id` | uint64 | Yes (buy) | Listing ID (required for buy orders) |
+| `holding_id` | uint64 | Yes (sell) | Holding ID (required for sell orders) |
+| `direction` | string | Yes | `buy` or `sell` |
+| `order_type` | string | Yes | `market`, `limit`, `stop`, or `stop_limit` |
+| `quantity` | int64 | Yes | Must be positive |
+| `limit_value` | string | Conditional | Required for `limit` or `stop_limit` orders |
+| `stop_value` | string | Conditional | Required for `stop` or `stop_limit` orders |
+| `all_or_none` | boolean | No | Default: false |
+| `margin` | boolean | No | Default: false |
+| `account_id` | uint64 | Yes (buy) | Account to debit (required for buy orders) |
+
+**Example Request (buy market order):**
+```json
+{
+  "listing_id": 42,
+  "direction": "buy",
+  "order_type": "market",
+  "quantity": 10,
+  "account_id": 1
+}
+```
+
+**Response 201:** Order object.
+
+| Status | Description |
+|---|---|
+| 201 | Order created |
+| 400 | Validation error |
+
+---
+
+### GET /api/me/orders
+
+List authenticated user's orders.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `status` | string | Filter by order status |
+| `direction` | string | Filter by direction (`buy`/`sell`) |
+| `order_type` | string | Filter by order type |
+
+**Response 200:**
+```json
+{
+  "orders": [ ],
+  "total_count": 25
+}
+```
+
+---
+
+### GET /api/me/orders/:id
+
+Get a specific order.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Order ID |
+
+---
+
+### POST /api/me/orders/:id/cancel
+
+Cancel a pending order.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Order ID |
+
+**Response 200:** Updated order object.
+
+---
+
+### GET /api/orders
+
+List all orders (admin/supervisor view for approval).
+
+**Authentication:** Employee JWT + `orders.approve` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `status` | string | Filter by status |
+| `agent_email` | string | Filter by agent |
+| `direction` | string | Filter by direction |
+| `order_type` | string | Filter by order type |
+
+**Response 200:**
+```json
+{
+  "orders": [ ],
+  "total_count": 50
+}
+```
+
+---
+
+### POST /api/orders/:id/approve
+
+Approve a pending order.
+
+**Authentication:** Employee JWT + `orders.approve` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Order ID |
+
+**Response 200:** Updated order object.
+
+---
+
+### POST /api/orders/:id/decline
+
+Decline a pending order.
+
+**Authentication:** Employee JWT + `orders.approve` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Order ID |
+
+**Response 200:** Updated order object.
+
+---
+
+## 28. Portfolio
+
+### GET /api/me/portfolio
+
+List authenticated user's holdings.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `security_type` | string | `stock`, `futures`, or `option` |
+
+**Response 200:**
+```json
+{
+  "holdings": [ ],
+  "total_count": 10
+}
+```
+
+---
+
+### GET /api/me/portfolio/summary
+
+Get portfolio summary (total value, gains/losses, allocation).
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Response 200:** Portfolio summary object.
+
+---
+
+### POST /api/me/portfolio/:id/make-public
+
+Make a holding available on the OTC market.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Holding ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `quantity` | int64 | Yes | Number of units to make public (must be positive) |
+
+**Response 200:** Public holding object.
+
+---
+
+### POST /api/me/portfolio/:id/exercise
+
+Exercise an options contract.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Holding ID (must be an option) |
+
+**Response 200:** Exercise result object.
+
+---
+
+## 29. OTC Offers
+
+### GET /api/otc/offers
+
+List OTC trading offers.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `security_type` | string | `stock` or `futures` |
+| `ticker` | string | Filter by ticker symbol |
+
+**Response 200:**
+```json
+{
+  "offers": [ ],
+  "total_count": 8
+}
+```
+
+---
+
+### POST /api/otc/offers/:id/buy
+
+Purchase an OTC offer.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Offer ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `quantity` | int64 | Yes | Number of units to buy (must be positive) |
+| `account_id` | uint64 | Yes | Account to debit |
+
+**Response 200:** Transaction object.
+
+---
+
+## 30. Actuaries
+
+### GET /api/actuaries
+
+List all actuaries (trading agents).
+
+**Authentication:** Employee JWT + `agents.manage` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Search by name |
+| `position` | string | Filter by position |
+
+**Response 200:**
+```json
+{
+  "actuaries": [ ],
+  "total_count": 12
+}
+```
+
+---
+
+### PUT /api/actuaries/:id/limit
+
+Set trading limit for an actuary.
+
+**Authentication:** Employee JWT + `agents.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Actuary (employee) ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `limit` | string | Yes | Trading limit amount |
+
+**Response 200:** Updated actuary object.
+
+---
+
+### POST /api/actuaries/:id/reset-limit
+
+Reset used trading limit for an actuary back to zero.
+
+**Authentication:** Employee JWT + `agents.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Actuary (employee) ID |
+
+**Response 200:** Updated actuary object.
+
+---
+
+### PUT /api/actuaries/:id/approval
+
+Set whether an actuary's orders require supervisor approval.
+
+**Authentication:** Employee JWT + `agents.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Actuary (employee) ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `need_approval` | boolean | Yes | Whether orders need approval |
+
+**Response 200:** Updated actuary object.
+
+---
+
+## 31. Tax
+
+### GET /api/tax
+
+List all tax records.
+
+**Authentication:** Employee JWT + `tax.manage` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `user_type` | string | `client` or `actuary` |
+| `search` | string | Search term |
+
+**Response 200:**
+```json
+{
+  "tax_records": [ ],
+  "total_count": 30
+}
+```
+
+---
+
+### POST /api/tax/collect
+
+Collect/process taxes for all users.
+
+**Authentication:** Employee JWT + `tax.manage` permission
+
+**Request Body:** None (empty POST)
+
+**Response 200:**
+```json
+{
+  "collected_count": 15,
+  "total_collected_rsd": "125000.00",
+  "failed_count": 0
+}
+```

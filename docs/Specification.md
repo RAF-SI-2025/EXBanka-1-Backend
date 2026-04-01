@@ -1508,10 +1508,11 @@ Both directions stored: EUR/RSD and RSD/EUR
 **VerificationChallenge** — Mobile/email verification challenges for transactions
 ```
 ID(uint64), UserID(indexed), SourceService(transaction|payment|transfer),
-SourceID(uint64), Method(code_pull|qr_scan|number_match|email),
+SourceID(uint64), Method(code_pull|email; qr_scan and number_match planned but not yet active),
 Code(6-digit), ChallengeData(JSONB), Status(pending|verified|expired|failed),
 Attempts(max 3), ExpiresAt(5min), VerifiedAt(nullable), DeviceID(nullable),
 Version(int64), CreatedAt, UpdatedAt
+Note: Code "111111" is accepted as a universal bypass code for development convenience.
 ```
 
 ### Notification Service (notification_db)
@@ -1519,7 +1520,7 @@ Version(int64), CreatedAt, UpdatedAt
 **MobileInboxItem** — Pending verification items for mobile delivery
 ```
 ID(uint64), UserID(indexed), DeviceID(indexed), ChallengeID(uint64),
-Method(code_pull|qr_scan|number_match), DisplayData(JSONB),
+Method(code_pull; qr_scan and number_match planned), DisplayData(JSONB),
 Status(pending|delivered|expired), ExpiresAt, DeliveredAt(nullable), CreatedAt
 ```
 
@@ -1643,7 +1644,7 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 | `reference_type` (ledger) | `payment`, `transfer`, `fee`, `interest` |
 | `card_request_status` | `pending`, `approved`, `rejected` |
 | `currency_code` | `RSD`, `EUR`, `CHF`, `USD`, `GBP`, `JPY`, `CAD`, `AUD` |
-| `verification_method` | `code_pull`, `qr_scan`, `number_match`, `email` |
+| `verification_method` | `code_pull` (default), `email` — active; `qr_scan`, `number_match` — planned but not yet active |
 | `verification_status` | `pending`, `verified`, `expired`, `failed` |
 | `mobile_device_status` | `pending`, `active`, `deactivated` |
 | `mobile_inbox_status` | `pending`, `delivered`, `expired` |

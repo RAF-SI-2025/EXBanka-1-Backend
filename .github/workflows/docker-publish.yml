@@ -31,6 +31,8 @@ jobs:
           - transaction-service
           - credit-service
           - exchange-service
+          - verification-service
+          - stock-service
           - seeder
 
     steps:

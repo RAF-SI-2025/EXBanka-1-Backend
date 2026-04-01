@@ -45,7 +45,7 @@ func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 	if req.Method == "" {
 		req.Method = "code_pull"
 	}
-	method, err := oneOf("method", req.Method, "code_pull", "qr_scan", "number_match", "email")
+	method, err := oneOf("method", req.Method, "code_pull", "email")
 	if err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
 		return
