@@ -37,17 +37,21 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 7. [Payments](#7-payments)
 8. [Transfers](#8-transfers)
 9. [Payment Recipients](#9-payment-recipients)
-10. [Verification Codes](#10-verification-codes)
-11. [Exchange Rates](#11-exchange-rates)
-12. [Loans](#12-loans)
-13. [Loan Requests](#13-loan-requests)
-14. [Limits](#14-limits)
-15. [Bank Accounts](#15-bank-accounts)
-16. [Transfer Fees](#16-transfer-fees)
-17. [Interest Rate Tiers](#17-interest-rate-tiers)
-18. [Bank Margins](#18-bank-margins)
-19. [Card Requests](#19-card-requests)
-20. [Me (Self-Service)](#20-me-self-service)
+10. [Exchange Rates](#10-exchange-rates)
+11. [Loans](#11-loans)
+12. [Loan Requests](#12-loan-requests)
+13. [Limits](#13-limits)
+14. [Bank Accounts](#14-bank-accounts)
+15. [Transfer Fees](#15-transfer-fees)
+16. [Interest Rate Tiers](#16-interest-rate-tiers)
+17. [Bank Margins](#17-bank-margins)
+18. [Card Requests](#18-card-requests)
+19. [Me (Self-Service)](#19-me-self-service)
+20. [Mobile Auth](#20-mobile-auth)
+21. [Mobile Device Management](#21-mobile-device-management)
+22. [Mobile Verification](#22-mobile-verification)
+23. [Browser Verification](#23-browser-verification)
+24. [WebSocket](#24-websocket)
 
 ---
 
@@ -1402,6 +1406,7 @@ Initiate a new payment from a client account.
 | `payment_code` | string | No | Payment code (e.g., `"289"`) |
 | `reference_number` | string | No | Reference/model number |
 | `payment_purpose` | string | No | Description or purpose of payment |
+| `method` | string | No | Verification method: `code_pull` (default), `qr_scan`, `number_match`. Ignored if user has no mobile device (falls back to `email`). |
 
 **Example Request:**
 ```json
@@ -1412,7 +1417,8 @@ Initiate a new payment from a client account.
   "recipient_name": "EX Tech d.o.o.",
   "payment_code": "289",
   "reference_number": "97 123456789",
-  "payment_purpose": "Invoice #INV-2026-001"
+  "payment_purpose": "Invoice #INV-2026-001",
+  "method": "code_pull"
 }
 ```
 
@@ -1429,13 +1435,12 @@ Initiate a new payment from a client account.
   "payment_code": "289",
   "reference_number": "97 123456789",
   "payment_purpose": "Invoice #INV-2026-001",
-  "status": "COMPLETED",
-  "timestamp": "2026-03-13T10:00:00Z",
-  "verification_code_expires_at": 1743000300
+  "status": "pending_verification",
+  "timestamp": "2026-03-13T10:00:00Z"
 }
 ```
 
-> **Note:** A verification code has been sent to the client's registered email. Use it when calling the execute endpoint (`POST /api/me/payments/:id/execute`).
+> **Note:** Payment is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/verifications` and then poll `GET /api/verifications/:id/status` until verified. Once verified, call `POST /api/me/payments/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
 ---
 
@@ -1496,7 +1501,7 @@ List payments for a specific account with filters.
 
 ### POST /api/me/payments/:id/execute
 
-Execute a pending payment after verification. The payment must have been created previously via `POST /api/me/payments`. A verification code is automatically sent to the client's registered email when the payment is created — use that code here.
+Execute a pending payment after verification. The payment must have been created previously via `POST /api/me/payments`. Verification is handled by the verification-service — pass the `challenge_id` from the completed verification challenge.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1510,12 +1515,13 @@ Execute a pending payment after verification. The payment must have been created
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the payment was created |
+| `challenge_id` | uint64 | Yes | The verification challenge ID (must have status `verified`) |
+| `verification_code` | string | No | Deprecated — kept for backwards compatibility |
 
 **Example Request:**
 ```json
 {
-  "verification_code": "847291"
+  "challenge_id": 123
 }
 ```
 
@@ -1532,7 +1538,7 @@ Execute a pending payment after verification. The payment must have been created
   "payment_code": "289",
   "reference_number": "97 123456789",
   "payment_purpose": "Invoice #INV-2026-001",
-  "status": "COMPLETED",
+  "status": "completed",
   "timestamp": "2026-03-13T10:00:00Z"
 }
 ```
@@ -1542,7 +1548,7 @@ Execute a pending payment after verification. The payment must have been created
 | 200 | Payment executed |
 | 400 | Invalid input or invalid payment ID |
 | 401 | Unauthorized |
-| 422 | Verification code invalid or expired |
+| 409 | Verification not completed |
 | 500 | Internal server error |
 
 ---
@@ -1606,13 +1612,15 @@ Initiate a currency transfer between accounts.
 | `from_account_number` | string | Yes | Source account number |
 | `to_account_number` | string | Yes | Destination account number |
 | `amount` | float64 | Yes | Amount to transfer (in source currency) |
+| `method` | string | No | Verification method: `code_pull` (default), `qr_scan`, `number_match`. Ignored if user has no mobile device (falls back to `email`). |
 
 **Example Request:**
 ```json
 {
   "from_account_number": "265-1234567890123-56",
   "to_account_number": "265-1234500000EUR-78",
-  "amount": 1000.00
+  "amount": 1000.00,
+  "method": "code_pull"
 }
 ```
 
@@ -1627,12 +1635,11 @@ Initiate a currency transfer between accounts.
   "exchange_rate": 117.23,
   "commission": 0.50,
   "timestamp": "2026-03-13T10:00:00Z",
-  "status": "pending_verification",
-  "verification_code_expires_at": 1743000300
+  "status": "pending_verification"
 }
 ```
 
-> **Note:** A verification code has been sent to the client's registered email. Use it when calling the execute endpoint (`POST /api/me/transfers/:id/execute`).
+> **Note:** Transfer is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/verifications` and then poll `GET /api/verifications/:id/status` until verified. Once verified, call `POST /api/me/transfers/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
 ---
 
@@ -1689,7 +1696,7 @@ List transfers with optional filters. Pass `client_id` to filter by owner.
 
 ### POST /api/me/transfers/:id/execute
 
-Execute a pending transfer after verification. The transfer must have been created previously via `POST /api/me/transfers`. A verification code is automatically sent to the client's registered email when the transfer is created — use that code here.
+Execute a pending transfer after verification. The transfer must have been created previously via `POST /api/me/transfers`. Verification is handled by the verification-service — pass the `challenge_id` from the completed verification challenge.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1703,12 +1710,13 @@ Execute a pending transfer after verification. The transfer must have been creat
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the transfer was created |
+| `challenge_id` | uint64 | Yes | The verification challenge ID (must have status `verified`) |
+| `verification_code` | string | No | Deprecated — kept for backwards compatibility |
 
 **Example Request:**
 ```json
 {
-  "verification_code": "847291"
+  "challenge_id": 123
 }
 ```
 
@@ -1732,7 +1740,7 @@ Execute a pending transfer after verification. The transfer must have been creat
 | 200 | Transfer executed |
 | 400 | Invalid input or invalid transfer ID |
 | 401 | Unauthorized |
-| 422 | Verification code invalid or expired |
+| 409 | Verification not completed |
 | 500 | Internal server error |
 
 ---
@@ -1936,7 +1944,7 @@ A verification code has been sent to the client's registered email. Use it when 
 
 ---
 
-## 12. Loans
+## 11. Loans
 
 Loan management endpoints. Employees can view all loans and approve/reject loan requests. Clients should use `GET /api/me/loans` and related `/api/me/*` routes to view and manage their own loans.
 
@@ -2128,7 +2136,7 @@ Get all installment records for a loan.
 
 ---
 
-## 13. Loan Requests
+## 12. Loan Requests
 
 Loan request management endpoints (employee-facing). These routes have been promoted from the `/api/loans/requests/` sub-path to the top-level `/api/loan-requests/`. Clients should use the `/api/me/loan-requests` routes instead.
 
@@ -2235,7 +2243,7 @@ Reject a loan request. Sends a rejection email to the client. Previously `PUT /a
 
 ---
 
-## 14. Limits
+## 13. Limits
 
 Manage transaction and approval limits for employees, and transaction limits for bank clients.
 
@@ -2562,7 +2570,7 @@ The `code` field is a stable machine-readable string. The `message` field is hum
 
 ---
 
-## 15. Bank Accounts
+## 14. Bank Accounts
 
 Bank account management endpoints allow administrators to manage internal bank-owned accounts used for fee collection and loan repayments. The bank must always maintain at least one RSD account and at least one foreign currency account.
 
@@ -2678,7 +2686,7 @@ Delete a bank-owned account by ID.
 
 ---
 
-## 16. Transfer Fees
+## 15. Transfer Fees
 
 Configurable fee rules applied to payments and transfers. Multiple active fee rules can apply to the same transaction — they stack additively. For example, a percentage fee AND a fixed fee can both apply to the same transaction.
 
@@ -2816,7 +2824,7 @@ Deactivate a fee rule. The rule is not deleted from the database — it is soft-
 
 ---
 
-## 17. Interest Rate Tiers
+## 16. Interest Rate Tiers
 
 Interest rate tier management for loan interest rate configuration. Each tier defines the fixed and variable base rates for a loan amount range.
 
@@ -3005,7 +3013,7 @@ Apply a variable rate update to all active variable-rate loans whose amount fall
 
 ---
 
-## 18. Bank Margins
+## 17. Bank Margins
 
 Bank margin management for loan interest rate calculation. Each loan type has a configurable margin that is added to the variable base rate from the interest rate tier.
 
@@ -3098,7 +3106,7 @@ Update the margin for a specific loan type.
 
 ---
 
-## 19. Card Requests
+## 18. Card Requests
 
 Card requests allow clients to request a card for one of their accounts. Employees with `cards.approve` permission can approve or reject these requests.
 
@@ -3320,7 +3328,7 @@ Employee rejects a pending card request with a reason. Method changed from `PUT`
 
 ---
 
-## 20. Me (Self-Service)
+## 19. Me (Self-Service)
 
 The `/api/me/*` route group provides self-service access for both employees and bank clients. All routes in this group are protected by `AnyAuthMiddleware`, which accepts any valid JWT (employee or client). Results are automatically scoped to the authenticated principal — no `client_id` path segment is needed.
 
@@ -3720,6 +3728,474 @@ Passwords for both employees and clients must satisfy:
 9. **CORS:** The API Gateway allows all origins with `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` methods and `Authorization`, `Content-Type` headers.
 
 10. **Migration:** If upgrading from the previous API, see `docs/api/MIGRATION.md` for a full old→new route mapping and breaking change notes.
+
+## 20. Mobile Auth
+
+Mobile device authentication for the EXBanka mobile app. These endpoints are public (no auth required).
+
+---
+
+### POST /api/mobile/auth/request-activation
+
+Request a 6-digit activation code sent to the user's email.
+
+**Authentication:** None
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | string | Yes | User's registered email address |
+
+**Example Request:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "message": "activation code sent to email"
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Activation code sent |
+| 400 | Invalid email format |
+| 404 | Email not found |
+
+---
+
+### POST /api/mobile/auth/activate
+
+Activate a mobile device with the emailed code. Returns device credentials.
+
+**Authentication:** None
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | string | Yes | User's registered email |
+| `code` | string | Yes | 6-digit activation code |
+| `device_name` | string | Yes | User-friendly device name (e.g., "Luka's iPhone") |
+
+**Example Request:**
+```json
+{
+  "email": "user@example.com",
+  "code": "482916",
+  "device_name": "Luka's iPhone 16"
+}
+```
+
+**Response 200:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "device_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "device_secret": "f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4"
+}
+```
+
+> **CRITICAL:** `device_secret` is returned only at activation. Store in iOS Keychain / Android Keystore immediately.
+
+| Status | Description |
+|---|---|
+| 200 | Device activated |
+| 400 | Invalid code format or missing fields |
+| 404 | Email not found |
+| 409 | Code invalid, expired, or max attempts exceeded |
+
+---
+
+### POST /api/mobile/auth/refresh
+
+Refresh mobile access token.
+
+**Authentication:** None (uses refresh token in body)
+
+**Headers:**
+
+| Header | Required | Description |
+|---|---|---|
+| `X-Device-ID` | Yes | Device UUID from activation |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `refresh_token` | string | Yes | Current refresh token |
+
+**Example Request:**
+```json
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+}
+```
+
+**Response 200:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Token refreshed |
+| 400 | Missing X-Device-ID header |
+| 401 | Refresh token invalid, expired, or device deactivated |
+
+---
+
+## 21. Mobile Device Management
+
+Manage the authenticated mobile device. Requires `MobileAuthMiddleware`.
+
+---
+
+### GET /api/mobile/device
+
+Get info about the current device.
+
+**Authentication:** Mobile JWT + `X-Device-ID` header
+
+**Response 200:**
+```json
+{
+  "device_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "device_name": "Luka's iPhone 16",
+  "status": "active",
+  "activated_at": "2026-04-01T10:00:00Z",
+  "last_seen_at": "2026-04-01T12:00:00Z"
+}
+```
+
+---
+
+### POST /api/mobile/device/deactivate
+
+Deactivate the current mobile device. The device will need to go through activation again to reconnect.
+
+**Authentication:** Mobile JWT + `X-Device-ID` header
+
+**Response 200:**
+```json
+{
+  "success": true
+}
+```
+
+---
+
+### POST /api/mobile/device/transfer
+
+Deactivate the current device and send a new activation code to the specified email.
+
+**Authentication:** Mobile JWT + `X-Device-ID` header
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | string | Yes | Email to send the new activation code to |
+
+**Example Request:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "message": "device deactivated, activation code sent to email"
+}
+```
+
+---
+
+## 22. Mobile Verification
+
+Mobile-side verification endpoints. Requires `MobileAuthMiddleware` + `RequireDeviceSignature` (HMAC-SHA256).
+
+See the [Mobile App Integration Guide](../mobile/MOBILE_APP_INTEGRATION.md) for request signing details.
+
+---
+
+### GET /api/mobile/verifications/pending
+
+Poll for pending verification items delivered to this device.
+
+**Authentication:** Mobile JWT + `X-Device-ID` + Device Signature
+
+**Response 200:**
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "challenge_id": 123,
+      "method": "code_pull",
+      "display_data": { "code": "482916" },
+      "expires_at": "2026-04-01T12:05:00Z"
+    }
+  ]
+}
+```
+
+The `display_data` contents depend on the verification method:
+- **code_pull:** `{ "code": "482916" }` — display the code to the user
+- **number_match:** `{ "options": [17, 42, 68, 85, 31] }` — show 5 numbers for the user to pick
+- **qr_scan:** not delivered via polling (QR is scanned directly)
+
+---
+
+### POST /api/mobile/verifications/:challenge_id/submit
+
+Submit a verification response from the mobile app.
+
+**Authentication:** Mobile JWT + `X-Device-ID` + Device Signature
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `challenge_id` | int | Verification challenge ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `response` | string | Yes | The verification response (6-digit code for code_pull, number string for number_match) |
+
+**Example Request (code_pull):**
+```json
+{
+  "response": "482916"
+}
+```
+
+**Example Request (number_match):**
+```json
+{
+  "response": "42"
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "remaining_attempts": 2
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Submission accepted (check `success` field) |
+| 400 | Invalid challenge ID or missing response |
+| 404 | Challenge not found |
+| 409 | Challenge expired or max attempts exceeded |
+
+---
+
+### POST /api/verify/:challenge_id
+
+QR code verification endpoint. The mobile app scans a QR code displayed on the browser, extracts the URL and token, and POSTs here.
+
+**Authentication:** Mobile JWT + `X-Device-ID` + Device Signature
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `challenge_id` | int | Verification challenge ID |
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `token` | string | Yes | QR verification token (64-char hex) |
+
+**Response 200:**
+```json
+{
+  "success": true
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | QR verification successful |
+| 400 | Missing token or invalid challenge ID |
+| 404 | Challenge not found |
+| 409 | Token mismatch, challenge expired, or already verified |
+
+---
+
+## 23. Browser Verification
+
+Browser-facing verification endpoints for creating and checking verification challenges. Requires `AnyAuthMiddleware`.
+
+---
+
+### POST /api/verifications
+
+Create a new verification challenge for a pending transaction.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `source_service` | string | Yes | Source service: `transaction`, `payment`, `transfer` |
+| `source_id` | uint64 | Yes | The payment/transfer ID that triggered verification |
+| `method` | string | No | `code_pull` (default), `qr_scan`, `number_match`, `email` |
+
+**Example Request:**
+```json
+{
+  "source_service": "transaction",
+  "source_id": 456,
+  "method": "code_pull"
+}
+```
+
+**Response 200:**
+```json
+{
+  "challenge_id": 123,
+  "challenge_data": {},
+  "expires_at": "2026-04-01T12:05:00Z"
+}
+```
+
+The `challenge_data` contents depend on the method:
+- **code_pull:** `{}` (code is delivered to mobile, not shown in browser)
+- **qr_scan:** `{ "token": "abc123...", "verify_url": "/api/verify/123" }` — render as QR code
+- **number_match:** `{ "target": 42 }` — display the target number prominently
+
+| Status | Description |
+|---|---|
+| 200 | Challenge created |
+| 400 | Invalid method or missing fields |
+
+---
+
+### GET /api/verifications/:id/status
+
+Poll the status of a verification challenge. The browser polls this endpoint until status becomes `verified`.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Challenge ID |
+
+**Response 200:**
+```json
+{
+  "status": "pending",
+  "method": "code_pull",
+  "verified_at": null,
+  "expires_at": "2026-04-01T12:05:00Z"
+}
+```
+
+Possible `status` values: `pending`, `verified`, `expired`, `failed`.
+
+---
+
+### POST /api/verifications/:id/code
+
+Submit a verification code from the browser (for `code_pull` and `email` methods where the user types the code into the browser).
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Challenge ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `code` | string | Yes | 6-digit verification code |
+
+**Example Request:**
+```json
+{
+  "code": "482916"
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "remaining_attempts": 2
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Code submission processed (check `success` field) |
+| 400 | Invalid challenge ID or missing code |
+| 404 | Challenge not found |
+| 409 | Challenge expired or max attempts exceeded |
+
+---
+
+## 24. WebSocket
+
+Real-time push notifications for mobile devices.
+
+---
+
+### GET /ws/mobile
+
+Establish a WebSocket connection for real-time verification challenge delivery.
+
+**Authentication:** Mobile JWT via `Authorization` header + `X-Device-ID` header
+
+**Connection:**
+```
+GET /ws/mobile
+Authorization: Bearer <mobile_jwt>
+X-Device-ID: <device_id>
+```
+
+**Server → Client Messages:**
+```json
+{
+  "type": "verification_challenge",
+  "challenge_id": 123,
+  "method": "code_pull",
+  "display_data": { "code": "482916" },
+  "expires_at": "2026-04-01T12:05:00Z"
+}
+```
+
+**Keepalive:** Server sends ping every 30s. Client must respond with pong. Connections with no pong for 60s are closed.
+
+**Reconnection:** If the WebSocket disconnects, fall back to polling `GET /api/mobile/verifications/pending` every 2s (foreground) or 30s (background).
+
+---
 
 ## Stock Trading (Coming Soon)
 
