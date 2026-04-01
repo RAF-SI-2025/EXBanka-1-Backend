@@ -72,6 +72,7 @@ EXBanka-1-Backend/
 ├── transaction-service/         # Payments + transfers + fees (gRPC :50057)
 ├── credit-service/              # Loans + installments + rates (gRPC :50058)
 ├── exchange-service/            # Currency exchange rates (gRPC :50059)
+├── verification-service/        # Mobile verification challenges (gRPC :50060)
 ├── seeder/                      # Database seeding tool
 ├── test-app/                    # Integration tests
 ├── docs/                        # API docs + implementation plans
@@ -147,12 +148,12 @@ Client (HTTP/JSON) → API Gateway (Gin, :8080)
 
 | Caller | Calls |
 |---|---|
-| api-gateway | auth, user, client, account, card, transaction, credit, exchange |
+| api-gateway | auth, user, client, account, card, transaction, credit, exchange, verification, notification |
 | auth-service | user-service (employee lookup), client-service (client login) |
 | user-service | auth-service (activation tokens) |
 | client-service | auth-service (activation tokens) |
 | card-service | account-service (account validation), client-service (client validation) |
-| transaction-service | account-service (balance ops), exchange-service (currency conversion) |
+| transaction-service | account-service (balance ops), exchange-service (currency conversion), verification-service (challenge status) |
 | credit-service | account-service (disbursement), user-service (employee limits), client-service (client validation) |
 
 ### Shared Utilities (`contract/shared/`)
@@ -187,6 +188,8 @@ The API Gateway creates gRPC clients in `api-gateway/internal/grpc/` and passes 
 | `feeClient` | FeeService | `TRANSACTION_GRPC_ADDR` (shared) |
 | `creditClient` | CreditService | `CREDIT_GRPC_ADDR` |
 | `exchangeClient` | ExchangeService | `EXCHANGE_GRPC_ADDR` |
+| `verificationClient` | VerificationGRPCService | `VERIFICATION_GRPC_ADDR` |
+| `notificationClient` | NotificationService | `NOTIFICATION_GRPC_ADDR` |
 
 **When adding a new gRPC service to an existing proto:** Create a new client constructor in `api-gateway/internal/grpc/`, create the client in `api-gateway/cmd/main.go` using the existing `*_GRPC_ADDR`, add it as a parameter to `router.Setup()`, and inject it into the relevant handler.
 
@@ -206,6 +209,8 @@ Each service has its own PostgreSQL database. No cross-DB queries.
 | transaction-service | transaction_db | 5437 |
 | credit-service | credit_db | 5438 |
 | exchange-service | exchange_db | 5439 |
+| verification-service | verification_db | 5440 |
+| notification-service | notification_db | 5441 |
 
 ---
 
@@ -424,11 +429,15 @@ func (h *SomeHandler) CreateSomething(c *gin.Context) { ... }
   "roles": ["EmployeeBasic"],
   "permissions": ["clients.read", "accounts.read"],
   "system_type": "employee",
+  "device_type": "",
+  "device_id": "",
   "jti": "uuid",
   "iat": 1234567890,
   "exp": 1234567890
 }
 ```
+
+Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>"`. Mobile refresh tokens have a 90-day expiry (configurable via `MOBILE_REFRESH_EXPIRY`).
 
 ### Middleware Selection Guide
 
@@ -439,6 +448,11 @@ func (h *SomeHandler) CreateSomething(c *gin.Context) { ... }
 | `/api/me/*` | `AnyAuthMiddleware` | Both employees and clients |
 | `/api/me/*/pin`, etc. | `AnyAuthMiddleware` + `RequireClientToken()` | Clients only |
 | `/api/{resource}` | `AuthMiddleware` + `RequirePermission("x.y")` | Employees with permission |
+| `/api/mobile/auth/*` | None (public) | Anyone |
+| `/api/mobile/device/*` | `MobileAuthMiddleware` | Mobile device with valid JWT |
+| `/api/mobile/verifications/*` | `MobileAuthMiddleware` + `RequireDeviceSignature` | Mobile device with valid JWT + HMAC |
+| `/api/verify/*` | `MobileAuthMiddleware` + `RequireDeviceSignature` | Mobile device with valid JWT + HMAC |
+| `/ws/mobile` | WebSocket auth (JWT + X-Device-ID) | Mobile device |
 
 ### Permission Codes
 
@@ -454,6 +468,7 @@ func (h *SomeHandler) CreateSomething(c *gin.Context) { ... }
 | limits | `limits.manage` |
 | admin | `bank-accounts.manage`, `fees.manage`, `interest-rates.manage` |
 | agent/otc | `agents.manage`, `otc.manage`, `funds.manage` |
+| verification | `verification.skip`, `verification.manage` |
 
 ### Role Definitions
 
@@ -461,7 +476,7 @@ func (h *SomeHandler) CreateSomething(c *gin.Context) { ... }
 |---|---|
 | EmployeeBasic | clients.*, accounts.*, cards.*, payments.read, credits.read |
 | EmployeeAgent | EmployeeBasic + securities.* |
-| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage |
+| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, verification.skip, verification.manage |
 | EmployeeAdmin | All permissions |
 
 ### Context Values Set by Middleware
@@ -1088,6 +1103,9 @@ api-gateway:
 | GET | `/api/exchange/rates` | exchangeHandler.ListExchangeRates | List all exchange rates |
 | GET | `/api/exchange/rates/:from/:to` | exchangeHandler.GetExchangeRate | Get specific rate pair |
 | POST | `/api/exchange/calculate` | exchangeHandler.CalculateExchange | Calculate conversion |
+| POST | `/api/mobile/auth/request-activation` | mobileAuthHandler.RequestActivation | Request mobile activation code |
+| POST | `/api/mobile/auth/activate` | mobileAuthHandler.ActivateDevice | Activate mobile device |
+| POST | `/api/mobile/auth/refresh` | mobileAuthHandler.RefreshMobileToken | Refresh mobile token |
 
 ### User's Own Resources (/api/me/* — AnyAuthMiddleware)
 
@@ -1194,6 +1212,36 @@ api-gateway:
 | GET | `/api/bank-margins` | interest-rates.manage | creditHandler.ListBankMargins | List margins |
 | PUT | `/api/bank-margins/:id` | interest-rates.manage | creditHandler.UpdateBankMargin | Update margin |
 
+### Browser Verification (/api/verifications — AnyAuthMiddleware)
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| POST | `/api/verifications` | verifyHandler.CreateVerification | Create verification challenge |
+| GET | `/api/verifications/:id/status` | verifyHandler.GetVerificationStatus | Poll challenge status |
+| POST | `/api/verifications/:id/code` | verifyHandler.SubmitVerificationCode | Submit code (browser) |
+
+### Mobile Device Management (/api/mobile/device — MobileAuthMiddleware)
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET | `/api/mobile/device` | mobileAuthHandler.GetDeviceInfo | Get device info |
+| POST | `/api/mobile/device/deactivate` | mobileAuthHandler.DeactivateDevice | Deactivate device |
+| POST | `/api/mobile/device/transfer` | mobileAuthHandler.TransferDevice | Transfer to new device |
+
+### Mobile Verification (/api/mobile/verifications — MobileAuth + DeviceSignature)
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET | `/api/mobile/verifications/pending` | verifyHandler.GetPendingVerifications | Poll pending items |
+| POST | `/api/mobile/verifications/:challenge_id/submit` | verifyHandler.SubmitMobileVerification | Submit mobile response |
+| POST | `/api/verify/:challenge_id` | verifyHandler.VerifyQR | QR code verification |
+
+### WebSocket
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET | `/ws/mobile` | wsHandler.HandleConnect | Mobile WebSocket connection |
+
 ### Swagger
 
 | Method | Path | Description |
@@ -1245,6 +1293,18 @@ ID, UserID(unique), Secret, Enabled(bool), CreatedAt, UpdatedAt
 **ActiveSession** — Session tracking
 ```
 ID, UserID, UserRole, IPAddress, UserAgent, LastActiveAt, CreatedAt, RevokedAt(nullable)
+```
+
+**MobileDevice** — One active device per user for mobile verification
+```
+ID(uint64), UserID(indexed), SystemType(client|employee), DeviceID(unique,UUID),
+DeviceSecret(HMAC-SHA256 key,32 bytes hex), DeviceName, Status(pending|active|deactivated),
+ActivatedAt(nullable), DeactivatedAt(nullable), LastSeenAt, Version(int64), CreatedAt, UpdatedAt
+```
+
+**MobileActivationCode** — 6-digit codes for mobile device activation
+```
+ID(uint64), Email(indexed), Code(6-digit), ExpiresAt(15min), Attempts(max 3), Used(bool), CreatedAt
 ```
 
 ### User Service (user_db)
@@ -1443,6 +1503,26 @@ Unique constraint: (from_currency, to_currency)
 Both directions stored: EUR/RSD and RSD/EUR
 ```
 
+### Verification Service (verification_db)
+
+**VerificationChallenge** — Mobile/email verification challenges for transactions
+```
+ID(uint64), UserID(indexed), SourceService(transaction|payment|transfer),
+SourceID(uint64), Method(code_pull|qr_scan|number_match|email),
+Code(6-digit), ChallengeData(JSONB), Status(pending|verified|expired|failed),
+Attempts(max 3), ExpiresAt(5min), VerifiedAt(nullable), DeviceID(nullable),
+Version(int64), CreatedAt, UpdatedAt
+```
+
+### Notification Service (notification_db)
+
+**MobileInboxItem** — Pending verification items for mobile delivery
+```
+ID(uint64), UserID(indexed), DeviceID(indexed), ChallengeID(uint64),
+Method(code_pull|qr_scan|number_match), DisplayData(JSONB),
+Status(pending|delivered|expired), ExpiresAt, DeliveredAt(nullable), CreatedAt
+```
+
 ---
 
 ## 19. Complete Kafka Topic Reference
@@ -1493,6 +1573,10 @@ Both directions stored: EUR/RSD and RSD/EUR
 | `credit.variable-rate-adjusted` | credit-service | (consumers) | VariableRateAdjustedMessage |
 | `credit.late-penalty-applied` | credit-service | (consumers) | LatePenaltyAppliedMessage |
 | `exchange.rates-updated` | exchange-service | (consumers) | ExchangeRatesUpdatedMessage |
+| `verification.challenge-created` | verification-service | notification-service | VerificationChallengeCreatedMessage |
+| `verification.challenge-verified` | verification-service | transaction-service | VerificationChallengeVerifiedMessage |
+| `verification.challenge-failed` | verification-service | transaction-service | VerificationChallengeFailedMessage |
+| `notification.mobile-push` | notification-service | api-gateway | MobilePushMessage |
 
 ### Email Types (SendEmailMessage.EmailType)
 
@@ -1559,6 +1643,11 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 | `reference_type` (ledger) | `payment`, `transfer`, `fee`, `interest` |
 | `card_request_status` | `pending`, `approved`, `rejected` |
 | `currency_code` | `RSD`, `EUR`, `CHF`, `USD`, `GBP`, `JPY`, `CAD`, `AUD` |
+| `verification_method` | `code_pull`, `qr_scan`, `number_match`, `email` |
+| `verification_status` | `pending`, `verified`, `expired`, `failed` |
+| `mobile_device_status` | `pending`, `active`, `deactivated` |
+| `mobile_inbox_status` | `pending`, `delivered`, `expired` |
+| `device_type` (JWT) | `mobile` |
 
 ---
 

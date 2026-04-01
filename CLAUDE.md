@@ -25,6 +25,7 @@ This is a Go workspace monorepo. Each service has its own self-contained directo
 ├── transaction-service/     # Payments, transfers, currency conversion via exchange-service (gRPC, port 50057)
 ├── credit-service/          # Loan requests, loans, installments (gRPC, port 50058)
 ├── exchange-service/        # Currency exchange rates and conversion (gRPC, port 50059)
+├── verification-service/    # Mobile verification challenges (gRPC, port 50060)
 ├── docs/                    # API documentation and implementation plans
 ├── docker-compose.yml
 ├── Makefile
@@ -71,7 +72,12 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | `TRANSACTION_GRPC_ADDR` | localhost:50057 | transaction-service gRPC address |
 | `CREDIT_GRPC_ADDR` | localhost:50058 | credit-service gRPC address |
 | `EXCHANGE_GRPC_ADDR` | localhost:50059 | exchange-service gRPC address; also required by transaction-service |
+| `VERIFICATION_GRPC_ADDR` | localhost:50060 | verification-service gRPC address; also required by transaction-service |
 | `GATEWAY_HTTP_ADDR` | :8080 | |
+| `MOBILE_REFRESH_EXPIRY` | 2160h (90 days) | Mobile refresh token expiry (auth-service) |
+| `MOBILE_ACTIVATION_EXPIRY` | 15m | Mobile activation code expiry (auth-service) |
+| `VERIFICATION_CHALLENGE_EXPIRY` | 5m | Verification challenge expiry (verification-service) |
+| `VERIFICATION_MAX_ATTEMPTS` | 3 | Max verification attempts (verification-service) |
 | `KAFKA_BROKERS` | localhost:9092 | |
 | `REDIS_ADDR` | localhost:6379 | Shared by auth + user services |
 | `SMTP_HOST` / `SMTP_PORT` | smtp.gmail.com / 587 | |
@@ -89,6 +95,8 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | transaction-service | 5437 |
 | credit-service | 5438 |
 | exchange-service | 5439 |
+| verification-service | 5440 |
+| notification-service | 5441 |
 
 **Note:** `credit-service` and `card-service` both depend on `CLIENT_GRPC_ADDR` and `ACCOUNT_GRPC_ADDR` in addition to their own gRPC addresses. Ensure these variables are set in their docker-compose environment sections.
 
@@ -99,6 +107,9 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 - API Gateway → Services: gRPC (protobuf, defined in `contract/proto/`)
 - Services → Notification: Kafka topic `notification.send-email`
 - Notification → Services: Kafka topic `notification.email-sent` (delivery confirmation)
+- Verification-service → Notification: Kafka topic `verification.challenge-created`
+- Verification-service → Transaction: Kafka topic `verification.challenge-verified`
+- Notification → Gateway: Kafka topic `notification.mobile-push` (WebSocket delivery)
 - Persistence: PostgreSQL via GORM (auto-migrated on startup)
 - Caching: Redis (JWT validation in auth-service, employee lookups in user-service)
 - Swagger UI: Available at /swagger/index.html on the API Gateway (port 8080)
@@ -118,7 +129,7 @@ internal/
 
 The API Gateway has no DB; instead it has `internal/grpc/` clients and `internal/middleware/auth.go` for JWT validation.
 
-The Notification Service has no DB; it has `internal/consumer/` for Kafka consumption, `internal/sender/` for SMTP, and `internal/push/` for future push notification providers.
+The Notification Service has a PostgreSQL database (`notification_db`, port 5441) for mobile inbox storage. It also has `internal/consumer/` for Kafka consumption, `internal/sender/` for SMTP, and `internal/push/` for future push notification providers.
 
 **Database auto-migration:** Both DB-backed services call `db.AutoMigrate(...)` on startup — no separate migration tool is needed.
 
@@ -129,7 +140,9 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 **Roles & permissions** (stored in `user_db`, seeded from `user-service/internal/service/role_service.go`):
 - Roles (`EmployeeBasic`, `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin`) are stored in the `roles` table with their associated `permissions` in a `role_permissions` join table.
 - Employees can have multiple roles (`employee_roles`) and additional per-employee permissions (`employee_additional_permissions`).
-- Default seed: `EmployeeBasic` → clients/accounts/cards/credits access; `EmployeeAgent` → adds securities trading; `EmployeeSupervisor` → adds agents/OTC/funds management; `EmployeeAdmin` → adds employees management.
+- Default seed: `EmployeeBasic` → clients/accounts/cards/credits access; `EmployeeAgent` → adds securities trading; `EmployeeSupervisor` → adds agents/OTC/funds management + verification.skip + verification.manage; `EmployeeAdmin` → adds employees management + all permissions.
+- `verification.skip` — allows skipping mobile verification for transactions (EmployeeSupervisor, EmployeeAdmin)
+- `verification.manage` — allows managing verification settings per role (EmployeeSupervisor, EmployeeAdmin)
 
 **Employee limits** (stored in `user_db`, `employee_limits` table):
 - Each employee has configurable limits: `MaxLoanApprovalAmount`, `MaxSingleTransaction`, `MaxDailyTransaction`, `MaxClientDailyLimit`, `MaxClientMonthlyLimit` (all `decimal.Decimal`).
@@ -203,6 +216,7 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
   - `fee_type`: `percentage`, `fixed`
   - `loan_type`: `cash`, `housing`, `auto`, `refinancing`, `student`
   - `interest_type`: `fixed`, `variable`
+  - `verification_method`: `code_pull`, `qr_scan`, `number_match`, `email`
 
 ## REST API Conventions
 
