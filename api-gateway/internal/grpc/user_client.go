@@ -14,3 +14,11 @@ func NewUserClient(addr string) (userpb.UserServiceClient, *grpc.ClientConn, err
 	}
 	return userpb.NewUserServiceClient(conn), conn, nil
 }
+
+func NewActuaryClient(addr string) (userpb.ActuaryServiceClient, *grpc.ClientConn, error) {
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, nil, err
+	}
+	return userpb.NewActuaryServiceClient(conn), conn, nil
+}
