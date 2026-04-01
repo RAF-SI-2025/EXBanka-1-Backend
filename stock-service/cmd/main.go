@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 	"gorm.io/driver/postgres"
@@ -40,9 +41,17 @@ func main() {
 		&model.FuturesContract{},
 		&model.ForexPair{},
 		&model.Option{},
+		&model.Listing{},
+		&model.ListingDailyPriceInfo{},
+		&model.Order{},
+		&model.OrderTransaction{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
+
+	// Composite unique indexes
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_security_unique ON listings(security_id, security_type)")
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_price_listing_date ON listing_daily_price_infos(listing_id, date)")
 
 	// --- Kafka ---
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
@@ -50,8 +59,13 @@ func main() {
 	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
 		"stock.exchange-synced",
 		"stock.security-synced",
+		"stock.listing-updated",
+		"stock.order-created",
+		"stock.order-approved",
+		"stock.order-declined",
+		"stock.order-filled",
+		"stock.order-cancelled",
 	)
-	_ = producer // will be used by future services
 
 	// --- Repositories ---
 	exchangeRepo := repository.NewExchangeRepository(db)
@@ -60,6 +74,11 @@ func main() {
 	futuresRepo := repository.NewFuturesRepository(db)
 	forexRepo := repository.NewForexPairRepository(db)
 	optionRepo := repository.NewOptionRepository(db)
+
+	listingRepo := repository.NewListingRepository(db)
+	dailyPriceRepo := repository.NewListingDailyPriceRepository(db)
+	orderRepo := repository.NewOrderRepository(db)
+	orderTxRepo := repository.NewOrderTransactionRepository(db)
 
 	// --- Services ---
 	exchangeSvc := service.NewExchangeService(exchangeRepo, settingRepo)
@@ -70,6 +89,7 @@ func main() {
 	}
 
 	secSvc := service.NewSecurityService(stockRepo, futuresRepo, forexRepo, optionRepo, exchangeRepo)
+	listingSvc := service.NewListingService(listingRepo, dailyPriceRepo, stockRepo, futuresRepo, forexRepo)
 
 	// AlphaVantage client (nil if no API key)
 	var avClient *provider.AlphaVantageClient
@@ -79,8 +99,14 @@ func main() {
 
 	syncSvc := service.NewSecuritySyncService(
 		stockRepo, futuresRepo, forexRepo, optionRepo,
-		exchangeRepo, settingRepo, avClient,
+		exchangeRepo, settingRepo, avClient, listingSvc,
 	)
+
+	// Order services
+	securityLookup := service.NewSecurityLookupAdapter(futuresRepo)
+	orderSvc := service.NewOrderService(orderRepo, orderTxRepo, listingRepo, settingRepo, securityLookup, producer)
+	execEngine := service.NewOrderExecutionEngine(orderRepo, orderTxRepo, listingRepo, settingRepo, producer)
+	otcSvc := service.NewOTCService(orderRepo, orderTxRepo)
 
 	// --- Seed securities ---
 	ctx, cancel := context.WithCancel(context.Background())
@@ -92,6 +118,20 @@ func main() {
 
 	// Start periodic price refresh
 	syncSvc.StartPeriodicRefresh(ctx, cfg.SecuritySyncIntervalMins)
+
+	// Start daily price snapshot cron
+	listingCron := service.NewListingCronService(listingRepo, dailyPriceRepo)
+	listingCron.StartDailyCron(ctx)
+
+	// Seed initial price history after listings are created
+	go func() {
+		// Wait for seed to complete (the seed goroutine runs async)
+		time.Sleep(5 * time.Second)
+		listingCron.SeedInitialSnapshot()
+	}()
+
+	// Start execution engine for active orders
+	execEngine.Start(ctx)
 
 	// --- gRPC Server ---
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
@@ -105,8 +145,14 @@ func main() {
 	exchangeHandler := handler.NewExchangeGRPCHandler(exchangeSvc)
 	pb.RegisterStockExchangeGRPCServiceServer(grpcServer, exchangeHandler)
 
-	securityHandler := handler.NewSecurityHandler(secSvc)
+	securityHandler := handler.NewSecurityHandler(secSvc, listingSvc)
 	pb.RegisterSecurityGRPCServiceServer(grpcServer, securityHandler)
+
+	orderHandler := handler.NewOrderHandler(orderSvc, execEngine)
+	pb.RegisterOrderGRPCServiceServer(grpcServer, orderHandler)
+
+	otcHandler := handler.NewOTCHandler(otcSvc)
+	pb.RegisterOTCGRPCServiceServer(grpcServer, otcHandler)
 
 	shared.RegisterHealthCheck(grpcServer, "stock-service")
 

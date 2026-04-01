@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement all four security types (Stock, FuturesContract, ForexPair, Option) as database entities in `stock-service`, with external API data providers, seed data, and the `SecurityGRPCService` handler that the API gateway calls. Tasks 1-5 are done start with 6.
+**Goal:** Implement all four security types (Stock, FuturesContract, ForexPair, Option) as database entities in `stock-service`, with external API data providers, seed data, and the `SecurityGRPCService` handler that the API gateway calls.
 
 **Architecture:** All four security types live in `stock-service`. Each type has a model, repository, and service layer. External data comes from:
 - **Stocks:** AlphaVantage API (Company Overview endpoint for outstanding_shares, dividend_yield; Quote endpoint for price data)

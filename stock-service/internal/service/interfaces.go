@@ -57,3 +57,33 @@ type SettingRepo interface {
 	Get(key string) (string, error)
 	Set(key, value string) error
 }
+
+type ListingRepo interface {
+	Create(listing *model.Listing) error
+	GetByID(id uint64) (*model.Listing, error)
+	GetBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error)
+	Update(listing *model.Listing) error
+	UpsertBySecurity(listing *model.Listing) error
+	ListAll() ([]model.Listing, error)
+	ListBySecurityType(securityType string) ([]model.Listing, error)
+}
+
+type DailyPriceRepo interface {
+	Create(info *model.ListingDailyPriceInfo) error
+	UpsertByListingAndDate(info *model.ListingDailyPriceInfo) error
+	GetHistory(listingID uint64, from, to time.Time, page, pageSize int) ([]model.ListingDailyPriceInfo, int64, error)
+}
+
+type OrderRepo interface {
+	Create(order *model.Order) error
+	GetByID(id uint64) (*model.Order, error)
+	Update(order *model.Order) error
+	ListByUser(userID uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
+	ListAll(filter repository.OrderFilter) ([]model.Order, int64, error)
+	ListActiveApproved() ([]model.Order, error)
+}
+
+type OrderTransactionRepo interface {
+	Create(tx *model.OrderTransaction) error
+	ListByOrderID(orderID uint64) ([]model.OrderTransaction, error)
+}

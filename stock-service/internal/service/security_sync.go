@@ -24,6 +24,7 @@ type SecuritySyncService struct {
 	exchangeRepo ExchangeRepo
 	settingRepo  SettingRepo
 	avClient     *provider.AlphaVantageClient
+	listingSvc   *ListingService
 }
 
 func NewSecuritySyncService(
@@ -34,6 +35,7 @@ func NewSecuritySyncService(
 	exchangeRepo ExchangeRepo,
 	settingRepo SettingRepo,
 	avClient *provider.AlphaVantageClient,
+	listingSvc *ListingService,
 ) *SecuritySyncService {
 	return &SecuritySyncService{
 		stockRepo:    stockRepo,
@@ -43,6 +45,7 @@ func NewSecuritySyncService(
 		exchangeRepo: exchangeRepo,
 		settingRepo:  settingRepo,
 		avClient:     avClient,
+		listingSvc:   listingSvc,
 	}
 }
 
@@ -52,6 +55,10 @@ func (s *SecuritySyncService) SeedAll(ctx context.Context, futuresSeedPath strin
 	s.syncStocks(ctx)
 	s.seedForexPairs()
 	s.generateAllOptions()
+	// Sync listings from the securities we just seeded
+	if s.listingSvc != nil {
+		s.listingSvc.SyncListingsFromSecurities()
+	}
 }
 
 // RefreshPrices updates price data for all securities.
@@ -65,6 +72,10 @@ func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 	// Futures: prices are static from seed data (no live API per spec recommendation)
 	// Forex: rates could be refreshed from exchange-service, but that's handled by
 	//        the exchange-service's own sync. We just re-read rates on demand.
+	// Update listing prices from refreshed security data
+	if s.listingSvc != nil {
+		s.listingSvc.SyncListingsFromSecurities()
+	}
 	log.Println("price refresh complete")
 }
 

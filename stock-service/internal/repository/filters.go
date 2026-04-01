@@ -54,3 +54,12 @@ type OptionFilter struct {
 	Page           int
 	PageSize       int
 }
+
+type OrderFilter struct {
+	Status     string // "pending", "approved", "declined", "done"
+	Direction  string // "buy", "sell"
+	OrderType  string // "market", "limit", "stop", "stop_limit"
+	AgentEmail string // for supervisor view
+	Page       int
+	PageSize   int
+}

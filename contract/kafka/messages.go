@@ -319,12 +319,42 @@ type CardRequestRejectedMessage struct {
 // Stock service topics
 const (
 	TopicSecuritySynced = "stock.security-synced"
+	TopicListingUpdated = "stock.listing-updated"
 )
 
 type SecuritySyncedMessage struct {
 	SecurityType string `json:"security_type"` // "stock", "futures", "forex", "option"
 	Ticker       string `json:"ticker"`
 	Action       string `json:"action"` // "created", "updated", "deleted"
+	Timestamp    int64  `json:"timestamp"`
+}
+
+type ListingUpdatedMessage struct {
+	ListingID    uint64 `json:"listing_id"`
+	SecurityType string `json:"security_type"`
+	SecurityID   uint64 `json:"security_id"`
+	Price        string `json:"price"`
+	Timestamp    int64  `json:"timestamp"`
+}
+
+// Order topics
+const (
+	TopicOrderCreated   = "stock.order-created"
+	TopicOrderApproved  = "stock.order-approved"
+	TopicOrderDeclined  = "stock.order-declined"
+	TopicOrderFilled    = "stock.order-filled"
+	TopicOrderCancelled = "stock.order-cancelled"
+)
+
+type OrderEventMessage struct {
+	OrderID      uint64 `json:"order_id"`
+	UserID       uint64 `json:"user_id"`
+	Direction    string `json:"direction"`
+	OrderType    string `json:"order_type"`
+	SecurityType string `json:"security_type"`
+	Ticker       string `json:"ticker"`
+	Quantity     int64  `json:"quantity"`
+	Status       string `json:"status"`
 	Timestamp    int64  `json:"timestamp"`
 }
 

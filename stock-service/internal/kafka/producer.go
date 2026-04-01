@@ -36,6 +36,30 @@ func (p *Producer) PublishSecuritySynced(ctx context.Context, msg contract.Secur
 	return p.Publish(ctx, contract.TopicSecuritySynced, msg)
 }
 
+func (p *Producer) PublishListingUpdated(ctx context.Context, msg contract.ListingUpdatedMessage) error {
+	return p.Publish(ctx, contract.TopicListingUpdated, msg)
+}
+
+func (p *Producer) PublishOrderCreated(ctx context.Context, msg interface{}) error {
+	return p.Publish(ctx, contract.TopicOrderCreated, msg)
+}
+
+func (p *Producer) PublishOrderApproved(ctx context.Context, msg interface{}) error {
+	return p.Publish(ctx, contract.TopicOrderApproved, msg)
+}
+
+func (p *Producer) PublishOrderDeclined(ctx context.Context, msg interface{}) error {
+	return p.Publish(ctx, contract.TopicOrderDeclined, msg)
+}
+
+func (p *Producer) PublishOrderFilled(ctx context.Context, msg interface{}) error {
+	return p.Publish(ctx, contract.TopicOrderFilled, msg)
+}
+
+func (p *Producer) PublishOrderCancelled(ctx context.Context, msg interface{}) error {
+	return p.Publish(ctx, contract.TopicOrderCancelled, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

@@ -17,11 +17,12 @@ import (
 
 type SecurityHandler struct {
 	pb.UnimplementedSecurityGRPCServiceServer
-	secSvc *service.SecurityService
+	secSvc     *service.SecurityService
+	listingSvc *service.ListingService
 }
 
-func NewSecurityHandler(secSvc *service.SecurityService) *SecurityHandler {
-	return &SecurityHandler{secSvc: secSvc}
+func NewSecurityHandler(secSvc *service.SecurityService, listingSvc *service.ListingService) *SecurityHandler {
+	return &SecurityHandler{secSvc: secSvc, listingSvc: listingSvc}
 }
 
 // --- Stocks ---
@@ -79,9 +80,11 @@ func (h *SecurityHandler) GetStock(ctx context.Context, req *pb.GetStockRequest)
 }
 
 func (h *SecurityHandler) GetStockHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {
-	// Price history is implemented in Plan 4 (Listings).
-	// Stub: return empty until Plan 4 is implemented.
-	return &pb.PriceHistoryResponse{History: nil, TotalCount: 0}, nil
+	history, total, err := h.listingSvc.GetPriceHistoryForSecurity(req.Id, "stock", req.Period, int(req.Page), int(req.PageSize))
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
+	}
+	return toPriceHistoryResponse(history, total), nil
 }
 
 // --- Futures ---
@@ -147,8 +150,11 @@ func (h *SecurityHandler) GetFutures(ctx context.Context, req *pb.GetFuturesRequ
 }
 
 func (h *SecurityHandler) GetFuturesHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {
-	// Price history is implemented in Plan 4 (Listings).
-	return &pb.PriceHistoryResponse{History: nil, TotalCount: 0}, nil
+	history, total, err := h.listingSvc.GetPriceHistoryForSecurity(req.Id, "futures", req.Period, int(req.Page), int(req.PageSize))
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
+	}
+	return toPriceHistoryResponse(history, total), nil
 }
 
 // --- Forex ---
@@ -186,8 +192,11 @@ func (h *SecurityHandler) GetForexPair(ctx context.Context, req *pb.GetForexPair
 }
 
 func (h *SecurityHandler) GetForexPairHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {
-	// Price history is implemented in Plan 4 (Listings).
-	return &pb.PriceHistoryResponse{History: nil, TotalCount: 0}, nil
+	history, total, err := h.listingSvc.GetPriceHistoryForSecurity(req.Id, "forex", req.Period, int(req.Page), int(req.PageSize))
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
+	}
+	return toPriceHistoryResponse(history, total), nil
 }
 
 // --- Options ---
@@ -384,6 +393,21 @@ func toOptionItem(o *model.Option) *pb.OptionItem {
 		ContractSize:      o.ContractSizeValue(),
 		InitialMarginCost: o.InitialMarginCost(stockPrice).StringFixed(2),
 	}
+}
+
+func toPriceHistoryResponse(history []model.ListingDailyPriceInfo, total int64) *pb.PriceHistoryResponse {
+	entries := make([]*pb.PriceHistoryEntry, len(history))
+	for i, h := range history {
+		entries[i] = &pb.PriceHistoryEntry{
+			Date:   h.Date.Format("2006-01-02"),
+			Price:  h.Price.StringFixed(4),
+			High:   h.High.StringFixed(4),
+			Low:    h.Low.StringFixed(4),
+			Change: h.Change.StringFixed(4),
+			Volume: h.Volume,
+		}
+	}
+	return &pb.PriceHistoryResponse{History: entries, TotalCount: total}
 }
 
 func toOptionDetail(o *model.Option) *pb.OptionDetail {
