@@ -3720,3 +3720,9 @@ Passwords for both employees and clients must satisfy:
 9. **CORS:** The API Gateway allows all origins with `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` methods and `Authorization`, `Content-Type` headers.
 
 10. **Migration:** If upgrading from the previous API, see `docs/api/MIGRATION.md` for a full old→new route mapping and breaking change notes.
+
+## Stock Trading (Coming Soon)
+
+Stock trading endpoints are defined in the implementation plan at
+`docs/superpowers/plans/2026-03-31-stock-trading-api-surface.md`.
+Full documentation will be added as each feature is implemented.
