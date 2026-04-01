@@ -117,7 +117,51 @@ func main() {
 	}
 	defer exchangeConn.Close()
 
-	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient)
+	// Stock-service gRPC clients (all share the same address)
+	stockExchangeClient, stockExchangeConn, err := grpcclients.NewStockExchangeClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to stock exchange service: %v", err)
+	}
+	defer stockExchangeConn.Close()
+
+	securityClient, securityConn, err := grpcclients.NewSecurityClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to security service: %v", err)
+	}
+	defer securityConn.Close()
+
+	orderClient, orderConn, err := grpcclients.NewOrderClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to order service: %v", err)
+	}
+	defer orderConn.Close()
+
+	portfolioClient, portfolioConn, err := grpcclients.NewPortfolioClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to portfolio service: %v", err)
+	}
+	defer portfolioConn.Close()
+
+	otcClient, otcConn, err := grpcclients.NewOTCClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to OTC service: %v", err)
+	}
+	defer otcConn.Close()
+
+	taxClient, taxConn, err := grpcclients.NewTaxClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to tax service: %v", err)
+	}
+	defer taxConn.Close()
+
+	// Actuary service reuses user-service connection
+	actuaryClient, actuaryConn, err := grpcclients.NewActuaryClient(cfg.UserGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to actuary service: %v", err)
+	}
+	defer actuaryConn.Close()
+
+	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,

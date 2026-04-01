@@ -14,6 +14,7 @@ import (
 	clientpb "github.com/exbanka/contract/clientpb"
 	creditpb "github.com/exbanka/contract/creditpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	stockpb "github.com/exbanka/contract/stockpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 	userpb "github.com/exbanka/contract/userpb"
 )
@@ -33,6 +34,13 @@ func Setup(
 	feeClient transactionpb.FeeServiceClient,
 	cardRequestClient cardpb.CardRequestServiceClient,
 	exchangeClient exchangepb.ExchangeServiceClient,
+	stockExchangeClient stockpb.StockExchangeGRPCServiceClient,
+	securityClient stockpb.SecurityGRPCServiceClient,
+	orderClient stockpb.OrderGRPCServiceClient,
+	portfolioClient stockpb.PortfolioGRPCServiceClient,
+	otcClient stockpb.OTCGRPCServiceClient,
+	taxClient stockpb.TaxGRPCServiceClient,
+	actuaryClient userpb.ActuaryServiceClient,
 ) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
@@ -54,6 +62,12 @@ func Setup(
 	exchangeHandler := handler.NewExchangeHandler(exchangeClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
 	meHandler := handler.NewMeHandler(clientClient, userClient, authClient)
+	stockExchangeHandler := handler.NewStockExchangeHandler(stockExchangeClient)
+	securitiesHandler := handler.NewSecuritiesHandler(securityClient)
+	stockOrderHandler := handler.NewStockOrderHandler(orderClient)
+	portfolioHandler := handler.NewPortfolioHandler(portfolioClient, otcClient)
+	actuaryHandler := handler.NewActuaryHandler(actuaryClient)
+	taxHandler := handler.NewTaxHandler(taxClient)
 
 	api := r.Group("/api")
 	{
@@ -118,6 +132,51 @@ func Setup(
 			me.GET("/loans", creditHandler.ListMyLoans)
 			me.GET("/loans/:id", creditHandler.GetMyLoan)
 			me.GET("/loans/:id/installments", creditHandler.GetMyInstallments)
+
+			// Stock orders
+			me.POST("/orders", stockOrderHandler.CreateOrder)
+			me.GET("/orders", stockOrderHandler.ListMyOrders)
+			me.GET("/orders/:id", stockOrderHandler.GetMyOrder)
+			me.POST("/orders/:id/cancel", stockOrderHandler.CancelOrder)
+
+			// Portfolio
+			me.GET("/portfolio", portfolioHandler.ListHoldings)
+			me.GET("/portfolio/summary", portfolioHandler.GetPortfolioSummary)
+			me.POST("/portfolio/:id/make-public", portfolioHandler.MakePublic)
+			me.POST("/portfolio/:id/exercise", portfolioHandler.ExerciseOption)
+		}
+
+		// Stock exchanges — accessible to any authenticated user
+		stockExchanges := api.Group("/stock-exchanges")
+		stockExchanges.Use(middleware.AnyAuthMiddleware(authClient))
+		{
+			stockExchanges.GET("", stockExchangeHandler.ListExchanges)
+			stockExchanges.GET("/:id", stockExchangeHandler.GetExchange)
+		}
+
+		// Securities — accessible to any authenticated user
+		securities := api.Group("/securities")
+		securities.Use(middleware.AnyAuthMiddleware(authClient))
+		{
+			securities.GET("/stocks", securitiesHandler.ListStocks)
+			securities.GET("/stocks/:id", securitiesHandler.GetStock)
+			securities.GET("/stocks/:id/history", securitiesHandler.GetStockHistory)
+			securities.GET("/futures", securitiesHandler.ListFutures)
+			securities.GET("/futures/:id", securitiesHandler.GetFutures)
+			securities.GET("/futures/:id/history", securitiesHandler.GetFuturesHistory)
+			securities.GET("/forex", securitiesHandler.ListForexPairs)
+			securities.GET("/forex/:id", securitiesHandler.GetForexPair)
+			securities.GET("/forex/:id/history", securitiesHandler.GetForexPairHistory)
+			securities.GET("/options", securitiesHandler.ListOptions)
+			securities.GET("/options/:id", securitiesHandler.GetOption)
+		}
+
+		// OTC — accessible to any authenticated user
+		otc := api.Group("/otc/offers")
+		otc.Use(middleware.AnyAuthMiddleware(authClient))
+		{
+			otc.GET("", portfolioHandler.ListOTCOffers)
+			otc.POST("/:id/buy", portfolioHandler.BuyOTCOffer)
 		}
 
 		// Employee/admin routes (AuthMiddleware + RequirePermission)
@@ -329,6 +388,41 @@ func Setup(
 			{
 				bankMarginsAdmin.GET("", creditHandler.ListBankMargins)
 				bankMarginsAdmin.PUT("/:id", creditHandler.UpdateBankMargin)
+			}
+
+			// Stock exchange management (supervisor)
+			stockExchangeAdmin := protected.Group("/stock-exchanges")
+			stockExchangeAdmin.Use(middleware.RequirePermission("exchanges.manage"))
+			{
+				stockExchangeAdmin.POST("/testing-mode", stockExchangeHandler.SetTestingMode)
+				stockExchangeAdmin.GET("/testing-mode", stockExchangeHandler.GetTestingMode)
+			}
+
+			// Order management (supervisor)
+			ordersAdmin := protected.Group("/orders")
+			ordersAdmin.Use(middleware.RequirePermission("orders.approve"))
+			{
+				ordersAdmin.GET("", stockOrderHandler.ListOrders)
+				ordersAdmin.POST("/:id/approve", stockOrderHandler.ApproveOrder)
+				ordersAdmin.POST("/:id/decline", stockOrderHandler.DeclineOrder)
+			}
+
+			// Actuary management (supervisor)
+			actuariesAdmin := protected.Group("/actuaries")
+			actuariesAdmin.Use(middleware.RequirePermission("agents.manage"))
+			{
+				actuariesAdmin.GET("", actuaryHandler.ListActuaries)
+				actuariesAdmin.PUT("/:id/limit", actuaryHandler.SetActuaryLimit)
+				actuariesAdmin.POST("/:id/reset-limit", actuaryHandler.ResetActuaryLimit)
+				actuariesAdmin.PUT("/:id/approval", actuaryHandler.SetNeedApproval)
+			}
+
+			// Tax management (supervisor)
+			taxAdmin := protected.Group("/tax")
+			taxAdmin.Use(middleware.RequirePermission("tax.manage"))
+			{
+				taxAdmin.GET("", taxHandler.ListTaxRecords)
+				taxAdmin.POST("/collect", taxHandler.CollectTax)
 			}
 		}
 	}
