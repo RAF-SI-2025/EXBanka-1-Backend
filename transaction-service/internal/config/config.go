@@ -30,7 +30,7 @@ func Load() *Config {
 		RedisAddr:        getEnv("REDIS_ADDR", "localhost:6379"),
 		AccountGRPCAddr:  getEnv("ACCOUNT_GRPC_ADDR", "localhost:50055"),
 		ExchangeGRPCAddr:     getEnv("EXCHANGE_GRPC_ADDR", "localhost:50059"),
-		VerificationGRPCAddr: getEnv("VERIFICATION_GRPC_ADDR", "localhost:50060"),
+		VerificationGRPCAddr: getEnv("VERIFICATION_GRPC_ADDR", "localhost:50061"),
 	}
 }
 

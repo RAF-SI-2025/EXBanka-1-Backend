@@ -25,7 +25,7 @@ This is a Go workspace monorepo. Each service has its own self-contained directo
 ├── transaction-service/     # Payments, transfers, currency conversion via exchange-service (gRPC, port 50057)
 ├── credit-service/          # Loan requests, loans, installments (gRPC, port 50058)
 ├── exchange-service/        # Currency exchange rates and conversion (gRPC, port 50059)
-├── verification-service/    # Mobile verification challenges (gRPC, port 50060)
+├── verification-service/    # Mobile verification challenges (gRPC, port 50061)
 ├── docs/                    # API documentation and implementation plans
 ├── docker-compose.yml
 ├── Makefile
@@ -72,7 +72,7 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | `TRANSACTION_GRPC_ADDR` | localhost:50057 | transaction-service gRPC address |
 | `CREDIT_GRPC_ADDR` | localhost:50058 | credit-service gRPC address |
 | `EXCHANGE_GRPC_ADDR` | localhost:50059 | exchange-service gRPC address; also required by transaction-service |
-| `VERIFICATION_GRPC_ADDR` | localhost:50060 | verification-service gRPC address; also required by transaction-service |
+| `VERIFICATION_GRPC_ADDR` | localhost:50061 | verification-service gRPC address; also required by transaction-service |
 | `GATEWAY_HTTP_ADDR` | :8080 | |
 | `MOBILE_REFRESH_EXPIRY` | 2160h (90 days) | Mobile refresh token expiry (auth-service) |
 | `MOBILE_ACTIVATION_EXPIRY` | 15m | Mobile activation code expiry (auth-service) |

@@ -72,7 +72,7 @@ EXBanka-1-Backend/
 ├── transaction-service/         # Payments + transfers + fees (gRPC :50057)
 ├── credit-service/              # Loans + installments + rates (gRPC :50058)
 ├── exchange-service/            # Currency exchange rates (gRPC :50059)
-├── verification-service/        # Mobile verification challenges (gRPC :50060)
+├── verification-service/        # Mobile verification challenges (gRPC :50061)
 ├── seeder/                      # Database seeding tool
 ├── test-app/                    # Integration tests
 ├── docs/                        # API docs + implementation plans
