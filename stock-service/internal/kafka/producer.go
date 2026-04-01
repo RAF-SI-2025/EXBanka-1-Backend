@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	contract "github.com/exbanka/contract/kafka"
 	kafkalib "github.com/segmentio/kafka-go"
 )
 
@@ -29,6 +30,10 @@ func (p *Producer) Publish(ctx context.Context, topic string, msg any) error {
 		Topic: topic,
 		Value: data,
 	})
+}
+
+func (p *Producer) PublishSecuritySynced(ctx context.Context, msg contract.SecuritySyncedMessage) error {
+	return p.Publish(ctx, contract.TopicSecuritySynced, msg)
 }
 
 func (p *Producer) Close() error {

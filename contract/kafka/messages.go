@@ -316,6 +316,18 @@ type CardRequestRejectedMessage struct {
 	Reason     string `json:"reason"`
 }
 
+// Stock service topics
+const (
+	TopicSecuritySynced = "stock.security-synced"
+)
+
+type SecuritySyncedMessage struct {
+	SecurityType string `json:"security_type"` // "stock", "futures", "forex", "option"
+	Ticker       string `json:"ticker"`
+	Action       string `json:"action"` // "created", "updated", "deleted"
+	Timestamp    int64  `json:"timestamp"`
+}
+
 // Actuary events
 const (
 	TopicActuaryLimitUpdated = "user.actuary-limit-updated"

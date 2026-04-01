@@ -442,6 +442,8 @@ services:
       USER_GRPC_ADDR: "user-service:50052"
       ACCOUNT_GRPC_ADDR: "account-service:50055"
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
+      ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY:-}
+      SECURITY_SYNC_INTERVAL_MINUTES: "15"
     ports:
       - "50060:50060"
     depends_on:

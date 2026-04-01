@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/exbanka/contract v0.0.0
 	github.com/segmentio/kafka-go v0.4.50
+	github.com/shopspring/decimal v1.4.0
 	google.golang.org/grpc v1.79.2
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
@@ -19,7 +20,6 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/compress v1.15.9 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
-	github.com/shopspring/decimal v1.4.0 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
