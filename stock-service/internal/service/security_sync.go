@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -17,14 +18,18 @@ import (
 var SupportedCurrencies = []string{"RSD", "EUR", "CHF", "USD", "GBP", "JPY", "CAD", "AUD"}
 
 type SecuritySyncService struct {
-	stockRepo    StockRepo
-	futuresRepo  FuturesRepo
-	forexRepo    ForexPairRepo
-	optionRepo   OptionRepo
-	exchangeRepo ExchangeRepo
-	settingRepo  SettingRepo
-	avClient     *provider.AlphaVantageClient
-	listingSvc   *ListingService
+	stockRepo     StockRepo
+	futuresRepo   FuturesRepo
+	forexRepo     ForexPairRepo
+	optionRepo    OptionRepo
+	exchangeRepo  *repository.ExchangeRepository
+	settingRepo   SettingRepo
+	avClient      *provider.AlphaVantageClient
+	eodhClient    *provider.EODHDClient
+	alpacaClient  *provider.AlpacaClient
+	finnhubClient *provider.FinnhubClient
+	listingSvc    *ListingService
+	csvPath       string
 }
 
 func NewSecuritySyncService(
@@ -32,28 +37,37 @@ func NewSecuritySyncService(
 	futuresRepo FuturesRepo,
 	forexRepo ForexPairRepo,
 	optionRepo OptionRepo,
-	exchangeRepo ExchangeRepo,
+	exchangeRepo *repository.ExchangeRepository,
 	settingRepo SettingRepo,
 	avClient *provider.AlphaVantageClient,
+	eodhClient *provider.EODHDClient,
+	alpacaClient *provider.AlpacaClient,
+	finnhubClient *provider.FinnhubClient,
 	listingSvc *ListingService,
+	csvPath string,
 ) *SecuritySyncService {
 	return &SecuritySyncService{
-		stockRepo:    stockRepo,
-		futuresRepo:  futuresRepo,
-		forexRepo:    forexRepo,
-		optionRepo:   optionRepo,
-		exchangeRepo: exchangeRepo,
-		settingRepo:  settingRepo,
-		avClient:     avClient,
-		listingSvc:   listingSvc,
+		stockRepo:     stockRepo,
+		futuresRepo:   futuresRepo,
+		forexRepo:     forexRepo,
+		optionRepo:    optionRepo,
+		exchangeRepo:  exchangeRepo,
+		settingRepo:   settingRepo,
+		avClient:      avClient,
+		eodhClient:    eodhClient,
+		alpacaClient:  alpacaClient,
+		finnhubClient: finnhubClient,
+		listingSvc:    listingSvc,
+		csvPath:       csvPath,
 	}
 }
 
 // SeedAll runs the full initial data seed.
 func (s *SecuritySyncService) SeedAll(ctx context.Context, futuresSeedPath string) {
-	s.seedFutures(futuresSeedPath)
+	s.syncExchanges()
 	s.syncStocks(ctx)
 	s.seedForexPairs()
+	s.seedFutures(futuresSeedPath)
 	s.generateAllOptions()
 	// Sync listings from the securities we just seeded
 	if s.listingSvc != nil {
@@ -69,10 +83,7 @@ func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 		return
 	}
 	s.syncStockPrices(ctx)
-	// Futures: prices are static from seed data (no live API per spec recommendation)
-	// Forex: rates could be refreshed from exchange-service, but that's handled by
-	//        the exchange-service's own sync. We just re-read rates on demand.
-	// Update listing prices from refreshed security data
+	s.refreshForexRates()
 	if s.listingSvc != nil {
 		s.listingSvc.SyncListingsFromSecurities()
 	}
@@ -108,16 +119,87 @@ func (s *SecuritySyncService) isTestingMode() bool {
 	return val == "true"
 }
 
+// --- Exchanges ---
+
+func (s *SecuritySyncService) syncExchanges() {
+	if s.eodhClient != nil {
+		exchanges, err := s.eodhClient.FetchExchanges()
+		if err != nil {
+			log.Printf("WARN: EODHD FetchExchanges failed: %v — falling back to CSV", err)
+		} else {
+			synced := 0
+			for _, ex := range exchanges {
+				details, err := s.eodhClient.FetchExchangeDetails(ex.Code)
+				if err != nil {
+					log.Printf("WARN: EODHD FetchExchangeDetails(%s) failed: %v", ex.Code, err)
+					continue
+				}
+				s.upsertExchangeFromEODHD(ex, details)
+				synced++
+			}
+			if synced > 0 {
+				log.Printf("synced %d exchanges from EODHD API", synced)
+				return
+			}
+			log.Println("WARN: no exchanges synced from EODHD — falling back to CSV")
+		}
+	} else {
+		log.Println("WARN: no EODHD API key — falling back to CSV for exchanges")
+	}
+
+	// Fallback: CSV
+	csvExchanges, err := provider.LoadExchangesFromCSVFile(s.csvPath)
+	if err != nil {
+		log.Printf("WARN: failed to load exchanges from CSV: %v", err)
+		return
+	}
+	for _, ex := range csvExchanges {
+		ex := ex
+		if err := s.exchangeRepo.UpsertByMICCode(&ex); err != nil {
+			log.Printf("WARN: failed to upsert exchange %s: %v", ex.MICCode, err)
+		}
+	}
+	log.Printf("seeded %d exchanges from CSV fallback", len(csvExchanges))
+}
+
+func (s *SecuritySyncService) upsertExchangeFromEODHD(ex provider.EODHDExchange, details *provider.EODHDExchangeDetails) {
+	mics := strings.Split(ex.OperatingMIC, ",")
+	openTime := strings.TrimSuffix(details.TradingHours.OpenHour, ":00")
+	closeTime := strings.TrimSuffix(details.TradingHours.CloseHour, ":00")
+
+	for _, mic := range mics {
+		mic = strings.TrimSpace(mic)
+		if mic == "" {
+			continue
+		}
+		exchange := &model.StockExchange{
+			Name:      ex.Name,
+			Acronym:   ex.Code,
+			MICCode:   mic,
+			Polity:    ex.Country,
+			Currency:  ex.Currency,
+			TimeZone:  details.Timezone,
+			OpenTime:  openTime,
+			CloseTime: closeTime,
+		}
+		if err := s.exchangeRepo.UpsertByMICCode(exchange); err != nil {
+			log.Printf("WARN: failed to upsert exchange MIC %s: %v", mic, err)
+		}
+	}
+}
+
 // --- Stocks ---
 
 func (s *SecuritySyncService) syncStocks(ctx context.Context) {
+	tickers := s.getStockTickers()
+
 	if s.avClient == nil {
-		log.Println("WARN: no AlphaVantage API key — skipping stock sync, using seed data if available")
+		log.Println("WARN: no AlphaVantage API key — seeding default stocks")
 		s.seedDefaultStocks()
 		return
 	}
 
-	for _, ticker := range provider.DefaultStockTickers {
+	for _, ticker := range tickers {
 		select {
 		case <-ctx.Done():
 			return
@@ -130,8 +212,9 @@ func (s *SecuritySyncService) syncStocks(ctx context.Context) {
 			continue
 		}
 
-		// Resolve exchange
-		exchangeAcronym := "NYSE" // default
+		// Resolve exchange — FetchStockData already called FetchOverview internally,
+		// so we use the exchange name from overview. Try to look it up.
+		exchangeAcronym := "NYSE"
 		overview, err := s.avClient.FetchOverview(ticker)
 		if err == nil && overview.Exchange != "" {
 			exchangeAcronym = overview.Exchange
@@ -150,7 +233,26 @@ func (s *SecuritySyncService) syncStocks(ctx context.Context) {
 		// Rate limit: AlphaVantage free tier allows 5 calls/min
 		time.Sleep(12 * time.Second)
 	}
-	log.Printf("synced %d stock tickers from AlphaVantage", len(provider.DefaultStockTickers))
+	log.Printf("synced %d stock tickers", len(tickers))
+}
+
+func (s *SecuritySyncService) getStockTickers() []string {
+	if s.alpacaClient != nil {
+		assets, err := s.alpacaClient.FetchAssets()
+		if err != nil {
+			log.Printf("WARN: Alpaca FetchAssets failed: %v — using default tickers", err)
+		} else if len(assets) > 0 {
+			tickers := make([]string, len(assets))
+			for i, a := range assets {
+				tickers[i] = a.Symbol
+			}
+			log.Printf("fetched %d stock tickers from Alpaca", len(tickers))
+			return tickers
+		}
+	} else {
+		log.Println("WARN: no Alpaca API key — using default stock tickers")
+	}
+	return provider.DefaultStockTickers
 }
 
 func (s *SecuritySyncService) syncStockPrices(ctx context.Context) {
@@ -253,13 +355,95 @@ func (s *SecuritySyncService) seedFutures(seedPath string) {
 // --- Forex Pairs ---
 
 func (s *SecuritySyncService) seedForexPairs() {
-	// Find the FOREX exchange. If none exists, skip.
 	forexExchange, err := s.exchangeRepo.GetByAcronym("FOREX")
 	if err != nil {
 		log.Println("WARN: no FOREX exchange found — forex pairs will not have exchange association")
 		return
 	}
 
+	if s.finnhubClient != nil {
+		if s.seedForexFromFinnhub(forexExchange.ID) {
+			return
+		}
+	} else {
+		log.Println("WARN: no Finnhub API key — seeding hardcoded forex pairs")
+	}
+
+	s.seedHardcodedForexPairs(forexExchange.ID)
+}
+
+func (s *SecuritySyncService) seedForexFromFinnhub(forexExchangeID uint64) bool {
+	symbols, err := s.finnhubClient.FetchForexSymbols()
+	if err != nil {
+		log.Printf("WARN: Finnhub FetchForexSymbols failed: %v — falling back to hardcoded", err)
+		return false
+	}
+
+	rates := make(map[string]map[string]float64)
+	for _, base := range SupportedCurrencies {
+		r, err := s.finnhubClient.FetchForexRates(base)
+		if err != nil {
+			log.Printf("WARN: Finnhub FetchForexRates(%s) failed: %v", base, err)
+			continue
+		}
+		rates[base] = r
+	}
+
+	count := 0
+	supported := make(map[string]bool)
+	for _, c := range SupportedCurrencies {
+		supported[c] = true
+	}
+
+	for _, sym := range symbols {
+		parts := strings.SplitN(sym.DisplaySymbol, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		base, quote := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		if !supported[base] || !supported[quote] {
+			continue
+		}
+
+		rate := float64(0)
+		if baseRates, ok := rates[base]; ok {
+			if r, ok := baseRates[quote]; ok {
+				rate = r
+			}
+		}
+
+		liquidity := "medium"
+		if isMajorPair(base, quote) {
+			liquidity = "high"
+		} else if isExoticPair(base, quote) {
+			liquidity = "low"
+		}
+
+		fp := &model.ForexPair{
+			Ticker:        fmt.Sprintf("%s/%s", base, quote),
+			Name:          fmt.Sprintf("%s to %s", currencyName(base), currencyName(quote)),
+			BaseCurrency:  base,
+			QuoteCurrency: quote,
+			ExchangeRate:  decimal.NewFromFloat(rate),
+			Liquidity:     liquidity,
+			ExchangeID:    forexExchangeID,
+			LastRefresh:   time.Now(),
+		}
+		if err := s.forexRepo.UpsertByTicker(fp); err != nil {
+			log.Printf("WARN: failed to upsert forex pair %s: %v", fp.Ticker, err)
+		}
+		count++
+	}
+
+	if count == 0 {
+		log.Println("WARN: no supported forex pairs found from Finnhub — falling back")
+		return false
+	}
+	log.Printf("seeded %d forex pairs from Finnhub", count)
+	return true
+}
+
+func (s *SecuritySyncService) seedHardcodedForexPairs(forexExchangeID uint64) {
 	count := 0
 	for _, base := range SupportedCurrencies {
 		for _, quote := range SupportedCurrencies {
@@ -268,33 +452,54 @@ func (s *SecuritySyncService) seedForexPairs() {
 			}
 			ticker := fmt.Sprintf("%s/%s", base, quote)
 			name := fmt.Sprintf("%s to %s", currencyName(base), currencyName(quote))
-
-			// Determine liquidity based on common pair popularity
 			liquidity := "medium"
 			if isMajorPair(base, quote) {
 				liquidity = "high"
 			} else if isExoticPair(base, quote) {
 				liquidity = "low"
 			}
-
 			fp := &model.ForexPair{
 				Ticker:        ticker,
 				Name:          name,
 				BaseCurrency:  base,
 				QuoteCurrency: quote,
-				ExchangeRate:  decimal.Zero, // will be updated from exchange-service rates
+				ExchangeRate:  decimal.Zero,
 				Liquidity:     liquidity,
-				ExchangeID:    forexExchange.ID,
+				ExchangeID:    forexExchangeID,
 				LastRefresh:   time.Now(),
 			}
-
 			if err := s.forexRepo.UpsertByTicker(fp); err != nil {
-				log.Printf("WARN: failed to upsert forex pair %s: %v", ticker, err)
+				log.Printf("WARN: failed to seed forex pair %s: %v", ticker, err)
 			}
 			count++
 		}
 	}
-	log.Printf("seeded %d forex pairs", count)
+	log.Printf("seeded %d hardcoded forex pairs", count)
+}
+
+func (s *SecuritySyncService) refreshForexRates() {
+	if s.finnhubClient == nil {
+		return
+	}
+	for _, base := range SupportedCurrencies {
+		rates, err := s.finnhubClient.FetchForexRates(base)
+		if err != nil {
+			log.Printf("WARN: failed to refresh forex rates for %s: %v", base, err)
+			continue
+		}
+		for quote, rate := range rates {
+			ticker := fmt.Sprintf("%s/%s", base, quote)
+			existing, err := s.forexRepo.GetByTicker(ticker)
+			if err != nil {
+				continue
+			}
+			existing.ExchangeRate = decimal.NewFromFloat(rate)
+			existing.LastRefresh = time.Now()
+			if err := s.forexRepo.Update(existing); err != nil {
+				log.Printf("WARN: failed to update forex rate %s: %v", ticker, err)
+			}
+		}
+	}
 }
 
 func currencyName(code string) string {
