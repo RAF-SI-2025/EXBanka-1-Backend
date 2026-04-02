@@ -121,71 +121,83 @@ func (s *SecuritySyncService) isTestingMode() bool {
 
 // --- Exchanges ---
 
+// syncExchanges fetches the exchange list from EODHD (free tier — names, MIC codes,
+// country, currency) and enriches each exchange with trading hours from the CSV file.
+// The exchange-details endpoint requires a paid EODHD plan, so we use CSV for hours/timezone.
 func (s *SecuritySyncService) syncExchanges() {
+	// Always load CSV data — used either as fallback or for trading hours enrichment
+	csvExchanges, csvErr := provider.LoadExchangesFromCSVFile(s.csvPath)
+	csvByMIC := make(map[string]*model.StockExchange)
+	if csvErr == nil {
+		for i := range csvExchanges {
+			csvByMIC[csvExchanges[i].MICCode] = &csvExchanges[i]
+		}
+	}
+
+	// Always seed CSV exchanges first — they have known acronyms (NYSE, NASDAQ,
+	// NYMEX, FOREX, etc.) that futures, forex, and stock seeding depend on.
+	if csvErr == nil {
+		for _, ex := range csvExchanges {
+			ex := ex
+			if err := s.exchangeRepo.UpsertByMICCode(&ex); err != nil {
+				log.Printf("WARN: failed to upsert CSV exchange %s: %v", ex.MICCode, err)
+			}
+		}
+		log.Printf("seeded %d exchanges from CSV", len(csvExchanges))
+	} else {
+		log.Printf("WARN: failed to load exchanges from CSV: %v", csvErr)
+	}
+
+	// Then add any additional exchanges from EODHD (more coverage, different codes)
 	if s.eodhClient != nil {
 		exchanges, err := s.eodhClient.FetchExchanges()
 		if err != nil {
-			log.Printf("WARN: EODHD FetchExchanges failed: %v — falling back to CSV", err)
+			log.Printf("WARN: EODHD FetchExchanges failed: %v", err)
 		} else {
-			synced := 0
+			added := 0
 			for _, ex := range exchanges {
-				details, err := s.eodhClient.FetchExchangeDetails(ex.Code)
-				if err != nil {
-					log.Printf("WARN: EODHD FetchExchangeDetails(%s) failed: %v", ex.Code, err)
-					continue
-				}
-				s.upsertExchangeFromEODHD(ex, details)
-				synced++
+				added += s.upsertExchangeFromEODHD(ex, csvByMIC)
 			}
-			if synced > 0 {
-				log.Printf("synced %d exchanges from EODHD API", synced)
-				return
-			}
-			log.Println("WARN: no exchanges synced from EODHD — falling back to CSV")
+			log.Printf("synced %d additional exchange MICs from EODHD API", added)
 		}
 	} else {
-		log.Println("WARN: no EODHD API key — falling back to CSV for exchanges")
+		log.Println("WARN: no EODHD API key — using CSV exchanges only")
 	}
-
-	// Fallback: CSV
-	csvExchanges, err := provider.LoadExchangesFromCSVFile(s.csvPath)
-	if err != nil {
-		log.Printf("WARN: failed to load exchanges from CSV: %v", err)
-		return
-	}
-	for _, ex := range csvExchanges {
-		ex := ex
-		if err := s.exchangeRepo.UpsertByMICCode(&ex); err != nil {
-			log.Printf("WARN: failed to upsert exchange %s: %v", ex.MICCode, err)
-		}
-	}
-	log.Printf("seeded %d exchanges from CSV fallback", len(csvExchanges))
 }
 
-func (s *SecuritySyncService) upsertExchangeFromEODHD(ex provider.EODHDExchange, details *provider.EODHDExchangeDetails) {
+// upsertExchangeFromEODHD converts EODHD exchange list data into StockExchange records.
+// Skips MICs already present from CSV (those have correct acronyms and trading hours).
+// Returns the number of new MICs added.
+func (s *SecuritySyncService) upsertExchangeFromEODHD(ex provider.EODHDExchange, csvByMIC map[string]*model.StockExchange) int {
 	mics := strings.Split(ex.OperatingMIC, ",")
-	openTime := strings.TrimSuffix(details.TradingHours.OpenHour, ":00")
-	closeTime := strings.TrimSuffix(details.TradingHours.CloseHour, ":00")
+	added := 0
 
 	for _, mic := range mics {
 		mic = strings.TrimSpace(mic)
 		if mic == "" {
 			continue
 		}
-		exchange := &model.StockExchange{
-			Name:      ex.Name,
-			Acronym:   ex.Code,
-			MICCode:   mic,
-			Polity:    ex.Country,
-			Currency:  ex.Currency,
-			TimeZone:  details.Timezone,
-			OpenTime:  openTime,
-			CloseTime: closeTime,
+
+		// Skip MICs already seeded from CSV — those have correct acronyms
+		// (NYSE, NASDAQ, NYMEX, etc.) that other seeding depends on.
+		if _, ok := csvByMIC[mic]; ok {
+			continue
 		}
+
+		exchange := &model.StockExchange{
+			Name:     ex.Name,
+			Acronym:  ex.Code,
+			MICCode:  mic,
+			Polity:   ex.Country,
+			Currency: ex.Currency,
+		}
+
 		if err := s.exchangeRepo.UpsertByMICCode(exchange); err != nil {
 			log.Printf("WARN: failed to upsert exchange MIC %s: %v", mic, err)
 		}
+		added++
 	}
+	return added
 }
 
 // --- Stocks ---

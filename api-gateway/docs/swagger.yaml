@@ -437,17 +437,17 @@ definitions:
     type: object
   handler.executePaymentRequest:
     properties:
+      challenge_id:
+        type: integer
       verification_code:
         type: string
-    required:
-    - verification_code
     type: object
   handler.executeTransferRequest:
     properties:
+      challenge_id:
+        type: integer
       verification_code:
         type: string
-    required:
-    - verification_code
     type: object
   handler.loginRequest:
     properties:

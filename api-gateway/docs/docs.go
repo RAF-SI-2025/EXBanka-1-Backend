@@ -7381,10 +7381,10 @@ const docTemplate = `{
         },
         "handler.executePaymentRequest": {
             "type": "object",
-            "required": [
-                "verification_code"
-            ],
             "properties": {
+                "challenge_id": {
+                    "type": "integer"
+                },
                 "verification_code": {
                     "type": "string"
                 }
@@ -7392,10 +7392,10 @@ const docTemplate = `{
         },
         "handler.executeTransferRequest": {
             "type": "object",
-            "required": [
-                "verification_code"
-            ],
             "properties": {
+                "challenge_id": {
+                    "type": "integer"
+                },
                 "verification_code": {
                     "type": "string"
                 }

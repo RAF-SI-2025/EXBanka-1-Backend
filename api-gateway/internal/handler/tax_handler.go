@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	stockpb "github.com/exbanka/contract/stockpb"
+	"github.com/gin-gonic/gin"
 )
 
 type TaxHandler struct {
@@ -35,7 +35,7 @@ func (h *TaxHandler) ListTaxRecords(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"tax_records": resp.TaxRecords, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"tax_records": emptyIfNil(resp.TaxRecords), "total_count": resp.TotalCount})
 }
 
 func (h *TaxHandler) CollectTax(c *gin.Context) {
