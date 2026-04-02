@@ -26,6 +26,11 @@ type Config struct {
 	SecuritySyncIntervalMins int
 	// Tax
 	StateAccountNo string
+	// External API keys
+	EODHDAPIKey     string
+	AlpacaAPIKey    string
+	AlpacaAPISecret string
+	FinnhubAPIKey   string
 }
 
 func Load() *Config {
@@ -52,6 +57,10 @@ func Load() *Config {
 		AlphaVantageAPIKey:       getEnv("ALPHAVANTAGE_API_KEY", ""),
 		SecuritySyncIntervalMins: syncMins,
 		StateAccountNo:           getEnv("STATE_ACCOUNT_NUMBER", "0000000000000099"),
+		EODHDAPIKey:              getEnv("EODHD_API_KEY", ""),
+		AlpacaAPIKey:             getEnv("ALPACA_API_KEY", ""),
+		AlpacaAPISecret:          getEnv("ALPACA_API_SECRET", ""),
+		FinnhubAPIKey:            getEnv("FINNHUB_API_KEY", ""),
 	}
 }
 
