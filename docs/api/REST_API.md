@@ -4541,10 +4541,40 @@ List authenticated user's holdings.
 **Response 200:**
 ```json
 {
-  "holdings": [ ],
+  "holdings": [
+    {
+      "id": 1,
+      "security_type": "stock",
+      "ticker": "AAPL",
+      "name": "Apple Inc.",
+      "quantity": 10,
+      "average_price": "150.25",
+      "current_price": "175.00",
+      "profit": "247.50",
+      "public_quantity": 3,
+      "account_id": 42,
+      "last_modified": "2026-04-01T12:00:00Z"
+    }
+  ],
   "total_count": 10
 }
 ```
+
+**Holding object fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uint64 | Holding ID |
+| `security_type` | string | `stock`, `futures`, or `option` |
+| `ticker` | string | Security ticker symbol |
+| `name` | string | Security name |
+| `quantity` | int64 | Total units owned |
+| `average_price` | string | Average purchase price (decimal) |
+| `current_price` | string | Current market price (decimal) |
+| `profit` | string | Unrealized profit/loss (decimal) |
+| `public_quantity` | int64 | Units listed on OTC market |
+| `account_id` | uint64 | Associated account ID |
+| `last_modified` | string | ISO 8601 timestamp of last update |
 
 ---
 
@@ -4776,3 +4806,7 @@ Collect/process taxes for all users.
   "failed_count": 0
 }
 ```
+
+---
+
+> **TODO:** Add `GET /api/me/tax` — lets the authenticated user (client or actuary) view their own tax records (capital gains tax). Should extract `user_id` from JWT, filter by owner, and return paginated tax records. No `tax.manage` permission required — self-service endpoint under `AnyAuthMiddleware`.
