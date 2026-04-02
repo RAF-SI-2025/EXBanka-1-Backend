@@ -1,6 +1,18 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
+
+// BeforeUpdate adds a WHERE version=? clause and increments the version,
+// providing optimistic locking on every Save/Update of a Company.
+func (c *Company) BeforeUpdate(tx *gorm.DB) error {
+	tx.Statement.Where("version = ?", c.Version)
+	c.Version++
+	return nil
+}
 
 type Company struct {
 	ID                 uint64    `gorm:"primaryKey;autoIncrement" json:"id"`

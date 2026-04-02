@@ -19,17 +19,24 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AuthService_Login_FullMethodName                 = "/auth.AuthService/Login"
-	AuthService_ValidateToken_FullMethodName         = "/auth.AuthService/ValidateToken"
-	AuthService_RefreshToken_FullMethodName          = "/auth.AuthService/RefreshToken"
-	AuthService_Logout_FullMethodName                = "/auth.AuthService/Logout"
-	AuthService_RequestPasswordReset_FullMethodName  = "/auth.AuthService/RequestPasswordReset"
-	AuthService_ResetPassword_FullMethodName         = "/auth.AuthService/ResetPassword"
-	AuthService_ActivateAccount_FullMethodName       = "/auth.AuthService/ActivateAccount"
-	AuthService_SetAccountStatus_FullMethodName      = "/auth.AuthService/SetAccountStatus"
-	AuthService_GetAccountStatus_FullMethodName      = "/auth.AuthService/GetAccountStatus"
-	AuthService_GetAccountStatusBatch_FullMethodName = "/auth.AuthService/GetAccountStatusBatch"
-	AuthService_CreateAccount_FullMethodName         = "/auth.AuthService/CreateAccount"
+	AuthService_Login_FullMethodName                   = "/auth.AuthService/Login"
+	AuthService_ValidateToken_FullMethodName           = "/auth.AuthService/ValidateToken"
+	AuthService_RefreshToken_FullMethodName            = "/auth.AuthService/RefreshToken"
+	AuthService_Logout_FullMethodName                  = "/auth.AuthService/Logout"
+	AuthService_RequestPasswordReset_FullMethodName    = "/auth.AuthService/RequestPasswordReset"
+	AuthService_ResetPassword_FullMethodName           = "/auth.AuthService/ResetPassword"
+	AuthService_ActivateAccount_FullMethodName         = "/auth.AuthService/ActivateAccount"
+	AuthService_SetAccountStatus_FullMethodName        = "/auth.AuthService/SetAccountStatus"
+	AuthService_GetAccountStatus_FullMethodName        = "/auth.AuthService/GetAccountStatus"
+	AuthService_GetAccountStatusBatch_FullMethodName   = "/auth.AuthService/GetAccountStatusBatch"
+	AuthService_CreateAccount_FullMethodName           = "/auth.AuthService/CreateAccount"
+	AuthService_RequestMobileActivation_FullMethodName = "/auth.AuthService/RequestMobileActivation"
+	AuthService_ActivateMobileDevice_FullMethodName    = "/auth.AuthService/ActivateMobileDevice"
+	AuthService_RefreshMobileToken_FullMethodName      = "/auth.AuthService/RefreshMobileToken"
+	AuthService_DeactivateDevice_FullMethodName        = "/auth.AuthService/DeactivateDevice"
+	AuthService_TransferDevice_FullMethodName          = "/auth.AuthService/TransferDevice"
+	AuthService_ValidateDeviceSignature_FullMethodName = "/auth.AuthService/ValidateDeviceSignature"
+	AuthService_GetDeviceInfo_FullMethodName           = "/auth.AuthService/GetDeviceInfo"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -47,6 +54,14 @@ type AuthServiceClient interface {
 	GetAccountStatus(ctx context.Context, in *GetAccountStatusRequest, opts ...grpc.CallOption) (*GetAccountStatusResponse, error)
 	GetAccountStatusBatch(ctx context.Context, in *GetAccountStatusBatchRequest, opts ...grpc.CallOption) (*GetAccountStatusBatchResponse, error)
 	CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error)
+	// Mobile device management
+	RequestMobileActivation(ctx context.Context, in *MobileActivationRequest, opts ...grpc.CallOption) (*MobileActivationResponse, error)
+	ActivateMobileDevice(ctx context.Context, in *ActivateMobileDeviceRequest, opts ...grpc.CallOption) (*ActivateMobileDeviceResponse, error)
+	RefreshMobileToken(ctx context.Context, in *RefreshMobileTokenRequest, opts ...grpc.CallOption) (*RefreshMobileTokenResponse, error)
+	DeactivateDevice(ctx context.Context, in *DeactivateDeviceRequest, opts ...grpc.CallOption) (*DeactivateDeviceResponse, error)
+	TransferDevice(ctx context.Context, in *TransferDeviceRequest, opts ...grpc.CallOption) (*TransferDeviceResponse, error)
+	ValidateDeviceSignature(ctx context.Context, in *ValidateDeviceSignatureRequest, opts ...grpc.CallOption) (*ValidateDeviceSignatureResponse, error)
+	GetDeviceInfo(ctx context.Context, in *GetDeviceInfoRequest, opts ...grpc.CallOption) (*GetDeviceInfoResponse, error)
 }
 
 type authServiceClient struct {
@@ -167,6 +182,76 @@ func (c *authServiceClient) CreateAccount(ctx context.Context, in *CreateAccount
 	return out, nil
 }
 
+func (c *authServiceClient) RequestMobileActivation(ctx context.Context, in *MobileActivationRequest, opts ...grpc.CallOption) (*MobileActivationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MobileActivationResponse)
+	err := c.cc.Invoke(ctx, AuthService_RequestMobileActivation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) ActivateMobileDevice(ctx context.Context, in *ActivateMobileDeviceRequest, opts ...grpc.CallOption) (*ActivateMobileDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActivateMobileDeviceResponse)
+	err := c.cc.Invoke(ctx, AuthService_ActivateMobileDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) RefreshMobileToken(ctx context.Context, in *RefreshMobileTokenRequest, opts ...grpc.CallOption) (*RefreshMobileTokenResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RefreshMobileTokenResponse)
+	err := c.cc.Invoke(ctx, AuthService_RefreshMobileToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) DeactivateDevice(ctx context.Context, in *DeactivateDeviceRequest, opts ...grpc.CallOption) (*DeactivateDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeactivateDeviceResponse)
+	err := c.cc.Invoke(ctx, AuthService_DeactivateDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) TransferDevice(ctx context.Context, in *TransferDeviceRequest, opts ...grpc.CallOption) (*TransferDeviceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TransferDeviceResponse)
+	err := c.cc.Invoke(ctx, AuthService_TransferDevice_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) ValidateDeviceSignature(ctx context.Context, in *ValidateDeviceSignatureRequest, opts ...grpc.CallOption) (*ValidateDeviceSignatureResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ValidateDeviceSignatureResponse)
+	err := c.cc.Invoke(ctx, AuthService_ValidateDeviceSignature_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetDeviceInfo(ctx context.Context, in *GetDeviceInfoRequest, opts ...grpc.CallOption) (*GetDeviceInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDeviceInfoResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetDeviceInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
@@ -182,6 +267,14 @@ type AuthServiceServer interface {
 	GetAccountStatus(context.Context, *GetAccountStatusRequest) (*GetAccountStatusResponse, error)
 	GetAccountStatusBatch(context.Context, *GetAccountStatusBatchRequest) (*GetAccountStatusBatchResponse, error)
 	CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error)
+	// Mobile device management
+	RequestMobileActivation(context.Context, *MobileActivationRequest) (*MobileActivationResponse, error)
+	ActivateMobileDevice(context.Context, *ActivateMobileDeviceRequest) (*ActivateMobileDeviceResponse, error)
+	RefreshMobileToken(context.Context, *RefreshMobileTokenRequest) (*RefreshMobileTokenResponse, error)
+	DeactivateDevice(context.Context, *DeactivateDeviceRequest) (*DeactivateDeviceResponse, error)
+	TransferDevice(context.Context, *TransferDeviceRequest) (*TransferDeviceResponse, error)
+	ValidateDeviceSignature(context.Context, *ValidateDeviceSignatureRequest) (*ValidateDeviceSignatureResponse, error)
+	GetDeviceInfo(context.Context, *GetDeviceInfoRequest) (*GetDeviceInfoResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
 
@@ -224,6 +317,27 @@ func (UnimplementedAuthServiceServer) GetAccountStatusBatch(context.Context, *Ge
 }
 func (UnimplementedAuthServiceServer) CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateAccount not implemented")
+}
+func (UnimplementedAuthServiceServer) RequestMobileActivation(context.Context, *MobileActivationRequest) (*MobileActivationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RequestMobileActivation not implemented")
+}
+func (UnimplementedAuthServiceServer) ActivateMobileDevice(context.Context, *ActivateMobileDeviceRequest) (*ActivateMobileDeviceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ActivateMobileDevice not implemented")
+}
+func (UnimplementedAuthServiceServer) RefreshMobileToken(context.Context, *RefreshMobileTokenRequest) (*RefreshMobileTokenResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RefreshMobileToken not implemented")
+}
+func (UnimplementedAuthServiceServer) DeactivateDevice(context.Context, *DeactivateDeviceRequest) (*DeactivateDeviceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeactivateDevice not implemented")
+}
+func (UnimplementedAuthServiceServer) TransferDevice(context.Context, *TransferDeviceRequest) (*TransferDeviceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TransferDevice not implemented")
+}
+func (UnimplementedAuthServiceServer) ValidateDeviceSignature(context.Context, *ValidateDeviceSignatureRequest) (*ValidateDeviceSignatureResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ValidateDeviceSignature not implemented")
+}
+func (UnimplementedAuthServiceServer) GetDeviceInfo(context.Context, *GetDeviceInfoRequest) (*GetDeviceInfoResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetDeviceInfo not implemented")
 }
 func (UnimplementedAuthServiceServer) mustEmbedUnimplementedAuthServiceServer() {}
 func (UnimplementedAuthServiceServer) testEmbeddedByValue()                     {}
@@ -444,6 +558,132 @@ func _AuthService_CreateAccount_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_RequestMobileActivation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MobileActivationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RequestMobileActivation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RequestMobileActivation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RequestMobileActivation(ctx, req.(*MobileActivationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_ActivateMobileDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ActivateMobileDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ActivateMobileDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ActivateMobileDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ActivateMobileDevice(ctx, req.(*ActivateMobileDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_RefreshMobileToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RefreshMobileTokenRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RefreshMobileToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RefreshMobileToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RefreshMobileToken(ctx, req.(*RefreshMobileTokenRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_DeactivateDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeactivateDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).DeactivateDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_DeactivateDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).DeactivateDevice(ctx, req.(*DeactivateDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_TransferDevice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TransferDeviceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).TransferDevice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_TransferDevice_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).TransferDevice(ctx, req.(*TransferDeviceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_ValidateDeviceSignature_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ValidateDeviceSignatureRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ValidateDeviceSignature(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ValidateDeviceSignature_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ValidateDeviceSignature(ctx, req.(*ValidateDeviceSignatureRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetDeviceInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeviceInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetDeviceInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetDeviceInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetDeviceInfo(ctx, req.(*GetDeviceInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -494,6 +734,34 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateAccount",
 			Handler:    _AuthService_CreateAccount_Handler,
+		},
+		{
+			MethodName: "RequestMobileActivation",
+			Handler:    _AuthService_RequestMobileActivation_Handler,
+		},
+		{
+			MethodName: "ActivateMobileDevice",
+			Handler:    _AuthService_ActivateMobileDevice_Handler,
+		},
+		{
+			MethodName: "RefreshMobileToken",
+			Handler:    _AuthService_RefreshMobileToken_Handler,
+		},
+		{
+			MethodName: "DeactivateDevice",
+			Handler:    _AuthService_DeactivateDevice_Handler,
+		},
+		{
+			MethodName: "TransferDevice",
+			Handler:    _AuthService_TransferDevice_Handler,
+		},
+		{
+			MethodName: "ValidateDeviceSignature",
+			Handler:    _AuthService_ValidateDeviceSignature_Handler,
+		},
+		{
+			MethodName: "GetDeviceInfo",
+			Handler:    _AuthService_GetDeviceInfo_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

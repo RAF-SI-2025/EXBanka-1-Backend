@@ -6,21 +6,30 @@ import (
 	"log"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 
 	"github.com/exbanka/exchange-service/internal/model"
 	"github.com/exbanka/exchange-service/internal/provider"
 	"github.com/exbanka/exchange-service/internal/repository"
 )
 
+// RateUpserter is a narrow interface used by SyncRates for test injection.
+// Exported so external test packages can provide mock implementations.
+type RateUpserter interface {
+	UpsertInTx(tx *gorm.DB, from, to string, buy, sell decimal.Decimal) error
+}
+
 // ExchangeService handles rate syncing and currency conversion.
 // The bank always uses the SELLING rate. Commission is applied per conversion leg.
 type ExchangeService struct {
 	repo           *repository.ExchangeRateRepository
+	upserter       RateUpserter // defaults to repo; overridable in tests
+	db             *gorm.DB
 	commissionRate decimal.Decimal // e.g. 0.005 for 0.5%
 	spread         decimal.Decimal // e.g. 0.003 for 0.3%, applied to derive buy/sell from mid
 }
 
-func NewExchangeService(repo *repository.ExchangeRateRepository, commissionRate, spread string) (*ExchangeService, error) {
+func NewExchangeService(repo *repository.ExchangeRateRepository, db *gorm.DB, commissionRate, spread string) (*ExchangeService, error) {
 	cr, err := decimal.NewFromString(commissionRate)
 	if err != nil {
 		return nil, fmt.Errorf("invalid commission rate %q: %w", commissionRate, err)
@@ -29,12 +38,30 @@ func NewExchangeService(repo *repository.ExchangeRateRepository, commissionRate,
 	if err != nil {
 		return nil, fmt.Errorf("invalid spread %q: %w", spread, err)
 	}
-	return &ExchangeService{repo: repo, commissionRate: cr, spread: sp}, nil
+	return &ExchangeService{repo: repo, upserter: repo, db: db, commissionRate: cr, spread: sp}, nil
+}
+
+// NewExchangeServiceWithUpserter is like NewExchangeService but overrides the
+// RateUpserter for testing. Production code always uses NewExchangeService.
+func NewExchangeServiceWithUpserter(
+	repo *repository.ExchangeRateRepository,
+	upserter RateUpserter,
+	db *gorm.DB,
+	commissionRate, spread string,
+) (*ExchangeService, error) {
+	svc, err := NewExchangeService(repo, db, commissionRate, spread)
+	if err != nil {
+		return nil, err
+	}
+	svc.upserter = upserter
+	return svc, nil
 }
 
 // SyncRates fetches mid-market rates from the provider and upserts buy/sell
 // pairs (both directions) into the database. If the provider fails, existing
 // cached rates are preserved and the error is returned.
+// All pairs are upserted in a single transaction: if any upsert fails,
+// the entire sync is rolled back and existing cached rates are preserved.
 func (s *ExchangeService) SyncRates(ctx context.Context, p provider.RateProvider) error {
 	rates, err := p.FetchRatesFromRSD()
 	if err != nil {
@@ -43,32 +70,28 @@ func (s *ExchangeService) SyncRates(ctx context.Context, p provider.RateProvider
 	}
 
 	one := decimal.NewFromInt(1)
-	var upsertErrors int
-	for code, midRsdToC := range rates {
-		if midRsdToC.IsZero() {
-			continue
-		}
-		// RSD → foreign direction
-		buyRsdToC := midRsdToC.Mul(one.Sub(s.spread))
-		sellRsdToC := midRsdToC.Mul(one.Add(s.spread))
-		if err := s.repo.Upsert("RSD", code, buyRsdToC, sellRsdToC); err != nil {
-			log.Printf("WARN: failed to upsert RSD/%s: %v", code, err)
-			upsertErrors++
-		}
+	// All pairs are upserted in a single transaction: if any upsert fails,
+	// the entire sync is rolled back and existing cached rates are preserved.
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for code, midRsdToC := range rates {
+			if midRsdToC.IsZero() {
+				continue
+			}
+			buyRsdToC := midRsdToC.Mul(one.Sub(s.spread))
+			sellRsdToC := midRsdToC.Mul(one.Add(s.spread))
+			if err := s.upserter.UpsertInTx(tx, "RSD", code, buyRsdToC, sellRsdToC); err != nil {
+				return fmt.Errorf("failed to upsert RSD/%s: %w", code, err)
+			}
 
-		// foreign → RSD direction (inverse)
-		midCToRsd := one.Div(midRsdToC)
-		buyCToRsd := midCToRsd.Mul(one.Sub(s.spread))
-		sellCToRsd := midCToRsd.Mul(one.Add(s.spread))
-		if err := s.repo.Upsert(code, "RSD", buyCToRsd, sellCToRsd); err != nil {
-			log.Printf("WARN: failed to upsert %s/RSD: %v", code, err)
-			upsertErrors++
+			midCToRsd := one.Div(midRsdToC)
+			buyCToRsd := midCToRsd.Mul(one.Sub(s.spread))
+			sellCToRsd := midCToRsd.Mul(one.Add(s.spread))
+			if err := s.upserter.UpsertInTx(tx, code, "RSD", buyCToRsd, sellCToRsd); err != nil {
+				return fmt.Errorf("failed to upsert %s/RSD: %w", code, err)
+			}
 		}
-	}
-	if upsertErrors > 0 {
-		return fmt.Errorf("sync completed with %d upsert failure(s); check logs for details", upsertErrors)
-	}
-	return nil
+		return nil
+	})
 }
 
 // Convert performs a raw sell-rate conversion with no commission. Used internally

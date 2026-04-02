@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -11,7 +12,10 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/credit-service/internal/kafka"
+	"github.com/exbanka/credit-service/internal/model"
+	"github.com/exbanka/credit-service/internal/repository"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 type CronService struct {
@@ -22,6 +26,7 @@ type CronService struct {
 	clientClient      clientpb.ClientServiceClient
 	producer          *kafka.Producer
 	bankRSDAccount    string
+	db                *gorm.DB
 }
 
 func NewCronService(
@@ -32,6 +37,7 @@ func NewCronService(
 	clientClient clientpb.ClientServiceClient,
 	producer *kafka.Producer,
 	bankRSDAccount string,
+	db *gorm.DB,
 ) *CronService {
 	return &CronService{
 		installService:    installService,
@@ -41,6 +47,7 @@ func NewCronService(
 		clientClient:      clientClient,
 		producer:          producer,
 		bankRSDAccount:    bankRSDAccount,
+		db:                db,
 	}
 }
 
@@ -171,20 +178,32 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				newMonthlyAmount := CalculateMonthlyInstallment(loan.RemainingDebt, newNominalRate, remainingMonths)
 				loan.NextInstallmentAmount = newMonthlyAmount
 
-				if updateErr := c.loanService.loanRepo.Update(loan); updateErr != nil {
-					log.Printf("CronService: failed to update loan %d after late penalty: %v", loanID, updateErr)
+				// Wrap both writes in a single transaction to prevent partial updates.
+				txErr := c.db.Transaction(func(tx *gorm.DB) error {
+					if e := tx.Save(loan).Error; e != nil {
+						return e
+					}
+					return tx.Session(&gorm.Session{SkipHooks: true}).
+						Model(&model.Installment{}).
+						Where("loan_id = ? AND status = ?", loanID, "unpaid").
+						Updates(map[string]interface{}{
+							"amount":        newMonthlyAmount,
+							"interest_rate": newNominalRate,
+						}).Error
+				})
+				if txErr != nil {
+					log.Printf("CronService: failed to apply late penalty transaction for loan %d: %v", loanID, txErr)
+				} else {
+					log.Printf("CronService: applied +0.05%% late payment penalty to variable loan %d (new rate: %s%%)", loanID, newNominalRate.StringFixed(4))
 				}
-				if updateErr := c.installService.installRepo.UpdateUnpaidByLoan(loanID, newMonthlyAmount, newNominalRate); updateErr != nil {
-					log.Printf("CronService: failed to update unpaid installments for loan %d after late penalty: %v", loanID, updateErr)
-				}
-				log.Printf("CronService: applied +0.05%% late payment penalty to variable loan %d (new rate: %s%%)", loanID, newNominalRate.StringFixed(4))
 			}
 		}
 
 		return
 	}
 
-	// Credit the bank's own RSD account with the installment amount
+	// Credit the bank's own RSD account with the installment amount.
+	// If this fails, compensate by reversing the client debit — do NOT mark paid.
 	if c.accountClient != nil && c.bankRSDAccount != "" {
 		_, creditErr := c.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 			AccountNumber:   c.bankRSDAccount,
@@ -192,13 +211,54 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			UpdateAvailable: true,
 		})
 		if creditErr != nil {
-			log.Printf("CronService: failed to credit bank RSD account for installment %d: %v", installmentID, creditErr)
+			log.Printf("CronService: failed to credit bank RSD account for installment %d: %v — reversing client debit", installmentID, creditErr)
+			_, compErr := c.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   loan.AccountNumber,
+				Amount:          amount, // positive = credit back to client
+				UpdateAvailable: true,
+			})
+			if compErr != nil {
+				log.Printf("CronService: CRITICAL: compensation for installment %d failed: %v — manual intervention required", installmentID, compErr)
+			}
+			return // Do NOT mark installment as paid.
 		}
 	}
 
-	// Mark installment as paid
+	// Mark installment as paid.
+	// If this DB write fails, the money already moved — compensate both steps
+	// to prevent double-charging on the next cron cycle.
+	amtDecimal, parseErr := decimal.NewFromString(amount)
+	if parseErr != nil {
+		log.Printf("CronService: CRITICAL: failed to parse installment amount %q for compensation of installment %d: %v — manual review required", amount, installmentID, parseErr)
+		return
+	}
 	if err := c.installService.MarkInstallmentPaid(installmentID); err != nil {
-		log.Printf("CronService: failed to mark installment %d as paid: %v", installmentID, err)
+		if errors.Is(err, repository.ErrInstallmentAlreadyPaid) {
+			log.Printf("CronService: installment %d already paid — skipping compensation", installmentID)
+			return
+		}
+		log.Printf("CronService: mark-paid failed for installment %d: %v — compensating debit+credit", installmentID, err)
+		// Reverse bank credit (debit the bank account back)
+		if c.accountClient != nil && c.bankRSDAccount != "" {
+			if _, compErr := c.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   c.bankRSDAccount,
+				Amount:          amtDecimal.Neg().StringFixed(4),
+				UpdateAvailable: true,
+			}); compErr != nil {
+				log.Printf("CronService: CRITICAL: bank compensation failed for installment %d: %v — manual review required", installmentID, compErr)
+			}
+		}
+		// Reverse client debit (credit the borrower account back)
+		if c.accountClient != nil {
+			if _, compErr := c.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   loan.AccountNumber,
+				Amount:          amtDecimal.StringFixed(4),
+				UpdateAvailable: true,
+			}); compErr != nil {
+				log.Printf("CronService: CRITICAL: client compensation failed for installment %d: %v — manual review required", installmentID, compErr)
+			}
+		}
+		return
 	}
 
 	// Publish success event

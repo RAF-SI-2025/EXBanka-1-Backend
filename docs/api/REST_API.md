@@ -37,17 +37,27 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 7. [Payments](#7-payments)
 8. [Transfers](#8-transfers)
 9. [Payment Recipients](#9-payment-recipients)
-10. [Verification Codes](#10-verification-codes)
-11. [Exchange Rates](#11-exchange-rates)
-12. [Loans](#12-loans)
-13. [Loan Requests](#13-loan-requests)
-14. [Limits](#14-limits)
-15. [Bank Accounts](#15-bank-accounts)
-16. [Transfer Fees](#16-transfer-fees)
-17. [Interest Rate Tiers](#17-interest-rate-tiers)
-18. [Bank Margins](#18-bank-margins)
-19. [Card Requests](#19-card-requests)
-20. [Me (Self-Service)](#20-me-self-service)
+10. [Exchange Rates](#10-exchange-rates)
+11. [Loans](#11-loans)
+12. [Loan Requests](#12-loan-requests)
+13. [Limits](#13-limits)
+14. [Bank Accounts](#14-bank-accounts)
+15. [Transfer Fees](#15-transfer-fees)
+16. [Interest Rate Tiers](#16-interest-rate-tiers)
+17. [Bank Margins](#17-bank-margins)
+18. [Card Requests](#18-card-requests)
+19. [Me (Self-Service)](#19-me-self-service)
+20. [Mobile Auth](#20-mobile-auth)
+21. [Mobile Device Management](#21-mobile-device-management)
+22. [Verification](#22-verification)
+23. [WebSocket](#23-websocket)
+24. [Stock Exchanges](#24-stock-exchanges)
+25. [Securities](#25-securities)
+26. [Orders](#26-orders)
+27. [Portfolio](#27-portfolio)
+28. [OTC Offers](#28-otc-offers)
+29. [Actuaries](#29-actuaries)
+30. [Tax](#30-tax)
 
 ---
 
@@ -664,12 +674,6 @@ Get a single client by ID.
 
 ---
 
-### ~~GET /api/clients/me~~ (removed — use GET /api/me)
-
-> **Removed.** Use `GET /api/me` instead. The new endpoint accepts both employee and client JWTs and returns the current principal's profile.
-
----
-
 ### PUT /api/clients/:id
 
 Partially update a client record.
@@ -826,12 +830,6 @@ Get an account by its account number.
 
 **Response 200:** Account object
 **Response 404:** `{"error": "account not found"}`
-
----
-
-### ~~GET /api/accounts/client/:client_id~~ (removed)
-
-> **Removed.** Employees should use `GET /api/accounts?client_id=X`. Clients should use `GET /api/me/accounts`.
 
 ---
 
@@ -1052,18 +1050,6 @@ Get a card by ID.
 
 ---
 
-### ~~GET /api/cards/account/:account_number~~ (removed)
-
-> **Removed.** Use `GET /api/cards?account_number=X` instead.
-
----
-
-### ~~GET /api/cards/client/:client_id~~ (removed)
-
-> **Removed.** Employees should use `GET /api/cards?client_id=X`. Clients should use `GET /api/me/cards`.
-
----
-
 ### GET /api/cards
 
 List cards with optional filters. Employees can filter by `client_id` or `account_number`. Exactly one filter should be provided; if neither is provided, all cards visible to the employee are returned.
@@ -1177,12 +1163,6 @@ Create an authorized person who can also hold a card linked to an existing accou
 
 ---
 
-### ~~POST /api/cards/virtual~~ (moved — use POST /api/me/cards/virtual)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/cards/virtual` in the [Me — Self-Service](#20-me-self-service) section.
-
-The documentation below is preserved for reference; the request/response shape is unchanged.
-
 ### POST /api/me/cards/virtual
 
 Create a virtual card for a client account. Virtual cards can be single-use or multi-use and expire after 1-3 months.
@@ -1241,10 +1221,6 @@ Create a virtual card for a client account. Virtual cards can be single-use or m
 
 ---
 
-### ~~POST /api/cards/:id/pin~~ (moved — use POST /api/me/cards/:id/pin)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/cards/:id/pin` in the [Me — Self-Service](#20-me-self-service) section. Request/response shape is unchanged.
-
 ### POST /api/me/cards/:id/pin
 
 Set the 4-digit PIN for a card.
@@ -1287,10 +1263,6 @@ Set the 4-digit PIN for a card.
 
 ---
 
-### ~~POST /api/cards/:id/verify-pin~~ (moved — use POST /api/me/cards/:id/verify-pin)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/cards/:id/verify-pin` in the [Me — Self-Service](#20-me-self-service) section.
-
 ### POST /api/me/cards/:id/verify-pin
 
 Verify the 4-digit PIN for a card. The card is permanently blocked after 3 consecutive failed attempts.
@@ -1332,10 +1304,6 @@ Verify the 4-digit PIN for a card. The card is permanently blocked after 3 conse
 | 500 | Internal error |
 
 ---
-
-### ~~POST /api/cards/:id/temporary-block~~ (moved — use POST /api/me/cards/:id/temporary-block)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/cards/:id/temporary-block` in the [Me — Self-Service](#20-me-self-service) section.
 
 ### POST /api/me/cards/:id/temporary-block
 
@@ -1381,10 +1349,6 @@ Payments are domestic/foreign transfers from one account to another with optiona
 
 ---
 
-### ~~POST /api/payments~~ (moved — use POST /api/me/payments)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/payments` in the [Me — Self-Service](#20-me-self-service) section.
-
 ### POST /api/me/payments
 
 Initiate a new payment from a client account.
@@ -1429,13 +1393,12 @@ Initiate a new payment from a client account.
   "payment_code": "289",
   "reference_number": "97 123456789",
   "payment_purpose": "Invoice #INV-2026-001",
-  "status": "COMPLETED",
-  "timestamp": "2026-03-13T10:00:00Z",
-  "verification_code_expires_at": 1743000300
+  "status": "pending_verification",
+  "timestamp": "2026-03-13T10:00:00Z"
 }
 ```
 
-> **Note:** A verification code has been sent to the client's registered email. Use it when calling the execute endpoint (`POST /api/me/payments/:id/execute`).
+> **Note:** Payment is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/verifications` and then poll `GET /api/verifications/:id/status` until verified. Once verified, call `POST /api/me/payments/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
 ---
 
@@ -1490,13 +1453,9 @@ List payments for a specific account with filters.
 
 ---
 
-### ~~POST /api/payments/:id/execute~~ (moved — use POST /api/me/payments/:id/execute)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/payments/:id/execute` in the [Me — Self-Service](#20-me-self-service) section.
-
 ### POST /api/me/payments/:id/execute
 
-Execute a pending payment after verification. The payment must have been created previously via `POST /api/me/payments`. A verification code is automatically sent to the client's registered email when the payment is created — use that code here.
+Execute a pending payment after verification. The payment must have been created previously via `POST /api/me/payments`. Verification is handled by the verification-service — pass the `challenge_id` from the completed verification challenge.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1510,12 +1469,13 @@ Execute a pending payment after verification. The payment must have been created
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the payment was created |
+| `challenge_id` | uint64 | Yes | The verification challenge ID (must have status `verified`) |
+| `verification_code` | string | No | Deprecated — kept for backwards compatibility |
 
 **Example Request:**
 ```json
 {
-  "verification_code": "847291"
+  "challenge_id": 123
 }
 ```
 
@@ -1532,7 +1492,7 @@ Execute a pending payment after verification. The payment must have been created
   "payment_code": "289",
   "reference_number": "97 123456789",
   "payment_purpose": "Invoice #INV-2026-001",
-  "status": "COMPLETED",
+  "status": "completed",
   "timestamp": "2026-03-13T10:00:00Z"
 }
 ```
@@ -1542,14 +1502,8 @@ Execute a pending payment after verification. The payment must have been created
 | 200 | Payment executed |
 | 400 | Invalid input or invalid payment ID |
 | 401 | Unauthorized |
-| 422 | Verification code invalid or expired |
+| 409 | Verification not completed |
 | 500 | Internal server error |
-
----
-
-### ~~GET /api/payments/client/:client_id~~ (removed)
-
-> **Removed.** Employees should use `GET /api/payments?client_id=X`. Clients should use `GET /api/me/payments`.
 
 ---
 
@@ -1589,10 +1543,6 @@ Transfers are inter-account currency exchanges (can be same currency or cross-cu
 
 ---
 
-### ~~POST /api/transfers~~ (moved — use POST /api/me/transfers)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/transfers` in the [Me — Self-Service](#20-me-self-service) section.
-
 ### POST /api/me/transfers
 
 Initiate a currency transfer between accounts.
@@ -1627,12 +1577,11 @@ Initiate a currency transfer between accounts.
   "exchange_rate": 117.23,
   "commission": 0.50,
   "timestamp": "2026-03-13T10:00:00Z",
-  "status": "pending_verification",
-  "verification_code_expires_at": 1743000300
+  "status": "pending_verification"
 }
 ```
 
-> **Note:** A verification code has been sent to the client's registered email. Use it when calling the execute endpoint (`POST /api/me/transfers/:id/execute`).
+> **Note:** Transfer is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/verifications` and then poll `GET /api/verifications/:id/status` until verified. Once verified, call `POST /api/me/transfers/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
 ---
 
@@ -1650,12 +1599,6 @@ Get a transfer by ID.
 
 **Response 200:** Transfer object
 **Response 404:** `{"error": "transfer not found"}`
-
----
-
-### ~~GET /api/transfers/client/:client_id~~ (removed)
-
-> **Removed.** Employees should use `GET /api/transfers?client_id=X`. Clients should use `GET /api/me/transfers`.
 
 ---
 
@@ -1683,13 +1626,9 @@ List transfers with optional filters. Pass `client_id` to filter by owner.
 
 ---
 
-### ~~POST /api/transfers/:id/execute~~ (moved — use POST /api/me/transfers/:id/execute)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/transfers/:id/execute` in the [Me — Self-Service](#20-me-self-service) section.
-
 ### POST /api/me/transfers/:id/execute
 
-Execute a pending transfer after verification. The transfer must have been created previously via `POST /api/me/transfers`. A verification code is automatically sent to the client's registered email when the transfer is created — use that code here.
+Execute a pending transfer after verification. The transfer must have been created previously via `POST /api/me/transfers`. Verification is handled by the verification-service — pass the `challenge_id` from the completed verification challenge.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1703,12 +1642,13 @@ Execute a pending transfer after verification. The transfer must have been creat
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `verification_code` | string | Yes | Verification code sent automatically to the client's registered email when the transfer was created |
+| `challenge_id` | uint64 | Yes | The verification challenge ID (must have status `verified`) |
+| `verification_code` | string | No | Deprecated — kept for backwards compatibility |
 
 **Example Request:**
 ```json
 {
-  "verification_code": "847291"
+  "challenge_id": 123
 }
 ```
 
@@ -1732,7 +1672,7 @@ Execute a pending transfer after verification. The transfer must have been creat
 | 200 | Transfer executed |
 | 400 | Invalid input or invalid transfer ID |
 | 401 | Unauthorized |
-| 422 | Verification code invalid or expired |
+| 409 | Verification not completed |
 | 500 | Internal server error |
 
 ---
@@ -1742,10 +1682,6 @@ Execute a pending transfer after verification. The transfer must have been creat
 Saved payment recipients (favorites) for a client.
 
 ---
-
-### ~~POST /api/payment-recipients~~ (moved — use POST /api/me/payment-recipients)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/payment-recipients` in the [Me — Self-Service](#20-me-self-service) section.
 
 ### POST /api/me/payment-recipients
 
@@ -1780,12 +1716,6 @@ Save a new payment recipient.
   "created_at": "2026-03-13T10:00:00Z"
 }
 ```
-
----
-
-### ~~GET /api/payment-recipients/:client_id~~ (removed — use GET /api/me/payment-recipients)
-
-> **Removed.** Use `GET /api/me/payment-recipients` instead. Identity is inferred from the JWT — no `client_id` path segment needed.
 
 ---
 
@@ -1936,17 +1866,13 @@ A verification code has been sent to the client's registered email. Use it when 
 
 ---
 
-## 12. Loans
+## 11. Loans
 
 Loan management endpoints. Employees can view all loans and approve/reject loan requests. Clients should use `GET /api/me/loans` and related `/api/me/*` routes to view and manage their own loans.
 
 Loan request management has been promoted to its own top-level section — see [Section 13: Loan Requests](#13-loan-requests).
 
 ---
-
-### ~~POST /api/loans/requests~~ (moved — use POST /api/me/loan-requests)
-
-> **Moved.** Clients should use `POST /api/me/loan-requests`. See the [Me — Self-Service](#20-me-self-service) section.
 
 ### POST /api/me/loan-requests
 
@@ -2012,34 +1938,6 @@ Submit a new loan application.
 
 ---
 
-### ~~GET /api/loans/requests~~ (moved — use GET /api/loan-requests)
-
-> **Moved to top-level.** See `GET /api/loan-requests` in [Section 13: Loan Requests](#13-loan-requests).
-
-### ~~GET /api/loans/requests/:id~~ (moved — use GET /api/loan-requests/:id)
-
-> **Moved to top-level.** See `GET /api/loan-requests/:id` in [Section 13: Loan Requests](#13-loan-requests).
-
-### ~~PUT /api/loans/requests/:id/approve~~ (moved and method changed — use POST /api/loan-requests/:id/approve)
-
-> **Moved and method changed to POST.** See `POST /api/loan-requests/:id/approve` in [Section 13: Loan Requests](#13-loan-requests).
-
-### ~~PUT /api/loans/requests/:id/reject~~ (moved and method changed — use POST /api/loan-requests/:id/reject)
-
-> **Moved and method changed to POST.** See `POST /api/loan-requests/:id/reject` in [Section 13: Loan Requests](#13-loan-requests).
-
----
-
-### ~~GET /api/loans/requests/client/:client_id~~ (removed — use GET /api/me/loan-requests)
-
-> **Removed.** Clients should use `GET /api/me/loan-requests`. Employees should use `GET /api/loan-requests?client_id=X`.
-
----
-
-### GET /api/loans
-
-List all active loans (employee view).
-
 ### GET /api/loans
 
 List loans (employee view). Pass `client_id` to filter loans for a specific client — this replaces the old `GET /api/loans/client/:client_id`. Clients should use `GET /api/me/loans`.
@@ -2084,18 +1982,6 @@ Get a single loan by ID.
 
 ---
 
-### ~~GET /api/loans/client/:client_id~~ (removed)
-
-> **Removed.** Employees should use `GET /api/loans?client_id=X`. Clients should use `GET /api/me/loans`.
-
----
-
-### ~~GET /api/loans/requests/client/:client_id~~ (removed)
-
-> **Removed.** Clients should use `GET /api/me/loan-requests`. Employees should use `GET /api/loan-requests?client_id=X`.
-
----
-
 ### GET /api/loans/:id/installments
 
 Get all installment records for a loan.
@@ -2128,7 +2014,7 @@ Get all installment records for a loan.
 
 ---
 
-## 13. Loan Requests
+## 12. Loan Requests
 
 Loan request management endpoints (employee-facing). These routes have been promoted from the `/api/loans/requests/` sub-path to the top-level `/api/loan-requests/`. Clients should use the `/api/me/loan-requests` routes instead.
 
@@ -2235,7 +2121,7 @@ Reject a loan request. Sends a rejection email to the client. Previously `PUT /a
 
 ---
 
-## 14. Limits
+## 13. Limits
 
 Manage transaction and approval limits for employees, and transaction limits for bank clients.
 
@@ -2562,7 +2448,7 @@ The `code` field is a stable machine-readable string. The `message` field is hum
 
 ---
 
-## 15. Bank Accounts
+## 14. Bank Accounts
 
 Bank account management endpoints allow administrators to manage internal bank-owned accounts used for fee collection and loan repayments. The bank must always maintain at least one RSD account and at least one foreign currency account.
 
@@ -2678,7 +2564,7 @@ Delete a bank-owned account by ID.
 
 ---
 
-## 16. Transfer Fees
+## 15. Transfer Fees
 
 Configurable fee rules applied to payments and transfers. Multiple active fee rules can apply to the same transaction — they stack additively. For example, a percentage fee AND a fixed fee can both apply to the same transaction.
 
@@ -2816,7 +2702,7 @@ Deactivate a fee rule. The rule is not deleted from the database — it is soft-
 
 ---
 
-## 17. Interest Rate Tiers
+## 16. Interest Rate Tiers
 
 Interest rate tier management for loan interest rate configuration. Each tier defines the fixed and variable base rates for a loan amount range.
 
@@ -3005,7 +2891,7 @@ Apply a variable rate update to all active variable-rate loans whose amount fall
 
 ---
 
-## 18. Bank Margins
+## 17. Bank Margins
 
 Bank margin management for loan interest rate calculation. Each loan type has a configurable margin that is added to the variable base rate from the interest rate tier.
 
@@ -3098,15 +2984,11 @@ Update the margin for a specific loan type.
 
 ---
 
-## 19. Card Requests
+## 18. Card Requests
 
 Card requests allow clients to request a card for one of their accounts. Employees with `cards.approve` permission can approve or reject these requests.
 
 ---
-
-### ~~POST /api/cards/requests~~ (moved — use POST /api/me/cards/requests)
-
-> **Moved to `/api/me/*`.** See `POST /api/me/cards/requests` in [Section 20: Me — Self-Service](#20-me-self-service).
 
 ### POST /api/me/cards/requests
 
@@ -3158,10 +3040,6 @@ Client submits a request to obtain a card for one of their accounts.
 | 500 | Internal server error |
 
 ---
-
-### ~~GET /api/cards/requests/me~~ (moved — use GET /api/me/cards/requests)
-
-> **Moved to `/api/me/*`.** See `GET /api/me/cards/requests` in [Section 20: Me — Self-Service](#20-me-self-service).
 
 ### GET /api/me/cards/requests
 
@@ -3320,7 +3198,7 @@ Employee rejects a pending card request with a reason. Method changed from `PUT`
 
 ---
 
-## 20. Me (Self-Service)
+## 19. Me (Self-Service)
 
 The `/api/me/*` route group provides self-service access for both employees and bank clients. All routes in this group are protected by `AnyAuthMiddleware`, which accepts any valid JWT (employee or client). Results are automatically scoped to the authenticated principal — no `client_id` path segment is needed.
 
@@ -3720,3 +3598,1215 @@ Passwords for both employees and clients must satisfy:
 9. **CORS:** The API Gateway allows all origins with `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` methods and `Authorization`, `Content-Type` headers.
 
 10. **Migration:** If upgrading from the previous API, see `docs/api/MIGRATION.md` for a full old→new route mapping and breaking change notes.
+
+## 20. Mobile Auth
+
+Mobile device authentication for the EXBanka mobile app. These endpoints are public (no auth required).
+
+---
+
+### POST /api/mobile/auth/request-activation
+
+Request a 6-digit activation code sent to the user's email.
+
+**Authentication:** None
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | string | Yes | User's registered email address |
+
+**Example Request:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "message": "activation code sent to email"
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Activation code sent |
+| 400 | Invalid email format |
+| 404 | Email not found |
+
+---
+
+### POST /api/mobile/auth/activate
+
+Activate a mobile device with the emailed code. Returns device credentials.
+
+**Authentication:** None
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | string | Yes | User's registered email |
+| `code` | string | Yes | 6-digit activation code |
+| `device_name` | string | Yes | User-friendly device name (e.g., "Luka's iPhone") |
+
+**Example Request:**
+```json
+{
+  "email": "user@example.com",
+  "code": "482916",
+  "device_name": "Luka's iPhone 16"
+}
+```
+
+**Response 200:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "device_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "device_secret": "f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4"
+}
+```
+
+> **CRITICAL:** `device_secret` is returned only at activation. Store in iOS Keychain / Android Keystore immediately.
+
+| Status | Description |
+|---|---|
+| 200 | Device activated |
+| 400 | Invalid code format or missing fields |
+| 404 | Email not found |
+| 409 | Code invalid, expired, or max attempts exceeded |
+
+---
+
+### POST /api/mobile/auth/refresh
+
+Refresh mobile access token.
+
+**Authentication:** None (uses refresh token in body)
+
+**Headers:**
+
+| Header | Required | Description |
+|---|---|---|
+| `X-Device-ID` | Yes | Device UUID from activation |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `refresh_token` | string | Yes | Current refresh token |
+
+**Example Request:**
+```json
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+}
+```
+
+**Response 200:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Token refreshed |
+| 400 | Missing X-Device-ID header |
+| 401 | Refresh token invalid, expired, or device deactivated |
+
+---
+
+## 21. Mobile Device Management
+
+Manage the authenticated mobile device. Requires `MobileAuthMiddleware`.
+
+---
+
+### GET /api/mobile/device
+
+Get info about the current device.
+
+**Authentication:** Mobile JWT + `X-Device-ID` header
+
+**Response 200:**
+```json
+{
+  "device_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "device_name": "Luka's iPhone 16",
+  "status": "active",
+  "activated_at": "2026-04-01T10:00:00Z",
+  "last_seen_at": "2026-04-01T12:00:00Z"
+}
+```
+
+---
+
+### POST /api/mobile/device/deactivate
+
+Deactivate the current mobile device. The device will need to go through activation again to reconnect.
+
+**Authentication:** Mobile JWT + `X-Device-ID` header
+
+**Response 200:**
+```json
+{
+  "success": true
+}
+```
+
+---
+
+### POST /api/mobile/device/transfer
+
+Deactivate the current device and send a new activation code to the specified email.
+
+**Authentication:** Mobile JWT + `X-Device-ID` header
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | string | Yes | Email to send the new activation code to |
+
+**Example Request:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "message": "device deactivated, activation code sent to email"
+}
+```
+
+---
+
+## 22. Verification
+
+The verification service provides two-factor authentication for payments and transfers. Challenges expire after 5 minutes and allow a maximum of 3 attempts. Employees with `verification.skip` permission bypass verification entirely.
+
+**Verification methods:**
+
+| Method | Status | Description |
+|---|---|---|
+| `code_pull` | **Active** (default) | 6-digit code delivered to the client's mobile app; client types it into the browser |
+| `email` | **Active** | 6-digit code sent to the client's email; fallback when no mobile device is registered |
+| `qr_scan` | **Not available** | Planned — selecting this returns 400 |
+| `number_match` | **Not available** | Planned — selecting this returns 400 |
+
+**Recommended usage order:**
+
+1. `POST /api/me/payments` or `POST /api/me/transfers` — creates the transaction in `pending_verification` status
+2. `POST /api/verifications` — creates a verification challenge for the pending transaction
+3. `GET /api/verifications/:id/status` — browser polls until `status = "verified"`
+4. On mobile: `GET /api/mobile/verifications/pending` — mobile app polls for pending challenges
+5. Client submits code via `POST /api/verifications/:id/code` (browser) or `POST /api/mobile/verifications/:challenge_id/submit` (mobile)
+6. `POST /api/me/payments/:id/execute` or `POST /api/me/transfers/:id/execute` — executes the transaction with the verified `challenge_id`
+
+**VerificationChallenge model:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uint64 | Challenge ID |
+| `user_id` | uint64 | Owner of the challenge |
+| `source_service` | string | `transaction`, `payment`, or `transfer` |
+| `source_id` | uint64 | The payment/transfer ID |
+| `method` | string | `code_pull`, `email` (active); `qr_scan`, `number_match` (planned) |
+| `status` | string | `pending`, `verified`, `expired`, `failed` |
+| `attempts` | int | Current attempt count (max 3) |
+| `expires_at` | timestamp | Challenge expiry (5 minutes from creation) |
+| `verified_at` | timestamp | When verification succeeded (nullable) |
+
+---
+
+### POST /api/verifications
+
+Create a new verification challenge for a pending transaction.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `source_service` | string | Yes | `transaction`, `payment`, or `transfer` |
+| `source_id` | uint64 | Yes | The payment/transfer ID |
+| `method` | string | No | `code_pull` (default) or `email`. `qr_scan` and `number_match` are not yet available. |
+
+**Example Request:**
+```json
+{
+  "source_service": "payment",
+  "source_id": 456,
+  "method": "code_pull"
+}
+```
+
+**Response 200:**
+```json
+{
+  "challenge_id": 123,
+  "challenge_data": {},
+  "expires_at": "2026-04-01T12:05:00Z"
+}
+```
+
+`challenge_data` depends on method:
+- **code_pull:** `{}` — code is delivered to mobile app
+- **email:** `{}` — code is sent via email
+
+| Status | Description |
+|---|---|
+| 200 | Challenge created |
+| 400 | Invalid method or missing fields |
+
+---
+
+### GET /api/verifications/:id/status
+
+Poll the status of a verification challenge until `verified`.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Challenge ID |
+
+**Response 200:**
+```json
+{
+  "status": "pending",
+  "method": "code_pull",
+  "verified_at": null,
+  "expires_at": "2026-04-01T12:05:00Z"
+}
+```
+
+Possible `status` values: `pending`, `verified`, `expired`, `failed`.
+
+---
+
+### POST /api/verifications/:id/code
+
+Submit a verification code from the browser (for `code_pull` and `email` methods).
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Challenge ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `code` | string | Yes | 6-digit verification code |
+
+**Example Request:**
+```json
+{
+  "code": "482916"
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "remaining_attempts": 2
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Code submission processed (check `success` field) |
+| 400 | Invalid challenge ID or missing code |
+| 404 | Challenge not found |
+| 409 | Challenge expired or max attempts exceeded |
+
+---
+
+### GET /api/mobile/verifications/pending
+
+Poll for pending verification challenges delivered to this device.
+
+**Authentication:** Mobile JWT + `X-Device-ID` + Device Signature (see [Mobile App Integration Guide](../mobile/MOBILE_APP_INTEGRATION.md))
+
+**Response 200:**
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "challenge_id": 123,
+      "method": "code_pull",
+      "display_data": { "code": "482916" },
+      "expires_at": "2026-04-01T12:05:00Z"
+    }
+  ]
+}
+```
+
+`display_data` depends on method:
+- **code_pull:** `{ "code": "482916" }` — display the code so the user can type it into the browser
+
+---
+
+### POST /api/mobile/verifications/:challenge_id/submit
+
+Submit a verification response from the mobile app.
+
+**Authentication:** Mobile JWT + `X-Device-ID` + Device Signature
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `challenge_id` | int | Verification challenge ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `response` | string | Yes | The verification response (6-digit code for `code_pull`) |
+
+**Example Request:**
+```json
+{
+  "response": "482916"
+}
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "remaining_attempts": 2
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | Submission accepted (check `success` field) |
+| 400 | Invalid challenge ID or missing response |
+| 404 | Challenge not found |
+| 409 | Challenge expired or max attempts exceeded |
+
+---
+
+### POST /api/verify/:challenge_id
+
+> **Not available.** This endpoint is for the `qr_scan` method which is not yet implemented.
+
+QR code verification. The mobile app scans a QR code displayed in the browser, extracts the URL and token, and POSTs here.
+
+**Authentication:** Mobile JWT + `X-Device-ID` + Device Signature
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `challenge_id` | int | Verification challenge ID |
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `token` | string | Yes | QR verification token (64-char hex) |
+
+**Response 200:**
+```json
+{
+  "success": true
+}
+```
+
+| Status | Description |
+|---|---|
+| 200 | QR verification successful |
+| 400 | Missing token or invalid challenge ID |
+| 404 | Challenge not found |
+| 409 | Token mismatch, challenge expired, or already verified |
+
+---
+
+## 23. WebSocket
+
+Real-time push notifications for mobile devices.
+
+---
+
+### GET /ws/mobile
+
+Establish a WebSocket connection for real-time verification challenge delivery.
+
+**Authentication:** Mobile JWT via `Authorization` header + `X-Device-ID` header
+
+**Connection:**
+```
+GET /ws/mobile
+Authorization: Bearer <mobile_jwt>
+X-Device-ID: <device_id>
+```
+
+**Server → Client Messages:**
+```json
+{
+  "type": "verification_challenge",
+  "challenge_id": 123,
+  "method": "code_pull",
+  "display_data": { "code": "482916" },
+  "expires_at": "2026-04-01T12:05:00Z"
+}
+```
+
+**Keepalive:** Server sends ping every 30s. Client must respond with pong. Connections with no pong for 60s are closed.
+
+**Reconnection:** If the WebSocket disconnects, fall back to polling `GET /api/mobile/verifications/pending` every 2s (foreground) or 30s (background).
+
+---
+
+## 24. Stock Exchanges
+
+### GET /api/stock-exchanges
+
+List all stock exchanges with pagination.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Search term for filtering |
+
+**Response 200:**
+```json
+{
+  "exchanges": [ ],
+  "total_count": 5
+}
+```
+
+---
+
+### GET /api/stock-exchanges/:id
+
+Get a specific stock exchange by ID.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Exchange ID |
+
+**Response 200:** Stock exchange object.
+
+---
+
+### POST /api/stock-exchanges/testing-mode
+
+Enable or disable testing mode for stock exchanges.
+
+**Authentication:** Employee JWT + `exchanges.manage` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | boolean | Yes | Whether testing mode is enabled |
+
+**Response 200:**
+```json
+{
+  "testing_mode": true
+}
+```
+
+---
+
+### GET /api/stock-exchanges/testing-mode
+
+Get current testing mode status.
+
+**Authentication:** Employee JWT + `exchanges.manage` permission
+
+**Response 200:**
+```json
+{
+  "testing_mode": false
+}
+```
+
+---
+
+## 25. Securities
+
+All securities endpoints require any valid JWT (AnyAuthMiddleware).
+
+### GET /api/securities/stocks
+
+List stocks with filtering and sorting.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Name/symbol search |
+| `exchange_acronym` | string | Filter by exchange |
+| `min_price` | string | Minimum price filter |
+| `max_price` | string | Maximum price filter |
+| `min_volume` | int | Minimum volume filter |
+| `max_volume` | int | Maximum volume filter |
+| `sort_by` | string | `price`, `volume`, `change`, or `margin` |
+| `sort_order` | string | `asc` (default) or `desc` |
+
+**Response 200:**
+```json
+{
+  "stocks": [ ],
+  "total_count": 100
+}
+```
+
+---
+
+### GET /api/securities/stocks/:id
+
+Get details of a specific stock.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Stock ID |
+
+---
+
+### GET /api/securities/stocks/:id/history
+
+Get stock price history.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Stock ID |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `period` | string | `day`, `week`, `month` (default), `year`, `5y`, `all` |
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 30) |
+
+**Response 200:**
+```json
+{
+  "history": [ ],
+  "total_count": 30
+}
+```
+
+---
+
+### GET /api/securities/futures
+
+List futures contracts.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Search term |
+| `exchange_acronym` | string | Filter by exchange |
+| `min_price` | string | Minimum price |
+| `max_price` | string | Maximum price |
+| `settlement_date_from` | string | ISO date |
+| `settlement_date_to` | string | ISO date |
+| `sort_by` | string | Sort field |
+| `sort_order` | string | `asc` (default) or `desc` |
+
+**Response 200:**
+```json
+{
+  "futures": [ ],
+  "total_count": 50
+}
+```
+
+---
+
+### GET /api/securities/futures/:id
+
+Get a specific futures contract.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Futures contract ID |
+
+---
+
+### GET /api/securities/futures/:id/history
+
+Get futures price history. Same query parameters as stocks history.
+
+---
+
+### GET /api/securities/forex
+
+List forex currency pairs.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Search term |
+| `base_currency` | string | ISO currency code |
+| `quote_currency` | string | ISO currency code |
+| `liquidity` | string | `high`, `medium`, or `low` |
+| `sort_by` | string | Sort field |
+| `sort_order` | string | `asc` (default) or `desc` |
+
+**Response 200:**
+```json
+{
+  "forex_pairs": [ ],
+  "total_count": 20
+}
+```
+
+---
+
+### GET /api/securities/forex/:id
+
+Get a specific forex pair.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Forex pair ID |
+
+---
+
+### GET /api/securities/forex/:id/history
+
+Get forex pair price history. Same query parameters as stocks history.
+
+---
+
+### GET /api/securities/options
+
+List options contracts for a stock.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `stock_id` | int | **Required.** Parent stock ID |
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+| `option_type` | string | `call` or `put` |
+| `settlement_date` | string | Filter by settlement date |
+| `min_strike` | string | Minimum strike price |
+| `max_strike` | string | Maximum strike price |
+
+**Response 200:**
+```json
+{
+  "options": [ ],
+  "total_count": 15
+}
+```
+
+---
+
+### GET /api/securities/options/:id
+
+Get a specific options contract.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Option ID |
+
+---
+
+## 26. Orders
+
+### POST /api/me/orders
+
+Create a new stock order.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `listing_id` | uint64 | Yes (buy) | Listing ID (required for buy orders) |
+| `holding_id` | uint64 | Yes (sell) | Holding ID (required for sell orders) |
+| `direction` | string | Yes | `buy` or `sell` |
+| `order_type` | string | Yes | `market`, `limit`, `stop`, or `stop_limit` |
+| `quantity` | int64 | Yes | Must be positive |
+| `limit_value` | string | Conditional | Required for `limit` or `stop_limit` orders |
+| `stop_value` | string | Conditional | Required for `stop` or `stop_limit` orders |
+| `all_or_none` | boolean | No | Default: false |
+| `margin` | boolean | No | Default: false |
+| `account_id` | uint64 | Yes (buy) | Account to debit (required for buy orders) |
+
+**Example Request (buy market order):**
+```json
+{
+  "listing_id": 42,
+  "direction": "buy",
+  "order_type": "market",
+  "quantity": 10,
+  "account_id": 1
+}
+```
+
+**Response 201:** Order object.
+
+| Status | Description |
+|---|---|
+| 201 | Order created |
+| 400 | Validation error |
+
+---
+
+### GET /api/me/orders
+
+List authenticated user's orders.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `status` | string | Filter by order status |
+| `direction` | string | Filter by direction (`buy`/`sell`) |
+| `order_type` | string | Filter by order type |
+
+**Response 200:**
+```json
+{
+  "orders": [ ],
+  "total_count": 25
+}
+```
+
+---
+
+### GET /api/me/orders/:id
+
+Get a specific order.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Order ID |
+
+---
+
+### POST /api/me/orders/:id/cancel
+
+Cancel a pending order.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Order ID |
+
+**Response 200:** Updated order object.
+
+---
+
+### GET /api/orders
+
+List all orders (admin/supervisor view for approval).
+
+**Authentication:** Employee JWT + `orders.approve` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `status` | string | Filter by status |
+| `agent_email` | string | Filter by agent |
+| `direction` | string | Filter by direction |
+| `order_type` | string | Filter by order type |
+
+**Response 200:**
+```json
+{
+  "orders": [ ],
+  "total_count": 50
+}
+```
+
+---
+
+### POST /api/orders/:id/approve
+
+Approve a pending order.
+
+**Authentication:** Employee JWT + `orders.approve` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Order ID |
+
+**Response 200:** Updated order object.
+
+---
+
+### POST /api/orders/:id/decline
+
+Decline a pending order.
+
+**Authentication:** Employee JWT + `orders.approve` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Order ID |
+
+**Response 200:** Updated order object.
+
+---
+
+## 27. Portfolio
+
+### GET /api/me/portfolio
+
+List authenticated user's holdings.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `security_type` | string | `stock`, `futures`, or `option` |
+
+**Response 200:**
+```json
+{
+  "holdings": [
+    {
+      "id": 1,
+      "security_type": "stock",
+      "ticker": "AAPL",
+      "name": "Apple Inc.",
+      "quantity": 10,
+      "average_price": "150.25",
+      "current_price": "175.00",
+      "profit": "247.50",
+      "public_quantity": 3,
+      "account_id": 42,
+      "last_modified": "2026-04-01T12:00:00Z"
+    }
+  ],
+  "total_count": 10
+}
+```
+
+**Holding object fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | uint64 | Holding ID |
+| `security_type` | string | `stock`, `futures`, or `option` |
+| `ticker` | string | Security ticker symbol |
+| `name` | string | Security name |
+| `quantity` | int64 | Total units owned |
+| `average_price` | string | Average purchase price (decimal) |
+| `current_price` | string | Current market price (decimal) |
+| `profit` | string | Unrealized profit/loss (decimal) |
+| `public_quantity` | int64 | Units listed on OTC market |
+| `account_id` | uint64 | Associated account ID |
+| `last_modified` | string | ISO 8601 timestamp of last update |
+
+---
+
+### GET /api/me/portfolio/summary
+
+Get portfolio summary (total value, gains/losses, allocation).
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Response 200:** Portfolio summary object.
+
+---
+
+### POST /api/me/portfolio/:id/make-public
+
+Make a holding available on the OTC market.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Holding ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `quantity` | int64 | Yes | Number of units to make public (must be positive) |
+
+**Response 200:** Public holding object.
+
+---
+
+### POST /api/me/portfolio/:id/exercise
+
+Exercise an options contract.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Holding ID (must be an option) |
+
+**Response 200:** Exercise result object.
+
+---
+
+## 28. OTC Offers
+
+### GET /api/otc/offers
+
+List OTC trading offers.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `security_type` | string | `stock` or `futures` |
+| `ticker` | string | Filter by ticker symbol |
+
+**Response 200:**
+```json
+{
+  "offers": [ ],
+  "total_count": 8
+}
+```
+
+---
+
+### POST /api/otc/offers/:id/buy
+
+Purchase an OTC offer.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Offer ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `quantity` | int64 | Yes | Number of units to buy (must be positive) |
+| `account_id` | uint64 | Yes | Account to debit |
+
+**Response 200:** Transaction object.
+
+---
+
+## 29. Actuaries
+
+### GET /api/actuaries
+
+List all actuaries (trading agents).
+
+**Authentication:** Employee JWT + `agents.manage` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `search` | string | Search by name |
+| `position` | string | Filter by position |
+
+**Response 200:**
+```json
+{
+  "actuaries": [ ],
+  "total_count": 12
+}
+```
+
+---
+
+### PUT /api/actuaries/:id/limit
+
+Set trading limit for an actuary.
+
+**Authentication:** Employee JWT + `agents.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Actuary (employee) ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `limit` | string | Yes | Trading limit amount |
+
+**Response 200:** Updated actuary object.
+
+---
+
+### POST /api/actuaries/:id/reset-limit
+
+Reset used trading limit for an actuary back to zero.
+
+**Authentication:** Employee JWT + `agents.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Actuary (employee) ID |
+
+**Response 200:** Updated actuary object.
+
+---
+
+### PUT /api/actuaries/:id/approval
+
+Set whether an actuary's orders require supervisor approval.
+
+**Authentication:** Employee JWT + `agents.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Actuary (employee) ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `need_approval` | boolean | Yes | Whether orders need approval |
+
+**Response 200:** Updated actuary object.
+
+---
+
+## 30. Tax
+
+### GET /api/tax
+
+List all tax records.
+
+**Authentication:** Employee JWT + `tax.manage` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 10) |
+| `user_type` | string | `client` or `actuary` |
+| `search` | string | Search term |
+
+**Response 200:**
+```json
+{
+  "tax_records": [ ],
+  "total_count": 30
+}
+```
+
+---
+
+### POST /api/tax/collect
+
+Collect/process taxes for all users.
+
+**Authentication:** Employee JWT + `tax.manage` permission
+
+**Request Body:** None (empty POST)
+
+**Response 200:**
+```json
+{
+  "collected_count": 15,
+  "total_collected_rsd": "125000.00",
+  "failed_count": 0
+}
+```
+
+---
+
+> **TODO:** Add `GET /api/me/tax` — lets the authenticated user (client or actuary) view their own tax records (capital gains tax). Should extract `user_id` from JWT, filter by owner, and return paginated tax records. No `tax.manage` permission required — self-service endpoint under `AnyAuthMiddleware`.

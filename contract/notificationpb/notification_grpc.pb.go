@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	NotificationService_SendEmail_FullMethodName         = "/notification.NotificationService/SendEmail"
-	NotificationService_GetDeliveryStatus_FullMethodName = "/notification.NotificationService/GetDeliveryStatus"
+	NotificationService_SendEmail_FullMethodName             = "/notification.NotificationService/SendEmail"
+	NotificationService_GetDeliveryStatus_FullMethodName     = "/notification.NotificationService/GetDeliveryStatus"
+	NotificationService_GetPendingMobileItems_FullMethodName = "/notification.NotificationService/GetPendingMobileItems"
+	NotificationService_AckMobileItem_FullMethodName         = "/notification.NotificationService/AckMobileItem"
 )
 
 // NotificationServiceClient is the client API for NotificationService service.
@@ -29,6 +31,8 @@ const (
 type NotificationServiceClient interface {
 	SendEmail(ctx context.Context, in *SendEmailRequest, opts ...grpc.CallOption) (*SendEmailResponse, error)
 	GetDeliveryStatus(ctx context.Context, in *GetDeliveryStatusRequest, opts ...grpc.CallOption) (*GetDeliveryStatusResponse, error)
+	GetPendingMobileItems(ctx context.Context, in *GetPendingMobileRequest, opts ...grpc.CallOption) (*PendingMobileResponse, error)
+	AckMobileItem(ctx context.Context, in *AckMobileRequest, opts ...grpc.CallOption) (*AckMobileResponse, error)
 }
 
 type notificationServiceClient struct {
@@ -59,12 +63,34 @@ func (c *notificationServiceClient) GetDeliveryStatus(ctx context.Context, in *G
 	return out, nil
 }
 
+func (c *notificationServiceClient) GetPendingMobileItems(ctx context.Context, in *GetPendingMobileRequest, opts ...grpc.CallOption) (*PendingMobileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PendingMobileResponse)
+	err := c.cc.Invoke(ctx, NotificationService_GetPendingMobileItems_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *notificationServiceClient) AckMobileItem(ctx context.Context, in *AckMobileRequest, opts ...grpc.CallOption) (*AckMobileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AckMobileResponse)
+	err := c.cc.Invoke(ctx, NotificationService_AckMobileItem_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NotificationServiceServer is the server API for NotificationService service.
 // All implementations must embed UnimplementedNotificationServiceServer
 // for forward compatibility.
 type NotificationServiceServer interface {
 	SendEmail(context.Context, *SendEmailRequest) (*SendEmailResponse, error)
 	GetDeliveryStatus(context.Context, *GetDeliveryStatusRequest) (*GetDeliveryStatusResponse, error)
+	GetPendingMobileItems(context.Context, *GetPendingMobileRequest) (*PendingMobileResponse, error)
+	AckMobileItem(context.Context, *AckMobileRequest) (*AckMobileResponse, error)
 	mustEmbedUnimplementedNotificationServiceServer()
 }
 
@@ -80,6 +106,12 @@ func (UnimplementedNotificationServiceServer) SendEmail(context.Context, *SendEm
 }
 func (UnimplementedNotificationServiceServer) GetDeliveryStatus(context.Context, *GetDeliveryStatusRequest) (*GetDeliveryStatusResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDeliveryStatus not implemented")
+}
+func (UnimplementedNotificationServiceServer) GetPendingMobileItems(context.Context, *GetPendingMobileRequest) (*PendingMobileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPendingMobileItems not implemented")
+}
+func (UnimplementedNotificationServiceServer) AckMobileItem(context.Context, *AckMobileRequest) (*AckMobileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AckMobileItem not implemented")
 }
 func (UnimplementedNotificationServiceServer) mustEmbedUnimplementedNotificationServiceServer() {}
 func (UnimplementedNotificationServiceServer) testEmbeddedByValue()                             {}
@@ -138,6 +170,42 @@ func _NotificationService_GetDeliveryStatus_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NotificationService_GetPendingMobileItems_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPendingMobileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NotificationServiceServer).GetPendingMobileItems(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NotificationService_GetPendingMobileItems_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NotificationServiceServer).GetPendingMobileItems(ctx, req.(*GetPendingMobileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _NotificationService_AckMobileItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AckMobileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NotificationServiceServer).AckMobileItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: NotificationService_AckMobileItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NotificationServiceServer).AckMobileItem(ctx, req.(*AckMobileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NotificationService_ServiceDesc is the grpc.ServiceDesc for NotificationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +220,14 @@ var NotificationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDeliveryStatus",
 			Handler:    _NotificationService_GetDeliveryStatus_Handler,
+		},
+		{
+			MethodName: "GetPendingMobileItems",
+			Handler:    _NotificationService_GetPendingMobileItems_Handler,
+		},
+		{
+			MethodName: "AckMobileItem",
+			Handler:    _NotificationService_AckMobileItem_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

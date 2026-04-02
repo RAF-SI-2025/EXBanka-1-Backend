@@ -14,6 +14,10 @@ type Config struct {
 	TransactionGRPCAddr string
 	CreditGRPCAddr      string
 	ExchangeGRPCAddr    string
+	StockGRPCAddr        string
+	VerificationGRPCAddr string
+	NotificationGRPCAddr string
+	KafkaBrokers         string
 }
 
 func Load() *Config {
@@ -27,6 +31,10 @@ func Load() *Config {
 		TransactionGRPCAddr: getEnv("TRANSACTION_GRPC_ADDR", "localhost:50057"),
 		CreditGRPCAddr:      getEnv("CREDIT_GRPC_ADDR", "localhost:50058"),
 		ExchangeGRPCAddr:    getEnv("EXCHANGE_GRPC_ADDR", "localhost:50059"),
+		StockGRPCAddr:        getEnv("STOCK_GRPC_ADDR", "localhost:50060"),
+		VerificationGRPCAddr: getEnv("VERIFICATION_GRPC_ADDR", "localhost:50061"),
+		NotificationGRPCAddr: getEnv("NOTIFICATION_GRPC_ADDR", "localhost:50053"),
+		KafkaBrokers:         getEnv("KAFKA_BROKERS", "localhost:9092"),
 	}
 }
 

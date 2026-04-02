@@ -20,7 +20,9 @@ type Claims struct {
 	Email       string   `json:"email"`
 	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
-	SystemType  string   `json:"system_type"` // "employee" or "client"
+	SystemType  string   `json:"system_type"`            // "employee" or "client"
+	DeviceType  string   `json:"device_type,omitempty"`  // "mobile" for mobile app tokens, empty for browser
+	DeviceID    string   `json:"device_id,omitempty"`    // UUID of registered mobile device
 	jwt.RegisteredClaims
 }
 
@@ -43,6 +45,25 @@ func (s *JWTService) GenerateAccessToken(userID int64, email string, roles []str
 		Roles:       roles,
 		Permissions: permissions,
 		SystemType:  systemType,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        generateJTI(),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessExpiry)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(s.secret)
+}
+
+func (s *JWTService) GenerateMobileAccessToken(userID int64, email string, roles []string, permissions []string, systemType, deviceType, deviceID string) (string, error) {
+	claims := &Claims{
+		UserID:      userID,
+		Email:       email,
+		Roles:       roles,
+		Permissions: permissions,
+		SystemType:  systemType,
+		DeviceType:  deviceType,
+		DeviceID:    deviceID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        generateJTI(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessExpiry)),

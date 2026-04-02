@@ -13,8 +13,9 @@ type Config struct {
 	GRPCAddr         string
 	KafkaBrokers     string
 	RedisAddr        string
-	AccountGRPCAddr  string
-	ExchangeGRPCAddr string
+	AccountGRPCAddr      string
+	ExchangeGRPCAddr     string
+	VerificationGRPCAddr string
 }
 
 func Load() *Config {
@@ -28,7 +29,8 @@ func Load() *Config {
 		KafkaBrokers:     getEnv("KAFKA_BROKERS", "localhost:9092"),
 		RedisAddr:        getEnv("REDIS_ADDR", "localhost:6379"),
 		AccountGRPCAddr:  getEnv("ACCOUNT_GRPC_ADDR", "localhost:50055"),
-		ExchangeGRPCAddr: getEnv("EXCHANGE_GRPC_ADDR", "localhost:50059"),
+		ExchangeGRPCAddr:     getEnv("EXCHANGE_GRPC_ADDR", "localhost:50059"),
+		VerificationGRPCAddr: getEnv("VERIFICATION_GRPC_ADDR", "localhost:50061"),
 	}
 }
 

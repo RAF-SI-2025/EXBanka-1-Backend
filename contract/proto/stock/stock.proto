@@ -1,0 +1,574 @@
+syntax = "proto3";
+package stock;
+option go_package = "github.com/exbanka/contract/stockpb;stockpb";
+
+// ==================== Exchange (Stock Exchanges) ====================
+
+service StockExchangeGRPCService {
+  rpc ListExchanges(ListExchangesRequest) returns (ListExchangesResponse);
+  rpc GetExchange(GetExchangeRequest) returns (Exchange);
+  rpc SetTestingMode(SetTestingModeRequest) returns (SetTestingModeResponse);
+  rpc GetTestingMode(GetTestingModeRequest) returns (GetTestingModeResponse);
+}
+
+message Exchange {
+  uint64 id = 1;
+  string name = 2;
+  string acronym = 3;
+  string mic_code = 4;
+  string polity = 5;
+  string currency = 6;
+  string time_zone = 7;
+  string open_time = 8;
+  string close_time = 9;
+  string pre_market_open = 10;
+  string post_market_close = 11;
+}
+
+message ListExchangesRequest {
+  string search = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ListExchangesResponse {
+  repeated Exchange exchanges = 1;
+  int64 total_count = 2;
+}
+
+message GetExchangeRequest {
+  uint64 id = 1;
+}
+
+message SetTestingModeRequest {
+  bool enabled = 1;
+}
+
+message SetTestingModeResponse {
+  bool testing_mode = 1;
+}
+
+message GetTestingModeRequest {}
+
+message GetTestingModeResponse {
+  bool testing_mode = 1;
+}
+
+// ==================== Shared Listing Info ====================
+
+message ListingInfo {
+  uint64 id = 1;
+  uint64 exchange_id = 2;
+  string exchange_acronym = 3;
+  string price = 4;
+  string high = 5;
+  string low = 6;
+  string change = 7;
+  string change_percent = 8;
+  int64 volume = 9;
+  string initial_margin_cost = 10;
+  string last_refresh = 11;
+}
+
+message DerivedData {
+  int64  contract_size      = 1;
+  string maintenance_margin = 2;
+  string initial_margin_cost = 3;
+  string change_percent     = 4;
+  string dollar_volume      = 5;
+  string nominal_value      = 6;
+  string market_cap         = 7;
+}
+
+message PriceHistoryEntry {
+  string date = 1;
+  string price = 2;
+  string high = 3;
+  string low = 4;
+  string change = 5;
+  int64 volume = 6;
+}
+
+message GetPriceHistoryRequest {
+  uint64 id = 1;
+  string period = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message PriceHistoryResponse {
+  repeated PriceHistoryEntry history = 1;
+  int64 total_count = 2;
+}
+
+// ==================== Securities ====================
+
+service SecurityGRPCService {
+  // Stocks
+  rpc ListStocks(ListStocksRequest) returns (ListStocksResponse);
+  rpc GetStock(GetStockRequest) returns (StockDetail);
+  rpc GetStockHistory(GetPriceHistoryRequest) returns (PriceHistoryResponse);
+  // Futures
+  rpc ListFutures(ListFuturesRequest) returns (ListFuturesResponse);
+  rpc GetFutures(GetFuturesRequest) returns (FuturesDetail);
+  rpc GetFuturesHistory(GetPriceHistoryRequest) returns (PriceHistoryResponse);
+  // Forex
+  rpc ListForexPairs(ListForexPairsRequest) returns (ListForexPairsResponse);
+  rpc GetForexPair(GetForexPairRequest) returns (ForexPairDetail);
+  rpc GetForexPairHistory(GetPriceHistoryRequest) returns (PriceHistoryResponse);
+  // Options
+  rpc ListOptions(ListOptionsRequest) returns (ListOptionsResponse);
+  rpc GetOption(GetOptionRequest) returns (OptionDetail);
+}
+
+// --- Stocks ---
+
+message StockItem {
+  uint64 id = 1;
+  string ticker = 2;
+  string name = 3;
+  int64 outstanding_shares = 4;
+  string dividend_yield = 5;
+  ListingInfo listing = 6;
+}
+
+message StockDetail {
+  uint64 id = 1;
+  string ticker = 2;
+  string name = 3;
+  int64 outstanding_shares = 4;
+  string dividend_yield = 5;
+  string market_cap = 6;
+  ListingInfo listing = 7;
+  repeated OptionItem options = 8;
+}
+
+message ListStocksRequest {
+  string search = 1;
+  string exchange_acronym = 2;
+  string min_price = 3;
+  string max_price = 4;
+  int64 min_volume = 5;
+  int64 max_volume = 6;
+  string sort_by = 7;
+  string sort_order = 8;
+  int32 page = 9;
+  int32 page_size = 10;
+}
+
+message ListStocksResponse {
+  repeated StockItem stocks = 1;
+  int64 total_count = 2;
+}
+
+message GetStockRequest {
+  uint64 id = 1;
+}
+
+// --- Futures ---
+
+message FuturesItem {
+  uint64 id = 1;
+  string ticker = 2;
+  string name = 3;
+  int64 contract_size = 4;
+  string contract_unit = 5;
+  string settlement_date = 6;
+  ListingInfo listing = 7;
+}
+
+message FuturesDetail {
+  uint64 id = 1;
+  string ticker = 2;
+  string name = 3;
+  int64 contract_size = 4;
+  string contract_unit = 5;
+  string settlement_date = 6;
+  string maintenance_margin = 7;
+  ListingInfo listing = 8;
+}
+
+message ListFuturesRequest {
+  string search = 1;
+  string exchange_acronym = 2;
+  string min_price = 3;
+  string max_price = 4;
+  int64 min_volume = 5;
+  int64 max_volume = 6;
+  string settlement_date_from = 7;
+  string settlement_date_to = 8;
+  string sort_by = 9;
+  string sort_order = 10;
+  int32 page = 11;
+  int32 page_size = 12;
+}
+
+message ListFuturesResponse {
+  repeated FuturesItem futures = 1;
+  int64 total_count = 2;
+}
+
+message GetFuturesRequest {
+  uint64 id = 1;
+}
+
+// --- Forex ---
+
+message ForexPairItem {
+  uint64 id = 1;
+  string ticker = 2;
+  string name = 3;
+  string base_currency = 4;
+  string quote_currency = 5;
+  string exchange_rate = 6;
+  string liquidity = 7;
+  int64 contract_size = 8;
+  ListingInfo listing = 9;
+}
+
+message ForexPairDetail {
+  uint64 id = 1;
+  string ticker = 2;
+  string name = 3;
+  string base_currency = 4;
+  string quote_currency = 5;
+  string exchange_rate = 6;
+  string liquidity = 7;
+  int64 contract_size = 8;
+  string maintenance_margin = 9;
+  ListingInfo listing = 10;
+}
+
+message ListForexPairsRequest {
+  string search = 1;
+  string base_currency = 2;
+  string quote_currency = 3;
+  string liquidity = 4;
+  string sort_by = 5;
+  string sort_order = 6;
+  int32 page = 7;
+  int32 page_size = 8;
+}
+
+message ListForexPairsResponse {
+  repeated ForexPairItem forex_pairs = 1;
+  int64 total_count = 2;
+}
+
+message GetForexPairRequest {
+  uint64 id = 1;
+}
+
+// --- Options ---
+
+message OptionItem {
+  uint64 id = 1;
+  string ticker = 2;
+  string name = 3;
+  string stock_ticker = 4;
+  uint64 stock_listing_id = 5;
+  string option_type = 6;
+  string strike_price = 7;
+  string implied_volatility = 8;
+  string premium = 9;
+  int64 open_interest = 10;
+  string settlement_date = 11;
+  int64 contract_size = 12;
+  string initial_margin_cost = 13;
+}
+
+message OptionDetail {
+  uint64 id = 1;
+  string ticker = 2;
+  string name = 3;
+  string stock_ticker = 4;
+  uint64 stock_listing_id = 5;
+  string option_type = 6;
+  string strike_price = 7;
+  string implied_volatility = 8;
+  string premium = 9;
+  int64 open_interest = 10;
+  string settlement_date = 11;
+  int64 contract_size = 12;
+  string maintenance_margin = 13;
+  string initial_margin_cost = 14;
+}
+
+message ListOptionsRequest {
+  uint64 stock_id = 1;
+  string option_type = 2;
+  string settlement_date = 3;
+  string min_strike = 4;
+  string max_strike = 5;
+  int32 page = 6;
+  int32 page_size = 7;
+}
+
+message ListOptionsResponse {
+  repeated OptionItem options = 1;
+  int64 total_count = 2;
+}
+
+message GetOptionRequest {
+  uint64 id = 1;
+}
+
+// ==================== Orders ====================
+
+service OrderGRPCService {
+  rpc CreateOrder(CreateOrderRequest) returns (Order);
+  rpc GetOrder(GetOrderRequest) returns (OrderDetail);
+  rpc ListMyOrders(ListMyOrdersRequest) returns (ListOrdersResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (Order);
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  rpc ApproveOrder(ApproveOrderRequest) returns (Order);
+  rpc DeclineOrder(DeclineOrderRequest) returns (Order);
+}
+
+message Order {
+  uint64 id = 1;
+  uint64 user_id = 2;
+  uint64 listing_id = 3;
+  uint64 holding_id = 4;
+  string security_type = 5;
+  string ticker = 6;
+  string direction = 7;
+  string order_type = 8;
+  int64 quantity = 9;
+  int64 contract_size = 10;
+  string price_per_unit = 11;
+  string approximate_price = 12;
+  string commission = 13;
+  string status = 14;
+  string approved_by = 15;
+  bool is_done = 16;
+  int64 remaining_portions = 17;
+  bool after_hours = 18;
+  bool all_or_none = 19;
+  bool margin = 20;
+  uint64 account_id = 21;
+  string last_modification = 22;
+  string created_at = 23;
+  optional string limit_value = 24;
+  optional string stop_value = 25;
+}
+
+message OrderTransaction {
+  uint64 id = 1;
+  int64 quantity = 2;
+  string price_per_unit = 3;
+  string total_price = 4;
+  string executed_at = 5;
+}
+
+message OrderDetail {
+  Order order = 1;
+  repeated OrderTransaction transactions = 2;
+}
+
+message CreateOrderRequest {
+  uint64 user_id = 1;
+  string system_type = 2;
+  uint64 listing_id = 3;
+  uint64 holding_id = 4;
+  string direction = 5;
+  string order_type = 6;
+  int64 quantity = 7;
+  optional string limit_value = 8;
+  optional string stop_value = 9;
+  bool all_or_none = 10;
+  bool margin = 11;
+  uint64 account_id = 12;
+}
+
+message GetOrderRequest {
+  uint64 id = 1;
+  uint64 user_id = 2;
+}
+
+message ListMyOrdersRequest {
+  uint64 user_id = 1;
+  string status = 2;
+  string direction = 3;
+  string order_type = 4;
+  int32 page = 5;
+  int32 page_size = 6;
+}
+
+message ListOrdersRequest {
+  string status = 1;
+  string agent_email = 2;
+  string direction = 3;
+  string order_type = 4;
+  int32 page = 5;
+  int32 page_size = 6;
+}
+
+message ListOrdersResponse {
+  repeated Order orders = 1;
+  int64 total_count = 2;
+}
+
+message CancelOrderRequest {
+  uint64 id = 1;
+  uint64 user_id = 2;
+}
+
+message ApproveOrderRequest {
+  uint64 id = 1;
+  uint64 supervisor_id = 2;
+}
+
+message DeclineOrderRequest {
+  uint64 id = 1;
+  uint64 supervisor_id = 2;
+}
+
+// ==================== Portfolio ====================
+
+service PortfolioGRPCService {
+  rpc ListHoldings(ListHoldingsRequest) returns (ListHoldingsResponse);
+  rpc GetPortfolioSummary(GetPortfolioSummaryRequest) returns (PortfolioSummary);
+  rpc MakePublic(MakePublicRequest) returns (Holding);
+  rpc ExerciseOption(ExerciseOptionRequest) returns (ExerciseResult);
+}
+
+message Holding {
+  uint64 id = 1;
+  string security_type = 2;
+  string ticker = 3;
+  string name = 4;
+  int64 quantity = 5;
+  string average_price = 6;
+  string current_price = 7;
+  string profit = 8;
+  int64 public_quantity = 9;
+  uint64 account_id = 10;
+  string last_modified = 11;
+}
+
+message ListHoldingsRequest {
+  uint64 user_id = 1;
+  string security_type = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message ListHoldingsResponse {
+  repeated Holding holdings = 1;
+  int64 total_count = 2;
+}
+
+message GetPortfolioSummaryRequest {
+  uint64 user_id = 1;
+}
+
+message PortfolioSummary {
+  string total_profit = 1;
+  string total_profit_rsd = 2;
+  string tax_paid_this_year = 3;
+  string tax_unpaid_this_month = 4;
+}
+
+message MakePublicRequest {
+  uint64 holding_id = 1;
+  uint64 user_id = 2;
+  int64 quantity = 3;
+}
+
+message ExerciseOptionRequest {
+  uint64 holding_id = 1;
+  uint64 user_id = 2;
+}
+
+message ExerciseResult {
+  uint64 id = 1;
+  string option_ticker = 2;
+  int64 exercised_quantity = 3;
+  int64 shares_affected = 4;
+  string profit = 5;
+}
+
+// ==================== OTC Trading ====================
+
+service OTCGRPCService {
+  rpc ListOffers(ListOTCOffersRequest) returns (ListOTCOffersResponse);
+  rpc BuyOffer(BuyOTCOfferRequest) returns (OTCTransaction);
+}
+
+message OTCOffer {
+  uint64 id = 1;
+  uint64 seller_id = 2;
+  string seller_name = 3;
+  string security_type = 4;
+  string ticker = 5;
+  string name = 6;
+  int64 quantity = 7;
+  string price_per_unit = 8;
+  string created_at = 9;
+}
+
+message ListOTCOffersRequest {
+  string security_type = 1;
+  string ticker = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message ListOTCOffersResponse {
+  repeated OTCOffer offers = 1;
+  int64 total_count = 2;
+}
+
+message BuyOTCOfferRequest {
+  uint64 offer_id = 1;
+  uint64 buyer_id = 2;
+  string system_type = 3;
+  int64 quantity = 4;
+  uint64 account_id = 5;
+}
+
+message OTCTransaction {
+  uint64 id = 1;
+  uint64 offer_id = 2;
+  int64 quantity = 3;
+  string price_per_unit = 4;
+  string total_price = 5;
+  string commission = 6;
+}
+
+// ==================== Tax ====================
+
+service TaxGRPCService {
+  rpc ListTaxRecords(ListTaxRecordsRequest) returns (ListTaxRecordsResponse);
+  rpc CollectTax(CollectTaxRequest) returns (CollectTaxResponse);
+}
+
+message TaxRecord {
+  uint64 user_id = 1;
+  string user_type = 2;
+  string first_name = 3;
+  string last_name = 4;
+  string total_debt_rsd = 5;
+  string last_collection = 6;
+}
+
+message ListTaxRecordsRequest {
+  string user_type = 1;
+  string search = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message ListTaxRecordsResponse {
+  repeated TaxRecord tax_records = 1;
+  int64 total_count = 2;
+}
+
+message CollectTaxRequest {}
+
+message CollectTaxResponse {
+  int64 collected_count = 1;
+  string total_collected_rsd = 2;
+  int64 failed_count = 3;
+}

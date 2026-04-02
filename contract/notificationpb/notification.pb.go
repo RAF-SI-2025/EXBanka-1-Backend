@@ -237,6 +237,274 @@ func (x *GetDeliveryStatusResponse) GetDeliveredAt() string {
 	return ""
 }
 
+type GetPendingMobileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	DeviceId      string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPendingMobileRequest) Reset() {
+	*x = GetPendingMobileRequest{}
+	mi := &file_notification_notification_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPendingMobileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPendingMobileRequest) ProtoMessage() {}
+
+func (x *GetPendingMobileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_notification_notification_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPendingMobileRequest.ProtoReflect.Descriptor instead.
+func (*GetPendingMobileRequest) Descriptor() ([]byte, []int) {
+	return file_notification_notification_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetPendingMobileRequest) GetUserId() uint64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *GetPendingMobileRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+type MobileInboxEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	ChallengeId   uint64                 `protobuf:"varint,2,opt,name=challenge_id,json=challengeId,proto3" json:"challenge_id,omitempty"`
+	Method        string                 `protobuf:"bytes,3,opt,name=method,proto3" json:"method,omitempty"`
+	DisplayData   string                 `protobuf:"bytes,4,opt,name=display_data,json=displayData,proto3" json:"display_data,omitempty"`
+	ExpiresAt     string                 `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MobileInboxEntry) Reset() {
+	*x = MobileInboxEntry{}
+	mi := &file_notification_notification_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MobileInboxEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MobileInboxEntry) ProtoMessage() {}
+
+func (x *MobileInboxEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_notification_notification_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MobileInboxEntry.ProtoReflect.Descriptor instead.
+func (*MobileInboxEntry) Descriptor() ([]byte, []int) {
+	return file_notification_notification_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *MobileInboxEntry) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *MobileInboxEntry) GetChallengeId() uint64 {
+	if x != nil {
+		return x.ChallengeId
+	}
+	return 0
+}
+
+func (x *MobileInboxEntry) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *MobileInboxEntry) GetDisplayData() string {
+	if x != nil {
+		return x.DisplayData
+	}
+	return ""
+}
+
+func (x *MobileInboxEntry) GetExpiresAt() string {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return ""
+}
+
+type PendingMobileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*MobileInboxEntry    `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PendingMobileResponse) Reset() {
+	*x = PendingMobileResponse{}
+	mi := &file_notification_notification_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PendingMobileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PendingMobileResponse) ProtoMessage() {}
+
+func (x *PendingMobileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_notification_notification_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PendingMobileResponse.ProtoReflect.Descriptor instead.
+func (*PendingMobileResponse) Descriptor() ([]byte, []int) {
+	return file_notification_notification_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *PendingMobileResponse) GetItems() []*MobileInboxEntry {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+type AckMobileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	DeviceId      string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AckMobileRequest) Reset() {
+	*x = AckMobileRequest{}
+	mi := &file_notification_notification_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AckMobileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AckMobileRequest) ProtoMessage() {}
+
+func (x *AckMobileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_notification_notification_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AckMobileRequest.ProtoReflect.Descriptor instead.
+func (*AckMobileRequest) Descriptor() ([]byte, []int) {
+	return file_notification_notification_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AckMobileRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *AckMobileRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+type AckMobileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AckMobileResponse) Reset() {
+	*x = AckMobileResponse{}
+	mi := &file_notification_notification_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AckMobileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AckMobileResponse) ProtoMessage() {}
+
+func (x *AckMobileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_notification_notification_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AckMobileResponse.ProtoReflect.Descriptor instead.
+func (*AckMobileResponse) Descriptor() ([]byte, []int) {
+	return file_notification_notification_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AckMobileResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 var File_notification_notification_proto protoreflect.FileDescriptor
 
 const file_notification_notification_proto_rawDesc = "" +
@@ -260,10 +528,29 @@ const file_notification_notification_proto_rawDesc = "" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12!\n" +
-	"\fdelivered_at\x18\x03 \x01(\tR\vdeliveredAt2\xc9\x01\n" +
+	"\fdelivered_at\x18\x03 \x01(\tR\vdeliveredAt\"O\n" +
+	"\x17GetPendingMobileRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1b\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"\x9f\x01\n" +
+	"\x10MobileInboxEntry\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12!\n" +
+	"\fchallenge_id\x18\x02 \x01(\x04R\vchallengeId\x12\x16\n" +
+	"\x06method\x18\x03 \x01(\tR\x06method\x12!\n" +
+	"\fdisplay_data\x18\x04 \x01(\tR\vdisplayData\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x05 \x01(\tR\texpiresAt\"M\n" +
+	"\x15PendingMobileResponse\x124\n" +
+	"\x05items\x18\x01 \x03(\v2\x1e.notification.MobileInboxEntryR\x05items\"?\n" +
+	"\x10AckMobileRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1b\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"-\n" +
+	"\x11AckMobileResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\x80\x03\n" +
 	"\x13NotificationService\x12L\n" +
 	"\tSendEmail\x12\x1e.notification.SendEmailRequest\x1a\x1f.notification.SendEmailResponse\x12d\n" +
-	"\x11GetDeliveryStatus\x12&.notification.GetDeliveryStatusRequest\x1a'.notification.GetDeliveryStatusResponseB;Z9github.com/exbanka/contract/notificationpb;notificationpbb\x06proto3"
+	"\x11GetDeliveryStatus\x12&.notification.GetDeliveryStatusRequest\x1a'.notification.GetDeliveryStatusResponse\x12c\n" +
+	"\x15GetPendingMobileItems\x12%.notification.GetPendingMobileRequest\x1a#.notification.PendingMobileResponse\x12P\n" +
+	"\rAckMobileItem\x12\x1e.notification.AckMobileRequest\x1a\x1f.notification.AckMobileResponseB;Z9github.com/exbanka/contract/notificationpb;notificationpbb\x06proto3"
 
 var (
 	file_notification_notification_proto_rawDescOnce sync.Once
@@ -277,25 +564,35 @@ func file_notification_notification_proto_rawDescGZIP() []byte {
 	return file_notification_notification_proto_rawDescData
 }
 
-var file_notification_notification_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_notification_notification_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_notification_notification_proto_goTypes = []any{
 	(*SendEmailRequest)(nil),          // 0: notification.SendEmailRequest
 	(*SendEmailResponse)(nil),         // 1: notification.SendEmailResponse
 	(*GetDeliveryStatusRequest)(nil),  // 2: notification.GetDeliveryStatusRequest
 	(*GetDeliveryStatusResponse)(nil), // 3: notification.GetDeliveryStatusResponse
-	nil,                               // 4: notification.SendEmailRequest.DataEntry
+	(*GetPendingMobileRequest)(nil),   // 4: notification.GetPendingMobileRequest
+	(*MobileInboxEntry)(nil),          // 5: notification.MobileInboxEntry
+	(*PendingMobileResponse)(nil),     // 6: notification.PendingMobileResponse
+	(*AckMobileRequest)(nil),          // 7: notification.AckMobileRequest
+	(*AckMobileResponse)(nil),         // 8: notification.AckMobileResponse
+	nil,                               // 9: notification.SendEmailRequest.DataEntry
 }
 var file_notification_notification_proto_depIdxs = []int32{
-	4, // 0: notification.SendEmailRequest.data:type_name -> notification.SendEmailRequest.DataEntry
-	0, // 1: notification.NotificationService.SendEmail:input_type -> notification.SendEmailRequest
-	2, // 2: notification.NotificationService.GetDeliveryStatus:input_type -> notification.GetDeliveryStatusRequest
-	1, // 3: notification.NotificationService.SendEmail:output_type -> notification.SendEmailResponse
-	3, // 4: notification.NotificationService.GetDeliveryStatus:output_type -> notification.GetDeliveryStatusResponse
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	9, // 0: notification.SendEmailRequest.data:type_name -> notification.SendEmailRequest.DataEntry
+	5, // 1: notification.PendingMobileResponse.items:type_name -> notification.MobileInboxEntry
+	0, // 2: notification.NotificationService.SendEmail:input_type -> notification.SendEmailRequest
+	2, // 3: notification.NotificationService.GetDeliveryStatus:input_type -> notification.GetDeliveryStatusRequest
+	4, // 4: notification.NotificationService.GetPendingMobileItems:input_type -> notification.GetPendingMobileRequest
+	7, // 5: notification.NotificationService.AckMobileItem:input_type -> notification.AckMobileRequest
+	1, // 6: notification.NotificationService.SendEmail:output_type -> notification.SendEmailResponse
+	3, // 7: notification.NotificationService.GetDeliveryStatus:output_type -> notification.GetDeliveryStatusResponse
+	6, // 8: notification.NotificationService.GetPendingMobileItems:output_type -> notification.PendingMobileResponse
+	8, // 9: notification.NotificationService.AckMobileItem:output_type -> notification.AckMobileResponse
+	6, // [6:10] is the sub-list for method output_type
+	2, // [2:6] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_notification_notification_proto_init() }
@@ -309,7 +606,7 @@ func file_notification_notification_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_notification_notification_proto_rawDesc), len(file_notification_notification_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

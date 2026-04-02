@@ -1,0 +1,77 @@
+//go:build integration
+
+package workflows
+
+import (
+	"testing"
+
+	"github.com/exbanka/test-app/internal/helpers"
+)
+
+func TestTax_ListTaxRecords(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
+
+	resp, err := supervisorC.GET("/api/tax")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+	helpers.RequireField(t, resp, "tax_records")
+	helpers.RequireField(t, resp, "total_count")
+}
+
+func TestTax_ListTaxRecords_FilterByUserType(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
+
+	resp, err := supervisorC.GET("/api/tax?user_type=client")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}
+
+func TestTax_ListTaxRecords_InvalidUserType(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
+
+	resp, err := supervisorC.GET("/api/tax?user_type=invalid")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 400)
+}
+
+func TestTax_CollectTax(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
+
+	resp, err := supervisorC.POST("/api/tax/collect", nil)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+	helpers.RequireField(t, resp, "collected_count")
+	helpers.RequireField(t, resp, "total_collected_rsd")
+}
+
+func TestTax_CollectTax_AgentCannot(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	_, agentC, _ := setupAgentEmployee(t, adminC)
+
+	resp, err := agentC.POST("/api/tax/collect", nil)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 403)
+}
+
+func TestTax_Unauthenticated(t *testing.T) {
+	c := newClient()
+	resp, err := c.GET("/api/tax")
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 401)
+}

@@ -68,6 +68,10 @@ func (p *Producer) PublishLimitTemplate(ctx context.Context, msg kafkamsg.LimitT
 	return p.publish(ctx, topic, msg)
 }
 
+func (p *Producer) PublishActuaryLimitUpdated(ctx context.Context, msg kafkamsg.ActuaryLimitUpdatedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicActuaryLimitUpdated, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

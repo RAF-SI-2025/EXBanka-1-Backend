@@ -51,6 +51,7 @@ const (
 	TopicTransferCreated      = "transaction.transfer-created"
 	TopicTransferCompleted    = "transaction.transfer-completed"
 	TopicTransferFailed       = "transaction.transfer-failed"
+	TopicSagaDeadLetter       = "transaction.saga-dead-letter"
 	TopicLoanRequested        = "credit.loan-requested"
 	TopicLoanApproved         = "credit.loan-approved"
 	TopicLoanRejected         = "credit.loan-rejected"
@@ -80,6 +81,8 @@ const (
 	EmailTypeInstallmentFailed   = EmailType("INSTALLMENT_FAILED")
 	EmailTypeTransactionVerify   = EmailType("TRANSACTION_VERIFICATION")
 	EmailTypePaymentConfirmation = EmailType("PAYMENT_CONFIRMATION")
+	EmailTypeVerificationCode    = EmailType("VERIFICATION_CODE")
+	EmailTypeMobileActivation    = EmailType("MOBILE_ACTIVATION")
 )
 
 type ClientCreatedMessage struct {
@@ -136,6 +139,20 @@ type PaymentFailedMessage struct {
 	ToAccountNumber   string `json:"to_account_number"`
 	Amount            string `json:"amount"`
 	FailureReason     string `json:"failure_reason"`
+}
+
+// SagaDeadLetterMessage is published when a compensation step has failed
+// MaxSagaRetries times and requires manual intervention.
+type SagaDeadLetterMessage struct {
+	SagaLogID       uint64 `json:"saga_log_id"`
+	SagaID          string `json:"saga_id"`
+	TransactionID   uint64 `json:"transaction_id"`
+	TransactionType string `json:"transaction_type"` // "transfer" or "payment"
+	StepName        string `json:"step_name"`
+	AccountNumber   string `json:"account_number"`
+	Amount          string `json:"amount"`
+	RetryCount      int    `json:"retry_count"`
+	LastError       string `json:"last_error"`
 }
 
 // TransferFailedMessage is published when a transfer fails at any stage.
@@ -217,10 +234,10 @@ type VirtualCardCreatedMessage struct {
 
 // Account event topic constants
 const (
-	TopicAccountNameUpdated      = "account.name-updated"
-	TopicAccountLimitsUpdated    = "account.limits-updated"
-	TopicMaintenanceFeeCharged   = "account.maintenance-charged"
-	TopicSpendingReset           = "account.spending-reset"
+	TopicAccountNameUpdated    = "account.name-updated"
+	TopicAccountLimitsUpdated  = "account.limits-updated"
+	TopicMaintenanceFeeCharged = "account.maintenance-charged"
+	TopicSpendingReset         = "account.spending-reset"
 )
 
 // AccountNameUpdatedMessage is published when an account's name is changed.
@@ -301,9 +318,155 @@ type CardRequestRejectedMessage struct {
 	Reason     string `json:"reason"`
 }
 
+// Stock service topics
 const (
-	TopicAuthAccountStatusChanged = "auth.account-status-changed"
-	TopicAuthDeadLetter           = "auth.dead-letter"
+	TopicSecuritySynced = "stock.security-synced"
+	TopicListingUpdated = "stock.listing-updated"
+)
+
+type SecuritySyncedMessage struct {
+	SecurityType string `json:"security_type"` // "stock", "futures", "forex", "option"
+	Ticker       string `json:"ticker"`
+	Action       string `json:"action"` // "created", "updated", "deleted"
+	Timestamp    int64  `json:"timestamp"`
+}
+
+type ListingUpdatedMessage struct {
+	ListingID    uint64 `json:"listing_id"`
+	SecurityType string `json:"security_type"`
+	SecurityID   uint64 `json:"security_id"`
+	Price        string `json:"price"`
+	Timestamp    int64  `json:"timestamp"`
+}
+
+// Order topics
+const (
+	TopicOrderCreated   = "stock.order-created"
+	TopicOrderApproved  = "stock.order-approved"
+	TopicOrderDeclined  = "stock.order-declined"
+	TopicOrderFilled    = "stock.order-filled"
+	TopicOrderCancelled = "stock.order-cancelled"
+
+	// Portfolio, OTC, and tax events
+	TopicHoldingUpdated   = "stock.holding-updated"
+	TopicOTCTradeExecuted = "stock.otc-trade-executed"
+	TopicTaxCollected     = "stock.tax-collected"
+	TopicOptionExercised  = "stock.option-exercised"
+)
+
+type OrderEventMessage struct {
+	OrderID      uint64 `json:"order_id"`
+	UserID       uint64 `json:"user_id"`
+	Direction    string `json:"direction"`
+	OrderType    string `json:"order_type"`
+	SecurityType string `json:"security_type"`
+	Ticker       string `json:"ticker"`
+	Quantity     int64  `json:"quantity"`
+	Status       string `json:"status"`
+	Timestamp    int64  `json:"timestamp"`
+}
+
+type HoldingUpdatedMessage struct {
+	HoldingID    uint64 `json:"holding_id"`
+	UserID       uint64 `json:"user_id"`
+	SecurityType string `json:"security_type"`
+	Ticker       string `json:"ticker"`
+	Quantity     int64  `json:"quantity"`
+	Direction    string `json:"direction"` // "buy" or "sell"
+	Timestamp    int64  `json:"timestamp"`
+}
+
+type OTCTradeMessage struct {
+	SellerID     uint64 `json:"seller_id"`
+	BuyerID      uint64 `json:"buyer_id"`
+	Ticker       string `json:"ticker"`
+	Quantity     int64  `json:"quantity"`
+	PricePerUnit string `json:"price_per_unit"`
+	TotalPrice   string `json:"total_price"`
+	Timestamp    int64  `json:"timestamp"`
+}
+
+type TaxCollectedMessage struct {
+	UserID       uint64 `json:"user_id"`
+	Year         int    `json:"year"`
+	Month        int    `json:"month"`
+	TaxAmountRSD string `json:"tax_amount_rsd"`
+	Timestamp    int64  `json:"timestamp"`
+}
+
+type OptionExercisedMessage struct {
+	UserID       uint64 `json:"user_id"`
+	OptionTicker string `json:"option_ticker"`
+	OptionType   string `json:"option_type"` // "call" or "put"
+	Quantity     int64  `json:"quantity"`
+	Profit       string `json:"profit"`
+	Timestamp    int64  `json:"timestamp"`
+}
+
+// Actuary events
+const (
+	TopicActuaryLimitUpdated = "user.actuary-limit-updated"
+)
+
+type ActuaryLimitUpdatedMessage struct {
+	EmployeeID int64  `json:"employee_id"`
+	Action     string `json:"action"` // limit_set, used_limit_reset, need_approval_changed
+}
+
+// Verification service topic constants
+const (
+	TopicVerificationChallengeCreated  = "verification.challenge-created"
+	TopicVerificationChallengeVerified = "verification.challenge-verified"
+	TopicVerificationChallengeFailed   = "verification.challenge-failed"
+	TopicMobilePush                    = "notification.mobile-push"
+)
+
+// VerificationChallengeCreatedMessage is published when a new verification challenge is created.
+// notification-service consumes this to store a mobile inbox item for the user's device.
+type VerificationChallengeCreatedMessage struct {
+	ChallengeID     uint64 `json:"challenge_id"`
+	UserID          uint64 `json:"user_id"`
+	DeviceID        string `json:"device_id"`
+	Method          string `json:"method"`           // "code_pull", "qr_scan", "number_match"
+	DisplayData     string `json:"display_data"`     // JSON string — what the mobile app needs to show
+	DeliveryChannel string `json:"delivery_channel"` // "mobile" or "email"
+	ExpiresAt       string `json:"expires_at"`       // RFC3339
+}
+
+// VerificationChallengeVerifiedMessage is published when a challenge is successfully verified.
+// transaction-service consumes this to unblock the pending transaction.
+type VerificationChallengeVerifiedMessage struct {
+	ChallengeID   uint64 `json:"challenge_id"`
+	UserID        uint64 `json:"user_id"`
+	SourceService string `json:"source_service"` // "transaction", "payment", "transfer"
+	SourceID      uint64 `json:"source_id"`
+	Method        string `json:"method"`
+	VerifiedAt    string `json:"verified_at"` // RFC3339
+}
+
+// VerificationChallengeFailedMessage is published when a challenge fails (max attempts or expired).
+// transaction-service consumes this to cancel the pending transaction.
+type VerificationChallengeFailedMessage struct {
+	ChallengeID   uint64 `json:"challenge_id"`
+	UserID        uint64 `json:"user_id"`
+	SourceService string `json:"source_service"`
+	SourceID      uint64 `json:"source_id"`
+	Reason        string `json:"reason"` // "max_attempts_exceeded", "expired"
+}
+
+// MobilePushMessage is published by notification-service when a mobile inbox item is stored.
+// api-gateway consumes this to push via WebSocket to connected mobile devices.
+type MobilePushMessage struct {
+	UserID   uint64 `json:"user_id"`
+	DeviceID string `json:"device_id"`
+	Type     string `json:"type"` // "verification_challenge"
+	Payload  string `json:"payload"` // JSON string
+}
+
+const (
+	TopicAuthAccountStatusChanged  = "auth.account-status-changed"
+	TopicAuthDeadLetter            = "auth.dead-letter"
+	TopicAuthMobileDeviceActivated = "auth.mobile-device-activated"
 )
 
 type AuthAccountStatusChangedMessage struct {

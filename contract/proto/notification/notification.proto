@@ -7,6 +7,8 @@ option go_package = "github.com/exbanka/contract/notificationpb;notificationpb";
 service NotificationService {
   rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
   rpc GetDeliveryStatus(GetDeliveryStatusRequest) returns (GetDeliveryStatusResponse);
+  rpc GetPendingMobileItems(GetPendingMobileRequest) returns (PendingMobileResponse);
+  rpc AckMobileItem(AckMobileRequest) returns (AckMobileResponse);
 }
 
 message SendEmailRequest {
@@ -28,4 +30,30 @@ message GetDeliveryStatusResponse {
   string message_id = 1;
   string status = 2;
   string delivered_at = 3;
+}
+
+message GetPendingMobileRequest {
+  uint64 user_id = 1;
+  string device_id = 2;
+}
+
+message MobileInboxEntry {
+  uint64 id = 1;
+  uint64 challenge_id = 2;
+  string method = 3;
+  string display_data = 4;
+  string expires_at = 5;
+}
+
+message PendingMobileResponse {
+  repeated MobileInboxEntry items = 1;
+}
+
+message AckMobileRequest {
+  uint64 id = 1;
+  string device_id = 2;
+}
+
+message AckMobileResponse {
+  bool success = 1;
 }

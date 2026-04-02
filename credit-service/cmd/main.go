@@ -105,15 +105,15 @@ func main() {
 	tierRepo := repository.NewInterestRateTierRepository(db)
 	marginRepo := repository.NewBankMarginRepository(db)
 
-	rateConfigSvc := service.NewRateConfigService(tierRepo, marginRepo)
+	rateConfigSvc := service.NewRateConfigService(tierRepo, marginRepo, db)
 	if err := rateConfigSvc.SeedDefaults(); err != nil {
 		log.Fatalf("failed to seed interest rate config: %v", err)
 	}
 
-	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc)
+	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc, db)
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
-	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount)
+	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount, db)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

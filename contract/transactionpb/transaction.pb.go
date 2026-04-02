@@ -1281,7 +1281,8 @@ type ExecutePaymentRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	PaymentId        uint64                 `protobuf:"varint,1,opt,name=payment_id,json=paymentId,proto3" json:"payment_id,omitempty"`
 	ClientId         uint64                 `protobuf:"varint,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	VerificationCode string                 `protobuf:"bytes,3,opt,name=verification_code,json=verificationCode,proto3" json:"verification_code,omitempty"`
+	VerificationCode string                 `protobuf:"bytes,3,opt,name=verification_code,json=verificationCode,proto3" json:"verification_code,omitempty"` // deprecated: kept for backwards compat
+	ChallengeId      uint64                 `protobuf:"varint,4,opt,name=challenge_id,json=challengeId,proto3" json:"challenge_id,omitempty"`               // verification-service challenge ID
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1337,11 +1338,19 @@ func (x *ExecutePaymentRequest) GetVerificationCode() string {
 	return ""
 }
 
+func (x *ExecutePaymentRequest) GetChallengeId() uint64 {
+	if x != nil {
+		return x.ChallengeId
+	}
+	return 0
+}
+
 type ExecuteTransferRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	TransferId       uint64                 `protobuf:"varint,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
 	ClientId         uint64                 `protobuf:"varint,2,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	VerificationCode string                 `protobuf:"bytes,3,opt,name=verification_code,json=verificationCode,proto3" json:"verification_code,omitempty"`
+	VerificationCode string                 `protobuf:"bytes,3,opt,name=verification_code,json=verificationCode,proto3" json:"verification_code,omitempty"` // deprecated: kept for backwards compat
+	ChallengeId      uint64                 `protobuf:"varint,4,opt,name=challenge_id,json=challengeId,proto3" json:"challenge_id,omitempty"`               // verification-service challenge ID
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1395,6 +1404,13 @@ func (x *ExecuteTransferRequest) GetVerificationCode() string {
 		return x.VerificationCode
 	}
 	return ""
+}
+
+func (x *ExecuteTransferRequest) GetChallengeId() uint64 {
+	if x != nil {
+		return x.ChallengeId
+	}
+	return 0
 }
 
 type ListFeesRequest struct {
@@ -1993,17 +2009,19 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x0erecipient_name\x18\x03 \x01(\tR\rrecipientName\x12%\n" +
 	"\x0eaccount_number\x18\x04 \x01(\tR\raccountNumber\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\tR\tcreatedAt\"\x80\x01\n" +
+	"created_at\x18\x05 \x01(\tR\tcreatedAt\"\xa3\x01\n" +
 	"\x15ExecutePaymentRequest\x12\x1d\n" +
 	"\n" +
 	"payment_id\x18\x01 \x01(\x04R\tpaymentId\x12\x1b\n" +
 	"\tclient_id\x18\x02 \x01(\x04R\bclientId\x12+\n" +
-	"\x11verification_code\x18\x03 \x01(\tR\x10verificationCode\"\x83\x01\n" +
+	"\x11verification_code\x18\x03 \x01(\tR\x10verificationCode\x12!\n" +
+	"\fchallenge_id\x18\x04 \x01(\x04R\vchallengeId\"\xa6\x01\n" +
 	"\x16ExecuteTransferRequest\x12\x1f\n" +
 	"\vtransfer_id\x18\x01 \x01(\x04R\n" +
 	"transferId\x12\x1b\n" +
 	"\tclient_id\x18\x02 \x01(\x04R\bclientId\x12+\n" +
-	"\x11verification_code\x18\x03 \x01(\tR\x10verificationCode\"\x11\n" +
+	"\x11verification_code\x18\x03 \x01(\tR\x10verificationCode\x12!\n" +
+	"\fchallenge_id\x18\x04 \x01(\x04R\vchallengeId\"\x11\n" +
 	"\x0fListFeesRequest\"H\n" +
 	"\x10ListFeesResponse\x124\n" +
 	"\x04fees\x18\x01 \x03(\v2 .transaction.TransferFeeResponseR\x04fees\"\xe6\x01\n" +

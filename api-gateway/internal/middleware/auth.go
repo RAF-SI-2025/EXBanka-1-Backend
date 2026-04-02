@@ -48,6 +48,7 @@ func AuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 		c.Set("roles", resp.Roles)
 		c.Set("system_type", resp.SystemType)
 		c.Set("permissions", resp.Permissions)
+		c.Set("device_id", resp.DeviceId)
 		c.Next()
 	}
 }
@@ -82,6 +83,7 @@ func AnyAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 		c.Set("roles", resp.Roles)
 		c.Set("system_type", resp.SystemType)
 		c.Set("permissions", resp.Permissions)
+		c.Set("device_id", resp.DeviceId)
 		c.Next()
 	}
 }

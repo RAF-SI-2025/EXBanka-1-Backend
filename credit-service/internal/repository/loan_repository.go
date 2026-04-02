@@ -89,7 +89,14 @@ func (r *LoanRepository) ListAll(typeFilter, accountFilter, statusFilter string,
 }
 
 func (r *LoanRepository) Update(loan *model.Loan) error {
-	return r.db.Save(loan).Error
+	result := r.db.Save(loan)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("optimistic lock conflict: loan %d was modified concurrently", loan.ID)
+	}
+	return nil
 }
 
 // FindActiveVariableLoansInAmountRange returns all active variable-rate loans

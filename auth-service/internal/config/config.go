@@ -17,14 +17,18 @@ type Config struct {
 	JWTSecret       string
 	AccessExpiry    time.Duration
 	RefreshExpiry   time.Duration
-	RedisAddr       string
-	FrontendBaseURL string
-	PasswordPepper  string
+	RedisAddr              string
+	FrontendBaseURL        string
+	PasswordPepper         string
+	MobileRefreshExpiry    time.Duration
+	MobileActivationExpiry time.Duration
 }
 
 func Load() *Config {
 	accessExp, _ := time.ParseDuration(getEnv("JWT_ACCESS_EXPIRY", "15m"))
 	refreshExp, _ := time.ParseDuration(getEnv("JWT_REFRESH_EXPIRY", "168h"))
+	mobileRefreshExp, _ := time.ParseDuration(getEnv("MOBILE_REFRESH_EXPIRY", "2160h"))
+	mobileActivationExp, _ := time.ParseDuration(getEnv("MOBILE_ACTIVATION_EXPIRY", "15m"))
 
 	return &Config{
 		DBHost:        getEnv("AUTH_DB_HOST", "localhost"),
@@ -39,8 +43,10 @@ func Load() *Config {
 		AccessExpiry:  accessExp,
 		RefreshExpiry: refreshExp,
 		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
-		FrontendBaseURL: getEnv("FRONTEND_BASE_URL", "http://localhost:3000"),
-		PasswordPepper:  getEnv("PASSWORD_PEPPER", ""),
+		FrontendBaseURL:        getEnv("FRONTEND_BASE_URL", "http://localhost:3000"),
+		PasswordPepper:         getEnv("PASSWORD_PEPPER", ""),
+		MobileRefreshExpiry:    mobileRefreshExp,
+		MobileActivationExpiry: mobileActivationExp,
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/user-service/internal/model"
 )
@@ -51,16 +52,14 @@ func (r *EmployeeLimitRepository) ResetDailyUsedLimits() error {
 }
 
 // Upsert creates or updates the limit record based on employee_id.
+// Uses ON CONFLICT DO UPDATE to eliminate the TOCTOU race between SELECT and INSERT.
 func (r *EmployeeLimitRepository) Upsert(limit *model.EmployeeLimit) error {
-	var existing model.EmployeeLimit
-	err := r.db.Where("employee_id = ?", limit.EmployeeID).First(&existing).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return r.db.Create(limit).Error
-		}
-		return err
-	}
-	limit.ID = existing.ID
-	limit.CreatedAt = existing.CreatedAt
-	return r.db.Save(limit).Error
+	return r.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "employee_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"max_loan_approval_amount", "max_single_transaction",
+			"max_daily_transaction", "max_client_daily_limit",
+			"max_client_monthly_limit", "updated_at",
+		}),
+	}).Create(limit).Error
 }

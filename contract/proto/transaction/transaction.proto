@@ -143,13 +143,15 @@ message PaymentRecipientResponse {
 message ExecutePaymentRequest {
   uint64 payment_id = 1;
   uint64 client_id = 2;
-  string verification_code = 3;
+  string verification_code = 3;   // deprecated: kept for backwards compat
+  uint64 challenge_id = 4;        // verification-service challenge ID
 }
 
 message ExecuteTransferRequest {
   uint64 transfer_id = 1;
   uint64 client_id = 2;
-  string verification_code = 3;
+  string verification_code = 3;   // deprecated: kept for backwards compat
+  uint64 challenge_id = 4;        // verification-service challenge ID
 }
 
 service FeeService {

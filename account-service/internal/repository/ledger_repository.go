@@ -53,6 +53,10 @@ func (r *LedgerRepository) DebitWithLock(tx *gorm.DB, accountNumber string, amou
 	before := acct.Balance
 	acct.Balance = acct.Balance.Sub(amount)
 	acct.AvailableBalance = acct.AvailableBalance.Sub(amount)
+	if !acct.IsBankAccount {
+		acct.DailySpending = acct.DailySpending.Add(amount)
+		acct.MonthlySpending = acct.MonthlySpending.Add(amount)
+	}
 	if err := tx.Save(&acct).Error; err != nil {
 		return nil, err
 	}

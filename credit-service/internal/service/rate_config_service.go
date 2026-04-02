@@ -7,15 +7,17 @@ import (
 	"github.com/exbanka/credit-service/internal/model"
 	"github.com/exbanka/credit-service/internal/repository"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 type RateConfigService struct {
 	tierRepo   *repository.InterestRateTierRepository
 	marginRepo *repository.BankMarginRepository
+	db         *gorm.DB
 }
 
-func NewRateConfigService(tierRepo *repository.InterestRateTierRepository, marginRepo *repository.BankMarginRepository) *RateConfigService {
-	return &RateConfigService{tierRepo: tierRepo, marginRepo: marginRepo}
+func NewRateConfigService(tierRepo *repository.InterestRateTierRepository, marginRepo *repository.BankMarginRepository, db *gorm.DB) *RateConfigService {
+	return &RateConfigService{tierRepo: tierRepo, marginRepo: marginRepo, db: db}
 }
 
 // SeedDefaults inserts the 7 rate tiers and 5 margin entries if tables are empty.
@@ -215,12 +217,7 @@ func (s *RateConfigService) ApplyVariableRateUpdate(tierID uint64, loanRepo *rep
 		newNominalRate := newBaseRate.Add(loan.BankMargin)
 		newEffectiveRate := CalculateEffectiveInterestRate(newNominalRate, 12)
 
-		loan.BaseRate = newBaseRate
-		loan.CurrentRate = newNominalRate
-		loan.NominalInterestRate = newNominalRate
-		loan.EffectiveInterestRate = newEffectiveRate
-
-		// Count remaining unpaid installments to recalculate monthly payment
+		// Count remaining unpaid installments to recalculate monthly payment.
 		unpaidCount, countErr := installRepo.CountUnpaidByLoan(loan.ID)
 		if countErr != nil {
 			log.Printf("warn: could not count unpaid installments for loan %d: %v", loan.ID, countErr)
@@ -230,19 +227,38 @@ func (s *RateConfigService) ApplyVariableRateUpdate(tierID uint64, loanRepo *rep
 			continue
 		}
 
-		// Recalculate monthly installment based on remaining debt and remaining months
 		newMonthly := CalculateMonthlyInstallment(loan.RemainingDebt, newNominalRate, int(unpaidCount))
 
-		loan.NextInstallmentAmount = newMonthly
+		// Wrap loan rate update + installment update in a single transaction so
+		// they are always consistent — a partial update would leave the loan rate
+		// changed but installment amounts unchanged.
+		loanID := loan.ID
+		txErr := s.db.Transaction(func(tx *gorm.DB) error {
+			loan.BaseRate = newBaseRate
+			loan.CurrentRate = newNominalRate
+			loan.NominalInterestRate = newNominalRate
+			loan.EffectiveInterestRate = newEffectiveRate
+			loan.NextInstallmentAmount = newMonthly
 
-		if err := loanRepo.Update(loan); err != nil {
-			log.Printf("warn: could not update loan %d for variable rate change: %v", loan.ID, err)
-			continue
-		}
+			result := tx.Save(loan)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return fmt.Errorf("optimistic lock conflict: loan %d was modified concurrently", loanID)
+			}
 
-		// Update all unpaid installments with the new amount and rate
-		if err := installRepo.UpdateUnpaidByLoan(loan.ID, newMonthly, newNominalRate); err != nil {
-			log.Printf("warn: could not update installments for loan %d: %v", loan.ID, err)
+			// Bulk-update all unpaid installments; SkipHooks intentional (bulk sweep).
+			return tx.Session(&gorm.Session{SkipHooks: true}).
+				Model(&model.Installment{}).
+				Where("loan_id = ? AND status = ?", loanID, "unpaid").
+				Updates(map[string]interface{}{
+					"amount":        newMonthly,
+					"interest_rate": newNominalRate,
+				}).Error
+		})
+		if txErr != nil {
+			log.Printf("warn: could not update loan %d for variable rate change: %v", loanID, txErr)
 			continue
 		}
 

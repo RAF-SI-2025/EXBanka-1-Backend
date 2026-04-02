@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"log"
 	"time"
 
@@ -15,19 +16,26 @@ func NewSpendingCronService(repo *repository.AccountRepository) *SpendingCronSer
 	return &SpendingCronService{repo: repo}
 }
 
-func (s *SpendingCronService) Start() {
-	go s.runDailyReset()
-	go s.runMonthlyReset()
+// Start launches the daily and monthly reset goroutines. They exit when ctx is cancelled.
+func (s *SpendingCronService) Start(ctx context.Context) {
+	go s.runDailyReset(ctx)
+	go s.runMonthlyReset(ctx)
 }
 
-func (s *SpendingCronService) runDailyReset() {
+func (s *SpendingCronService) runDailyReset(ctx context.Context) {
 	for {
 		now := time.Now()
 		next := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, now.Location())
-		if now.After(next) {
+		if !now.Before(next) {
 			next = next.Add(24 * time.Hour)
 		}
-		time.Sleep(time.Until(next))
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 		if err := s.repo.ResetDailySpending(); err != nil {
 			log.Printf("error resetting daily spending: %v", err)
 		} else {
@@ -36,11 +44,17 @@ func (s *SpendingCronService) runDailyReset() {
 	}
 }
 
-func (s *SpendingCronService) runMonthlyReset() {
+func (s *SpendingCronService) runMonthlyReset(ctx context.Context) {
 	for {
 		now := time.Now()
 		nextMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
-		time.Sleep(time.Until(nextMonth))
+		timer := time.NewTimer(time.Until(nextMonth))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 		if err := s.repo.ResetMonthlySpending(); err != nil {
 			log.Printf("error resetting monthly spending: %v", err)
 		} else {

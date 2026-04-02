@@ -19,6 +19,7 @@ import (
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	shared "github.com/exbanka/contract/shared"
 	pb "github.com/exbanka/contract/transactionpb"
+	verificationpb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/transaction-service/internal/cache"
 	"github.com/exbanka/transaction-service/internal/config"
 	"github.com/exbanka/transaction-service/internal/handler"
@@ -40,8 +41,8 @@ func main() {
 		&model.Payment{},
 		&model.Transfer{},
 		&model.PaymentRecipient{},
-		&model.VerificationCode{},
 		&model.TransferFee{},
+		&model.SagaLog{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -58,6 +59,7 @@ func main() {
 		"transaction.transfer-created",
 		"transaction.transfer-completed",
 		"transaction.transfer-failed",
+		"transaction.saga-dead-letter",
 		"notification.send-email",
 	)
 
@@ -87,10 +89,18 @@ func main() {
 	exchangeGRPCClient := exchangepb.NewExchangeServiceClient(exchangeConn)
 	exchangeClient := service.NewGRPCExchangeClient(exchangeGRPCClient)
 
+	// Connect to verification-service
+	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to verification service: %v", err)
+	}
+	defer verificationConn.Close()
+	verificationClient := verificationpb.NewVerificationGRPCServiceClient(verificationConn)
+
 	paymentRepo := repository.NewPaymentRepository(db)
 	transferRepo := repository.NewTransferRepository(db)
 	recipientRepo := repository.NewPaymentRecipientRepository(db)
-	vcRepo := repository.NewVerificationCodeRepository(db)
+	sagaLogRepo := repository.NewSagaLogRepository(db)
 
 	feeRepo := repository.NewTransferFeeRepository(db)
 	feeSvc := service.NewFeeService(feeRepo)
@@ -120,16 +130,19 @@ func main() {
 		log.Printf("warn: could not fetch bank RSD account, fees will not be credited to bank: %v", bankRSDErr)
 	}
 
-	paymentSvc := service.NewPaymentService(paymentRepo, accountClient, feeSvc, producer, bankRSDAccountNumber)
-	transferSvc := service.NewTransferService(transferRepo, exchangeClient, accountClient, feeSvc, producer, bankRSDAccountNumber)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	paymentSvc := service.NewPaymentService(paymentRepo, accountClient, feeSvc, producer, bankRSDAccountNumber, sagaLogRepo)
+	transferSvc := service.NewTransferService(transferRepo, exchangeClient, accountClient, bankClient, feeSvc, producer, sagaLogRepo)
+	transferSvc.StartCompensationRecovery(ctx)
 	recipientSvc := service.NewPaymentRecipientService(recipientRepo)
-	verificationSvc := service.NewVerificationService(vcRepo, paymentRepo, transferRepo)
 
 	grpcHandler := handler.NewTransactionGRPCHandler(
 		paymentSvc,
 		transferSvc,
 		recipientSvc,
-		verificationSvc,
+		verificationClient,
 		producer,
 	)
 

@@ -4,7 +4,16 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
+
+// BeforeUpdate adds a WHERE version=? clause and increments the version,
+// providing optimistic locking on every Save/Update of a Transfer.
+func (t *Transfer) BeforeUpdate(tx *gorm.DB) error {
+	tx.Statement.Where("version = ?", t.Version)
+	t.Version++
+	return nil
+}
 
 type Transfer struct {
 	ID                uint64          `gorm:"primaryKey;autoIncrement"`

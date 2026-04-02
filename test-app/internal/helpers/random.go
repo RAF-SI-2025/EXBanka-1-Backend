@@ -3,14 +3,16 @@ package helpers
 import (
 	"fmt"
 	"math/rand"
+	"strconv"
 	"time"
 )
 
 var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 // RandomEmail generates a unique email for testing.
+// Uses +test tag so notification-service skips actual SMTP delivery.
 func RandomEmail() string {
-	return fmt.Sprintf("test-%d-%d@exbanka-test.com", time.Now().UnixNano(), rng.Intn(10000))
+	return fmt.Sprintf("exbanka+test-%d-%d@exbanka-test.com", time.Now().UnixNano(), rng.Intn(10000))
 }
 
 // RandomJMBG generates a valid 13-digit JMBG.
@@ -42,6 +44,11 @@ func RandomPassword() string {
 func RandomAmount(min, max float64) string {
 	val := min + rng.Float64()*(max-min)
 	return fmt.Sprintf("%.2f", val)
+}
+
+// FormatID converts an int to its string representation for URL paths.
+func FormatID(id int) string {
+	return strconv.Itoa(id)
 }
 
 // DateOfBirthUnix returns a Unix timestamp for a date of birth (age 25-50).

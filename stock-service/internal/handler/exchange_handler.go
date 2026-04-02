@@ -1,0 +1,92 @@
+package handler
+
+import (
+	"context"
+	"strings"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	pb "github.com/exbanka/contract/stockpb"
+	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/service"
+)
+
+// mapServiceError maps service-layer error messages to gRPC status codes.
+func mapServiceError(err error) codes.Code {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "not found"):
+		return codes.NotFound
+	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"),
+		strings.Contains(msg, "must not"), strings.Contains(msg, "required"):
+		return codes.InvalidArgument
+	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
+		return codes.AlreadyExists
+	case strings.Contains(msg, "insufficient"), strings.Contains(msg, "limit exceeded"),
+		strings.Contains(msg, "not enough"):
+		return codes.FailedPrecondition
+	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
+		return codes.PermissionDenied
+	default:
+		return codes.Internal
+	}
+}
+
+type ExchangeGRPCHandler struct {
+	pb.UnimplementedStockExchangeGRPCServiceServer
+	svc *service.ExchangeService
+}
+
+func NewExchangeGRPCHandler(svc *service.ExchangeService) *ExchangeGRPCHandler {
+	return &ExchangeGRPCHandler{svc: svc}
+}
+
+func (h *ExchangeGRPCHandler) ListExchanges(ctx context.Context, req *pb.ListExchangesRequest) (*pb.ListExchangesResponse, error) {
+	exchanges, total, err := h.svc.ListExchanges(req.Search, int(req.Page), int(req.PageSize))
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "failed to list exchanges: %v", err)
+	}
+
+	resp := &pb.ListExchangesResponse{TotalCount: total}
+	for _, ex := range exchanges {
+		resp.Exchanges = append(resp.Exchanges, toExchangeProto(&ex))
+	}
+	return resp, nil
+}
+
+func (h *ExchangeGRPCHandler) GetExchange(ctx context.Context, req *pb.GetExchangeRequest) (*pb.Exchange, error) {
+	ex, err := h.svc.GetExchange(req.Id)
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "exchange not found: %v", err)
+	}
+	return toExchangeProto(ex), nil
+}
+
+func (h *ExchangeGRPCHandler) SetTestingMode(ctx context.Context, req *pb.SetTestingModeRequest) (*pb.SetTestingModeResponse, error) {
+	if err := h.svc.SetTestingMode(req.Enabled); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to set testing mode: %v", err)
+	}
+	return &pb.SetTestingModeResponse{TestingMode: req.Enabled}, nil
+}
+
+func (h *ExchangeGRPCHandler) GetTestingMode(ctx context.Context, req *pb.GetTestingModeRequest) (*pb.GetTestingModeResponse, error) {
+	enabled := h.svc.GetTestingMode()
+	return &pb.GetTestingModeResponse{TestingMode: enabled}, nil
+}
+
+func toExchangeProto(ex *model.StockExchange) *pb.Exchange {
+	return &pb.Exchange{
+		Id:              ex.ID,
+		Name:            ex.Name,
+		Acronym:         ex.Acronym,
+		MicCode:         ex.MICCode,
+		Polity:          ex.Polity,
+		Currency:        ex.Currency,
+		TimeZone:        ex.TimeZone,
+		OpenTime:        ex.OpenTime,
+		CloseTime:       ex.CloseTime,
+		PreMarketOpen:   ex.PreMarketOpen,
+		PostMarketClose: ex.PostMarketClose,
+	}
+}

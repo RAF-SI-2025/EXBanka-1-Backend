@@ -1146,70 +1146,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/bootstrap": {
-            "post": {
-                "description": "Creates the admin employee in user-service and provisions an auth account +\nactivation token in auth-service, which publishes the token to the\nnotification.send-email Kafka topic. Protected by the BOOTSTRAP_SECRET env var;\nreturns 404 when the secret is not configured (safe for production).\nIdempotent: safe to call multiple times (each call issues a fresh activation token).",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "bootstrap"
-                ],
-                "summary": "Seed the initial admin employee (test/dev only)",
-                "parameters": [
-                    {
-                        "description": "Bootstrap credentials",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.bootstrapRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "message: bootstrap complete",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "bad request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "not found (secret not set or wrong)",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "upstream error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/cards": {
             "post": {
                 "security": [
@@ -5307,6 +5243,264 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/mobile/auth/activate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mobile-auth"
+                ],
+                "summary": "Activate mobile device with code",
+                "parameters": [
+                    {
+                        "description": "Activation data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.activateDeviceReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mobile/auth/refresh": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mobile-auth"
+                ],
+                "summary": "Refresh mobile token",
+                "parameters": [
+                    {
+                        "description": "Refresh token",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.refreshMobileReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mobile/auth/request-activation": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mobile-auth"
+                ],
+                "summary": "Request mobile app activation code",
+                "parameters": [
+                    {
+                        "description": "Email",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.requestActivationReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mobile/device": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mobile-device"
+                ],
+                "summary": "Get current device info",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mobile/device/deactivate": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mobile-device"
+                ],
+                "summary": "Deactivate current device",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mobile/device/transfer": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mobile-device"
+                ],
+                "summary": "Transfer device (deactivate current + send new activation code)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mobile/verifications/pending": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mobile-verifications"
+                ],
+                "summary": "Get pending mobile verifications (mobile polling)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/mobile/verifications/{challenge_id}/submit": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mobile-verifications"
+                ],
+                "summary": "Submit mobile verification response",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Challenge ID",
+                        "name": "challenge_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Verification response",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.submitMobileVerificationReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/payment-recipients": {
             "post": {
                 "security": [
@@ -6399,6 +6593,166 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/api/verifications": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "verifications"
+                ],
+                "summary": "Create verification challenge",
+                "parameters": [
+                    {
+                        "description": "Challenge data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createVerificationReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/verifications/{id}/code": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "verifications"
+                ],
+                "summary": "Submit verification code (browser, code_pull method)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Challenge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Verification code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.submitCodeReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/verifications/{id}/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "verifications"
+                ],
+                "summary": "Get verification challenge status",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Challenge ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/verify/{challenge_id}": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mobile-verifications"
+                ],
+                "summary": "QR code verification (mobile scans QR)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Challenge ID",
+                        "name": "challenge_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "QR verification token",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -6421,6 +6775,25 @@ const docTemplate = `{
                 "toCurrency": {
                     "type": "string",
                     "example": "USD"
+                }
+            }
+        },
+        "handler.activateDeviceReq": {
+            "type": "object",
+            "required": [
+                "code",
+                "device_name",
+                "email"
+            ],
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "device_name": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
                 }
             }
         },
@@ -6452,21 +6825,6 @@ const docTemplate = `{
                 "template_name": {
                     "type": "string",
                     "example": "BasicTeller"
-                }
-            }
-        },
-        "handler.bootstrapRequest": {
-            "type": "object",
-            "required": [
-                "email",
-                "secret"
-            ],
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "secret": {
-                    "type": "string"
                 }
             }
         },
@@ -6962,6 +7320,24 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.createVerificationReq": {
+            "type": "object",
+            "required": [
+                "source_id",
+                "source_service"
+            ],
+            "properties": {
+                "method": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "integer"
+                },
+                "source_service": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.createVirtualCardBody": {
             "type": "object",
             "required": [
@@ -7005,10 +7381,10 @@ const docTemplate = `{
         },
         "handler.executePaymentRequest": {
             "type": "object",
-            "required": [
-                "verification_code"
-            ],
             "properties": {
+                "challenge_id": {
+                    "type": "integer"
+                },
                 "verification_code": {
                     "type": "string"
                 }
@@ -7016,10 +7392,10 @@ const docTemplate = `{
         },
         "handler.executeTransferRequest": {
             "type": "object",
-            "required": [
-                "verification_code"
-            ],
             "properties": {
+                "challenge_id": {
+                    "type": "integer"
+                },
                 "verification_code": {
                     "type": "string"
                 }
@@ -7062,6 +7438,17 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.refreshMobileReq": {
+            "type": "object",
+            "required": [
+                "refresh_token"
+            ],
+            "properties": {
+                "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.refreshRequest": {
             "type": "object",
             "required": [
@@ -7082,6 +7469,17 @@ const docTemplate = `{
                 "reason": {
                     "type": "string",
                     "example": "Insufficient account history"
+                }
+            }
+        },
+        "handler.requestActivationReq": {
+            "type": "object",
+            "required": [
+                "email"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
                 }
             }
         },
@@ -7188,6 +7586,28 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "handler.submitCodeReq": {
+            "type": "object",
+            "required": [
+                "code"
+            ],
+            "properties": {
+                "code": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.submitMobileVerificationReq": {
+            "type": "object",
+            "required": [
+                "response"
+            ],
+            "properties": {
+                "response": {
+                    "type": "string"
                 }
             }
         },

@@ -44,6 +44,8 @@ func main() {
 		&model.AccountLock{},
 		&model.TOTPSecret{},
 		&model.ActiveSession{},
+		&model.MobileDevice{},
+		&model.MobileActivationCode{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -73,8 +75,16 @@ func main() {
 	totpRepo := repository.NewTOTPRepository(db)
 	jwtService := service.NewJWTService(cfg.JWTSecret, cfg.AccessExpiry)
 	totpSvc := service.NewTOTPService()
-	authService := service.NewAuthService(tokenRepo, loginAttemptRepo, totpRepo, totpSvc, jwtService, accountRepo, userClient, producer, redisCache, cfg.RefreshExpiry, cfg.FrontendBaseURL, cfg.PasswordPepper)
-	grpcHandler := handler.NewAuthGRPCHandler(authService)
+	authService := service.NewAuthService(tokenRepo, loginAttemptRepo, totpRepo, totpSvc, jwtService, accountRepo, userClient, producer, redisCache, cfg.RefreshExpiry, cfg.MobileRefreshExpiry, cfg.FrontendBaseURL, cfg.PasswordPepper)
+
+	mobileDeviceRepo := repository.NewMobileDeviceRepository(db)
+	mobileActivationRepo := repository.NewMobileActivationRepository(db)
+	mobileSvc := service.NewMobileDeviceService(
+		mobileDeviceRepo, mobileActivationRepo, accountRepo, tokenRepo,
+		jwtService, producer, cfg.MobileRefreshExpiry, cfg.MobileActivationExpiry, cfg.FrontendBaseURL,
+	)
+
+	grpcHandler := handler.NewAuthGRPCHandler(authService, mobileSvc)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -93,6 +103,7 @@ func main() {
 		"notification.send-email",
 		kafkamsg.TopicAuthAccountStatusChanged,
 		kafkamsg.TopicAuthDeadLetter,
+		kafkamsg.TopicAuthMobileDeviceActivated,
 	)
 
 	// Start Kafka consumer for employee-created events

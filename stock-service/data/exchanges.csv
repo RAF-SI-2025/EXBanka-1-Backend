@@ -1,0 +1,17 @@
+name,acronym,mic_code,polity,currency,time_zone,open_time,close_time,pre_market_open,post_market_close
+New York Stock Exchange,NYSE,XNYS,United States,USD,-5,09:30,16:00,04:00,20:00
+NASDAQ,NASDAQ,XNAS,United States,USD,-5,09:30,16:00,04:00,20:00
+London Stock Exchange,LSE,XLON,United Kingdom,GBP,0,08:00,16:30,,
+Tokyo Stock Exchange,TSE,XJPX,Japan,JPY,+9,09:00,15:00,,
+Shanghai Stock Exchange,SSE,XSHG,China,CNY,+8,09:30,15:00,,
+Hong Kong Stock Exchange,HKEX,XHKG,Hong Kong,HKD,+8,09:30,16:00,,
+Toronto Stock Exchange,TSX,XTSE,Canada,CAD,-5,09:30,16:00,,
+Australian Securities Exchange,ASX,XASX,Australia,AUD,+10,10:00,16:00,,
+SIX Swiss Exchange,SIX,XSWX,Switzerland,CHF,+1,09:00,17:30,,
+Euronext Paris,ENX,XPAR,France,EUR,+1,09:00,17:30,,
+Frankfurt Stock Exchange,FRA,XFRA,Germany,EUR,+1,08:00,22:00,,
+New York Mercantile Exchange,NYMEX,XNYM,United States,USD,-5,09:00,14:30,,
+Chicago Board of Trade,CBOT,XCBT,United States,USD,-6,08:30,13:20,,
+Chicago Mercantile Exchange,CME,XCME,United States,USD,-6,08:30,15:15,,
+Borsa Italiana,BIT,XMIL,Italy,EUR,+1,09:00,17:30,,
+Foreign Exchange Market,FOREX,XFOR,Global,USD,0,00:00,23:59,,

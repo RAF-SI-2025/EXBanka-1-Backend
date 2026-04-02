@@ -166,6 +166,54 @@ services:
       timeout: 5s
       retries: 5
 
+  stock-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: stockdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5442:5432"
+    volumes:
+      - stock-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  verification-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: verificationdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5440:5432"
+    volumes:
+      - verification-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  notification-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: notification_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5441:5432"
+    volumes:
+      - notification-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   # ─── Services ─────────────────────────────────────────────────────────────
 
   user-service:
@@ -212,6 +260,8 @@ services:
       AUTH_DB_SSLMODE: disable
       FRONTEND_BASE_URL: "http://localhost:5173"
       PASSWORD_PEPPER: "${PASSWORD_PEPPER}"
+      MOBILE_REFRESH_EXPIRY: "2160h"
+      MOBILE_ACTIVATION_EXPIRY: "15m"
     ports:
       - "50051:50051"
     depends_on:
@@ -236,9 +286,17 @@ services:
       SMTP_USER: ${SMTP_USER:-thebiggestdouchebagaround@gmail.com}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-eebu yksy isfx nanl}
       SMTP_FROM: ${SMTP_FROM:-thebiggestdouchebagaround@gmail.com}
+      NOTIFICATION_DB_HOST: notification-db
+      NOTIFICATION_DB_PORT: "5432"
+      NOTIFICATION_DB_USER: postgres
+      NOTIFICATION_DB_PASSWORD: postgres
+      NOTIFICATION_DB_NAME: notification_db
+      NOTIFICATION_DB_SSLMODE: disable
     ports:
       - "50053:50053"
     depends_on:
+      notification-db:
+        condition: service_healthy
       kafka:
         condition: service_healthy
 
@@ -335,6 +393,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
+      VERIFICATION_GRPC_ADDR: "verification-service:50061"
     ports:
       - "50057:50057"
     depends_on:
@@ -347,6 +406,8 @@ services:
       account-service:
         condition: service_started
       exchange-service:
+        condition: service_started
+      verification-service:
         condition: service_started
 
   credit-service:
@@ -410,6 +471,69 @@ services:
       kafka:
         condition: service_healthy
 
+  stock-service:
+    build:
+      context: .
+      dockerfile: stock-service/Dockerfile
+    environment:
+      STOCK_DB_HOST: stock-db
+      STOCK_DB_PORT: "5432"
+      STOCK_DB_USER: postgres
+      STOCK_DB_PASSWORD: postgres
+      STOCK_DB_NAME: stockdb
+      STOCK_DB_SSLMODE: disable
+      STOCK_GRPC_ADDR: ":50060"
+      KAFKA_BROKERS: kafka:9092
+      USER_GRPC_ADDR: "user-service:50052"
+      ACCOUNT_GRPC_ADDR: "account-service:50055"
+      EXCHANGE_GRPC_ADDR: "exchange-service:50059"
+      CLIENT_GRPC_ADDR: "client-service:50054"
+      STATE_ACCOUNT_NUMBER: "0000000000000099"
+      ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY:-48LZWZHF4RBSPT4W}
+      SECURITY_SYNC_INTERVAL_MINUTES: "15"
+      EODHD_API_KEY: ${EODHD_API_KEY:-69ceead76aa151.58974488}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_API_SECRET: ${ALPACA_API_SECRET:-}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-d77em2pr01qp6aflc4i0d77em2pr01qp6aflc4ig}
+    ports:
+      - "50060:50060"
+    depends_on:
+      stock-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      account-service:
+        condition: service_started
+      exchange-service:
+        condition: service_started
+      client-service:
+        condition: service_started
+
+  verification-service:
+    build:
+      context: .
+      dockerfile: verification-service/Dockerfile
+    environment:
+      VERIFICATION_DB_HOST: verification-db
+      VERIFICATION_DB_PORT: "5432"
+      VERIFICATION_DB_USER: postgres
+      VERIFICATION_DB_PASSWORD: postgres
+      VERIFICATION_DB_NAME: verificationdb
+      VERIFICATION_GRPC_ADDR: ":50061"
+      KAFKA_BROKERS: kafka:9092
+      VERIFICATION_DB_SSLMODE: disable
+      VERIFICATION_CHALLENGE_EXPIRY: "5m"
+      VERIFICATION_MAX_ATTEMPTS: "3"
+    ports:
+      - "50061:50061"
+    depends_on:
+      verification-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
   # ─── API Gateway ──────────────────────────────────────────────────────────
 
   api-gateway:
@@ -426,6 +550,10 @@ services:
       TRANSACTION_GRPC_ADDR: "transaction-service:50057"
       CREDIT_GRPC_ADDR: "credit-service:50058"
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
+      STOCK_GRPC_ADDR: "stock-service:50060"
+      VERIFICATION_GRPC_ADDR: "verification-service:50061"
+      NOTIFICATION_GRPC_ADDR: "notification-service:50053"
+      KAFKA_BROKERS: kafka:9092
     ports:
       - "8080:8080"
     depends_on:
@@ -445,6 +573,14 @@ services:
         condition: service_started
       exchange-service:
         condition: service_started
+      stock-service:
+        condition: service_started
+      verification-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      kafka:
+        condition: service_healthy
 
   # ─── Seeder ───────────────────────────────────────────────────────────────
   # One-shot job: provisions the default admin account on first startup.
@@ -480,3 +616,6 @@ volumes:
   transaction-db-data:
   credit-db-data:
   exchange-db-data:
+  stock-db-data:
+  verification-db-data:
+  notification-db-data:

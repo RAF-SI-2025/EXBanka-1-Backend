@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -73,13 +74,15 @@ func main() {
 	blockRepo := repository.NewCardBlockRepository(db)
 	authRepo := repository.NewAuthorizedPersonRepository(db)
 	cardRequestRepo := repository.NewCardRequestRepository(db)
-	cardService := service.NewCardService(cardRepo, blockRepo, authRepo, producer, redisCache)
+	cardService := service.NewCardService(cardRepo, blockRepo, authRepo, producer, redisCache, db)
 	cardRequestSvc := service.NewCardRequestService(cardRequestRepo, cardService, producer)
 	grpcHandler := handler.NewCardGRPCHandler(cardService, producer, clientClient)
 	virtualCardHandler := handler.NewVirtualCardGRPCHandler(cardService)
 	cardRequestHandler := handler.NewCardRequestGRPCHandler(cardRequestSvc)
 
-	service.StartCardCron(cardRepo, blockRepo)
+	cronCtx, cronCancel := context.WithCancel(context.Background())
+	defer cronCancel()
+	service.StartCardCron(cronCtx, cardRepo, blockRepo, db)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

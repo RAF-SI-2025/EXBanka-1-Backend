@@ -57,6 +57,18 @@ func (c *EmailConsumer) handleMessage(ctx context.Context, data []byte) {
 	}
 	log.Printf("[DEV] email queued | type=%s to=%s data=%v", emailMsg.EmailType, emailMsg.To, emailMsg.Data)
 
+	if isTestAddress(emailMsg.To) {
+		log.Printf("[TEST] skipping send to %s | type=%s data=%v", emailMsg.To, emailMsg.EmailType, emailMsg.Data)
+		if pubErr := c.producer.PublishEmailSent(ctx, kafkamsg.EmailSentMessage{
+			To:        emailMsg.To,
+			EmailType: emailMsg.EmailType,
+			Success:   true,
+		}); pubErr != nil {
+			log.Printf("failed to publish email-sent confirmation: %v", pubErr)
+		}
+		return
+	}
+
 	subject, body := sender.BuildEmail(emailMsg.EmailType, emailMsg.Data)
 	err := c.sender.Send(emailMsg.To, subject, body)
 
@@ -79,4 +91,12 @@ func (c *EmailConsumer) handleMessage(ctx context.Context, data []byte) {
 
 func (c *EmailConsumer) Close() error {
 	return c.reader.Close()
+}
+
+// isTestAddress returns true for plus-addressed emails (e.g. user+test@domain.com).
+// These are treated as test recipients: the email is not sent but the token/code
+// is logged to the console and a success confirmation is published.
+func isTestAddress(email string) bool {
+	at := strings.Index(email, "@")
+	return at > 0 && strings.Contains(email[:at], "+test")
 }

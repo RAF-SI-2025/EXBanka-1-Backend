@@ -1,8 +1,11 @@
 package repository
 
 import (
+	"fmt"
+
 	"github.com/exbanka/credit-service/internal/model"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type LoanRequestRepository struct {
@@ -25,8 +28,25 @@ func (r *LoanRequestRepository) GetByID(id uint64) (*model.LoanRequest, error) {
 	return &req, nil
 }
 
+// GetByIDForUpdate fetches a loan request by ID with SELECT FOR UPDATE.
+// Must be called within an active transaction (tx *gorm.DB).
+func (r *LoanRequestRepository) GetByIDForUpdate(tx *gorm.DB, id uint64) (*model.LoanRequest, error) {
+	var req model.LoanRequest
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&req, id).Error; err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
 func (r *LoanRequestRepository) Update(req *model.LoanRequest) error {
-	return r.db.Save(req).Error
+	result := r.db.Save(req)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("optimistic lock conflict: loan request %d was modified concurrently", req.ID)
+	}
+	return nil
 }
 
 func (r *LoanRequestRepository) List(typeFilter, accountFilter, statusFilter string, clientID uint64, page, pageSize int) ([]model.LoanRequest, int64, error) {

@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type Employee struct {
 	ID                    int64        `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -19,4 +23,11 @@ type Employee struct {
 	AdditionalPermissions []Permission `gorm:"many2many:employee_additional_permissions;" json:"additional_permissions,omitempty"`
 	CreatedAt             time.Time    `json:"created_at"`
 	UpdatedAt             time.Time    `json:"updated_at"`
+	Version               int64        `gorm:"not null;default:1" json:"version"`
+}
+
+func (e *Employee) BeforeUpdate(tx *gorm.DB) error {
+	tx.Statement.Where("version = ?", e.Version)
+	e.Version++
+	return nil
 }

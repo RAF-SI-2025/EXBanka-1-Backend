@@ -31,6 +31,7 @@ type AuthService struct {
 	producer         *kafkaprod.Producer
 	cache            *cache.RedisCache
 	refreshExp       time.Duration
+	mobileRefreshExp time.Duration
 	frontendBaseURL  string
 	pepper           string
 }
@@ -46,6 +47,7 @@ func NewAuthService(
 	producer *kafkaprod.Producer,
 	cache *cache.RedisCache,
 	refreshExp time.Duration,
+	mobileRefreshExp time.Duration,
 	frontendBaseURL string,
 	pepper string,
 ) *AuthService {
@@ -60,6 +62,7 @@ func NewAuthService(
 		producer:         producer,
 		cache:            cache,
 		refreshExp:       refreshExp,
+		mobileRefreshExp: mobileRefreshExp,
 		frontendBaseURL:  frontendBaseURL,
 		pepper:           pepper,
 	}
@@ -127,47 +130,35 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	// Look up account by email
 	account, err := s.accountRepo.GetByEmail(email)
 	if err != nil {
-		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
-		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
-		if freshCount >= maxFailedAttempts {
-			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, maxFailedAttempts, lockoutWindow, lockoutDuration)
+		if locked {
 			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
 		}
-		remaining := int(maxFailedAttempts - freshCount)
 		return "", "", fmt.Errorf("no account found with email %s (%d attempts remaining before lockout)", email, remaining)
 	}
 
 	// Check account status
 	if account.Status == model.AccountStatusPending {
-		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
-		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
-		if freshCount >= maxFailedAttempts {
-			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, maxFailedAttempts, lockoutWindow, lockoutDuration)
+		if locked {
 			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
 		}
-		remaining := int(maxFailedAttempts - freshCount)
 		return "", "", fmt.Errorf("account not yet activated (%d attempts remaining before lockout)", remaining)
 	}
 	if account.Status != model.AccountStatusActive {
-		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
-		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
-		if freshCount >= maxFailedAttempts {
-			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, maxFailedAttempts, lockoutWindow, lockoutDuration)
+		if locked {
 			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
 		}
-		remaining := int(maxFailedAttempts - freshCount)
 		return "", "", fmt.Errorf("account is disabled (%d attempts remaining before lockout)", remaining)
 	}
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(PepperPassword(s.pepper, password))); err != nil {
-		_ = s.loginAttemptRepo.RecordAttempt(email, "", false)
-		freshCount, _ := s.loginAttemptRepo.CountRecentFailedAttempts(email, lockoutWindow)
-		if freshCount >= maxFailedAttempts {
-			_ = s.loginAttemptRepo.LockAccount(email, lockoutDuration)
+		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, maxFailedAttempts, lockoutWindow, lockoutDuration)
+		if locked {
 			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
 		}
-		remaining := int(maxFailedAttempts - freshCount)
 		return "", "", fmt.Errorf("incorrect password for %s (%d attempts remaining before lockout)", email, remaining)
 	}
 
@@ -332,6 +323,101 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) 
 	}
 
 	return accessToken, newRefreshToken, nil
+}
+
+// ValidateRefreshToken returns the refresh token record if valid.
+func (s *AuthService) ValidateRefreshToken(token string) (*model.RefreshToken, error) {
+	rt, err := s.tokenRepo.GetRefreshToken(token)
+	if err != nil {
+		return nil, errors.New("invalid refresh token")
+	}
+	if rt.Revoked {
+		return nil, errors.New("refresh token revoked")
+	}
+	if time.Now().After(rt.ExpiresAt) {
+		return nil, errors.New("refresh token expired")
+	}
+	return rt, nil
+}
+
+// RefreshTokenForMobile validates the refresh token, verifies the device is active and matches,
+// revokes the old token, and issues a new mobile token pair.
+func (s *AuthService) RefreshTokenForMobile(ctx context.Context, oldRefreshToken, deviceID string, mobileSvc *MobileDeviceService) (string, string, error) {
+	rt, err := s.tokenRepo.GetRefreshToken(oldRefreshToken)
+	if err != nil {
+		return "", "", errors.New("invalid refresh token")
+	}
+	if rt.Revoked {
+		return "", "", errors.New("refresh token revoked")
+	}
+	if time.Now().After(rt.ExpiresAt) {
+		return "", "", errors.New("refresh token expired")
+	}
+
+	// Get account to resolve PrincipalID (the actual user ID used in MobileDevice)
+	var acct model.Account
+	if err := s.accountRepo.GetByID(rt.AccountID, &acct); err != nil {
+		return "", "", errors.New("account not found")
+	}
+	if acct.Status != model.AccountStatusActive {
+		return "", "", errors.New("account is not active")
+	}
+
+	// Verify device is active and matches the provided deviceID
+	device, err := mobileSvc.GetDeviceInfo(acct.PrincipalID)
+	if err != nil {
+		return "", "", errors.New("device not found or deactivated, please re-activate")
+	}
+	if device.DeviceID != deviceID {
+		return "", "", errors.New("device ID mismatch — permission denied")
+	}
+
+	// Revoke old token
+	_ = s.tokenRepo.RevokeRefreshToken(oldRefreshToken)
+
+	// Fetch roles/permissions
+	var roles []string
+	var permissions []string
+	systemType := rt.SystemType
+	if systemType == "" {
+		systemType = "employee"
+	}
+
+	if systemType == "employee" {
+		emp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: acct.PrincipalID})
+		if err == nil {
+			roles = emp.Roles
+			permissions = emp.Permissions
+		}
+	} else {
+		roles = []string{"client"}
+	}
+
+	// Generate new access token with device claims
+	access, err := s.jwtService.GenerateMobileAccessToken(
+		acct.PrincipalID, acct.Email, roles, permissions,
+		systemType, "mobile", deviceID,
+	)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Generate new refresh token
+	newRefreshStr, err := generateToken()
+	if err != nil {
+		return "", "", err
+	}
+	newRT := &model.RefreshToken{
+		AccountID:  acct.ID,
+		Token:      newRefreshStr,
+		ExpiresAt:  time.Now().Add(s.mobileRefreshExp),
+		SystemType: systemType,
+	}
+	if err := s.tokenRepo.CreateRefreshToken(newRT); err != nil {
+		return "", "", err
+	}
+
+	return access, newRefreshStr, nil
 }
 
 func (s *AuthService) Logout(ctx context.Context, refreshTokenStr string) error {

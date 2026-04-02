@@ -174,3 +174,12 @@ func handleGRPCError(c *gin.Context, err error) {
 	httpStatus, code, message := grpcToHTTPError(err)
 	apiError(c, httpStatus, code, message)
 }
+
+// emptyIfNil returns an initialized empty slice when s is nil.
+// This prevents encoding/json from serializing nil slices as null.
+func emptyIfNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}

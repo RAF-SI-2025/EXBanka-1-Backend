@@ -164,3 +164,66 @@ func TestFees_CreateWithInvalidTransactionType(t *testing.T) {
 		t.Fatal("expected failure with invalid transaction_type")
 	}
 }
+
+func TestFees_UpdateFee(t *testing.T) {
+	c := loginAsAdmin(t)
+
+	// Create a fee to update
+	createResp, err := c.POST("/api/fees", map[string]interface{}{
+		"name":             fmt.Sprintf("UpdateMe_%d", helpers.DateOfBirthUnix()),
+		"fee_type":         "percentage",
+		"fee_value":        "0.3",
+		"transaction_type": "all",
+		"min_amount":       "100.00",
+		"max_fee":          "5000.00",
+	})
+	if err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+	if createResp.StatusCode >= 400 {
+		t.Skipf("skipping update: create returned %d", createResp.StatusCode)
+	}
+	feeID := int(helpers.GetNumberField(t, createResp, "id"))
+
+	// Update it
+	resp, err := c.PUT(fmt.Sprintf("/api/fees/%d", feeID), map[string]interface{}{
+		"name":             "UpdatedFee",
+		"fee_type":         "percentage",
+		"fee_value":        "0.5",
+		"transaction_type": "all",
+		"min_amount":       "200.00",
+		"max_fee":          "8000.00",
+	})
+	if err != nil {
+		t.Fatalf("update error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}
+
+func TestFees_DeleteFee(t *testing.T) {
+	c := loginAsAdmin(t)
+
+	// Create a fee to delete
+	createResp, err := c.POST("/api/fees", map[string]interface{}{
+		"name":             fmt.Sprintf("DeleteMe_%d", helpers.DateOfBirthUnix()),
+		"fee_type":         "fixed",
+		"fee_value":        "25.00",
+		"transaction_type": "payment",
+		"min_amount":       "0.00",
+		"max_fee":          "25.00",
+	})
+	if err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+	if createResp.StatusCode >= 400 {
+		t.Skipf("skipping delete: create returned %d", createResp.StatusCode)
+	}
+	feeID := int(helpers.GetNumberField(t, createResp, "id"))
+
+	// Delete it
+	resp, err := c.DELETE(fmt.Sprintf("/api/fees/%d", feeID))
+	if err != nil {
+		t.Fatalf("delete error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}

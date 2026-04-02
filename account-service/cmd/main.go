@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -81,16 +82,19 @@ func main() {
 	currencyRepo := repository.NewCurrencyRepository(db)
 	ledgerRepo := repository.NewLedgerRepository(db)
 
-	accountService := service.NewAccountService(accountRepo)
+	accountService := service.NewAccountService(accountRepo, db)
 	companyService := service.NewCompanyService(companyRepo)
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
 
-	spendingCron := service.NewSpendingCronService(accountRepo)
-	spendingCron.Start()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	maintenanceCron := service.NewMaintenanceCronService(accountRepo)
-	maintenanceCron.Start()
+	spendingCron := service.NewSpendingCronService(accountRepo)
+	spendingCron.Start(ctx)
+
+	maintenanceCron := service.NewMaintenanceCronService(accountRepo, ledgerService)
+	maintenanceCron.Start(ctx)
 
 	// Seed bank accounts for all supported currencies (idempotent)
 	bankAccounts, _ := accountService.ListBankAccounts()
@@ -116,7 +120,7 @@ func main() {
 		if existingCurrencies[c.Code] {
 			continue
 		}
-		if _, err := accountService.CreateBankAccount(c.Code, c.Kind, c.Name); err != nil {
+		if _, err := accountService.CreateBankAccount(c.Code, c.Kind, c.Name, decimal.NewFromInt(10_000_000)); err != nil {
 			log.Printf("warn: failed to seed bank %s account: %v", c.Code, err)
 		} else {
 			log.Printf("Seeded bank %s account", c.Code)
@@ -147,7 +151,7 @@ func main() {
 				AccountKind:    "current",
 				AccountType:    "standard",
 				IsBankAccount:  false,
-				AccountNumber:  service.GenerateAccountNumber("current"),
+				AccountNumber:  "0000000000000099", // well-known state account number for tax deposits
 				ExpiresAt:      time.Now().AddDate(50, 0, 0),
 				MaintenanceFee: decimal.Zero,
 				CompanyID:      &stateCompany.ID,

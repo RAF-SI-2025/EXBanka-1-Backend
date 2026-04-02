@@ -15,13 +15,30 @@ import (
 	"github.com/exbanka/notification-service/internal/consumer"
 	"github.com/exbanka/notification-service/internal/handler"
 	kafkaprod "github.com/exbanka/notification-service/internal/kafka"
+	"github.com/exbanka/notification-service/internal/model"
+	"github.com/exbanka/notification-service/internal/repository"
 	"github.com/exbanka/notification-service/internal/sender"
+	"github.com/exbanka/notification-service/internal/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func main() {
 	cfg := config.Load()
+
+	// Database
+	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+	if err := db.AutoMigrate(&model.MobileInboxItem{}); err != nil {
+		log.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Inbox repository
+	inboxRepo := repository.NewMobileInboxRepository(db)
 
 	// Email sender
 	emailSender := sender.NewEmailSender(
@@ -38,16 +55,27 @@ func main() {
 	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
 		"notification.send-email",
 		"notification.email-sent",
+		"verification.challenge-created",
+		"notification.mobile-push",
 	)
 
 	// Kafka consumer (email events)
 	emailConsumer := consumer.NewEmailConsumer(cfg.KafkaBrokers, emailSender, producer)
 	defer emailConsumer.Close()
 
-	// Start consumer in background
+	// Start consumers in background
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go emailConsumer.Start(ctx)
+
+	// Verification consumer (challenge events → email or mobile inbox)
+	verificationConsumer := consumer.NewVerificationConsumer(cfg.KafkaBrokers, emailSender, producer, inboxRepo)
+	verificationConsumer.Start(ctx)
+	defer verificationConsumer.Close()
+
+	// Background inbox cleanup
+	cleanupSvc := service.NewInboxCleanupService(inboxRepo)
+	cleanupSvc.StartCleanupCron(ctx)
 
 	// gRPC server
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
@@ -56,7 +84,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	notifpb.RegisterNotificationServiceServer(grpcServer, handler.NewGRPCHandler(emailSender))
+	notifpb.RegisterNotificationServiceServer(grpcServer, handler.NewGRPCHandler(emailSender, inboxRepo))
 	shared.RegisterHealthCheck(grpcServer, "notification-service")
 	reflection.Register(grpcServer)
 

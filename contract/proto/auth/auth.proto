@@ -16,6 +16,15 @@ service AuthService {
   rpc GetAccountStatus(GetAccountStatusRequest) returns (GetAccountStatusResponse);
   rpc GetAccountStatusBatch(GetAccountStatusBatchRequest) returns (GetAccountStatusBatchResponse);
   rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+
+  // Mobile device management
+  rpc RequestMobileActivation(MobileActivationRequest) returns (MobileActivationResponse);
+  rpc ActivateMobileDevice(ActivateMobileDeviceRequest) returns (ActivateMobileDeviceResponse);
+  rpc RefreshMobileToken(RefreshMobileTokenRequest) returns (RefreshMobileTokenResponse);
+  rpc DeactivateDevice(DeactivateDeviceRequest) returns (DeactivateDeviceResponse);
+  rpc TransferDevice(TransferDeviceRequest) returns (TransferDeviceResponse);
+  rpc ValidateDeviceSignature(ValidateDeviceSignatureRequest) returns (ValidateDeviceSignatureResponse);
+  rpc GetDeviceInfo(GetDeviceInfoRequest) returns (GetDeviceInfoResponse);
 }
 
 message LoginRequest {
@@ -40,6 +49,8 @@ message ValidateTokenResponse {
   repeated string permissions = 5;
   string system_type = 6;
   repeated string roles = 7;
+  string device_type = 8;   // "mobile" or empty for browser
+  string device_id = 9;     // UUID of mobile device or empty
 }
 
 message RefreshTokenRequest {
@@ -131,4 +142,82 @@ message CreateAccountRequest {
 
 message CreateAccountResponse {
   bool success = 1;
+}
+
+// --- Mobile device messages ---
+
+message MobileActivationRequest {
+  string email = 1;
+}
+
+message MobileActivationResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ActivateMobileDeviceRequest {
+  string email = 1;
+  string code = 2;
+  string device_name = 3;
+}
+
+message ActivateMobileDeviceResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  string device_id = 3;
+  string device_secret = 4;
+}
+
+message RefreshMobileTokenRequest {
+  string refresh_token = 1;
+  string device_id = 2;
+}
+
+message RefreshMobileTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+}
+
+message DeactivateDeviceRequest {
+  int64 user_id = 1;
+  string device_id = 2;
+}
+
+message DeactivateDeviceResponse {
+  bool success = 1;
+}
+
+message TransferDeviceRequest {
+  int64 user_id = 1;
+  string email = 2;
+}
+
+message TransferDeviceResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ValidateDeviceSignatureRequest {
+  string device_id = 1;
+  string timestamp = 2;
+  string method = 3;
+  string path = 4;
+  string body_sha256 = 5;
+  string signature = 6;
+}
+
+message ValidateDeviceSignatureResponse {
+  bool valid = 1;
+}
+
+message GetDeviceInfoRequest {
+  int64 user_id = 1;
+}
+
+message GetDeviceInfoResponse {
+  string device_id = 1;
+  string device_name = 2;
+  string status = 3;
+  string activated_at = 4;
+  string last_seen_at = 5;
 }
