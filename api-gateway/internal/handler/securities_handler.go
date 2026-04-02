@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	stockpb "github.com/exbanka/contract/stockpb"
+	"github.com/gin-gonic/gin"
 )
 
 type SecuritiesHandler struct {
@@ -51,7 +51,7 @@ func (h *SecuritiesHandler) ListStocks(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"stocks": resp.Stocks, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"stocks": emptyIfNil(resp.Stocks), "total_count": resp.TotalCount})
 }
 
 func (h *SecuritiesHandler) GetStock(c *gin.Context) {
@@ -89,7 +89,7 @@ func (h *SecuritiesHandler) GetStockHistory(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"history": resp.History, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"history": emptyIfNil(resp.History), "total_count": resp.TotalCount})
 }
 
 // --- Futures ---
@@ -116,7 +116,7 @@ func (h *SecuritiesHandler) ListFutures(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"futures": resp.Futures, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"futures": emptyIfNil(resp.Futures), "total_count": resp.TotalCount})
 }
 
 func (h *SecuritiesHandler) GetFutures(c *gin.Context) {
@@ -150,7 +150,7 @@ func (h *SecuritiesHandler) GetFuturesHistory(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"history": resp.History, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"history": emptyIfNil(resp.History), "total_count": resp.TotalCount})
 }
 
 // --- Forex ---
@@ -181,7 +181,7 @@ func (h *SecuritiesHandler) ListForexPairs(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"forex_pairs": resp.ForexPairs, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"forex_pairs": emptyIfNil(resp.ForexPairs), "total_count": resp.TotalCount})
 }
 
 func (h *SecuritiesHandler) GetForexPair(c *gin.Context) {
@@ -215,7 +215,7 @@ func (h *SecuritiesHandler) GetForexPairHistory(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"history": resp.History, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"history": emptyIfNil(resp.History), "total_count": resp.TotalCount})
 }
 
 // --- Options ---
@@ -256,7 +256,7 @@ func (h *SecuritiesHandler) ListOptions(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"options": resp.Options, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"options": emptyIfNil(resp.Options), "total_count": resp.TotalCount})
 }
 
 func (h *SecuritiesHandler) GetOption(c *gin.Context) {

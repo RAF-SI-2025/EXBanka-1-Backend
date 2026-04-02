@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	stockpb "github.com/exbanka/contract/stockpb"
+	"github.com/gin-gonic/gin"
 )
 
 type PortfolioHandler struct {
@@ -40,7 +40,7 @@ func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"holdings": resp.Holdings, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"holdings": emptyIfNil(resp.Holdings), "total_count": resp.TotalCount})
 }
 
 func (h *PortfolioHandler) GetPortfolioSummary(c *gin.Context) {
@@ -123,7 +123,7 @@ func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"offers": resp.Offers, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"offers": emptyIfNil(resp.Offers), "total_count": resp.TotalCount})
 }
 
 func (h *PortfolioHandler) BuyOTCOffer(c *gin.Context) {

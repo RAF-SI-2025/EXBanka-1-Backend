@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	stockpb "github.com/exbanka/contract/stockpb"
+	"github.com/gin-gonic/gin"
 )
 
 type StockOrderHandler struct {
@@ -116,7 +116,7 @@ func (h *StockOrderHandler) ListMyOrders(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"orders": resp.Orders, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"orders": emptyIfNil(resp.Orders), "total_count": resp.TotalCount})
 }
 
 func (h *StockOrderHandler) GetMyOrder(c *gin.Context) {
@@ -171,7 +171,7 @@ func (h *StockOrderHandler) ListOrders(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"orders": resp.Orders, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"orders": emptyIfNil(resp.Orders), "total_count": resp.TotalCount})
 }
 
 func (h *StockOrderHandler) ApproveOrder(c *gin.Context) {

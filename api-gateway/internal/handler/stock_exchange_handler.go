@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	stockpb "github.com/exbanka/contract/stockpb"
+	"github.com/gin-gonic/gin"
 )
 
 type StockExchangeHandler struct {
@@ -31,7 +31,7 @@ func (h *StockExchangeHandler) ListExchanges(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"exchanges":   resp.Exchanges,
+		"exchanges":   emptyIfNil(resp.Exchanges),
 		"total_count": resp.TotalCount,
 	})
 }

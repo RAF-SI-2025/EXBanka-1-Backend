@@ -10,13 +10,13 @@ import (
 )
 
 // isWithinTradingHours checks if the current moment falls within the exchange's
-// open and close times, accounting for its time zone offset.
+// open and close times, accounting for its time zone.
+// Supports both IANA timezone strings ("America/New_York") and UTC offset strings ("-5").
 func isWithinTradingHours(ex *model.StockExchange) bool {
-	offset, err := parseTimezoneOffset(ex.TimeZone)
+	loc, err := parseTimezoneLocation(ex.TimeZone)
 	if err != nil {
 		return false
 	}
-	loc := time.FixedZone(ex.Acronym, offset*3600)
 	now := time.Now().In(loc)
 
 	openH, openM := parseTime(ex.OpenTime)
@@ -29,19 +29,35 @@ func isWithinTradingHours(ex *model.StockExchange) bool {
 	return nowMinutes >= openMinutes && nowMinutes < closeMinutes
 }
 
-// parseTimezoneOffset parses "+5", "-5", "+9", "+10" etc. to integer hours.
-func parseTimezoneOffset(tz string) (int, error) {
+// parseTimezoneLocation parses a timezone string. It first tries IANA format
+// (e.g. "America/New_York"), then falls back to numeric UTC offset (e.g. "-5", "+9").
+func parseTimezoneLocation(tz string) (*time.Location, error) {
 	tz = strings.TrimSpace(tz)
 	if tz == "" {
-		return 0, fmt.Errorf("empty timezone")
+		return nil, fmt.Errorf("empty timezone")
 	}
-	return strconv.Atoi(tz)
+
+	// Try IANA format first (contains a slash like "America/New_York")
+	if strings.Contains(tz, "/") {
+		loc, err := time.LoadLocation(tz)
+		if err != nil {
+			return nil, fmt.Errorf("invalid IANA timezone %q: %w", tz, err)
+		}
+		return loc, nil
+	}
+
+	// Fall back to numeric offset ("-5", "+9", "0")
+	offset, err := strconv.Atoi(tz)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timezone offset %q: %w", tz, err)
+	}
+	return time.FixedZone(fmt.Sprintf("UTC%+d", offset), offset*3600), nil
 }
 
-// parseTime parses "09:30" to (9, 30).
+// parseTime parses "09:30" or "09:30:00" to (9, 30).
 func parseTime(t string) (int, int) {
 	parts := strings.Split(t, ":")
-	if len(parts) != 2 {
+	if len(parts) < 2 {
 		return 0, 0
 	}
 	h, _ := strconv.Atoi(parts[0])

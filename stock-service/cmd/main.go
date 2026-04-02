@@ -150,23 +150,37 @@ func main() {
 	// --- Services ---
 	exchangeSvc := service.NewExchangeService(exchangeRepo, settingRepo)
 
-	// Seed exchanges from CSV on startup
-	if err := exchangeSvc.SeedExchanges(cfg.ExchangeCSVPath); err != nil {
-		log.Printf("WARN: failed to seed exchanges from CSV: %v", err)
-	}
-
 	secSvc := service.NewSecurityService(stockRepo, futuresRepo, forexRepo, optionRepo, exchangeRepo)
 	listingSvc := service.NewListingService(listingRepo, dailyPriceRepo, stockRepo, futuresRepo, forexRepo)
 
-	// AlphaVantage client (nil if no API key)
+	// --- External API Clients ---
+	// Each is nil when its API key is not set (triggers fallback to static data).
+
 	var avClient *provider.AlphaVantageClient
 	if cfg.AlphaVantageAPIKey != "" {
 		avClient = provider.NewAlphaVantageClient(cfg.AlphaVantageAPIKey)
 	}
 
+	var eodhClient *provider.EODHDClient
+	if cfg.EODHDAPIKey != "" {
+		eodhClient = provider.NewEODHDClient(cfg.EODHDAPIKey)
+	}
+
+	var alpacaClient *provider.AlpacaClient
+	if cfg.AlpacaAPIKey != "" && cfg.AlpacaAPISecret != "" {
+		alpacaClient = provider.NewAlpacaClient(cfg.AlpacaAPIKey, cfg.AlpacaAPISecret)
+	}
+
+	var finnhubClient *provider.FinnhubClient
+	if cfg.FinnhubAPIKey != "" {
+		finnhubClient = provider.NewFinnhubClient(cfg.FinnhubAPIKey)
+	}
+
 	syncSvc := service.NewSecuritySyncService(
 		stockRepo, futuresRepo, forexRepo, optionRepo,
-		exchangeRepo, settingRepo, avClient, listingSvc,
+		exchangeRepo, settingRepo, avClient,
+		eodhClient, alpacaClient, finnhubClient,
+		listingSvc, cfg.ExchangeCSVPath,
 	)
 
 	// Portfolio, OTC, and tax services

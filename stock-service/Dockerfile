@@ -9,5 +9,7 @@ RUN cd stock-service && \
 
 FROM alpine:3.19
 RUN apk --no-cache add ca-certificates
-COPY --from=builder /stock-service /stock-service
-CMD ["/stock-service"]
+WORKDIR /app
+COPY --from=builder /stock-service /app/stock-service
+COPY stock-service/data/ /app/data/
+CMD ["/app/stock-service"]
