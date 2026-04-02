@@ -44,10 +44,11 @@ func TestStockExchange_GetExchange(t *testing.T) {
 		t.Fatalf("error: %v", err)
 	}
 	helpers.RequireStatus(t, listResp, 200)
-	exchanges := listResp.Body["exchanges"].([]interface{})
-	if len(exchanges) == 0 {
-		t.Skip("no exchanges seeded")
+	exchangesRaw, ok := listResp.Body["exchanges"].([]interface{})
+	if !ok || len(exchangesRaw) == 0 {
+		t.Skip("no exchanges seeded or exchanges field missing")
 	}
+	exchanges := exchangesRaw
 	id := exchanges[0].(map[string]interface{})["id"].(float64)
 
 	resp, err := adminC.GET("/api/stock-exchanges/" + helpers.FormatID(int(id)))

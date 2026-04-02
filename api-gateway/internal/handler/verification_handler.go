@@ -52,11 +52,8 @@ func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 	}
 
 	userID := c.GetInt64("user_id")
-	deviceID, _ := c.Get("device_id")
-	deviceIDStr := ""
-	if deviceID != nil {
-		deviceIDStr = deviceID.(string)
-	}
+	deviceIDStr := c.GetString("device_id")
+	emailStr := c.GetString("email")
 
 	resp, err := h.verificationClient.CreateChallenge(c.Request.Context(), &verificationpb.CreateChallengeRequest{
 		UserId:        uint64(userID),
@@ -64,6 +61,7 @@ func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 		SourceId:      req.SourceID,
 		Method:        method,
 		DeviceId:      deviceIDStr,
+		Email:         emailStr,
 	})
 	if err != nil {
 		handleGRPCError(c, err)

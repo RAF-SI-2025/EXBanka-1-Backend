@@ -46,7 +46,7 @@ func NewVerificationGRPCHandler(svc *service.VerificationService) *VerificationG
 }
 
 func (h *VerificationGRPCHandler) CreateChallenge(ctx context.Context, req *pb.CreateChallengeRequest) (*pb.CreateChallengeResponse, error) {
-	vc, err := h.svc.CreateChallenge(ctx, req.GetUserId(), req.GetSourceService(), req.GetSourceId(), req.GetMethod(), req.GetDeviceId())
+	vc, err := h.svc.CreateChallenge(ctx, req.GetUserId(), req.GetSourceService(), req.GetSourceId(), req.GetMethod(), req.GetDeviceId(), req.GetEmail())
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}

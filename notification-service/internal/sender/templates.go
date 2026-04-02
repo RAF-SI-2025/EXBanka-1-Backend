@@ -115,6 +115,16 @@ func BuildEmail(emailType kafkamsg.EmailType, data map[string]string) (subject, 
 </table>
 <p>Please ensure sufficient funds are available in your account before the retry deadline to avoid late payment fees.</p>`, loanNumber, amount, currency, retryDeadline)
 
+	case kafkamsg.EmailTypeVerificationCode:
+		code := data["code"]
+		expiresIn := data["expires_in"]
+		subject = "EXBanka Verification Code"
+		body = fmt.Sprintf(`<h2>Verification Code</h2>
+<p>Your one-time verification code is:</p>
+<p style="font-size:32px;font-weight:bold;letter-spacing:8px;text-align:center;padding:20px;background:#f5f5f5;border-radius:4px;">%s</p>
+<p>This code expires in <strong>%s</strong>.</p>
+<p>If you did not initiate this request, please contact us immediately and do not share this code with anyone.</p>`, code, expiresIn)
+
 	case kafkamsg.EmailTypeTransactionVerify:
 		verificationCode := data["verification_code"]
 		expiresIn := data["expires_in"]

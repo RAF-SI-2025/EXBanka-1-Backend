@@ -28,8 +28,8 @@ import (
 func TestWorkflow_FullBankingOnboarding(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
-	// Step 1: Employee creates a new client with a tagged email
-	clientEmail := nextClientEmail()
+	// Step 1: Employee creates a new client with a unique email
+	clientEmail := helpers.RandomEmail()
 	clientPassword := helpers.RandomPassword()
 
 	createClientResp, err := adminClient.POST("/api/clients", map[string]interface{}{
@@ -138,10 +138,10 @@ func TestWorkflow_FullPaymentWithFee(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
 	// Set up client A with 50000 RSD
-	_, acctNumA, clientA, emailA := setupActivatedClient(t, adminClient)
+	_, acctNumA, clientA, _ := setupActivatedClient(t, adminClient)
 
 	// Set up client B — we only need an account number, not login
-	clientBEmail := nextClientEmail()
+	clientBEmail := helpers.RandomEmail()
 	createBResp, err := adminClient.POST("/api/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("WfFeeB"),
 		"last_name":     helpers.RandomName("Client"),
@@ -194,12 +194,13 @@ func TestWorkflow_FullPaymentWithFee(t *testing.T) {
 	helpers.RequireStatus(t, payResp, 201)
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	// Get verification code from Kafka
-	verCode := scanKafkaForVerificationCode(t, emailA)
+	// Verify via verification-service (bypass code)
+	challengeID := createVerificationAndGetChallengeID(t, clientA, "payment", paymentID)
 
-	// Execute payment
+	// Execute payment with challenge_id
 	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
-		"verification_code": verCode,
+		"verification_code": "111111",
+		"challenge_id":      challengeID,
 	})
 	if err != nil {
 		t.Fatalf("WF-Fee: execute payment: %v", err)
@@ -259,7 +260,7 @@ func TestWorkflow_FullCrossCurrencyTransfer(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
 	// Create a client with both EUR and RSD accounts
-	clientEmail := nextClientEmail()
+	clientEmail := helpers.RandomEmail()
 	clientPassword := helpers.RandomPassword()
 
 	createResp, err := adminClient.POST("/api/clients", map[string]interface{}{
@@ -350,10 +351,11 @@ func TestWorkflow_FullCrossCurrencyTransfer(t *testing.T) {
 	helpers.RequireStatus(t, tfrResp, 201)
 	transferID := int(helpers.GetNumberField(t, tfrResp, "id"))
 
-	verCode := scanKafkaForVerificationCode(t, clientEmail)
+	challengeID := createVerificationAndGetChallengeID(t, clientC, "transfer", transferID)
 
 	execResp, err := clientC.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
-		"verification_code": verCode,
+		"verification_code": "111111",
+		"challenge_id":      challengeID,
 	})
 	if err != nil {
 		t.Fatalf("WF-FX: execute transfer: %v", err)

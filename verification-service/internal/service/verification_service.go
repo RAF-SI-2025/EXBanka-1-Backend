@@ -19,6 +19,7 @@ import (
 	"gorm.io/gorm"
 )
 
+
 var validMethods = map[string]bool{
 	"code_pull": true,
 	"email":     true,
@@ -60,8 +61,11 @@ func NewVerificationService(
 }
 
 // CreateChallenge creates a new verification challenge and publishes the appropriate Kafka event.
-// For email fallback, it publishes to notification.send-email instead of verification.challenge-created.
-func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64, sourceService string, sourceID uint64, method string, deviceID string) (*model.VerificationChallenge, error) {
+// Delivery rules:
+//   - method="email": always deliver via email (address passed directly from JWT).
+//   - method="code_pull" with no deviceID: browser session, fall back to email delivery.
+//   - method="code_pull" with deviceID: mobile delivery via verification.challenge-created.
+func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64, sourceService string, sourceID uint64, method string, deviceID string, email string) (*model.VerificationChallenge, error) {
 	if !validMethods[method] {
 		return nil, fmt.Errorf("invalid verification method: %s; must be one of: code_pull, qr_scan, number_match, email", method)
 	}
@@ -104,18 +108,24 @@ func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64
 		return nil, fmt.Errorf("failed to create verification challenge: %w", err)
 	}
 
-	// Publish Kafka events AFTER the DB transaction commits.
-	if method == "email" {
-		// Email fallback: send code via existing notification.send-email topic.
-		if err := s.producer.PublishSendEmail(ctx, kafkamsg.SendEmailMessage{
-			To:        "", // Caller (gateway/transaction-service) must resolve email before calling; or use user_id lookup
-			EmailType: kafkamsg.EmailTypeVerificationCode,
-			Data: map[string]string{
-				"code":         code,
-				"challenge_id": fmt.Sprintf("%d", vc.ID),
-			},
-		}); err != nil {
-			log.Printf("warn: failed to publish send-email for verification %d: %v", vc.ID, err)
+	// Deliver via email when: method is explicitly "email", or code_pull with no mobile device registered.
+	sendViaEmail := method == "email" || (method == "code_pull" && deviceID == "")
+
+	if sendViaEmail {
+		if email == "" {
+			log.Printf("warn: no email in JWT for user %d, skipping email delivery for challenge %d", userID, vc.ID)
+		} else {
+			if err := s.producer.PublishSendEmail(ctx, kafkamsg.SendEmailMessage{
+				To:        email,
+				EmailType: kafkamsg.EmailTypeVerificationCode,
+				Data: map[string]string{
+					"code":         code,
+					"challenge_id": fmt.Sprintf("%d", vc.ID),
+					"expires_in":   "5 minutes",
+				},
+			}); err != nil {
+				log.Printf("warn: failed to publish send-email for verification %d: %v", vc.ID, err)
+			}
 		}
 	} else {
 		// Mobile delivery: publish to verification.challenge-created for notification-service.

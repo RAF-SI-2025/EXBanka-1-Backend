@@ -173,7 +173,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5440:5432"
+      - "5442:5432"
     volumes:
       - stock-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -393,6 +393,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
+      VERIFICATION_GRPC_ADDR: "verification-service:50061"
     ports:
       - "50057:50057"
     depends_on:
@@ -405,6 +406,8 @@ services:
       account-service:
         condition: service_started
       exchange-service:
+        condition: service_started
+      verification-service:
         condition: service_started
 
   credit-service:

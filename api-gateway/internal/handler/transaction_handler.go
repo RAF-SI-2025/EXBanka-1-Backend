@@ -228,7 +228,8 @@ func (h *TransactionHandler) ListPaymentsByClient(c *gin.Context) {
 }
 
 type executePaymentRequest struct {
-	VerificationCode string `json:"verification_code" binding:"required"`
+	VerificationCode string `json:"verification_code"`
+	ChallengeID      uint64 `json:"challenge_id"`
 }
 
 // @Summary      Execute payment after verification
@@ -268,6 +269,7 @@ func (h *TransactionHandler) ExecutePayment(c *gin.Context) {
 		PaymentId:        id,
 		ClientId:         uint64(clientID),
 		VerificationCode: req.VerificationCode,
+		ChallengeId:      req.ChallengeID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -346,7 +348,8 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 }
 
 type executeTransferRequest struct {
-	VerificationCode string `json:"verification_code" binding:"required"`
+	VerificationCode string `json:"verification_code"`
+	ChallengeID      uint64 `json:"challenge_id"`
 }
 
 // @Summary      Execute transfer after verification
@@ -386,6 +389,7 @@ func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
 		TransferId:       id,
 		ClientId:         uint64(clientID),
 		VerificationCode: req.VerificationCode,
+		ChallengeId:      req.ChallengeID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)

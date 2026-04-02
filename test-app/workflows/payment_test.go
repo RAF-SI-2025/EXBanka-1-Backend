@@ -76,8 +76,8 @@ func TestPayment_EndToEnd(t *testing.T) {
 	clientBID := createTestClient(t, adminClient)
 
 	// Get activation email for client A
-	// We need the client's email — re-create with known email
-	emailA := cfg.ClientEmail(1)
+	// We need the client's email — use random email so tests are idempotent
+	emailA := helpers.RandomEmail()
 	passwordA := helpers.RandomPassword()
 
 	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
@@ -157,20 +157,18 @@ func TestPayment_EndToEnd(t *testing.T) {
 	helpers.RequireStatus(t, payResp, 201)
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	verCode := scanKafkaForVerificationCode(t, emailA)
+	// Verify via verification-service (bypass code)
+	challengeID := createVerificationAndGetChallengeID(t, clientA, "payment", paymentID)
 
-	// Execute payment
+	// Execute payment with challenge_id
 	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
-		"verification_code": verCode,
+		"verification_code": "111111",
+		"challenge_id":      challengeID,
 	})
 	if err != nil {
 		t.Fatalf("execute payment error: %v", err)
 	}
 	helpers.RequireStatus(t, execResp, 200)
-
-	// Note: commission and exact-amount balance assertions removed — fee rules in the DB
-	// can change between test runs, making exact values unpredictable.
-	// Verify correctness via directional balance checks instead.
 
 	// Verify balances moved in the right direction
 	srcBalanceAfter := getAccountBalance(t, adminClient, srcAccountNumber)
@@ -193,7 +191,7 @@ func TestPayment_EndToEnd(t *testing.T) {
 func TestPayment_WithFee(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
-	emailA := cfg.ClientEmail(2)
+	emailA := helpers.RandomEmail()
 	passwordA := helpers.RandomPassword()
 
 	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
@@ -265,11 +263,13 @@ func TestPayment_WithFee(t *testing.T) {
 	helpers.RequireStatus(t, payResp, 201)
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	verCode := scanKafkaForVerificationCode(t, emailA)
+	// Verify via verification-service (bypass code)
+	challengeID := createVerificationAndGetChallengeID(t, clientA, "payment", paymentID)
 
-	// Execute payment
+	// Execute payment with challenge_id
 	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
-		"verification_code": verCode,
+		"verification_code": "111111",
+		"challenge_id":      challengeID,
 	})
 	if err != nil {
 		t.Fatalf("execute payment error: %v", err)
@@ -291,8 +291,7 @@ func TestPayment_WithFee(t *testing.T) {
 func TestPayment_ExternalPayment(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
-	// Use a dedicated email slot to avoid collision with TestPayment_EndToEnd (slot 1) and TestPayment_WithFee (slot 2)
-	emailA := cfg.ClientEmail(5)
+	emailA := helpers.RandomEmail()
 	passwordA := helpers.RandomPassword()
 
 	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
@@ -356,10 +355,11 @@ func TestPayment_ExternalPayment(t *testing.T) {
 	}
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	verCode := scanKafkaForVerificationCode(t, emailA)
+	challengeID := createVerificationAndGetChallengeID(t, clientA, "payment", paymentID)
 
 	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
-		"verification_code": verCode,
+		"verification_code": "111111",
+		"challenge_id":      challengeID,
 	})
 	if err != nil {
 		t.Fatalf("execute external payment error: %v", err)
@@ -374,7 +374,7 @@ func TestPayment_ExternalPayment(t *testing.T) {
 func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 
-	emailA := cfg.ClientEmail(6)
+	emailA := helpers.RandomEmail()
 	passwordA := helpers.RandomPassword()
 
 	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
@@ -441,9 +441,30 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	helpers.RequireStatus(t, payResp, 201)
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
-	// Execute with WRONG code
+	// Create verification challenge but submit wrong code
+	createResp, err := clientA.POST("/api/verifications", map[string]interface{}{
+		"source_service": "payment",
+		"source_id":      paymentID,
+	})
+	if err != nil {
+		t.Fatalf("create verification error: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 200)
+	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
+
+	// Submit WRONG code (not the bypass code 111111)
+	submitResp, err := clientA.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
+		"code": "999999",
+	})
+	if err != nil {
+		t.Fatalf("submit wrong code error: %v", err)
+	}
+	helpers.RequireStatus(t, submitResp, 200)
+
+	// Execute with unverified challenge — should fail
 	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
-		"verification_code": "000000", // wrong
+		"verification_code": "999999",
+		"challenge_id":      challengeID,
 	})
 	if err != nil {
 		t.Fatalf("execute payment with wrong OTP error: %v", err)
@@ -483,15 +504,16 @@ func TestPayment_InsufficientBalance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create payment error: %v", err)
 	}
+	_ = clientEmail // not needed for verification flow
 	// Should fail at creation (400/422) or at execution step
 	if payResp.StatusCode == 201 {
 		t.Logf("payment created (amount > balance); verifying execution fails")
-		// If created, try to execute and expect failure
 		paymentID := int(helpers.GetNumberField(t, payResp, "id"))
-		verCode := scanKafkaForVerificationCode(t, clientEmail)
+		challengeID := createVerificationAndGetChallengeID(t, clientC, "payment", paymentID)
 
 		execResp, err := clientC.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
-			"verification_code": verCode,
+			"verification_code": "111111",
+			"challenge_id":      challengeID,
 		})
 		if err != nil {
 			t.Fatalf("execute payment error: %v", err)

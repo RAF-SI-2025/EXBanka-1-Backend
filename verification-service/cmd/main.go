@@ -34,8 +34,12 @@ func main() {
 	}
 
 	// 2. Auto-migrate models
-	if err := db.AutoMigrate(&model.VerificationChallenge{}); err != nil {
-		log.Fatalf("failed to migrate: %v", err)
+	// VerificationChallenge: skip if table already exists (gorm.io/datatypes v1.2.7 has a
+	// known issue generating bad SQL when migrating existing jsonb columns).
+	if !db.Migrator().HasTable(&model.VerificationChallenge{}) {
+		if err := db.AutoMigrate(&model.VerificationChallenge{}); err != nil {
+			log.Fatalf("failed to migrate VerificationChallenge: %v", err)
+		}
 	}
 
 	// 3. Create Kafka producer
@@ -62,7 +66,7 @@ func main() {
 	pb.RegisterVerificationGRPCServiceServer(s, grpcHandler)
 	shared.RegisterHealthCheck(s, "verification-service")
 
-	// 9. Ensure Kafka topics exist (produces to + consumed from)
+	// 9. Ensure Kafka topics exist (produces to)
 	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
 		kafkamsg.TopicVerificationChallengeCreated,
 		kafkamsg.TopicVerificationChallengeVerified,
@@ -70,12 +74,14 @@ func main() {
 		kafkamsg.TopicSendEmail,
 	)
 
-	// 10. Start background expiry goroutine
+	// 10. Create cancellable context for background goroutines
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// 11. Start background expiry goroutine
 	go runExpiryLoop(ctx, svc)
 
-	// 11. Start gRPC server
+	// 12. Start gRPC server
 	go func() {
 		log.Printf("verification-service listening on %s", cfg.GRPCAddr)
 		if err := s.Serve(lis); err != nil {
@@ -83,7 +89,7 @@ func main() {
 		}
 	}()
 
-	// 12. Wait for interrupt signal and shut down gracefully
+	// 13. Wait for interrupt signal and shut down gracefully
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

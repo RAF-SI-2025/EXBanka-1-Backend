@@ -10,8 +10,9 @@ import (
 var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 // RandomEmail generates a unique email for testing.
+// Uses +test tag so notification-service skips actual SMTP delivery.
 func RandomEmail() string {
-	return fmt.Sprintf("test-%d-%d@exbanka-test.com", time.Now().UnixNano(), rng.Intn(10000))
+	return fmt.Sprintf("exbanka+test-%d-%d@exbanka-test.com", time.Now().UnixNano(), rng.Intn(10000))
 }
 
 // RandomJMBG generates a valid 13-digit JMBG.

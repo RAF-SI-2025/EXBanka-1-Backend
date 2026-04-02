@@ -33,46 +33,15 @@ func (s *ActuaryService) ListActuaries(search, position string, page, pageSize i
 }
 
 func (s *ActuaryService) GetActuaryInfo(employeeID int64) (*model.ActuaryLimit, *model.Employee, error) {
-	emp, err := s.empRepo.GetByIDWithRoles(employeeID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, errors.New("employee not found")
-		}
-		return nil, nil, err
-	}
-	if !isActuary(emp) {
-		return nil, nil, errors.New("employee is not an actuary (must have EmployeeAgent or EmployeeSupervisor role)")
-	}
-
-	limit, err := s.actuaryRepo.GetByEmployeeID(employeeID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Auto-create default actuary limit
-			limit = &model.ActuaryLimit{
-				EmployeeID:   employeeID,
-				Limit:        decimal.NewFromInt(0),
-				UsedLimit:    decimal.NewFromInt(0),
-				NeedApproval: !isSupervisor(emp),
-			}
-			if err := s.actuaryRepo.Create(limit); err != nil {
-				return nil, nil, err
-			}
-		} else {
-			return nil, nil, err
-		}
-	}
-	return limit, emp, nil
+	return s.getOrCreateActuaryLimit(employeeID)
 }
 
-func (s *ActuaryService) SetActuaryLimit(ctx context.Context, id int64, limitAmount decimal.Decimal) (*model.ActuaryLimit, error) {
+func (s *ActuaryService) SetActuaryLimit(ctx context.Context, employeeID int64, limitAmount decimal.Decimal) (*model.ActuaryLimit, error) {
 	if limitAmount.IsNegative() {
 		return nil, errors.New("limit must not be negative")
 	}
-	limit, err := s.actuaryRepo.GetByID(id)
+	limit, _, err := s.getOrCreateActuaryLimit(employeeID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("actuary limit not found")
-		}
 		return nil, err
 	}
 	limit.Limit = limitAmount
@@ -83,12 +52,9 @@ func (s *ActuaryService) SetActuaryLimit(ctx context.Context, id int64, limitAmo
 	return limit, nil
 }
 
-func (s *ActuaryService) ResetUsedLimit(ctx context.Context, id int64) (*model.ActuaryLimit, error) {
-	limit, err := s.actuaryRepo.GetByID(id)
+func (s *ActuaryService) ResetUsedLimit(ctx context.Context, employeeID int64) (*model.ActuaryLimit, error) {
+	limit, _, err := s.getOrCreateActuaryLimit(employeeID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("actuary limit not found")
-		}
 		return nil, err
 	}
 	limit.UsedLimit = decimal.NewFromInt(0)
@@ -99,12 +65,9 @@ func (s *ActuaryService) ResetUsedLimit(ctx context.Context, id int64) (*model.A
 	return limit, nil
 }
 
-func (s *ActuaryService) SetNeedApproval(ctx context.Context, id int64, needApproval bool) (*model.ActuaryLimit, error) {
-	limit, err := s.actuaryRepo.GetByID(id)
+func (s *ActuaryService) SetNeedApproval(ctx context.Context, employeeID int64, needApproval bool) (*model.ActuaryLimit, error) {
+	limit, _, err := s.getOrCreateActuaryLimit(employeeID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("actuary limit not found")
-		}
 		return nil, err
 	}
 	limit.NeedApproval = needApproval
@@ -140,6 +103,39 @@ func (s *ActuaryService) publishActuaryEvent(ctx context.Context, employeeID int
 	if err := s.producer.PublishActuaryLimitUpdated(ctx, msg); err != nil {
 		log.Printf("warn: failed to publish actuary-limit-updated event: %v", err)
 	}
+}
+
+// getOrCreateActuaryLimit looks up an actuary limit by employee ID, auto-creating
+// a default one if the employee is an actuary but has no limit row yet.
+func (s *ActuaryService) getOrCreateActuaryLimit(employeeID int64) (*model.ActuaryLimit, *model.Employee, error) {
+	emp, err := s.empRepo.GetByIDWithRoles(employeeID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, errors.New("employee not found")
+		}
+		return nil, nil, err
+	}
+	if !isActuary(emp) {
+		return nil, nil, errors.New("employee is not an actuary (must have EmployeeAgent or EmployeeSupervisor role)")
+	}
+
+	limit, err := s.actuaryRepo.GetByEmployeeID(employeeID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			limit = &model.ActuaryLimit{
+				EmployeeID:   employeeID,
+				Limit:        decimal.NewFromInt(0),
+				UsedLimit:    decimal.NewFromInt(0),
+				NeedApproval: !isSupervisor(emp),
+			}
+			if err := s.actuaryRepo.Create(limit); err != nil {
+				return nil, nil, err
+			}
+		} else {
+			return nil, nil, err
+		}
+	}
+	return limit, emp, nil
 }
 
 func isActuary(emp *model.Employee) bool {

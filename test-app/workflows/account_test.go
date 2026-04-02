@@ -22,7 +22,7 @@ func createTestClient(t *testing.T, c *client.APIClient) int {
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
 		"gender":        "male",
-		"email":         nextClientEmail(),
+		"email":         helpers.RandomEmail(),
 		"phone":         helpers.RandomPhone(),
 		"address":       "Account Test St",
 		"jmbg":          helpers.RandomJMBG(),
@@ -485,7 +485,7 @@ func TestAccount_CreateCompany(t *testing.T) {
 		"company_name":        fmt.Sprintf("TestCo_%d", helpers.DateOfBirthUnix()),
 		"registration_number": fmt.Sprintf("%08d", time.Now().UnixNano()%100000000),
 		"tax_number":          fmt.Sprintf("%09d", time.Now().UnixNano()%1000000000),
-		"activity_code":       "62010",
+		"activity_code":       "62.01",
 		"address":             "Test Business St 1",
 		"owner_id":            clientID,
 	})

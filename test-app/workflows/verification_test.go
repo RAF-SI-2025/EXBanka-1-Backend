@@ -6,37 +6,49 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/exbanka/test-app/internal/client"
 	"github.com/exbanka/test-app/internal/helpers"
 )
+
+// setupTransferForVerification creates a second account for the client and a pending
+// transfer between the two accounts. Returns the transfer ID to use as source_id.
+func setupTransferForVerification(t *testing.T, adminC *client.APIClient, clientID int, fromAccount string, clientC *client.APIClient) int {
+	t.Helper()
+	dstResp, err := adminC.POST("/api/accounts", map[string]interface{}{
+		"owner_id":        clientID,
+		"account_kind":    "current",
+		"account_type":    "personal",
+		"currency_code":   "RSD",
+		"initial_balance": 0,
+	})
+	if err != nil {
+		t.Fatalf("setupTransferForVerification: create dst account: %v", err)
+	}
+	helpers.RequireStatus(t, dstResp, 201)
+	dstAccount := helpers.GetStringField(t, dstResp, "account_number")
+
+	tfrResp, err := clientC.POST("/api/me/transfers", map[string]interface{}{
+		"from_account_number": fromAccount,
+		"to_account_number":   dstAccount,
+		"amount":              100,
+	})
+	if err != nil {
+		t.Fatalf("setupTransferForVerification: create transfer: %v", err)
+	}
+	helpers.RequireStatus(t, tfrResp, 201)
+	return int(helpers.GetNumberField(t, tfrResp, "id"))
+}
 
 // --- Verification Endpoints ---
 
 func TestVerification_CreateChallenge(t *testing.T) {
 	adminC := loginAsAdmin(t)
-	_, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
+	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
+	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
 
-	// Create a payment first so we have a source_id
-	payResp, err := clientC.POST("/api/me/payments", map[string]interface{}{
-		"from_account_number": accountNumber,
-		"to_account_number":   accountNumber,
-		"amount":              "100.00",
-		"recipient_name":      "Test Recipient",
-		"payment_code":        "289",
-		"reference_number":    "12345678",
-		"payment_purpose":     "Verification test",
-	})
-	if err != nil {
-		t.Fatalf("create payment error: %v", err)
-	}
-	if payResp.StatusCode >= 400 {
-		t.Skipf("skipping: create payment returned %d: %s", payResp.StatusCode, string(payResp.RawBody))
-	}
-	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
-
-	// Create verification challenge (default method = code_pull)
 	resp, err := clientC.POST("/api/verifications", map[string]interface{}{
-		"source_service": "payment",
-		"source_id":      paymentID,
+		"source_service": "transfer",
+		"source_id":      transferID,
 	})
 	if err != nil {
 		t.Fatalf("create verification error: %v", err)
@@ -48,28 +60,12 @@ func TestVerification_CreateChallenge(t *testing.T) {
 
 func TestVerification_CreateChallengeWithEmailMethod(t *testing.T) {
 	adminC := loginAsAdmin(t)
-	_, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
-
-	payResp, err := clientC.POST("/api/me/payments", map[string]interface{}{
-		"from_account_number": accountNumber,
-		"to_account_number":   accountNumber,
-		"amount":              "50.00",
-		"recipient_name":      "Test Recipient",
-		"payment_code":        "289",
-		"reference_number":    "12345679",
-		"payment_purpose":     "Email verification test",
-	})
-	if err != nil {
-		t.Fatalf("create payment error: %v", err)
-	}
-	if payResp.StatusCode >= 400 {
-		t.Skipf("skipping: create payment returned %d", payResp.StatusCode)
-	}
-	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
+	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
+	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
 
 	resp, err := clientC.POST("/api/verifications", map[string]interface{}{
-		"source_service": "payment",
-		"source_id":      paymentID,
+		"source_service": "transfer",
+		"source_id":      transferID,
 		"method":         "email",
 	})
 	if err != nil {
@@ -84,7 +80,7 @@ func TestVerification_InvalidMethodRejected(t *testing.T) {
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
 	resp, err := clientC.POST("/api/verifications", map[string]interface{}{
-		"source_service": "payment",
+		"source_service": "transfer",
 		"source_id":      1,
 		"method":         "qr_scan", // not available
 	})
@@ -98,28 +94,12 @@ func TestVerification_InvalidMethodRejected(t *testing.T) {
 
 func TestVerification_GetChallengeStatus(t *testing.T) {
 	adminC := loginAsAdmin(t)
-	_, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
-
-	payResp, err := clientC.POST("/api/me/payments", map[string]interface{}{
-		"from_account_number": accountNumber,
-		"to_account_number":   accountNumber,
-		"amount":              "75.00",
-		"recipient_name":      "Status Test",
-		"payment_code":        "289",
-		"reference_number":    "12345680",
-		"payment_purpose":     "Status test",
-	})
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if payResp.StatusCode >= 400 {
-		t.Skipf("skipping: create payment returned %d", payResp.StatusCode)
-	}
-	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
+	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
+	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
 
 	createResp, err := clientC.POST("/api/verifications", map[string]interface{}{
-		"source_service": "payment",
-		"source_id":      paymentID,
+		"source_service": "transfer",
+		"source_id":      transferID,
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -127,7 +107,6 @@ func TestVerification_GetChallengeStatus(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 200)
 	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
 
-	// Poll status
 	resp, err := clientC.GET(fmt.Sprintf("/api/verifications/%d/status", challengeID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -139,28 +118,12 @@ func TestVerification_GetChallengeStatus(t *testing.T) {
 
 func TestVerification_SubmitBypassCode(t *testing.T) {
 	adminC := loginAsAdmin(t)
-	_, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
-
-	payResp, err := clientC.POST("/api/me/payments", map[string]interface{}{
-		"from_account_number": accountNumber,
-		"to_account_number":   accountNumber,
-		"amount":              "60.00",
-		"recipient_name":      "Bypass Code Test",
-		"payment_code":        "289",
-		"reference_number":    "12345681",
-		"payment_purpose":     "Bypass code test",
-	})
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if payResp.StatusCode >= 400 {
-		t.Skipf("skipping: create payment returned %d", payResp.StatusCode)
-	}
-	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
+	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
+	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
 
 	createResp, err := clientC.POST("/api/verifications", map[string]interface{}{
-		"source_service": "payment",
-		"source_id":      paymentID,
+		"source_service": "transfer",
+		"source_id":      transferID,
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -168,7 +131,6 @@ func TestVerification_SubmitBypassCode(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 200)
 	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
 
-	// Submit bypass code 111111
 	resp, err := clientC.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
 		"code": "111111",
 	})
@@ -181,28 +143,12 @@ func TestVerification_SubmitBypassCode(t *testing.T) {
 
 func TestVerification_SubmitWrongCode(t *testing.T) {
 	adminC := loginAsAdmin(t)
-	_, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
-
-	payResp, err := clientC.POST("/api/me/payments", map[string]interface{}{
-		"from_account_number": accountNumber,
-		"to_account_number":   accountNumber,
-		"amount":              "55.00",
-		"recipient_name":      "Wrong Code Test",
-		"payment_code":        "289",
-		"reference_number":    "12345682",
-		"payment_purpose":     "Wrong code test",
-	})
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if payResp.StatusCode >= 400 {
-		t.Skipf("skipping: create payment returned %d", payResp.StatusCode)
-	}
-	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
+	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
+	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
 
 	createResp, err := clientC.POST("/api/verifications", map[string]interface{}{
-		"source_service": "payment",
-		"source_id":      paymentID,
+		"source_service": "transfer",
+		"source_id":      transferID,
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -210,7 +156,6 @@ func TestVerification_SubmitWrongCode(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 200)
 	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
 
-	// Submit wrong code
 	resp, err := clientC.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
 		"code": "999999",
 	})
@@ -221,11 +166,86 @@ func TestVerification_SubmitWrongCode(t *testing.T) {
 	helpers.RequireFieldEquals(t, resp, "success", false)
 }
 
+// TestVerification_RealEmailCode tests the full email verification flow without bypass:
+// create challenge with method=email → verification-service sends real code to notification.send-email →
+// scan Kafka for the code → submit it → verify success=true → execute transfer.
+func TestVerification_RealEmailCode(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	clientID, accountNumber, clientC, clientEmail := setupActivatedClient(t, adminC)
+	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
+
+	createResp, err := clientC.POST("/api/verifications", map[string]interface{}{
+		"source_service": "transfer",
+		"source_id":      transferID,
+		"method":         "email",
+	})
+	if err != nil {
+		t.Fatalf("create verification error: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 200)
+	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
+
+	realCode := scanKafkaForVerificationCode(t, clientEmail)
+	t.Logf("received real verification code from Kafka for %s", clientEmail)
+
+	submitResp, err := clientC.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
+		"code": realCode,
+	})
+	if err != nil {
+		t.Fatalf("submit code error: %v", err)
+	}
+	helpers.RequireStatus(t, submitResp, 200)
+	helpers.RequireFieldEquals(t, submitResp, "success", true)
+
+	execResp, err := clientC.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
+		"verification_code": realCode,
+		"challenge_id":      challengeID,
+	})
+	if err != nil {
+		t.Fatalf("execute transfer error: %v", err)
+	}
+	helpers.RequireStatus(t, execResp, 200)
+	t.Logf("transfer executed successfully with real email verification code")
+}
+
+// TestVerification_CodePullFallbackToEmail tests that code_pull without a device_id
+// (browser session) falls back to email delivery — the same Kafka scan flow.
+func TestVerification_CodePullFallbackToEmail(t *testing.T) {
+	adminC := loginAsAdmin(t)
+	clientID, accountNumber, clientC, clientEmail := setupActivatedClient(t, adminC)
+	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
+
+	// code_pull with no device_id — browser session, should fall back to email delivery
+	createResp, err := clientC.POST("/api/verifications", map[string]interface{}{
+		"source_service": "transfer",
+		"source_id":      transferID,
+		// method defaults to "code_pull", no device_id → email fallback
+	})
+	if err != nil {
+		t.Fatalf("create verification error: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 200)
+	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
+
+	realCode := scanKafkaForVerificationCode(t, clientEmail)
+	t.Logf("code_pull fallback: received code from Kafka for %s", clientEmail)
+
+	submitResp, err := clientC.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
+		"code": realCode,
+	})
+	if err != nil {
+		t.Fatalf("submit code error: %v", err)
+	}
+	helpers.RequireStatus(t, submitResp, 200)
+	helpers.RequireFieldEquals(t, submitResp, "success", true)
+	t.Logf("code_pull email fallback verified successfully")
+}
+
 func TestVerification_UnauthenticatedRejected(t *testing.T) {
 	t.Parallel()
 	c := newClient()
 	resp, err := c.POST("/api/verifications", map[string]interface{}{
-		"source_service": "payment",
+		"source_service": "transfer",
 		"source_id":      1,
 	})
 	if err != nil {

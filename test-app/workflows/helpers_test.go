@@ -5,8 +5,8 @@ package workflows
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,24 +15,6 @@ import (
 	"github.com/exbanka/test-app/internal/client"
 	"github.com/exbanka/test-app/internal/helpers"
 )
-
-// clientEmailCounter is a package-level counter used to generate unique tagged
-// client emails of the form base+clientN@domain. Using atomic.Int32 ensures
-// parallel sub-tests do not collide on email uniqueness constraints.
-var clientEmailCounter atomic.Int32
-
-func init() {
-	// Start counter at 9 so nextClientEmail() returns +client10, +client11, etc.
-	// Slots 1–9 are reserved for hardcoded uses in payment_test.go and transfer_test.go.
-	clientEmailCounter.Store(9)
-}
-
-// nextClientEmail returns cfg.ClientEmail(n) where n is a monotonically
-// increasing integer. Each call increments the counter.
-func nextClientEmail() string {
-	n := int(clientEmailCounter.Add(1))
-	return cfg.ClientEmail(n)
-}
 
 // getAccountBalance fetches the available_balance for a single account by account number.
 // Uses GET /api/accounts/by-number/:account_number (anyAuth — employee or client token).
@@ -157,15 +139,15 @@ func scanKafkaForVerificationCode(t *testing.T, email string) string {
 		if json.Unmarshal(msg.Value, &body) != nil {
 			continue
 		}
-		if body.To == email && body.EmailType == "TRANSACTION_VERIFICATION" {
-			if code := body.Data["verification_code"]; code != "" {
+		if body.To == email && body.EmailType == "VERIFICATION_CODE" {
+			if code := body.Data["code"]; code != "" {
 				latestCode = code
 			}
 		}
 	}
 
 	if latestCode == "" {
-		t.Fatalf("scanKafkaForVerificationCode: no TRANSACTION_VERIFICATION code found for %s within 15s", email)
+		t.Fatalf("scanKafkaForVerificationCode: no VERIFICATION_CODE email found for %s within 15s", email)
 	}
 	return latestCode
 }
@@ -224,6 +206,35 @@ func setupActivatedClient(t *testing.T, adminC *client.APIClient) (clientID int,
 	// Login as the new client
 	clientC = loginAsClient(t, email, password)
 	return clientID, accountNumber, clientC, email
+}
+
+// createVerificationAndGetChallengeID creates a verification challenge for the given
+// source (e.g., "payment" or "transfer") and source_id, submits the bypass code "111111"
+// to verify it, and returns the challenge_id to use when executing.
+func createVerificationAndGetChallengeID(t *testing.T, c *client.APIClient, sourceService string, sourceID int) int {
+	t.Helper()
+
+	// Create verification challenge
+	createResp, err := c.POST("/api/verifications", map[string]interface{}{
+		"source_service": sourceService,
+		"source_id":      sourceID,
+	})
+	if err != nil {
+		t.Fatalf("createVerification: POST /api/verifications: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 200)
+	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
+
+	// Submit bypass code to verify
+	submitResp, err := c.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
+		"code": "111111",
+	})
+	if err != nil {
+		t.Fatalf("createVerification: submit code: %v", err)
+	}
+	helpers.RequireStatus(t, submitResp, 200)
+
+	return challengeID
 }
 
 // parseJSONBalance extracts a balance field that may be a JSON number (float64) or

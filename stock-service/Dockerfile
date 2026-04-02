@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 COPY contract/ contract/
 COPY stock-service/ stock-service/
@@ -8,6 +8,6 @@ RUN cd stock-service && \
     go mod download && go build -o /stock-service ./cmd
 
 FROM alpine:3.19
-RUN apk --no-cache add ca-certificates netcat-openbsd
+RUN apk --no-cache add ca-certificates
 COPY --from=builder /stock-service /stock-service
 CMD ["/stock-service"]
