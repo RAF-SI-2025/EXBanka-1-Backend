@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Client{}, &model.ClientLimit{}); err != nil {
+	if err := db.AutoMigrate(&model.Client{}, &model.ClientLimit{}, &model.Changelog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -47,6 +47,7 @@ func main() {
 		"client.created",
 		"client.updated",
 		"client.limits-updated",
+		"client.changelog",
 		"notification.send-email",
 	)
 
@@ -71,9 +72,10 @@ func main() {
 
 	repo := repository.NewClientRepository(db)
 	clientLimitRepo := repository.NewClientLimitRepository(db)
+	changelogRepo := repository.NewChangelogRepository(db)
 
-	clientService := service.NewClientService(repo, producer, redisCache)
-	clientLimitSvc := service.NewClientLimitService(clientLimitRepo, userLimitClient, producer)
+	clientService := service.NewClientService(repo, producer, redisCache, changelogRepo)
+	clientLimitSvc := service.NewClientLimitService(clientLimitRepo, userLimitClient, producer, changelogRepo)
 
 	grpcHandler := handler.NewClientGRPCHandler(clientService)
 	limitHandler := handler.NewClientLimitGRPCHandler(clientLimitSvc)

@@ -36,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}); err != nil {
+	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 	if err := model.SeedCurrencies(db); err != nil {
@@ -55,6 +55,7 @@ func main() {
 		"account.limits-updated",
 		"account.maintenance-charged",
 		"account.spending-reset",
+		"account.changelog",
 		"notification.send-email",
 	)
 
@@ -82,8 +83,9 @@ func main() {
 	companyRepo := repository.NewCompanyRepository(db)
 	currencyRepo := repository.NewCurrencyRepository(db)
 	ledgerRepo := repository.NewLedgerRepository(db)
+	changelogRepo := repository.NewChangelogRepository(db)
 
-	accountService := service.NewAccountService(accountRepo, db)
+	accountService := service.NewAccountService(accountRepo, db, redisCache, changelogRepo)
 	companyService := service.NewCompanyService(companyRepo)
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)

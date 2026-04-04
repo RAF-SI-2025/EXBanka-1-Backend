@@ -39,6 +39,7 @@ func main() {
 		&model.EmployeeLimit{},
 		&model.LimitTemplate{},
 		&model.ActuaryLimit{},
+		&model.Changelog{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -56,6 +57,7 @@ func main() {
 		"user.limit-template-updated",
 		"user.limit-template-deleted",
 		"user.actuary-limit-updated",
+		"user.changelog",
 		"notification.send-email",
 	)
 
@@ -81,8 +83,9 @@ func main() {
 		log.Fatalf("failed to seed roles and permissions: %v", err)
 	}
 
-	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc)
-	limitSvc := service.NewLimitService(employeeLimitRepo, limitTemplateRepo, producer)
+	changelogRepo := repository.NewChangelogRepository(db)
+	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc, changelogRepo)
+	limitSvc := service.NewLimitService(employeeLimitRepo, limitTemplateRepo, producer, changelogRepo)
 
 	if err := limitSvc.SeedDefaultTemplates(); err != nil {
 		log.Fatalf("failed to seed default limit templates: %v", err)

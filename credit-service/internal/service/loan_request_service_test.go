@@ -271,7 +271,7 @@ func TestRejectLoanRequest_SetsStatusRejected(t *testing.T) {
 	}
 	require.NoError(t, db.Create(req).Error)
 
-	rejected, err := svc.RejectLoanRequest(req.ID)
+	rejected, err := svc.RejectLoanRequest(req.ID, 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, "rejected", rejected.Status)
 
@@ -291,7 +291,7 @@ func TestRejectLoanRequest_AlreadyRejected(t *testing.T) {
 	}
 	require.NoError(t, db.Create(req).Error)
 
-	_, err := svc.RejectLoanRequest(req.ID)
+	_, err := svc.RejectLoanRequest(req.ID, 0, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already rejected")
 }

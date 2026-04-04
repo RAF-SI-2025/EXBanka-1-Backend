@@ -463,7 +463,7 @@ func TestUpdateClient_FieldsChanged(t *testing.T) {
 		"phone":      "+381649999999",
 		"address":    "New St 2, Novi Sad",
 		"gender":     "female",
-	})
+	}, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "Jane", updated.FirstName)
 	assert.Equal(t, "Smith", updated.LastName)
@@ -491,7 +491,7 @@ func TestUpdateClient_EmailUniquenessEnforced(t *testing.T) {
 	// Try to update c2's email to c1's email
 	_, err := svc.UpdateClient(c2.ID, map[string]interface{}{
 		"email": "john@example.com",
-	})
+	}, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "email")
 }
@@ -506,7 +506,7 @@ func TestUpdateClient_JMBGImmutable(t *testing.T) {
 	// Attempt to change JMBG via updates map — should be silently ignored
 	updated, err := svc.UpdateClient(c.ID, map[string]interface{}{
 		"jmbg": "9999999999999",
-	})
+	}, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "0101990710024", updated.JMBG, "JMBG must not change")
 }
@@ -520,7 +520,7 @@ func TestUpdateClient_InvalidEmail(t *testing.T) {
 
 	_, err := svc.UpdateClient(c.ID, map[string]interface{}{
 		"email": "invalid",
-	})
+	}, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "@")
 }
@@ -531,7 +531,7 @@ func TestUpdateClient_NotFound(t *testing.T) {
 
 	_, err := svc.UpdateClient(999, map[string]interface{}{
 		"first_name": "Ghost",
-	})
+	}, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -568,7 +568,7 @@ func TestSetClientLimits_PersistedAndRetrievable(t *testing.T) {
 		SetByEmployee: 10,
 	}
 
-	result, err := svc.SetClientLimits(context.Background(), limit)
+	result, err := svc.SetClientLimits(context.Background(), limit, 0)
 	require.NoError(t, err)
 	assert.True(t, result.DailyLimit.Equal(decimal.NewFromInt(200000)))
 	assert.True(t, result.MonthlyLimit.Equal(decimal.NewFromInt(2000000)))
@@ -597,7 +597,7 @@ func TestSetClientLimits_ExceedsEmployeeDailyLimit(t *testing.T) {
 		SetByEmployee: 10,
 	}
 
-	_, err := svc.SetClientLimits(context.Background(), limit)
+	_, err := svc.SetClientLimits(context.Background(), limit, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "daily limit")
 	assert.Contains(t, err.Error(), "exceeds")
@@ -619,7 +619,7 @@ func TestSetClientLimits_ExceedsEmployeeMonthlyLimit(t *testing.T) {
 		SetByEmployee: 10,
 	}
 
-	_, err := svc.SetClientLimits(context.Background(), limit)
+	_, err := svc.SetClientLimits(context.Background(), limit, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "monthly limit")
 	assert.Contains(t, err.Error(), "exceeds")
@@ -638,7 +638,7 @@ func TestSetClientLimits_NoEmployeeSvc_SkipsCheck(t *testing.T) {
 		SetByEmployee: 10,
 	}
 
-	result, err := svc.SetClientLimits(context.Background(), limit)
+	result, err := svc.SetClientLimits(context.Background(), limit, 0)
 	require.NoError(t, err)
 	assert.True(t, result.DailyLimit.Equal(decimal.NewFromInt(999999999)))
 }
@@ -658,7 +658,7 @@ func TestSetClientLimits_EmployeeSvcError(t *testing.T) {
 		SetByEmployee: 10,
 	}
 
-	_, err := svc.SetClientLimits(context.Background(), limit)
+	_, err := svc.SetClientLimits(context.Background(), limit, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "verify employee limits")
 }

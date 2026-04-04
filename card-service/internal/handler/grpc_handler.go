@@ -14,6 +14,7 @@ import (
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/service"
 	pb "github.com/exbanka/contract/cardpb"
+	"github.com/exbanka/contract/changelog"
 	clientpb "github.com/exbanka/contract/clientpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 )
@@ -116,7 +117,8 @@ func (h *CardGRPCHandler) ListCardsByClient(ctx context.Context, req *pb.ListCar
 }
 
 func (h *CardGRPCHandler) BlockCard(ctx context.Context, req *pb.BlockCardRequest) (*pb.CardResponse, error) {
-	card, err := h.cardService.BlockCard(req.Id)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	card, err := h.cardService.BlockCard(req.Id, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")
@@ -155,7 +157,8 @@ func (h *CardGRPCHandler) BlockCard(ctx context.Context, req *pb.BlockCardReques
 }
 
 func (h *CardGRPCHandler) UnblockCard(ctx context.Context, req *pb.UnblockCardRequest) (*pb.CardResponse, error) {
-	card, err := h.cardService.UnblockCard(req.Id)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	card, err := h.cardService.UnblockCard(req.Id, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")
@@ -194,7 +197,8 @@ func (h *CardGRPCHandler) UnblockCard(ctx context.Context, req *pb.UnblockCardRe
 }
 
 func (h *CardGRPCHandler) DeactivateCard(ctx context.Context, req *pb.DeactivateCardRequest) (*pb.CardResponse, error) {
-	card, err := h.cardService.DeactivateCard(req.Id)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	card, err := h.cardService.DeactivateCard(req.Id, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")

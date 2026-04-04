@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}, &model.CardRequest{}); err != nil {
+	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}, &model.CardRequest{}, &model.Changelog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -51,6 +51,7 @@ func main() {
 		"card.request-created",
 		"card.request-approved",
 		"card.request-rejected",
+		"card.changelog",
 		"notification.send-email",
 	)
 
@@ -75,7 +76,8 @@ func main() {
 	blockRepo := repository.NewCardBlockRepository(db)
 	authRepo := repository.NewAuthorizedPersonRepository(db)
 	cardRequestRepo := repository.NewCardRequestRepository(db)
-	cardService := service.NewCardService(cardRepo, blockRepo, authRepo, producer, redisCache, db)
+	changelogRepo := repository.NewChangelogRepository(db)
+	cardService := service.NewCardService(cardRepo, blockRepo, authRepo, producer, redisCache, db, changelogRepo)
 	cardRequestSvc := service.NewCardRequestService(cardRequestRepo, cardService, producer)
 	grpcHandler := handler.NewCardGRPCHandler(cardService, producer, clientClient)
 	virtualCardHandler := handler.NewVirtualCardGRPCHandler(cardService)

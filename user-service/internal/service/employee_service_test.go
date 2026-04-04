@@ -206,7 +206,7 @@ func TestUpdateEmployee_InvalidJMBG(t *testing.T) {
 	repo.employees[1] = &model.Employee{ID: 1, JMBG: "0101990710024"}
 	svc := NewEmployeeService(repo, nil, nil, nil)
 
-	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"jmbg": "bad"})
+	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"jmbg": "bad"}, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "JMBG")
 }
@@ -231,7 +231,7 @@ func TestSetEmployeeRoles(t *testing.T) {
 	// Seed roles
 	_ = roleSvc.SeedRolesAndPermissions()
 
-	err := svc.SetEmployeeRoles(context.Background(), emp.ID, []string{"EmployeeAgent"})
+	err := svc.SetEmployeeRoles(context.Background(), emp.ID, []string{"EmployeeAgent"}, 0)
 	assert.NoError(t, err)
 
 	updated, err := repo.GetByID(emp.ID)
@@ -260,7 +260,7 @@ func TestSetEmployeeAdditionalPermissions(t *testing.T) {
 	// Seed permissions
 	_ = roleSvc.SeedRolesAndPermissions()
 
-	err := svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID, []string{"clients.read", "securities.trade"})
+	err := svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID, []string{"clients.read", "securities.trade"}, 0)
 	assert.NoError(t, err)
 
 	updated, err := repo.GetByID(emp.ID)
@@ -344,7 +344,7 @@ func TestUpdateEmployee_EmailImmutable(t *testing.T) {
 	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{
 		"email":     "changed@example.com",
 		"last_name": "Updated",
-	})
+	}, 0)
 	assert.NoError(t, err, "UpdateEmployee with email key should not return an error")
 
 	persisted, err := repo.GetByID(1)
@@ -366,7 +366,7 @@ func TestUpdateEmployee_JMBGValidIsApplied(t *testing.T) {
 
 	updated, err := svc.UpdateEmployee(context.Background(), 2, map[string]interface{}{
 		"jmbg": "0201990710025",
-	})
+	}, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, "0201990710025", updated.JMBG, "valid JMBG should be applied")
 
@@ -387,7 +387,7 @@ func TestUpdateEmployee_JMBGAbsentRetainsOriginal(t *testing.T) {
 
 	updated, err := svc.UpdateEmployee(context.Background(), 3, map[string]interface{}{
 		"last_name": "Smith",
-	})
+	}, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, "0101990710024", updated.JMBG, "JMBG should be unchanged when not in updates")
 }

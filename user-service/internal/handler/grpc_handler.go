@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/exbanka/user-service/internal/service"
@@ -70,7 +71,7 @@ func (h *UserGRPCHandler) CreateEmployee(ctx context.Context, req *pb.CreateEmpl
 	}
 
 	if req.Role != "" {
-		if err := h.empService.SetEmployeeRoles(ctx, emp.ID, []string{req.Role}); err != nil {
+		if err := h.empService.SetEmployeeRoles(ctx, emp.ID, []string{req.Role}, 0); err != nil {
 			return nil, status.Errorf(mapServiceError(err), "failed to assign role: %v", err)
 		}
 		// Reload employee so the response includes the assigned role/permissions.
@@ -131,7 +132,8 @@ func (h *UserGRPCHandler) UpdateEmployee(ctx context.Context, req *pb.UpdateEmpl
 		updates["jmbg"] = *req.Jmbg
 	}
 
-	emp, err := h.empService.UpdateEmployee(ctx, req.Id, updates)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	emp, err := h.empService.UpdateEmployee(ctx, req.Id, updates, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "employee not found")
@@ -204,7 +206,8 @@ func (h *UserGRPCHandler) ListPermissions(ctx context.Context, req *pb.ListPermi
 
 // SetEmployeeRoles replaces the roles for an employee.
 func (h *UserGRPCHandler) SetEmployeeRoles(ctx context.Context, req *pb.SetEmployeeRolesRequest) (*pb.EmployeeResponse, error) {
-	if err := h.empService.SetEmployeeRoles(ctx, req.EmployeeId, req.RoleNames); err != nil {
+	changedBy := changelog.ExtractChangedBy(ctx)
+	if err := h.empService.SetEmployeeRoles(ctx, req.EmployeeId, req.RoleNames, changedBy); err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to set employee roles: %v", err)
 	}
 	emp, err := h.empService.GetEmployee(req.EmployeeId)
@@ -216,7 +219,8 @@ func (h *UserGRPCHandler) SetEmployeeRoles(ctx context.Context, req *pb.SetEmplo
 
 // SetEmployeeAdditionalPermissions replaces the additional permissions for an employee.
 func (h *UserGRPCHandler) SetEmployeeAdditionalPermissions(ctx context.Context, req *pb.SetEmployeePermissionsRequest) (*pb.EmployeeResponse, error) {
-	if err := h.empService.SetEmployeeAdditionalPermissions(ctx, req.EmployeeId, req.PermissionCodes); err != nil {
+	changedBy := changelog.ExtractChangedBy(ctx)
+	if err := h.empService.SetEmployeeAdditionalPermissions(ctx, req.EmployeeId, req.PermissionCodes, changedBy); err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to set employee permissions: %v", err)
 	}
 	emp, err := h.empService.GetEmployee(req.EmployeeId)

@@ -1,7 +1,17 @@
 // user-service/internal/service/interfaces.go
 package service
 
-import "github.com/exbanka/user-service/internal/model"
+import (
+	"github.com/exbanka/contract/changelog"
+	"github.com/exbanka/user-service/internal/model"
+)
+
+// ChangelogRepo is the interface for changelog persistence.
+type ChangelogRepo interface {
+	Create(entry changelog.Entry) error
+	CreateBatch(entries []changelog.Entry) error
+	ListByEntity(entityType string, entityID int64, page, pageSize int) ([]model.Changelog, int64, error)
+}
 
 type EmployeeRepo interface {
 	Create(emp *model.Employee) error

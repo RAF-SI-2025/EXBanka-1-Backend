@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/creditpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/credit-service/internal/kafka"
@@ -153,7 +154,8 @@ func (h *CreditGRPCHandler) ApproveLoanRequest(ctx context.Context, req *pb.Appr
 }
 
 func (h *CreditGRPCHandler) RejectLoanRequest(ctx context.Context, req *pb.RejectLoanRequestReq) (*pb.LoanRequestResponse, error) {
-	loanReq, err := h.loanRequestService.RejectLoanRequest(req.RequestId)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	loanReq, err := h.loanRequestService.RejectLoanRequest(req.RequestId, changedBy, "")
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "loan request not found")

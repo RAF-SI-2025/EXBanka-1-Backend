@@ -11,6 +11,7 @@ import (
 
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/client-service/internal/service"
+	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/clientpb"
 )
 
@@ -131,7 +132,8 @@ func (h *ClientGRPCHandler) UpdateClient(ctx context.Context, req *pb.UpdateClie
 		updates["address"] = *req.Address
 	}
 
-	client, err := h.clientService.UpdateClient(req.Id, updates)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	client, err := h.clientService.UpdateClient(req.Id, updates, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "client not found")
