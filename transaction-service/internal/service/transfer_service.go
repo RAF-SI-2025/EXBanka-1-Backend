@@ -501,6 +501,17 @@ func (s *TransferService) runRecoveryTick(ctx context.Context) {
 // Both transfer and payment compensations are handled here because both only require
 // an accountClient.UpdateBalance call.
 func (s *TransferService) StartCompensationRecovery(ctx context.Context) {
+	// Run immediate recovery pass at startup
+	if s.sagaRepo != nil {
+		pending, err := s.sagaRepo.FindPendingCompensations()
+		if err != nil {
+			log.Printf("saga recovery: failed to check pending compensations at startup: %v", err)
+		} else {
+			log.Printf("saga recovery: startup check found %d pending compensation(s)", len(pending))
+		}
+	}
+	s.runRecoveryTick(ctx)
+
 	ticker := time.NewTicker(5 * time.Minute)
 	go func() {
 		defer ticker.Stop()
