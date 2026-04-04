@@ -130,6 +130,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	// Look up account by email
 	account, err := s.accountRepo.GetByEmail(email)
 	if err != nil {
+		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
 		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
 			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
@@ -139,6 +140,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 
 	// Check account status
 	if account.Status == model.AccountStatusPending {
+		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
 		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
 			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
@@ -146,6 +148,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 		return "", "", fmt.Errorf("account not yet activated (%d attempts remaining before lockout)", remaining)
 	}
 	if account.Status != model.AccountStatusActive {
+		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
 		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
 			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
@@ -155,6 +158,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(PepperPassword(s.pepper, password))); err != nil {
+		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
 		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
 			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
@@ -165,6 +169,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	_ = s.loginAttemptRepo.RecordAttempt(email, "", true)
 
 	var accessToken string
+	systemType := "employee"
+	if account.PrincipalType != model.PrincipalTypeEmployee {
+		systemType = "client"
+	}
 
 	switch account.PrincipalType {
 	case model.PrincipalTypeEmployee:
@@ -199,6 +207,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	}); err != nil {
 		return "", "", err
 	}
+
+	AuthLoginTotal.WithLabelValues("success", systemType).Inc()
+	AuthTokensIssuedTotal.WithLabelValues("access").Inc()
+	AuthTokensIssuedTotal.WithLabelValues("refresh").Inc()
 
 	return accessToken, refreshToken, nil
 }
@@ -321,6 +333,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) 
 	}); err != nil {
 		return "", "", err
 	}
+
+	AuthTokensIssuedTotal.WithLabelValues("access").Inc()
+	AuthTokensIssuedTotal.WithLabelValues("refresh").Inc()
 
 	return accessToken, newRefreshToken, nil
 }
@@ -453,6 +468,8 @@ func (s *AuthService) CreateAccountAndActivationToken(ctx context.Context, princ
 		return err
 	}
 
+	AuthTokensIssuedTotal.WithLabelValues("activation").Inc()
+
 	return s.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
 		To:        email,
 		EmailType: kafkamsg.EmailTypeActivation,
@@ -465,6 +482,8 @@ func (s *AuthService) CreateAccountAndActivationToken(ctx context.Context, princ
 }
 
 func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {
+	AuthPasswordResetTotal.Inc()
+
 	account, err := s.accountRepo.GetByEmail(email)
 	if err != nil {
 		return nil // Don't reveal if email exists

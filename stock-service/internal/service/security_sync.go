@@ -78,6 +78,8 @@ func (s *SecuritySyncService) SeedAll(ctx context.Context, futuresSeedPath strin
 // RefreshPrices updates price data for all securities.
 // Called periodically by the refresh goroutine.
 func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
+	start := time.Now()
+
 	if s.isTestingMode() {
 		log.Println("testing mode enabled — skipping external API price refresh")
 		return
@@ -87,6 +89,8 @@ func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 	if s.listingSvc != nil {
 		s.listingSvc.SyncListingsFromSecurities()
 	}
+
+	StockPriceRefreshDuration.Observe(time.Since(start).Seconds())
 	log.Println("price refresh complete")
 }
 

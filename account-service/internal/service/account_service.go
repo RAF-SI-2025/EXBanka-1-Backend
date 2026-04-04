@@ -76,7 +76,11 @@ func (s *AccountService) CreateAccount(account *model.Account) error {
 	account.Status = "active"
 	account.MaintenanceFee = maintenanceFeeByType(account.AccountType)
 
-	return s.repo.Create(account)
+	if err := s.repo.Create(account); err != nil {
+		return err
+	}
+	AccountsCreatedTotal.Inc()
+	return nil
 }
 
 func (s *AccountService) GetAccount(id uint64) (*model.Account, error) {
@@ -161,7 +165,11 @@ func (s *AccountService) UpdateAccountStatus(id uint64, newStatus string) error 
 		return fmt.Errorf("account %d is already %s", id, newStatus)
 	}
 
-	return s.repo.UpdateStatus(id, newStatus)
+	if err := s.repo.UpdateStatus(id, newStatus); err != nil {
+		return err
+	}
+	AccountStatusChangesTotal.WithLabelValues(newStatus).Inc()
+	return nil
 }
 
 func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
@@ -203,7 +211,11 @@ func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountNam
 	account.ExpiresAt = time.Now().AddDate(50, 0, 0) // 50-year expiry for bank accounts
 	account.Status = "active"
 	account.MaintenanceFee = decimal.Zero
-	return account, s.repo.Create(account)
+	if err := s.repo.Create(account); err != nil {
+		return nil, err
+	}
+	AccountsCreatedTotal.Inc()
+	return account, nil
 }
 
 func (s *AccountService) ListBankAccounts() ([]model.Account, error) {

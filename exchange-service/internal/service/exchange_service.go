@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -63,8 +64,12 @@ func NewExchangeServiceWithUpserter(
 // All pairs are upserted in a single transaction: if any upsert fails,
 // the entire sync is rolled back and existing cached rates are preserved.
 func (s *ExchangeService) SyncRates(ctx context.Context, p provider.RateProvider) error {
+	start := time.Now()
+
 	rates, err := p.FetchRatesFromRSD()
 	if err != nil {
+		ExchangeRateSyncTotal.WithLabelValues("failure").Inc()
+		ExchangeRateSyncDuration.Observe(time.Since(start).Seconds())
 		log.Printf("WARN: rate provider sync failed, keeping cached rates: %v", err)
 		return err
 	}
@@ -72,7 +77,7 @@ func (s *ExchangeService) SyncRates(ctx context.Context, p provider.RateProvider
 	one := decimal.NewFromInt(1)
 	// All pairs are upserted in a single transaction: if any upsert fails,
 	// the entire sync is rolled back and existing cached rates are preserved.
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	syncErr := s.db.Transaction(func(tx *gorm.DB) error {
 		for code, midRsdToC := range rates {
 			if midRsdToC.IsZero() {
 				continue
@@ -92,6 +97,15 @@ func (s *ExchangeService) SyncRates(ctx context.Context, p provider.RateProvider
 		}
 		return nil
 	})
+
+	elapsed := time.Since(start).Seconds()
+	ExchangeRateSyncDuration.Observe(elapsed)
+	if syncErr != nil {
+		ExchangeRateSyncTotal.WithLabelValues("failure").Inc()
+	} else {
+		ExchangeRateSyncTotal.WithLabelValues("success").Inc()
+	}
+	return syncErr
 }
 
 // Convert performs a raw sell-rate conversion with no commission. Used internally
@@ -104,6 +118,8 @@ func (s *ExchangeService) SyncRates(ctx context.Context, p provider.RateProvider
 //   - foreign → RSD: single leg using repo.GetByPair(fromCurrency, "RSD")
 //   - foreign → foreign: two legs via RSD intermediary
 func (s *ExchangeService) Convert(ctx context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, error) {
+	ExchangeConversionsTotal.Inc()
+
 	if from == to {
 		return amount, decimal.NewFromInt(1), nil
 	}

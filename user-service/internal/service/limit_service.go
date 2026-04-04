@@ -38,6 +38,7 @@ func (s *LimitService) SetEmployeeLimits(ctx context.Context, limit model.Employ
 	if err := s.limitRepo.Upsert(&limit); err != nil {
 		return nil, err
 	}
+	UserEmployeeLimitUpdatesTotal.Inc()
 	result, err := s.limitRepo.GetByEmployeeID(limit.EmployeeID)
 	if err != nil {
 		return nil, err

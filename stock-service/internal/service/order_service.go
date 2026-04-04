@@ -157,6 +157,7 @@ func (s *OrderService) CreateOrder(
 	if err := s.orderRepo.Create(order); err != nil {
 		return nil, err
 	}
+	StockOrderTotal.WithLabelValues(orderType, status).Inc()
 
 	// Publish Kafka event after successful creation
 	if s.producer != nil {
@@ -191,6 +192,7 @@ func (s *OrderService) ApproveOrder(orderID uint64, supervisorID uint64, supervi
 	if err := s.orderRepo.Update(order); err != nil {
 		return nil, err
 	}
+	StockOrderTotal.WithLabelValues(order.OrderType, "approved").Inc()
 
 	if s.producer != nil {
 		go s.producer.PublishOrderApproved(context.Background(), buildOrderEvent(order))
@@ -219,6 +221,7 @@ func (s *OrderService) DeclineOrder(orderID uint64, supervisorID uint64, supervi
 	if err := s.orderRepo.Update(order); err != nil {
 		return nil, err
 	}
+	StockOrderTotal.WithLabelValues(order.OrderType, "declined").Inc()
 
 	if s.producer != nil {
 		go s.producer.PublishOrderDeclined(context.Background(), buildOrderEvent(order))

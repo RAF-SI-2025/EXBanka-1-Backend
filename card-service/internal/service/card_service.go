@@ -94,6 +94,7 @@ func (s *CardService) CreateCard(ctx context.Context, accountNumber string, owne
 	if err != nil {
 		return nil, "", err
 	}
+	CardCreatedTotal.WithLabelValues("physical").Inc()
 	return card, cvv, nil
 }
 
@@ -129,6 +130,9 @@ func (s *CardService) BlockCard(id uint64) (*model.Card, error) {
 		card.Status = "blocked"
 		return tx.Save(card).Error
 	})
+	if err == nil {
+		CardStatusChangesTotal.WithLabelValues("block").Inc()
+	}
 	return card, err
 }
 
@@ -149,6 +153,9 @@ func (s *CardService) UnblockCard(id uint64) (*model.Card, error) {
 		card.Status = "active"
 		return tx.Save(card).Error
 	})
+	if err == nil {
+		CardStatusChangesTotal.WithLabelValues("unblock").Inc()
+	}
 	return card, err
 }
 
@@ -169,6 +176,9 @@ func (s *CardService) DeactivateCard(id uint64) (*model.Card, error) {
 		card.Status = "deactivated"
 		return tx.Save(card).Error
 	})
+	if err == nil {
+		CardStatusChangesTotal.WithLabelValues("deactivate").Inc()
+	}
 	return card, err
 }
 
@@ -227,6 +237,7 @@ func (s *CardService) CreateVirtualCard(ctx context.Context, accountNumber strin
 	if err := s.cardRepo.Create(card); err != nil {
 		return nil, "", err
 	}
+	CardCreatedTotal.WithLabelValues("virtual").Inc()
 	_ = s.producer.PublishVirtualCardCreated(ctx, kafkamsg.VirtualCardCreatedMessage{
 		CardID:        card.ID,
 		AccountNumber: card.AccountNumber,
@@ -268,12 +279,16 @@ func (s *CardService) VerifyPin(cardID uint64, pin string) (bool, error) {
 			card.PinAttempts++
 			if card.PinAttempts >= 3 {
 				card.Status = "blocked"
+				CardPinAttemptsTotal.WithLabelValues("locked").Inc()
+			} else {
+				CardPinAttemptsTotal.WithLabelValues("failure").Inc()
 			}
 			ok = false
 			return tx.Save(card).Error
 		}
 		card.PinAttempts = 0
 		ok = true
+		CardPinAttemptsTotal.WithLabelValues("success").Inc()
 		return tx.Save(card).Error
 	})
 	return ok, err

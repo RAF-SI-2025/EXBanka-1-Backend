@@ -76,6 +76,7 @@ func executeWithSaga(
 				_ = sagaRepo.FailStep(logID, err.Error())
 			}
 			// Compensate all previously-completed steps in reverse order.
+			TransactionSagaCompensationsTotal.Inc()
 			for j := len(done) - 1; j >= 0; j-- {
 				prev := done[j]
 				compAmount := prev.amount.Neg()

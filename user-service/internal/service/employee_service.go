@@ -57,6 +57,7 @@ func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employe
 	if err := s.repo.Create(emp); err != nil {
 		return fmt.Errorf("create employee: %w", err)
 	}
+	UserEmployeeCreatedTotal.Inc()
 
 	roleNames := extractRoleNames(emp.Roles)
 
@@ -181,6 +182,7 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 	if err := s.repo.SetEmployeeRoles(employeeID, roles); err != nil {
 		return err
 	}
+	UserRoleChangesTotal.Inc()
 
 	// Invalidate cache
 	if s.cache != nil {

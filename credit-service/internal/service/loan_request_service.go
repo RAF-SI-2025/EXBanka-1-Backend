@@ -95,6 +95,7 @@ func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
 		return fmt.Errorf("failed to save loan request for account %s (loan_type=%s, amount=%s): %v",
 			req.AccountNumber, req.LoanType, req.Amount.StringFixed(2), err)
 	}
+	CreditLoanRequestTotal.WithLabelValues("created").Inc()
 	return nil
 }
 
@@ -224,6 +225,7 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 	if updateErr := s.loanRepo.Update(loan); updateErr != nil {
 		log.Printf("ApproveLoanRequest: failed to update loan %d status to %s after disbursement: %v", loan.ID, loan.Status, updateErr)
 	}
+	CreditLoanRequestTotal.WithLabelValues("approved").Inc()
 	return loan, nil
 }
 
@@ -248,5 +250,6 @@ func (s *LoanRequestService) RejectLoanRequest(requestID uint64) (*model.LoanReq
 	if err != nil {
 		return nil, err
 	}
+	CreditLoanRequestTotal.WithLabelValues("rejected").Inc()
 	return req, nil
 }

@@ -78,6 +78,7 @@ func (s *ClientLimitService) SetClientLimits(ctx context.Context, limit model.Cl
 	if err := s.limitRepo.Upsert(&limit); err != nil {
 		return nil, err
 	}
+	ClientLimitUpdatesTotal.Inc()
 
 	result, err := s.limitRepo.GetByClientID(limit.ClientID)
 	if err != nil {

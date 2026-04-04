@@ -196,12 +196,15 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		return err
 	}
 
+	TransactionTotal.WithLabelValues("transfer", "created").Inc()
 	return nil
 }
 
 // ExecuteTransfer performs the actual balance changes for a transfer that has been verified.
 // The transfer must be in "pending_verification" status.
 func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64) error {
+	start := time.Now()
+
 	transfer, err := s.transferRepo.GetByID(transferID)
 	if err != nil {
 		return fmt.Errorf("transfer not found: %w", err)
@@ -411,6 +414,11 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		return err
 	}
 	transfer.Status = "completed"
+
+	TransactionTotal.WithLabelValues("transfer", "completed").Inc()
+	TransactionAmountRSDSum.WithLabelValues("transfer").Add(transfer.FinalAmount.InexactFloat64())
+	TransactionProcessingDuration.WithLabelValues("transfer").Observe(time.Since(start).Seconds())
+
 	return nil
 }
 

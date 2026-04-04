@@ -77,6 +77,7 @@ func (s *ClientService) CreateClient(ctx context.Context, client *model.Client) 
 	if err := s.repo.Create(client); err != nil {
 		return fmt.Errorf("create client: %w", err)
 	}
+	ClientCreatedTotal.Inc()
 
 	if s.producer != nil {
 		if err := s.producer.PublishClientCreated(ctx, kafkamsg.ClientCreatedMessage{

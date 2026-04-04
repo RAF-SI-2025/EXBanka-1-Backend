@@ -107,6 +107,7 @@ func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64
 	if err := s.repo.Create(vc); err != nil {
 		return nil, fmt.Errorf("failed to create verification challenge: %w", err)
 	}
+	VerificationChallengesCreatedTotal.WithLabelValues(method).Inc()
 
 	// Deliver via email when: method is explicitly "email", or code_pull with no mobile device registered.
 	sendViaEmail := method == "email" || (method == "code_pull" && deviceID == "")
@@ -198,11 +199,14 @@ func (s *VerificationService) SubmitVerification(ctx context.Context, challengeI
 			vc.VerifiedAt = &now
 			success = true
 			remaining = s.maxAttempts - vc.Attempts
+			VerificationAttemptsTotal.WithLabelValues("success").Inc()
 		} else {
+			VerificationAttemptsTotal.WithLabelValues("failure").Inc()
 			remaining = s.maxAttempts - vc.Attempts
 			if remaining <= 0 {
 				vc.Status = "failed"
-			} else if vc.Method == "number_match" {
+			}
+			if vc.Method == "number_match" && remaining > 0 {
 				// Regenerate challenge data on wrong number_match answer
 				newData, err := buildChallengeData("number_match")
 				if err == nil {
@@ -281,7 +285,9 @@ func (s *VerificationService) SubmitCode(ctx context.Context, challengeID uint64
 			vc.VerifiedAt = &now
 			success = true
 			remaining = s.maxAttempts - vc.Attempts
+			VerificationAttemptsTotal.WithLabelValues("success").Inc()
 		} else {
+			VerificationAttemptsTotal.WithLabelValues("failure").Inc()
 			remaining = s.maxAttempts - vc.Attempts
 			if remaining <= 0 {
 				vc.Status = "failed"
@@ -331,6 +337,7 @@ func (s *VerificationService) ExpireOldChallenges(ctx context.Context) {
 		return
 	}
 	if count > 0 {
+		VerificationChallengesExpiredTotal.Add(float64(count))
 		log.Printf("verification-service: expired %d old challenges", count)
 	}
 }

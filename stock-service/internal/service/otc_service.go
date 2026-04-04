@@ -195,6 +195,8 @@ func (s *OTCService) BuyOffer(
 		return nil, err
 	}
 
+	StockOTCTradesTotal.Inc()
+
 	return &OTCBuyResult{
 		ID:           buyerHolding.ID,
 		OfferID:      offerID,
