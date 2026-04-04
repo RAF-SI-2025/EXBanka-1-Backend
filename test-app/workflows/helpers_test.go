@@ -342,10 +342,9 @@ func createAndExecutePayment(t *testing.T, fromClient *client.APIClient, toAccou
 	t.Helper()
 
 	createResp, err := fromClient.POST("/api/me/payments", map[string]interface{}{
-		"recipient_account_number": toAccountNum,
-		"amount":                   amount,
-		"payment_code":             "289",
-		"purpose":                  "test payment",
+		"to_account_number": toAccountNum,
+		"amount":            amount,
+		"payment_purpose":   "test payment",
 	})
 	if err != nil {
 		t.Fatalf("createAndExecutePayment: create: %v", err)
@@ -356,7 +355,8 @@ func createAndExecutePayment(t *testing.T, fromClient *client.APIClient, toAccou
 	challengeID := createAndVerifyChallenge(t, fromClient, "payment", paymentID, email)
 
 	execResp, err := fromClient.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
-		"challenge_id": challengeID,
+		"verification_code": "111111",
+		"challenge_id":      challengeID,
 	})
 	if err != nil {
 		t.Fatalf("createAndExecutePayment: execute: %v", err)
@@ -383,7 +383,8 @@ func createAndExecuteTransfer(t *testing.T, clientC *client.APIClient, fromAccou
 	challengeID := createAndVerifyChallenge(t, clientC, "transfer", transferID, email)
 
 	execResp, err := clientC.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
-		"challenge_id": challengeID,
+		"verification_code": "111111",
+		"challenge_id":      challengeID,
 	})
 	if err != nil {
 		t.Fatalf("createAndExecuteTransfer: execute: %v", err)
@@ -396,7 +397,7 @@ func createAndExecuteTransfer(t *testing.T, clientC *client.APIClient, fromAccou
 func buyStock(t *testing.T, c *client.APIClient, listingID uint64, quantity int, email string) int {
 	t.Helper()
 
-	orderResp, err := c.POST("/api/orders", map[string]interface{}{
+	orderResp, err := c.POST("/api/me/orders", map[string]interface{}{
 		"listing_id": listingID,
 		"order_type": "market",
 		"direction":  "buy",
@@ -417,7 +418,7 @@ func waitForOrderFill(t *testing.T, c *client.APIClient, orderID int, timeout ti
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		resp, err := c.GET(fmt.Sprintf("/api/orders/%d", orderID))
+		resp, err := c.GET(fmt.Sprintf("/api/me/orders/%d", orderID))
 		if err != nil {
 			t.Fatalf("waitForOrderFill: GET order: %v", err)
 		}
