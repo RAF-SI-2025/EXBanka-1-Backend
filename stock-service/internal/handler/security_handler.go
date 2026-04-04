@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -19,10 +20,11 @@ type SecurityHandler struct {
 	pb.UnimplementedSecurityGRPCServiceServer
 	secSvc     *service.SecurityService
 	listingSvc *service.ListingService
+	candleSvc  *service.CandleService
 }
 
-func NewSecurityHandler(secSvc *service.SecurityService, listingSvc *service.ListingService) *SecurityHandler {
-	return &SecurityHandler{secSvc: secSvc, listingSvc: listingSvc}
+func NewSecurityHandler(secSvc *service.SecurityService, listingSvc *service.ListingService, candleSvc *service.CandleService) *SecurityHandler {
+	return &SecurityHandler{secSvc: secSvc, listingSvc: listingSvc, candleSvc: candleSvc}
 }
 
 // --- Stocks ---
@@ -247,6 +249,48 @@ func (h *SecurityHandler) GetOption(ctx context.Context, req *pb.GetOptionReques
 		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}
 	return toOptionDetail(o), nil
+}
+
+// --- Candles ---
+
+func (h *SecurityHandler) GetCandles(ctx context.Context, req *pb.GetCandlesRequest) (*pb.GetCandlesResponse, error) {
+	if req.ListingId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "listing_id is required")
+	}
+	if req.Interval == "" {
+		return nil, status.Error(codes.InvalidArgument, "interval is required")
+	}
+
+	from, err := time.Parse(time.RFC3339, req.From)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid from timestamp: use RFC3339 format")
+	}
+	to, err := time.Parse(time.RFC3339, req.To)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid to timestamp: use RFC3339 format")
+	}
+
+	candles, err := h.candleSvc.GetCandles(ctx, req.ListingId, req.Interval, from, to)
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
+	}
+
+	pbCandles := make([]*pb.CandlePoint, len(candles))
+	for i, cp := range candles {
+		pbCandles[i] = &pb.CandlePoint{
+			Timestamp: cp.Timestamp.Format(time.RFC3339),
+			Open:      fmt.Sprintf("%.4f", cp.Open),
+			High:      fmt.Sprintf("%.4f", cp.High),
+			Low:       fmt.Sprintf("%.4f", cp.Low),
+			Close:     fmt.Sprintf("%.4f", cp.Close),
+			Volume:    cp.Volume,
+		}
+	}
+
+	return &pb.GetCandlesResponse{
+		Candles: pbCandles,
+		Count:   int64(len(pbCandles)),
+	}, nil
 }
 
 // --- Mapping helpers ---

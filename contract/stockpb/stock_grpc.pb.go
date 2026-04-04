@@ -247,6 +247,7 @@ const (
 	SecurityGRPCService_GetForexPairHistory_FullMethodName = "/stock.SecurityGRPCService/GetForexPairHistory"
 	SecurityGRPCService_ListOptions_FullMethodName         = "/stock.SecurityGRPCService/ListOptions"
 	SecurityGRPCService_GetOption_FullMethodName           = "/stock.SecurityGRPCService/GetOption"
+	SecurityGRPCService_GetCandles_FullMethodName          = "/stock.SecurityGRPCService/GetCandles"
 )
 
 // SecurityGRPCServiceClient is the client API for SecurityGRPCService service.
@@ -268,6 +269,8 @@ type SecurityGRPCServiceClient interface {
 	// Options
 	ListOptions(ctx context.Context, in *ListOptionsRequest, opts ...grpc.CallOption) (*ListOptionsResponse, error)
 	GetOption(ctx context.Context, in *GetOptionRequest, opts ...grpc.CallOption) (*OptionDetail, error)
+	// Candles (InfluxDB time-series)
+	GetCandles(ctx context.Context, in *GetCandlesRequest, opts ...grpc.CallOption) (*GetCandlesResponse, error)
 }
 
 type securityGRPCServiceClient struct {
@@ -388,6 +391,16 @@ func (c *securityGRPCServiceClient) GetOption(ctx context.Context, in *GetOption
 	return out, nil
 }
 
+func (c *securityGRPCServiceClient) GetCandles(ctx context.Context, in *GetCandlesRequest, opts ...grpc.CallOption) (*GetCandlesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCandlesResponse)
+	err := c.cc.Invoke(ctx, SecurityGRPCService_GetCandles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SecurityGRPCServiceServer is the server API for SecurityGRPCService service.
 // All implementations must embed UnimplementedSecurityGRPCServiceServer
 // for forward compatibility.
@@ -407,6 +420,8 @@ type SecurityGRPCServiceServer interface {
 	// Options
 	ListOptions(context.Context, *ListOptionsRequest) (*ListOptionsResponse, error)
 	GetOption(context.Context, *GetOptionRequest) (*OptionDetail, error)
+	// Candles (InfluxDB time-series)
+	GetCandles(context.Context, *GetCandlesRequest) (*GetCandlesResponse, error)
 	mustEmbedUnimplementedSecurityGRPCServiceServer()
 }
 
@@ -449,6 +464,9 @@ func (UnimplementedSecurityGRPCServiceServer) ListOptions(context.Context, *List
 }
 func (UnimplementedSecurityGRPCServiceServer) GetOption(context.Context, *GetOptionRequest) (*OptionDetail, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetOption not implemented")
+}
+func (UnimplementedSecurityGRPCServiceServer) GetCandles(context.Context, *GetCandlesRequest) (*GetCandlesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetCandles not implemented")
 }
 func (UnimplementedSecurityGRPCServiceServer) mustEmbedUnimplementedSecurityGRPCServiceServer() {}
 func (UnimplementedSecurityGRPCServiceServer) testEmbeddedByValue()                             {}
@@ -669,6 +687,24 @@ func _SecurityGRPCService_GetOption_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SecurityGRPCService_GetCandles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCandlesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SecurityGRPCServiceServer).GetCandles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SecurityGRPCService_GetCandles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SecurityGRPCServiceServer).GetCandles(ctx, req.(*GetCandlesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SecurityGRPCService_ServiceDesc is the grpc.ServiceDesc for SecurityGRPCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -719,6 +755,10 @@ var SecurityGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetOption",
 			Handler:    _SecurityGRPCService_GetOption_Handler,
+		},
+		{
+			MethodName: "GetCandles",
+			Handler:    _SecurityGRPCService_GetCandles_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

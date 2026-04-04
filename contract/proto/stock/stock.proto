@@ -119,6 +119,8 @@ service SecurityGRPCService {
   // Options
   rpc ListOptions(ListOptionsRequest) returns (ListOptionsResponse);
   rpc GetOption(GetOptionRequest) returns (OptionDetail);
+  // Candles (InfluxDB time-series)
+  rpc GetCandles(GetCandlesRequest) returns (GetCandlesResponse);
 }
 
 // --- Stocks ---
@@ -311,6 +313,29 @@ message ListOptionsResponse {
 
 message GetOptionRequest {
   uint64 id = 1;
+}
+
+// ==================== Candles ====================
+
+message GetCandlesRequest {
+  uint64 listing_id = 1;
+  string interval = 2;    // 1m, 5m, 15m, 1h, 4h, 1d
+  string from = 3;        // RFC3339 timestamp
+  string to = 4;          // RFC3339 timestamp
+}
+
+message CandlePoint {
+  string timestamp = 1;   // RFC3339
+  string open = 2;
+  string high = 3;
+  string low = 4;
+  string close = 5;
+  int64 volume = 6;
+}
+
+message GetCandlesResponse {
+  repeated CandlePoint candles = 1;
+  int64 count = 2;
 }
 
 // ==================== Orders ====================

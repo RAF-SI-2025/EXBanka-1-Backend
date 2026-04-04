@@ -273,6 +273,50 @@ func (h *SecuritiesHandler) GetOption(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// --- Candles ---
+
+func (h *SecuritiesHandler) GetCandles(c *gin.Context) {
+	listingIDStr := c.Query("listing_id")
+	if listingIDStr == "" {
+		apiError(c, 400, ErrValidation, "listing_id query parameter is required")
+		return
+	}
+	listingID, err := strconv.ParseUint(listingIDStr, 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid listing_id")
+		return
+	}
+
+	interval := c.DefaultQuery("interval", "1h")
+	if _, err := oneOf("interval", interval, "1m", "5m", "15m", "1h", "4h", "1d"); err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+
+	fromStr := c.Query("from")
+	if fromStr == "" {
+		apiError(c, 400, ErrValidation, "from query parameter is required (RFC3339)")
+		return
+	}
+	toStr := c.Query("to")
+	if toStr == "" {
+		apiError(c, 400, ErrValidation, "to query parameter is required (RFC3339)")
+		return
+	}
+
+	resp, err := h.client.GetCandles(c.Request.Context(), &stockpb.GetCandlesRequest{
+		ListingId: listingID,
+		Interval:  interval,
+		From:      fromStr,
+		To:        toStr,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"candles": emptyIfNil(resp.Candles), "count": resp.Count})
+}
+
 // parseInt64Query parses a query parameter as int64, returning 0 if absent or invalid.
 func parseInt64Query(c *gin.Context, key string) int64 {
 	v := c.Query(key)
