@@ -214,6 +214,32 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─── Monitoring ───────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
   # ─── Services ─────────────────────────────────────────────────────────────
 
   user-service:
@@ -230,8 +256,10 @@ services:
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
       USER_DB_SSLMODE: disable
+      METRICS_PORT: "9102"
     ports:
       - "50052:50052"
+      - "9102:9102"
     depends_on:
       user-db:
         condition: service_healthy
@@ -262,8 +290,10 @@ services:
       PASSWORD_PEPPER: "${PASSWORD_PEPPER}"
       MOBILE_REFRESH_EXPIRY: "2160h"
       MOBILE_ACTIVATION_EXPIRY: "15m"
+      METRICS_PORT: "9101"
     ports:
       - "50051:50051"
+      - "9101:9101"
     depends_on:
       auth-db:
         condition: service_healthy
@@ -292,8 +322,10 @@ services:
       NOTIFICATION_DB_PASSWORD: postgres
       NOTIFICATION_DB_NAME: notification_db
       NOTIFICATION_DB_SSLMODE: disable
+      METRICS_PORT: "9103"
     ports:
       - "50053:50053"
+      - "9103:9103"
     depends_on:
       notification-db:
         condition: service_healthy
@@ -314,8 +346,10 @@ services:
       USER_GRPC_ADDR: "user-service:50052"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      METRICS_PORT: "9104"
     ports:
       - "50054:50054"
+      - "9104:9104"
     depends_on:
       client-db:
         condition: service_healthy
@@ -340,8 +374,10 @@ services:
       CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      METRICS_PORT: "9105"
     ports:
       - "50055:50055"
+      - "9105:9105"
     depends_on:
       account-db:
         condition: service_healthy
@@ -366,8 +402,10 @@ services:
       CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      METRICS_PORT: "9106"
     ports:
       - "50056:50056"
+      - "9106:9106"
     depends_on:
       card-db:
         condition: service_healthy
@@ -394,8 +432,10 @@ services:
       REDIS_ADDR: redis:6379
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
       VERIFICATION_GRPC_ADDR: "verification-service:50061"
+      METRICS_PORT: "9107"
     ports:
       - "50057:50057"
+      - "9107:9107"
     depends_on:
       transaction-db:
         condition: service_healthy
@@ -426,8 +466,10 @@ services:
       USER_GRPC_ADDR: "user-service:50052"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      METRICS_PORT: "9108"
     ports:
       - "50058:50058"
+      - "9108:9108"
     depends_on:
       credit-db:
         condition: service_healthy
@@ -457,8 +499,10 @@ services:
       EXCHANGE_COMMISSION_RATE: "0.005"
       EXCHANGE_SPREAD: "0.003"
       EXCHANGE_DB_SSLMODE: disable
+      METRICS_PORT: "9109"
     ports:
       - "50059:50059"
+      - "9109:9109"
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 50059 || exit 1"]
       interval: 10s
@@ -495,8 +539,10 @@ services:
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_API_SECRET: ${ALPACA_API_SECRET:-}
       FINNHUB_API_KEY: ${FINNHUB_API_KEY:-d77em2pr01qp6aflc4i0d77em2pr01qp6aflc4ig}
+      METRICS_PORT: "9110"
     ports:
       - "50060:50060"
+      - "9110:9110"
     depends_on:
       stock-db:
         condition: service_healthy
@@ -526,8 +572,10 @@ services:
       VERIFICATION_DB_SSLMODE: disable
       VERIFICATION_CHALLENGE_EXPIRY: "5m"
       VERIFICATION_MAX_ATTEMPTS: "3"
+      METRICS_PORT: "9111"
     ports:
       - "50061:50061"
+      - "9111:9111"
     depends_on:
       verification-db:
         condition: service_healthy
@@ -554,8 +602,10 @@ services:
       VERIFICATION_GRPC_ADDR: "verification-service:50061"
       NOTIFICATION_GRPC_ADDR: "notification-service:50053"
       KAFKA_BROKERS: kafka:9092
+      METRICS_PORT: "9100"
     ports:
       - "8080:8080"
+      - "9100:9100"
     depends_on:
       auth-service:
         condition: service_started
@@ -622,3 +672,5 @@ volumes:
   stock-db-data:
   verification-db-data:
   notification-db-data:
+  prometheus_data:
+  grafana_data:

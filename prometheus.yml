@@ -1,0 +1,52 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "api-gateway"
+    static_configs:
+      - targets: ["api-gateway:9100"]
+
+  - job_name: "auth-service"
+    static_configs:
+      - targets: ["auth-service:9101"]
+
+  - job_name: "user-service"
+    static_configs:
+      - targets: ["user-service:9102"]
+
+  - job_name: "notification-service"
+    static_configs:
+      - targets: ["notification-service:9103"]
+
+  - job_name: "client-service"
+    static_configs:
+      - targets: ["client-service:9104"]
+
+  - job_name: "account-service"
+    static_configs:
+      - targets: ["account-service:9105"]
+
+  - job_name: "card-service"
+    static_configs:
+      - targets: ["card-service:9106"]
+
+  - job_name: "transaction-service"
+    static_configs:
+      - targets: ["transaction-service:9107"]
+
+  - job_name: "credit-service"
+    static_configs:
+      - targets: ["credit-service:9108"]
+
+  - job_name: "exchange-service"
+    static_configs:
+      - targets: ["exchange-service:9109"]
+
+  - job_name: "stock-service"
+    static_configs:
+      - targets: ["stock-service:9110"]
+
+  - job_name: "verification-service"
+    static_configs:
+      - targets: ["verification-service:9111"]
