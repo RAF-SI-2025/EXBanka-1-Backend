@@ -54,3 +54,15 @@ type LimitTemplateRepo interface {
 	Update(t *model.LimitTemplate) error
 	Delete(id int64) error
 }
+
+type ActuaryRepo interface {
+	Create(limit *model.ActuaryLimit) error
+	GetByID(id int64) (*model.ActuaryLimit, error)
+	GetByEmployeeID(employeeID int64) (*model.ActuaryLimit, error)
+	Save(limit *model.ActuaryLimit) error
+	ListActuaries(search, position string, page, pageSize int) ([]model.ActuaryRow, int64, error)
+}
+
+type ActuaryEmpRepo interface {
+	GetByIDWithRoles(id int64) (*model.Employee, error)
+}
