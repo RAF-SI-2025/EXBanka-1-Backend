@@ -152,6 +152,15 @@ func TestCreateEmployee_Valid(t *testing.T) {
 	err := svc.CreateEmployee(context.Background(), emp)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), emp.ID)
+
+	// Verify all fields were persisted in the repo
+	persisted, err := repo.GetByID(1)
+	assert.NoError(t, err)
+	assert.Equal(t, "John", persisted.FirstName, "FirstName should be persisted")
+	assert.Equal(t, "Doe", persisted.LastName, "LastName should be persisted")
+	assert.Equal(t, "john@example.com", persisted.Email, "Email should be persisted")
+	assert.Equal(t, "johndoe", persisted.Username, "Username should be persisted")
+	assert.Equal(t, "0101990710024", persisted.JMBG, "JMBG should be persisted")
 }
 
 func TestCreateEmployee_InvalidJMBG(t *testing.T) {
@@ -173,7 +182,9 @@ func TestGetEmployee(t *testing.T) {
 
 	emp, err := svc.GetEmployee(1)
 	assert.NoError(t, err)
-	assert.Equal(t, "Jane", emp.FirstName)
+	assert.Equal(t, int64(1), emp.ID, "ID should match")
+	assert.Equal(t, "Jane", emp.FirstName, "FirstName should match")
+	assert.Equal(t, "jane@example.com", emp.Email, "Email should match")
 }
 
 func TestGetEmployee_NotFound(t *testing.T) {

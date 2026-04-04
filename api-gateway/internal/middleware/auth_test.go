@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -25,6 +26,14 @@ func TestRequirePermission_NoPermissions(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/test", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	errObj, ok := resp["error"].(map[string]interface{})
+	assert.True(t, ok, "response should contain an 'error' object")
+	assert.Equal(t, "forbidden", errObj["code"], "error code should be 'forbidden'")
+	assert.Equal(t, "insufficient permissions", errObj["message"], "error message should indicate insufficient permissions")
 }
 
 func TestRequirePermission_HasPermission(t *testing.T) {
@@ -42,6 +51,11 @@ func TestRequirePermission_HasPermission(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/test", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	assert.Equal(t, true, resp["ok"], "handler should have executed and returned ok:true")
 }
 
 func TestRequirePermission_MissingPermission(t *testing.T) {
@@ -59,4 +73,12 @@ func TestRequirePermission_MissingPermission(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/test", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	errObj, ok := resp["error"].(map[string]interface{})
+	assert.True(t, ok, "response should contain an 'error' object")
+	assert.Equal(t, "forbidden", errObj["code"], "error code should be 'forbidden'")
+	assert.Equal(t, "insufficient permissions", errObj["message"], "user has clients.read but not employees.create")
 }
