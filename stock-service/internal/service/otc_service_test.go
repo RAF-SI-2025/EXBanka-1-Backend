@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -373,5 +374,181 @@ func TestOTC_ListOffers_OnlyPublicHoldings(t *testing.T) {
 	}
 	if offers[0].PublicQuantity != 10 {
 		t.Errorf("expected public quantity 10, got %d", offers[0].PublicQuantity)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: BuyOffer compensating reversal — seller credit fails after buyer debit
+// ---------------------------------------------------------------------------
+
+func TestOTC_BuyOffer_CompensatesBuyerOnSellerCreditFailure(t *testing.T) {
+	svc, mocks := buildOTCService()
+
+	listing := otcStockListing(1, 100, 50.00)
+	mocks.listingRepo.addListing(listing)
+
+	mocks.holdingRepo.addHolding(&model.Holding{
+		UserID:         10,
+		SystemType:     "employee",
+		SecurityType:   "stock",
+		SecurityID:     100,
+		ListingID:      1,
+		Ticker:         "AAPL",
+		Name:           "Apple Inc.",
+		Quantity:       20,
+		PublicQuantity: 10,
+		AveragePrice:   decimal.NewFromFloat(40.00),
+		AccountID:      2,
+	})
+
+	mocks.accountClient.addAccount(5, "BUYER-ACCT")
+	mocks.accountClient.addAccount(2, "SELLER-ACCT")
+
+	// Fail the seller's UpdateBalance (credit) while allowing buyer debit to succeed
+	mocks.accountClient.failUpdateForAccount("SELLER-ACCT", errors.New("seller account frozen"))
+
+	_, err := svc.BuyOffer(1, 20, "client", 5, 5)
+	if err == nil {
+		t.Fatal("expected error when seller credit fails")
+	}
+
+	// Verify compensation happened: buyer debit + buyer re-credit
+	// The debit call goes through (recorded), the seller credit fails (not recorded),
+	// then compensation re-credits buyer (recorded).
+	if len(mocks.accountClient.updateBalCalls) != 2 {
+		t.Fatalf("expected 2 UpdateBalance calls (buyer debit + buyer compensation), got %d", len(mocks.accountClient.updateBalCalls))
+	}
+
+	// First call: buyer debit (negative)
+	debitCall := mocks.accountClient.updateBalCalls[0]
+	if debitCall.AccountNumber != "BUYER-ACCT" {
+		t.Errorf("expected first call to BUYER-ACCT, got %s", debitCall.AccountNumber)
+	}
+	debitAmt, _ := decimal.NewFromString(debitCall.Amount)
+	if debitAmt.IsPositive() {
+		t.Errorf("expected negative debit amount, got %s", debitAmt)
+	}
+
+	// Second call: buyer compensation (positive, same magnitude)
+	compCall := mocks.accountClient.updateBalCalls[1]
+	if compCall.AccountNumber != "BUYER-ACCT" {
+		t.Errorf("expected compensation to BUYER-ACCT, got %s", compCall.AccountNumber)
+	}
+	compAmt, _ := decimal.NewFromString(compCall.Amount)
+	if !compAmt.Equal(debitAmt.Neg()) {
+		t.Errorf("expected compensation amount %s, got %s", debitAmt.Neg(), compAmt)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: BuyOffer compensating reversal — capital gain fails after both balance ops
+// ---------------------------------------------------------------------------
+
+func TestOTC_BuyOffer_CompensatesBothOnCapitalGainFailure(t *testing.T) {
+	svc, mocks := buildOTCService()
+
+	listing := otcStockListing(1, 100, 50.00)
+	mocks.listingRepo.addListing(listing)
+
+	mocks.holdingRepo.addHolding(&model.Holding{
+		UserID:         10,
+		SystemType:     "employee",
+		SecurityType:   "stock",
+		SecurityID:     100,
+		ListingID:      1,
+		Ticker:         "AAPL",
+		Name:           "Apple Inc.",
+		Quantity:       20,
+		PublicQuantity: 10,
+		AveragePrice:   decimal.NewFromFloat(40.00),
+		AccountID:      2,
+	})
+
+	mocks.accountClient.addAccount(5, "BUYER-ACCT")
+	mocks.accountClient.addAccount(2, "SELLER-ACCT")
+
+	// Capital gain creation will fail
+	mocks.capitalGainRepo.failNextCreate = errors.New("capital gain db error")
+
+	_, err := svc.BuyOffer(1, 20, "client", 5, 5)
+	if err == nil {
+		t.Fatal("expected error when capital gain creation fails")
+	}
+
+	// Verify: buyer debit, seller credit, then compensation (buyer re-credit, seller re-debit)
+	// Total = 4 recorded calls (debit, credit, compensation credit, compensation debit)
+	if len(mocks.accountClient.updateBalCalls) != 4 {
+		t.Fatalf("expected 4 UpdateBalance calls, got %d", len(mocks.accountClient.updateBalCalls))
+	}
+
+	// Call 0: buyer debit (negative)
+	buyerDebit := mocks.accountClient.updateBalCalls[0]
+	if buyerDebit.AccountNumber != "BUYER-ACCT" {
+		t.Errorf("call 0: expected BUYER-ACCT, got %s", buyerDebit.AccountNumber)
+	}
+	buyerDebitAmt, _ := decimal.NewFromString(buyerDebit.Amount)
+
+	// Call 1: seller credit (positive)
+	sellerCredit := mocks.accountClient.updateBalCalls[1]
+	if sellerCredit.AccountNumber != "SELLER-ACCT" {
+		t.Errorf("call 1: expected SELLER-ACCT, got %s", sellerCredit.AccountNumber)
+	}
+	sellerCreditAmt, _ := decimal.NewFromString(sellerCredit.Amount)
+
+	// Call 2: buyer re-credit (positive, reverse of debit)
+	buyerComp := mocks.accountClient.updateBalCalls[2]
+	if buyerComp.AccountNumber != "BUYER-ACCT" {
+		t.Errorf("call 2: expected BUYER-ACCT, got %s", buyerComp.AccountNumber)
+	}
+	buyerCompAmt, _ := decimal.NewFromString(buyerComp.Amount)
+	if !buyerCompAmt.Equal(buyerDebitAmt.Neg()) {
+		t.Errorf("expected buyer compensation %s, got %s", buyerDebitAmt.Neg(), buyerCompAmt)
+	}
+
+	// Call 3: seller re-debit (negative, reverse of credit)
+	sellerComp := mocks.accountClient.updateBalCalls[3]
+	if sellerComp.AccountNumber != "SELLER-ACCT" {
+		t.Errorf("call 3: expected SELLER-ACCT, got %s", sellerComp.AccountNumber)
+	}
+	sellerCompAmt, _ := decimal.NewFromString(sellerComp.Amount)
+	if !sellerCompAmt.Equal(sellerCreditAmt.Neg()) {
+		t.Errorf("expected seller compensation %s, got %s", sellerCreditAmt.Neg(), sellerCompAmt)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: BuyOffer — buyer holding upsert fails (no balance compensation needed
+// per task spec, but error should be returned)
+// ---------------------------------------------------------------------------
+
+func TestOTC_BuyOffer_HoldingUpsertFailure_ReturnsError(t *testing.T) {
+	svc, mocks := buildOTCService()
+
+	listing := otcStockListing(1, 100, 50.00)
+	mocks.listingRepo.addListing(listing)
+
+	mocks.holdingRepo.addHolding(&model.Holding{
+		UserID:         10,
+		SystemType:     "employee",
+		SecurityType:   "stock",
+		SecurityID:     100,
+		ListingID:      1,
+		Ticker:         "AAPL",
+		Name:           "Apple Inc.",
+		Quantity:       20,
+		PublicQuantity: 10,
+		AveragePrice:   decimal.NewFromFloat(40.00),
+		AccountID:      2,
+	})
+
+	mocks.accountClient.addAccount(5, "BUYER-ACCT")
+	mocks.accountClient.addAccount(2, "SELLER-ACCT")
+
+	// Make holding upsert fail (buyer holding creation step)
+	mocks.holdingRepo.failNextUpsert = errors.New("upsert failed")
+
+	_, err := svc.BuyOffer(1, 20, "client", 5, 5)
+	if err == nil {
+		t.Fatal("expected error when buyer holding upsert fails")
 	}
 }

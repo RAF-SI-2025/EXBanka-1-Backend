@@ -22,8 +22,11 @@ import (
 // mockHoldingRepo is an in-memory holding repository that replicates
 // the weighted-average upsert logic from the real repository.
 type mockHoldingRepo struct {
-	holdings map[uint64]*model.Holding
-	nextID   uint64
+	holdings       map[uint64]*model.Holding
+	nextID         uint64
+	failNextUpsert error // if non-nil, next Upsert call will fail and clear this field
+	failNextUpdate error // if non-nil, next Update call will fail and clear this field
+	failNextDelete error // if non-nil, next Delete call will fail and clear this field
 }
 
 func newMockHoldingRepo() *mockHoldingRepo {
@@ -31,6 +34,11 @@ func newMockHoldingRepo() *mockHoldingRepo {
 }
 
 func (m *mockHoldingRepo) Upsert(holding *model.Holding) error {
+	if m.failNextUpsert != nil {
+		err := m.failNextUpsert
+		m.failNextUpsert = nil
+		return err
+	}
 	// Find existing by (user_id, security_type, security_id, account_id)
 	for _, h := range m.holdings {
 		if h.UserID == holding.UserID &&
@@ -71,6 +79,11 @@ func (m *mockHoldingRepo) GetByID(id uint64) (*model.Holding, error) {
 }
 
 func (m *mockHoldingRepo) Update(holding *model.Holding) error {
+	if m.failNextUpdate != nil {
+		err := m.failNextUpdate
+		m.failNextUpdate = nil
+		return err
+	}
 	if _, ok := m.holdings[holding.ID]; !ok {
 		return gorm.ErrRecordNotFound
 	}
@@ -80,6 +93,11 @@ func (m *mockHoldingRepo) Update(holding *model.Holding) error {
 }
 
 func (m *mockHoldingRepo) Delete(id uint64) error {
+	if m.failNextDelete != nil {
+		err := m.failNextDelete
+		m.failNextDelete = nil
+		return err
+	}
 	if _, ok := m.holdings[id]; !ok {
 		return gorm.ErrRecordNotFound
 	}
@@ -132,8 +150,9 @@ func (m *mockHoldingRepo) addHolding(h *model.Holding) {
 
 // mockCapitalGainRepo records created capital gains.
 type mockCapitalGainRepo struct {
-	gains  []model.CapitalGain
-	nextID uint64
+	gains          []model.CapitalGain
+	nextID         uint64
+	failNextCreate error // if non-nil, next Create call will fail and clear this field
 }
 
 func newMockCapitalGainRepo() *mockCapitalGainRepo {
@@ -141,6 +160,11 @@ func newMockCapitalGainRepo() *mockCapitalGainRepo {
 }
 
 func (m *mockCapitalGainRepo) Create(gain *model.CapitalGain) error {
+	if m.failNextCreate != nil {
+		err := m.failNextCreate
+		m.failNextCreate = nil
+		return err
+	}
 	gain.ID = m.nextID
 	m.nextID++
 	m.gains = append(m.gains, *gain)
@@ -225,10 +249,11 @@ func (m *mockOptionRepo) addOption(o *model.Option) {
 // mockAccountClient implements accountpb.AccountServiceClient.
 // It records calls and returns configurable responses.
 type mockAccountClient struct {
-	accounts       map[uint64]*accountpb.AccountResponse
-	updateBalErr   error
-	getAccountErr  error
-	updateBalCalls []updateBalCall
+	accounts              map[uint64]*accountpb.AccountResponse
+	updateBalErr          error
+	getAccountErr         error
+	updateBalCalls        []updateBalCall
+	failUpdateForAccounts map[string]error // per-account-number errors for UpdateBalance
 }
 
 type updateBalCall struct {
@@ -238,7 +263,8 @@ type updateBalCall struct {
 
 func newMockAccountClient() *mockAccountClient {
 	return &mockAccountClient{
-		accounts: make(map[uint64]*accountpb.AccountResponse),
+		accounts:              make(map[uint64]*accountpb.AccountResponse),
+		failUpdateForAccounts: make(map[string]error),
 	}
 }
 
@@ -247,6 +273,11 @@ func (m *mockAccountClient) addAccount(id uint64, accountNumber string) {
 		Id:            id,
 		AccountNumber: accountNumber,
 	}
+}
+
+// failUpdateForAccount configures UpdateBalance to fail when called for a specific account number.
+func (m *mockAccountClient) failUpdateForAccount(accountNumber string, err error) {
+	m.failUpdateForAccounts[accountNumber] = err
 }
 
 func (m *mockAccountClient) GetAccount(_ context.Context, req *accountpb.GetAccountRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
@@ -263,6 +294,9 @@ func (m *mockAccountClient) GetAccount(_ context.Context, req *accountpb.GetAcco
 func (m *mockAccountClient) UpdateBalance(_ context.Context, req *accountpb.UpdateBalanceRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
 	if m.updateBalErr != nil {
 		return nil, m.updateBalErr
+	}
+	if err, ok := m.failUpdateForAccounts[req.AccountNumber]; ok {
+		return nil, err
 	}
 	m.updateBalCalls = append(m.updateBalCalls, updateBalCall{
 		AccountNumber: req.AccountNumber,
@@ -1603,5 +1637,229 @@ func TestPortfolio_ProcessSellFill_AccountCreditError(t *testing.T) {
 	err := svc.ProcessSellFill(order, txn)
 	if err == nil {
 		t.Fatal("expected error when account credit fails")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: ExerciseOption — Call compensation on holding upsert failure
+// ---------------------------------------------------------------------------
+
+func TestPortfolio_ExerciseOption_Call_CompensatesOnUpsertFailure(t *testing.T) {
+	svc, mocks := buildPortfolioService()
+
+	// Stock listing: current price $150
+	stkListing := stockListing(10, 500, 150.00)
+	stkListing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(stkListing)
+
+	mocks.stockRepo.addStock(&model.Stock{ID: 500, Ticker: "AAPL", Name: "Apple Inc."})
+
+	mocks.optionRepo.addOption(&model.Option{
+		ID:             1,
+		Ticker:         "AAPL240101C00100",
+		OptionType:     "call",
+		StockID:        500,
+		StrikePrice:    decimal.NewFromFloat(100.00),
+		SettlementDate: time.Now().Add(30 * 24 * time.Hour),
+	})
+
+	h := &model.Holding{
+		UserID:        42,
+		SystemType:    "employee",
+		UserFirstName: "John",
+		UserLastName:  "Doe",
+		SecurityType:  "option",
+		SecurityID:    1,
+		ListingID:     10,
+		Ticker:        "AAPL240101C00100",
+		Quantity:      1,
+		AveragePrice:  decimal.NewFromFloat(5.00),
+		AccountID:     1,
+	}
+	mocks.holdingRepo.addHolding(h)
+
+	// Make holding upsert fail
+	mocks.holdingRepo.failNextUpsert = errors.New("db connection lost")
+
+	_, err := svc.ExerciseOption(h.ID, 42)
+	if err == nil {
+		t.Fatal("expected error when holding upsert fails")
+	}
+
+	// Verify compensation: debit was 100 * 100 = 10000 (negative),
+	// compensation should re-credit 10000 (positive)
+	// First call is the debit (-10000), second call is the compensation (+10000)
+	if len(mocks.accountClient.updateBalCalls) != 2 {
+		t.Fatalf("expected 2 UpdateBalance calls (debit + compensation), got %d", len(mocks.accountClient.updateBalCalls))
+	}
+
+	debitCall := mocks.accountClient.updateBalCalls[0]
+	debitAmount, _ := decimal.NewFromString(debitCall.Amount)
+	expectedDebit := decimal.NewFromFloat(-10000.00)
+	if !debitAmount.Equal(expectedDebit) {
+		t.Errorf("expected debit %s, got %s", expectedDebit, debitAmount)
+	}
+
+	compensateCall := mocks.accountClient.updateBalCalls[1]
+	compensateAmount, _ := decimal.NewFromString(compensateCall.Amount)
+	expectedCompensation := decimal.NewFromFloat(10000.00)
+	if !compensateAmount.Equal(expectedCompensation) {
+		t.Errorf("expected compensation credit %s, got %s", expectedCompensation, compensateAmount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: ExerciseOption — Put compensation on holding update failure
+// ---------------------------------------------------------------------------
+
+func TestPortfolio_ExerciseOption_Put_CompensatesOnHoldingUpdateFailure(t *testing.T) {
+	svc, mocks := buildPortfolioService()
+
+	// Stock listing: current price $80 (below strike $100)
+	stkListing := stockListing(10, 500, 80.00)
+	stkListing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(stkListing)
+
+	mocks.stockRepo.addStock(&model.Stock{ID: 500, Ticker: "AAPL", Name: "Apple Inc."})
+
+	mocks.optionRepo.addOption(&model.Option{
+		ID:             2,
+		Ticker:         "AAPL240101P00100",
+		OptionType:     "put",
+		StockID:        500,
+		StrikePrice:    decimal.NewFromFloat(100.00),
+		SettlementDate: time.Now().Add(30 * 24 * time.Hour),
+	})
+
+	optH := &model.Holding{
+		UserID:        42,
+		SystemType:    "employee",
+		UserFirstName: "John",
+		UserLastName:  "Doe",
+		SecurityType:  "option",
+		SecurityID:    2,
+		ListingID:     10,
+		Ticker:        "AAPL240101P00100",
+		Quantity:      1,
+		AveragePrice:  decimal.NewFromFloat(5.00),
+		AccountID:     1,
+	}
+	mocks.holdingRepo.addHolding(optH)
+
+	// Stock holding: 150 shares at $90
+	stockH := &model.Holding{
+		UserID:       42,
+		SystemType:   "employee",
+		SecurityType: "stock",
+		SecurityID:   500,
+		ListingID:    10,
+		Ticker:       "AAPL",
+		Name:         "Apple Inc.",
+		Quantity:     150,
+		AveragePrice: decimal.NewFromFloat(90.00),
+		AccountID:    1,
+	}
+	mocks.holdingRepo.addHolding(stockH)
+
+	// Make holding update fail (stock holding decrease step)
+	mocks.holdingRepo.failNextUpdate = errors.New("optimistic lock conflict")
+
+	_, err := svc.ExerciseOption(optH.ID, 42)
+	if err == nil {
+		t.Fatal("expected error when stock holding update fails")
+	}
+
+	// Verify compensation: credit was 100 * 100 = 10000 (positive),
+	// compensation should re-debit 10000 (negative)
+	// First call is the credit (+10000), second call is the compensation (-10000)
+	if len(mocks.accountClient.updateBalCalls) != 2 {
+		t.Fatalf("expected 2 UpdateBalance calls (credit + compensation), got %d", len(mocks.accountClient.updateBalCalls))
+	}
+
+	creditCall := mocks.accountClient.updateBalCalls[0]
+	creditAmount, _ := decimal.NewFromString(creditCall.Amount)
+	expectedCredit := decimal.NewFromFloat(10000.00)
+	if !creditAmount.Equal(expectedCredit) {
+		t.Errorf("expected credit %s, got %s", expectedCredit, creditAmount)
+	}
+
+	compensateCall := mocks.accountClient.updateBalCalls[1]
+	compensateAmount, _ := decimal.NewFromString(compensateCall.Amount)
+	expectedCompensation := decimal.NewFromFloat(-10000.00)
+	if !compensateAmount.Equal(expectedCompensation) {
+		t.Errorf("expected compensation debit %s, got %s", expectedCompensation, compensateAmount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: ExerciseOption — Put compensation on capital gain creation failure
+// ---------------------------------------------------------------------------
+
+func TestPortfolio_ExerciseOption_Put_CompensatesOnCapitalGainFailure(t *testing.T) {
+	svc, mocks := buildPortfolioService()
+
+	stkListing := stockListing(10, 500, 80.00)
+	stkListing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(stkListing)
+
+	mocks.stockRepo.addStock(&model.Stock{ID: 500, Ticker: "AAPL", Name: "Apple Inc."})
+
+	mocks.optionRepo.addOption(&model.Option{
+		ID:             2,
+		Ticker:         "AAPL240101P00100",
+		OptionType:     "put",
+		StockID:        500,
+		StrikePrice:    decimal.NewFromFloat(100.00),
+		SettlementDate: time.Now().Add(30 * 24 * time.Hour),
+	})
+
+	optH := &model.Holding{
+		UserID:        42,
+		SystemType:    "employee",
+		UserFirstName: "John",
+		UserLastName:  "Doe",
+		SecurityType:  "option",
+		SecurityID:    2,
+		ListingID:     10,
+		Ticker:        "AAPL240101P00100",
+		Quantity:      1,
+		AveragePrice:  decimal.NewFromFloat(5.00),
+		AccountID:     1,
+	}
+	mocks.holdingRepo.addHolding(optH)
+
+	stockH := &model.Holding{
+		UserID:       42,
+		SystemType:   "employee",
+		SecurityType: "stock",
+		SecurityID:   500,
+		ListingID:    10,
+		Ticker:       "AAPL",
+		Name:         "Apple Inc.",
+		Quantity:     150,
+		AveragePrice: decimal.NewFromFloat(90.00),
+		AccountID:    1,
+	}
+	mocks.holdingRepo.addHolding(stockH)
+
+	// Make capital gain creation fail (after credit and holding update succeed)
+	mocks.capitalGainRepo.failNextCreate = errors.New("capital gain db error")
+
+	_, err := svc.ExerciseOption(optH.ID, 42)
+	if err == nil {
+		t.Fatal("expected error when capital gain creation fails")
+	}
+
+	// Verify compensation: credit was 100*100=10000, re-debit should happen
+	// First call = credit (+10000), second call = compensation debit (-10000)
+	if len(mocks.accountClient.updateBalCalls) != 2 {
+		t.Fatalf("expected 2 UpdateBalance calls (credit + compensation), got %d", len(mocks.accountClient.updateBalCalls))
+	}
+
+	compensateCall := mocks.accountClient.updateBalCalls[1]
+	compensateAmount, _ := decimal.NewFromString(compensateCall.Amount)
+	expectedCompensation := decimal.NewFromFloat(-10000.00)
+	if !compensateAmount.Equal(expectedCompensation) {
+		t.Errorf("expected compensation debit %s, got %s", expectedCompensation, compensateAmount)
 	}
 }
