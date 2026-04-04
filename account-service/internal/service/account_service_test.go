@@ -16,7 +16,7 @@ func newAccountService(t *testing.T) *AccountService {
 	t.Helper()
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
-	return NewAccountService(repo, db)
+	return NewAccountService(repo, db, nil)
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +273,7 @@ func TestUpdateAccountName_Success(t *testing.T) {
 	}
 	require.NoError(t, svc.CreateAccount(acct))
 
-	err := svc.UpdateAccountName(acct.ID, 42, "New Name")
+	err := svc.UpdateAccountName(acct.ID, 42, "New Name", 0)
 	require.NoError(t, err)
 
 	got, err := svc.GetAccount(acct.ID)
@@ -303,7 +303,7 @@ func TestUpdateAccountName_DuplicateForSameClient(t *testing.T) {
 	require.NoError(t, svc.CreateAccount(second))
 
 	// Try to rename second to same name as first.
-	err := svc.UpdateAccountName(second.ID, 42, "Alpha")
+	err := svc.UpdateAccountName(second.ID, 42, "Alpha", 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
 }
@@ -324,7 +324,7 @@ func TestUpdateAccountLimits_Success(t *testing.T) {
 
 	daily := "50000"
 	monthly := "200000"
-	err := svc.UpdateAccountLimits(acct.ID, &daily, &monthly)
+	err := svc.UpdateAccountLimits(acct.ID, &daily, &monthly, 0)
 	require.NoError(t, err)
 
 	got, err := svc.GetAccount(acct.ID)
@@ -344,7 +344,7 @@ func TestUpdateAccountLimits_InvalidValue(t *testing.T) {
 	require.NoError(t, svc.CreateAccount(acct))
 
 	bad := "not-a-number"
-	err := svc.UpdateAccountLimits(acct.ID, &bad, nil)
+	err := svc.UpdateAccountLimits(acct.ID, &bad, nil, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid daily_limit")
 }
@@ -360,7 +360,7 @@ func TestUpdateAccountLimits_NegativeValue(t *testing.T) {
 	require.NoError(t, svc.CreateAccount(acct))
 
 	negative := "-100"
-	err := svc.UpdateAccountLimits(acct.ID, &negative, nil)
+	err := svc.UpdateAccountLimits(acct.ID, &negative, nil, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "daily_limit must be greater than 0")
 }
@@ -376,7 +376,7 @@ func TestUpdateAccountLimits_ZeroValue(t *testing.T) {
 	require.NoError(t, svc.CreateAccount(acct))
 
 	zero := "0"
-	err := svc.UpdateAccountLimits(acct.ID, nil, &zero)
+	err := svc.UpdateAccountLimits(acct.ID, nil, &zero, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "monthly_limit must be greater than 0")
 }
@@ -392,7 +392,7 @@ func TestUpdateAccountLimits_NoUpdates(t *testing.T) {
 	require.NoError(t, svc.CreateAccount(acct))
 
 	// Both nil → no-op, no error.
-	err := svc.UpdateAccountLimits(acct.ID, nil, nil)
+	err := svc.UpdateAccountLimits(acct.ID, nil, nil, 0)
 	assert.NoError(t, err)
 }
 
@@ -411,7 +411,7 @@ func TestUpdateAccountStatus_ActiveToInactive(t *testing.T) {
 	require.NoError(t, svc.CreateAccount(acct))
 	assert.Equal(t, "active", acct.Status)
 
-	err := svc.UpdateAccountStatus(acct.ID, "inactive")
+	err := svc.UpdateAccountStatus(acct.ID, "inactive", 0)
 	require.NoError(t, err)
 
 	got, err := svc.GetAccount(acct.ID)
@@ -430,8 +430,8 @@ func TestUpdateAccountStatus_InactiveToActive(t *testing.T) {
 	require.NoError(t, svc.CreateAccount(acct))
 
 	// First deactivate, then re-activate.
-	require.NoError(t, svc.UpdateAccountStatus(acct.ID, "inactive"))
-	err := svc.UpdateAccountStatus(acct.ID, "active")
+	require.NoError(t, svc.UpdateAccountStatus(acct.ID, "inactive", 0))
+	err := svc.UpdateAccountStatus(acct.ID, "active", 0)
 	require.NoError(t, err)
 
 	got, err := svc.GetAccount(acct.ID)
@@ -449,7 +449,7 @@ func TestUpdateAccountStatus_InvalidStatus(t *testing.T) {
 	}
 	require.NoError(t, svc.CreateAccount(acct))
 
-	err := svc.UpdateAccountStatus(acct.ID, "frozen")
+	err := svc.UpdateAccountStatus(acct.ID, "frozen", 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "account status must be")
 }
@@ -464,14 +464,14 @@ func TestUpdateAccountStatus_AlreadySameStatus(t *testing.T) {
 	}
 	require.NoError(t, svc.CreateAccount(acct))
 
-	err := svc.UpdateAccountStatus(acct.ID, "active")
+	err := svc.UpdateAccountStatus(acct.ID, "active", 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already active")
 }
 
 func TestUpdateAccountStatus_NotFound(t *testing.T) {
 	svc := newAccountService(t)
-	err := svc.UpdateAccountStatus(99999, "inactive")
+	err := svc.UpdateAccountStatus(99999, "inactive", 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -483,7 +483,7 @@ func TestUpdateAccountStatus_NotFound(t *testing.T) {
 func TestUpdateBalance_Credit(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
-	svc := NewAccountService(repo, db)
+	svc := NewAccountService(repo, db, nil)
 
 	acct := seedAccount(t, db, "111000100000001011", decimal.NewFromInt(1000), decimal.NewFromInt(1_000_000))
 
@@ -499,7 +499,7 @@ func TestUpdateBalance_Credit(t *testing.T) {
 func TestUpdateBalance_Debit(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
-	svc := NewAccountService(repo, db)
+	svc := NewAccountService(repo, db, nil)
 
 	acct := seedAccount(t, db, "111000100000002011", decimal.NewFromInt(1000), decimal.NewFromInt(1_000_000))
 
@@ -516,7 +516,7 @@ func TestUpdateBalance_Debit(t *testing.T) {
 func TestUpdateBalance_InsufficientFunds(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
-	svc := NewAccountService(repo, db)
+	svc := NewAccountService(repo, db, nil)
 
 	seedAccount(t, db, "111000100000003011", decimal.NewFromInt(100), decimal.NewFromInt(1_000_000))
 
@@ -528,7 +528,7 @@ func TestUpdateBalance_InsufficientFunds(t *testing.T) {
 func TestUpdateBalance_NotFound(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
-	svc := NewAccountService(repo, db)
+	svc := NewAccountService(repo, db, nil)
 
 	err := svc.UpdateBalance("000000000000000000", decimal.NewFromInt(100), true)
 	assert.Error(t, err)

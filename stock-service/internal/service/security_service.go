@@ -1,16 +1,21 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
+
+const securityCacheTTL = 2 * time.Minute
 
 type SecurityService struct {
 	stockRepo    StockRepo
@@ -18,6 +23,7 @@ type SecurityService struct {
 	forexRepo    ForexPairRepo
 	optionRepo   OptionRepo
 	exchangeRepo ExchangeRepo
+	cache        *cache.RedisCache
 }
 
 func NewSecurityService(
@@ -26,6 +32,7 @@ func NewSecurityService(
 	forexRepo ForexPairRepo,
 	optionRepo OptionRepo,
 	exchangeRepo ExchangeRepo,
+	redisCache *cache.RedisCache,
 ) *SecurityService {
 	return &SecurityService{
 		stockRepo:    stockRepo,
@@ -33,6 +40,7 @@ func NewSecurityService(
 		forexRepo:    forexRepo,
 		optionRepo:   optionRepo,
 		exchangeRepo: exchangeRepo,
+		cache:        redisCache,
 	}
 }
 
@@ -43,12 +51,28 @@ func (s *SecurityService) ListStocks(filter repository.StockFilter) ([]model.Sto
 }
 
 func (s *SecurityService) GetStock(id uint64) (*model.Stock, error) {
+	ctx := context.Background()
+	key := fmt.Sprintf("security:stock:%d", id)
+
+	if s.cache != nil {
+		var cached model.Stock
+		if err := s.cache.Get(ctx, key, &cached); err == nil {
+			return &cached, nil
+		}
+	}
+
 	stock, err := s.stockRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("stock not found")
 		}
 		return nil, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.Set(ctx, key, stock, securityCacheTTL); err != nil {
+			log.Printf("warn: cache set failed for %s: %v", key, err)
+		}
 	}
 	return stock, nil
 }
@@ -79,12 +103,28 @@ func (s *SecurityService) ListFutures(filter repository.FuturesFilter) ([]model.
 }
 
 func (s *SecurityService) GetFutures(id uint64) (*model.FuturesContract, error) {
+	ctx := context.Background()
+	key := fmt.Sprintf("security:futures:%d", id)
+
+	if s.cache != nil {
+		var cached model.FuturesContract
+		if err := s.cache.Get(ctx, key, &cached); err == nil {
+			return &cached, nil
+		}
+	}
+
 	f, err := s.futuresRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("futures contract not found")
 		}
 		return nil, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.Set(ctx, key, f, securityCacheTTL); err != nil {
+			log.Printf("warn: cache set failed for %s: %v", key, err)
+		}
 	}
 	return f, nil
 }
@@ -96,12 +136,28 @@ func (s *SecurityService) ListForexPairs(filter repository.ForexFilter) ([]model
 }
 
 func (s *SecurityService) GetForexPair(id uint64) (*model.ForexPair, error) {
+	ctx := context.Background()
+	key := fmt.Sprintf("security:forex:%d", id)
+
+	if s.cache != nil {
+		var cached model.ForexPair
+		if err := s.cache.Get(ctx, key, &cached); err == nil {
+			return &cached, nil
+		}
+	}
+
 	fp, err := s.forexRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("forex pair not found")
 		}
 		return nil, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.Set(ctx, key, fp, securityCacheTTL); err != nil {
+			log.Printf("warn: cache set failed for %s: %v", key, err)
+		}
 	}
 	return fp, nil
 }
@@ -113,12 +169,28 @@ func (s *SecurityService) ListOptions(filter repository.OptionFilter) ([]model.O
 }
 
 func (s *SecurityService) GetOption(id uint64) (*model.Option, error) {
+	ctx := context.Background()
+	key := fmt.Sprintf("security:option:%d", id)
+
+	if s.cache != nil {
+		var cached model.Option
+		if err := s.cache.Get(ctx, key, &cached); err == nil {
+			return &cached, nil
+		}
+	}
+
 	o, err := s.optionRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("option not found")
 		}
 		return nil, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.Set(ctx, key, o, securityCacheTTL); err != nil {
+			log.Printf("warn: cache set failed for %s: %v", key, err)
+		}
 	}
 	return o, nil
 }

@@ -12,7 +12,6 @@ type Config struct {
 	DBName           string
 	GRPCAddr         string
 	KafkaBrokers     string
-	RedisAddr        string
 	AccountGRPCAddr      string
 	ExchangeGRPCAddr     string
 	VerificationGRPCAddr string
@@ -28,7 +27,6 @@ func Load() *Config {
 		DBName:           getEnv("TRANSACTION_DB_NAME", "transactiondb"),
 		GRPCAddr:         getEnv("TRANSACTION_GRPC_ADDR", ":50057"),
 		KafkaBrokers:     getEnv("KAFKA_BROKERS", "localhost:9092"),
-		RedisAddr:        getEnv("REDIS_ADDR", "localhost:6379"),
 		AccountGRPCAddr:  getEnv("ACCOUNT_GRPC_ADDR", "localhost:50055"),
 		ExchangeGRPCAddr:     getEnv("EXCHANGE_GRPC_ADDR", "localhost:50059"),
 		VerificationGRPCAddr: getEnv("VERIFICATION_GRPC_ADDR", "localhost:50061"),

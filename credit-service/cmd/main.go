@@ -20,7 +20,6 @@ import (
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	userpb "github.com/exbanka/contract/userpb"
-	"github.com/exbanka/credit-service/internal/cache"
 	"github.com/exbanka/credit-service/internal/config"
 	"github.com/exbanka/credit-service/internal/handler"
 	kafkaprod "github.com/exbanka/credit-service/internal/kafka"
@@ -36,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}); err != nil {
+	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}, &model.Changelog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -53,17 +52,9 @@ func main() {
 		"credit.installment-failed",
 		"credit.variable-rate-adjusted",
 		"credit.late-penalty-applied",
+		"credit.changelog",
 		"notification.send-email",
 	)
-
-	var redisCache *cache.RedisCache
-	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
-	if err != nil {
-		log.Printf("warn: redis unavailable, running without cache: %v", err)
-	}
-	if redisCache != nil {
-		defer redisCache.Close()
-	}
 
 	// Connect to account-service
 	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -111,7 +102,8 @@ func main() {
 		log.Fatalf("failed to seed interest rate config: %v", err)
 	}
 
-	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc, db)
+	changelogRepo := repository.NewChangelogRepository(db)
+	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc, db, changelogRepo)
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
 	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount, db)

@@ -196,7 +196,7 @@ func TestBlockCard_StatusChanges(t *testing.T) {
 	cardRepo := repository.NewCardRepository(db)
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
-	blocked, err := svc.BlockCard(card.ID)
+	blocked, err := svc.BlockCard(card.ID, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "blocked", blocked.Status)
 
@@ -213,7 +213,7 @@ func TestBlockCard_AlreadyBlocked_Error(t *testing.T) {
 	cardRepo := repository.NewCardRepository(db)
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
-	_, err := svc.BlockCard(card.ID)
+	_, err := svc.BlockCard(card.ID, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already blocked")
 }
@@ -225,7 +225,7 @@ func TestBlockCard_Deactivated_Error(t *testing.T) {
 	cardRepo := repository.NewCardRepository(db)
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
-	_, err := svc.BlockCard(card.ID)
+	_, err := svc.BlockCard(card.ID, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "deactivated")
 }
@@ -242,11 +242,11 @@ func TestUnblockCard_StatusBackToActive(t *testing.T) {
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
 	// Block, then unblock.
-	blocked, err := svc.BlockCard(card.ID)
+	blocked, err := svc.BlockCard(card.ID, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "blocked", blocked.Status)
 
-	unblocked, err := svc.UnblockCard(card.ID)
+	unblocked, err := svc.UnblockCard(card.ID, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "active", unblocked.Status)
 
@@ -262,7 +262,7 @@ func TestUnblockCard_NotBlocked_Error(t *testing.T) {
 	cardRepo := repository.NewCardRepository(db)
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
-	_, err := svc.UnblockCard(card.ID)
+	_, err := svc.UnblockCard(card.ID, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not blocked")
 }
@@ -278,7 +278,7 @@ func TestDeactivateCard_Permanent(t *testing.T) {
 	cardRepo := repository.NewCardRepository(db)
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
-	deactivated, err := svc.DeactivateCard(card.ID)
+	deactivated, err := svc.DeactivateCard(card.ID, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "deactivated", deactivated.Status)
 
@@ -294,7 +294,7 @@ func TestDeactivateCard_AlreadyDeactivated_Error(t *testing.T) {
 	cardRepo := repository.NewCardRepository(db)
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
-	_, err := svc.DeactivateCard(card.ID)
+	_, err := svc.DeactivateCard(card.ID, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already deactivated")
 }
@@ -307,11 +307,11 @@ func TestDeactivateCard_ThenUnblock_Error(t *testing.T) {
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
 	// Deactivate the card.
-	_, err := svc.DeactivateCard(card.ID)
+	_, err := svc.DeactivateCard(card.ID, 0)
 	require.NoError(t, err)
 
 	// Attempt to unblock the deactivated card — must fail.
-	_, err = svc.UnblockCard(card.ID)
+	_, err = svc.UnblockCard(card.ID, 0)
 	assert.Error(t, err, "unblocking a deactivated card must fail")
 	assert.Contains(t, err.Error(), "not blocked")
 }
@@ -327,10 +327,10 @@ func TestBlockCard_AfterDeactivation_Error(t *testing.T) {
 	cardRepo := repository.NewCardRepository(db)
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
-	_, err := svc.DeactivateCard(card.ID)
+	_, err := svc.DeactivateCard(card.ID, 0)
 	require.NoError(t, err)
 
-	_, err = svc.BlockCard(card.ID)
+	_, err = svc.BlockCard(card.ID, 0)
 	assert.Error(t, err, "blocking a deactivated card must fail")
 	assert.Contains(t, err.Error(), "deactivated")
 }

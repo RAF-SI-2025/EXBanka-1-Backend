@@ -21,7 +21,6 @@ import (
 	shared "github.com/exbanka/contract/shared"
 	pb "github.com/exbanka/contract/transactionpb"
 	verificationpb "github.com/exbanka/contract/verificationpb"
-	"github.com/exbanka/transaction-service/internal/cache"
 	"github.com/exbanka/transaction-service/internal/config"
 	"github.com/exbanka/transaction-service/internal/handler"
 	kafkaprod "github.com/exbanka/transaction-service/internal/kafka"
@@ -63,15 +62,6 @@ func main() {
 		"transaction.saga-dead-letter",
 		"notification.send-email",
 	)
-
-	var redisCache *cache.RedisCache
-	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
-	if err != nil {
-		log.Printf("warn: redis unavailable, running without cache: %v", err)
-	}
-	if redisCache != nil {
-		defer redisCache.Close()
-	}
 
 	// Connect to account-service
 	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))

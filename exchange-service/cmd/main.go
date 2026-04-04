@@ -16,6 +16,7 @@ import (
 	pb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/exchange-service/internal/cache"
 	"github.com/exbanka/exchange-service/internal/config"
 	"github.com/exbanka/exchange-service/internal/handler"
 	kafkaprod "github.com/exbanka/exchange-service/internal/kafka"
@@ -41,8 +42,17 @@ func main() {
 
 	kafkaprod.EnsureTopics(cfg.KafkaBrokers, "exchange.rates-updated")
 
+	var redisCache *cache.RedisCache
+	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
+	if err != nil {
+		log.Printf("warn: redis unavailable, running without cache: %v", err)
+	}
+	if redisCache != nil {
+		defer redisCache.Close()
+	}
+
 	repo := repository.NewExchangeRateRepository(db)
-	svc, err := service.NewExchangeService(repo, db, cfg.CommissionRate, cfg.Spread)
+	svc, err := service.NewExchangeService(repo, db, cfg.CommissionRate, cfg.Spread, redisCache)
 	if err != nil {
 		log.Fatalf("failed to create exchange service: %v", err)
 	}

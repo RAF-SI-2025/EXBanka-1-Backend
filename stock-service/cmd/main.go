@@ -17,10 +17,12 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	"github.com/exbanka/contract/influx"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	pb "github.com/exbanka/contract/stockpb"
 	userpb "github.com/exbanka/contract/userpb"
+	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/config"
 	"github.com/exbanka/stock-service/internal/handler"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
@@ -81,6 +83,13 @@ func main() {
 		"stock.option-exercised",
 	)
 
+	// --- InfluxDB ---
+	influxClient := influx.NewClient(cfg.InfluxURL, cfg.InfluxToken, cfg.InfluxOrg, cfg.InfluxBucket)
+	if influxClient != nil {
+		defer influxClient.Close()
+		log.Println("InfluxDB client connected")
+	}
+
 	// --- gRPC Client Connections ---
 
 	// Account service client (for debit/credit)
@@ -114,6 +123,16 @@ func main() {
 	}
 	defer clientConn.Close()
 	clientClient := clientpb.NewClientServiceClient(clientConn)
+
+	// --- Redis ---
+	var redisCache *cache.RedisCache
+	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
+	if err != nil {
+		log.Printf("warn: redis unavailable, running without cache: %v", err)
+	}
+	if redisCache != nil {
+		defer redisCache.Close()
+	}
 
 	// --- Repositories ---
 	exchangeRepo := repository.NewExchangeRepository(db)
@@ -151,8 +170,9 @@ func main() {
 	// --- Services ---
 	exchangeSvc := service.NewExchangeService(exchangeRepo, settingRepo)
 
-	secSvc := service.NewSecurityService(stockRepo, futuresRepo, forexRepo, optionRepo, exchangeRepo)
+	secSvc := service.NewSecurityService(stockRepo, futuresRepo, forexRepo, optionRepo, exchangeRepo, redisCache)
 	listingSvc := service.NewListingService(listingRepo, dailyPriceRepo, stockRepo, futuresRepo, forexRepo)
+	candleSvc := service.NewCandleService(influxClient)
 
 	// --- External API Clients ---
 	// Each is nil when its API key is not set (triggers fallback to static data).
@@ -181,7 +201,7 @@ func main() {
 		stockRepo, futuresRepo, forexRepo, optionRepo,
 		exchangeRepo, settingRepo, avClient,
 		eodhClient, alpacaClient, finnhubClient,
-		listingSvc, cfg.ExchangeCSVPath,
+		listingSvc, cfg.ExchangeCSVPath, redisCache, influxClient,
 	)
 
 	// Portfolio, OTC, and tax services
@@ -220,7 +240,7 @@ func main() {
 	syncSvc.StartPeriodicRefresh(ctx, cfg.SecuritySyncIntervalMins)
 
 	// Start daily price snapshot cron
-	listingCron := service.NewListingCronService(listingRepo, dailyPriceRepo)
+	listingCron := service.NewListingCronService(listingRepo, dailyPriceRepo, influxClient)
 	listingCron.StartDailyCron(ctx)
 
 	// Seed initial price history after listings are created
@@ -251,7 +271,7 @@ func main() {
 	exchangeHandler := handler.NewExchangeGRPCHandler(exchangeSvc)
 	pb.RegisterStockExchangeGRPCServiceServer(grpcServer, exchangeHandler)
 
-	securityHandler := handler.NewSecurityHandler(secSvc, listingSvc)
+	securityHandler := handler.NewSecurityHandler(secSvc, listingSvc, candleSvc)
 	pb.RegisterSecurityGRPCServiceServer(grpcServer, securityHandler)
 
 	orderHandler := handler.NewOrderHandler(orderSvc, execEngine)

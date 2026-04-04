@@ -17,6 +17,7 @@ type Config struct {
 	CommissionRate    string // EXCHANGE_COMMISSION_RATE — default "0.005" (0.5%)
 	Spread            string // EXCHANGE_SPREAD — default "0.003" (0.3%), applied to derive buy/sell from mid
 	SyncIntervalHours int
+	RedisAddr         string
 	MetricsPort       string
 }
 
@@ -39,6 +40,7 @@ func Load() *Config {
 		CommissionRate:    getEnv("EXCHANGE_COMMISSION_RATE", "0.005"),
 		Spread:            getEnv("EXCHANGE_SPREAD", "0.003"),
 		SyncIntervalHours: syncHours,
+		RedisAddr:         getEnv("REDIS_ADDR", "localhost:6379"),
 		MetricsPort:       getEnv("METRICS_PORT", "9109"),
 	}
 }
