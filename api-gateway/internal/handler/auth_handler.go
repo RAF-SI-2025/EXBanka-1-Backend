@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc/metadata"
 
 	authpb "github.com/exbanka/contract/authpb"
 )
@@ -39,7 +40,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.authClient.Login(c.Request.Context(), &authpb.LoginRequest{
+	// Forward client IP and User-Agent to auth-service via gRPC metadata
+	md := metadata.Pairs(
+		"x-forwarded-for", c.ClientIP(),
+		"x-user-agent", c.Request.UserAgent(),
+	)
+	ctx := metadata.NewOutgoingContext(c.Request.Context(), md)
+
+	resp, err := h.authClient.Login(ctx, &authpb.LoginRequest{
 		Email:    req.Email,
 		Password: req.Password,
 	})
@@ -75,7 +83,14 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.authClient.RefreshToken(c.Request.Context(), &authpb.RefreshTokenRequest{
+	// Forward client IP and User-Agent to auth-service via gRPC metadata
+	md := metadata.Pairs(
+		"x-forwarded-for", c.ClientIP(),
+		"x-user-agent", c.Request.UserAgent(),
+	)
+	ctx := metadata.NewOutgoingContext(c.Request.Context(), md)
+
+	resp, err := h.authClient.RefreshToken(ctx, &authpb.RefreshTokenRequest{
 		RefreshToken: req.RefreshToken,
 	})
 	if err != nil {
@@ -205,7 +220,14 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	h.authClient.Logout(c.Request.Context(), &authpb.LogoutRequest{
+	// Forward client IP and User-Agent to auth-service via gRPC metadata
+	md := metadata.Pairs(
+		"x-forwarded-for", c.ClientIP(),
+		"x-user-agent", c.Request.UserAgent(),
+	)
+	ctx := metadata.NewOutgoingContext(c.Request.Context(), md)
+
+	h.authClient.Logout(ctx, &authpb.LogoutRequest{
 		RefreshToken: req.RefreshToken,
 	})
 	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})

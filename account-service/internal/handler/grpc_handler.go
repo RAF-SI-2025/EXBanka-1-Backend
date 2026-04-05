@@ -11,12 +11,13 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/accountpb"
-	clientpb "github.com/exbanka/contract/clientpb"
-	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/account-service/internal/kafka"
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/service"
+	pb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/changelog"
+	clientpb "github.com/exbanka/contract/clientpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 // mapServiceError maps service-layer error messages to appropriate gRPC status codes.
@@ -152,7 +153,7 @@ func (h *AccountGRPCHandler) ListAccountsByClient(ctx context.Context, req *pb.L
 		return nil, status.Errorf(mapServiceError(err), "failed to list accounts: %v", err)
 	}
 
-	resp := &pb.ListAccountsResponse{Total: total}
+	resp := &pb.ListAccountsResponse{Total: total, Accounts: make([]*pb.AccountResponse, 0, len(accounts))}
 	for _, a := range accounts {
 		a := a
 		resp.Accounts = append(resp.Accounts, toAccountResponse(&a))
@@ -169,7 +170,7 @@ func (h *AccountGRPCHandler) ListAllAccounts(ctx context.Context, req *pb.ListAl
 		return nil, status.Errorf(mapServiceError(err), "failed to list accounts: %v", err)
 	}
 
-	resp := &pb.ListAccountsResponse{Total: total}
+	resp := &pb.ListAccountsResponse{Total: total, Accounts: make([]*pb.AccountResponse, 0, len(accounts))}
 	for _, a := range accounts {
 		a := a
 		resp.Accounts = append(resp.Accounts, toAccountResponse(&a))
@@ -178,7 +179,8 @@ func (h *AccountGRPCHandler) ListAllAccounts(ctx context.Context, req *pb.ListAl
 }
 
 func (h *AccountGRPCHandler) UpdateAccountName(ctx context.Context, req *pb.UpdateAccountNameRequest) (*pb.AccountResponse, error) {
-	if err := h.accountService.UpdateAccountName(req.Id, req.ClientId, req.NewName); err != nil {
+	changedBy := changelog.ExtractChangedBy(ctx)
+	if err := h.accountService.UpdateAccountName(req.Id, req.ClientId, req.NewName, changedBy); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found or not owned by client")
 		}
@@ -193,7 +195,8 @@ func (h *AccountGRPCHandler) UpdateAccountName(ctx context.Context, req *pb.Upda
 }
 
 func (h *AccountGRPCHandler) UpdateAccountLimits(ctx context.Context, req *pb.UpdateAccountLimitsRequest) (*pb.AccountResponse, error) {
-	if err := h.accountService.UpdateAccountLimits(req.Id, req.DailyLimit, req.MonthlyLimit); err != nil {
+	changedBy := changelog.ExtractChangedBy(ctx)
+	if err := h.accountService.UpdateAccountLimits(req.Id, req.DailyLimit, req.MonthlyLimit, changedBy); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}
@@ -208,7 +211,8 @@ func (h *AccountGRPCHandler) UpdateAccountLimits(ctx context.Context, req *pb.Up
 }
 
 func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.UpdateAccountStatusRequest) (*pb.AccountResponse, error) {
-	if err := h.accountService.UpdateAccountStatus(req.Id, req.Status); err != nil {
+	changedBy := changelog.ExtractChangedBy(ctx)
+	if err := h.accountService.UpdateAccountStatus(req.Id, req.Status, changedBy); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}
@@ -305,7 +309,7 @@ func (h *AccountGRPCHandler) ListCurrencies(ctx context.Context, req *pb.ListCur
 		return nil, status.Errorf(mapServiceError(err), "failed to list currencies: %v", err)
 	}
 
-	resp := &pb.ListCurrenciesResponse{}
+	resp := &pb.ListCurrenciesResponse{Currencies: make([]*pb.CurrencyResponse, 0, len(currencies))}
 	for _, c := range currencies {
 		c := c
 		resp.Currencies = append(resp.Currencies, toCurrencyResponse(&c))
@@ -339,7 +343,7 @@ func (h *AccountGRPCHandler) GetLedgerEntries(ctx context.Context, req *pb.GetLe
 		return nil, status.Errorf(mapServiceError(err), "failed to get ledger entries: %v", err)
 	}
 
-	resp := &pb.GetLedgerEntriesResponse{TotalCount: total}
+	resp := &pb.GetLedgerEntriesResponse{TotalCount: total, Entries: make([]*pb.LedgerEntryResponse, 0, len(entries))}
 	for _, e := range entries {
 		resp.Entries = append(resp.Entries, &pb.LedgerEntryResponse{
 			Id:            e.ID,

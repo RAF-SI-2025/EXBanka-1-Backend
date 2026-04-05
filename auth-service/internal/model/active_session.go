@@ -9,6 +9,8 @@ type ActiveSession struct {
 	UserRole     string     `gorm:"size:30;not null"` // employee role or "client"
 	IPAddress    string     `gorm:"size:45"`
 	UserAgent    string     `gorm:"size:512"`
+	DeviceID     string     `gorm:"size:36;index:idx_session_device"` // mobile device UUID or empty
+	SystemType   string     `gorm:"size:20;not null;default:'employee'"`
 	LastActiveAt time.Time  `gorm:"not null"`
 	CreatedAt    time.Time  `gorm:"not null"`
 	RevokedAt    *time.Time

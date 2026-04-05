@@ -15,6 +15,7 @@ import (
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
 	"github.com/exbanka/api-gateway/internal/handler"
 	"github.com/exbanka/api-gateway/internal/router"
+	"github.com/exbanka/contract/metrics"
 )
 
 // @title           EXBanka API
@@ -179,7 +180,14 @@ func main() {
 	defer cancel()
 	wsHandler.StartKafkaConsumer(ctx, cfg.KafkaBrokers)
 
+	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer metricsShutdown(context.Background())
+
 	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, verificationClient, notificationClient, wsHandler)
+
+	// Register versioned API routes
+	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, verificationClient, notificationClient, wsHandler)
+	router.SetupLatestRoutes(r)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,

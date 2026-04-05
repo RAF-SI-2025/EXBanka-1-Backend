@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/creditpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/credit-service/internal/kafka"
@@ -125,7 +126,7 @@ func (h *CreditGRPCHandler) ListLoanRequests(ctx context.Context, req *pb.ListLo
 		return nil, status.Errorf(mapServiceError(err), "failed to list loan requests: %v", err)
 	}
 
-	resp := &pb.ListLoanRequestsResponse{Total: total}
+	resp := &pb.ListLoanRequestsResponse{Total: total, Requests: make([]*pb.LoanRequestResponse, 0, len(requests))}
 	for _, r := range requests {
 		r := r
 		resp.Requests = append(resp.Requests, toLoanRequestResponse(&r))
@@ -153,7 +154,8 @@ func (h *CreditGRPCHandler) ApproveLoanRequest(ctx context.Context, req *pb.Appr
 }
 
 func (h *CreditGRPCHandler) RejectLoanRequest(ctx context.Context, req *pb.RejectLoanRequestReq) (*pb.LoanRequestResponse, error) {
-	loanReq, err := h.loanRequestService.RejectLoanRequest(req.RequestId)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	loanReq, err := h.loanRequestService.RejectLoanRequest(req.RequestId, changedBy, "")
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "loan request not found")
@@ -188,7 +190,7 @@ func (h *CreditGRPCHandler) ListLoansByClient(ctx context.Context, req *pb.ListL
 		return nil, status.Errorf(mapServiceError(err), "failed to list loans: %v", err)
 	}
 
-	resp := &pb.ListLoansResponse{Total: total}
+	resp := &pb.ListLoansResponse{Total: total, Loans: make([]*pb.LoanResponse, 0, len(loans))}
 	for _, l := range loans {
 		l := l
 		resp.Loans = append(resp.Loans, toLoanResponse(&l))
@@ -205,7 +207,7 @@ func (h *CreditGRPCHandler) ListAllLoans(ctx context.Context, req *pb.ListAllLoa
 		return nil, status.Errorf(mapServiceError(err), "failed to list all loans: %v", err)
 	}
 
-	resp := &pb.ListLoansResponse{Total: total}
+	resp := &pb.ListLoansResponse{Total: total, Loans: make([]*pb.LoanResponse, 0, len(loans))}
 	for _, l := range loans {
 		l := l
 		resp.Loans = append(resp.Loans, toLoanResponse(&l))
@@ -219,7 +221,7 @@ func (h *CreditGRPCHandler) GetInstallmentsByLoan(ctx context.Context, req *pb.G
 		return nil, status.Errorf(mapServiceError(err), "failed to get installments: %v", err)
 	}
 
-	resp := &pb.ListInstallmentsResponse{}
+	resp := &pb.ListInstallmentsResponse{Installments: make([]*pb.InstallmentResponse, 0, len(installments))}
 	for _, inst := range installments {
 		inst := inst
 		resp.Installments = append(resp.Installments, toInstallmentResponse(&inst))
@@ -293,7 +295,7 @@ func (h *CreditGRPCHandler) ListInterestRateTiers(ctx context.Context, req *pb.L
 		return nil, status.Errorf(mapServiceError(err), "failed to list interest rate tiers: %v", err)
 	}
 
-	resp := &pb.ListInterestRateTiersResponse{}
+	resp := &pb.ListInterestRateTiersResponse{Tiers: make([]*pb.InterestRateTierResponse, 0, len(tiers))}
 	for _, t := range tiers {
 		resp.Tiers = append(resp.Tiers, toInterestRateTierResponse(&t))
 	}
@@ -356,7 +358,7 @@ func (h *CreditGRPCHandler) ListBankMargins(ctx context.Context, req *pb.ListBan
 		return nil, status.Errorf(mapServiceError(err), "failed to list bank margins: %v", err)
 	}
 
-	resp := &pb.ListBankMarginsResponse{}
+	resp := &pb.ListBankMarginsResponse{Margins: make([]*pb.BankMarginResponse, 0, len(margins))}
 	for _, m := range margins {
 		resp.Margins = append(resp.Margins, toBankMarginResponse(&m))
 	}

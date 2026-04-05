@@ -7,6 +7,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/exbanka/api-gateway/internal/handler"
+	apimetrics "github.com/exbanka/api-gateway/internal/metrics"
 	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	authpb "github.com/exbanka/contract/authpb"
@@ -48,6 +49,7 @@ func Setup(
 	wsHandler *handler.WebSocketHandler,
 ) *gin.Engine {
 	r := gin.Default()
+	r.Use(apimetrics.GinMiddleware())
 	r.Use(cors.New(cors.Config{
 		AllowAllOrigins:  true,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -67,6 +69,7 @@ func Setup(
 	exchangeHandler := handler.NewExchangeHandler(exchangeClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
 	meHandler := handler.NewMeHandler(clientClient, userClient, authClient)
+	sessionHandler := handler.NewSessionHandler(authClient)
 	stockExchangeHandler := handler.NewStockExchangeHandler(stockExchangeClient)
 	securitiesHandler := handler.NewSecuritiesHandler(securityClient)
 	stockOrderHandler := handler.NewStockOrderHandler(orderClient)
@@ -149,6 +152,15 @@ func Setup(
 			me.GET("/portfolio/summary", portfolioHandler.GetPortfolioSummary)
 			me.POST("/portfolio/:id/make-public", portfolioHandler.MakePublic)
 			me.POST("/portfolio/:id/exercise", portfolioHandler.ExerciseOption)
+
+			// Tax
+			me.GET("/tax", taxHandler.ListMyTaxRecords)
+
+			// Sessions
+			me.GET("/sessions", sessionHandler.ListMySessions)
+			me.POST("/sessions/revoke", sessionHandler.RevokeSession)
+			me.POST("/sessions/revoke-others", sessionHandler.RevokeAllSessions)
+			me.GET("/login-history", sessionHandler.GetMyLoginHistory)
 		}
 
 		// Stock exchanges — accessible to any authenticated user
@@ -174,6 +186,8 @@ func Setup(
 			securities.GET("/forex/:id/history", securitiesHandler.GetForexPairHistory)
 			securities.GET("/options", securitiesHandler.ListOptions)
 			securities.GET("/options/:id", securitiesHandler.GetOption)
+			// Candles (InfluxDB time-series)
+			securities.GET("/candles", securitiesHandler.GetCandles)
 		}
 
 		// OTC — accessible to any authenticated user

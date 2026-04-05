@@ -9,6 +9,8 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"github.com/exbanka/contract/influx"
+	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/provider"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -30,6 +32,8 @@ type SecuritySyncService struct {
 	finnhubClient *provider.FinnhubClient
 	listingSvc    *ListingService
 	csvPath       string
+	cache         *cache.RedisCache
+	influxClient  *influx.Client
 }
 
 func NewSecuritySyncService(
@@ -45,6 +49,8 @@ func NewSecuritySyncService(
 	finnhubClient *provider.FinnhubClient,
 	listingSvc *ListingService,
 	csvPath string,
+	redisCache *cache.RedisCache,
+	influxClient *influx.Client,
 ) *SecuritySyncService {
 	return &SecuritySyncService{
 		stockRepo:     stockRepo,
@@ -59,6 +65,8 @@ func NewSecuritySyncService(
 		finnhubClient: finnhubClient,
 		listingSvc:    listingSvc,
 		csvPath:       csvPath,
+		cache:         redisCache,
+		influxClient:  influxClient,
 	}
 }
 
@@ -78,6 +86,8 @@ func (s *SecuritySyncService) SeedAll(ctx context.Context, futuresSeedPath strin
 // RefreshPrices updates price data for all securities.
 // Called periodically by the refresh goroutine.
 func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
+	start := time.Now()
+
 	if s.isTestingMode() {
 		log.Println("testing mode enabled — skipping external API price refresh")
 		return
@@ -87,6 +97,15 @@ func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 	if s.listingSvc != nil {
 		s.listingSvc.SyncListingsFromSecurities()
 	}
+
+	// Invalidate all cached securities after price refresh
+	if s.cache != nil {
+		if err := s.cache.DeleteByPattern(ctx, "security:*"); err != nil {
+			log.Printf("warn: failed to invalidate security cache: %v", err)
+		}
+	}
+
+	StockPriceRefreshDuration.Observe(time.Since(start).Seconds())
 	log.Println("price refresh complete")
 }
 
@@ -302,6 +321,19 @@ func (s *SecuritySyncService) syncStockPrices(ctx context.Context) {
 			log.Printf("WARN: failed to update stock %s price: %v", stock.Ticker, err)
 		}
 
+		// Dual-write to InfluxDB for intraday candle data
+		if listing, err := s.listingSvc.GetListingForSecurity(stock.ID, "stock"); err == nil {
+			exchangeAcronym := ""
+			if ex, err := s.exchangeRepo.GetByID(stock.ExchangeID); err == nil {
+				exchangeAcronym = ex.Acronym
+			}
+			writeSecurityPricePoint(
+				s.influxClient, listing.ID, "stock", stock.Ticker, exchangeAcronym,
+				stock.Price, stock.High, stock.Low, stock.Change, stock.Volume,
+				time.Now(),
+			)
+		}
+
 		time.Sleep(12 * time.Second) // rate limit
 	}
 }
@@ -509,6 +541,15 @@ func (s *SecuritySyncService) refreshForexRates() {
 			existing.LastRefresh = time.Now()
 			if err := s.forexRepo.Update(existing); err != nil {
 				log.Printf("WARN: failed to update forex rate %s: %v", ticker, err)
+			}
+
+			// Dual-write to InfluxDB
+			if listing, err := s.listingSvc.GetListingForSecurity(existing.ID, "forex"); err == nil {
+				writeSecurityPricePoint(
+					s.influxClient, listing.ID, "forex", ticker, "FOREX",
+					existing.ExchangeRate, existing.High, existing.Low, existing.Change, existing.Volume,
+					time.Now(),
+				)
 			}
 		}
 	}

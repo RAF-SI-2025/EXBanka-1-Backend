@@ -141,7 +141,7 @@ func TestSetEmployeeLimits_Create(t *testing.T) {
 		MaxClientDailyLimit:   decimal.NewFromInt(250000),
 		MaxClientMonthlyLimit: decimal.NewFromInt(2500000),
 	}
-	result, err := svc.SetEmployeeLimits(context.Background(), limit)
+	result, err := svc.SetEmployeeLimits(context.Background(), limit, 0)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}

@@ -376,3 +376,124 @@ func TestFindBankAccountByCurrency_NotFound(t *testing.T) {
 	_, err := findBankAccountByCurrency(standardBankAccounts(), "USD")
 	assert.Error(t, err)
 }
+
+// ---- mockExchangeClient -----------------------------------------------------
+
+type mockExchangeClient struct {
+	convertedAmount decimal.Decimal
+	effectiveRate   decimal.Decimal
+	err             error
+}
+
+func (m *mockExchangeClient) ConvertViaRSD(_ context.Context, _, _ string, _ decimal.Decimal) (decimal.Decimal, decimal.Decimal, error) {
+	return m.convertedAmount, m.effectiveRate, m.err
+}
+
+// ---- new CreateTransfer tests -----------------------------------------------
+
+// TestCreateTransfer_SameCurrency_ZeroCommission verifies that a same-currency
+// transfer ("prenos") sets commission to zero regardless of fee rules.
+func TestCreateTransfer_SameCurrency_ZeroCommission(t *testing.T) {
+	repo := newMockTransferRepo()
+	feeSvc := newTestFeeService(0, 0.5) // 0.5% fee would apply if cross-currency
+	svc := NewTransferService(repo, nil, nil, nil, feeSvc, nil, nil)
+	svc.retryConfig = shared.RetryConfig{MaxAttempts: 1}
+
+	t.Run("same RSD to RSD", func(t *testing.T) {
+		tr := &model.Transfer{
+			FromAccountNumber: "ACC-RSD-A",
+			ToAccountNumber:   "ACC-RSD-B",
+			FromCurrency:      "RSD",
+			ToCurrency:        "RSD",
+			InitialAmount:     decimal.NewFromInt(5000),
+		}
+		require.NoError(t, svc.CreateTransfer(context.Background(), tr))
+		assert.True(t, tr.Commission.IsZero(), "prenos must have zero commission")
+		assert.True(t, tr.FinalAmount.Equal(tr.InitialAmount), "final amount equals initial for prenos")
+		assert.True(t, tr.ExchangeRate.Equal(decimal.NewFromInt(1)), "exchange rate is 1 for prenos")
+		assert.Equal(t, "pending_verification", tr.Status)
+	})
+
+	t.Run("empty currencies treated as same-currency", func(t *testing.T) {
+		tr := &model.Transfer{
+			FromAccountNumber: "ACC-RSD-C",
+			ToAccountNumber:   "ACC-RSD-D",
+			FromCurrency:      "",
+			ToCurrency:        "",
+			InitialAmount:     decimal.NewFromInt(1000),
+		}
+		require.NoError(t, svc.CreateTransfer(context.Background(), tr))
+		assert.True(t, tr.Commission.IsZero(), "empty currencies → prenos → zero commission")
+		assert.True(t, tr.FinalAmount.Equal(tr.InitialAmount))
+	})
+}
+
+// TestCreateTransfer_CrossCurrency_CommissionApplied verifies that a cross-currency
+// transfer calculates fee and uses the exchange client to determine the final amount.
+// FeeValue is a percentage number: 0.1 means 0.1%, so 0.1% of 10000 = 10.
+func TestCreateTransfer_CrossCurrency_CommissionApplied(t *testing.T) {
+	repo := newMockTransferRepo()
+	feeSvc := newTestFeeService(0, 0.1) // 0.1% fee on all amounts (FeeValue=0.1 → amount*0.1/100)
+
+	exchangeClient := &mockExchangeClient{
+		convertedAmount: decimal.NewFromFloat(50.0),
+		effectiveRate:   decimal.NewFromFloat(0.005),
+	}
+
+	svc := NewTransferService(repo, exchangeClient, nil, nil, feeSvc, nil, nil)
+	svc.retryConfig = shared.RetryConfig{MaxAttempts: 1}
+
+	tr := &model.Transfer{
+		FromAccountNumber: "ACC-RSD-001",
+		ToAccountNumber:   "ACC-EUR-001",
+		FromCurrency:      "RSD",
+		ToCurrency:        "EUR",
+		InitialAmount:     decimal.NewFromInt(10000),
+	}
+	require.NoError(t, svc.CreateTransfer(context.Background(), tr))
+
+	// 10000 * 0.1 / 100 = 10 RSD commission
+	expectedCommission := decimal.NewFromInt(10000).Mul(decimal.NewFromFloat(0.1)).Div(decimal.NewFromInt(100))
+	assert.True(t, tr.Commission.Equal(expectedCommission),
+		"commission must be 0.1%% of 10000 = 10; got %s", tr.Commission.String())
+	assert.False(t, tr.Commission.IsZero(),
+		"cross-currency transfer must have non-zero commission")
+	assert.True(t, tr.FinalAmount.Equal(decimal.NewFromFloat(50.0)),
+		"final amount must equal exchange-converted value; got %s", tr.FinalAmount.String())
+	assert.True(t, tr.ExchangeRate.Equal(decimal.NewFromFloat(0.005)),
+		"exchange rate must match client response; got %s", tr.ExchangeRate.String())
+	assert.Equal(t, "pending_verification", tr.Status)
+}
+
+// TestCreateTransfer_CrossClientOwnership_Rejected verifies that CreateTransfer
+// rejects a transfer when the two accounts belong to different clients.
+func TestCreateTransfer_CrossClientOwnership_Rejected(t *testing.T) {
+	repo := newMockTransferRepo()
+	feeSvc := &FeeService{repo: &mockFeeRepo{}}
+
+	// ownerOverrides: FROM belongs to client 1, TO belongs to client 2
+	accountClient := &mockAccountClientForTransfer{
+		ownerOverrides: map[string]uint64{
+			"ACC-CLIENT-1": 1,
+			"ACC-CLIENT-2": 2,
+		},
+	}
+
+	svc := NewTransferService(repo, nil, accountClient, nil, feeSvc, nil, nil)
+	svc.retryConfig = shared.RetryConfig{MaxAttempts: 1}
+
+	tr := &model.Transfer{
+		FromAccountNumber: "ACC-CLIENT-1",
+		ToAccountNumber:   "ACC-CLIENT-2",
+		FromCurrency:      "RSD",
+		ToCurrency:        "RSD",
+		InitialAmount:     decimal.NewFromInt(500),
+	}
+	err := svc.CreateTransfer(context.Background(), tr)
+	require.Error(t, err, "cross-client transfer must be rejected")
+	assert.Contains(t, err.Error(), "same client",
+		"error message must mention same-client requirement")
+
+	// No transfer record must have been persisted
+	assert.Empty(t, repo.transfers, "rejected transfer must not be saved")
+}

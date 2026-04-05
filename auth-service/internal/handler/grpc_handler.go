@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -49,7 +50,8 @@ func NewAuthGRPCHandler(authService *service.AuthService, mobileSvc *service.Mob
 }
 
 func (h *AuthGRPCHandler) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
-	access, refresh, err := h.authService.Login(ctx, req.Email, req.Password)
+	meta := extractRequestMeta(ctx)
+	access, refresh, err := h.authService.Login(ctx, req.Email, req.Password, meta.IPAddress, meta.UserAgent)
 	if err != nil {
 		return nil, status.Errorf(codes.Unauthenticated, "invalid credentials")
 	}
@@ -83,7 +85,8 @@ func (h *AuthGRPCHandler) ValidateToken(ctx context.Context, req *pb.ValidateTok
 }
 
 func (h *AuthGRPCHandler) RefreshToken(ctx context.Context, req *pb.RefreshTokenRequest) (*pb.RefreshTokenResponse, error) {
-	access, refresh, err := h.authService.RefreshToken(ctx, req.RefreshToken)
+	meta := extractRequestMeta(ctx)
+	access, refresh, err := h.authService.RefreshToken(ctx, req.RefreshToken, meta.IPAddress, meta.UserAgent)
 	if err != nil {
 		return nil, status.Errorf(codes.Unauthenticated, "invalid refresh token")
 	}
@@ -237,4 +240,64 @@ func (h *AuthGRPCHandler) GetDeviceInfo(ctx context.Context, req *pb.GetDeviceIn
 		resp.ActivatedAt = device.ActivatedAt.Format("2006-01-02T15:04:05Z")
 	}
 	return resp, nil
+}
+
+// --- Session management RPC methods ---
+
+func (h *AuthGRPCHandler) ListSessions(ctx context.Context, req *pb.ListSessionsRequest) (*pb.ListSessionsResponse, error) {
+	sessions, err := h.authService.ListSessions(ctx, req.UserId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list sessions: %v", err)
+	}
+
+	var infos []*pb.SessionInfo
+	for _, s := range sessions {
+		infos = append(infos, &pb.SessionInfo{
+			Id:           s.ID,
+			UserId:       s.UserID,
+			UserRole:     s.UserRole,
+			IpAddress:    s.IPAddress,
+			UserAgent:    s.UserAgent,
+			DeviceId:     s.DeviceID,
+			SystemType:   s.SystemType,
+			LastActiveAt: s.LastActiveAt.Format(time.RFC3339),
+			CreatedAt:    s.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	return &pb.ListSessionsResponse{Sessions: infos}, nil
+}
+
+func (h *AuthGRPCHandler) RevokeSession(ctx context.Context, req *pb.RevokeSessionRequest) (*pb.RevokeSessionResponse, error) {
+	if err := h.authService.RevokeSession(ctx, req.SessionId, req.CallerUserId); err != nil {
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
+	}
+	return &pb.RevokeSessionResponse{Success: true}, nil
+}
+
+func (h *AuthGRPCHandler) RevokeAllSessions(ctx context.Context, req *pb.RevokeAllSessionsRequest) (*pb.RevokeAllSessionsResponse, error) {
+	if err := h.authService.RevokeAllSessionsExceptCurrent(ctx, req.UserId, req.CurrentRefreshToken); err != nil {
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
+	}
+	return &pb.RevokeAllSessionsResponse{Success: true}, nil
+}
+
+func (h *AuthGRPCHandler) GetLoginHistory(ctx context.Context, req *pb.LoginHistoryRequest) (*pb.LoginHistoryResponse, error) {
+	entries, err := h.authService.GetLoginHistory(ctx, req.Email, int(req.Limit))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get login history: %v", err)
+	}
+
+	var pbEntries []*pb.LoginHistoryEntry
+	for _, e := range entries {
+		pbEntries = append(pbEntries, &pb.LoginHistoryEntry{
+			Id:         e.ID,
+			Email:      e.Email,
+			IpAddress:  e.IPAddress,
+			UserAgent:  e.UserAgent,
+			DeviceType: e.DeviceType,
+			Success:    e.Success,
+			CreatedAt:  e.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	return &pb.LoginHistoryResponse{Entries: pbEntries}, nil
 }

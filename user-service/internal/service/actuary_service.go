@@ -10,17 +10,16 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
-	"github.com/exbanka/user-service/internal/repository"
 	"github.com/shopspring/decimal"
 )
 
 type ActuaryService struct {
-	actuaryRepo *repository.ActuaryRepository
-	empRepo     *repository.EmployeeRepository
+	actuaryRepo ActuaryRepo
+	empRepo     ActuaryEmpRepo
 	producer    *kafkaprod.Producer
 }
 
-func NewActuaryService(actuaryRepo *repository.ActuaryRepository, empRepo *repository.EmployeeRepository, producer *kafkaprod.Producer) *ActuaryService {
+func NewActuaryService(actuaryRepo ActuaryRepo, empRepo ActuaryEmpRepo, producer *kafkaprod.Producer) *ActuaryService {
 	return &ActuaryService{
 		actuaryRepo: actuaryRepo,
 		empRepo:     empRepo,

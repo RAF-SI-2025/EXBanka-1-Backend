@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	userpb "github.com/exbanka/contract/userpb"
+	"github.com/gin-gonic/gin"
 )
 
 type ActuaryHandler struct {
@@ -30,7 +30,7 @@ func (h *ActuaryHandler) ListActuaries(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"actuaries": resp.Actuaries, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"actuaries": emptyIfNil(resp.Actuaries), "total_count": resp.TotalCount})
 }
 
 func (h *ActuaryHandler) SetActuaryLimit(c *gin.Context) {

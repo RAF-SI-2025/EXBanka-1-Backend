@@ -196,12 +196,15 @@ func (s *TransferService) CreateTransfer(ctx context.Context, transfer *model.Tr
 		return err
 	}
 
+	TransactionTotal.WithLabelValues("transfer", "created").Inc()
 	return nil
 }
 
 // ExecuteTransfer performs the actual balance changes for a transfer that has been verified.
 // The transfer must be in "pending_verification" status.
 func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64) error {
+	start := time.Now()
+
 	transfer, err := s.transferRepo.GetByID(transferID)
 	if err != nil {
 		return fmt.Errorf("transfer not found: %w", err)
@@ -411,6 +414,11 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		return err
 	}
 	transfer.Status = "completed"
+
+	TransactionTotal.WithLabelValues("transfer", "completed").Inc()
+	TransactionAmountRSDSum.WithLabelValues("transfer").Add(transfer.FinalAmount.InexactFloat64())
+	TransactionProcessingDuration.WithLabelValues("transfer").Observe(time.Since(start).Seconds())
+
 	return nil
 }
 
@@ -501,6 +509,17 @@ func (s *TransferService) runRecoveryTick(ctx context.Context) {
 // Both transfer and payment compensations are handled here because both only require
 // an accountClient.UpdateBalance call.
 func (s *TransferService) StartCompensationRecovery(ctx context.Context) {
+	// Run immediate recovery pass at startup
+	if s.sagaRepo != nil {
+		pending, err := s.sagaRepo.FindPendingCompensations()
+		if err != nil {
+			log.Printf("saga recovery: failed to check pending compensations at startup: %v", err)
+		} else {
+			log.Printf("saga recovery: startup check found %d pending compensation(s)", len(pending))
+		}
+	}
+	s.runRecoveryTick(ctx)
+
 	ticker := time.NewTicker(5 * time.Minute)
 	go func() {
 		defer ticker.Stop()

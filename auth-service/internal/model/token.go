@@ -9,6 +9,9 @@ type RefreshToken struct {
 	ExpiresAt  time.Time `gorm:"not null"`
 	Revoked    bool      `gorm:"default:false"`
 	SystemType string    `gorm:"size:20;not null;default:'employee'"`
+	SessionID  *int64    `gorm:"index"`    // FK to ActiveSession
+	IPAddress  string    `gorm:"size:45"`  // IP from gateway metadata
+	UserAgent  string    `gorm:"size:512"` // User-Agent from gateway metadata
 	CreatedAt  time.Time
 }
 

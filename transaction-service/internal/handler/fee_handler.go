@@ -28,7 +28,7 @@ func (h *FeeGRPCHandler) ListFees(ctx context.Context, req *pb.ListFeesRequest) 
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to list fees: %v", err)
 	}
-	resp := &pb.ListFeesResponse{}
+	resp := &pb.ListFeesResponse{Fees: make([]*pb.TransferFeeResponse, 0, len(fees))}
 	for _, f := range fees {
 		f := f
 		resp.Fees = append(resp.Fees, toFeeResponse(&f))

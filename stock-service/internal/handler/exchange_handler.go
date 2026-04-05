@@ -48,7 +48,7 @@ func (h *ExchangeGRPCHandler) ListExchanges(ctx context.Context, req *pb.ListExc
 		return nil, status.Errorf(mapServiceError(err), "failed to list exchanges: %v", err)
 	}
 
-	resp := &pb.ListExchangesResponse{TotalCount: total}
+	resp := &pb.ListExchangesResponse{TotalCount: total, Exchanges: make([]*pb.Exchange, 0, len(exchanges))}
 	for _, ex := range exchanges {
 		resp.Exchanges = append(resp.Exchanges, toExchangeProto(&ex))
 	}

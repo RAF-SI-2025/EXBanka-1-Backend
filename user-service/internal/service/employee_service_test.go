@@ -67,6 +67,12 @@ func (m *mockRepo) Create(emp *model.Employee) error {
 	if m.createErr != nil {
 		return m.createErr
 	}
+	// Enforce email uniqueness
+	for _, existing := range m.employees {
+		if existing.Email == emp.Email {
+			return errors.New("duplicate email")
+		}
+	}
 	emp.ID = m.nextID
 	m.nextID++
 	m.employees[emp.ID] = emp
@@ -152,6 +158,15 @@ func TestCreateEmployee_Valid(t *testing.T) {
 	err := svc.CreateEmployee(context.Background(), emp)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), emp.ID)
+
+	// Verify all fields were persisted in the repo
+	persisted, err := repo.GetByID(1)
+	assert.NoError(t, err)
+	assert.Equal(t, "John", persisted.FirstName, "FirstName should be persisted")
+	assert.Equal(t, "Doe", persisted.LastName, "LastName should be persisted")
+	assert.Equal(t, "john@example.com", persisted.Email, "Email should be persisted")
+	assert.Equal(t, "johndoe", persisted.Username, "Username should be persisted")
+	assert.Equal(t, "0101990710024", persisted.JMBG, "JMBG should be persisted")
 }
 
 func TestCreateEmployee_InvalidJMBG(t *testing.T) {
@@ -173,7 +188,9 @@ func TestGetEmployee(t *testing.T) {
 
 	emp, err := svc.GetEmployee(1)
 	assert.NoError(t, err)
-	assert.Equal(t, "Jane", emp.FirstName)
+	assert.Equal(t, int64(1), emp.ID, "ID should match")
+	assert.Equal(t, "Jane", emp.FirstName, "FirstName should match")
+	assert.Equal(t, "jane@example.com", emp.Email, "Email should match")
 }
 
 func TestGetEmployee_NotFound(t *testing.T) {
@@ -189,7 +206,7 @@ func TestUpdateEmployee_InvalidJMBG(t *testing.T) {
 	repo.employees[1] = &model.Employee{ID: 1, JMBG: "0101990710024"}
 	svc := NewEmployeeService(repo, nil, nil, nil)
 
-	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"jmbg": "bad"})
+	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{"jmbg": "bad"}, 0)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "JMBG")
 }
@@ -214,7 +231,7 @@ func TestSetEmployeeRoles(t *testing.T) {
 	// Seed roles
 	_ = roleSvc.SeedRolesAndPermissions()
 
-	err := svc.SetEmployeeRoles(context.Background(), emp.ID, []string{"EmployeeAgent"})
+	err := svc.SetEmployeeRoles(context.Background(), emp.ID, []string{"EmployeeAgent"}, 0)
 	assert.NoError(t, err)
 
 	updated, err := repo.GetByID(emp.ID)
@@ -243,7 +260,7 @@ func TestSetEmployeeAdditionalPermissions(t *testing.T) {
 	// Seed permissions
 	_ = roleSvc.SeedRolesAndPermissions()
 
-	err := svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID, []string{"clients.read", "securities.trade"})
+	err := svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID, []string{"clients.read", "securities.trade"}, 0)
 	assert.NoError(t, err)
 
 	updated, err := repo.GetByID(emp.ID)
@@ -283,4 +300,94 @@ func TestResolvePermissions(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, count, "clients.read should appear exactly once")
+}
+
+// TestCreateEmployee_DuplicateEmail verifies that creating two employees with the same
+// email is rejected by the repository layer.
+func TestCreateEmployee_DuplicateEmail(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	emp1 := &model.Employee{
+		FirstName: "Alice",
+		LastName:  "A",
+		Email:     "shared@example.com",
+		Username:  "alice",
+		JMBG:      "0101990710024",
+	}
+	err := svc.CreateEmployee(context.Background(), emp1)
+	assert.NoError(t, err, "first employee should be created successfully")
+
+	emp2 := &model.Employee{
+		FirstName: "Bob",
+		LastName:  "B",
+		Email:     "shared@example.com", // same email
+		Username:  "bob",
+		JMBG:      "0201990710025",
+	}
+	err = svc.CreateEmployee(context.Background(), emp2)
+	assert.Error(t, err, "second employee with duplicate email should be rejected")
+	assert.Contains(t, err.Error(), "duplicate email")
+}
+
+// TestUpdateEmployee_EmailImmutable verifies that passing an "email" key in the updates
+// map has no effect — email is not an accepted update field.
+func TestUpdateEmployee_EmailImmutable(t *testing.T) {
+	repo := newMockRepo()
+	repo.employees[1] = &model.Employee{
+		ID:    1,
+		Email: "original@example.com",
+		JMBG:  "0101990710024",
+	}
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	_, err := svc.UpdateEmployee(context.Background(), 1, map[string]interface{}{
+		"email":     "changed@example.com",
+		"last_name": "Updated",
+	}, 0)
+	assert.NoError(t, err, "UpdateEmployee with email key should not return an error")
+
+	persisted, err := repo.GetByID(1)
+	assert.NoError(t, err)
+	assert.Equal(t, "original@example.com", persisted.Email,
+		"email should not be changed by UpdateEmployee")
+	assert.Equal(t, "Updated", persisted.LastName,
+		"other fields (last_name) should be updated normally")
+}
+
+// TestUpdateEmployee_JMBGValidIsApplied verifies that a valid new JMBG is accepted and applied.
+func TestUpdateEmployee_JMBGValidIsApplied(t *testing.T) {
+	repo := newMockRepo()
+	repo.employees[2] = &model.Employee{
+		ID:   2,
+		JMBG: "0101990710024",
+	}
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	updated, err := svc.UpdateEmployee(context.Background(), 2, map[string]interface{}{
+		"jmbg": "0201990710025",
+	}, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, "0201990710025", updated.JMBG, "valid JMBG should be applied")
+
+	persisted, err := repo.GetByID(2)
+	assert.NoError(t, err)
+	assert.Equal(t, "0201990710025", persisted.JMBG)
+}
+
+// TestUpdateEmployee_JMBGAbsentRetainsOriginal verifies that omitting the jmbg key leaves
+// the original JMBG unchanged.
+func TestUpdateEmployee_JMBGAbsentRetainsOriginal(t *testing.T) {
+	repo := newMockRepo()
+	repo.employees[3] = &model.Employee{
+		ID:   3,
+		JMBG: "0101990710024",
+	}
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	updated, err := svc.UpdateEmployee(context.Background(), 3, map[string]interface{}{
+		"last_name": "Smith",
+	}, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, "0101990710024", updated.JMBG, "JMBG should be unchanged when not in updates")
 }

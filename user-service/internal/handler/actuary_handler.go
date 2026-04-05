@@ -27,7 +27,7 @@ func (h *ActuaryGRPCHandler) ListActuaries(ctx context.Context, req *pb.ListActu
 		return nil, status.Errorf(mapServiceError(err), "failed to list actuaries: %v", err)
 	}
 
-	resp := &pb.ListActuariesResponse{TotalCount: total}
+	resp := &pb.ListActuariesResponse{TotalCount: total, Actuaries: make([]*pb.ActuaryInfo, 0, len(rows))}
 	for _, r := range rows {
 		role := "agent"
 		// Position-based role determination

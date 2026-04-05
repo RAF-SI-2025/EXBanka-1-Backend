@@ -13,6 +13,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/cache"
@@ -38,6 +39,7 @@ func main() {
 		&model.EmployeeLimit{},
 		&model.LimitTemplate{},
 		&model.ActuaryLimit{},
+		&model.Changelog{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -55,6 +57,7 @@ func main() {
 		"user.limit-template-updated",
 		"user.limit-template-deleted",
 		"user.actuary-limit-updated",
+		"user.changelog",
 		"notification.send-email",
 	)
 
@@ -80,8 +83,9 @@ func main() {
 		log.Fatalf("failed to seed roles and permissions: %v", err)
 	}
 
-	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc)
-	limitSvc := service.NewLimitService(employeeLimitRepo, limitTemplateRepo, producer)
+	changelogRepo := repository.NewChangelogRepository(db)
+	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc, changelogRepo)
+	limitSvc := service.NewLimitService(employeeLimitRepo, limitTemplateRepo, producer, changelogRepo)
 
 	if err := limitSvc.SeedDefaultTemplates(); err != nil {
 		log.Fatalf("failed to seed default limit templates: %v", err)
@@ -108,11 +112,17 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	pb.RegisterUserServiceServer(s, grpcHandler)
 	pb.RegisterEmployeeLimitServiceServer(s, limitHandler)
 	pb.RegisterActuaryServiceServer(s, actuaryHandler)
 	shared.RegisterHealthCheck(s, "user-service")
+	metrics.InitializeGRPCMetrics(s)
+	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer metricsShutdown(context.Background())
 
 	// Start gRPC server in goroutine
 	go func() {

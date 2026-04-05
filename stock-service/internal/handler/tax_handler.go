@@ -56,6 +56,52 @@ func (h *TaxHandler) ListTaxRecords(ctx context.Context, req *pb.ListTaxRecordsR
 	}, nil
 }
 
+func (h *TaxHandler) ListUserTaxRecords(ctx context.Context, req *pb.ListUserTaxRecordsRequest) (*pb.ListUserTaxRecordsResponse, error) {
+	page := int(req.Page)
+	pageSize := int(req.PageSize)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+
+	gains, total, err := h.taxSvc.ListUserTaxRecords(req.UserId, page, pageSize)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	records := make([]*pb.UserTaxRecord, len(gains))
+	for i, g := range gains {
+		records[i] = &pb.UserTaxRecord{
+			Id:               g.ID,
+			SecurityType:     g.SecurityType,
+			Ticker:           g.Ticker,
+			Quantity:         g.Quantity,
+			BuyPricePerUnit:  g.BuyPricePerUnit.StringFixed(4),
+			SellPricePerUnit: g.SellPricePerUnit.StringFixed(4),
+			TotalGain:        g.TotalGain.StringFixed(4),
+			Currency:         g.Currency,
+			TaxYear:          int32(g.TaxYear),
+			TaxMonth:         int32(g.TaxMonth),
+			CreatedAt:        g.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		}
+	}
+
+	// Fetch balance summary
+	taxPaid, taxUnpaid, balErr := h.taxSvc.GetUserTaxSummary(req.UserId)
+	if balErr != nil {
+		return nil, status.Error(codes.Internal, balErr.Error())
+	}
+
+	return &pb.ListUserTaxRecordsResponse{
+		Records:            records,
+		TotalCount:         total,
+		TaxPaidThisYear:    taxPaid.StringFixed(2),
+		TaxUnpaidThisMonth: taxUnpaid.StringFixed(2),
+	}, nil
+}
+
 func (h *TaxHandler) CollectTax(ctx context.Context, req *pb.CollectTaxRequest) (*pb.CollectTaxResponse, error) {
 	now := time.Now()
 	collected, totalRSD, failed, err := h.taxSvc.CollectTax(now.Year(), int(now.Month()))

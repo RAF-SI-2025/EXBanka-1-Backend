@@ -7,6 +7,7 @@ import (
 	"time"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/changelog"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/credit-service/internal/model"
 	"github.com/exbanka/credit-service/internal/repository"
@@ -50,6 +51,7 @@ type LoanRequestService struct {
 	limitClient   userpb.EmployeeLimitServiceClient
 	accountClient accountpb.AccountServiceClient
 	rateConfigSvc *RateConfigService
+	changelogRepo *repository.ChangelogRepository
 	db            *gorm.DB
 }
 
@@ -61,8 +63,13 @@ func NewLoanRequestService(
 	accountClient accountpb.AccountServiceClient,
 	rateConfigSvc *RateConfigService,
 	db *gorm.DB,
+	changelogRepo ...*repository.ChangelogRepository,
 ) *LoanRequestService {
-	return &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient, accountClient: accountClient, rateConfigSvc: rateConfigSvc, db: db}
+	svc := &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient, accountClient: accountClient, rateConfigSvc: rateConfigSvc, db: db}
+	if len(changelogRepo) > 0 {
+		svc.changelogRepo = changelogRepo[0]
+	}
+	return svc
 }
 
 func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
@@ -95,6 +102,7 @@ func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
 		return fmt.Errorf("failed to save loan request for account %s (loan_type=%s, amount=%s): %v",
 			req.AccountNumber, req.LoanType, req.Amount.StringFixed(2), err)
 	}
+	CreditLoanRequestTotal.WithLabelValues("created").Inc()
 	return nil
 }
 
@@ -207,6 +215,12 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 		return nil, err
 	}
 
+	// Record changelog for loan request approval.
+	if s.changelogRepo != nil {
+		entry := changelog.NewStatusChangeEntry("loan_request", int64(requestID), int64(employeeID), "pending", "approved", "")
+		_ = s.changelogRepo.Create(entry)
+	}
+
 	// Disbursement: credit the loan amount to the borrower's account (outside TX — gRPC cannot be held inside a DB TX).
 	if s.accountClient == nil {
 		return loan, nil
@@ -224,10 +238,11 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 	if updateErr := s.loanRepo.Update(loan); updateErr != nil {
 		log.Printf("ApproveLoanRequest: failed to update loan %d status to %s after disbursement: %v", loan.ID, loan.Status, updateErr)
 	}
+	CreditLoanRequestTotal.WithLabelValues("approved").Inc()
 	return loan, nil
 }
 
-func (s *LoanRequestService) RejectLoanRequest(requestID uint64) (*model.LoanRequest, error) {
+func (s *LoanRequestService) RejectLoanRequest(requestID uint64, changedBy int64, reason string) (*model.LoanRequest, error) {
 	var req *model.LoanRequest
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		locked, e := s.repo.GetByIDForUpdate(tx, requestID)
@@ -248,5 +263,13 @@ func (s *LoanRequestService) RejectLoanRequest(requestID uint64) (*model.LoanReq
 	if err != nil {
 		return nil, err
 	}
+
+	// Record changelog for rejection.
+	if s.changelogRepo != nil {
+		entry := changelog.NewStatusChangeEntry("loan_request", int64(requestID), changedBy, "pending", "rejected", reason)
+		_ = s.changelogRepo.Create(entry)
+	}
+
+	CreditLoanRequestTotal.WithLabelValues("rejected").Inc()
 	return req, nil
 }

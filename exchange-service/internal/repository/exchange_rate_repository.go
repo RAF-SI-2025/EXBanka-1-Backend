@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -68,10 +69,15 @@ func (r *ExchangeRateRepository) UpsertInTx(tx *gorm.DB, from, to string, buy, s
 	if err != nil {
 		return err
 	}
-	return tx.Model(&existing).Updates(map[string]interface{}{
-		"buy_rate":   buy,
-		"sell_rate":  sell,
-		"version":    existing.Version + 1,
-		"updated_at": now,
-	}).Error
+	existing.BuyRate = buy
+	existing.SellRate = sell
+	existing.UpdatedAt = now
+	result := tx.Save(&existing)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("optimistic lock conflict on exchange rate %s/%s", from, to)
+	}
+	return nil
 }

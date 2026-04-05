@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/exbanka/contract/changelog"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/user-service/internal/cache"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
@@ -17,14 +18,19 @@ import (
 )
 
 type EmployeeService struct {
-	repo     EmployeeRepo
-	producer *kafkaprod.Producer
-	cache    *cache.RedisCache
-	roleSvc  *RoleService
+	repo          EmployeeRepo
+	producer      *kafkaprod.Producer
+	cache         *cache.RedisCache
+	roleSvc       *RoleService
+	changelogRepo ChangelogRepo
 }
 
-func NewEmployeeService(repo EmployeeRepo, producer *kafkaprod.Producer, cache *cache.RedisCache, roleSvc *RoleService) *EmployeeService {
-	return &EmployeeService{repo: repo, producer: producer, cache: cache, roleSvc: roleSvc}
+func NewEmployeeService(repo EmployeeRepo, producer *kafkaprod.Producer, cache *cache.RedisCache, roleSvc *RoleService, changelogRepo ...ChangelogRepo) *EmployeeService {
+	svc := &EmployeeService{repo: repo, producer: producer, cache: cache, roleSvc: roleSvc}
+	if len(changelogRepo) > 0 {
+		svc.changelogRepo = changelogRepo[0]
+	}
+	return svc
 }
 
 // ResolvePermissions collects all unique permission codes for an employee
@@ -57,6 +63,7 @@ func (s *EmployeeService) CreateEmployee(ctx context.Context, emp *model.Employe
 	if err := s.repo.Create(emp); err != nil {
 		return fmt.Errorf("create employee: %w", err)
 	}
+	UserEmployeeCreatedTotal.Inc()
 
 	roleNames := extractRoleNames(emp.Roles)
 
@@ -103,39 +110,54 @@ func (s *EmployeeService) ListEmployees(emailFilter, nameFilter, positionFilter 
 	return s.repo.List(emailFilter, nameFilter, positionFilter, page, pageSize)
 }
 
-func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates map[string]interface{}) (*model.Employee, error) {
+func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates map[string]interface{}, changedBy int64) (*model.Employee, error) {
 	emp, err := s.repo.GetByIDWithRoles(id)
 	if err != nil {
 		return nil, err
 	}
 
+	// Build changelog field changes before applying updates.
+	var changes []changelog.FieldChange
 	if v, ok := updates["last_name"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "last_name", OldValue: emp.LastName, NewValue: v})
 		emp.LastName = v
 	}
 	if v, ok := updates["gender"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "gender", OldValue: emp.Gender, NewValue: v})
 		emp.Gender = v
 	}
 	if v, ok := updates["phone"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "phone", OldValue: emp.Phone, NewValue: v})
 		emp.Phone = v
 	}
 	if v, ok := updates["address"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "address", OldValue: emp.Address, NewValue: v})
 		emp.Address = v
 	}
 	if v, ok := updates["position"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "position", OldValue: emp.Position, NewValue: v})
 		emp.Position = v
 	}
 	if v, ok := updates["department"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "department", OldValue: emp.Department, NewValue: v})
 		emp.Department = v
 	}
 	if v, ok := updates["jmbg"].(string); ok {
 		if err := ValidateJMBG(v); err != nil {
 			return nil, err
 		}
+		changes = append(changes, changelog.FieldChange{Field: "jmbg", OldValue: emp.JMBG, NewValue: v})
 		emp.JMBG = v
 	}
 
 	if err := s.repo.Update(emp); err != nil {
 		return nil, err
+	}
+
+	// Record changelog after successful mutation.
+	entries := changelog.Diff("employee", id, changedBy, "", changes)
+	if s.changelogRepo != nil && len(entries) > 0 {
+		_ = s.changelogRepo.CreateBatch(entries)
 	}
 	if s.cache != nil {
 		_ = s.cache.Delete(context.Background(), "employee:id:"+strconv.FormatInt(id, 10))
@@ -160,10 +182,14 @@ func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates 
 }
 
 // SetEmployeeRoles replaces the roles associated with an employee.
-func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64, roleNames []string) error {
-	if _, err := s.repo.GetByID(employeeID); err != nil {
+func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64, roleNames []string, changedBy int64) error {
+	emp, err := s.repo.GetByIDWithRoles(employeeID)
+	if err != nil {
 		return fmt.Errorf("employee %d not found: %w", employeeID, err)
 	}
+
+	// Capture old roles for changelog.
+	oldRoles := extractRoleNames(emp.Roles)
 
 	if s.roleSvc != nil {
 		for _, name := range roleNames {
@@ -181,22 +207,45 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 	if err := s.repo.SetEmployeeRoles(employeeID, roles); err != nil {
 		return err
 	}
+	UserRoleChangesTotal.Inc()
+
+	// Record changelog.
+	if s.changelogRepo != nil {
+		entry := changelog.Entry{
+			EntityType: "employee",
+			EntityID:   employeeID,
+			Action:     changelog.ActionUpdate,
+			FieldName:  "roles",
+			OldValue:   changelog.ToJSON(oldRoles),
+			NewValue:   changelog.ToJSON(roleNames),
+			ChangedBy:  changedBy,
+			ChangedAt:  time.Now(),
+		}
+		_ = s.changelogRepo.Create(entry)
+	}
 
 	// Invalidate cache
 	if s.cache != nil {
 		_ = s.cache.Delete(ctx, "employee:id:"+strconv.FormatInt(employeeID, 10))
-		emp, err2 := s.repo.GetByID(employeeID)
+		emp2, err2 := s.repo.GetByID(employeeID)
 		if err2 == nil {
-			_ = s.cache.Delete(ctx, "employee:email:"+emp.Email)
+			_ = s.cache.Delete(ctx, "employee:email:"+emp2.Email)
 		}
 	}
 	return nil
 }
 
 // SetEmployeeAdditionalPermissions replaces the additional permissions for an employee.
-func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, employeeID int64, permCodes []string) error {
-	if _, err := s.repo.GetByID(employeeID); err != nil {
+func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, employeeID int64, permCodes []string, changedBy int64) error {
+	emp, err := s.repo.GetByIDWithRoles(employeeID)
+	if err != nil {
 		return fmt.Errorf("employee %d not found: %w", employeeID, err)
+	}
+
+	// Capture old permissions for changelog.
+	oldPerms := make([]string, 0, len(emp.AdditionalPermissions))
+	for _, p := range emp.AdditionalPermissions {
+		oldPerms = append(oldPerms, p.Code)
 	}
 
 	perms, err := s.roleSvc.GetPermissionsByCodes(permCodes)
@@ -212,12 +261,27 @@ func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, 
 		return err
 	}
 
+	// Record changelog.
+	if s.changelogRepo != nil {
+		entry := changelog.Entry{
+			EntityType: "employee",
+			EntityID:   employeeID,
+			Action:     changelog.ActionUpdate,
+			FieldName:  "additional_permissions",
+			OldValue:   changelog.ToJSON(oldPerms),
+			NewValue:   changelog.ToJSON(permCodes),
+			ChangedBy:  changedBy,
+			ChangedAt:  time.Now(),
+		}
+		_ = s.changelogRepo.Create(entry)
+	}
+
 	// Invalidate cache
 	if s.cache != nil {
 		_ = s.cache.Delete(ctx, "employee:id:"+strconv.FormatInt(employeeID, 10))
-		emp, err2 := s.repo.GetByID(employeeID)
+		emp2, err2 := s.repo.GetByID(employeeID)
 		if err2 == nil {
-			_ = s.cache.Delete(ctx, "employee:email:"+emp.Email)
+			_ = s.cache.Delete(ctx, "employee:email:"+emp2.Email)
 		}
 	}
 	return nil

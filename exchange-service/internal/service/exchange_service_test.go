@@ -32,7 +32,7 @@ func newTestService(t *testing.T) (*service.ExchangeService, *repository.Exchang
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
 	repo := repository.NewExchangeRateRepository(db)
-	svc, err := service.NewExchangeService(repo, db, "0.005", "0.003")
+	svc, err := service.NewExchangeService(repo, db, "0.005", "0.003", nil)
 	require.NoError(t, err)
 	return svc, repo
 }

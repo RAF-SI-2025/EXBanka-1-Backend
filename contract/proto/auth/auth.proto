@@ -25,6 +25,12 @@ service AuthService {
   rpc TransferDevice(TransferDeviceRequest) returns (TransferDeviceResponse);
   rpc ValidateDeviceSignature(ValidateDeviceSignatureRequest) returns (ValidateDeviceSignatureResponse);
   rpc GetDeviceInfo(GetDeviceInfoRequest) returns (GetDeviceInfoResponse);
+
+  // Session management
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
+  rpc RevokeAllSessions(RevokeAllSessionsRequest) returns (RevokeAllSessionsResponse);
+  rpc GetLoginHistory(LoginHistoryRequest) returns (LoginHistoryResponse);
 }
 
 message LoginRequest {
@@ -220,4 +226,65 @@ message GetDeviceInfoResponse {
   string status = 3;
   string activated_at = 4;
   string last_seen_at = 5;
+}
+
+// --- Session management messages ---
+
+message ListSessionsRequest {
+  int64 user_id = 1;
+}
+
+message SessionInfo {
+  int64 id = 1;
+  int64 user_id = 2;
+  string user_role = 3;
+  string ip_address = 4;
+  string user_agent = 5;
+  string device_id = 6;
+  string system_type = 7;
+  string last_active_at = 8;  // RFC3339
+  string created_at = 9;      // RFC3339
+  bool is_current = 10;
+}
+
+message ListSessionsResponse {
+  repeated SessionInfo sessions = 1;
+}
+
+message RevokeSessionRequest {
+  int64 session_id = 1;
+  int64 caller_user_id = 2;  // The user requesting revocation (for ownership check)
+}
+
+message RevokeSessionResponse {
+  bool success = 1;
+}
+
+message RevokeAllSessionsRequest {
+  int64 user_id = 1;
+  string current_refresh_token = 2;  // Keep this session alive
+}
+
+message RevokeAllSessionsResponse {
+  bool success = 1;
+  int32 revoked_count = 2;
+}
+
+message LoginHistoryRequest {
+  string email = 1;
+  int32 limit = 2;  // max 100, default 50
+}
+
+message LoginHistoryEntry {
+  int64 id = 1;
+  string email = 2;
+  string ip_address = 3;
+  string user_agent = 4;
+  string device_type = 5;
+  bool success = 6;
+  string created_at = 7;  // RFC3339
+}
+
+message LoginHistoryResponse {
+  repeated LoginHistoryEntry entries = 1;
 }

@@ -22,6 +22,7 @@ type Config struct {
 	PasswordPepper         string
 	MobileRefreshExpiry    time.Duration
 	MobileActivationExpiry time.Duration
+	MetricsPort            string
 }
 
 func Load() *Config {
@@ -47,6 +48,7 @@ func Load() *Config {
 		PasswordPepper:         getEnv("PASSWORD_PEPPER", ""),
 		MobileRefreshExpiry:    mobileRefreshExp,
 		MobileActivationExpiry: mobileActivationExp,
+		MetricsPort:            getEnv("METRICS_PORT", "9101"),
 	}
 }
 

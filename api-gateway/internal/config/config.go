@@ -18,6 +18,7 @@ type Config struct {
 	VerificationGRPCAddr string
 	NotificationGRPCAddr string
 	KafkaBrokers         string
+	MetricsPort          string
 }
 
 func Load() *Config {
@@ -35,6 +36,7 @@ func Load() *Config {
 		VerificationGRPCAddr: getEnv("VERIFICATION_GRPC_ADDR", "localhost:50061"),
 		NotificationGRPCAddr: getEnv("NOTIFICATION_GRPC_ADDR", "localhost:50053"),
 		KafkaBrokers:         getEnv("KAFKA_BROKERS", "localhost:9092"),
+		MetricsPort:          getEnv("METRICS_PORT", "9100"),
 	}
 }
 

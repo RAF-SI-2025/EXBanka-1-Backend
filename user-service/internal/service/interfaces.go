@@ -1,7 +1,17 @@
 // user-service/internal/service/interfaces.go
 package service
 
-import "github.com/exbanka/user-service/internal/model"
+import (
+	"github.com/exbanka/contract/changelog"
+	"github.com/exbanka/user-service/internal/model"
+)
+
+// ChangelogRepo is the interface for changelog persistence.
+type ChangelogRepo interface {
+	Create(entry changelog.Entry) error
+	CreateBatch(entries []changelog.Entry) error
+	ListByEntity(entityType string, entityID int64, page, pageSize int) ([]model.Changelog, int64, error)
+}
 
 type EmployeeRepo interface {
 	Create(emp *model.Employee) error
@@ -53,4 +63,16 @@ type LimitTemplateRepo interface {
 	List() ([]model.LimitTemplate, error)
 	Update(t *model.LimitTemplate) error
 	Delete(id int64) error
+}
+
+type ActuaryRepo interface {
+	Create(limit *model.ActuaryLimit) error
+	GetByID(id int64) (*model.ActuaryLimit, error)
+	GetByEmployeeID(employeeID int64) (*model.ActuaryLimit, error)
+	Save(limit *model.ActuaryLimit) error
+	ListActuaries(search, position string, page, pageSize int) ([]model.ActuaryRow, int64, error)
+}
+
+type ActuaryEmpRepo interface {
+	GetByIDWithRoles(id int64) (*model.Employee, error)
 }

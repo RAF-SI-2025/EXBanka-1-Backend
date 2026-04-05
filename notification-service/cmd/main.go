@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/exbanka/contract/metrics"
 	notifpb "github.com/exbanka/contract/notificationpb"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/notification-service/internal/config"
@@ -83,10 +84,16 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	notifpb.RegisterNotificationServiceServer(grpcServer, handler.NewGRPCHandler(emailSender, inboxRepo))
 	shared.RegisterHealthCheck(grpcServer, "notification-service")
 	reflection.Register(grpcServer)
+	metrics.InitializeGRPCMetrics(grpcServer)
+	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer metricsShutdown(context.Background())
 
 	// Graceful shutdown
 	go func() {

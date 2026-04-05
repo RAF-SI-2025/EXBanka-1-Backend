@@ -8,10 +8,11 @@ import (
 	"time"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
-	"github.com/exbanka/notification-service/internal/model"
 	kafkaprod "github.com/exbanka/notification-service/internal/kafka"
+	"github.com/exbanka/notification-service/internal/model"
 	"github.com/exbanka/notification-service/internal/repository"
 	"github.com/exbanka/notification-service/internal/sender"
+	svc "github.com/exbanka/notification-service/internal/service"
 	kafkago "github.com/segmentio/kafka-go"
 	"gorm.io/datatypes"
 )
@@ -138,6 +139,8 @@ func (c *VerificationConsumer) handleMobileDelivery(ctx context.Context, event k
 	}
 	if err := c.producer.Publish(ctx, kafkamsg.TopicMobilePush, pushMsg); err != nil {
 		log.Printf("verification consumer: mobile push publish error: %v", err)
+	} else {
+		svc.NotificationMobilePushTotal.Inc()
 	}
 }
 

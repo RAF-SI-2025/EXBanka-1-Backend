@@ -17,6 +17,7 @@ import (
 
 	pb "github.com/exbanka/contract/accountpb"
 	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/account-service/internal/cache"
 	"github.com/exbanka/account-service/internal/config"
@@ -35,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}); err != nil {
+	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 	if err := model.SeedCurrencies(db); err != nil {
@@ -54,6 +55,7 @@ func main() {
 		"account.limits-updated",
 		"account.maintenance-charged",
 		"account.spending-reset",
+		"account.changelog",
 		"notification.send-email",
 	)
 
@@ -81,8 +83,9 @@ func main() {
 	companyRepo := repository.NewCompanyRepository(db)
 	currencyRepo := repository.NewCurrencyRepository(db)
 	ledgerRepo := repository.NewLedgerRepository(db)
+	changelogRepo := repository.NewChangelogRepository(db)
 
-	accountService := service.NewAccountService(accountRepo, db)
+	accountService := service.NewAccountService(accountRepo, db, redisCache, changelogRepo)
 	companyService := service.NewCompanyService(companyRepo)
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
@@ -164,6 +167,9 @@ func main() {
 		}
 	}
 
+	reconcileSvc := service.NewReconciliationService(db, ledgerService)
+	reconcileSvc.CheckAllBalances(ctx)
+
 	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer, clientClient)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
@@ -172,10 +178,16 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	pb.RegisterAccountServiceServer(s, grpcHandler)
 	pb.RegisterBankAccountServiceServer(s, bankAccountHandler)
 	shared.RegisterHealthCheck(s, "account-service")
+	metrics.InitializeGRPCMetrics(s)
+	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer metricsShutdown(context.Background())
 
 	// Start gRPC server in goroutine
 	go func() {

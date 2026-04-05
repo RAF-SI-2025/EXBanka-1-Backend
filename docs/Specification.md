@@ -1139,6 +1139,7 @@ api-gateway:
 | GET | `/api/me/loans` | - | creditHandler.ListMyLoans | List own loans |
 | GET | `/api/me/loans/:id` | - | creditHandler.GetMyLoan | Get own loan |
 | GET | `/api/me/loans/:id/installments` | - | creditHandler.GetMyInstallments | Get loan installments |
+| GET | `/api/me/tax` | - | taxHandler.ListMyTaxRecords | List own capital gains tax records + balance |
 
 ### Employee/Admin Routes (AuthMiddleware + RequirePermission)
 
@@ -1683,6 +1684,7 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - Fee lookup failure rejects the transaction
 - Collected fees → bank's RSD account
 - Idempotency keys prevent duplicate transactions
+- Default seeded fees: (1) 0.1% for all transactions >= 1000 RSD, (2) 5% commission for all transactions >= 5000 RSD
 
 **Loans:**
 - Repayment periods vary by type (cash: 12-84mo, housing: 60-360mo, etc.)
@@ -1813,3 +1815,30 @@ Reference these when adding new concurrent code:
 | Ignore `RowsAffected == 0` after Save | Check and return `ErrOptimisticLock` |
 | Kafka publish inside DB transaction | Publish AFTER `db.Transaction()` returns nil |
 | Best-effort commission/fee collection | Use saga log; commission must be guaranteed |
+
+## 23. API Versioning
+
+The API gateway supports versioned routes alongside the original unversioned routes:
+
+| Prefix | Description |
+|---|---|
+| `/api/` | Original unversioned routes (frozen, backward-compatible) |
+| `/api/v1/` | Version 1 routes (mirrors `/api/` plus new endpoints) |
+| `/api/latest/` | Alias that rewrites to the highest version (`/api/v1/`) |
+
+**Implementation files:**
+- `api-gateway/internal/router/router.go` — frozen, unversioned `/api/` routes
+- `api-gateway/internal/router/router_v1.go` — `/api/v1/` routes (mirrors router.go + new endpoints)
+- `api-gateway/internal/router/router_latest.go` — `/api/latest/*` rewrite alias
+
+### v1-only endpoints
+
+These endpoints exist only under `/api/v1/` and are not available on the unversioned `/api/`:
+
+| Method | Path | Status | Plan |
+|---|---|---|---|
+| GET | /api/v1/accounts/:id/changelog | 501 placeholder | Plan 2 |
+| GET | /api/v1/employees/:id/changelog | 501 placeholder | Plan 2 |
+| GET | /api/v1/clients/:id/changelog | 501 placeholder | Plan 2 |
+| GET | /api/v1/cards/:id/changelog | 501 placeholder | Plan 2 |
+| GET | /api/v1/loans/:id/changelog | 501 placeholder | Plan 2 |

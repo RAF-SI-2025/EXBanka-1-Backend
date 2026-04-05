@@ -31,6 +31,13 @@ type Config struct {
 	AlpacaAPIKey    string
 	AlpacaAPISecret string
 	FinnhubAPIKey   string
+	RedisAddr       string
+	MetricsPort     string
+	// InfluxDB (time-series)
+	InfluxURL    string
+	InfluxToken  string
+	InfluxOrg    string
+	InfluxBucket string
 }
 
 func Load() *Config {
@@ -61,6 +68,12 @@ func Load() *Config {
 		AlpacaAPIKey:             getEnv("ALPACA_API_KEY", ""),
 		AlpacaAPISecret:          getEnv("ALPACA_API_SECRET", ""),
 		FinnhubAPIKey:            getEnv("FINNHUB_API_KEY", ""),
+		RedisAddr:                getEnv("REDIS_ADDR", "localhost:6379"),
+		MetricsPort:              getEnv("METRICS_PORT", "9110"),
+		InfluxURL:                getEnv("INFLUX_URL", ""),
+		InfluxToken:              getEnv("INFLUX_TOKEN", ""),
+		InfluxOrg:                getEnv("INFLUX_ORG", "exbanka"),
+		InfluxBucket:             getEnv("INFLUX_BUCKET", "stock_prices"),
 	}
 }
 

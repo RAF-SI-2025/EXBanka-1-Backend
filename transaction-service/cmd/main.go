@@ -17,10 +17,10 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	pb "github.com/exbanka/contract/transactionpb"
 	verificationpb "github.com/exbanka/contract/verificationpb"
-	"github.com/exbanka/transaction-service/internal/cache"
 	"github.com/exbanka/transaction-service/internal/config"
 	"github.com/exbanka/transaction-service/internal/handler"
 	kafkaprod "github.com/exbanka/transaction-service/internal/kafka"
@@ -63,15 +63,6 @@ func main() {
 		"notification.send-email",
 	)
 
-	var redisCache *cache.RedisCache
-	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
-	if err != nil {
-		log.Printf("warn: redis unavailable, running without cache: %v", err)
-	}
-	if redisCache != nil {
-		defer redisCache.Close()
-	}
-
 	// Connect to account-service
 	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -105,7 +96,7 @@ func main() {
 	feeRepo := repository.NewTransferFeeRepository(db)
 	feeSvc := service.NewFeeService(feeRepo)
 
-	// Seed default fee rule if none exist
+	// Seed default fee rules if none exist
 	existingFees, _ := feeSvc.ListFees()
 	if len(existingFees) == 0 {
 		_ = feeSvc.CreateFee(&model.TransferFee{
@@ -117,6 +108,15 @@ func main() {
 			Active:          true,
 		})
 		log.Println("Seeded default payment fee (0.1%)")
+		_ = feeSvc.CreateFee(&model.TransferFee{
+			Name:            "Default Commission",
+			FeeType:         "percentage",
+			FeeValue:        decimal.NewFromFloat(5.0),
+			MinAmount:       decimal.NewFromInt(5000),
+			TransactionType: "all",
+			Active:          true,
+		})
+		log.Println("Seeded default commission (5% for transactions >= 5000 RSD)")
 	}
 
 	// Reuse existing account connection for BankAccountServiceClient
@@ -153,10 +153,16 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	pb.RegisterTransactionServiceServer(s, grpcHandler)
 	pb.RegisterFeeServiceServer(s, feeHandler)
 	shared.RegisterHealthCheck(s, "transaction-service")
+	metrics.InitializeGRPCMetrics(s)
+	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer metricsShutdown(context.Background())
 
 	// Start gRPC server in goroutine
 	go func() {

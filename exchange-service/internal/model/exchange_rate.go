@@ -21,6 +21,15 @@ type ExchangeRate struct {
 	UpdatedAt    time.Time
 }
 
+// BeforeUpdate enforces optimistic locking by adding a WHERE version = ?
+// clause and incrementing the version. Callers must check RowsAffected == 0
+// after Save to detect conflicts.
+func (r *ExchangeRate) BeforeUpdate(tx *gorm.DB) error {
+	tx.Statement.Where("version = ?", r.Version)
+	r.Version++
+	return nil
+}
+
 // SeedDefaultRates inserts conservative fallback rates for all supported
 // currencies if they are not yet in the database. Called at startup before
 // the first API sync so the service is never left with an empty rate table.

@@ -16,6 +16,7 @@ import (
 
 	authpb "github.com/exbanka/contract/authpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/auth-service/internal/cache"
@@ -70,12 +71,13 @@ func main() {
 	}
 
 	tokenRepo := repository.NewTokenRepository(db)
+	sessionRepo := repository.NewSessionRepository(db)
 	loginAttemptRepo := repository.NewLoginAttemptRepository(db)
 	accountRepo := repository.NewAccountRepository(db)
 	totpRepo := repository.NewTOTPRepository(db)
 	jwtService := service.NewJWTService(cfg.JWTSecret, cfg.AccessExpiry)
 	totpSvc := service.NewTOTPService()
-	authService := service.NewAuthService(tokenRepo, loginAttemptRepo, totpRepo, totpSvc, jwtService, accountRepo, userClient, producer, redisCache, cfg.RefreshExpiry, cfg.MobileRefreshExpiry, cfg.FrontendBaseURL, cfg.PasswordPepper)
+	authService := service.NewAuthService(tokenRepo, sessionRepo, loginAttemptRepo, totpRepo, totpSvc, jwtService, accountRepo, userClient, producer, redisCache, cfg.RefreshExpiry, cfg.MobileRefreshExpiry, cfg.FrontendBaseURL, cfg.PasswordPepper)
 
 	mobileDeviceRepo := repository.NewMobileDeviceRepository(db)
 	mobileActivationRepo := repository.NewMobileActivationRepository(db)
@@ -91,9 +93,15 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	authpb.RegisterAuthServiceServer(s, grpcHandler)
 	shared.RegisterHealthCheck(s, "auth-service")
+	metrics.InitializeGRPCMetrics(s)
+	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer metricsShutdown(context.Background())
 
 	// Pre-create Kafka topics before starting consumers to avoid
 	// partition assignment race condition on fresh startup.
@@ -104,6 +112,8 @@ func main() {
 		kafkamsg.TopicAuthAccountStatusChanged,
 		kafkamsg.TopicAuthDeadLetter,
 		kafkamsg.TopicAuthMobileDeviceActivated,
+		kafkamsg.TopicAuthSessionCreated,
+		kafkamsg.TopicAuthSessionRevoked,
 	)
 
 	// Start Kafka consumer for employee-created events

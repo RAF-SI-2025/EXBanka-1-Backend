@@ -113,6 +113,7 @@ type HoldingRepo interface {
 
 type CapitalGainRepo interface {
 	Create(gain *model.CapitalGain) error
+	ListByUser(userID uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
 	SumByUserMonth(userID uint64, year, month int) ([]AccountGainSummary, error) // grouped by account_id, currency
 	SumByUserYear(userID uint64, year int) ([]AccountGainSummary, error)
 }

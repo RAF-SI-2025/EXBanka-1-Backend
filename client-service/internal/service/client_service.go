@@ -9,11 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/exbanka/contract/changelog"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/client-service/internal/cache"
 	kafkaprod "github.com/exbanka/client-service/internal/kafka"
 	"github.com/exbanka/client-service/internal/model"
 )
+
+// ChangelogRepo is the interface for changelog persistence.
+type ChangelogRepo interface {
+	Create(entry changelog.Entry) error
+	CreateBatch(entries []changelog.Entry) error
+}
 
 // ClientRepo is the interface for client storage operations.
 type ClientRepo interface {
@@ -55,14 +62,19 @@ func ValidateEmail(email string) error {
 
 // ClientService provides business logic for client management.
 type ClientService struct {
-	repo     ClientRepo
-	producer *kafkaprod.Producer
-	cache    *cache.RedisCache
+	repo          ClientRepo
+	producer      *kafkaprod.Producer
+	cache         *cache.RedisCache
+	changelogRepo ChangelogRepo
 }
 
 // NewClientService constructs a ClientService.
-func NewClientService(repo ClientRepo, producer *kafkaprod.Producer, cache *cache.RedisCache) *ClientService {
-	return &ClientService{repo: repo, producer: producer, cache: cache}
+func NewClientService(repo ClientRepo, producer *kafkaprod.Producer, cache *cache.RedisCache, changelogRepo ...ChangelogRepo) *ClientService {
+	svc := &ClientService{repo: repo, producer: producer, cache: cache}
+	if len(changelogRepo) > 0 {
+		svc.changelogRepo = changelogRepo[0]
+	}
+	return svc
 }
 
 // CreateClient validates and persists a new client.
@@ -77,6 +89,7 @@ func (s *ClientService) CreateClient(ctx context.Context, client *model.Client) 
 	if err := s.repo.Create(client); err != nil {
 		return fmt.Errorf("create client: %w", err)
 	}
+	ClientCreatedTotal.Inc()
 
 	if s.producer != nil {
 		if err := s.producer.PublishClientCreated(ctx, kafkamsg.ClientCreatedMessage{
@@ -118,7 +131,7 @@ func (s *ClientService) GetByEmail(email string) (*model.Client, error) {
 }
 
 // UpdateClient applies the given field updates to the client, blocking JMBG and password_hash updates.
-func (s *ClientService) UpdateClient(id uint64, updates map[string]interface{}) (*model.Client, error) {
+func (s *ClientService) UpdateClient(id uint64, updates map[string]interface{}, changedBy int64) (*model.Client, error) {
 	client, err := s.repo.GetByID(id)
 	if err != nil {
 		return nil, err
@@ -128,32 +141,46 @@ func (s *ClientService) UpdateClient(id uint64, updates map[string]interface{}) 
 	delete(updates, "jmbg")
 	delete(updates, "password_hash")
 
+	var changes []changelog.FieldChange
 	if v, ok := updates["first_name"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "first_name", OldValue: client.FirstName, NewValue: v})
 		client.FirstName = v
 	}
 	if v, ok := updates["last_name"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "last_name", OldValue: client.LastName, NewValue: v})
 		client.LastName = v
 	}
 	if v, ok := updates["date_of_birth"].(int64); ok {
+		changes = append(changes, changelog.FieldChange{Field: "date_of_birth", OldValue: client.DateOfBirth, NewValue: v})
 		client.DateOfBirth = v
 	}
 	if v, ok := updates["gender"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "gender", OldValue: client.Gender, NewValue: v})
 		client.Gender = v
 	}
 	if v, ok := updates["email"].(string); ok {
 		if err := ValidateEmail(v); err != nil {
 			return nil, err
 		}
+		changes = append(changes, changelog.FieldChange{Field: "email", OldValue: client.Email, NewValue: v})
 		client.Email = v
 	}
 	if v, ok := updates["phone"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "phone", OldValue: client.Phone, NewValue: v})
 		client.Phone = v
 	}
 	if v, ok := updates["address"].(string); ok {
+		changes = append(changes, changelog.FieldChange{Field: "address", OldValue: client.Address, NewValue: v})
 		client.Address = v
 	}
 	if err := s.repo.Update(client); err != nil {
 		return nil, err
+	}
+
+	// Record changelog after successful mutation.
+	entries := changelog.Diff("client", int64(id), changedBy, "", changes)
+	if s.changelogRepo != nil && len(entries) > 0 {
+		_ = s.changelogRepo.CreateBatch(entries)
 	}
 
 	if s.cache != nil {

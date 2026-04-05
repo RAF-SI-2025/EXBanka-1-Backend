@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	pb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/verification-service/internal/config"
@@ -62,9 +63,15 @@ func main() {
 	}
 
 	// 8. Create gRPC server and register services
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	pb.RegisterVerificationGRPCServiceServer(s, grpcHandler)
 	shared.RegisterHealthCheck(s, "verification-service")
+	metrics.InitializeGRPCMetrics(s)
+	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer metricsShutdown(context.Background())
 
 	// 9. Ensure Kafka topics exist (produces to)
 	kafkaprod.EnsureTopics(cfg.KafkaBrokers,

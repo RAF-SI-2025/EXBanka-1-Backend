@@ -9,9 +9,10 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/clientpb"
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/client-service/internal/service"
+	"github.com/exbanka/contract/changelog"
+	pb "github.com/exbanka/contract/clientpb"
 )
 
 // mapServiceError maps service-layer error messages to appropriate gRPC status codes.
@@ -99,7 +100,7 @@ func (h *ClientGRPCHandler) ListClients(ctx context.Context, req *pb.ListClients
 		return nil, status.Errorf(mapServiceError(err), "failed to list clients: %v", err)
 	}
 
-	resp := &pb.ListClientsResponse{Total: total}
+	resp := &pb.ListClientsResponse{Total: total, Clients: make([]*pb.ClientResponse, 0, len(clients))}
 	for _, c := range clients {
 		c := c
 		resp.Clients = append(resp.Clients, toClientResponse(&c))
@@ -131,7 +132,8 @@ func (h *ClientGRPCHandler) UpdateClient(ctx context.Context, req *pb.UpdateClie
 		updates["address"] = *req.Address
 	}
 
-	client, err := h.clientService.UpdateClient(req.Id, updates)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	client, err := h.clientService.UpdateClient(req.Id, updates, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "client not found")
@@ -152,7 +154,7 @@ func toClientResponse(c *model.Client) *pb.ClientResponse {
 		Email:       c.Email,
 		Phone:       c.Phone,
 		Address:     c.Address,
-		Jmbg:      c.JMBG,
-		CreatedAt: c.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		Jmbg:        c.JMBG,
+		CreatedAt:   c.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 }
