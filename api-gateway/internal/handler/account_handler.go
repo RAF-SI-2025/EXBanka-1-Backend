@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	cardpb "github.com/exbanka/contract/cardpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
@@ -313,7 +314,7 @@ func (h *AccountHandler) UpdateAccountName(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.accountClient.UpdateAccountName(c.Request.Context(), &accountpb.UpdateAccountNameRequest{
+	resp, err := h.accountClient.UpdateAccountName(middleware.GRPCContextWithChangedBy(c), &accountpb.UpdateAccountNameRequest{
 		Id:       id,
 		ClientId: req.ClientID,
 		NewName:  req.NewName,
@@ -378,7 +379,7 @@ func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 		s := fmt.Sprintf("%.4f", *req.MonthlyLimit)
 		pbLimitsReq.MonthlyLimit = &s
 	}
-	resp, err := h.accountClient.UpdateAccountLimits(c.Request.Context(), pbLimitsReq)
+	resp, err := h.accountClient.UpdateAccountLimits(middleware.GRPCContextWithChangedBy(c), pbLimitsReq)
 	if err != nil {
 		handleGRPCError(c, err)
 		return
@@ -421,7 +422,7 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
-	resp, err := h.accountClient.UpdateAccountStatus(c.Request.Context(), &accountpb.UpdateAccountStatusRequest{
+	resp, err := h.accountClient.UpdateAccountStatus(middleware.GRPCContextWithChangedBy(c), &accountpb.UpdateAccountStatusRequest{
 		Id:     id,
 		Status: status,
 	})

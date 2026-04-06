@@ -242,3 +242,63 @@ message UpdateUsedLimitRequest {
   string amount = 2;
   string currency = 3;
 }
+
+// ==================== Blueprints ====================
+
+service BlueprintService {
+  rpc CreateBlueprint(CreateBlueprintRequest) returns (BlueprintResponse);
+  rpc GetBlueprint(GetBlueprintRequest) returns (BlueprintResponse);
+  rpc ListBlueprints(ListBlueprintsRequest) returns (ListBlueprintsResponse);
+  rpc UpdateBlueprint(UpdateBlueprintRequest) returns (BlueprintResponse);
+  rpc DeleteBlueprint(DeleteBlueprintRequest) returns (DeleteBlueprintResponse);
+  rpc ApplyBlueprint(ApplyBlueprintRequest) returns (ApplyBlueprintResponse);
+}
+
+message CreateBlueprintRequest {
+  string name = 1;
+  string description = 2;
+  string type = 3;           // "employee", "actuary", "client"
+  string values_json = 4;    // JSON string of type-specific values
+}
+
+message GetBlueprintRequest {
+  uint64 id = 1;
+}
+
+message ListBlueprintsRequest {
+  string type = 1;           // optional filter; empty = all
+}
+
+message UpdateBlueprintRequest {
+  uint64 id = 1;
+  string name = 2;
+  string description = 3;
+  string values_json = 4;    // JSON string; empty = keep existing
+}
+
+message DeleteBlueprintRequest {
+  uint64 id = 1;
+}
+
+message DeleteBlueprintResponse {}
+
+message ApplyBlueprintRequest {
+  uint64 blueprint_id = 1;
+  int64 target_id = 2;       // employee_id or client_id depending on type
+}
+
+message ApplyBlueprintResponse {}
+
+message BlueprintResponse {
+  uint64 id = 1;
+  string name = 2;
+  string description = 3;
+  string type = 4;
+  string values_json = 5;    // JSON string
+  string created_at = 6;     // RFC3339
+  string updated_at = 7;     // RFC3339
+}
+
+message ListBlueprintsResponse {
+  repeated BlueprintResponse blueprints = 1;
+}

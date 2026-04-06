@@ -41,3 +41,10 @@ func TestGenerateToken(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEqual(t, token1, token2) // unique each time
 }
+
+func TestDetectDeviceType_Service(t *testing.T) {
+	assert.Equal(t, "browser", detectDeviceType("Mozilla/5.0"))
+	assert.Equal(t, "mobile", detectDeviceType("Android/11"))
+	assert.Equal(t, "api", detectDeviceType("curl/7.0"))
+	assert.Equal(t, "browser", detectDeviceType(""))
+}

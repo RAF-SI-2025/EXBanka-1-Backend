@@ -8,9 +8,9 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/cardpb"
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/service"
+	pb "github.com/exbanka/contract/cardpb"
 )
 
 type CardRequestGRPCHandler struct {
@@ -62,7 +62,7 @@ func (h *CardRequestGRPCHandler) ListCardRequests(ctx context.Context, req *pb.L
 		return nil, status.Errorf(codes.Internal, "failed to list card requests: %v", err)
 	}
 
-	resp := &pb.ListCardRequestsResponse{Total: total}
+	resp := &pb.ListCardRequestsResponse{Total: total, Requests: make([]*pb.CardRequestResponse, 0, len(requests))}
 	for _, r := range requests {
 		r := r
 		resp.Requests = append(resp.Requests, toCardRequestResponse(&r))
@@ -85,7 +85,7 @@ func (h *CardRequestGRPCHandler) ListCardRequestsByClient(ctx context.Context, r
 		return nil, status.Errorf(codes.Internal, "failed to list card requests by client: %v", err)
 	}
 
-	resp := &pb.ListCardRequestsResponse{Total: total}
+	resp := &pb.ListCardRequestsResponse{Total: total, Requests: make([]*pb.CardRequestResponse, 0, len(requests))}
 	for _, r := range requests {
 		r := r
 		resp.Requests = append(resp.Requests, toCardRequestResponse(&r))

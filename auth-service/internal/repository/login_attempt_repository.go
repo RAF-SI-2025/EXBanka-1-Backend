@@ -17,12 +17,14 @@ func NewLoginAttemptRepository(db *gorm.DB) *LoginAttemptRepository {
 }
 
 // RecordAttempt stores a login attempt.
-func (r *LoginAttemptRepository) RecordAttempt(email, ip string, success bool) error {
+func (r *LoginAttemptRepository) RecordAttempt(email, ip, userAgent, deviceType string, success bool) error {
 	return r.db.Create(&model.LoginAttempt{
-		Email:     email,
-		IPAddress: ip,
-		Success:   success,
-		CreatedAt: time.Now(),
+		Email:      email,
+		IPAddress:  ip,
+		UserAgent:  userAgent,
+		DeviceType: deviceType,
+		Success:    success,
+		CreatedAt:  time.Now(),
 	}).Error
 }
 
@@ -72,7 +74,7 @@ func (r *LoginAttemptRepository) UnlockAccount(email string) error {
 // failure count reaches maxAttempts within window, creates an account lock.
 // Returns (locked=true, remaining=0) when the lock is newly created or already active.
 // Uses a PostgreSQL advisory lock on the email hash to serialize concurrent attempts.
-func (r *LoginAttemptRepository) RecordFailureAndCheckLock(email string, maxAttempts int, window, lockDuration time.Duration) (locked bool, remaining int, err error) {
+func (r *LoginAttemptRepository) RecordFailureAndCheckLock(email, ip, userAgent, deviceType string, maxAttempts int, window, lockDuration time.Duration) (locked bool, remaining int, err error) {
 	err = r.db.Transaction(func(tx *gorm.DB) error {
 		// Serialize all failed-login processing for this email using a per-email advisory lock.
 		h := fnv.New32a()
@@ -92,10 +94,12 @@ func (r *LoginAttemptRepository) RecordFailureAndCheckLock(email string, maxAtte
 
 		// Record the failed attempt inside the same TX.
 		if e := tx.Create(&model.LoginAttempt{
-			Email:     email,
-			IPAddress: "",
-			Success:   false,
-			CreatedAt: time.Now(),
+			Email:      email,
+			IPAddress:  ip,
+			UserAgent:  userAgent,
+			DeviceType: deviceType,
+			Success:    false,
+			CreatedAt:  time.Now(),
 		}).Error; e != nil {
 			return e
 		}
@@ -130,4 +134,14 @@ func emailToAdvisoryKey(email string) int64 {
 	h := fnv.New32a()
 	h.Write([]byte(email))
 	return int64(h.Sum32())
+}
+
+// ListRecentByEmail returns the most recent login attempts for an email, ordered newest first.
+func (r *LoginAttemptRepository) ListRecentByEmail(email string, limit int) ([]model.LoginAttempt, error) {
+	var attempts []model.LoginAttempt
+	err := r.db.Where("email = ?", email).
+		Order("created_at DESC").
+		Limit(limit).
+		Find(&attempts).Error
+	return attempts, err
 }

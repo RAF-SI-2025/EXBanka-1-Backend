@@ -4809,4 +4809,54 @@ Collect/process taxes for all users.
 
 ---
 
-> **TODO:** Add `GET /api/me/tax` — lets the authenticated user (client or actuary) view their own tax records (capital gains tax). Should extract `user_id` from JWT, filter by owner, and return paginated tax records. No `tax.manage` permission required — self-service endpoint under `AnyAuthMiddleware`.
+### GET /api/me/tax
+
+Returns paginated capital gains tax records for the authenticated user (client or employee/actuary). Ownership is derived from the JWT `user_id`.
+
+**Authentication:** `AnyAuthMiddleware` (any valid token — no specific permission required)
+
+**Query Parameters:**
+
+| Parameter   | Type | Default | Description                       |
+|-------------|------|---------|-----------------------------------|
+| `page`      | int  | 1       | Page number                       |
+| `page_size` | int  | 10      | Items per page                    |
+
+**Example Request:**
+
+```
+GET /api/me/tax?page=1&page_size=10
+Authorization: Bearer <token>
+```
+
+**Success Response (200):**
+
+```json
+{
+  "records": [
+    {
+      "id": 1,
+      "security_type": "stock",
+      "ticker": "AAPL",
+      "quantity": 10,
+      "buy_price_per_unit": "150.0000",
+      "sell_price_per_unit": "175.0000",
+      "total_gain": "250.0000",
+      "currency": "USD",
+      "tax_year": 2026,
+      "tax_month": 3,
+      "created_at": "2026-03-15T10:30:00Z"
+    }
+  ],
+  "total_count": 1,
+  "tax_paid_this_year": "12500.00",
+  "tax_unpaid_this_month": "37.50"
+}
+```
+
+**Error Responses:**
+
+| Code | Description              |
+|------|--------------------------|
+| 401  | Unauthorized — invalid or missing token |
+| 500  | Internal server error    |

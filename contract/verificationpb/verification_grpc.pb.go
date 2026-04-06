@@ -24,6 +24,7 @@ const (
 	VerificationGRPCService_GetPendingChallenge_FullMethodName = "/verification.VerificationGRPCService/GetPendingChallenge"
 	VerificationGRPCService_SubmitVerification_FullMethodName  = "/verification.VerificationGRPCService/SubmitVerification"
 	VerificationGRPCService_SubmitCode_FullMethodName          = "/verification.VerificationGRPCService/SubmitCode"
+	VerificationGRPCService_VerifyByBiometric_FullMethodName   = "/verification.VerificationGRPCService/VerifyByBiometric"
 )
 
 // VerificationGRPCServiceClient is the client API for VerificationGRPCService service.
@@ -40,6 +41,8 @@ type VerificationGRPCServiceClient interface {
 	SubmitVerification(ctx context.Context, in *SubmitVerificationRequest, opts ...grpc.CallOption) (*SubmitVerificationResponse, error)
 	// SubmitCode validates a browser-submitted 6-digit code (code_pull, email fallback).
 	SubmitCode(ctx context.Context, in *SubmitCodeRequest, opts ...grpc.CallOption) (*SubmitCodeResponse, error)
+	// VerifyByBiometric verifies a challenge using device biometrics (device signature is the proof).
+	VerifyByBiometric(ctx context.Context, in *VerifyByBiometricRequest, opts ...grpc.CallOption) (*VerifyByBiometricResponse, error)
 }
 
 type verificationGRPCServiceClient struct {
@@ -100,6 +103,16 @@ func (c *verificationGRPCServiceClient) SubmitCode(ctx context.Context, in *Subm
 	return out, nil
 }
 
+func (c *verificationGRPCServiceClient) VerifyByBiometric(ctx context.Context, in *VerifyByBiometricRequest, opts ...grpc.CallOption) (*VerifyByBiometricResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VerifyByBiometricResponse)
+	err := c.cc.Invoke(ctx, VerificationGRPCService_VerifyByBiometric_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // VerificationGRPCServiceServer is the server API for VerificationGRPCService service.
 // All implementations must embed UnimplementedVerificationGRPCServiceServer
 // for forward compatibility.
@@ -114,6 +127,8 @@ type VerificationGRPCServiceServer interface {
 	SubmitVerification(context.Context, *SubmitVerificationRequest) (*SubmitVerificationResponse, error)
 	// SubmitCode validates a browser-submitted 6-digit code (code_pull, email fallback).
 	SubmitCode(context.Context, *SubmitCodeRequest) (*SubmitCodeResponse, error)
+	// VerifyByBiometric verifies a challenge using device biometrics (device signature is the proof).
+	VerifyByBiometric(context.Context, *VerifyByBiometricRequest) (*VerifyByBiometricResponse, error)
 	mustEmbedUnimplementedVerificationGRPCServiceServer()
 }
 
@@ -138,6 +153,9 @@ func (UnimplementedVerificationGRPCServiceServer) SubmitVerification(context.Con
 }
 func (UnimplementedVerificationGRPCServiceServer) SubmitCode(context.Context, *SubmitCodeRequest) (*SubmitCodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SubmitCode not implemented")
+}
+func (UnimplementedVerificationGRPCServiceServer) VerifyByBiometric(context.Context, *VerifyByBiometricRequest) (*VerifyByBiometricResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method VerifyByBiometric not implemented")
 }
 func (UnimplementedVerificationGRPCServiceServer) mustEmbedUnimplementedVerificationGRPCServiceServer() {
 }
@@ -251,6 +269,24 @@ func _VerificationGRPCService_SubmitCode_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VerificationGRPCService_VerifyByBiometric_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyByBiometricRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VerificationGRPCServiceServer).VerifyByBiometric(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VerificationGRPCService_VerifyByBiometric_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VerificationGRPCServiceServer).VerifyByBiometric(ctx, req.(*VerifyByBiometricRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // VerificationGRPCService_ServiceDesc is the grpc.ServiceDesc for VerificationGRPCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -277,6 +313,10 @@ var VerificationGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SubmitCode",
 			Handler:    _VerificationGRPCService_SubmitCode_Handler,
+		},
+		{
+			MethodName: "VerifyByBiometric",
+			Handler:    _VerificationGRPCService_VerifyByBiometric_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

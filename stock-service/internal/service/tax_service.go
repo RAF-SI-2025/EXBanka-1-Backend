@@ -92,9 +92,15 @@ func (s *TaxService) GetUserTaxSummary(userID uint64) (taxPaidThisYear, taxUnpai
 	return taxPaidThisYear, taxUnpaidThisMonth, nil
 }
 
+// ListUserTaxRecords returns paginated capital gain records for a single user.
+func (s *TaxService) ListUserTaxRecords(userID uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
+	return s.capitalGainRepo.ListByUser(userID, page, pageSize)
+}
+
 // CollectTax collects tax from all users for the given month.
 // Returns the number of users collected, total RSD, and failures.
 func (s *TaxService) CollectTax(year, month int) (collectedCount int64, totalRSD decimal.Decimal, failedCount int64, err error) {
+	StockTaxCollectedTotal.Inc()
 	// Get all users with gains this month (broad filter, all pages)
 	summaries, _, err := s.taxCollectionRepo.ListUsersWithGains(year, month, TaxFilter{
 		Page:     1,

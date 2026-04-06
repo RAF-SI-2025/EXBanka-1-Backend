@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	userpb "github.com/exbanka/contract/userpb"
 )
 
@@ -207,7 +208,7 @@ func (h *RoleHandler) SetEmployeeRoles(c *gin.Context) {
 		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
-	resp, err := h.userClient.SetEmployeeRoles(c.Request.Context(), &userpb.SetEmployeeRolesRequest{
+	resp, err := h.userClient.SetEmployeeRoles(middleware.GRPCContextWithChangedBy(c), &userpb.SetEmployeeRolesRequest{
 		EmployeeId: id,
 		RoleNames:  req.RoleNames,
 	})
@@ -249,7 +250,7 @@ func (h *RoleHandler) SetEmployeeAdditionalPermissions(c *gin.Context) {
 		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
-	resp, err := h.userClient.SetEmployeeAdditionalPermissions(c.Request.Context(), &userpb.SetEmployeePermissionsRequest{
+	resp, err := h.userClient.SetEmployeeAdditionalPermissions(middleware.GRPCContextWithChangedBy(c), &userpb.SetEmployeePermissionsRequest{
 		EmployeeId:      id,
 		PermissionCodes: req.PermissionCodes,
 	})

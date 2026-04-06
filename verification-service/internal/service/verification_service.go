@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"time"
 
+	authpb "github.com/exbanka/contract/authpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
 	kafkaprod "github.com/exbanka/verification-service/internal/kafka"
@@ -18,7 +19,6 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
-
 
 var validMethods = map[string]bool{
 	"code_pull": true,
@@ -40,6 +40,7 @@ type VerificationService struct {
 	repo            *repository.VerificationChallengeRepository
 	producer        *kafkaprod.Producer
 	db              *gorm.DB
+	authClient      authpb.AuthServiceClient
 	challengeExpiry time.Duration
 	maxAttempts     int
 }
@@ -48,6 +49,7 @@ func NewVerificationService(
 	repo *repository.VerificationChallengeRepository,
 	producer *kafkaprod.Producer,
 	db *gorm.DB,
+	authClient authpb.AuthServiceClient,
 	challengeExpiry time.Duration,
 	maxAttempts int,
 ) *VerificationService {
@@ -55,6 +57,7 @@ func NewVerificationService(
 		repo:            repo,
 		producer:        producer,
 		db:              db,
+		authClient:      authClient,
 		challengeExpiry: challengeExpiry,
 		maxAttempts:     maxAttempts,
 	}
@@ -107,14 +110,12 @@ func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64
 	if err := s.repo.Create(vc); err != nil {
 		return nil, fmt.Errorf("failed to create verification challenge: %w", err)
 	}
+	VerificationChallengesCreatedTotal.WithLabelValues(method).Inc()
 
-	// Deliver via email when: method is explicitly "email", or code_pull with no mobile device registered.
-	sendViaEmail := method == "email" || (method == "code_pull" && deviceID == "")
-
-	if sendViaEmail {
-		if email == "" {
-			log.Printf("warn: no email in JWT for user %d, skipping email delivery for challenge %d", userID, vc.ID)
-		} else {
+	// --- Delivery ---
+	// 1. Send email when: method is "email", or code_pull created from browser (no device).
+	if method == "email" || (method == "code_pull" && deviceID == "") {
+		if email != "" {
 			if err := s.producer.PublishSendEmail(ctx, kafkamsg.SendEmailMessage{
 				To:        email,
 				EmailType: kafkamsg.EmailTypeVerificationCode,
@@ -127,24 +128,26 @@ func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64
 				log.Printf("warn: failed to publish send-email for verification %d: %v", vc.ID, err)
 			}
 		}
+	}
+
+	// 2. Always publish challenge-created event so notification-service can create
+	//    a mobile inbox item. This makes the challenge visible to the mobile app
+	//    regardless of how it was created.
+	displayData, err := buildDisplayData(method, code, challengeData)
+	if err != nil {
+		log.Printf("warn: failed to build display data for verification %d: %v", vc.ID, err)
 	} else {
-		// Mobile delivery: publish to verification.challenge-created for notification-service.
-		displayData, err := buildDisplayData(method, code, challengeData)
-		if err != nil {
-			log.Printf("warn: failed to build display data for verification %d: %v", vc.ID, err)
-		} else {
-			displayDataJSON, _ := json.Marshal(displayData)
-			if err := s.producer.PublishChallengeCreated(ctx, kafkamsg.VerificationChallengeCreatedMessage{
-				ChallengeID:     vc.ID,
-				UserID:          userID,
-				DeviceID:        deviceID,
-				Method:          method,
-				DisplayData:     string(displayDataJSON),
-				DeliveryChannel: "mobile",
-				ExpiresAt:       vc.ExpiresAt.UTC().Format(time.RFC3339),
-			}); err != nil {
-				log.Printf("warn: failed to publish challenge-created for verification %d: %v", vc.ID, err)
-			}
+		displayDataJSON, _ := json.Marshal(displayData)
+		if err := s.producer.PublishChallengeCreated(ctx, kafkamsg.VerificationChallengeCreatedMessage{
+			ChallengeID:     vc.ID,
+			UserID:          userID,
+			DeviceID:        deviceID, // may be empty — notification-service resolves it
+			Method:          method,
+			DisplayData:     string(displayDataJSON),
+			DeliveryChannel: "mobile",
+			ExpiresAt:       vc.ExpiresAt.UTC().Format(time.RFC3339),
+		}); err != nil {
+			log.Printf("warn: failed to publish challenge-created for verification %d: %v", vc.ID, err)
 		}
 	}
 
@@ -198,11 +201,14 @@ func (s *VerificationService) SubmitVerification(ctx context.Context, challengeI
 			vc.VerifiedAt = &now
 			success = true
 			remaining = s.maxAttempts - vc.Attempts
+			VerificationAttemptsTotal.WithLabelValues("success").Inc()
 		} else {
+			VerificationAttemptsTotal.WithLabelValues("failure").Inc()
 			remaining = s.maxAttempts - vc.Attempts
 			if remaining <= 0 {
 				vc.Status = "failed"
-			} else if vc.Method == "number_match" {
+			}
+			if vc.Method == "number_match" && remaining > 0 {
 				// Regenerate challenge data on wrong number_match answer
 				newData, err := buildChallengeData("number_match")
 				if err == nil {
@@ -281,7 +287,9 @@ func (s *VerificationService) SubmitCode(ctx context.Context, challengeID uint64
 			vc.VerifiedAt = &now
 			success = true
 			remaining = s.maxAttempts - vc.Attempts
+			VerificationAttemptsTotal.WithLabelValues("success").Inc()
 		} else {
+			VerificationAttemptsTotal.WithLabelValues("failure").Inc()
 			remaining = s.maxAttempts - vc.Attempts
 			if remaining <= 0 {
 				vc.Status = "failed"
@@ -322,6 +330,82 @@ func (s *VerificationService) SubmitCode(ctx context.Context, challengeID uint64
 	return success, remaining, err
 }
 
+// VerifyByBiometric verifies a challenge using device biometrics.
+// The device signature has already been validated at the gateway level.
+// This method checks that biometrics is enabled on the device (via auth-service),
+// then marks the challenge as verified with verified_by=biometric for audit.
+func (s *VerificationService) VerifyByBiometric(ctx context.Context, challengeID uint64, userID uint64, deviceID string) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		vc, err := s.repo.GetByIDForUpdate(tx, challengeID)
+		if err != nil {
+			return fmt.Errorf("challenge not found: %w", err)
+		}
+
+		// Validate challenge state
+		if err := s.validateChallengeState(vc); err != nil {
+			return err
+		}
+
+		// Validate ownership
+		if vc.UserID != userID {
+			return fmt.Errorf("challenge does not belong to this user")
+		}
+
+		// Check biometrics enabled via auth-service
+		resp, err := s.authClient.CheckBiometricsEnabled(ctx, &authpb.CheckBiometricsRequest{
+			DeviceId: deviceID,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to check biometrics status: %w", err)
+		}
+		if !resp.Enabled {
+			return fmt.Errorf("biometrics not enabled for this device")
+		}
+
+		// Mark verified with biometric audit trail
+		now := time.Now()
+		vc.Status = "verified"
+		vc.VerifiedAt = &now
+
+		// Bind device if not already bound
+		if vc.DeviceID == "" {
+			vc.DeviceID = deviceID
+		}
+
+		// Set verified_by in challenge data for audit
+		var challengeData map[string]interface{}
+		if err := json.Unmarshal(vc.ChallengeData, &challengeData); err != nil {
+			challengeData = map[string]interface{}{}
+		}
+		challengeData["verified_by"] = "biometric"
+		updatedData, _ := json.Marshal(challengeData)
+		vc.ChallengeData = datatypes.JSON(updatedData)
+
+		result := tx.Save(vc)
+		if err := shared.CheckRowsAffected(result); err != nil {
+			return err
+		}
+
+		VerificationAttemptsTotal.WithLabelValues("biometric_success").Inc()
+
+		// Publish verified event
+		if s.producer != nil {
+			if pubErr := s.producer.PublishChallengeVerified(ctx, kafkamsg.VerificationChallengeVerifiedMessage{
+				ChallengeID:   vc.ID,
+				UserID:        vc.UserID,
+				SourceService: vc.SourceService,
+				SourceID:      vc.SourceID,
+				Method:        vc.Method,
+				VerifiedAt:    vc.VerifiedAt.UTC().Format(time.RFC3339),
+			}); pubErr != nil {
+				log.Printf("warn: failed to publish challenge-verified for %d: %v", vc.ID, pubErr)
+			}
+		}
+
+		return nil
+	})
+}
+
 // ExpireOldChallenges marks all pending challenges past their expiry as "expired"
 // and publishes failure events for each. Called by the background goroutine.
 func (s *VerificationService) ExpireOldChallenges(ctx context.Context) {
@@ -331,6 +415,7 @@ func (s *VerificationService) ExpireOldChallenges(ctx context.Context) {
 		return
 	}
 	if count > 0 {
+		VerificationChallengesExpiredTotal.Add(float64(count))
 		log.Printf("verification-service: expired %d old challenges", count)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/exbanka/user-service/internal/service"
@@ -27,7 +28,7 @@ func (h *ActuaryGRPCHandler) ListActuaries(ctx context.Context, req *pb.ListActu
 		return nil, status.Errorf(mapServiceError(err), "failed to list actuaries: %v", err)
 	}
 
-	resp := &pb.ListActuariesResponse{TotalCount: total}
+	resp := &pb.ListActuariesResponse{TotalCount: total, Actuaries: make([]*pb.ActuaryInfo, 0, len(rows))}
 	for _, r := range rows {
 		role := "agent"
 		// Position-based role determination
@@ -79,7 +80,8 @@ func (h *ActuaryGRPCHandler) SetActuaryLimit(ctx context.Context, req *pb.SetAct
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid limit value: %v", err)
 	}
-	result, err := h.svc.SetActuaryLimit(ctx, int64(req.Id), limitVal)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	result, err := h.svc.SetActuaryLimit(ctx, int64(req.Id), limitVal, changedBy)
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}
@@ -87,7 +89,8 @@ func (h *ActuaryGRPCHandler) SetActuaryLimit(ctx context.Context, req *pb.SetAct
 }
 
 func (h *ActuaryGRPCHandler) ResetActuaryUsedLimit(ctx context.Context, req *pb.ResetActuaryUsedLimitRequest) (*pb.ActuaryInfo, error) {
-	result, err := h.svc.ResetUsedLimit(ctx, int64(req.Id))
+	changedBy := changelog.ExtractChangedBy(ctx)
+	result, err := h.svc.ResetUsedLimit(ctx, int64(req.Id), changedBy)
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}
@@ -95,7 +98,8 @@ func (h *ActuaryGRPCHandler) ResetActuaryUsedLimit(ctx context.Context, req *pb.
 }
 
 func (h *ActuaryGRPCHandler) SetNeedApproval(ctx context.Context, req *pb.SetNeedApprovalRequest) (*pb.ActuaryInfo, error) {
-	result, err := h.svc.SetNeedApproval(ctx, int64(req.Id), req.NeedApproval)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	result, err := h.svc.SetNeedApproval(ctx, int64(req.Id), req.NeedApproval, changedBy)
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}

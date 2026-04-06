@@ -30,6 +30,18 @@ func (r *MobileInboxRepository) GetPendingByUserAndDevice(userID uint64, deviceI
 	return items, nil
 }
 
+// GetPendingByUser returns all pending, non-expired inbox items for a user regardless of device.
+func (r *MobileInboxRepository) GetPendingByUser(userID uint64) ([]model.MobileInboxItem, error) {
+	var items []model.MobileInboxItem
+	if err := r.db.Where("user_id = ? AND status = ? AND expires_at > ?",
+		userID, "pending", time.Now()).
+		Order("created_at DESC").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (r *MobileInboxRepository) MarkDelivered(id uint64, deviceID string) error {
 	now := time.Now()
 	result := r.db.Model(&model.MobileInboxItem{}).

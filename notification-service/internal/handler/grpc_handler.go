@@ -52,7 +52,7 @@ func (h *GRPCHandler) GetDeliveryStatus(ctx context.Context, req *notifpb.GetDel
 }
 
 func (h *GRPCHandler) GetPendingMobileItems(ctx context.Context, req *notifpb.GetPendingMobileRequest) (*notifpb.PendingMobileResponse, error) {
-	items, err := h.inboxRepo.GetPendingByUserAndDevice(req.UserId, req.DeviceId)
+	items, err := h.inboxRepo.GetPendingByUser(req.UserId)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to fetch pending items: %v", err)
 	}

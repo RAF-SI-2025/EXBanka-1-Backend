@@ -5,18 +5,21 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/influx"
 	"github.com/exbanka/stock-service/internal/model"
 )
 
 type ListingCronService struct {
-	listingRepo ListingRepo
-	dailyRepo   DailyPriceRepo
+	listingRepo  ListingRepo
+	dailyRepo    DailyPriceRepo
+	influxClient *influx.Client
 }
 
-func NewListingCronService(listingRepo ListingRepo, dailyRepo DailyPriceRepo) *ListingCronService {
+func NewListingCronService(listingRepo ListingRepo, dailyRepo DailyPriceRepo, influxClient *influx.Client) *ListingCronService {
 	return &ListingCronService{
-		listingRepo: listingRepo,
-		dailyRepo:   dailyRepo,
+		listingRepo:  listingRepo,
+		dailyRepo:    dailyRepo,
+		influxClient: influxClient,
 	}
 }
 
@@ -45,6 +48,14 @@ func (c *ListingCronService) SnapshotDailyPrices() {
 			log.Printf("WARN: listing cron: failed to snapshot listing %d: %v", l.ID, err)
 			continue
 		}
+
+		// Dual-write to InfluxDB
+		writeSecurityPricePoint(
+			c.influxClient, l.ID, l.SecurityType, "", l.Exchange.Acronym,
+			l.Price, l.High, l.Low, l.Change, l.Volume,
+			today,
+		)
+
 		count++
 	}
 	log.Printf("listing cron: snapshotted %d daily prices for %s", count, today.Format("2006-01-02"))

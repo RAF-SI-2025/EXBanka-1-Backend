@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/changelog"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
@@ -15,17 +16,24 @@ import (
 
 // LimitService manages employee limits and limit templates.
 type LimitService struct {
-	limitRepo    EmployeeLimitRepo
-	templateRepo LimitTemplateRepo
-	producer     *kafkaprod.Producer
+	limitRepo     EmployeeLimitRepo
+	templateRepo  LimitTemplateRepo
+	empRepo       HierarchyEmpRepo
+	producer      *kafkaprod.Producer
+	changelogRepo ChangelogRepo
 }
 
-func NewLimitService(limitRepo EmployeeLimitRepo, templateRepo LimitTemplateRepo, producer *kafkaprod.Producer) *LimitService {
-	return &LimitService{
+func NewLimitService(limitRepo EmployeeLimitRepo, templateRepo LimitTemplateRepo, empRepo HierarchyEmpRepo, producer *kafkaprod.Producer, changelogRepo ...ChangelogRepo) *LimitService {
+	svc := &LimitService{
 		limitRepo:    limitRepo,
 		templateRepo: templateRepo,
+		empRepo:      empRepo,
 		producer:     producer,
 	}
+	if len(changelogRepo) > 0 {
+		svc.changelogRepo = changelogRepo[0]
+	}
+	return svc
 }
 
 // GetEmployeeLimits returns the limits for an employee. Returns a zero-value limit if none configured.
@@ -34,14 +42,38 @@ func (s *LimitService) GetEmployeeLimits(employeeID int64) (*model.EmployeeLimit
 }
 
 // SetEmployeeLimits creates or updates the limits for an employee.
-func (s *LimitService) SetEmployeeLimits(ctx context.Context, limit model.EmployeeLimit) (*model.EmployeeLimit, error) {
+func (s *LimitService) SetEmployeeLimits(ctx context.Context, limit model.EmployeeLimit, changedBy int64) (*model.EmployeeLimit, error) {
+	// Hierarchy enforcement: caller must outrank target.
+	if err := checkHierarchy(s.empRepo, changedBy, limit.EmployeeID); err != nil {
+		return nil, err
+	}
+
+	// Fetch old limits for changelog.
+	oldLimit, _ := s.limitRepo.GetByEmployeeID(limit.EmployeeID)
+
 	if err := s.limitRepo.Upsert(&limit); err != nil {
 		return nil, err
 	}
+	UserEmployeeLimitUpdatesTotal.Inc()
 	result, err := s.limitRepo.GetByEmployeeID(limit.EmployeeID)
 	if err != nil {
 		return nil, err
 	}
+
+	// Record changelog if old limits existed.
+	if s.changelogRepo != nil && oldLimit != nil {
+		entries := changelog.Diff("employee_limit", limit.EmployeeID, changedBy, "", []changelog.FieldChange{
+			{Field: "max_loan_approval_amount", OldValue: oldLimit.MaxLoanApprovalAmount.String(), NewValue: result.MaxLoanApprovalAmount.String()},
+			{Field: "max_single_transaction", OldValue: oldLimit.MaxSingleTransaction.String(), NewValue: result.MaxSingleTransaction.String()},
+			{Field: "max_daily_transaction", OldValue: oldLimit.MaxDailyTransaction.String(), NewValue: result.MaxDailyTransaction.String()},
+			{Field: "max_client_daily_limit", OldValue: oldLimit.MaxClientDailyLimit.String(), NewValue: result.MaxClientDailyLimit.String()},
+			{Field: "max_client_monthly_limit", OldValue: oldLimit.MaxClientMonthlyLimit.String(), NewValue: result.MaxClientMonthlyLimit.String()},
+		})
+		if len(entries) > 0 {
+			_ = s.changelogRepo.CreateBatch(entries)
+		}
+	}
+
 	if s.producer != nil {
 		if pubErr := s.producer.PublishEmployeeLimitsUpdated(ctx, kafkamsg.EmployeeLimitsUpdatedMessage{
 			EmployeeID: limit.EmployeeID,
@@ -54,7 +86,12 @@ func (s *LimitService) SetEmployeeLimits(ctx context.Context, limit model.Employ
 }
 
 // ApplyTemplate copies template values to an employee's limit record.
-func (s *LimitService) ApplyTemplate(ctx context.Context, employeeID int64, templateName string) (*model.EmployeeLimit, error) {
+func (s *LimitService) ApplyTemplate(ctx context.Context, employeeID int64, templateName string, changedBy int64) (*model.EmployeeLimit, error) {
+	// Hierarchy enforcement: caller must outrank target.
+	if err := checkHierarchy(s.empRepo, changedBy, employeeID); err != nil {
+		return nil, err
+	}
+
 	tmpl, err := s.templateRepo.GetByName(templateName)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

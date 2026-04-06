@@ -22,6 +22,9 @@ type Config struct {
 	DBUser     string
 	DBPassword string
 	DBName     string
+
+	MetricsPort  string
+	AuthGRPCAddr string
 }
 
 func Load() *Config {
@@ -38,6 +41,8 @@ func Load() *Config {
 		DBUser:       getEnv("NOTIFICATION_DB_USER", "postgres"),
 		DBPassword:   getEnv("NOTIFICATION_DB_PASSWORD", "postgres"),
 		DBName:       getEnv("NOTIFICATION_DB_NAME", "notification_db"),
+		MetricsPort:  getEnv("METRICS_PORT", "9103"),
+		AuthGRPCAddr: getEnv("AUTH_GRPC_ADDR", "localhost:50051"),
 	}
 }
 

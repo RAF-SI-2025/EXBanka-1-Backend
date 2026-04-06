@@ -172,14 +172,14 @@ func TestOptimisticLockConflictCard(t *testing.T) {
 	svc := &CardService{cardRepo: cardRepo, db: db}
 
 	// First block — succeeds, bumps Version to 2.
-	blocked, err := svc.BlockCard(card.ID)
+	blocked, err := svc.BlockCard(card.ID, 0)
 	require.NoError(t, err)
 	assert.Equal(t, "blocked", blocked.Status)
 
 	// Now attempt to block again using the stale card (Version=1 from seedCard).
 	// The BeforeUpdate hook will add WHERE version=1; but DB has version=2, so 0 rows affected.
 	// The service should return an error ("already blocked") because GetByIDForUpdate re-reads.
-	_, err = svc.BlockCard(card.ID)
+	_, err = svc.BlockCard(card.ID, 0)
 	assert.Error(t, err, "blocking an already-blocked card must return an error")
 	assert.Contains(t, err.Error(), "already blocked")
 

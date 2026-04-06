@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	notificationpb "github.com/exbanka/contract/notificationpb"
 	verificationpb "github.com/exbanka/contract/verificationpb"
+	"github.com/gin-gonic/gin"
 )
 
 type VerificationHandler struct {
@@ -247,6 +247,42 @@ func (h *VerificationHandler) VerifyQR(c *gin.Context) {
 		ChallengeId: challengeID,
 		DeviceId:    deviceID.(string),
 		Response:    token,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": resp.Success})
+}
+
+// @Summary Verify challenge using device biometrics
+// @Description Verifies a pending challenge using the device's biometric authentication.
+// @Description No request body needed - the device signature IS the proof of authentication.
+// @Description Requires MobileAuthMiddleware + RequireDeviceSignature.
+// @Tags mobile-verifications
+// @Produce json
+// @Security BearerAuth
+// @Param challenge_id path int true "Challenge ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]interface{}
+// @Failure 403 {object} map[string]interface{} "Biometrics not enabled"
+// @Failure 409 {object} map[string]interface{} "Challenge expired or already verified"
+// @Router /api/v1/mobile/verifications/{challenge_id}/biometric [post]
+func (h *VerificationHandler) BiometricVerify(c *gin.Context) {
+	challengeID, err := strconv.ParseUint(c.Param("challenge_id"), 10, 64)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid challenge id")
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	deviceID, _ := c.Get("device_id")
+
+	resp, err := h.verificationClient.VerifyByBiometric(c.Request.Context(), &verificationpb.VerifyByBiometricRequest{
+		ChallengeId: challengeID,
+		UserId:      uint64(userID),
+		DeviceId:    deviceID.(string),
 	})
 	if err != nil {
 		handleGRPCError(c, err)

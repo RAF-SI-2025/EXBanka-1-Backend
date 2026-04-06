@@ -175,7 +175,7 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 - Configurable fee rules stored in `transfer_fees` table (type: `percentage` or `fixed`, with `min_amount` threshold and `max_fee` cap).
 - Multiple matching rules are cumulative (stack).
 - Fee lookup failure (DB error) REJECTS the transaction (not silently ignored).
-- Default seed: 0.1% percentage fee for all transactions >= 1000 RSD.
+- Default seeds: (1) 0.1% percentage fee for all transactions >= 1000 RSD; (2) 5% commission for all transactions >= 5000 RSD.
 - Collected fees are credited to the bank's own RSD account after each transaction.
 
 **Auth token system type** (auth-service):
@@ -276,6 +276,18 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 - Update existing sections when request/response shapes, authentication requirements, or behavior changes.
 - Remove sections for any deleted routes.
 - `docs/api/REST_API.md` must be committed alongside handler and router changes.
+
+## Testing Requirement
+
+**Every feature or change must include tests.** This is a hard requirement — not optional.
+
+- **Unit tests** (service + handler layers) must be added or updated for every service change. Use mocked repositories and gRPC clients. Test both success and error paths.
+- **Integration tests** (`test-app/workflows/`) must be added or updated when a feature touches API endpoints or cross-service flows. Each new endpoint needs at least one integration test.
+- **Implementation plans must include a testing section** — every plan must specify which unit tests and integration tests to add or update. Plans without testing steps are incomplete.
+- Use shared helpers from `contract/testutil/` (unit tests) and `test-app/workflows/helpers_test.go` (integration tests) to avoid duplication. Never inline Kafka scanning, verification flows, or client setup — use the shared helpers.
+- Tests must validate **spec behavior** — not just HTTP status codes. Check response bodies, side effects (balance changes, Kafka events), and business rules from the spec.
+- Tests must pass before committing. Run `make test` for unit tests and the integration suite for workflow tests.
+- See `docs/superpowers/specs/2026-04-04-comprehensive-testing-design.md` for the full testing design and patterns.
 
 ## Kafka Event Publishing Requirement
 

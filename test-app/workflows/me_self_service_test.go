@@ -173,6 +173,7 @@ func TestMe_UnauthenticatedRejected(t *testing.T) {
 		"/api/me/loans",
 		"/api/me/orders",
 		"/api/me/portfolio",
+		"/api/me/tax",
 	}
 
 	for _, ep := range endpoints {

@@ -37,6 +37,13 @@ const (
 	AuthService_TransferDevice_FullMethodName          = "/auth.AuthService/TransferDevice"
 	AuthService_ValidateDeviceSignature_FullMethodName = "/auth.AuthService/ValidateDeviceSignature"
 	AuthService_GetDeviceInfo_FullMethodName           = "/auth.AuthService/GetDeviceInfo"
+	AuthService_SetBiometricsEnabled_FullMethodName    = "/auth.AuthService/SetBiometricsEnabled"
+	AuthService_GetBiometricsEnabled_FullMethodName    = "/auth.AuthService/GetBiometricsEnabled"
+	AuthService_CheckBiometricsEnabled_FullMethodName  = "/auth.AuthService/CheckBiometricsEnabled"
+	AuthService_ListSessions_FullMethodName            = "/auth.AuthService/ListSessions"
+	AuthService_RevokeSession_FullMethodName           = "/auth.AuthService/RevokeSession"
+	AuthService_RevokeAllSessions_FullMethodName       = "/auth.AuthService/RevokeAllSessions"
+	AuthService_GetLoginHistory_FullMethodName         = "/auth.AuthService/GetLoginHistory"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -62,6 +69,15 @@ type AuthServiceClient interface {
 	TransferDevice(ctx context.Context, in *TransferDeviceRequest, opts ...grpc.CallOption) (*TransferDeviceResponse, error)
 	ValidateDeviceSignature(ctx context.Context, in *ValidateDeviceSignatureRequest, opts ...grpc.CallOption) (*ValidateDeviceSignatureResponse, error)
 	GetDeviceInfo(ctx context.Context, in *GetDeviceInfoRequest, opts ...grpc.CallOption) (*GetDeviceInfoResponse, error)
+	// Biometrics management
+	SetBiometricsEnabled(ctx context.Context, in *SetBiometricsRequest, opts ...grpc.CallOption) (*SetBiometricsResponse, error)
+	GetBiometricsEnabled(ctx context.Context, in *GetBiometricsRequest, opts ...grpc.CallOption) (*GetBiometricsResponse, error)
+	CheckBiometricsEnabled(ctx context.Context, in *CheckBiometricsRequest, opts ...grpc.CallOption) (*CheckBiometricsResponse, error)
+	// Session management
+	ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error)
+	RevokeSession(ctx context.Context, in *RevokeSessionRequest, opts ...grpc.CallOption) (*RevokeSessionResponse, error)
+	RevokeAllSessions(ctx context.Context, in *RevokeAllSessionsRequest, opts ...grpc.CallOption) (*RevokeAllSessionsResponse, error)
+	GetLoginHistory(ctx context.Context, in *LoginHistoryRequest, opts ...grpc.CallOption) (*LoginHistoryResponse, error)
 }
 
 type authServiceClient struct {
@@ -252,6 +268,76 @@ func (c *authServiceClient) GetDeviceInfo(ctx context.Context, in *GetDeviceInfo
 	return out, nil
 }
 
+func (c *authServiceClient) SetBiometricsEnabled(ctx context.Context, in *SetBiometricsRequest, opts ...grpc.CallOption) (*SetBiometricsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetBiometricsResponse)
+	err := c.cc.Invoke(ctx, AuthService_SetBiometricsEnabled_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetBiometricsEnabled(ctx context.Context, in *GetBiometricsRequest, opts ...grpc.CallOption) (*GetBiometricsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetBiometricsResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetBiometricsEnabled_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) CheckBiometricsEnabled(ctx context.Context, in *CheckBiometricsRequest, opts ...grpc.CallOption) (*CheckBiometricsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckBiometricsResponse)
+	err := c.cc.Invoke(ctx, AuthService_CheckBiometricsEnabled_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListSessionsResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListSessions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) RevokeSession(ctx context.Context, in *RevokeSessionRequest, opts ...grpc.CallOption) (*RevokeSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeSessionResponse)
+	err := c.cc.Invoke(ctx, AuthService_RevokeSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) RevokeAllSessions(ctx context.Context, in *RevokeAllSessionsRequest, opts ...grpc.CallOption) (*RevokeAllSessionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokeAllSessionsResponse)
+	err := c.cc.Invoke(ctx, AuthService_RevokeAllSessions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetLoginHistory(ctx context.Context, in *LoginHistoryRequest, opts ...grpc.CallOption) (*LoginHistoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LoginHistoryResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetLoginHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
@@ -275,6 +361,15 @@ type AuthServiceServer interface {
 	TransferDevice(context.Context, *TransferDeviceRequest) (*TransferDeviceResponse, error)
 	ValidateDeviceSignature(context.Context, *ValidateDeviceSignatureRequest) (*ValidateDeviceSignatureResponse, error)
 	GetDeviceInfo(context.Context, *GetDeviceInfoRequest) (*GetDeviceInfoResponse, error)
+	// Biometrics management
+	SetBiometricsEnabled(context.Context, *SetBiometricsRequest) (*SetBiometricsResponse, error)
+	GetBiometricsEnabled(context.Context, *GetBiometricsRequest) (*GetBiometricsResponse, error)
+	CheckBiometricsEnabled(context.Context, *CheckBiometricsRequest) (*CheckBiometricsResponse, error)
+	// Session management
+	ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error)
+	RevokeSession(context.Context, *RevokeSessionRequest) (*RevokeSessionResponse, error)
+	RevokeAllSessions(context.Context, *RevokeAllSessionsRequest) (*RevokeAllSessionsResponse, error)
+	GetLoginHistory(context.Context, *LoginHistoryRequest) (*LoginHistoryResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
 
@@ -338,6 +433,27 @@ func (UnimplementedAuthServiceServer) ValidateDeviceSignature(context.Context, *
 }
 func (UnimplementedAuthServiceServer) GetDeviceInfo(context.Context, *GetDeviceInfoRequest) (*GetDeviceInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDeviceInfo not implemented")
+}
+func (UnimplementedAuthServiceServer) SetBiometricsEnabled(context.Context, *SetBiometricsRequest) (*SetBiometricsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetBiometricsEnabled not implemented")
+}
+func (UnimplementedAuthServiceServer) GetBiometricsEnabled(context.Context, *GetBiometricsRequest) (*GetBiometricsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetBiometricsEnabled not implemented")
+}
+func (UnimplementedAuthServiceServer) CheckBiometricsEnabled(context.Context, *CheckBiometricsRequest) (*CheckBiometricsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CheckBiometricsEnabled not implemented")
+}
+func (UnimplementedAuthServiceServer) ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListSessions not implemented")
+}
+func (UnimplementedAuthServiceServer) RevokeSession(context.Context, *RevokeSessionRequest) (*RevokeSessionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeSession not implemented")
+}
+func (UnimplementedAuthServiceServer) RevokeAllSessions(context.Context, *RevokeAllSessionsRequest) (*RevokeAllSessionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeAllSessions not implemented")
+}
+func (UnimplementedAuthServiceServer) GetLoginHistory(context.Context, *LoginHistoryRequest) (*LoginHistoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetLoginHistory not implemented")
 }
 func (UnimplementedAuthServiceServer) mustEmbedUnimplementedAuthServiceServer() {}
 func (UnimplementedAuthServiceServer) testEmbeddedByValue()                     {}
@@ -684,6 +800,132 @@ func _AuthService_GetDeviceInfo_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_SetBiometricsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetBiometricsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).SetBiometricsEnabled(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_SetBiometricsEnabled_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).SetBiometricsEnabled(ctx, req.(*SetBiometricsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetBiometricsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBiometricsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetBiometricsEnabled(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetBiometricsEnabled_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetBiometricsEnabled(ctx, req.(*GetBiometricsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_CheckBiometricsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckBiometricsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).CheckBiometricsEnabled(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_CheckBiometricsEnabled_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).CheckBiometricsEnabled(ctx, req.(*CheckBiometricsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_ListSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListSessions(ctx, req.(*ListSessionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_RevokeSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RevokeSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RevokeSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RevokeSession(ctx, req.(*RevokeSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_RevokeAllSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeAllSessionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RevokeAllSessions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RevokeAllSessions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RevokeAllSessions(ctx, req.(*RevokeAllSessionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetLoginHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LoginHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetLoginHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetLoginHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetLoginHistory(ctx, req.(*LoginHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -762,6 +1004,34 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDeviceInfo",
 			Handler:    _AuthService_GetDeviceInfo_Handler,
+		},
+		{
+			MethodName: "SetBiometricsEnabled",
+			Handler:    _AuthService_SetBiometricsEnabled_Handler,
+		},
+		{
+			MethodName: "GetBiometricsEnabled",
+			Handler:    _AuthService_GetBiometricsEnabled_Handler,
+		},
+		{
+			MethodName: "CheckBiometricsEnabled",
+			Handler:    _AuthService_CheckBiometricsEnabled_Handler,
+		},
+		{
+			MethodName: "ListSessions",
+			Handler:    _AuthService_ListSessions_Handler,
+		},
+		{
+			MethodName: "RevokeSession",
+			Handler:    _AuthService_RevokeSession_Handler,
+		},
+		{
+			MethodName: "RevokeAllSessions",
+			Handler:    _AuthService_RevokeAllSessions_Handler,
+		},
+		{
+			MethodName: "GetLoginHistory",
+			Handler:    _AuthService_GetLoginHistory_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

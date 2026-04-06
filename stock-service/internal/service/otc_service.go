@@ -100,6 +100,12 @@ func (s *OTCService) BuyOffer(
 	// Credit seller's account: total
 	sellerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: sellerHolding.AccountID})
 	if err != nil {
+		// Compensate: re-credit buyer since debit succeeded
+		_, _ = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
+			AccountNumber:   buyerAcct.AccountNumber,
+			Amount:          totalPrice.Add(commission).StringFixed(4),
+			UpdateAvailable: true,
+		})
 		return nil, errors.New("seller account not found")
 	}
 	_, err = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
@@ -108,6 +114,12 @@ func (s *OTCService) BuyOffer(
 		UpdateAvailable: true,
 	})
 	if err != nil {
+		// Compensate: re-credit buyer since debit succeeded
+		_, _ = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
+			AccountNumber:   buyerAcct.AccountNumber,
+			Amount:          totalPrice.Add(commission).StringFixed(4),
+			UpdateAvailable: true,
+		})
 		return nil, errors.New("failed to credit seller account: " + err.Error())
 	}
 
@@ -129,6 +141,17 @@ func (s *OTCService) BuyOffer(
 		TaxMonth:         int(time.Now().Month()),
 	}
 	if err := s.capitalGainRepo.Create(capitalGain); err != nil {
+		// Compensate: reverse both balance changes
+		_, _ = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
+			AccountNumber:   buyerAcct.AccountNumber,
+			Amount:          totalPrice.Add(commission).StringFixed(4),
+			UpdateAvailable: true,
+		})
+		_, _ = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
+			AccountNumber:   sellerAcct.AccountNumber,
+			Amount:          totalPrice.Neg().StringFixed(4),
+			UpdateAvailable: true,
+		})
 		return nil, err
 	}
 
@@ -171,6 +194,8 @@ func (s *OTCService) BuyOffer(
 	if err := s.holdingRepo.Upsert(buyerHolding); err != nil {
 		return nil, err
 	}
+
+	StockOTCTradesTotal.Inc()
 
 	return &OTCBuyResult{
 		ID:           buyerHolding.ID,

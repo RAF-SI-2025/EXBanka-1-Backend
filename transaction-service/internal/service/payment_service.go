@@ -150,12 +150,15 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 			payment.FromAccountNumber, payment.ToAccountNumber, err)
 	}
 
+	TransactionTotal.WithLabelValues("payment", "created").Inc()
 	return nil
 }
 
 // ExecutePayment performs the actual balance changes for a payment that has been verified.
 // The payment must be in "pending_verification" status.
 func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) error {
+	start := time.Now()
+
 	payment, err := s.paymentRepo.GetByID(paymentID)
 	if err != nil {
 		return fmt.Errorf("payment not found: %w", err)
@@ -283,6 +286,11 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 			payment.ID, payment.FromAccountNumber, payment.ToAccountNumber, err)
 	}
 	payment.Status = "completed"
+
+	TransactionTotal.WithLabelValues("payment", "completed").Inc()
+	TransactionAmountRSDSum.WithLabelValues("payment").Add(payment.FinalAmount.InexactFloat64())
+	TransactionProcessingDuration.WithLabelValues("payment").Observe(time.Since(start).Seconds())
+
 	return nil
 }
 

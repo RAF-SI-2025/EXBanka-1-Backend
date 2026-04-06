@@ -19,6 +19,8 @@ type Config struct {
 
 	ChallengeExpiry time.Duration
 	MaxAttempts     int
+	MetricsPort     string
+	AuthGRPCAddr    string
 }
 
 func Load() *Config {
@@ -47,6 +49,8 @@ func Load() *Config {
 		KafkaBrokers:    getEnv("KAFKA_BROKERS", "localhost:9092"),
 		ChallengeExpiry: expiry,
 		MaxAttempts:     maxAttempts,
+		MetricsPort:     getEnv("METRICS_PORT", "9111"),
+		AuthGRPCAddr:    getEnv("AUTH_GRPC_ADDR", "localhost:50051"),
 	}
 }
 

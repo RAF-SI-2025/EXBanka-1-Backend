@@ -10,17 +10,16 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/model"
-	"github.com/exbanka/user-service/internal/repository"
 	"github.com/shopspring/decimal"
 )
 
 type ActuaryService struct {
-	actuaryRepo *repository.ActuaryRepository
-	empRepo     *repository.EmployeeRepository
+	actuaryRepo ActuaryRepo
+	empRepo     ActuaryEmpRepo
 	producer    *kafkaprod.Producer
 }
 
-func NewActuaryService(actuaryRepo *repository.ActuaryRepository, empRepo *repository.EmployeeRepository, producer *kafkaprod.Producer) *ActuaryService {
+func NewActuaryService(actuaryRepo ActuaryRepo, empRepo ActuaryEmpRepo, producer *kafkaprod.Producer) *ActuaryService {
 	return &ActuaryService{
 		actuaryRepo: actuaryRepo,
 		empRepo:     empRepo,
@@ -36,7 +35,12 @@ func (s *ActuaryService) GetActuaryInfo(employeeID int64) (*model.ActuaryLimit, 
 	return s.getOrCreateActuaryLimit(employeeID)
 }
 
-func (s *ActuaryService) SetActuaryLimit(ctx context.Context, employeeID int64, limitAmount decimal.Decimal) (*model.ActuaryLimit, error) {
+func (s *ActuaryService) SetActuaryLimit(ctx context.Context, employeeID int64, limitAmount decimal.Decimal, changedBy int64) (*model.ActuaryLimit, error) {
+	// Hierarchy enforcement: caller must outrank target.
+	if err := checkHierarchy(s.empRepo, changedBy, employeeID); err != nil {
+		return nil, err
+	}
+
 	if limitAmount.IsNegative() {
 		return nil, errors.New("limit must not be negative")
 	}
@@ -52,7 +56,12 @@ func (s *ActuaryService) SetActuaryLimit(ctx context.Context, employeeID int64, 
 	return limit, nil
 }
 
-func (s *ActuaryService) ResetUsedLimit(ctx context.Context, employeeID int64) (*model.ActuaryLimit, error) {
+func (s *ActuaryService) ResetUsedLimit(ctx context.Context, employeeID int64, changedBy int64) (*model.ActuaryLimit, error) {
+	// Hierarchy enforcement: caller must outrank target.
+	if err := checkHierarchy(s.empRepo, changedBy, employeeID); err != nil {
+		return nil, err
+	}
+
 	limit, _, err := s.getOrCreateActuaryLimit(employeeID)
 	if err != nil {
 		return nil, err
@@ -65,7 +74,12 @@ func (s *ActuaryService) ResetUsedLimit(ctx context.Context, employeeID int64) (
 	return limit, nil
 }
 
-func (s *ActuaryService) SetNeedApproval(ctx context.Context, employeeID int64, needApproval bool) (*model.ActuaryLimit, error) {
+func (s *ActuaryService) SetNeedApproval(ctx context.Context, employeeID int64, needApproval bool, changedBy int64) (*model.ActuaryLimit, error) {
+	// Hierarchy enforcement: caller must outrank target.
+	if err := checkHierarchy(s.empRepo, changedBy, employeeID); err != nil {
+		return nil, err
+	}
+
 	limit, _, err := s.getOrCreateActuaryLimit(employeeID)
 	if err != nil {
 		return nil, err

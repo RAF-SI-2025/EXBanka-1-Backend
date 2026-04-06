@@ -27,7 +27,9 @@ func mapServiceError(err error) codes.Code {
 	case strings.Contains(msg, "already "), strings.Contains(msg, "expired"),
 		strings.Contains(msg, "max attempts"), strings.Contains(msg, "only allowed"):
 		return codes.FailedPrecondition
-	case strings.Contains(msg, "bound to a different device"):
+	case strings.Contains(msg, "bound to a different device"),
+		strings.Contains(msg, "biometrics not enabled"),
+		strings.Contains(msg, "does not belong to this user"):
 		return codes.PermissionDenied
 	case strings.Contains(msg, "optimistic lock"):
 		return codes.Aborted
@@ -163,4 +165,12 @@ func (h *VerificationGRPCHandler) SubmitCode(ctx context.Context, req *pb.Submit
 		Success:           success,
 		RemainingAttempts: int32(remaining),
 	}, nil
+}
+
+func (h *VerificationGRPCHandler) VerifyByBiometric(ctx context.Context, req *pb.VerifyByBiometricRequest) (*pb.VerifyByBiometricResponse, error) {
+	err := h.svc.VerifyByBiometric(ctx, req.GetChallengeId(), req.GetUserId(), req.GetDeviceId())
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "%v", err)
+	}
+	return &pb.VerifyByBiometricResponse{Success: true}, nil
 }

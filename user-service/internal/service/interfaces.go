@@ -1,7 +1,19 @@
 // user-service/internal/service/interfaces.go
 package service
 
-import "github.com/exbanka/user-service/internal/model"
+import (
+	"context"
+
+	"github.com/exbanka/contract/changelog"
+	"github.com/exbanka/user-service/internal/model"
+)
+
+// ChangelogRepo is the interface for changelog persistence.
+type ChangelogRepo interface {
+	Create(entry changelog.Entry) error
+	CreateBatch(entries []changelog.Entry) error
+	ListByEntity(entityType string, entityID int64, page, pageSize int) ([]model.Changelog, int64, error)
+}
 
 type EmployeeRepo interface {
 	Create(emp *model.Employee) error
@@ -53,4 +65,33 @@ type LimitTemplateRepo interface {
 	List() ([]model.LimitTemplate, error)
 	Update(t *model.LimitTemplate) error
 	Delete(id int64) error
+}
+
+type ActuaryRepo interface {
+	Create(limit *model.ActuaryLimit) error
+	GetByID(id int64) (*model.ActuaryLimit, error)
+	GetByEmployeeID(employeeID int64) (*model.ActuaryLimit, error)
+	Save(limit *model.ActuaryLimit) error
+	ListActuaries(search, position string, page, pageSize int) ([]model.ActuaryRow, int64, error)
+	Upsert(limit *model.ActuaryLimit) error
+}
+
+type ActuaryEmpRepo interface {
+	GetByIDWithRoles(id int64) (*model.Employee, error)
+}
+
+type LimitBlueprintRepo interface {
+	Create(bp *model.LimitBlueprint) error
+	GetByID(id uint64) (*model.LimitBlueprint, error)
+	List(bpType string) ([]model.LimitBlueprint, error)
+	GetByNameAndType(name, bpType string) (*model.LimitBlueprint, error)
+	Update(bp *model.LimitBlueprint) error
+	Delete(id uint64) error
+}
+
+// ClientLimitClient is the subset of clientpb.ClientLimitServiceClient that
+// BlueprintService needs. Defined as an interface to avoid tight coupling to
+// the generated gRPC client and to enable unit testing with mocks.
+type ClientLimitClient interface {
+	SetClientLimits(ctx context.Context, clientID int64, dailyLimit, monthlyLimit, transferLimit string, setByEmployee int64) error
 }

@@ -33,6 +33,14 @@ func TestLogin_MissingFields(t *testing.T) {
 	})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	errMsg, ok := resp["error"].(string)
+	assert.True(t, ok, "response should contain an 'error' string")
+	assert.Contains(t, errMsg, "Email", "error should mention missing Email field")
+	assert.Contains(t, errMsg, "Password", "error should mention missing Password field")
 }
 
 func TestLogin_InvalidEmail(t *testing.T) {
@@ -51,6 +59,13 @@ func TestLogin_InvalidEmail(t *testing.T) {
 	})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	errMsg, ok := resp["error"].(string)
+	assert.True(t, ok, "response should contain an 'error' string")
+	assert.Contains(t, errMsg, "email", "error should mention the email field")
 }
 
 func TestRefreshToken_MissingField(t *testing.T) {
@@ -69,6 +84,13 @@ func TestRefreshToken_MissingField(t *testing.T) {
 	})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	errMsg, ok := resp["error"].(string)
+	assert.True(t, ok, "response should contain an 'error' string")
+	assert.Contains(t, errMsg, "RefreshToken", "error should mention missing RefreshToken field")
 }
 
 func TestActivateAccount_MissingFields(t *testing.T) {
@@ -87,4 +109,12 @@ func TestActivateAccount_MissingFields(t *testing.T) {
 	})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	errMsg, ok := resp["error"].(string)
+	assert.True(t, ok, "response should contain an 'error' string")
+	assert.Contains(t, errMsg, "Password", "error should mention missing Password field")
+	assert.Contains(t, errMsg, "ConfirmPassword", "error should mention missing ConfirmPassword field")
 }

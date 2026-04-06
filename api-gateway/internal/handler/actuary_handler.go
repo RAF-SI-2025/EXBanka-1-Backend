@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/exbanka/api-gateway/internal/middleware"
 	userpb "github.com/exbanka/contract/userpb"
+	"github.com/gin-gonic/gin"
 )
 
 type ActuaryHandler struct {
@@ -30,7 +31,7 @@ func (h *ActuaryHandler) ListActuaries(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"actuaries": resp.Actuaries, "total_count": resp.TotalCount})
+	c.JSON(http.StatusOK, gin.H{"actuaries": emptyIfNil(resp.Actuaries), "total_count": resp.TotalCount})
 }
 
 func (h *ActuaryHandler) SetActuaryLimit(c *gin.Context) {
@@ -47,7 +48,7 @@ func (h *ActuaryHandler) SetActuaryLimit(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.client.SetActuaryLimit(c.Request.Context(), &userpb.SetActuaryLimitRequest{
+	resp, err := h.client.SetActuaryLimit(middleware.GRPCContextWithChangedBy(c), &userpb.SetActuaryLimitRequest{
 		Id: id, Limit: req.Limit,
 	})
 	if err != nil {
@@ -64,7 +65,7 @@ func (h *ActuaryHandler) ResetActuaryLimit(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.client.ResetActuaryUsedLimit(c.Request.Context(), &userpb.ResetActuaryUsedLimitRequest{Id: id})
+	resp, err := h.client.ResetActuaryUsedLimit(middleware.GRPCContextWithChangedBy(c), &userpb.ResetActuaryUsedLimitRequest{Id: id})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
@@ -86,7 +87,7 @@ func (h *ActuaryHandler) SetNeedApproval(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.client.SetNeedApproval(c.Request.Context(), &userpb.SetNeedApprovalRequest{
+	resp, err := h.client.SetNeedApproval(middleware.GRPCContextWithChangedBy(c), &userpb.SetNeedApprovalRequest{
 		Id: id, NeedApproval: req.NeedApproval,
 	})
 	if err != nil {

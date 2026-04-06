@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	clientpb "github.com/exbanka/contract/clientpb"
 	userpb "github.com/exbanka/contract/userpb"
 )
@@ -115,7 +116,7 @@ func (h *LimitHandler) SetEmployeeLimits(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.empLimitClient.SetEmployeeLimits(c.Request.Context(), &userpb.SetEmployeeLimitsRequest{
+	resp, err := h.empLimitClient.SetEmployeeLimits(middleware.GRPCContextWithChangedBy(c), &userpb.SetEmployeeLimitsRequest{
 		EmployeeId:            id,
 		MaxLoanApprovalAmount: body.MaxLoanApprovalAmount,
 		MaxSingleTransaction:  body.MaxSingleTransaction,
@@ -157,7 +158,7 @@ func (h *LimitHandler) ApplyLimitTemplate(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.empLimitClient.ApplyLimitTemplate(c.Request.Context(), &userpb.ApplyLimitTemplateRequest{
+	resp, err := h.empLimitClient.ApplyLimitTemplate(middleware.GRPCContextWithChangedBy(c), &userpb.ApplyLimitTemplateRequest{
 		EmployeeId:   id,
 		TemplateName: body.TemplateName,
 	})
@@ -282,7 +283,7 @@ func (h *LimitHandler) SetClientLimits(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.clientLimitClient.SetClientLimits(c.Request.Context(), &clientpb.SetClientLimitRequest{
+	resp, err := h.clientLimitClient.SetClientLimits(middleware.GRPCContextWithChangedBy(c), &clientpb.SetClientLimitRequest{
 		ClientId:      id,
 		DailyLimit:    body.DailyLimit,
 		MonthlyLimit:  body.MonthlyLimit,

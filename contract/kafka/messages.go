@@ -403,6 +403,23 @@ type OptionExercisedMessage struct {
 	Timestamp    int64  `json:"timestamp"`
 }
 
+// Blueprint event topic constants
+const (
+	TopicBlueprintCreated = "user.blueprint-created"
+	TopicBlueprintUpdated = "user.blueprint-updated"
+	TopicBlueprintDeleted = "user.blueprint-deleted"
+	TopicBlueprintApplied = "user.blueprint-applied"
+)
+
+// BlueprintMessage is published for all blueprint lifecycle events.
+type BlueprintMessage struct {
+	BlueprintID   uint64 `json:"blueprint_id"`
+	BlueprintName string `json:"blueprint_name"`
+	BlueprintType string `json:"blueprint_type"` // "employee", "actuary", "client"
+	TargetID      int64  `json:"target_id,omitempty"`
+	Action        string `json:"action"` // "created", "updated", "deleted", "applied"
+}
+
 // Actuary events
 const (
 	TopicActuaryLimitUpdated = "user.actuary-limit-updated"
@@ -459,18 +476,61 @@ type VerificationChallengeFailedMessage struct {
 type MobilePushMessage struct {
 	UserID   uint64 `json:"user_id"`
 	DeviceID string `json:"device_id"`
-	Type     string `json:"type"` // "verification_challenge"
+	Type     string `json:"type"`    // "verification_challenge"
 	Payload  string `json:"payload"` // JSON string
+}
+
+// Changelog event topic constants -- one per service for downstream consumption.
+const (
+	TopicAccountChangelog = "account.changelog"
+	TopicUserChangelog    = "user.changelog"
+	TopicClientChangelog  = "client.changelog"
+	TopicCreditChangelog  = "credit.changelog"
+	TopicCardChangelog    = "card.changelog"
+	TopicAuthChangelog    = "auth.changelog"
+)
+
+// ChangelogMessage is the Kafka event published for every changelog entry.
+// Downstream services and analytics consumers use this for audit replication.
+type ChangelogMessage struct {
+	EntityType string `json:"entity_type"`
+	EntityID   int64  `json:"entity_id"`
+	Action     string `json:"action"`
+	FieldName  string `json:"field_name,omitempty"`
+	OldValue   string `json:"old_value,omitempty"`
+	NewValue   string `json:"new_value,omitempty"`
+	ChangedBy  int64  `json:"changed_by"`
+	ChangedAt  string `json:"changed_at"` // RFC3339
+	Reason     string `json:"reason,omitempty"`
 }
 
 const (
 	TopicAuthAccountStatusChanged  = "auth.account-status-changed"
 	TopicAuthDeadLetter            = "auth.dead-letter"
 	TopicAuthMobileDeviceActivated = "auth.mobile-device-activated"
+	TopicAuthSessionCreated        = "auth.session-created"
+	TopicAuthSessionRevoked        = "auth.session-revoked"
 )
 
 type AuthAccountStatusChangedMessage struct {
 	PrincipalType string `json:"principal_type"`
 	PrincipalID   int64  `json:"principal_id"`
 	Status        string `json:"status"`
+}
+
+// AuthSessionCreatedMessage is published when a new login session is created.
+type AuthSessionCreatedMessage struct {
+	SessionID  int64  `json:"session_id"`
+	UserID     int64  `json:"user_id"`
+	SystemType string `json:"system_type"`
+	IPAddress  string `json:"ip_address"`
+	UserAgent  string `json:"user_agent"`
+	DeviceType string `json:"device_type"`
+}
+
+// AuthSessionRevokedMessage is published when a session is revoked (logout/force-revoke).
+type AuthSessionRevokedMessage struct {
+	SessionID int64  `json:"session_id"`
+	UserID    int64  `json:"user_id"`
+	Reason    string `json:"reason"` // "logout", "force_revoke", "password_reset", "device_deactivation"
 }

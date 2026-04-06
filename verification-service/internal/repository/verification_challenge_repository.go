@@ -54,12 +54,13 @@ func (r *VerificationChallengeRepository) SaveInTx(tx *gorm.DB, vc *model.Verifi
 	return tx.Save(vc).Error
 }
 
-// GetPendingByUser returns the most recent pending challenge for a user+device pair.
-// Used by mobile app polling to discover challenges that need attention.
+// GetPendingByUser returns the most recent pending, non-expired challenge for a user.
+// Matches by user_id only — the mobile app must be able to find challenges created
+// from the browser (which have empty device_id).
 func (r *VerificationChallengeRepository) GetPendingByUser(userID uint64, deviceID string) (*model.VerificationChallenge, error) {
 	var vc model.VerificationChallenge
-	err := r.db.Where("user_id = ? AND device_id = ? AND status = ? AND expires_at > ?",
-		userID, deviceID, "pending", time.Now()).
+	err := r.db.Where("user_id = ? AND status = ? AND expires_at > ?",
+		userID, "pending", time.Now()).
 		Order("created_at DESC").
 		First(&vc).Error
 	if err != nil {

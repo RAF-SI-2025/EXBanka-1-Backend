@@ -645,6 +645,110 @@ func (x *SubmitCodeResponse) GetRemainingAttempts() int32 {
 	return 0
 }
 
+type VerifyByBiometricRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChallengeId   uint64                 `protobuf:"varint,1,opt,name=challenge_id,json=challengeId,proto3" json:"challenge_id,omitempty"`
+	UserId        uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	DeviceId      string                 `protobuf:"bytes,3,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyByBiometricRequest) Reset() {
+	*x = VerifyByBiometricRequest{}
+	mi := &file_verification_verification_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyByBiometricRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyByBiometricRequest) ProtoMessage() {}
+
+func (x *VerifyByBiometricRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_verification_verification_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyByBiometricRequest.ProtoReflect.Descriptor instead.
+func (*VerifyByBiometricRequest) Descriptor() ([]byte, []int) {
+	return file_verification_verification_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *VerifyByBiometricRequest) GetChallengeId() uint64 {
+	if x != nil {
+		return x.ChallengeId
+	}
+	return 0
+}
+
+func (x *VerifyByBiometricRequest) GetUserId() uint64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *VerifyByBiometricRequest) GetDeviceId() string {
+	if x != nil {
+		return x.DeviceId
+	}
+	return ""
+}
+
+type VerifyByBiometricResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VerifyByBiometricResponse) Reset() {
+	*x = VerifyByBiometricResponse{}
+	mi := &file_verification_verification_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VerifyByBiometricResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VerifyByBiometricResponse) ProtoMessage() {}
+
+func (x *VerifyByBiometricResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_verification_verification_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VerifyByBiometricResponse.ProtoReflect.Descriptor instead.
+func (*VerifyByBiometricResponse) Descriptor() ([]byte, []int) {
+	return file_verification_verification_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *VerifyByBiometricResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 var File_verification_verification_proto protoreflect.FileDescriptor
 
 const file_verification_verification_proto_rawDesc = "" +
@@ -696,14 +800,21 @@ const file_verification_verification_proto_rawDesc = "" +
 	"\x04code\x18\x02 \x01(\tR\x04code\"]\n" +
 	"\x12SubmitCodeResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12-\n" +
-	"\x12remaining_attempts\x18\x02 \x01(\x05R\x11remainingAttempts2\x88\x04\n" +
+	"\x12remaining_attempts\x18\x02 \x01(\x05R\x11remainingAttempts\"s\n" +
+	"\x18VerifyByBiometricRequest\x12!\n" +
+	"\fchallenge_id\x18\x01 \x01(\x04R\vchallengeId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1b\n" +
+	"\tdevice_id\x18\x03 \x01(\tR\bdeviceId\"5\n" +
+	"\x19VerifyByBiometricResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\xee\x04\n" +
 	"\x17VerificationGRPCService\x12^\n" +
 	"\x0fCreateChallenge\x12$.verification.CreateChallengeRequest\x1a%.verification.CreateChallengeResponse\x12g\n" +
 	"\x12GetChallengeStatus\x12'.verification.GetChallengeStatusRequest\x1a(.verification.GetChallengeStatusResponse\x12j\n" +
 	"\x13GetPendingChallenge\x12(.verification.GetPendingChallengeRequest\x1a).verification.GetPendingChallengeResponse\x12g\n" +
 	"\x12SubmitVerification\x12'.verification.SubmitVerificationRequest\x1a(.verification.SubmitVerificationResponse\x12O\n" +
 	"\n" +
-	"SubmitCode\x12\x1f.verification.SubmitCodeRequest\x1a .verification.SubmitCodeResponseB;Z9github.com/exbanka/contract/verificationpb;verificationpbb\x06proto3"
+	"SubmitCode\x12\x1f.verification.SubmitCodeRequest\x1a .verification.SubmitCodeResponse\x12d\n" +
+	"\x11VerifyByBiometric\x12&.verification.VerifyByBiometricRequest\x1a'.verification.VerifyByBiometricResponseB;Z9github.com/exbanka/contract/verificationpb;verificationpbb\x06proto3"
 
 var (
 	file_verification_verification_proto_rawDescOnce sync.Once
@@ -717,7 +828,7 @@ func file_verification_verification_proto_rawDescGZIP() []byte {
 	return file_verification_verification_proto_rawDescData
 }
 
-var file_verification_verification_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_verification_verification_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_verification_verification_proto_goTypes = []any{
 	(*CreateChallengeRequest)(nil),      // 0: verification.CreateChallengeRequest
 	(*CreateChallengeResponse)(nil),     // 1: verification.CreateChallengeResponse
@@ -729,23 +840,27 @@ var file_verification_verification_proto_goTypes = []any{
 	(*SubmitVerificationResponse)(nil),  // 7: verification.SubmitVerificationResponse
 	(*SubmitCodeRequest)(nil),           // 8: verification.SubmitCodeRequest
 	(*SubmitCodeResponse)(nil),          // 9: verification.SubmitCodeResponse
+	(*VerifyByBiometricRequest)(nil),    // 10: verification.VerifyByBiometricRequest
+	(*VerifyByBiometricResponse)(nil),   // 11: verification.VerifyByBiometricResponse
 }
 var file_verification_verification_proto_depIdxs = []int32{
-	0, // 0: verification.VerificationGRPCService.CreateChallenge:input_type -> verification.CreateChallengeRequest
-	2, // 1: verification.VerificationGRPCService.GetChallengeStatus:input_type -> verification.GetChallengeStatusRequest
-	4, // 2: verification.VerificationGRPCService.GetPendingChallenge:input_type -> verification.GetPendingChallengeRequest
-	6, // 3: verification.VerificationGRPCService.SubmitVerification:input_type -> verification.SubmitVerificationRequest
-	8, // 4: verification.VerificationGRPCService.SubmitCode:input_type -> verification.SubmitCodeRequest
-	1, // 5: verification.VerificationGRPCService.CreateChallenge:output_type -> verification.CreateChallengeResponse
-	3, // 6: verification.VerificationGRPCService.GetChallengeStatus:output_type -> verification.GetChallengeStatusResponse
-	5, // 7: verification.VerificationGRPCService.GetPendingChallenge:output_type -> verification.GetPendingChallengeResponse
-	7, // 8: verification.VerificationGRPCService.SubmitVerification:output_type -> verification.SubmitVerificationResponse
-	9, // 9: verification.VerificationGRPCService.SubmitCode:output_type -> verification.SubmitCodeResponse
-	5, // [5:10] is the sub-list for method output_type
-	0, // [0:5] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	0,  // 0: verification.VerificationGRPCService.CreateChallenge:input_type -> verification.CreateChallengeRequest
+	2,  // 1: verification.VerificationGRPCService.GetChallengeStatus:input_type -> verification.GetChallengeStatusRequest
+	4,  // 2: verification.VerificationGRPCService.GetPendingChallenge:input_type -> verification.GetPendingChallengeRequest
+	6,  // 3: verification.VerificationGRPCService.SubmitVerification:input_type -> verification.SubmitVerificationRequest
+	8,  // 4: verification.VerificationGRPCService.SubmitCode:input_type -> verification.SubmitCodeRequest
+	10, // 5: verification.VerificationGRPCService.VerifyByBiometric:input_type -> verification.VerifyByBiometricRequest
+	1,  // 6: verification.VerificationGRPCService.CreateChallenge:output_type -> verification.CreateChallengeResponse
+	3,  // 7: verification.VerificationGRPCService.GetChallengeStatus:output_type -> verification.GetChallengeStatusResponse
+	5,  // 8: verification.VerificationGRPCService.GetPendingChallenge:output_type -> verification.GetPendingChallengeResponse
+	7,  // 9: verification.VerificationGRPCService.SubmitVerification:output_type -> verification.SubmitVerificationResponse
+	9,  // 10: verification.VerificationGRPCService.SubmitCode:output_type -> verification.SubmitCodeResponse
+	11, // 11: verification.VerificationGRPCService.VerifyByBiometric:output_type -> verification.VerifyByBiometricResponse
+	6,  // [6:12] is the sub-list for method output_type
+	0,  // [0:6] is the sub-list for method input_type
+	0,  // [0:0] is the sub-list for extension type_name
+	0,  // [0:0] is the sub-list for extension extendee
+	0,  // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_verification_verification_proto_init() }
@@ -759,7 +874,7 @@ func file_verification_verification_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_verification_verification_proto_rawDesc), len(file_verification_verification_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

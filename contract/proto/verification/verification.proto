@@ -13,6 +13,8 @@ service VerificationGRPCService {
   rpc SubmitVerification(SubmitVerificationRequest) returns (SubmitVerificationResponse);
   // SubmitCode validates a browser-submitted 6-digit code (code_pull, email fallback).
   rpc SubmitCode(SubmitCodeRequest) returns (SubmitCodeResponse);
+  // VerifyByBiometric verifies a challenge using device biometrics (device signature is the proof).
+  rpc VerifyByBiometric(VerifyByBiometricRequest) returns (VerifyByBiometricResponse);
 }
 
 message CreateChallengeRequest {
@@ -76,4 +78,14 @@ message SubmitCodeRequest {
 message SubmitCodeResponse {
   bool  success            = 1;
   int32 remaining_attempts = 2;
+}
+
+message VerifyByBiometricRequest {
+  uint64 challenge_id = 1;
+  uint64 user_id      = 2;
+  string device_id    = 3;
+}
+
+message VerifyByBiometricResponse {
+  bool success = 1;
 }

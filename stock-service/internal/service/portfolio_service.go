@@ -275,6 +275,8 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseRe
 		// Create/update stock holding at strike price
 		stock, err := s.stockRepo.GetByID(option.StockID)
 		if err != nil {
+			// Compensate: re-credit the debit amount
+			_ = s.creditAccount(holding.AccountID, debitAmount)
 			return nil, err
 		}
 		stockHolding := &model.Holding{
@@ -292,6 +294,8 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseRe
 			AccountID:     holding.AccountID,
 		}
 		if err := s.holdingRepo.Upsert(stockHolding); err != nil {
+			// Compensate: re-credit the debit amount
+			_ = s.creditAccount(holding.AccountID, debitAmount)
 			return nil, err
 		}
 
@@ -318,6 +322,9 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseRe
 			return nil, err
 		}
 
+		// Record the average price before modifying stockHolding for capital gain calculation
+		avgPriceBeforeUpdate := stockHolding.AveragePrice
+
 		// Decrease stock holding
 		stockHolding.Quantity -= sharesAffected
 		if stockHolding.PublicQuantity > stockHolding.Quantity {
@@ -326,23 +333,27 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseRe
 
 		if stockHolding.Quantity == 0 {
 			if err := s.holdingRepo.Delete(stockHolding.ID); err != nil {
+				// Compensate: re-debit the credit amount
+				_ = s.debitAccount(holding.AccountID, creditAmount)
 				return nil, err
 			}
 		} else {
 			if err := s.holdingRepo.Update(stockHolding); err != nil {
+				// Compensate: re-debit the credit amount
+				_ = s.debitAccount(holding.AccountID, creditAmount)
 				return nil, err
 			}
 		}
 
 		// Record capital gain for the stock sale
-		gain := option.StrikePrice.Sub(stockHolding.AveragePrice).Mul(decimal.NewFromInt(sharesAffected))
+		gain := option.StrikePrice.Sub(avgPriceBeforeUpdate).Mul(decimal.NewFromInt(sharesAffected))
 		capitalGain := &model.CapitalGain{
 			UserID:           userID,
 			SystemType:       holding.SystemType,
 			SecurityType:     "stock",
 			Ticker:           stock.Ticker,
 			Quantity:         sharesAffected,
-			BuyPricePerUnit:  stockHolding.AveragePrice,
+			BuyPricePerUnit:  avgPriceBeforeUpdate,
 			SellPricePerUnit: option.StrikePrice,
 			TotalGain:        gain,
 			Currency:         stockListing.Exchange.Currency,
@@ -351,6 +362,8 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseRe
 			TaxMonth:         int(time.Now().Month()),
 		}
 		if err := s.capitalGainRepo.Create(capitalGain); err != nil {
+			// Compensate: re-debit the credit amount
+			_ = s.debitAccount(holding.AccountID, creditAmount)
 			return nil, err
 		}
 	}

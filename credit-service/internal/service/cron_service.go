@@ -123,6 +123,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 	})
 
 	if debitErr != nil {
+		CreditInstallmentCollectionTotal.WithLabelValues("failure").Inc()
 		log.Printf("CronService: installment %d debit failed: %v", installmentID, debitErr)
 
 		// Send failure email notification to the client
@@ -162,6 +163,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 		}
 
 		// Apply late payment interest penalty for variable-rate loans
+		CreditLatePaymentPenaltiesTotal.Inc()
 		if loan.InterestType == "variable" {
 			penalty := decimal.NewFromFloat(0.05)
 			loan.BaseRate = loan.BaseRate.Add(penalty)
@@ -260,6 +262,8 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 		}
 		return
 	}
+
+	CreditInstallmentCollectionTotal.WithLabelValues("success").Inc()
 
 	// Publish success event
 	if c.producer != nil {

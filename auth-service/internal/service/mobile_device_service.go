@@ -307,6 +307,55 @@ func (s *MobileDeviceService) UpdateLastSeen(deviceID string) {
 	_ = s.deviceRepo.UpdateLastSeen(deviceID)
 }
 
+// SetBiometricsEnabled enables or disables biometric verification for the user's active device.
+// Validates ownership (device belongs to userID) and that the device is active.
+func (s *MobileDeviceService) SetBiometricsEnabled(userID int64, deviceID string, enabled bool) error {
+	device, err := s.deviceRepo.GetByDeviceID(deviceID)
+	if err != nil {
+		return errors.New("device not found")
+	}
+	if device.UserID != userID {
+		return errors.New("device does not belong to user")
+	}
+	if device.Status != "active" {
+		return errors.New("device is not active")
+	}
+
+	device.BiometricsEnabled = enabled
+	if err := s.deviceRepo.Update(device); err != nil {
+		return fmt.Errorf("failed to update biometrics setting: %w", err)
+	}
+	return nil
+}
+
+// GetBiometricsEnabled returns the biometrics enabled status for the user's active device.
+func (s *MobileDeviceService) GetBiometricsEnabled(userID int64, deviceID string) (bool, error) {
+	device, err := s.deviceRepo.GetByDeviceID(deviceID)
+	if err != nil {
+		return false, errors.New("device not found")
+	}
+	if device.UserID != userID {
+		return false, errors.New("device does not belong to user")
+	}
+	if device.Status != "active" {
+		return false, errors.New("device is not active")
+	}
+	return device.BiometricsEnabled, nil
+}
+
+// CheckBiometricsEnabled checks if biometrics is enabled for a device by device ID.
+// Used by verification-service internally; ownership is verified at the gateway level.
+func (s *MobileDeviceService) CheckBiometricsEnabled(deviceID string) (bool, error) {
+	device, err := s.deviceRepo.GetByDeviceID(deviceID)
+	if err != nil {
+		return false, errors.New("device not found")
+	}
+	if device.Status != "active" {
+		return false, errors.New("device is not active")
+	}
+	return device.BiometricsEnabled, nil
+}
+
 // --- Helpers ---
 
 func generateDeviceID() string {

@@ -9,19 +9,20 @@ import (
 // MobileDevice represents a registered mobile app instance for a user.
 // One active device per user, enforced at service level.
 type MobileDevice struct {
-	ID            int64      `gorm:"primaryKey;autoIncrement"`
-	UserID        int64      `gorm:"not null;index"`
-	SystemType    string     `gorm:"size:20;not null"` // "client" or "employee"
-	DeviceID      string     `gorm:"size:36;uniqueIndex;not null"`
-	DeviceSecret  string     `gorm:"size:64;not null" json:"-"`
-	DeviceName    string     `gorm:"size:100;not null"`
-	Status        string     `gorm:"size:20;not null;default:'pending'"` // "pending", "active", "deactivated"
-	ActivatedAt   *time.Time
-	DeactivatedAt *time.Time
-	LastSeenAt    time.Time
-	Version       int64 `gorm:"not null;default:1"`
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID                int64  `gorm:"primaryKey;autoIncrement"`
+	UserID            int64  `gorm:"not null;index"`
+	SystemType        string `gorm:"size:20;not null"` // "client" or "employee"
+	DeviceID          string `gorm:"size:36;uniqueIndex;not null"`
+	DeviceSecret      string `gorm:"size:64;not null" json:"-"`
+	DeviceName        string `gorm:"size:100;not null"`
+	Status            string `gorm:"size:20;not null;default:'pending'"` // "pending", "active", "deactivated"
+	BiometricsEnabled bool   `gorm:"default:false"`
+	ActivatedAt       *time.Time
+	DeactivatedAt     *time.Time
+	LastSeenAt        time.Time
+	Version           int64 `gorm:"not null;default:1"`
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 func (d *MobileDevice) BeforeUpdate(tx *gorm.DB) error {

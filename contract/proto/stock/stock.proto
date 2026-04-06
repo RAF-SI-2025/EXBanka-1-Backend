@@ -119,6 +119,8 @@ service SecurityGRPCService {
   // Options
   rpc ListOptions(ListOptionsRequest) returns (ListOptionsResponse);
   rpc GetOption(GetOptionRequest) returns (OptionDetail);
+  // Candles (InfluxDB time-series)
+  rpc GetCandles(GetCandlesRequest) returns (GetCandlesResponse);
 }
 
 // --- Stocks ---
@@ -311,6 +313,29 @@ message ListOptionsResponse {
 
 message GetOptionRequest {
   uint64 id = 1;
+}
+
+// ==================== Candles ====================
+
+message GetCandlesRequest {
+  uint64 listing_id = 1;
+  string interval = 2;    // 1m, 5m, 15m, 1h, 4h, 1d
+  string from = 3;        // RFC3339 timestamp
+  string to = 4;          // RFC3339 timestamp
+}
+
+message CandlePoint {
+  string timestamp = 1;   // RFC3339
+  string open = 2;
+  string high = 3;
+  string low = 4;
+  string close = 5;
+  int64 volume = 6;
+}
+
+message GetCandlesResponse {
+  repeated CandlePoint candles = 1;
+  int64 count = 2;
 }
 
 // ==================== Orders ====================
@@ -542,6 +567,7 @@ message OTCTransaction {
 service TaxGRPCService {
   rpc ListTaxRecords(ListTaxRecordsRequest) returns (ListTaxRecordsResponse);
   rpc CollectTax(CollectTaxRequest) returns (CollectTaxResponse);
+  rpc ListUserTaxRecords(ListUserTaxRecordsRequest) returns (ListUserTaxRecordsResponse);
 }
 
 message TaxRecord {
@@ -571,4 +597,31 @@ message CollectTaxResponse {
   int64 collected_count = 1;
   string total_collected_rsd = 2;
   int64 failed_count = 3;
+}
+
+message ListUserTaxRecordsRequest {
+  uint64 user_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message UserTaxRecord {
+  uint64 id = 1;
+  string security_type = 2;
+  string ticker = 3;
+  int64 quantity = 4;
+  string buy_price_per_unit = 5;
+  string sell_price_per_unit = 6;
+  string total_gain = 7;
+  string currency = 8;
+  int32 tax_year = 9;
+  int32 tax_month = 10;
+  string created_at = 11;
+}
+
+message ListUserTaxRecordsResponse {
+  repeated UserTaxRecord records = 1;
+  int64 total_count = 2;
+  string tax_paid_this_year = 3;
+  string tax_unpaid_this_month = 4;
 }

@@ -3,8 +3,8 @@ package handler
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	authpb "github.com/exbanka/contract/authpb"
+	"github.com/gin-gonic/gin"
 )
 
 type MobileAuthHandler struct {
@@ -193,4 +193,62 @@ func (h *MobileAuthHandler) TransferDevice(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": resp.Success, "message": resp.Message})
+}
+
+type setBiometricsReq struct {
+	Enabled bool `json:"enabled"`
+}
+
+// @Summary Enable or disable biometric verification for device
+// @Tags mobile-device
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body setBiometricsReq true "Biometrics setting"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]interface{}
+// @Router /api/v1/mobile/device/biometrics [post]
+func (h *MobileAuthHandler) SetBiometrics(c *gin.Context) {
+	var req setBiometricsReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+
+	userID := c.GetInt64("user_id")
+	deviceID, _ := c.Get("device_id")
+
+	resp, err := h.authClient.SetBiometricsEnabled(c.Request.Context(), &authpb.SetBiometricsRequest{
+		UserId:   userID,
+		DeviceId: deviceID.(string),
+		Enabled:  req.Enabled,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": resp.Success})
+}
+
+// @Summary Get biometric verification status for device
+// @Tags mobile-device
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/mobile/device/biometrics [get]
+func (h *MobileAuthHandler) GetBiometrics(c *gin.Context) {
+	userID := c.GetInt64("user_id")
+	deviceID, _ := c.Get("device_id")
+
+	resp, err := h.authClient.GetBiometricsEnabled(c.Request.Context(), &authpb.GetBiometricsRequest{
+		UserId:   userID,
+		DeviceId: deviceID.(string),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"enabled": resp.Enabled})
 }
