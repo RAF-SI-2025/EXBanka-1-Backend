@@ -66,7 +66,7 @@ func Setup(
 	clientHandler := handler.NewClientHandler(clientClient, authClient)
 	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient, txClient)
 	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient)
-	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient)
+	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient, exchangeClient)
 	exchangeHandler := handler.NewExchangeHandler(exchangeClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
 	meHandler := handler.NewMeHandler(clientClient, userClient, authClient)

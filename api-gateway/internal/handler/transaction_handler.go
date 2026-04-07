@@ -8,17 +8,19 @@ import (
 	"github.com/gin-gonic/gin"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
 type TransactionHandler struct {
-	txClient      transactionpb.TransactionServiceClient
-	feeClient     transactionpb.FeeServiceClient
-	accountClient accountpb.AccountServiceClient
+	txClient       transactionpb.TransactionServiceClient
+	feeClient      transactionpb.FeeServiceClient
+	accountClient  accountpb.AccountServiceClient
+	exchangeClient exchangepb.ExchangeServiceClient
 }
 
-func NewTransactionHandler(txClient transactionpb.TransactionServiceClient, feeClient transactionpb.FeeServiceClient, accountClient accountpb.AccountServiceClient) *TransactionHandler {
-	return &TransactionHandler{txClient: txClient, feeClient: feeClient, accountClient: accountClient}
+func NewTransactionHandler(txClient transactionpb.TransactionServiceClient, feeClient transactionpb.FeeServiceClient, accountClient accountpb.AccountServiceClient, exchangeClient exchangepb.ExchangeServiceClient) *TransactionHandler {
+	return &TransactionHandler{txClient: txClient, feeClient: feeClient, accountClient: accountClient, exchangeClient: exchangeClient}
 }
 
 // resolveClientAccountNumbers fetches all account numbers belonging to a client from account-service.
@@ -1083,4 +1085,99 @@ func (h *TransactionHandler) DeleteFee(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+type previewTransferRequest struct {
+	FromAccountNumber string  `json:"from_account_number" binding:"required"`
+	ToAccountNumber   string  `json:"to_account_number" binding:"required"`
+	Amount            float64 `json:"amount" binding:"required"`
+}
+
+// @Summary      Preview transfer costs
+// @Description  Returns commission fees and exchange rate data for a transfer without creating it.
+// @Tags         transfers
+// @Accept       json
+// @Produce      json
+// @Param        body  body  previewTransferRequest  true  "Transfer preview data"
+// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /api/v1/me/transfers/preview [post]
+func (h *TransactionHandler) PreviewTransfer(c *gin.Context) {
+	var req previewTransferRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+	if err := positive("amount", req.Amount); err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+
+	amountStr := fmt.Sprintf("%.4f", req.Amount)
+	ctx := c.Request.Context()
+
+	// Look up account currencies
+	fromAcc, err := h.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{AccountNumber: req.FromAccountNumber})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	toAcc, err := h.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{AccountNumber: req.ToAccountNumber})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	fromCurrency := fromAcc.CurrencyCode
+	toCurrency := toAcc.CurrencyCode
+	if fromCurrency == "" {
+		fromCurrency = "RSD"
+	}
+	if toCurrency == "" {
+		toCurrency = "RSD"
+	}
+
+	// Calculate fees
+	feeResp, err := h.feeClient.CalculateFee(ctx, &transactionpb.CalculateFeeRequest{
+		Amount:          amountStr,
+		TransactionType: "transfer",
+		CurrencyCode:    fromCurrency,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	result := gin.H{
+		"from_currency": fromCurrency,
+		"to_currency":   toCurrency,
+		"input_amount":  amountStr,
+		"total_fee":     feeResp.TotalFee,
+		"fee_breakdown": feeResp.AppliedFees,
+	}
+
+	// If cross-currency, get exchange rate info
+	if fromCurrency != toCurrency {
+		exchangeResp, err := h.exchangeClient.Calculate(ctx, &exchangepb.CalculateRequest{
+			FromCurrency: fromCurrency,
+			ToCurrency:   toCurrency,
+			Amount:       amountStr,
+		})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		result["converted_amount"] = exchangeResp.ConvertedAmount
+		result["exchange_rate"] = exchangeResp.EffectiveRate
+		result["exchange_commission_rate"] = exchangeResp.CommissionRate
+	} else {
+		result["converted_amount"] = amountStr
+		result["exchange_rate"] = "1.0000"
+		result["exchange_commission_rate"] = "0.0000"
+	}
+
+	c.JSON(http.StatusOK, result)
 }
