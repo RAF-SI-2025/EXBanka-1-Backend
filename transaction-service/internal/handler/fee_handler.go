@@ -102,6 +102,35 @@ func (h *FeeGRPCHandler) UpdateFee(ctx context.Context, req *pb.UpdateFeeRequest
 	return toFeeResponse(fee), nil
 }
 
+func (h *FeeGRPCHandler) CalculateFee(ctx context.Context, req *pb.CalculateFeeRequest) (*pb.CalculateFeeResponse, error) {
+	amount, err := decimal.NewFromString(req.Amount)
+	if err != nil || !amount.IsPositive() {
+		return nil, status.Errorf(codes.InvalidArgument, "amount must be a positive decimal")
+	}
+	if req.TransactionType == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "transaction_type is required")
+	}
+
+	total, details, err := h.feeSvc.CalculateFeeDetailed(amount, req.TransactionType, req.CurrencyCode)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "fee calculation failed: %v", err)
+	}
+
+	breakdown := make([]*pb.FeeBreakdown, len(details))
+	for i, d := range details {
+		breakdown[i] = &pb.FeeBreakdown{
+			Name:             d.Name,
+			FeeType:          d.FeeType,
+			FeeValue:         d.FeeValue.StringFixed(4),
+			CalculatedAmount: d.CalculatedAmount.StringFixed(4),
+		}
+	}
+	return &pb.CalculateFeeResponse{
+		TotalFee:    total.StringFixed(4),
+		AppliedFees: breakdown,
+	}, nil
+}
+
 func (h *FeeGRPCHandler) DeleteFee(ctx context.Context, req *pb.DeleteFeeRequest) (*pb.DeleteFeeResponse, error) {
 	if err := h.feeSvc.DeactivateFee(req.Id); err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to deactivate fee: %v", err)
