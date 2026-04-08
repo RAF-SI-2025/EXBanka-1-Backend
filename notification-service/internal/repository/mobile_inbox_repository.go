@@ -44,12 +44,14 @@ func (r *MobileInboxRepository) GetPendingByUser(userID uint64) ([]model.MobileI
 
 func (r *MobileInboxRepository) MarkDelivered(id uint64, deviceID string) error {
 	now := time.Now()
-	result := r.db.Model(&model.MobileInboxItem{}).
-		Where("id = ? AND device_id = ? AND status = ?", id, deviceID, "pending").
-		Updates(map[string]interface{}{
-			"status":       "delivered",
-			"delivered_at": now,
-		})
+	query := r.db.Model(&model.MobileInboxItem{}).Where("id = ? AND status = ?", id, "pending")
+	if deviceID != "" {
+		query = query.Where("device_id = ?", deviceID)
+	}
+	result := query.Updates(map[string]interface{}{
+		"status":       "delivered",
+		"delivered_at": now,
+	})
 	if result.Error != nil {
 		return result.Error
 	}

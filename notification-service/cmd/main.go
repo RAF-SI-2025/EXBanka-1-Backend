@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	authpb "github.com/exbanka/contract/authpb"
 	"github.com/exbanka/contract/metrics"
 	notifpb "github.com/exbanka/contract/notificationpb"
 	shared "github.com/exbanka/contract/shared"
@@ -22,7 +21,6 @@ import (
 	"github.com/exbanka/notification-service/internal/sender"
 	"github.com/exbanka/notification-service/internal/service"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -71,18 +69,8 @@ func main() {
 	defer cancel()
 	go emailConsumer.Start(ctx)
 
-	// Connect to auth-service for device lookups
-	var authClient authpb.AuthServiceClient
-	authConn, err := grpc.NewClient(cfg.AuthGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Printf("warn: failed to connect to auth service: %v (device lookup will not work)", err)
-	} else {
-		defer authConn.Close()
-		authClient = authpb.NewAuthServiceClient(authConn)
-	}
-
 	// Verification consumer (challenge events → email or mobile inbox)
-	verificationConsumer := consumer.NewVerificationConsumer(cfg.KafkaBrokers, emailSender, producer, inboxRepo, authClient)
+	verificationConsumer := consumer.NewVerificationConsumer(cfg.KafkaBrokers, emailSender, producer, inboxRepo)
 	verificationConsumer.Start(ctx)
 	defer verificationConsumer.Close()
 
@@ -104,8 +92,13 @@ func main() {
 	shared.RegisterHealthCheck(grpcServer, "notification-service")
 	reflection.Register(grpcServer)
 	metrics.InitializeGRPCMetrics(grpcServer)
-	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
-	defer metricsShutdown(context.Background())
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
+
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
 
 	// Graceful shutdown
 	go func() {
@@ -117,6 +110,7 @@ func main() {
 		grpcServer.GracefulStop()
 	}()
 
+	markReady()
 	fmt.Printf("Notification service listening on %s\n", cfg.GRPCAddr)
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)

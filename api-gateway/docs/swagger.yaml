@@ -483,6 +483,19 @@ definitions:
     required:
     - email
     type: object
+  handler.previewTransferRequest:
+    properties:
+      amount:
+        type: number
+      from_account_number:
+        type: string
+      to_account_number:
+        type: string
+    required:
+    - amount
+    - from_account_number
+    - to_account_number
+    type: object
   handler.refreshMobileReq:
     properties:
       refresh_token:
@@ -5688,6 +5701,50 @@ paths:
       summary: Get loan changelog (not yet implemented)
       tags:
       - Changelog
+  /api/v1/me/transfers/preview:
+    post:
+      consumes:
+      - application/json
+      description: Returns commission fees and exchange rate data for a transfer without
+        creating it.
+      parameters:
+      - description: Transfer preview data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.previewTransferRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Preview transfer costs
+      tags:
+      - transfers
   /api/v1/mobile/device/biometrics:
     get:
       produces:

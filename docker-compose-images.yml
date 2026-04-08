@@ -18,7 +18,7 @@ services:
   # ─── Third-party infrastructure ───────────────────────────────────────────
 
   kafka:
-    image: apache/kafka:3.7.0
+    image: apache/kafka:3.9.0
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
@@ -40,7 +40,7 @@ services:
       start_period: 30s
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     ports:
       - "6379:6379"
     volumes:
@@ -54,7 +54,7 @@ services:
   # ─── Databases ────────────────────────────────────────────────────────────
 
   user-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: user_db
       POSTGRES_USER: postgres
@@ -70,7 +70,7 @@ services:
       retries: 5
 
   auth-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: auth_db
       POSTGRES_USER: postgres
@@ -86,7 +86,7 @@ services:
       retries: 5
 
   client-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: clientdb
       POSTGRES_USER: postgres
@@ -102,7 +102,7 @@ services:
       retries: 5
 
   account-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: accountdb
       POSTGRES_USER: postgres
@@ -118,7 +118,7 @@ services:
       retries: 5
 
   card-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: carddb
       POSTGRES_USER: postgres
@@ -134,7 +134,7 @@ services:
       retries: 5
 
   transaction-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: transactiondb
       POSTGRES_USER: postgres
@@ -150,7 +150,7 @@ services:
       retries: 5
 
   credit-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: creditdb
       POSTGRES_USER: postgres
@@ -166,7 +166,7 @@ services:
       retries: 5
 
   exchange-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: exchangedb
       POSTGRES_USER: postgres
@@ -182,7 +182,7 @@ services:
       retries: 5
 
   verification-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: verificationdb
       POSTGRES_USER: postgres
@@ -198,7 +198,7 @@ services:
       retries: 5
 
   notification-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: notification_db
       POSTGRES_USER: postgres
@@ -214,7 +214,7 @@ services:
       retries: 5
 
   stock-db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: stockdb
       POSTGRES_USER: postgres
@@ -578,6 +578,7 @@ services:
       KAFKA_BROKERS: "kafka:9092"
       ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@admin.com}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-AdminAdmin2026!.}"
+      SEEDER_COOLDOWN: "10s"
     depends_on:
       kafka:
         condition: service_healthy

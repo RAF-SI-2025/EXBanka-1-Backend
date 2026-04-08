@@ -1,13 +1,14 @@
 package grpc
 
 import (
-	stockpb "github.com/exbanka/contract/stockpb"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/exbanka/contract/shared"
+	stockpb "github.com/exbanka/contract/stockpb"
 )
 
 func NewStockExchangeClient(addr string) (stockpb.StockExchangeGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := shared.DialGRPC(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -15,7 +16,7 @@ func NewStockExchangeClient(addr string) (stockpb.StockExchangeGRPCServiceClient
 }
 
 func NewSecurityClient(addr string) (stockpb.SecurityGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := shared.DialGRPC(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -23,7 +24,7 @@ func NewSecurityClient(addr string) (stockpb.SecurityGRPCServiceClient, *grpc.Cl
 }
 
 func NewOrderClient(addr string) (stockpb.OrderGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := shared.DialGRPC(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -31,7 +32,7 @@ func NewOrderClient(addr string) (stockpb.OrderGRPCServiceClient, *grpc.ClientCo
 }
 
 func NewPortfolioClient(addr string) (stockpb.PortfolioGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := shared.DialGRPC(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -39,7 +40,7 @@ func NewPortfolioClient(addr string) (stockpb.PortfolioGRPCServiceClient, *grpc.
 }
 
 func NewOTCClient(addr string) (stockpb.OTCGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := shared.DialGRPC(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -47,7 +48,7 @@ func NewOTCClient(addr string) (stockpb.OTCGRPCServiceClient, *grpc.ClientConn, 
 }
 
 func NewTaxClient(addr string) (stockpb.TaxGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := shared.DialGRPC(addr)
 	if err != nil {
 		return nil, nil, err
 	}

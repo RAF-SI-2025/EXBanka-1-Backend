@@ -241,7 +241,7 @@ func buildService() (*OrderService, *mockOrderRepo, *mockListingRepo, *mockSetti
 	producer := &mockProducer{}
 
 	// Enable testing mode so isAfterHours is skipped.
-	settingRepo.Set("testing_mode", "true")
+	_ = settingRepo.Set("testing_mode", "true")
 
 	svc := NewOrderService(orderRepo, txRepo, listingRepo, settingRepo, secRepo, producer)
 	return svc, orderRepo, listingRepo, settingRepo, secRepo, producer
@@ -635,7 +635,7 @@ func TestCancelOrder_AlreadyCompleted(t *testing.T) {
 	stored, _ := orderRepo.GetByID(order.ID)
 	stored.IsDone = true
 	stored.Status = "approved"
-	orderRepo.Update(stored)
+	_ = orderRepo.Update(stored)
 
 	_, err := svc.CancelOrder(order.ID, 42)
 	if err == nil {

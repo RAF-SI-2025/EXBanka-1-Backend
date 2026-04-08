@@ -2,13 +2,13 @@ package grpc
 
 import (
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	notificationpb "github.com/exbanka/contract/notificationpb"
+	"github.com/exbanka/contract/shared"
 )
 
 func NewNotificationClient(addr string) (notificationpb.NotificationServiceClient, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := shared.DialGRPC(addr)
 	if err != nil {
 		return nil, nil, err
 	}

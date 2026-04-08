@@ -30,6 +30,7 @@ const (
 	AuthService_GetAccountStatus_FullMethodName        = "/auth.AuthService/GetAccountStatus"
 	AuthService_GetAccountStatusBatch_FullMethodName   = "/auth.AuthService/GetAccountStatusBatch"
 	AuthService_CreateAccount_FullMethodName           = "/auth.AuthService/CreateAccount"
+	AuthService_ResendActivationEmail_FullMethodName   = "/auth.AuthService/ResendActivationEmail"
 	AuthService_RequestMobileActivation_FullMethodName = "/auth.AuthService/RequestMobileActivation"
 	AuthService_ActivateMobileDevice_FullMethodName    = "/auth.AuthService/ActivateMobileDevice"
 	AuthService_RefreshMobileToken_FullMethodName      = "/auth.AuthService/RefreshMobileToken"
@@ -61,6 +62,7 @@ type AuthServiceClient interface {
 	GetAccountStatus(ctx context.Context, in *GetAccountStatusRequest, opts ...grpc.CallOption) (*GetAccountStatusResponse, error)
 	GetAccountStatusBatch(ctx context.Context, in *GetAccountStatusBatchRequest, opts ...grpc.CallOption) (*GetAccountStatusBatchResponse, error)
 	CreateAccount(ctx context.Context, in *CreateAccountRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error)
+	ResendActivationEmail(ctx context.Context, in *ResendActivationEmailRequest, opts ...grpc.CallOption) (*ResendActivationEmailResponse, error)
 	// Mobile device management
 	RequestMobileActivation(ctx context.Context, in *MobileActivationRequest, opts ...grpc.CallOption) (*MobileActivationResponse, error)
 	ActivateMobileDevice(ctx context.Context, in *ActivateMobileDeviceRequest, opts ...grpc.CallOption) (*ActivateMobileDeviceResponse, error)
@@ -192,6 +194,16 @@ func (c *authServiceClient) CreateAccount(ctx context.Context, in *CreateAccount
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateAccountResponse)
 	err := c.cc.Invoke(ctx, AuthService_CreateAccount_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) ResendActivationEmail(ctx context.Context, in *ResendActivationEmailRequest, opts ...grpc.CallOption) (*ResendActivationEmailResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResendActivationEmailResponse)
+	err := c.cc.Invoke(ctx, AuthService_ResendActivationEmail_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -353,6 +365,7 @@ type AuthServiceServer interface {
 	GetAccountStatus(context.Context, *GetAccountStatusRequest) (*GetAccountStatusResponse, error)
 	GetAccountStatusBatch(context.Context, *GetAccountStatusBatchRequest) (*GetAccountStatusBatchResponse, error)
 	CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error)
+	ResendActivationEmail(context.Context, *ResendActivationEmailRequest) (*ResendActivationEmailResponse, error)
 	// Mobile device management
 	RequestMobileActivation(context.Context, *MobileActivationRequest) (*MobileActivationResponse, error)
 	ActivateMobileDevice(context.Context, *ActivateMobileDeviceRequest) (*ActivateMobileDeviceResponse, error)
@@ -412,6 +425,9 @@ func (UnimplementedAuthServiceServer) GetAccountStatusBatch(context.Context, *Ge
 }
 func (UnimplementedAuthServiceServer) CreateAccount(context.Context, *CreateAccountRequest) (*CreateAccountResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateAccount not implemented")
+}
+func (UnimplementedAuthServiceServer) ResendActivationEmail(context.Context, *ResendActivationEmailRequest) (*ResendActivationEmailResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResendActivationEmail not implemented")
 }
 func (UnimplementedAuthServiceServer) RequestMobileActivation(context.Context, *MobileActivationRequest) (*MobileActivationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RequestMobileActivation not implemented")
@@ -670,6 +686,24 @@ func _AuthService_CreateAccount_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AuthServiceServer).CreateAccount(ctx, req.(*CreateAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_ResendActivationEmail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResendActivationEmailRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ResendActivationEmail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ResendActivationEmail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ResendActivationEmail(ctx, req.(*ResendActivationEmailRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -976,6 +1010,10 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateAccount",
 			Handler:    _AuthService_CreateAccount_Handler,
+		},
+		{
+			MethodName: "ResendActivationEmail",
+			Handler:    _AuthService_ResendActivationEmail_Handler,
 		},
 		{
 			MethodName: "RequestMobileActivation",

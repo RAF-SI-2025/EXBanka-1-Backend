@@ -2,13 +2,13 @@ package grpc
 
 import (
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	creditpb "github.com/exbanka/contract/creditpb"
+	"github.com/exbanka/contract/shared"
 )
 
 func NewCreditClient(addr string) (creditpb.CreditServiceClient, *grpc.ClientConn, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := shared.DialGRPC(addr)
 	if err != nil {
 		return nil, nil, err
 	}

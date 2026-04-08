@@ -80,8 +80,13 @@ func main() {
 	pb.RegisterVerificationGRPCServiceServer(s, grpcHandler)
 	shared.RegisterHealthCheck(s, "verification-service")
 	metrics.InitializeGRPCMetrics(s)
-	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
-	defer metricsShutdown(context.Background())
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
+
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
 
 	// 9. Ensure Kafka topics exist (produces to)
 	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
@@ -99,6 +104,7 @@ func main() {
 	go runExpiryLoop(ctx, svc)
 
 	// 12. Start gRPC server
+	markReady()
 	go func() {
 		log.Printf("verification-service listening on %s", cfg.GRPCAddr)
 		if err := s.Serve(lis); err != nil {

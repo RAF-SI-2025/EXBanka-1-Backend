@@ -187,8 +187,8 @@ func main() {
 	defer cancel()
 	wsHandler.StartKafkaConsumer(ctx, cfg.KafkaBrokers)
 
-	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
-	defer metricsShutdown(context.Background())
+	markReady, _, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
 
 	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, wsHandler)
 
@@ -202,6 +202,7 @@ func main() {
 	}
 
 	// Start HTTP server in goroutine
+	markReady()
 	go func() {
 		fmt.Printf("API Gateway listening on %s\n", cfg.HTTPAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

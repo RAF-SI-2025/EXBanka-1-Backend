@@ -14,11 +14,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	authpb "github.com/exbanka/contract/authpb"
-	kafkamsg "github.com/exbanka/contract/kafka"
-	"github.com/exbanka/contract/metrics"
-	shared "github.com/exbanka/contract/shared"
-	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/auth-service/internal/cache"
 	"github.com/exbanka/auth-service/internal/config"
 	"github.com/exbanka/auth-service/internal/consumer"
@@ -27,6 +22,11 @@ import (
 	"github.com/exbanka/auth-service/internal/model"
 	"github.com/exbanka/auth-service/internal/repository"
 	"github.com/exbanka/auth-service/internal/service"
+	authpb "github.com/exbanka/contract/authpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/metrics"
+	shared "github.com/exbanka/contract/shared"
+	userpb "github.com/exbanka/contract/userpb"
 )
 
 func main() {
@@ -100,8 +100,13 @@ func main() {
 	authpb.RegisterAuthServiceServer(s, grpcHandler)
 	shared.RegisterHealthCheck(s, "auth-service")
 	metrics.InitializeGRPCMetrics(s)
-	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
-	defer metricsShutdown(context.Background())
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
+
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
 
 	// Pre-create Kafka topics before starting consumers to avoid
 	// partition assignment race condition on fresh startup.
@@ -129,6 +134,7 @@ func main() {
 	defer clientConsumer.Close()
 
 	// Start gRPC server in goroutine
+	markReady()
 	go func() {
 		fmt.Printf("Auth service listening on %s\n", cfg.GRPCAddr)
 		if err := s.Serve(lis); err != nil {

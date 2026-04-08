@@ -291,8 +291,13 @@ func main() {
 
 	shared.RegisterHealthCheck(grpcServer, "stock-service")
 	metrics.InitializeGRPCMetrics(grpcServer)
-	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
-	defer metricsShutdown(context.Background())
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
+
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
 
 	// --- Graceful shutdown ---
 	sigCh := make(chan os.Signal, 1)
@@ -304,6 +309,7 @@ func main() {
 		grpcServer.GracefulStop()
 	}()
 
+	markReady()
 	log.Printf("stock-service listening on %s", cfg.GRPCAddr)
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("gRPC server failed: %v", err)

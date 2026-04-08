@@ -126,10 +126,16 @@ func main() {
 	pb.RegisterCreditServiceServer(s, grpcHandler)
 	shared.RegisterHealthCheck(s, "credit-service")
 	metrics.InitializeGRPCMetrics(s)
-	metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
-	defer metricsShutdown(context.Background())
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
+
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
 
 	// Start gRPC server in goroutine
+	markReady()
 	go func() {
 		fmt.Printf("credit service listening on %s\n", cfg.GRPCAddr)
 		if err := s.Serve(lis); err != nil {

@@ -66,7 +66,7 @@ func Setup(
 	clientHandler := handler.NewClientHandler(clientClient, authClient)
 	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient, txClient)
 	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient)
-	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient)
+	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient, exchangeClient)
 	exchangeHandler := handler.NewExchangeHandler(exchangeClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
 	meHandler := handler.NewMeHandler(clientClient, userClient, authClient)
@@ -89,6 +89,7 @@ func Setup(
 			auth.POST("/password/reset-request", authHandler.RequestPasswordReset)
 			auth.POST("/password/reset", authHandler.ResetPassword)
 			auth.POST("/activate", authHandler.ActivateAccount)
+			auth.POST("/resend-activation", authHandler.ResendActivationEmail)
 		}
 
 		// Public exchange rate routes

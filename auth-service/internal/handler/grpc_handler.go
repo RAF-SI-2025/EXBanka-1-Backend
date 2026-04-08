@@ -140,6 +140,17 @@ func (h *AuthGRPCHandler) GetAccountStatus(ctx context.Context, req *pb.GetAccou
 	return &pb.GetAccountStatusResponse{Status: st, Active: active}, nil
 }
 
+func (h *AuthGRPCHandler) ResendActivationEmail(ctx context.Context, req *pb.ResendActivationEmailRequest) (*pb.ResendActivationEmailResponse, error) {
+	if err := h.authService.ResendActivationEmail(ctx, req.Email); err != nil {
+		log.Printf("warn: resend activation email failed (suppressed): %v", err)
+	}
+	// Always return success to not leak email existence
+	return &pb.ResendActivationEmailResponse{
+		Success: true,
+		Message: "if the email is registered and pending activation, a new activation email has been sent",
+	}, nil
+}
+
 func (h *AuthGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.CreateAccountResponse, error) {
 	if err := h.authService.CreateAccountAndActivationToken(ctx, req.PrincipalId, req.Email, req.FirstName, req.PrincipalType); err != nil {
 		return nil, status.Errorf(mapServiceError(err), "%v", err)

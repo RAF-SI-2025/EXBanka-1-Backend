@@ -130,12 +130,6 @@ func (r *LoginAttemptRepository) RecordFailureAndCheckLock(email, ip, userAgent,
 	return locked, remaining, err
 }
 
-func emailToAdvisoryKey(email string) int64 {
-	h := fnv.New32a()
-	h.Write([]byte(email))
-	return int64(h.Sum32())
-}
-
 // ListRecentByEmail returns the most recent login attempts for an email, ordered newest first.
 func (r *LoginAttemptRepository) ListRecentByEmail(email string, limit int) ([]model.LoginAttempt, error) {
 	var attempts []model.LoginAttempt

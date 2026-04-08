@@ -350,6 +350,170 @@ func TestSeedFromTemplates(t *testing.T) {
 	assert.Len(t, bps2, 1, "should not duplicate on re-seed")
 }
 
+func TestApplyBlueprint_Employee_SetsLimits(t *testing.T) {
+	bpRepo := newMockBlueprintRepo()
+	limitRepo := newMockEmployeeLimitRepo()
+	svc := NewBlueprintService(bpRepo, limitRepo, nil, nil, nil, nil)
+
+	bp := model.LimitBlueprint{
+		Name: "SetLimitsEmp", Type: model.BlueprintTypeEmployee,
+		Values: mustMarshal(model.EmployeeBlueprintValues{
+			MaxLoanApprovalAmount: "10000",
+			MaxSingleTransaction:  "20000",
+			MaxDailyTransaction:   "30000",
+			MaxClientDailyLimit:   "40000",
+			MaxClientMonthlyLimit: "50000",
+		}),
+	}
+	created, err := svc.CreateBlueprint(context.Background(), bp)
+	require.NoError(t, err)
+
+	err = svc.ApplyBlueprint(context.Background(), created.ID, 11, 1)
+	require.NoError(t, err)
+
+	limit, err := limitRepo.GetByEmployeeID(11)
+	require.NoError(t, err)
+	assert.True(t, limit.MaxLoanApprovalAmount.Equal(decimal.NewFromInt(10000)))
+	assert.True(t, limit.MaxSingleTransaction.Equal(decimal.NewFromInt(20000)))
+	assert.True(t, limit.MaxDailyTransaction.Equal(decimal.NewFromInt(30000)))
+	assert.True(t, limit.MaxClientDailyLimit.Equal(decimal.NewFromInt(40000)))
+	assert.True(t, limit.MaxClientMonthlyLimit.Equal(decimal.NewFromInt(50000)))
+}
+
+func TestApplyBlueprint_Actuary_SetsLimits(t *testing.T) {
+	bpRepo := newMockBlueprintRepo()
+	actuaryRepo := newMockActuaryRepoWithUpsert()
+	svc := NewBlueprintService(bpRepo, nil, actuaryRepo, nil, nil, nil)
+
+	bp := model.LimitBlueprint{
+		Name: "SetLimitsAct", Type: model.BlueprintTypeActuary,
+		Values: mustMarshal(model.ActuaryBlueprintValues{Limit: "75000", NeedApproval: false}),
+	}
+	created, err := svc.CreateBlueprint(context.Background(), bp)
+	require.NoError(t, err)
+
+	err = svc.ApplyBlueprint(context.Background(), created.ID, 22, 1)
+	require.NoError(t, err)
+
+	require.Len(t, actuaryRepo.upserted, 1)
+	assert.Equal(t, int64(22), actuaryRepo.upserted[0].EmployeeID)
+	assert.True(t, actuaryRepo.upserted[0].Limit.Equal(decimal.NewFromInt(75000)))
+	assert.False(t, actuaryRepo.upserted[0].NeedApproval)
+}
+
+func TestApplyBlueprint_Client_CallsGRPC(t *testing.T) {
+	bpRepo := newMockBlueprintRepo()
+	clientClient := &mockClientLimitClient{}
+	svc := NewBlueprintService(bpRepo, nil, nil, clientClient, nil, nil)
+
+	bp := model.LimitBlueprint{
+		Name: "ClientGRPCBP", Type: model.BlueprintTypeClient,
+		Values: mustMarshal(model.ClientBlueprintValues{
+			DailyLimit: "200000", MonthlyLimit: "2000000", TransferLimit: "600000",
+		}),
+	}
+	created, err := svc.CreateBlueprint(context.Background(), bp)
+	require.NoError(t, err)
+
+	err = svc.ApplyBlueprint(context.Background(), created.ID, 33, 5)
+	require.NoError(t, err)
+
+	require.Len(t, clientClient.calls, 1)
+	call := clientClient.calls[0]
+	assert.Equal(t, int64(33), call.ClientID)
+	assert.Equal(t, "200000", call.DailyLimit)
+	assert.Equal(t, "2000000", call.MonthlyLimit)
+	assert.Equal(t, "600000", call.TransferLimit)
+	assert.Equal(t, int64(5), call.SetByEmployee)
+}
+
+func TestApplyBlueprint_Employee_UpsertOverwrites(t *testing.T) {
+	bpRepo := newMockBlueprintRepo()
+	limitRepo := newMockEmployeeLimitRepo()
+	svc := NewBlueprintService(bpRepo, limitRepo, nil, nil, nil, nil)
+
+	// First blueprint
+	bp1 := model.LimitBlueprint{
+		Name: "First", Type: model.BlueprintTypeEmployee,
+		Values: mustMarshal(model.EmployeeBlueprintValues{
+			MaxLoanApprovalAmount: "1000", MaxSingleTransaction: "2000",
+			MaxDailyTransaction: "3000", MaxClientDailyLimit: "4000",
+			MaxClientMonthlyLimit: "5000",
+		}),
+	}
+	created1, err := svc.CreateBlueprint(context.Background(), bp1)
+	require.NoError(t, err)
+
+	// Second blueprint with higher values
+	bp2 := model.LimitBlueprint{
+		Name: "Second", Type: model.BlueprintTypeEmployee,
+		Values: mustMarshal(model.EmployeeBlueprintValues{
+			MaxLoanApprovalAmount: "9000", MaxSingleTransaction: "8000",
+			MaxDailyTransaction: "7000", MaxClientDailyLimit: "6000",
+			MaxClientMonthlyLimit: "50000",
+		}),
+	}
+	created2, err := svc.CreateBlueprint(context.Background(), bp2)
+	require.NoError(t, err)
+
+	// Apply first blueprint to employee 77
+	err = svc.ApplyBlueprint(context.Background(), created1.ID, 77, 1)
+	require.NoError(t, err)
+	limit, _ := limitRepo.GetByEmployeeID(77)
+	assert.True(t, limit.MaxLoanApprovalAmount.Equal(decimal.NewFromInt(1000)))
+
+	// Apply second blueprint to the same employee — values must be overwritten
+	err = svc.ApplyBlueprint(context.Background(), created2.ID, 77, 1)
+	require.NoError(t, err)
+	limit, _ = limitRepo.GetByEmployeeID(77)
+	assert.True(t, limit.MaxLoanApprovalAmount.Equal(decimal.NewFromInt(9000)), "MaxLoanApprovalAmount should be overwritten")
+	assert.True(t, limit.MaxSingleTransaction.Equal(decimal.NewFromInt(8000)), "MaxSingleTransaction should be overwritten")
+	assert.True(t, limit.MaxClientMonthlyLimit.Equal(decimal.NewFromInt(50000)), "MaxClientMonthlyLimit should be overwritten")
+}
+
+func TestCreateBlueprint_InvalidValues_MissingField(t *testing.T) {
+	bpRepo := newMockBlueprintRepo()
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+
+	// Employee blueprint missing max_single_transaction
+	bp := model.LimitBlueprint{
+		Name: "MissingField",
+		Type: model.BlueprintTypeEmployee,
+		Values: mustMarshal(model.EmployeeBlueprintValues{
+			MaxLoanApprovalAmount: "50000",
+			// MaxSingleTransaction intentionally omitted
+			MaxDailyTransaction:   "500000",
+			MaxClientDailyLimit:   "250000",
+			MaxClientMonthlyLimit: "2500000",
+		}),
+	}
+	_, err := svc.CreateBlueprint(context.Background(), bp)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "max_single_transaction")
+	assert.Contains(t, err.Error(), "required")
+}
+
+func TestCreateBlueprint_InvalidValues_NonDecimal(t *testing.T) {
+	bpRepo := newMockBlueprintRepo()
+	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)
+
+	// Employee blueprint with non-decimal value "abc"
+	bp := model.LimitBlueprint{
+		Name: "NonDecimal",
+		Type: model.BlueprintTypeEmployee,
+		Values: mustMarshal(model.EmployeeBlueprintValues{
+			MaxLoanApprovalAmount: "abc",
+			MaxSingleTransaction:  "100000",
+			MaxDailyTransaction:   "500000",
+			MaxClientDailyLimit:   "250000",
+			MaxClientMonthlyLimit: "2500000",
+		}),
+	}
+	_, err := svc.CreateBlueprint(context.Background(), bp)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "max_loan_approval_amount")
+}
+
 func TestUpdateBlueprint(t *testing.T) {
 	bpRepo := newMockBlueprintRepo()
 	svc := NewBlueprintService(bpRepo, nil, nil, nil, nil, nil)

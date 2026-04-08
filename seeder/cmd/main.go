@@ -52,7 +52,7 @@ func getenv(key, fallback string) string {
 }
 
 func dial(addr string) *grpc.ClientConn {
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 30; i++ {
 		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
 			return conn
@@ -60,7 +60,7 @@ func dial(addr string) *grpc.ClientConn {
 		log.Printf("seeder: waiting for %s (%v)…", addr, err)
 		time.Sleep(3 * time.Second)
 	}
-	log.Fatalf("seeder: cannot connect to %s", addr)
+	log.Fatalf("seeder: cannot connect to %s after 90s", addr)
 	return nil
 }
 
@@ -73,6 +73,14 @@ func main() {
 	password := getenv("ADMIN_PASSWORD", "Admin1234!")
 
 	log.Printf("seeder: admin email=%s", email)
+
+	// ── 0. Initial cooldown — in Kubernetes, services may be starting simultaneously ──
+	cooldown := getenv("SEEDER_COOLDOWN", "30s")
+	cooldownDuration, _ := time.ParseDuration(cooldown)
+	if cooldownDuration > 0 {
+		log.Printf("seeder: initial cooldown %v (waiting for services to start)…", cooldownDuration)
+		time.Sleep(cooldownDuration)
+	}
 
 	// ── 1. Connect to services ────────────────────────────────────────────────
 
@@ -146,7 +154,7 @@ func main() {
 
 		// ── 6. Read activation token from Kafka ───────────────────────────────────
 
-		token := readActivationToken(kafka, email)
+		token := readActivationToken(kafka, email, authClient)
 		log.Printf("seeder: got activation token (len=%d)", len(token))
 
 		// ── 7. Activate account with desired password ─────────────────────────────
@@ -241,7 +249,7 @@ func seedClient(
 
 	// 4. Wait for activation token on Kafka
 	log.Println("seeder: waiting for client activation token on Kafka…")
-	token := readActivationToken(kafkaBrokers, clientEmail)
+	token := readActivationToken(kafkaBrokers, clientEmail, authClient)
 	log.Printf("seeder: got client activation token (len=%d)", len(token))
 
 	// 5. Activate account
@@ -261,19 +269,24 @@ func seedClient(
 
 // readActivationToken scans the notification.send-email Kafka topic for an
 // ACTIVATION message addressed to email and returns the token.
-// Retries for up to 60 seconds to tolerate startup ordering.
-func readActivationToken(brokers, email string) string {
-	deadline := time.Now().Add(60 * time.Second)
+// After 5 consecutive failed scans, it calls ResendActivationEmail via gRPC
+// to request a fresh activation email. Retries for up to 120 seconds total.
+func readActivationToken(brokers, email string, authClient authpb.AuthServiceClient) string {
+	const resendAfterScans = 5
+	deadline := time.Now().Add(120 * time.Second)
+	failedScans := 0
+	resent := false
+
 	for time.Now().Before(deadline) {
 		r := kafkalib.NewReader(kafkalib.ReaderConfig{
-			Brokers:     []string{brokers},
+			Brokers:     strings.Split(brokers, ","),
 			Topic:       "notification.send-email",
 			Partition:   0,
 			StartOffset: kafkalib.FirstOffset,
 			MaxWait:     500 * time.Millisecond,
 		})
 
-		scanCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		scanCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		token := scanOnce(r, scanCtx, email)
 		cancel()
 		r.Close()
@@ -281,8 +294,23 @@ func readActivationToken(brokers, email string) string {
 		if token != "" {
 			return token
 		}
+
+		failedScans++
+		if failedScans >= resendAfterScans && !resent {
+			log.Printf("seeder: %d scans without activation token for %s, requesting resend via gRPC…", failedScans, email)
+			resendCtx, resendCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_, err := authClient.ResendActivationEmail(resendCtx, &authpb.ResendActivationEmailRequest{Email: email})
+			resendCancel()
+			if err != nil {
+				log.Printf("seeder: ResendActivationEmail RPC failed: %v", err)
+			} else {
+				log.Println("seeder: resend activation email requested, continuing to scan Kafka…")
+			}
+			resent = true
+		}
+
 		log.Println("seeder: activation token not yet in Kafka, retrying…")
-		time.Sleep(2 * time.Second)
+		time.Sleep(3 * time.Second)
 	}
 	log.Fatalf("seeder: timed out waiting for activation token for %s", email)
 	return ""

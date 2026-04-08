@@ -195,19 +195,21 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 
 		// Publish fill event to Kafka
 		if e.producer != nil {
-			go e.producer.PublishOrderFilled(context.Background(), map[string]interface{}{
-				"order_id":      orderID,
-				"user_id":       order.UserID,
-				"direction":     order.Direction,
-				"security_type": order.SecurityType,
-				"ticker":        order.Ticker,
-				"filled_qty":    portionSize,
-				"remaining_qty": order.RemainingPortions,
-				"price":         execPrice.StringFixed(4),
-				"total_price":   txn.TotalPrice.StringFixed(4),
-				"is_done":       order.IsDone,
-				"timestamp":     time.Now().Unix(),
-			})
+			go func() {
+				_ = e.producer.PublishOrderFilled(context.Background(), map[string]interface{}{
+					"order_id":      orderID,
+					"user_id":       order.UserID,
+					"direction":     order.Direction,
+					"security_type": order.SecurityType,
+					"ticker":        order.Ticker,
+					"filled_qty":    portionSize,
+					"remaining_qty": order.RemainingPortions,
+					"price":         execPrice.StringFixed(4),
+					"total_price":   txn.TotalPrice.StringFixed(4),
+					"is_done":       order.IsDone,
+					"timestamp":     time.Now().Unix(),
+				})
+			}()
 		}
 
 		if order.IsDone {
