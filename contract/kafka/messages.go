@@ -443,7 +443,6 @@ const (
 type VerificationChallengeCreatedMessage struct {
 	ChallengeID     uint64 `json:"challenge_id"`
 	UserID          uint64 `json:"user_id"`
-	DeviceID        string `json:"device_id"`
 	Method          string `json:"method"`           // "code_pull", "qr_scan", "number_match"
 	DisplayData     string `json:"display_data"`     // JSON string — what the mobile app needs to show
 	DeliveryChannel string `json:"delivery_channel"` // "mobile" or "email"
@@ -475,7 +474,6 @@ type VerificationChallengeFailedMessage struct {
 // api-gateway consumes this to push via WebSocket to connected mobile devices.
 type MobilePushMessage struct {
 	UserID   uint64 `json:"user_id"`
-	DeviceID string `json:"device_id"`
 	Type     string `json:"type"`    // "verification_challenge"
 	Payload  string `json:"payload"` // JSON string
 }
