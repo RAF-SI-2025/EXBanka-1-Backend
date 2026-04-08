@@ -163,6 +163,7 @@ These are available to all services. Use them instead of reimplementing.
 | File | Functions | Purpose |
 |---|---|---|
 | `health.go` | `RegisterHealthCheck(s, name)` | Registers gRPC health check on a server |
+| `grpc_dial.go` | `DialGRPC(addr)`, `MustDialGRPC(addr)` | gRPC client dial with retry policy (5 attempts, UNAVAILABLE/DEADLINE_EXCEEDED), exponential backoff, and keepalive — suitable for Kubernetes |
 | `idempotency.go` | `GenerateIdempotencyKey()`, `ValidateIdempotencyKey(key)` | UUID v4 generation and validation |
 | `money.go` | `ParseAmount(s)`, `FormatAmount(d)`, `FormatAmountDisplay(d)`, `AmountIsPositive(d)` | Decimal string parsing, formatting (4dp internal, 2dp display) |
 | `optimistic_lock.go` | `ErrOptimisticLock` | Sentinel error for concurrent modification detection |
@@ -211,6 +212,39 @@ Each service has its own PostgreSQL database. No cross-DB queries.
 | exchange-service | exchange_db | 5439 |
 | verification-service | verification_db | 5440 |
 | notification-service | notification_db | 5441 |
+
+### Health Probes (Kubernetes Readiness)
+
+Every service exposes HTTP health probes on its metrics port (default `9090`) via `contract/metrics/server.go`:
+
+| Endpoint | Purpose | Behavior |
+|---|---|---|
+| `/livez` | Liveness probe | Always returns 200 if the process is running |
+| `/readyz` | Readiness probe | Returns 503 until `markReady()` is called AND all registered dependency checks pass (e.g., DB ping) |
+| `/startupz` | Startup probe | Returns 503 until `markReady()` is called, then always 200 (no dependency checks) |
+| `/health` | Legacy liveness | Same as `/livez`, kept for backwards compatibility with Prometheus |
+| `/metrics` | Prometheus scrape | Standard Prometheus metrics endpoint |
+
+**Usage in `cmd/main.go`:**
+```go
+markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+// Register DB ping check
+sqlDB, _ := db.DB()
+addReadinessCheck(func(ctx context.Context) error { return sqlDB.PingContext(ctx) })
+// ... start gRPC server ...
+markReady()
+```
+
+### gRPC Client Retry Policy
+
+All API Gateway gRPC clients use `shared.DialGRPC()` which configures:
+- **Retry policy:** 5 attempts with exponential backoff (0.5s initial, 5s max) for `UNAVAILABLE` and `DEADLINE_EXCEEDED` status codes
+- **Connection backoff:** 500ms base delay, 2x multiplier, 10s max delay
+- **Keepalive:** 30s ping interval, 10s timeout, permit without active streams
+
+### Seeder Configuration
+
+The seeder supports a `SEEDER_COOLDOWN` environment variable (default `30s`) that adds an initial delay before attempting to connect to services. Set to `10s` in Docker Compose (where `depends_on` handles ordering) and `30s+` in Kubernetes.
 
 ---
 
@@ -775,7 +809,7 @@ An agent extending an existing service needs to know which gRPC services already
 | `client/client.proto` | `ClientService`, `ClientLimitService` | 5 + 2 |
 | `account/account.proto` | `AccountService`, `BankAccountService` | 14 + 4 |
 | `card/card.proto` | `CardService`, `VirtualCardService`, `CardRequestService` | 9 + 5 + 6 |
-| `transaction/transaction.proto` | `TransactionService`, `FeeService` | 13 + 4 |
+| `transaction/transaction.proto` | `TransactionService`, `FeeService` | 13 + 5 |
 | `credit/credit.proto` | `CreditService` | 16 |
 | `exchange/exchange.proto` | `ExchangeService` | 4 |
 | `notification/notification.proto` | `NotificationService` | 2 |
@@ -1127,6 +1161,7 @@ api-gateway:
 | GET | `/api/me/payments/:id` | - | txHandler.GetMyPayment | Get own payment |
 | POST | `/api/me/payments/:id/execute` | - | txHandler.ExecutePayment | Execute payment with code |
 | POST | `/api/me/transfers` | - | txHandler.CreateTransfer | Create transfer |
+| POST | `/api/me/transfers/preview` | - | txHandler.PreviewTransfer | Preview transfer fees + exchange rate |
 | GET | `/api/me/transfers` | - | txHandler.ListMyTransfers | List own transfers |
 | GET | `/api/me/transfers/:id` | - | txHandler.GetMyTransfer | Get own transfer |
 | POST | `/api/me/transfers/:id/execute` | - | txHandler.ExecuteTransfer | Execute transfer |

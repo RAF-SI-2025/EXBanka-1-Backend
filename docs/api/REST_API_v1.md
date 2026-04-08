@@ -16,6 +16,7 @@ on the unversioned `/api/` surface.
 1. [Changelog](#1-changelog-new-in-v1)
 2. [Sessions and Login History](#2-sessions-and-login-history)
 3. [Securities Candles](#3-securities-candles)
+4. [Transfer Preview](#4-transfer-preview)
 
 ---
 
@@ -182,3 +183,69 @@ Get OHLCV candle chart data for a security.
 **Authentication:** Bearer token (AnyAuthMiddleware)
 
 See [REST_API.md - Securities](REST_API.md) for full request/response documentation.
+
+---
+
+## 4. Transfer Preview
+
+### POST /api/v1/me/transfers/preview
+
+Preview transfer costs (fees and exchange rate) without creating the transfer.
+
+**Authentication:** Any JWT (AnyAuthMiddleware)
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `from_account_number` | string | Yes | Source account number |
+| `to_account_number` | string | Yes | Destination account number |
+| `amount` | number | Yes | Transfer amount (must be positive) |
+
+**Example Request:**
+
+```json
+{
+  "from_account_number": "1234567890",
+  "to_account_number": "0987654321",
+  "amount": 5000.00
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "from_currency": "RSD",
+  "to_currency": "EUR",
+  "input_amount": "5000.0000",
+  "total_fee": "255.0000",
+  "fee_breakdown": [
+    {
+      "name": "Basic commission",
+      "fee_type": "percentage",
+      "fee_value": "0.1000",
+      "calculated_amount": "5.0000"
+    },
+    {
+      "name": "Transfer commission",
+      "fee_type": "percentage",
+      "fee_value": "5.0000",
+      "calculated_amount": "250.0000"
+    }
+  ],
+  "converted_amount": "42.5532",
+  "exchange_rate": "117.4500",
+  "exchange_commission_rate": "0.0050"
+}
+```
+
+For same-currency transfers, `converted_amount` equals `input_amount`, `exchange_rate` is `"1.0000"`, and `exchange_commission_rate` is `"0.0000"`.
+
+**Error Responses:**
+
+| Status | Code | Description |
+|---|---|---|
+| 400 | `validation_error` | Missing or invalid fields |
+| 401 | `unauthorized` | Missing or invalid token |
+| 404 | `not_found` | Account not found |
