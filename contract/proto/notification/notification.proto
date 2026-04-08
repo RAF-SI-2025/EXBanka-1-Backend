@@ -34,7 +34,6 @@ message GetDeliveryStatusResponse {
 
 message GetPendingMobileRequest {
   uint64 user_id = 1;
-  string device_id = 2;
 }
 
 message MobileInboxEntry {
@@ -51,7 +50,6 @@ message PendingMobileResponse {
 
 message AckMobileRequest {
   uint64 id = 1;
-  string device_id = 2;
 }
 
 message AckMobileResponse {
