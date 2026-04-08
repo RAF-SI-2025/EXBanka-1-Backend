@@ -102,7 +102,7 @@ func main() {
 	shared.RegisterHealthCheck(s, "exchange-service")
 	metrics.InitializeGRPCMetrics(s)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
-	defer metricsShutdown(context.Background())
+	defer func() { _ = metricsShutdown(context.Background()) }()
 
 	sqlDB, _ := db.DB()
 	addReadinessCheck(func(ctx context.Context) error {

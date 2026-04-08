@@ -292,7 +292,7 @@ func main() {
 	shared.RegisterHealthCheck(grpcServer, "stock-service")
 	metrics.InitializeGRPCMetrics(grpcServer)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
-	defer metricsShutdown(context.Background())
+	defer func() { _ = metricsShutdown(context.Background()) }()
 
 	sqlDB, _ := db.DB()
 	addReadinessCheck(func(ctx context.Context) error {

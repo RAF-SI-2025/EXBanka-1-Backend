@@ -52,7 +52,9 @@ func (r *RoleRepository) SetPermissions(roleID int64, permissions []model.Permis
 func (r *RoleRepository) Delete(id int64) error {
 	var role model.Role
 	role.ID = id
-	r.db.Model(&role).Association("Permissions").Clear()
+	if err := r.db.Model(&role).Association("Permissions").Clear(); err != nil {
+		return err
+	}
 	return r.db.Delete(&model.Role{}, id).Error
 }
 

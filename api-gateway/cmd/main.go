@@ -188,7 +188,7 @@ func main() {
 	wsHandler.StartKafkaConsumer(ctx, cfg.KafkaBrokers)
 
 	markReady, _, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
-	defer metricsShutdown(context.Background())
+	defer func() { _ = metricsShutdown(context.Background()) }()
 
 	r := router.Setup(authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, wsHandler)
 

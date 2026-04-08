@@ -24,7 +24,7 @@ func TestAlpacaFetchAssets(t *testing.T) {
 		if r.Header.Get("APCA-API-SECRET-KEY") != "test-secret" {
 			t.Errorf("missing APCA-API-SECRET-KEY header")
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 

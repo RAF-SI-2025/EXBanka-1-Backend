@@ -36,7 +36,7 @@ func TestFetchExchanges(t *testing.T) {
 		if r.URL.Query().Get("api_token") != "test-key" {
 			t.Errorf("missing api_token")
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -74,7 +74,7 @@ func TestFetchExchangeDetails(t *testing.T) {
 		if r.URL.Path != "/api/exchange-details/US" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 

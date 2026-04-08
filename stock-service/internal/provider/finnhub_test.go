@@ -21,7 +21,7 @@ func TestFinnhubFetchForexSymbols(t *testing.T) {
 		if r.URL.Query().Get("token") != "test-key" {
 			t.Errorf("missing token")
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -57,7 +57,7 @@ func TestFinnhubFetchForexRates(t *testing.T) {
 		if r.URL.Query().Get("base") != "USD" {
 			t.Errorf("expected base=USD, got %s", r.URL.Query().Get("base"))
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 

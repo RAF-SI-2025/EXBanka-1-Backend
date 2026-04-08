@@ -40,6 +40,7 @@ All commands should be run from the repo root.
 make proto        # Regenerate protobuf Go files (run after editing .proto files)
 make build        # Build all four services into their respective bin/ directories
 make tidy         # Run go mod tidy for all services
+make lint         # Run golangci-lint on all services (requires golangci-lint installed)
 make docker-up    # Start all infrastructure + services via Docker
 make docker-down  # Stop containers
 make docker-logs  # Stream logs
@@ -288,6 +289,15 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 - Tests must validate **spec behavior** — not just HTTP status codes. Check response bodies, side effects (balance changes, Kafka events), and business rules from the spec.
 - Tests must pass before committing. Run `make test` for unit tests and the integration suite for workflow tests.
 - See `docs/superpowers/specs/2026-04-04-comprehensive-testing-design.md` for the full testing design and patterns.
+
+## Linting Requirement
+
+**After every code change, run `make lint` on the affected services.** This is a hard requirement — not optional.
+
+- Run `make lint` (or `cd <service> && golangci-lint run ./...` for individual services) after modifying any Go code.
+- All new or modified code must pass lint with zero new warnings. Do not introduce new `errcheck`, `unused`, `staticcheck`, or other lint violations.
+- Fix any lint errors in code you touched before committing. You are not required to fix pre-existing lint issues in code you did not modify.
+- Requires `golangci-lint` installed (`go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`).
 
 ## Kafka Event Publishing Requirement
 

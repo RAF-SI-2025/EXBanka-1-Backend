@@ -124,7 +124,7 @@ func (h *AuthHandler) RequestPasswordReset(c *gin.Context) {
 		return
 	}
 
-	h.authClient.RequestPasswordReset(c.Request.Context(), &authpb.PasswordResetRequest{
+	_, _ = h.authClient.RequestPasswordReset(c.Request.Context(), &authpb.PasswordResetRequest{
 		Email: req.Email,
 	})
 	c.JSON(http.StatusOK, gin.H{"message": "if the email exists, a reset link has been sent"})
@@ -227,7 +227,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	)
 	ctx := metadata.NewOutgoingContext(c.Request.Context(), md)
 
-	h.authClient.Logout(ctx, &authpb.LogoutRequest{
+	_, _ = h.authClient.Logout(ctx, &authpb.LogoutRequest{
 		RefreshToken: req.RefreshToken,
 	})
 	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})

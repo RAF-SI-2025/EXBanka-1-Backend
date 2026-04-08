@@ -161,7 +161,7 @@ func (s *OrderService) CreateOrder(
 
 	// Publish Kafka event after successful creation
 	if s.producer != nil {
-		go s.producer.PublishOrderCreated(context.Background(), buildOrderEvent(order))
+		go func() { _ = s.producer.PublishOrderCreated(context.Background(), buildOrderEvent(order)) }()
 	}
 
 	return order, nil
@@ -195,7 +195,7 @@ func (s *OrderService) ApproveOrder(orderID uint64, supervisorID uint64, supervi
 	StockOrderTotal.WithLabelValues(order.OrderType, "approved").Inc()
 
 	if s.producer != nil {
-		go s.producer.PublishOrderApproved(context.Background(), buildOrderEvent(order))
+		go func() { _ = s.producer.PublishOrderApproved(context.Background(), buildOrderEvent(order)) }()
 	}
 
 	return order, nil
@@ -224,7 +224,7 @@ func (s *OrderService) DeclineOrder(orderID uint64, supervisorID uint64, supervi
 	StockOrderTotal.WithLabelValues(order.OrderType, "declined").Inc()
 
 	if s.producer != nil {
-		go s.producer.PublishOrderDeclined(context.Background(), buildOrderEvent(order))
+		go func() { _ = s.producer.PublishOrderDeclined(context.Background(), buildOrderEvent(order)) }()
 	}
 
 	return order, nil
@@ -258,7 +258,7 @@ func (s *OrderService) CancelOrder(orderID, userID uint64) (*model.Order, error)
 	}
 
 	if s.producer != nil {
-		go s.producer.PublishOrderCancelled(context.Background(), buildOrderEvent(order))
+		go func() { _ = s.producer.PublishOrderCancelled(context.Background(), buildOrderEvent(order)) }()
 	}
 
 	return order, nil

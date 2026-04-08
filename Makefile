@@ -1,4 +1,4 @@
-.PHONY: proto clean build tidy docker-up docker-down docker-logs test swagger test-integration
+.PHONY: proto clean build tidy docker-up docker-down docker-logs test swagger test-integration lint
 
 proto:
 	protoc -I contract/proto \
@@ -94,6 +94,12 @@ test:
 	cd exchange-service && go test ./... -v
 	cd stock-service && go test ./... -v
 	cd verification-service && go test ./... -v
+
+lint:
+	@for dir in contract api-gateway auth-service user-service notification-service client-service account-service card-service transaction-service credit-service exchange-service stock-service verification-service seeder; do \
+		echo "=== $$dir ==="; \
+		(cd $$dir && golangci-lint run ./...); \
+	done
 
 test-integration:
 	cd test-app && go test -v -tags integration -timeout 60m ./workflows/...

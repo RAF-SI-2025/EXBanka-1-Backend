@@ -329,7 +329,7 @@ func TestTaxService_GetUserTaxSummary_PositiveGain(t *testing.T) {
 	month := int(now.Month())
 
 	// Record a positive capital gain of 1000 RSD for user 42
-	mocks.capitalGainRepo.Create(&model.CapitalGain{
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
 		UserID:           42,
 		SystemType:       "employee",
 		SecurityType:     "stock",
@@ -373,7 +373,7 @@ func TestTaxService_GetUserTaxSummary_NegativeGain(t *testing.T) {
 	month := int(now.Month())
 
 	// Record a loss of -500 RSD
-	mocks.capitalGainRepo.Create(&model.CapitalGain{
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
 		UserID:           42,
 		SystemType:       "employee",
 		SecurityType:     "stock",
@@ -438,20 +438,20 @@ func TestTaxService_ListUserTaxRecords_OnlyUserRecords(t *testing.T) {
 	month := int(now.Month())
 
 	// User 42 gains
-	mocks.capitalGainRepo.Create(&model.CapitalGain{
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
 		UserID: 42, SystemType: "employee", Ticker: "AAPL", Quantity: 10,
 		BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(150),
 		TotalGain: decimal.NewFromInt(500), Currency: "RSD", AccountID: 1,
 		TaxYear: year, TaxMonth: month,
 	})
-	mocks.capitalGainRepo.Create(&model.CapitalGain{
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
 		UserID: 42, SystemType: "employee", Ticker: "GOOG", Quantity: 5,
 		BuyPricePerUnit: decimal.NewFromInt(200), SellPricePerUnit: decimal.NewFromInt(300),
 		TotalGain: decimal.NewFromInt(500), Currency: "RSD", AccountID: 1,
 		TaxYear: year, TaxMonth: month,
 	})
 	// User 99 gain (should not appear)
-	mocks.capitalGainRepo.Create(&model.CapitalGain{
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
 		UserID: 99, SystemType: "client", Ticker: "MSFT", Quantity: 3,
 		BuyPricePerUnit: decimal.NewFromInt(300), SellPricePerUnit: decimal.NewFromInt(400),
 		TotalGain: decimal.NewFromInt(300), Currency: "RSD", AccountID: 2,
@@ -491,7 +491,7 @@ func TestTaxService_GetUserTaxSummary_ForeignCurrency(t *testing.T) {
 	mocks.exchangeClient.convertRate["USD/RSD"] = decimal.NewFromInt(117)
 
 	// Record a positive capital gain of 100 USD
-	mocks.capitalGainRepo.Create(&model.CapitalGain{
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
 		UserID:           42,
 		SystemType:       "employee",
 		SecurityType:     "stock",
@@ -532,7 +532,7 @@ func TestTaxService_CollectTax_PositiveGain(t *testing.T) {
 	mocks.accountClient.addAccount(1, "USER-ACCT-001")
 
 	// Record a positive capital gain of 2000 RSD
-	mocks.capitalGainRepo.Create(&model.CapitalGain{
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
 		UserID:           42,
 		SystemType:       "employee",
 		SecurityType:     "stock",
