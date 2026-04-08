@@ -19,18 +19,8 @@ func (r *MobileInboxRepository) Create(item *model.MobileInboxItem) error {
 	return r.db.Create(item).Error
 }
 
-func (r *MobileInboxRepository) GetPendingByUserAndDevice(userID uint64, deviceID string) ([]model.MobileInboxItem, error) {
-	var items []model.MobileInboxItem
-	if err := r.db.Where("user_id = ? AND device_id = ? AND status = ? AND expires_at > ?",
-		userID, deviceID, "pending", time.Now()).
-		Order("created_at DESC").
-		Find(&items).Error; err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-// GetPendingByUser returns all pending, non-expired inbox items for a user regardless of device.
+// GetPendingByUser returns all pending, non-expired inbox items for a user.
+// Browser-initiated and mobile-initiated challenges are returned equally.
 func (r *MobileInboxRepository) GetPendingByUser(userID uint64) ([]model.MobileInboxItem, error) {
 	var items []model.MobileInboxItem
 	if err := r.db.Where("user_id = ? AND status = ? AND expires_at > ?",
@@ -42,16 +32,14 @@ func (r *MobileInboxRepository) GetPendingByUser(userID uint64) ([]model.MobileI
 	return items, nil
 }
 
-func (r *MobileInboxRepository) MarkDelivered(id uint64, deviceID string) error {
+func (r *MobileInboxRepository) MarkDelivered(id uint64) error {
 	now := time.Now()
-	query := r.db.Model(&model.MobileInboxItem{}).Where("id = ? AND status = ?", id, "pending")
-	if deviceID != "" {
-		query = query.Where("device_id = ?", deviceID)
-	}
-	result := query.Updates(map[string]interface{}{
-		"status":       "delivered",
-		"delivered_at": now,
-	})
+	result := r.db.Model(&model.MobileInboxItem{}).
+		Where("id = ? AND status = ?", id, "pending").
+		Updates(map[string]interface{}{
+			"status":       "delivered",
+			"delivered_at": now,
+		})
 	if result.Error != nil {
 		return result.Error
 	}
