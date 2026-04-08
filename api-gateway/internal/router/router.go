@@ -89,6 +89,7 @@ func Setup(
 			auth.POST("/password/reset-request", authHandler.RequestPasswordReset)
 			auth.POST("/password/reset", authHandler.ResetPassword)
 			auth.POST("/activate", authHandler.ActivateAccount)
+			auth.POST("/resend-activation", authHandler.ResendActivationEmail)
 		}
 
 		// Public exchange rate routes

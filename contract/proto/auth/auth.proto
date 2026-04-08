@@ -16,6 +16,7 @@ service AuthService {
   rpc GetAccountStatus(GetAccountStatusRequest) returns (GetAccountStatusResponse);
   rpc GetAccountStatusBatch(GetAccountStatusBatchRequest) returns (GetAccountStatusBatchResponse);
   rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+  rpc ResendActivationEmail(ResendActivationEmailRequest) returns (ResendActivationEmailResponse);
 
   // Mobile device management
   rpc RequestMobileActivation(MobileActivationRequest) returns (MobileActivationResponse);
@@ -153,6 +154,15 @@ message CreateAccountRequest {
 
 message CreateAccountResponse {
   bool success = 1;
+}
+
+message ResendActivationEmailRequest {
+  string email = 1;
+}
+
+message ResendActivationEmailResponse {
+  bool success = 1;
+  string message = 2;
 }
 
 // --- Mobile device messages ---

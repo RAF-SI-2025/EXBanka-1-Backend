@@ -154,7 +154,7 @@ func main() {
 
 		// ── 6. Read activation token from Kafka ───────────────────────────────────
 
-		token := readActivationToken(kafka, email)
+		token := readActivationToken(kafka, email, authClient)
 		log.Printf("seeder: got activation token (len=%d)", len(token))
 
 		// ── 7. Activate account with desired password ─────────────────────────────
@@ -249,7 +249,7 @@ func seedClient(
 
 	// 4. Wait for activation token on Kafka
 	log.Println("seeder: waiting for client activation token on Kafka…")
-	token := readActivationToken(kafkaBrokers, clientEmail)
+	token := readActivationToken(kafkaBrokers, clientEmail, authClient)
 	log.Printf("seeder: got client activation token (len=%d)", len(token))
 
 	// 5. Activate account
@@ -269,9 +269,14 @@ func seedClient(
 
 // readActivationToken scans the notification.send-email Kafka topic for an
 // ACTIVATION message addressed to email and returns the token.
-// Retries for up to 120 seconds to tolerate startup ordering in Kubernetes.
-func readActivationToken(brokers, email string) string {
+// After 5 consecutive failed scans, it calls ResendActivationEmail via gRPC
+// to request a fresh activation email. Retries for up to 120 seconds total.
+func readActivationToken(brokers, email string, authClient authpb.AuthServiceClient) string {
+	const resendAfterScans = 5
 	deadline := time.Now().Add(120 * time.Second)
+	failedScans := 0
+	resent := false
+
 	for time.Now().Before(deadline) {
 		r := kafkalib.NewReader(kafkalib.ReaderConfig{
 			Brokers:     strings.Split(brokers, ","),
@@ -289,6 +294,21 @@ func readActivationToken(brokers, email string) string {
 		if token != "" {
 			return token
 		}
+
+		failedScans++
+		if failedScans >= resendAfterScans && !resent {
+			log.Printf("seeder: %d scans without activation token for %s, requesting resend via gRPC…", failedScans, email)
+			resendCtx, resendCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_, err := authClient.ResendActivationEmail(resendCtx, &authpb.ResendActivationEmailRequest{Email: email})
+			resendCancel()
+			if err != nil {
+				log.Printf("seeder: ResendActivationEmail RPC failed: %v", err)
+			} else {
+				log.Println("seeder: resend activation email requested, continuing to scan Kafka…")
+			}
+			resent = true
+		}
+
 		log.Println("seeder: activation token not yet in Kafka, retrying…")
 		time.Sleep(3 * time.Second)
 	}

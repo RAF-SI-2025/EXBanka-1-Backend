@@ -200,6 +200,33 @@ func (h *AuthHandler) ActivateAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "account activated successfully"})
 }
 
+type resendActivationRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// ResendActivationEmail godoc
+// @Summary      Resend activation email
+// @Description  Resend the activation email for a pending account. No-op if the account is already activated.
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body  body  resendActivationRequest  true  "Email address"
+// @Success      200  {object}  map[string]string  "confirmation message"
+// @Failure      400  {object}  map[string]string  "error message"
+// @Router       /api/v1/auth/resend-activation [post]
+func (h *AuthHandler) ResendActivationEmail(c *gin.Context) {
+	var req resendActivationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+
+	_, _ = h.authClient.ResendActivationEmail(c.Request.Context(), &authpb.ResendActivationEmailRequest{
+		Email: req.Email,
+	})
+	c.JSON(http.StatusOK, gin.H{"message": "if the email is registered and pending activation, a new activation email has been sent"})
+}
+
 type logoutRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }

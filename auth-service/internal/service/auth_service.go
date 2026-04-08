@@ -590,6 +590,51 @@ func (s *AuthService) CreateAccountAndActivationToken(ctx context.Context, princ
 	})
 }
 
+// ResendActivationEmail re-sends the activation email for a pending account.
+// If the account is already active, it returns nil (no-op).
+func (s *AuthService) ResendActivationEmail(ctx context.Context, email string) error {
+	account, err := s.accountRepo.GetByEmail(email)
+	if err != nil {
+		return nil // don't reveal if email exists
+	}
+
+	if account.Status != model.AccountStatusPending {
+		return nil // already activated or disabled — no-op
+	}
+
+	token, err := generateToken()
+	if err != nil {
+		return err
+	}
+	if err := s.tokenRepo.CreateActivationToken(&model.ActivationToken{
+		AccountID: account.ID,
+		Token:     token,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}); err != nil {
+		return err
+	}
+
+	AuthTokensIssuedTotal.WithLabelValues("activation").Inc()
+
+	var firstName string
+	if account.PrincipalType == model.PrincipalTypeEmployee {
+		user, uErr := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: account.PrincipalID})
+		if uErr == nil && user != nil {
+			firstName = user.FirstName
+		}
+	}
+
+	return s.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
+		To:        email,
+		EmailType: kafkamsg.EmailTypeActivation,
+		Data: map[string]string{
+			"token":      token,
+			"first_name": firstName,
+			"link":       s.frontendBaseURL + "/activate?token=" + token,
+		},
+	})
+}
+
 func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {
 	AuthPasswordResetTotal.Inc()
 

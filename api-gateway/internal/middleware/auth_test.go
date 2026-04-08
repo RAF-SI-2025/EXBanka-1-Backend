@@ -102,6 +102,9 @@ func (m *mockAuthClient) GetBiometricsEnabled(_ context.Context, _ *authpb.GetBi
 func (m *mockAuthClient) CheckBiometricsEnabled(_ context.Context, _ *authpb.CheckBiometricsRequest, _ ...grpc.CallOption) (*authpb.CheckBiometricsResponse, error) {
 	panic("not implemented")
 }
+func (m *mockAuthClient) ResendActivationEmail(_ context.Context, _ *authpb.ResendActivationEmailRequest, _ ...grpc.CallOption) (*authpb.ResendActivationEmailResponse, error) {
+	panic("not implemented")
+}
 
 // ---------------------------------------------------------------------------
 // helper
