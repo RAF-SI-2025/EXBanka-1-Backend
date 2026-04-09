@@ -40,5 +40,5 @@ type Account struct {
 	Version          int64           `gorm:"not null;default:1"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
-	DeletedAt        gorm.DeletedAt  `gorm:"index"`
+	DeletedAt        gorm.DeletedAt `gorm:"index"`
 }

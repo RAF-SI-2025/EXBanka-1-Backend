@@ -64,6 +64,10 @@ func (p *Producer) PublishLatePenaltyApplied(ctx context.Context, msg kafkamsg.L
 	return p.publish(ctx, kafkamsg.TopicLatePenaltyApplied, msg)
 }
 
+func (p *Producer) PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error {
+	return p.publish(ctx, kafkamsg.TopicGeneralNotification, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

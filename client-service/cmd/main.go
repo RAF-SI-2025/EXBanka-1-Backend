@@ -14,10 +14,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	clientpb "github.com/exbanka/contract/clientpb"
-	"github.com/exbanka/contract/metrics"
-	shared "github.com/exbanka/contract/shared"
-	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/client-service/internal/cache"
 	"github.com/exbanka/client-service/internal/config"
 	"github.com/exbanka/client-service/internal/handler"
@@ -25,6 +21,10 @@ import (
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/client-service/internal/repository"
 	"github.com/exbanka/client-service/internal/service"
+	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/metrics"
+	shared "github.com/exbanka/contract/shared"
+	userpb "github.com/exbanka/contract/userpb"
 )
 
 func main() {

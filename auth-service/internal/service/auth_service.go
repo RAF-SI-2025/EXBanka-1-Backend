@@ -13,12 +13,12 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	kafkamsg "github.com/exbanka/contract/kafka"
-	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/auth-service/internal/cache"
 	kafkaprod "github.com/exbanka/auth-service/internal/kafka"
 	"github.com/exbanka/auth-service/internal/model"
 	"github.com/exbanka/auth-service/internal/repository"
+	kafkamsg "github.com/exbanka/contract/kafka"
+	userpb "github.com/exbanka/contract/userpb"
 )
 
 type AuthService struct {
@@ -699,6 +699,13 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, 
 		if err := s.RevokeAllSessions(ctx, prt.AccountID, acct.PrincipalID, "password_reset"); err != nil {
 			log.Printf("warn: failed to revoke all sessions after password reset: %v", err)
 		}
+		// General notification (no email)
+		_ = s.producer.Publish(ctx, kafkamsg.TopicGeneralNotification, kafkamsg.GeneralNotificationMessage{
+			UserID:  uint64(acct.PrincipalID),
+			Type:    "password_changed",
+			Title:   "Password Changed",
+			Message: "Your password was successfully changed. If you did not make this change, contact support immediately.",
+		})
 	} else {
 		// Fallback: at least revoke tokens
 		if err := s.tokenRepo.RevokeAllForAccount(prt.AccountID); err != nil {

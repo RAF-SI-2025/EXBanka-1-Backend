@@ -26,9 +26,8 @@ type CreateChallengeRequest struct {
 	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	SourceService string                 `protobuf:"bytes,2,opt,name=source_service,json=sourceService,proto3" json:"source_service,omitempty"` // "transaction", "payment", "transfer"
 	SourceId      uint64                 `protobuf:"varint,3,opt,name=source_id,json=sourceId,proto3" json:"source_id,omitempty"`
-	Method        string                 `protobuf:"bytes,4,opt,name=method,proto3" json:"method,omitempty"`                     // "code_pull", "qr_scan", "number_match", "email"
+	Method        string                 `protobuf:"bytes,4,opt,name=method,proto3" json:"method,omitempty"`                     // "code_pull"
 	DeviceId      string                 `protobuf:"bytes,5,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"` // UUID of mobile device, empty for browser sessions
-	Email         string                 `protobuf:"bytes,6,opt,name=email,proto3" json:"email,omitempty"`                       // user email from JWT — passed by gateway, no DB lookup needed
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -94,13 +93,6 @@ func (x *CreateChallengeRequest) GetMethod() string {
 func (x *CreateChallengeRequest) GetDeviceId() string {
 	if x != nil {
 		return x.DeviceId
-	}
-	return ""
-}
-
-func (x *CreateChallengeRequest) GetEmail() string {
-	if x != nil {
-		return x.Email
 	}
 	return ""
 }
@@ -296,7 +288,6 @@ func (x *GetChallengeStatusResponse) GetVerifiedAt() string {
 type GetPendingChallengeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	DeviceId      string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -336,13 +327,6 @@ func (x *GetPendingChallengeRequest) GetUserId() uint64 {
 		return x.UserId
 	}
 	return 0
-}
-
-func (x *GetPendingChallengeRequest) GetDeviceId() string {
-	if x != nil {
-		return x.DeviceId
-	}
-	return ""
 }
 
 type GetPendingChallengeResponse struct {
@@ -753,14 +737,13 @@ var File_verification_verification_proto protoreflect.FileDescriptor
 
 const file_verification_verification_proto_rawDesc = "" +
 	"\n" +
-	"\x1fverification/verification.proto\x12\fverification\"\xc0\x01\n" +
+	"\x1fverification/verification.proto\x12\fverification\"\xaa\x01\n" +
 	"\x16CreateChallengeRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12%\n" +
 	"\x0esource_service\x18\x02 \x01(\tR\rsourceService\x12\x1b\n" +
 	"\tsource_id\x18\x03 \x01(\x04R\bsourceId\x12\x16\n" +
 	"\x06method\x18\x04 \x01(\tR\x06method\x12\x1b\n" +
-	"\tdevice_id\x18\x05 \x01(\tR\bdeviceId\x12\x14\n" +
-	"\x05email\x18\x06 \x01(\tR\x05email\"\x9a\x01\n" +
+	"\tdevice_id\x18\x05 \x01(\tR\bdeviceId\"\x9a\x01\n" +
 	"\x17CreateChallengeResponse\x12!\n" +
 	"\fchallenge_id\x18\x01 \x01(\x04R\vchallengeId\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12%\n" +
@@ -776,10 +759,9 @@ const file_verification_verification_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\x04 \x01(\tR\texpiresAt\x12\x1f\n" +
 	"\vverified_at\x18\x05 \x01(\tR\n" +
-	"verifiedAt\"R\n" +
+	"verifiedAt\"5\n" +
 	"\x1aGetPendingChallengeRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1b\n" +
-	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"\xb4\x01\n" +
+	"\auser_id\x18\x01 \x01(\x04R\x06userId\"\xb4\x01\n" +
 	"\x1bGetPendingChallengeResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12!\n" +
 	"\fchallenge_id\x18\x02 \x01(\x04R\vchallengeId\x12\x16\n" +

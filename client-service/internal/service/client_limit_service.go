@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"log"
 
+	kafkaprod "github.com/exbanka/client-service/internal/kafka"
+	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/contract/changelog"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	userpb "github.com/exbanka/contract/userpb"
-	kafkaprod "github.com/exbanka/client-service/internal/kafka"
-	"github.com/exbanka/client-service/internal/model"
 	"github.com/shopspring/decimal"
 )
 

@@ -11,13 +11,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"github.com/shopspring/decimal"
 	"github.com/exbanka/card-service/internal/cache"
-	"github.com/exbanka/contract/changelog"
-	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/card-service/internal/kafka"
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/repository"
+	"github.com/exbanka/contract/changelog"
+	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/shopspring/decimal"
 )
 
 type CardService struct {

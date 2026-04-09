@@ -50,9 +50,3 @@ func (p *Producer) PublishChallengeVerified(ctx context.Context, msg kafkamsg.Ve
 func (p *Producer) PublishChallengeFailed(ctx context.Context, msg kafkamsg.VerificationChallengeFailedMessage) error {
 	return p.publish(ctx, kafkamsg.TopicVerificationChallengeFailed, msg)
 }
-
-// PublishSendEmail publishes an email via the notification service's existing topic.
-// Used for the email fallback method.
-func (p *Producer) PublishSendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error {
-	return p.publish(ctx, kafkamsg.TopicSendEmail, msg)
-}

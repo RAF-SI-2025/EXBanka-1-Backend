@@ -22,7 +22,6 @@ import (
 
 var validMethods = map[string]bool{
 	"code_pull": true,
-	"email":     true,
 	// "qr_scan" and "number_match" are not yet fully implemented — re-enable when ready
 }
 
@@ -64,13 +63,9 @@ func NewVerificationService(
 }
 
 // CreateChallenge creates a new verification challenge and publishes the appropriate Kafka event.
-// Delivery rules:
-//   - method="email": always deliver via email (address passed directly from JWT).
-//   - method="code_pull" with no deviceID: browser session, fall back to email delivery.
-//   - method="code_pull" with deviceID: mobile delivery via verification.challenge-created.
-func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64, sourceService string, sourceID uint64, method string, deviceID string, email string) (*model.VerificationChallenge, error) {
+func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64, sourceService string, sourceID uint64, method string, deviceID string) (*model.VerificationChallenge, error) {
 	if !validMethods[method] {
-		return nil, fmt.Errorf("invalid verification method: %s; must be one of: code_pull, qr_scan, number_match, email", method)
+		return nil, fmt.Errorf("invalid verification method: %s; must be one of: code_pull", method)
 	}
 	if !validSourceServices[sourceService] {
 		return nil, fmt.Errorf("invalid source_service: %s; must be one of: transaction, payment, transfer", sourceService)
@@ -112,27 +107,7 @@ func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64
 	}
 	VerificationChallengesCreatedTotal.WithLabelValues(method).Inc()
 
-	// --- Delivery ---
-	// 1. Send email when: method is "email", or code_pull created from browser (no device).
-	if method == "email" || (method == "code_pull" && deviceID == "") {
-		if email != "" {
-			if err := s.producer.PublishSendEmail(ctx, kafkamsg.SendEmailMessage{
-				To:        email,
-				EmailType: kafkamsg.EmailTypeVerificationCode,
-				Data: map[string]string{
-					"code":         code,
-					"challenge_id": fmt.Sprintf("%d", vc.ID),
-					"expires_in":   "5 minutes",
-				},
-			}); err != nil {
-				log.Printf("warn: failed to publish send-email for verification %d: %v", vc.ID, err)
-			}
-		}
-	}
-
-	// 2. Always publish challenge-created event so notification-service can create
-	//    a mobile inbox item. This makes the challenge visible to the mobile app
-	//    regardless of how it was created.
+	// Publish challenge-created event so notification-service can create a mobile inbox item.
 	displayData, err := buildDisplayData(method, code, challengeData)
 	if err != nil {
 		log.Printf("warn: failed to build display data for verification %d: %v", vc.ID, err)
@@ -141,7 +116,6 @@ func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64
 		if err := s.producer.PublishChallengeCreated(ctx, kafkamsg.VerificationChallengeCreatedMessage{
 			ChallengeID:     vc.ID,
 			UserID:          userID,
-			DeviceID:        deviceID, // may be empty — notification-service resolves it
 			Method:          method,
 			DisplayData:     string(displayDataJSON),
 			DeliveryChannel: "mobile",
@@ -163,9 +137,9 @@ func (s *VerificationService) GetChallengeStatus(challengeID uint64) (*model.Ver
 	return vc, nil
 }
 
-// GetPendingChallenge returns the most recent pending challenge for a user+device pair.
-func (s *VerificationService) GetPendingChallenge(userID uint64, deviceID string) (*model.VerificationChallenge, error) {
-	return s.repo.GetPendingByUser(userID, deviceID)
+// GetPendingChallenge returns the most recent pending challenge for a user.
+func (s *VerificationService) GetPendingChallenge(userID uint64) (*model.VerificationChallenge, error) {
+	return s.repo.GetPendingByUser(userID)
 }
 
 // SubmitVerification handles mobile-submitted responses (qr_scan, number_match, code_pull with biometric).
@@ -274,9 +248,8 @@ func (s *VerificationService) SubmitCode(ctx context.Context, challengeID uint64
 			return err
 		}
 
-		// code_pull and email methods accept direct code submission
-		if vc.Method != "code_pull" && vc.Method != "email" {
-			return fmt.Errorf("code submission is only allowed for code_pull and email methods; this challenge uses %s", vc.Method)
+		if vc.Method != "code_pull" {
+			return fmt.Errorf("code submission is only allowed for code_pull method; this challenge uses %s", vc.Method)
 		}
 
 		vc.Attempts++
@@ -534,8 +507,6 @@ func buildChallengeData(method string) (map[string]interface{}, error) {
 			"target":  target,
 			"options": options,
 		}, nil
-	case "email":
-		return map[string]interface{}{}, nil
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method)
 	}

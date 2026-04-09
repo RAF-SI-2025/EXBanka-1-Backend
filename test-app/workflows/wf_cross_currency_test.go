@@ -18,7 +18,7 @@ func TestWF_CrossCurrencyTradingAndTransfer(t *testing.T) {
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create client with RSD (100k) + EUR (10k) accounts
-	_, rsdAcct, eurAcct, clientC, email := setupActivatedClientWithForeignAccount(t, adminC, "EUR")
+	_, rsdAcct, eurAcct, clientC, _ := setupActivatedClientWithForeignAccount(t, adminC, "EUR")
 	t.Logf("WF-13: RSD acct=%s, EUR acct=%s", rsdAcct, eurAcct)
 
 	// Step 2: Record balances before any operations
@@ -55,7 +55,7 @@ func TestWF_CrossCurrencyTradingAndTransfer(t *testing.T) {
 
 	// Step 5: Client transfers some RSD to EUR account
 	const transferAmount = 5000.0
-	transferID := createAndExecuteTransfer(t, clientC, rsdAcct, eurAcct, transferAmount, email)
+	transferID := createAndExecuteTransfer(t, clientC, rsdAcct, eurAcct, transferAmount)
 	t.Logf("WF-13: transfer executed id=%d amount=%.2f RSD->EUR", transferID, transferAmount)
 
 	// Step 6: Assert stock holding exists

@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/card-service/internal/kafka"
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/repository"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 type CardRequestService struct {

@@ -29,7 +29,9 @@ func referenceAnnuity(principal, annualRatePercent float64, months int) float64 
 // loan of 1,500,000 RSD using the seeded rate configuration.
 //
 // Amount 1.5M falls in tier 1M-2M (amount_from<=1.5M, amount_to=2M > 1.5M):
-//   base fixed rate = 5.75%
+//
+//	base fixed rate = 5.75%
+//
 // Housing margin: 1.50%
 // Nominal annual rate: 7.25%
 func TestInstallmentFormula_Housing1_5M(t *testing.T) {

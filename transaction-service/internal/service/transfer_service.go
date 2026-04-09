@@ -419,7 +419,31 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 	TransactionAmountRSDSum.WithLabelValues("transfer").Add(transfer.FinalAmount.InexactFloat64())
 	TransactionProcessingDuration.WithLabelValues("transfer").Observe(time.Since(start).Seconds())
 
+	// Publish general notification for the account owner (best-effort, after DB commit)
+	s.publishTransferNotification(ctx, transfer)
+
 	return nil
+}
+
+// publishTransferNotification sends a money_sent general notification for the transfer owner.
+// Transfers are intra-client (same owner), so only one notification is needed.
+func (s *TransferService) publishTransferNotification(ctx context.Context, transfer *model.Transfer) {
+	if s.producer == nil || s.accountClient == nil {
+		return
+	}
+	fromAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+		AccountNumber: transfer.FromAccountNumber,
+	})
+	if err == nil && fromAcct != nil {
+		_ = s.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  fromAcct.GetOwnerId(),
+			Type:    "money_sent",
+			Title:   "Transfer Completed",
+			Message: fmt.Sprintf("Transfer of %s from %s to %s completed", transfer.InitialAmount.StringFixed(2), transfer.FromAccountNumber, transfer.ToAccountNumber),
+			RefType: "transfer",
+			RefID:   transfer.ID,
+		})
+	}
 }
 
 func (s *TransferService) GetTransfer(id uint64) (*model.Transfer, error) {

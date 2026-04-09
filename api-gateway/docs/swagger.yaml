@@ -525,6 +525,13 @@ definitions:
     required:
     - email
     type: object
+  handler.resendActivationRequest:
+    properties:
+      email:
+        type: string
+    required:
+    - email
+    type: object
   handler.resetPasswordRequest:
     properties:
       confirm_password:
@@ -4489,14 +4496,47 @@ paths:
       summary: Transfer device (deactivate current + send new activation code)
       tags:
       - mobile-device
-  /api/mobile/verifications/{challenge_id}/submit:
+  /api/mobile/verifications/{id}/ack:
+    post:
+      description: Marks an inbox item as delivered so it no longer appears in future
+        polls.
+      parameters:
+      - description: Inbox item ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid item id
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Item not found or already delivered
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Acknowledge a delivered mobile verification notification
+      tags:
+      - mobile-verifications
+  /api/mobile/verifications/{id}/submit:
     post:
       consumes:
       - application/json
       parameters:
       - description: Challenge ID
         in: path
-        name: challenge_id
+        name: id
         required: true
         type: integer
       - description: Verification response
@@ -5357,6 +5397,37 @@ paths:
       summary: Get account changelog (not yet implemented)
       tags:
       - Changelog
+  /api/v1/auth/resend-activation:
+    post:
+      consumes:
+      - application/json
+      description: Resend the activation email for a pending account. No-op if the
+        account is already activated.
+      parameters:
+      - description: Email address
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.resendActivationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: confirmation message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: error message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Resend activation email
+      tags:
+      - auth
   /api/v1/blueprints:
     get:
       description: Returns all limit blueprints, optionally filtered by type
@@ -5701,6 +5772,96 @@ paths:
       summary: Get loan changelog (not yet implemented)
       tags:
       - Changelog
+  /api/v1/me/notifications:
+    get:
+      description: List persistent notifications for the authenticated user (paginated,
+        filterable by read status)
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20, max 100)
+        in: query
+        name: page_size
+        type: integer
+      - description: 'Filter by read status: ''read'', ''unread'', or omit for all'
+        in: query
+        name: read
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List notifications
+      tags:
+      - notifications
+  /api/v1/me/notifications/{id}/read:
+    post:
+      description: Marks a single notification as read for the authenticated user
+      parameters:
+      - description: Notification ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Notification not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Mark notification as read
+      tags:
+      - notifications
+  /api/v1/me/notifications/read-all:
+    post:
+      description: Marks all unread notifications as read for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Mark all notifications as read
+      tags:
+      - notifications
+  /api/v1/me/notifications/unread-count:
+    get:
+      description: Returns the number of unread notifications for the authenticated
+        user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get unread notification count
+      tags:
+      - notifications
   /api/v1/me/transfers/preview:
     post:
       consumes:
@@ -5788,7 +5949,7 @@ paths:
       summary: Enable or disable biometric verification for device
       tags:
       - mobile-device
-  /api/v1/mobile/verifications/{challenge_id}/biometric:
+  /api/v1/mobile/verifications/{id}/biometric:
     post:
       description: |-
         Verifies a pending challenge using the device's biometric authentication.

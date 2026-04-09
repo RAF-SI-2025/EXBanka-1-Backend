@@ -55,9 +55,7 @@ func (r *VerificationChallengeRepository) SaveInTx(tx *gorm.DB, vc *model.Verifi
 }
 
 // GetPendingByUser returns the most recent pending, non-expired challenge for a user.
-// Matches by user_id only — the mobile app must be able to find challenges created
-// from the browser (which have empty device_id).
-func (r *VerificationChallengeRepository) GetPendingByUser(userID uint64, deviceID string) (*model.VerificationChallenge, error) {
+func (r *VerificationChallengeRepository) GetPendingByUser(userID uint64) (*model.VerificationChallenge, error) {
 	var vc model.VerificationChallenge
 	err := r.db.Where("user_id = ? AND status = ? AND expires_at > ?",
 		userID, "pending", time.Now()).

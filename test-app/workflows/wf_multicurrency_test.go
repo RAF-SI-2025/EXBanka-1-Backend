@@ -15,7 +15,7 @@ func TestWF_MultiCurrencyClientLifecycle(t *testing.T) {
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create client with RSD + EUR accounts
-	_, rsdAcct, eurAcct, clientC, email := setupActivatedClientWithForeignAccount(t, adminC, "EUR")
+	_, rsdAcct, eurAcct, clientC, _ := setupActivatedClientWithForeignAccount(t, adminC, "EUR")
 	t.Logf("WF-2: RSD acct=%s, EUR acct=%s", rsdAcct, eurAcct)
 
 	// Step 2: Record balances before transfer
@@ -25,7 +25,7 @@ func TestWF_MultiCurrencyClientLifecycle(t *testing.T) {
 
 	// Step 3: Transfer 10000 RSD → EUR
 	const transferAmount = 10000.0
-	transferID := createAndExecuteTransfer(t, clientC, rsdAcct, eurAcct, transferAmount, email)
+	transferID := createAndExecuteTransfer(t, clientC, rsdAcct, eurAcct, transferAmount)
 	t.Logf("WF-2: transfer executed id=%d", transferID)
 
 	// Step 4: Assert RSD decreased by >= 10000

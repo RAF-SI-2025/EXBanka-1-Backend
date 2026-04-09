@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -97,6 +98,16 @@ func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAc
 		OwnerID:       account.OwnerID,
 		AccountKind:   account.AccountKind,
 		CurrencyCode:  account.CurrencyCode,
+	})
+
+	// General notification (no email)
+	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  account.OwnerID,
+		Type:    "account_created",
+		Title:   "New Account Created",
+		Message: fmt.Sprintf("Your new %s account (%s) has been created.", account.CurrencyCode, account.AccountNumber),
+		RefType: "account",
+		RefID:   account.ID,
 	})
 
 	// Send email notification to account owner.

@@ -18,10 +18,16 @@ var (
 		Name: "notification_mobile_push_total",
 		Help: "Total number of mobile push notifications sent",
 	})
+
+	NotificationGeneralCreatedTotal = prom.NewCounter(prom.CounterOpts{
+		Name: "notification_general_created_total",
+		Help: "Total number of general notifications created",
+	})
 )
 
 func init() {
 	prom.MustRegister(NotificationEmailsSentTotal)
 	prom.MustRegister(NotificationEmailSendDuration)
 	prom.MustRegister(NotificationMobilePushTotal)
+	prom.MustRegister(NotificationGeneralCreatedTotal)
 }

@@ -3803,7 +3803,7 @@ The verification service provides two-factor authentication for payments and tra
 | Method | Status | Description |
 |---|---|---|
 | `code_pull` | **Active** (default) | 6-digit code delivered to the client's mobile app; client types it into the browser |
-| `email` | **Active** | 6-digit code sent to the client's email; fallback when no mobile device is registered |
+| `email` | **Removed** | Eliminated — all verification is via code_pull |
 | `qr_scan` | **Not available** | Planned — selecting this returns 400 |
 | `number_match` | **Not available** | Planned — selecting this returns 400 |
 
@@ -3844,7 +3844,7 @@ Create a new verification challenge for a pending transaction.
 |---|---|---|---|
 | `source_service` | string | Yes | `transaction`, `payment`, or `transfer` |
 | `source_id` | uint64 | Yes | The payment/transfer ID |
-| `method` | string | No | `code_pull` (default) or `email`. `qr_scan` and `number_match` are not yet available. |
+| `method` | string | No | `code_pull` only (default). `email`, `qr_scan`, `number_match` return 400. |
 
 **Example Request:**
 ```json
@@ -3866,7 +3866,6 @@ Create a new verification challenge for a pending transaction.
 
 `challenge_data` depends on method:
 - **code_pull:** `{}` — code is delivered to mobile app
-- **email:** `{}` — code is sent via email
 
 | Status | Description |
 |---|---|
@@ -3966,6 +3965,32 @@ Poll for pending verification challenges delivered to this device.
 
 `display_data` depends on method:
 - **code_pull:** `{ "code": "482916" }` — display the code so the user can type it into the browser
+
+---
+
+### POST /api/mobile/verifications/:id/ack
+
+Acknowledge a mobile inbox item, marking it as delivered. Acknowledged items no longer appear in `GET /api/mobile/verifications/pending`.
+
+**Authentication:** MobileAuthMiddleware + RequireDeviceSignature
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Inbox item ID (from the `id` field in the pending items list) |
+
+**Response 200:**
+```json
+{ "success": true }
+```
+
+| Status | Description |
+|---|---|
+| 200 | Item marked as delivered |
+| 400 | Invalid item id |
+| 403 | Non-mobile token |
+| 404 | Item not found or already delivered |
 
 ---
 

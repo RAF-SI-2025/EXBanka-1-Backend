@@ -8,7 +8,7 @@ import (
 )
 
 // VerificationChallenge stores the state of a single verification challenge
-// (code_pull, qr_scan, number_match, or email fallback).
+// (code_pull; qr_scan and number_match are planned but not yet enabled).
 type VerificationChallenge struct {
 	ID            uint64         `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID        uint64         `gorm:"not null;index" json:"user_id"`

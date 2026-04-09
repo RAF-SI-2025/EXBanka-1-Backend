@@ -34,7 +34,7 @@ type PaymentService struct {
 	accountClient  accountpb.AccountServiceClient
 	feeSvc         *FeeService
 	producer       *kafka.Producer
-	bankRSDAccount string // account number of bank's RSD account
+	bankRSDAccount string                        // account number of bank's RSD account
 	sagaRepo       *repository.SagaLogRepository // nil-safe: saga logging skipped when nil
 	retryConfig    shared.RetryConfig
 }
@@ -291,7 +291,44 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 	TransactionAmountRSDSum.WithLabelValues("payment").Add(payment.FinalAmount.InexactFloat64())
 	TransactionProcessingDuration.WithLabelValues("payment").Observe(time.Since(start).Seconds())
 
+	// Publish general notifications for sender and receiver (best-effort, after DB commit)
+	s.publishPaymentNotifications(ctx, payment)
+
 	return nil
+}
+
+// publishPaymentNotifications sends money_sent/money_received general notifications
+// by looking up account owner IDs via the already-available accountClient.
+func (s *PaymentService) publishPaymentNotifications(ctx context.Context, payment *model.Payment) {
+	if s.producer == nil || s.accountClient == nil {
+		return
+	}
+	fromAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+		AccountNumber: payment.FromAccountNumber,
+	})
+	if err == nil && fromAcct != nil {
+		_ = s.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  fromAcct.GetOwnerId(),
+			Type:    "money_sent",
+			Title:   "Payment Sent",
+			Message: fmt.Sprintf("Payment of %s sent to %s", payment.InitialAmount.StringFixed(2), payment.ToAccountNumber),
+			RefType: "payment",
+			RefID:   payment.ID,
+		})
+	}
+	toAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+		AccountNumber: payment.ToAccountNumber,
+	})
+	if err == nil && toAcct != nil {
+		_ = s.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  toAcct.GetOwnerId(),
+			Type:    "money_received",
+			Title:   "Payment Received",
+			Message: fmt.Sprintf("Payment of %s received from %s", payment.InitialAmount.StringFixed(2), payment.FromAccountNumber),
+			RefType: "payment",
+			RefID:   payment.ID,
+		})
+	}
 }
 
 func (s *PaymentService) GetPayment(id uint64) (*model.Payment, error) {

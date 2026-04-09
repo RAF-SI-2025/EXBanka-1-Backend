@@ -4,8 +4,8 @@ package middleware
 import (
 	"context"
 
-	"github.com/gin-gonic/gin"
 	"github.com/exbanka/contract/changelog"
+	"github.com/gin-gonic/gin"
 )
 
 // GRPCContextWithChangedBy reads user_id from Gin context and sets it as

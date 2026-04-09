@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -74,6 +75,15 @@ func (h *CardGRPCHandler) CreateCard(ctx context.Context, req *pb.CreateCardRequ
 		CardBrand:     card.CardBrand,
 	})
 
+	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  card.OwnerID,
+		Type:    "card_issued",
+		Title:   "New Card Issued",
+		Message: fmt.Sprintf("A new %s card has been issued for account %s.", card.CardBrand, card.AccountNumber),
+		RefType: "card",
+		RefID:   card.ID,
+	})
+
 	resp := toCardResponse(card)
 	resp.Cvv = cvv
 	return resp, nil
@@ -130,6 +140,15 @@ func (h *CardGRPCHandler) BlockCard(ctx context.Context, req *pb.BlockCardReques
 		CardID:        card.ID,
 		AccountNumber: card.AccountNumber,
 		NewStatus:     card.Status,
+	})
+
+	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  card.OwnerID,
+		Type:    "card_blocked",
+		Title:   "Card Blocked",
+		Message: fmt.Sprintf("Your card ending in %s has been blocked.", maskCardNumber(card.CardNumber)),
+		RefType: "card",
+		RefID:   card.ID,
 	})
 
 	// Send email notification to card owner

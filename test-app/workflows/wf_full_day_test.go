@@ -25,7 +25,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	// ---- Phase 1: Onboard all participants ----
 	t.Log("WF-14: Phase 1 — Onboarding")
 
-	_, acctA, clientAC, emailA := setupActivatedClient(t, adminC)
+	_, acctA, clientAC, _ := setupActivatedClient(t, adminC)
 	t.Logf("WF-14: Client A onboarded, acct=%s", acctA)
 
 	_, acctB, _, _ := setupActivatedClient(t, adminC)
@@ -48,7 +48,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	balBBefore := getAccountBalance(t, adminC, acctB)
 
 	const paymentAmount = 5000.0
-	paymentID := createAndExecutePayment(t, clientAC, acctB, paymentAmount, emailA)
+	paymentID := createAndExecutePayment(t, clientAC, acctB, paymentAmount)
 	t.Logf("WF-14: Payment A->B executed id=%d amount=%.2f", paymentID, paymentAmount)
 
 	balAAfter := getAccountBalance(t, adminC, acctA)

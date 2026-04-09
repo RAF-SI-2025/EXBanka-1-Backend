@@ -152,6 +152,7 @@ func (h *TransactionGRPCHandler) ExecutePayment(ctx context.Context, req *pb.Exe
 		if err := h.producer.PublishPaymentCompleted(ctx, msg); err != nil {
 			log.Printf("warn: failed to publish payment-completed event: %v", err)
 		}
+
 	}
 
 	return paymentToProto(payment), nil
@@ -281,6 +282,7 @@ func (h *TransactionGRPCHandler) ExecuteTransfer(ctx context.Context, req *pb.Ex
 		if err := h.producer.PublishTransferCompleted(ctx, msg); err != nil {
 			log.Printf("warn: failed to publish transfer-completed event: %v", err)
 		}
+
 	}
 
 	return transferToProto(transfer), nil
@@ -395,4 +397,3 @@ func recipientToProto(r *model.PaymentRecipient) *pb.PaymentRecipientResponse {
 		CreatedAt:     r.CreatedAt.String(),
 	}
 }
-

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/shopspring/decimal"
@@ -150,6 +151,17 @@ func (h *CreditGRPCHandler) ApproveLoanRequest(ctx context.Context, req *pb.Appr
 		Status:        loan.Status,
 	})
 
+	if loanReq, lrErr := h.loanRequestService.GetLoanRequest(req.RequestId); lrErr == nil {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  loanReq.ClientID,
+			Type:    "loan_approved",
+			Title:   "Loan Approved",
+			Message: fmt.Sprintf("Your %s loan request for %s has been approved.", loan.LoanType, loan.Amount.StringFixed(2)),
+			RefType: "loan",
+			RefID:   loan.ID,
+		})
+	}
+
 	return toLoanResponse(loan), nil
 }
 
@@ -168,6 +180,15 @@ func (h *CreditGRPCHandler) RejectLoanRequest(ctx context.Context, req *pb.Rejec
 		LoanType:      loanReq.LoanType,
 		Amount:        loanReq.Amount.StringFixed(4),
 		Status:        loanReq.Status,
+	})
+
+	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  loanReq.ClientID,
+		Type:    "loan_rejected",
+		Title:   "Loan Request Rejected",
+		Message: fmt.Sprintf("Your %s loan request for %s has been rejected.", loanReq.LoanType, loanReq.Amount.StringFixed(2)),
+		RefType: "loan_request",
+		RefID:   loanReq.ID,
 	})
 
 	return toLoanRequestResponse(loanReq), nil

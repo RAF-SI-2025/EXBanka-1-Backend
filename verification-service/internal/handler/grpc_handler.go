@@ -48,14 +48,14 @@ func NewVerificationGRPCHandler(svc *service.VerificationService) *VerificationG
 }
 
 func (h *VerificationGRPCHandler) CreateChallenge(ctx context.Context, req *pb.CreateChallengeRequest) (*pb.CreateChallengeResponse, error) {
-	vc, err := h.svc.CreateChallenge(ctx, req.GetUserId(), req.GetSourceService(), req.GetSourceId(), req.GetMethod(), req.GetDeviceId(), req.GetEmail())
+	vc, err := h.svc.CreateChallenge(ctx, req.GetUserId(), req.GetSourceService(), req.GetSourceId(), req.GetMethod(), req.GetDeviceId())
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "%v", err)
 	}
 
 	// Build response challenge_data based on method.
 	// For the browser: code_pull returns {}, qr_scan returns {"token":..., "verify_url":...},
-	// number_match returns {"target":...}, email returns {}.
+	// number_match returns {"target":...}.
 	var responseData map[string]interface{}
 	if err := json.Unmarshal(vc.ChallengeData, &responseData); err != nil {
 		responseData = map[string]interface{}{}
@@ -106,7 +106,7 @@ func (h *VerificationGRPCHandler) GetChallengeStatus(ctx context.Context, req *p
 }
 
 func (h *VerificationGRPCHandler) GetPendingChallenge(ctx context.Context, req *pb.GetPendingChallengeRequest) (*pb.GetPendingChallengeResponse, error) {
-	vc, err := h.svc.GetPendingChallenge(req.GetUserId(), req.GetDeviceId())
+	vc, err := h.svc.GetPendingChallenge(req.GetUserId())
 	if err != nil {
 		// Not found is a valid state for polling — return found=false
 		return &pb.GetPendingChallengeResponse{Found: false}, nil

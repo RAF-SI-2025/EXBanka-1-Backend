@@ -14,10 +14,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/cardpb"
-	clientpb "github.com/exbanka/contract/clientpb"
-	"github.com/exbanka/contract/metrics"
-	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/card-service/internal/cache"
 	"github.com/exbanka/card-service/internal/config"
 	"github.com/exbanka/card-service/internal/handler"
@@ -25,6 +21,10 @@ import (
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/repository"
 	"github.com/exbanka/card-service/internal/service"
+	pb "github.com/exbanka/contract/cardpb"
+	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/metrics"
+	shared "github.com/exbanka/contract/shared"
 )
 
 func main() {
@@ -53,6 +53,7 @@ func main() {
 		"card.request-rejected",
 		"card.changelog",
 		"notification.send-email",
+		"notification.general",
 	)
 
 	var redisCache *cache.RedisCache
