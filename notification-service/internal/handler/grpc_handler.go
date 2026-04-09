@@ -71,7 +71,7 @@ func (h *GRPCHandler) GetPendingMobileItems(ctx context.Context, req *notifpb.Ge
 }
 
 func (h *GRPCHandler) AckMobileItem(ctx context.Context, req *notifpb.AckMobileRequest) (*notifpb.AckMobileResponse, error) {
-	if err := h.inboxRepo.MarkDelivered(req.Id, req.DeviceId); err != nil {
+	if err := h.inboxRepo.MarkDelivered(req.Id); err != nil {
 		return nil, status.Errorf(codes.NotFound, "item not found or already delivered")
 	}
 	return &notifpb.AckMobileResponse{Success: true}, nil

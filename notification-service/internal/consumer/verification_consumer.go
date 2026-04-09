@@ -113,7 +113,6 @@ func (c *VerificationConsumer) handleMobileDelivery(ctx context.Context, event k
 
 	item := &model.MobileInboxItem{
 		UserID:      event.UserID,
-		DeviceID:    event.DeviceID, // may be empty — mobile app queries by user_id
 		ChallengeID: event.ChallengeID,
 		Method:      event.Method,
 		DisplayData: datatypes.JSON(event.DisplayData),
@@ -124,7 +123,6 @@ func (c *VerificationConsumer) handleMobileDelivery(ctx context.Context, event k
 		return
 	}
 
-	// Publish to mobile-push topic for WebSocket delivery
 	payloadJSON, _ := json.Marshal(map[string]interface{}{
 		"challenge_id": event.ChallengeID,
 		"method":       event.Method,
@@ -132,10 +130,9 @@ func (c *VerificationConsumer) handleMobileDelivery(ctx context.Context, event k
 		"expires_at":   event.ExpiresAt,
 	})
 	pushMsg := kafkamsg.MobilePushMessage{
-		UserID:   event.UserID,
-		DeviceID: event.DeviceID,
-		Type:     "verification_challenge",
-		Payload:  string(payloadJSON),
+		UserID:  event.UserID,
+		Type:    "verification_challenge",
+		Payload: string(payloadJSON),
 	}
 	if err := c.producer.Publish(ctx, kafkamsg.TopicMobilePush, pushMsg); err != nil {
 		log.Printf("verification consumer: mobile push publish error: %v", err)
