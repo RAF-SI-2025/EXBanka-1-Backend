@@ -198,8 +198,8 @@ func TestValidMethods_CodePullEnabled(t *testing.T) {
 	assert.True(t, validMethods["code_pull"])
 }
 
-func TestValidMethods_EmailEnabled(t *testing.T) {
-	assert.True(t, validMethods["email"])
+func TestValidMethods_EmailDisabled(t *testing.T) {
+	assert.False(t, validMethods["email"])
 }
 
 func TestValidMethods_QRScanDisabled(t *testing.T) {
@@ -326,7 +326,7 @@ func TestGetChallengeStatus_NotFound(t *testing.T) {
 // DB-backed tests: GetPendingChallenge
 // ---------------------------------------------------------------------------
 
-func TestGetPendingChallenge_ReturnsForUserAndDevice(t *testing.T) {
+func TestGetPendingChallenge_ReturnsPendingForUser(t *testing.T) {
 	svc, db := setupTestVerificationService(t)
 
 	created := seedChallenge(t, db, &model.VerificationChallenge{
@@ -339,36 +339,18 @@ func TestGetPendingChallenge_ReturnsForUserAndDevice(t *testing.T) {
 		Status:        "pending",
 		Attempts:      0,
 		ExpiresAt:     time.Now().Add(5 * time.Minute),
-		DeviceID:      "device-abc",
 		Version:       1,
 	})
 
-	vc, err := svc.GetPendingChallenge(20, "device-abc")
+	vc, err := svc.GetPendingChallenge(20)
 	require.NoError(t, err)
 	assert.Equal(t, created.ID, vc.ID)
-	assert.Equal(t, "device-abc", vc.DeviceID)
 	assert.Equal(t, "pending", vc.Status)
 }
 
-func TestGetPendingChallenge_FoundRegardlessOfDevice(t *testing.T) {
-	svc, db := setupTestVerificationService(t)
+func TestGetPendingChallenge_NotFoundWhenNoPending(t *testing.T) {
+	svc, _ := setupTestVerificationService(t)
 
-	vc := seedChallenge(t, db, &model.VerificationChallenge{
-		UserID:        20,
-		SourceService: "payment",
-		SourceID:      700,
-		Method:        "code_pull",
-		Code:          "445566",
-		ChallengeData: datatypes.JSON([]byte("{}")),
-		Status:        "pending",
-		Attempts:      0,
-		ExpiresAt:     time.Now().Add(5 * time.Minute),
-		DeviceID:      "device-abc",
-		Version:       1,
-	})
-
-	// Mobile app with different device_id should still find the challenge (user_id match)
-	got, err := svc.GetPendingChallenge(20, "device-xyz")
-	require.NoError(t, err)
-	assert.Equal(t, vc.ID, got.ID)
+	_, err := svc.GetPendingChallenge(99999)
+	require.Error(t, err)
 }
