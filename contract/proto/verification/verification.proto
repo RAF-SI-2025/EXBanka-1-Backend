@@ -21,9 +21,8 @@ message CreateChallengeRequest {
   uint64 user_id        = 1;
   string source_service = 2; // "transaction", "payment", "transfer"
   uint64 source_id      = 3;
-  string method         = 4; // "code_pull", "qr_scan", "number_match", "email"
+  string method         = 4; // "code_pull"
   string device_id      = 5; // UUID of mobile device, empty for browser sessions
-  string email          = 6; // user email from JWT — passed by gateway, no DB lookup needed
 }
 
 message CreateChallengeResponse {
@@ -46,8 +45,7 @@ message GetChallengeStatusResponse {
 }
 
 message GetPendingChallengeRequest {
-  uint64 user_id   = 1;
-  string device_id = 2;
+  uint64 user_id = 1;
 }
 
 message GetPendingChallengeResponse {
