@@ -11,8 +11,8 @@ import (
 
 // mockRoleRepo implements RoleRepo for testing.
 type mockRoleRepo struct {
-	roles map[string]*model.Role
-	byID  map[int64]*model.Role
+	roles  map[string]*model.Role
+	byID   map[int64]*model.Role
 	nextID int64
 }
 

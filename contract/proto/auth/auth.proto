@@ -16,6 +16,27 @@ service AuthService {
   rpc GetAccountStatus(GetAccountStatusRequest) returns (GetAccountStatusResponse);
   rpc GetAccountStatusBatch(GetAccountStatusBatchRequest) returns (GetAccountStatusBatchResponse);
   rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+  rpc ResendActivationEmail(ResendActivationEmailRequest) returns (ResendActivationEmailResponse);
+
+  // Mobile device management
+  rpc RequestMobileActivation(MobileActivationRequest) returns (MobileActivationResponse);
+  rpc ActivateMobileDevice(ActivateMobileDeviceRequest) returns (ActivateMobileDeviceResponse);
+  rpc RefreshMobileToken(RefreshMobileTokenRequest) returns (RefreshMobileTokenResponse);
+  rpc DeactivateDevice(DeactivateDeviceRequest) returns (DeactivateDeviceResponse);
+  rpc TransferDevice(TransferDeviceRequest) returns (TransferDeviceResponse);
+  rpc ValidateDeviceSignature(ValidateDeviceSignatureRequest) returns (ValidateDeviceSignatureResponse);
+  rpc GetDeviceInfo(GetDeviceInfoRequest) returns (GetDeviceInfoResponse);
+
+  // Biometrics management
+  rpc SetBiometricsEnabled(SetBiometricsRequest) returns (SetBiometricsResponse);
+  rpc GetBiometricsEnabled(GetBiometricsRequest) returns (GetBiometricsResponse);
+  rpc CheckBiometricsEnabled(CheckBiometricsRequest) returns (CheckBiometricsResponse);
+
+  // Session management
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
+  rpc RevokeAllSessions(RevokeAllSessionsRequest) returns (RevokeAllSessionsResponse);
+  rpc GetLoginHistory(LoginHistoryRequest) returns (LoginHistoryResponse);
 }
 
 message LoginRequest {
@@ -40,6 +61,8 @@ message ValidateTokenResponse {
   repeated string permissions = 5;
   string system_type = 6;
   repeated string roles = 7;
+  string device_type = 8;   // "mobile" or empty for browser
+  string device_id = 9;     // UUID of mobile device or empty
 }
 
 message RefreshTokenRequest {
@@ -131,4 +154,181 @@ message CreateAccountRequest {
 
 message CreateAccountResponse {
   bool success = 1;
+}
+
+message ResendActivationEmailRequest {
+  string email = 1;
+}
+
+message ResendActivationEmailResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// --- Mobile device messages ---
+
+message MobileActivationRequest {
+  string email = 1;
+}
+
+message MobileActivationResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ActivateMobileDeviceRequest {
+  string email = 1;
+  string code = 2;
+  string device_name = 3;
+}
+
+message ActivateMobileDeviceResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  string device_id = 3;
+  string device_secret = 4;
+}
+
+message RefreshMobileTokenRequest {
+  string refresh_token = 1;
+  string device_id = 2;
+}
+
+message RefreshMobileTokenResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+}
+
+message DeactivateDeviceRequest {
+  int64 user_id = 1;
+  string device_id = 2;
+}
+
+message DeactivateDeviceResponse {
+  bool success = 1;
+}
+
+message TransferDeviceRequest {
+  int64 user_id = 1;
+  string email = 2;
+}
+
+message TransferDeviceResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ValidateDeviceSignatureRequest {
+  string device_id = 1;
+  string timestamp = 2;
+  string method = 3;
+  string path = 4;
+  string body_sha256 = 5;
+  string signature = 6;
+}
+
+message ValidateDeviceSignatureResponse {
+  bool valid = 1;
+}
+
+message GetDeviceInfoRequest {
+  int64 user_id = 1;
+}
+
+message GetDeviceInfoResponse {
+  string device_id = 1;
+  string device_name = 2;
+  string status = 3;
+  string activated_at = 4;
+  string last_seen_at = 5;
+}
+
+// --- Session management messages ---
+
+message ListSessionsRequest {
+  int64 user_id = 1;
+}
+
+message SessionInfo {
+  int64 id = 1;
+  int64 user_id = 2;
+  string user_role = 3;
+  string ip_address = 4;
+  string user_agent = 5;
+  string device_id = 6;
+  string system_type = 7;
+  string last_active_at = 8;  // RFC3339
+  string created_at = 9;      // RFC3339
+  bool is_current = 10;
+}
+
+message ListSessionsResponse {
+  repeated SessionInfo sessions = 1;
+}
+
+message RevokeSessionRequest {
+  int64 session_id = 1;
+  int64 caller_user_id = 2;  // The user requesting revocation (for ownership check)
+}
+
+message RevokeSessionResponse {
+  bool success = 1;
+}
+
+message RevokeAllSessionsRequest {
+  int64 user_id = 1;
+  string current_refresh_token = 2;  // Keep this session alive
+}
+
+message RevokeAllSessionsResponse {
+  bool success = 1;
+  int32 revoked_count = 2;
+}
+
+message LoginHistoryRequest {
+  string email = 1;
+  int32 limit = 2;  // max 100, default 50
+}
+
+message LoginHistoryEntry {
+  int64 id = 1;
+  string email = 2;
+  string ip_address = 3;
+  string user_agent = 4;
+  string device_type = 5;
+  bool success = 6;
+  string created_at = 7;  // RFC3339
+}
+
+message LoginHistoryResponse {
+  repeated LoginHistoryEntry entries = 1;
+}
+
+// --- Biometrics messages ---
+
+message SetBiometricsRequest {
+  int64 user_id = 1;
+  string device_id = 2;
+  bool enabled = 3;
+}
+
+message SetBiometricsResponse {
+  bool success = 1;
+}
+
+message GetBiometricsRequest {
+  int64 user_id = 1;
+  string device_id = 2;
+}
+
+message GetBiometricsResponse {
+  bool enabled = 1;
+}
+
+message CheckBiometricsRequest {
+  string device_id = 1;
+}
+
+message CheckBiometricsResponse {
+  bool enabled = 1;
 }

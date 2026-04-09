@@ -50,6 +50,43 @@ func (s *FeeService) CalculateFee(amount decimal.Decimal, txType, currency strin
 	return total, nil
 }
 
+// FeeDetail holds a single fee rule's contribution.
+type FeeDetail struct {
+	Name             string
+	FeeType          string
+	FeeValue         decimal.Decimal
+	CalculatedAmount decimal.Decimal
+}
+
+// CalculateFeeDetailed returns the total fee and per-rule breakdown.
+func (s *FeeService) CalculateFeeDetailed(amount decimal.Decimal, txType, currency string) (decimal.Decimal, []FeeDetail, error) {
+	fees, err := s.repo.GetApplicableFees(amount, txType, currency)
+	if err != nil {
+		return decimal.Zero, nil, fmt.Errorf("failed to determine applicable fees: %w", err)
+	}
+	total := decimal.Zero
+	details := make([]FeeDetail, 0, len(fees))
+	for _, fee := range fees {
+		var thisFee decimal.Decimal
+		if fee.FeeType == "percentage" {
+			thisFee = amount.Mul(fee.FeeValue).Div(decimal.NewFromInt(100))
+		} else {
+			thisFee = fee.FeeValue
+		}
+		if fee.MaxFee.IsPositive() && thisFee.GreaterThan(fee.MaxFee) {
+			thisFee = fee.MaxFee
+		}
+		total = total.Add(thisFee)
+		details = append(details, FeeDetail{
+			Name:             fee.Name,
+			FeeType:          fee.FeeType,
+			FeeValue:         fee.FeeValue,
+			CalculatedAmount: thisFee,
+		})
+	}
+	return total, details, nil
+}
+
 func (s *FeeService) CreateFee(fee *model.TransferFee) error {
 	return s.repo.Create(fee)
 }

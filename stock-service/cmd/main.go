@@ -1,0 +1,317 @@
+package main
+
+import (
+	"context"
+	"log"
+	"net"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
+	accountpb "github.com/exbanka/contract/accountpb"
+	clientpb "github.com/exbanka/contract/clientpb"
+	exchangepb "github.com/exbanka/contract/exchangepb"
+	"github.com/exbanka/contract/influx"
+	"github.com/exbanka/contract/metrics"
+	shared "github.com/exbanka/contract/shared"
+	pb "github.com/exbanka/contract/stockpb"
+	userpb "github.com/exbanka/contract/userpb"
+	"github.com/exbanka/stock-service/internal/cache"
+	"github.com/exbanka/stock-service/internal/config"
+	"github.com/exbanka/stock-service/internal/handler"
+	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
+	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/provider"
+	"github.com/exbanka/stock-service/internal/repository"
+	"github.com/exbanka/stock-service/internal/service"
+)
+
+func main() {
+	cfg := config.Load()
+
+	// --- Database ---
+	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+
+	// AutoMigrate all models
+	if err := db.AutoMigrate(
+		&model.StockExchange{},
+		&model.SystemSetting{},
+		&model.Stock{},
+		&model.FuturesContract{},
+		&model.ForexPair{},
+		&model.Option{},
+		&model.Listing{},
+		&model.ListingDailyPriceInfo{},
+		&model.Order{},
+		&model.OrderTransaction{},
+		&model.Holding{},
+		&model.CapitalGain{},
+		&model.TaxCollection{},
+	); err != nil {
+		log.Fatalf("auto-migrate failed: %v", err)
+	}
+
+	// Composite unique indexes
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_security_unique ON listings(security_id, security_type)")
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_price_listing_date ON listing_daily_price_infos(listing_id, date)")
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_unique ON holdings(user_id, security_type, security_id, account_id)")
+
+	// --- Kafka ---
+	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
+	defer producer.Close()
+	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+		"stock.exchange-synced",
+		"stock.security-synced",
+		"stock.listing-updated",
+		"stock.order-created",
+		"stock.order-approved",
+		"stock.order-declined",
+		"stock.order-filled",
+		"stock.order-cancelled",
+		"stock.holding-updated",
+		"stock.otc-trade-executed",
+		"stock.tax-collected",
+		"stock.option-exercised",
+	)
+
+	// --- InfluxDB ---
+	influxClient := influx.NewClient(cfg.InfluxURL, cfg.InfluxToken, cfg.InfluxOrg, cfg.InfluxBucket)
+	if influxClient != nil {
+		defer influxClient.Close()
+		log.Println("InfluxDB client connected")
+	}
+
+	// --- gRPC Client Connections ---
+
+	// Account service client (for debit/credit)
+	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to account-service: %v", err)
+	}
+	defer accountConn.Close()
+	accountClient := accountpb.NewAccountServiceClient(accountConn)
+
+	// Exchange service client (for currency conversion)
+	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to exchange-service: %v", err)
+	}
+	defer exchangeConn.Close()
+	exchangeClient := exchangepb.NewExchangeServiceClient(exchangeConn)
+
+	// User service client (for name resolution)
+	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to user-service: %v", err)
+	}
+	defer userConn.Close()
+	userClient := userpb.NewUserServiceClient(userConn)
+
+	// Client service client (for name resolution)
+	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("failed to connect to client-service: %v", err)
+	}
+	defer clientConn.Close()
+	clientClient := clientpb.NewClientServiceClient(clientConn)
+
+	// --- Redis ---
+	var redisCache *cache.RedisCache
+	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
+	if err != nil {
+		log.Printf("warn: redis unavailable, running without cache: %v", err)
+	}
+	if redisCache != nil {
+		defer redisCache.Close()
+	}
+
+	// --- Repositories ---
+	exchangeRepo := repository.NewExchangeRepository(db)
+	settingRepo := repository.NewSystemSettingRepository(db)
+	stockRepo := repository.NewStockRepository(db)
+	futuresRepo := repository.NewFuturesRepository(db)
+	forexRepo := repository.NewForexPairRepository(db)
+	optionRepo := repository.NewOptionRepository(db)
+
+	listingRepo := repository.NewListingRepository(db)
+	dailyPriceRepo := repository.NewListingDailyPriceRepository(db)
+	orderRepo := repository.NewOrderRepository(db)
+	orderTxRepo := repository.NewOrderTransactionRepository(db)
+
+	holdingRepo := repository.NewHoldingRepository(db)
+	capitalGainRepo := repository.NewCapitalGainRepository(db)
+	taxCollectionRepo := repository.NewTaxCollectionRepository(db)
+
+	// --- Name Resolver ---
+	nameResolver := service.UserNameResolver(func(userID uint64, systemType string) (string, string, error) {
+		if systemType == "client" {
+			resp, err := clientClient.GetClient(context.Background(), &clientpb.GetClientRequest{Id: userID})
+			if err != nil {
+				return "", "", err
+			}
+			return resp.FirstName, resp.LastName, nil
+		}
+		resp, err := userClient.GetEmployee(context.Background(), &userpb.GetEmployeeRequest{Id: int64(userID)})
+		if err != nil {
+			return "", "", err
+		}
+		return resp.FirstName, resp.LastName, nil
+	})
+
+	// --- Services ---
+	exchangeSvc := service.NewExchangeService(exchangeRepo, settingRepo)
+
+	secSvc := service.NewSecurityService(stockRepo, futuresRepo, forexRepo, optionRepo, exchangeRepo, redisCache)
+	listingSvc := service.NewListingService(listingRepo, dailyPriceRepo, stockRepo, futuresRepo, forexRepo)
+	candleSvc := service.NewCandleService(influxClient)
+
+	// --- External API Clients ---
+	// Each is nil when its API key is not set (triggers fallback to static data).
+
+	var avClient *provider.AlphaVantageClient
+	if cfg.AlphaVantageAPIKey != "" {
+		avClient = provider.NewAlphaVantageClient(cfg.AlphaVantageAPIKey)
+	}
+
+	var eodhClient *provider.EODHDClient
+	if cfg.EODHDAPIKey != "" {
+		eodhClient = provider.NewEODHDClient(cfg.EODHDAPIKey)
+	}
+
+	var alpacaClient *provider.AlpacaClient
+	if cfg.AlpacaAPIKey != "" && cfg.AlpacaAPISecret != "" {
+		alpacaClient = provider.NewAlpacaClient(cfg.AlpacaAPIKey, cfg.AlpacaAPISecret)
+	}
+
+	var finnhubClient *provider.FinnhubClient
+	if cfg.FinnhubAPIKey != "" {
+		finnhubClient = provider.NewFinnhubClient(cfg.FinnhubAPIKey)
+	}
+
+	syncSvc := service.NewSecuritySyncService(
+		stockRepo, futuresRepo, forexRepo, optionRepo,
+		exchangeRepo, settingRepo, avClient,
+		eodhClient, alpacaClient, finnhubClient,
+		listingSvc, cfg.ExchangeCSVPath, redisCache, influxClient,
+	)
+
+	// Portfolio, OTC, and tax services
+	portfolioSvc := service.NewPortfolioService(
+		holdingRepo, capitalGainRepo, listingRepo,
+		stockRepo, optionRepo,
+		accountClient, nameResolver, cfg.StateAccountNo,
+	)
+
+	otcSvc := service.NewOTCService(
+		holdingRepo, capitalGainRepo, listingRepo,
+		accountClient, nameResolver,
+	)
+
+	taxSvc := service.NewTaxService(
+		capitalGainRepo, taxCollectionRepo, holdingRepo,
+		accountClient, exchangeClient, cfg.StateAccountNo,
+	)
+
+	taxCronSvc := service.NewTaxCronService(taxSvc)
+
+	// Order services
+	securityLookup := service.NewSecurityLookupAdapter(futuresRepo)
+	orderSvc := service.NewOrderService(orderRepo, orderTxRepo, listingRepo, settingRepo, securityLookup, producer)
+	execEngine := service.NewOrderExecutionEngine(orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
+
+	// --- Seed securities ---
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		syncSvc.SeedAll(ctx, "data/futures_seed.json")
+	}()
+
+	// Start periodic price refresh
+	syncSvc.StartPeriodicRefresh(ctx, cfg.SecuritySyncIntervalMins)
+
+	// Start daily price snapshot cron
+	listingCron := service.NewListingCronService(listingRepo, dailyPriceRepo, influxClient)
+	listingCron.StartDailyCron(ctx)
+
+	// Seed initial price history after listings are created
+	go func() {
+		// Wait for seed to complete (the seed goroutine runs async)
+		time.Sleep(5 * time.Second)
+		listingCron.SeedInitialSnapshot()
+	}()
+
+	// Start execution engine for active orders
+	execEngine.Start(ctx)
+
+	// Start tax collection cron
+	taxCronSvc.StartMonthlyCron(ctx)
+
+	// --- gRPC Server ---
+	lis, err := net.Listen("tcp", cfg.GRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
+
+	// Register handlers
+	exchangeHandler := handler.NewExchangeGRPCHandler(exchangeSvc)
+	pb.RegisterStockExchangeGRPCServiceServer(grpcServer, exchangeHandler)
+
+	securityHandler := handler.NewSecurityHandler(secSvc, listingSvc, candleSvc)
+	pb.RegisterSecurityGRPCServiceServer(grpcServer, securityHandler)
+
+	orderHandler := handler.NewOrderHandler(orderSvc, execEngine)
+	pb.RegisterOrderGRPCServiceServer(grpcServer, orderHandler)
+
+	// Portfolio handler
+	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc, taxSvc)
+	pb.RegisterPortfolioGRPCServiceServer(grpcServer, portfolioHandler)
+
+	// OTC handler
+	otcHandler := handler.NewOTCHandler(otcSvc)
+	pb.RegisterOTCGRPCServiceServer(grpcServer, otcHandler)
+
+	// Tax handler
+	taxHandler := handler.NewTaxHandler(taxSvc)
+	pb.RegisterTaxGRPCServiceServer(grpcServer, taxHandler)
+
+	shared.RegisterHealthCheck(grpcServer, "stock-service")
+	metrics.InitializeGRPCMetrics(grpcServer)
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
+
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
+
+	// --- Graceful shutdown ---
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		log.Println("shutting down stock-service...")
+		cancel()
+		grpcServer.GracefulStop()
+	}()
+
+	markReady()
+	log.Printf("stock-service listening on %s", cfg.GRPCAddr)
+	if err := grpcServer.Serve(lis); err != nil {
+		log.Fatalf("gRPC server failed: %v", err)
+	}
+}

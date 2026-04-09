@@ -577,10 +577,11 @@ var TransactionService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	FeeService_ListFees_FullMethodName  = "/transaction.FeeService/ListFees"
-	FeeService_CreateFee_FullMethodName = "/transaction.FeeService/CreateFee"
-	FeeService_UpdateFee_FullMethodName = "/transaction.FeeService/UpdateFee"
-	FeeService_DeleteFee_FullMethodName = "/transaction.FeeService/DeleteFee"
+	FeeService_ListFees_FullMethodName     = "/transaction.FeeService/ListFees"
+	FeeService_CreateFee_FullMethodName    = "/transaction.FeeService/CreateFee"
+	FeeService_UpdateFee_FullMethodName    = "/transaction.FeeService/UpdateFee"
+	FeeService_DeleteFee_FullMethodName    = "/transaction.FeeService/DeleteFee"
+	FeeService_CalculateFee_FullMethodName = "/transaction.FeeService/CalculateFee"
 )
 
 // FeeServiceClient is the client API for FeeService service.
@@ -591,6 +592,7 @@ type FeeServiceClient interface {
 	CreateFee(ctx context.Context, in *CreateFeeRequest, opts ...grpc.CallOption) (*TransferFeeResponse, error)
 	UpdateFee(ctx context.Context, in *UpdateFeeRequest, opts ...grpc.CallOption) (*TransferFeeResponse, error)
 	DeleteFee(ctx context.Context, in *DeleteFeeRequest, opts ...grpc.CallOption) (*DeleteFeeResponse, error)
+	CalculateFee(ctx context.Context, in *CalculateFeeRequest, opts ...grpc.CallOption) (*CalculateFeeResponse, error)
 }
 
 type feeServiceClient struct {
@@ -641,6 +643,16 @@ func (c *feeServiceClient) DeleteFee(ctx context.Context, in *DeleteFeeRequest, 
 	return out, nil
 }
 
+func (c *feeServiceClient) CalculateFee(ctx context.Context, in *CalculateFeeRequest, opts ...grpc.CallOption) (*CalculateFeeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CalculateFeeResponse)
+	err := c.cc.Invoke(ctx, FeeService_CalculateFee_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FeeServiceServer is the server API for FeeService service.
 // All implementations must embed UnimplementedFeeServiceServer
 // for forward compatibility.
@@ -649,6 +661,7 @@ type FeeServiceServer interface {
 	CreateFee(context.Context, *CreateFeeRequest) (*TransferFeeResponse, error)
 	UpdateFee(context.Context, *UpdateFeeRequest) (*TransferFeeResponse, error)
 	DeleteFee(context.Context, *DeleteFeeRequest) (*DeleteFeeResponse, error)
+	CalculateFee(context.Context, *CalculateFeeRequest) (*CalculateFeeResponse, error)
 	mustEmbedUnimplementedFeeServiceServer()
 }
 
@@ -670,6 +683,9 @@ func (UnimplementedFeeServiceServer) UpdateFee(context.Context, *UpdateFeeReques
 }
 func (UnimplementedFeeServiceServer) DeleteFee(context.Context, *DeleteFeeRequest) (*DeleteFeeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteFee not implemented")
+}
+func (UnimplementedFeeServiceServer) CalculateFee(context.Context, *CalculateFeeRequest) (*CalculateFeeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CalculateFee not implemented")
 }
 func (UnimplementedFeeServiceServer) mustEmbedUnimplementedFeeServiceServer() {}
 func (UnimplementedFeeServiceServer) testEmbeddedByValue()                    {}
@@ -764,6 +780,24 @@ func _FeeService_DeleteFee_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FeeService_CalculateFee_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CalculateFeeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FeeServiceServer).CalculateFee(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FeeService_CalculateFee_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FeeServiceServer).CalculateFee(ctx, req.(*CalculateFeeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FeeService_ServiceDesc is the grpc.ServiceDesc for FeeService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -786,6 +820,10 @@ var FeeService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteFee",
 			Handler:    _FeeService_DeleteFee_Handler,
+		},
+		{
+			MethodName: "CalculateFee",
+			Handler:    _FeeService_CalculateFee_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

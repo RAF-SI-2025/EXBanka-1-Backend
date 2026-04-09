@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	authpb "github.com/exbanka/contract/authpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 )
@@ -202,7 +203,7 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 	pbReq.Phone = req.Phone
 	pbReq.Address = req.Address
 
-	resp, err := h.clientClient.UpdateClient(c.Request.Context(), pbReq)
+	resp, err := h.clientClient.UpdateClient(middleware.GRPCContextWithChangedBy(c), pbReq)
 	if err != nil {
 		handleGRPCError(c, err)
 		return

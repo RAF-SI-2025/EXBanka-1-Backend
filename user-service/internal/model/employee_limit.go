@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 type EmployeeLimit struct {
@@ -16,4 +17,11 @@ type EmployeeLimit struct {
 	MaxClientMonthlyLimit decimal.Decimal `gorm:"type:numeric(18,4);not null;default:0" json:"max_client_monthly_limit"`
 	CreatedAt             time.Time       `json:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at"`
+	Version               int64           `gorm:"not null;default:1" json:"version"`
+}
+
+func (el *EmployeeLimit) BeforeUpdate(tx *gorm.DB) error {
+	tx.Statement.Where("version = ?", el.Version)
+	el.Version++
+	return nil
 }

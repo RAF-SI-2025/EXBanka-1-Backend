@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -36,33 +37,47 @@ func (r *ExchangeRateRepository) GetByPair(from, to string) (*model.ExchangeRate
 	return &rate, nil
 }
 
-// Upsert inserts or updates a rate pair. Version is incremented on update.
+// Upsert creates or updates the exchange rate pair (from→to).
 func (r *ExchangeRateRepository) Upsert(from, to string, buy, sell decimal.Decimal) error {
-	now := time.Now()
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		var existing model.ExchangeRate
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("from_currency = ? AND to_currency = ?", from, to).
-			First(&existing).Error
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(&model.ExchangeRate{
-				FromCurrency: from,
-				ToCurrency:   to,
-				BuyRate:      buy,
-				SellRate:     sell,
-				Version:      1,
-				UpdatedAt:    now,
-			}).Error
-		}
-		if err != nil {
-			return err
-		}
-		return tx.Model(&existing).Updates(map[string]interface{}{
-			"buy_rate":   buy,
-			"sell_rate":  sell,
-			"version":    existing.Version + 1,
-			"updated_at": now,
-		}).Error
+		return r.UpsertInTx(tx, from, to, buy, sell)
 	})
+}
+
+// UpsertInTx performs the same upsert logic as Upsert but within an existing
+// transaction tx. Used by ExchangeService.SyncRates to wrap all pairs atomically.
+//
+// Note: clause.Locking{Strength:"UPDATE"} is a no-op in SQLite (silently ignored).
+// It takes effect under PostgreSQL in production to prevent concurrent sync races.
+func (r *ExchangeRateRepository) UpsertInTx(tx *gorm.DB, from, to string, buy, sell decimal.Decimal) error {
+	now := time.Now()
+	var existing model.ExchangeRate
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("from_currency = ? AND to_currency = ?", from, to).
+		First(&existing).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return tx.Create(&model.ExchangeRate{
+			FromCurrency: from,
+			ToCurrency:   to,
+			BuyRate:      buy,
+			SellRate:     sell,
+			Version:      1,
+			UpdatedAt:    now,
+		}).Error
+	}
+	if err != nil {
+		return err
+	}
+	existing.BuyRate = buy
+	existing.SellRate = sell
+	existing.UpdatedAt = now
+	result := tx.Save(&existing)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("optimistic lock conflict on exchange rate %s/%s", from, to)
+	}
+	return nil
 }

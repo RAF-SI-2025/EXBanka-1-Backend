@@ -114,7 +114,7 @@ func (m *mockLimitTemplateRepo) Delete(id int64) error {
 func TestGetEmployeeLimits_NoRecord(t *testing.T) {
 	limitRepo := newMockEmployeeLimitRepo()
 	templateRepo := newMockLimitTemplateRepo()
-	svc := NewLimitService(limitRepo, templateRepo, nil)
+	svc := NewLimitService(limitRepo, templateRepo, newMockHierarchyEmpRepo(), nil)
 
 	limit, err := svc.GetEmployeeLimits(42)
 	if err != nil {
@@ -131,7 +131,7 @@ func TestGetEmployeeLimits_NoRecord(t *testing.T) {
 func TestSetEmployeeLimits_Create(t *testing.T) {
 	limitRepo := newMockEmployeeLimitRepo()
 	templateRepo := newMockLimitTemplateRepo()
-	svc := NewLimitService(limitRepo, templateRepo, nil)
+	svc := NewLimitService(limitRepo, templateRepo, newMockHierarchyEmpRepo(), nil)
 
 	limit := model.EmployeeLimit{
 		EmployeeID:            10,
@@ -141,7 +141,7 @@ func TestSetEmployeeLimits_Create(t *testing.T) {
 		MaxClientDailyLimit:   decimal.NewFromInt(250000),
 		MaxClientMonthlyLimit: decimal.NewFromInt(2500000),
 	}
-	result, err := svc.SetEmployeeLimits(context.Background(), limit)
+	result, err := svc.SetEmployeeLimits(context.Background(), limit, 0)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -168,8 +168,8 @@ func TestApplyTemplate_Success(t *testing.T) {
 	}
 	_ = templateRepo.Create(tmpl)
 
-	svc := NewLimitService(limitRepo, templateRepo, nil)
-	result, err := svc.ApplyTemplate(context.Background(), 99, "BasicTeller")
+	svc := NewLimitService(limitRepo, templateRepo, newMockHierarchyEmpRepo(), nil)
+	result, err := svc.ApplyTemplate(context.Background(), 99, "BasicTeller", 0)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -187,9 +187,9 @@ func TestApplyTemplate_Success(t *testing.T) {
 func TestApplyTemplate_NotFound(t *testing.T) {
 	limitRepo := newMockEmployeeLimitRepo()
 	templateRepo := newMockLimitTemplateRepo()
-	svc := NewLimitService(limitRepo, templateRepo, nil)
+	svc := NewLimitService(limitRepo, templateRepo, newMockHierarchyEmpRepo(), nil)
 
-	_, err := svc.ApplyTemplate(context.Background(), 99, "NonExistentTemplate")
+	_, err := svc.ApplyTemplate(context.Background(), 99, "NonExistentTemplate", 0)
 	if err == nil {
 		t.Fatal("expected error for non-existent template, got nil")
 	}
@@ -202,7 +202,7 @@ func TestApplyTemplate_NotFound(t *testing.T) {
 func TestSeedDefaultTemplates(t *testing.T) {
 	limitRepo := newMockEmployeeLimitRepo()
 	templateRepo := newMockLimitTemplateRepo()
-	svc := NewLimitService(limitRepo, templateRepo, nil)
+	svc := NewLimitService(limitRepo, templateRepo, newMockHierarchyEmpRepo(), nil)
 
 	if err := svc.SeedDefaultTemplates(); err != nil {
 		t.Fatalf("expected no error, got: %v", err)

@@ -14,7 +14,9 @@ import (
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/exchangepb"
+	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/exchange-service/internal/cache"
 	"github.com/exbanka/exchange-service/internal/config"
 	"github.com/exbanka/exchange-service/internal/handler"
 	kafkaprod "github.com/exbanka/exchange-service/internal/kafka"
@@ -40,8 +42,17 @@ func main() {
 
 	kafkaprod.EnsureTopics(cfg.KafkaBrokers, "exchange.rates-updated")
 
+	var redisCache *cache.RedisCache
+	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)
+	if err != nil {
+		log.Printf("warn: redis unavailable, running without cache: %v", err)
+	}
+	if redisCache != nil {
+		defer redisCache.Close()
+	}
+
 	repo := repository.NewExchangeRateRepository(db)
-	svc, err := service.NewExchangeService(repo, cfg.CommissionRate, cfg.Spread)
+	svc, err := service.NewExchangeService(repo, db, cfg.CommissionRate, cfg.Spread, redisCache)
 	if err != nil {
 		log.Fatalf("failed to create exchange service: %v", err)
 	}
@@ -83,10 +94,22 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	pb.RegisterExchangeServiceServer(s, handler.NewExchangeGRPCHandler(svc))
 	shared.RegisterHealthCheck(s, "exchange-service")
+	metrics.InitializeGRPCMetrics(s)
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
 
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
+
+	markReady()
 	go func() {
 		log.Printf("exchange-service listening on %s", cfg.GRPCAddr)
 		if err := s.Serve(lis); err != nil {

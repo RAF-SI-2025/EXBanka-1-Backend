@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
@@ -10,12 +11,13 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/cardpb"
-	clientpb "github.com/exbanka/contract/clientpb"
-	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/card-service/internal/kafka"
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/service"
+	pb "github.com/exbanka/contract/cardpb"
+	"github.com/exbanka/contract/changelog"
+	clientpb "github.com/exbanka/contract/clientpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 // mapServiceError maps service-layer error messages to appropriate gRPC status codes.
@@ -73,6 +75,15 @@ func (h *CardGRPCHandler) CreateCard(ctx context.Context, req *pb.CreateCardRequ
 		CardBrand:     card.CardBrand,
 	})
 
+	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  card.OwnerID,
+		Type:    "card_issued",
+		Title:   "New Card Issued",
+		Message: fmt.Sprintf("A new %s card has been issued for account %s.", card.CardBrand, card.AccountNumber),
+		RefType: "card",
+		RefID:   card.ID,
+	})
+
 	resp := toCardResponse(card)
 	resp.Cvv = cvv
 	return resp, nil
@@ -94,7 +105,7 @@ func (h *CardGRPCHandler) ListCardsByAccount(ctx context.Context, req *pb.ListCa
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to list cards: %v", err)
 	}
-	resp := &pb.ListCardsResponse{}
+	resp := &pb.ListCardsResponse{Cards: make([]*pb.CardResponse, 0, len(cards))}
 	for _, c := range cards {
 		c := c
 		resp.Cards = append(resp.Cards, toCardResponse(&c))
@@ -107,7 +118,7 @@ func (h *CardGRPCHandler) ListCardsByClient(ctx context.Context, req *pb.ListCar
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to list cards: %v", err)
 	}
-	resp := &pb.ListCardsResponse{}
+	resp := &pb.ListCardsResponse{Cards: make([]*pb.CardResponse, 0, len(cards))}
 	for _, c := range cards {
 		c := c
 		resp.Cards = append(resp.Cards, toCardResponse(&c))
@@ -116,7 +127,8 @@ func (h *CardGRPCHandler) ListCardsByClient(ctx context.Context, req *pb.ListCar
 }
 
 func (h *CardGRPCHandler) BlockCard(ctx context.Context, req *pb.BlockCardRequest) (*pb.CardResponse, error) {
-	card, err := h.cardService.BlockCard(req.Id)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	card, err := h.cardService.BlockCard(req.Id, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")
@@ -128,6 +140,15 @@ func (h *CardGRPCHandler) BlockCard(ctx context.Context, req *pb.BlockCardReques
 		CardID:        card.ID,
 		AccountNumber: card.AccountNumber,
 		NewStatus:     card.Status,
+	})
+
+	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  card.OwnerID,
+		Type:    "card_blocked",
+		Title:   "Card Blocked",
+		Message: fmt.Sprintf("Your card ending in %s has been blocked.", maskCardNumber(card.CardNumber)),
+		RefType: "card",
+		RefID:   card.ID,
 	})
 
 	// Send email notification to card owner
@@ -155,7 +176,8 @@ func (h *CardGRPCHandler) BlockCard(ctx context.Context, req *pb.BlockCardReques
 }
 
 func (h *CardGRPCHandler) UnblockCard(ctx context.Context, req *pb.UnblockCardRequest) (*pb.CardResponse, error) {
-	card, err := h.cardService.UnblockCard(req.Id)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	card, err := h.cardService.UnblockCard(req.Id, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")
@@ -194,7 +216,8 @@ func (h *CardGRPCHandler) UnblockCard(ctx context.Context, req *pb.UnblockCardRe
 }
 
 func (h *CardGRPCHandler) DeactivateCard(ctx context.Context, req *pb.DeactivateCardRequest) (*pb.CardResponse, error) {
-	card, err := h.cardService.DeactivateCard(req.Id)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	card, err := h.cardService.DeactivateCard(req.Id, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")

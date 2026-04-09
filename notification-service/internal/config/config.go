@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 )
 
@@ -14,6 +15,15 @@ type Config struct {
 	SMTPUser     string
 	SMTPPassword string
 	SMTPFrom     string
+
+	// Database for mobile inbox
+	DBHost     string
+	DBPort     string
+	DBUser     string
+	DBPassword string
+	DBName     string
+
+	MetricsPort string
 }
 
 func Load() *Config {
@@ -25,7 +35,19 @@ func Load() *Config {
 		SMTPUser:     getEnv("SMTP_USER", ""),
 		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
 		SMTPFrom:     getEnv("SMTP_FROM", ""),
+		DBHost:       getEnv("NOTIFICATION_DB_HOST", "localhost"),
+		DBPort:       getEnv("NOTIFICATION_DB_PORT", "5442"),
+		DBUser:       getEnv("NOTIFICATION_DB_USER", "postgres"),
+		DBPassword:   getEnv("NOTIFICATION_DB_PASSWORD", "postgres"),
+		DBName:       getEnv("NOTIFICATION_DB_NAME", "notification_db"),
+		MetricsPort:  getEnv("METRICS_PORT", "9103"),
 	}
+}
+
+func (c *Config) DSN() string {
+	sslmode := getEnv("NOTIFICATION_DB_SSLMODE", "disable")
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		c.DBHost, c.DBPort, c.DBUser, c.DBPassword, c.DBName, sslmode)
 }
 
 func getEnv(key, fallback string) string {

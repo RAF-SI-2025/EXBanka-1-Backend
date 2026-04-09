@@ -1,15 +1,23 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
+	"github.com/exbanka/account-service/internal/cache"
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
+	"github.com/exbanka/contract/changelog"
 )
+
+const accountCacheTTL = 2 * time.Minute
 
 // BankOwnerID is the well-known owner ID for bank-owned accounts.
 const BankOwnerID uint64 = 1_000_000_000
@@ -18,11 +26,18 @@ const BankOwnerID uint64 = 1_000_000_000
 const StateOwnerID uint64 = 2_000_000_000
 
 type AccountService struct {
-	repo *repository.AccountRepository
+	repo          *repository.AccountRepository
+	changelogRepo *repository.ChangelogRepository
+	db            *gorm.DB
+	cache         *cache.RedisCache
 }
 
-func NewAccountService(repo *repository.AccountRepository) *AccountService {
-	return &AccountService{repo: repo}
+func NewAccountService(repo *repository.AccountRepository, db *gorm.DB, redisCache *cache.RedisCache, changelogRepo ...*repository.ChangelogRepository) *AccountService {
+	svc := &AccountService{repo: repo, db: db, cache: redisCache}
+	if len(changelogRepo) > 0 {
+		svc.changelogRepo = changelogRepo[0]
+	}
+	return svc
 }
 
 func maintenanceFeeByType(accountType string) decimal.Decimal {
@@ -73,15 +88,59 @@ func (s *AccountService) CreateAccount(account *model.Account) error {
 	account.Status = "active"
 	account.MaintenanceFee = maintenanceFeeByType(account.AccountType)
 
-	return s.repo.Create(account)
+	if err := s.repo.Create(account); err != nil {
+		return err
+	}
+	AccountsCreatedTotal.Inc()
+	return nil
 }
 
 func (s *AccountService) GetAccount(id uint64) (*model.Account, error) {
-	return s.repo.GetByID(id)
+	ctx := context.Background()
+	key := fmt.Sprintf("account:id:%d", id)
+
+	if s.cache != nil {
+		var cached model.Account
+		if err := s.cache.Get(ctx, key, &cached); err == nil {
+			return &cached, nil
+		}
+	}
+
+	account, err := s.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.Set(ctx, key, account, accountCacheTTL); err != nil {
+			log.Printf("warn: cache set failed for %s: %v", key, err)
+		}
+	}
+	return account, nil
 }
 
 func (s *AccountService) GetAccountByNumber(accountNumber string) (*model.Account, error) {
-	return s.repo.GetByNumber(accountNumber)
+	ctx := context.Background()
+	key := fmt.Sprintf("account:num:%s", accountNumber)
+
+	if s.cache != nil {
+		var cached model.Account
+		if err := s.cache.Get(ctx, key, &cached); err == nil {
+			return &cached, nil
+		}
+	}
+
+	account, err := s.repo.GetByNumber(accountNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.Set(ctx, key, account, accountCacheTTL); err != nil {
+			log.Printf("warn: cache set failed for %s: %v", key, err)
+		}
+	}
+	return account, nil
 }
 
 func (s *AccountService) ListAccountsByClient(clientID uint64, page, pageSize int) ([]model.Account, int64, error) {
@@ -104,7 +163,14 @@ func (s *AccountService) ListAllAccounts(nameFilter, numberFilter, typeFilter st
 	return s.repo.ListAll(nameFilter, numberFilter, typeFilter, page, pageSize)
 }
 
-func (s *AccountService) UpdateAccountName(id, clientID uint64, newName string) error {
+func (s *AccountService) UpdateAccountName(id, clientID uint64, newName string, changedBy int64) error {
+	// Fetch current state for changelog.
+	account, err := s.repo.GetByID(id)
+	if err != nil {
+		return fmt.Errorf("account %d not found", id)
+	}
+	oldName := account.AccountName
+
 	// Check for duplicate account name for the same owner.
 	exists, err := s.repo.ExistsByNameAndOwner(newName, clientID, id)
 	if err != nil {
@@ -113,11 +179,31 @@ func (s *AccountService) UpdateAccountName(id, clientID uint64, newName string) 
 	if exists {
 		return fmt.Errorf("an account with name %q already exists for this client", newName)
 	}
-	return s.repo.UpdateName(id, clientID, newName)
+	if err := s.repo.UpdateName(id, clientID, newName); err != nil {
+		return err
+	}
+	s.invalidateAccountCache(id, "")
+
+	// Record changelog after successful mutation.
+	entries := changelog.Diff("account", int64(id), changedBy, "", []changelog.FieldChange{
+		{Field: "account_name", OldValue: oldName, NewValue: newName},
+	})
+	if s.changelogRepo != nil && len(entries) > 0 {
+		_ = s.changelogRepo.CreateBatch(entries)
+	}
+	return nil
 }
 
-func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit *string) error {
+func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error {
+	// Fetch current state for changelog.
+	account, err := s.repo.GetByID(id)
+	if err != nil {
+		return fmt.Errorf("account %d not found", id)
+	}
+
+	var changes []changelog.FieldChange
 	updates := make(map[string]interface{})
+
 	if dailyLimit != nil && *dailyLimit != "" {
 		d, err := decimal.NewFromString(*dailyLimit)
 		if err != nil {
@@ -126,6 +212,9 @@ func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit
 		if d.IsNegative() || d.IsZero() {
 			return errors.New("daily_limit must be greater than 0")
 		}
+		changes = append(changes, changelog.FieldChange{
+			Field: "daily_limit", OldValue: account.DailyLimit.String(), NewValue: d.String(),
+		})
 		updates["daily_limit"] = d
 	}
 	if monthlyLimit != nil && *monthlyLimit != "" {
@@ -136,15 +225,29 @@ func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit
 		if m.IsNegative() || m.IsZero() {
 			return errors.New("monthly_limit must be greater than 0")
 		}
+		changes = append(changes, changelog.FieldChange{
+			Field: "monthly_limit", OldValue: account.MonthlyLimit.String(), NewValue: m.String(),
+		})
 		updates["monthly_limit"] = m
 	}
 	if len(updates) == 0 {
 		return nil
 	}
-	return s.repo.UpdateLimits(id, updates)
+
+	if err := s.repo.UpdateLimits(id, updates); err != nil {
+		return err
+	}
+	s.invalidateAccountCache(id, "")
+
+	// Record changelog after successful mutation.
+	entries := changelog.Diff("account", int64(id), changedBy, "", changes)
+	if s.changelogRepo != nil && len(entries) > 0 {
+		_ = s.changelogRepo.CreateBatch(entries)
+	}
+	return nil
 }
 
-func (s *AccountService) UpdateAccountStatus(id uint64, newStatus string) error {
+func (s *AccountService) UpdateAccountStatus(id uint64, newStatus string, changedBy int64) error {
 	if newStatus != "active" && newStatus != "inactive" {
 		return fmt.Errorf("account status must be 'active' or 'inactive'; got: %s", newStatus)
 	}
@@ -154,40 +257,39 @@ func (s *AccountService) UpdateAccountStatus(id uint64, newStatus string) error 
 		return fmt.Errorf("account %d not found", id)
 	}
 
-	if account.Status == newStatus {
+	oldStatus := account.Status
+	if oldStatus == newStatus {
 		return fmt.Errorf("account %d is already %s", id, newStatus)
 	}
 
-	return s.repo.UpdateStatus(id, newStatus)
-}
-
-func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
-	account, err := s.repo.GetByNumber(accountNumber)
-	if err != nil {
-		return fmt.Errorf("account %s not found", accountNumber)
-	}
-
-	if amount.IsNegative() && account.AvailableBalance.Add(amount).IsNegative() {
-		return fmt.Errorf("insufficient funds on account %s: balance %s, debit %s",
-			accountNumber, account.AvailableBalance.StringFixed(4), amount.Abs().StringFixed(4))
-	}
-
-	if err := s.repo.UpdateBalance(accountNumber, amount, updateAvailable); err != nil {
+	if err := s.repo.UpdateStatus(id, newStatus); err != nil {
 		return err
 	}
+	AccountStatusChangesTotal.WithLabelValues(newStatus).Inc()
+	s.invalidateAccountCache(id, "")
 
-	// Track spending for debit operations on client (non-bank) accounts.
-	if amount.IsNegative() && !account.IsBankAccount {
-		if err := s.repo.UpdateSpending(accountNumber, amount.Abs()); err != nil {
-			// Non-fatal: log but do not fail the balance update.
-			_ = err
-		}
+	// Record changelog after successful mutation.
+	if s.changelogRepo != nil {
+		entry := changelog.NewStatusChangeEntry("account", int64(id), changedBy, oldStatus, newStatus, "")
+		_ = s.changelogRepo.Create(entry)
 	}
-
 	return nil
 }
 
-func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountName string) (*model.Account, error) {
+func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
+	// All checks (funds, spending limits) and updates (balance, spending) are
+	// performed atomically inside a single SELECT FOR UPDATE transaction in the repo.
+	if err := s.repo.UpdateBalance(accountNumber, amount, updateAvailable); err != nil {
+		return err
+	}
+	// Invalidate cached read-only data after balance change.
+	// NOTE: The authoritative balance check always uses SELECT FOR UPDATE in the
+	// repo — this invalidation only affects display queries via GetAccount/GetAccountByNumber.
+	s.invalidateAccountCache(0, accountNumber)
+	return nil
+}
+
+func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountName string, initialBalance decimal.Decimal) (*model.Account, error) {
 	if accountKind != "current" && accountKind != "foreign" {
 		return nil, fmt.Errorf("account kind must be 'current' or 'foreign'; got: %s", accountKind)
 	}
@@ -206,19 +308,25 @@ func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountNam
 	}
 
 	account := &model.Account{
-		OwnerID:       BankOwnerID,
-		OwnerName:     "EX Banka",
-		AccountName:   accountName,
-		CurrencyCode:  currencyCode,
-		AccountKind:   accountKind,
-		AccountType:   "bank",
-		IsBankAccount: true,
+		OwnerID:          BankOwnerID,
+		OwnerName:        "EX Banka",
+		AccountName:      accountName,
+		CurrencyCode:     currencyCode,
+		AccountKind:      accountKind,
+		AccountType:      "bank",
+		IsBankAccount:    true,
+		Balance:          initialBalance,
+		AvailableBalance: initialBalance,
 	}
 	account.AccountNumber = GenerateAccountNumber(account.AccountKind)
 	account.ExpiresAt = time.Now().AddDate(50, 0, 0) // 50-year expiry for bank accounts
 	account.Status = "active"
 	account.MaintenanceFee = decimal.Zero
-	return account, s.repo.Create(account)
+	if err := s.repo.Create(account); err != nil {
+		return nil, err
+	}
+	AccountsCreatedTotal.Inc()
+	return account, nil
 }
 
 func (s *AccountService) ListBankAccounts() ([]model.Account, error) {
@@ -226,36 +334,45 @@ func (s *AccountService) ListBankAccounts() ([]model.Account, error) {
 }
 
 func (s *AccountService) DeleteBankAccount(id uint64) error {
-	account, err := s.repo.GetByID(id)
-	if err != nil {
-		return err
-	}
-	if !account.IsBankAccount {
-		return fmt.Errorf("account %d is not a bank account", id)
-	}
-	bankAccounts, err := s.repo.ListBankAccounts()
-	if err != nil {
-		return err
-	}
-	rsdCount := 0
-	foreignCount := 0
-	for _, a := range bankAccounts {
-		if a.ID == id {
-			continue
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Lock ALL bank accounts to prevent concurrent deletion races.
+		// Two concurrent deletes could both see enough remaining accounts and
+		// both succeed, violating the "at least 1 RSD + 1 foreign" constraint.
+		var bankAccounts []model.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("is_bank_account = ? AND status != ?", true, "deactivated").
+			Find(&bankAccounts).Error; err != nil {
+			return err
 		}
-		if a.CurrencyCode == "RSD" {
-			rsdCount++
-		} else {
-			foreignCount++
+
+		var target *model.Account
+		rsdCount, foreignCount := 0, 0
+		for i := range bankAccounts {
+			a := &bankAccounts[i]
+			if a.ID == id {
+				target = a
+				continue
+			}
+			if a.CurrencyCode == "RSD" {
+				rsdCount++
+			} else {
+				foreignCount++
+			}
 		}
-	}
-	if account.CurrencyCode == "RSD" && rsdCount == 0 {
-		return errors.New("cannot delete: bank must maintain at least one RSD account")
-	}
-	if account.CurrencyCode != "RSD" && foreignCount == 0 {
-		return errors.New("cannot delete: bank must maintain at least one foreign currency account")
-	}
-	return s.repo.SoftDelete(id)
+		if target == nil {
+			return fmt.Errorf("bank account %d not found", id)
+		}
+		if !target.IsBankAccount {
+			return fmt.Errorf("account %d is not a bank account", id)
+		}
+		if target.CurrencyCode == "RSD" && rsdCount == 0 {
+			return errors.New("cannot delete: bank must maintain at least one RSD account")
+		}
+		if target.CurrencyCode != "RSD" && foreignCount == 0 {
+			return errors.New("cannot delete: bank must maintain at least one foreign currency account")
+		}
+		return tx.Delete(target).Error
+	})
 }
 
 func (s *AccountService) GetBankRSDAccount() (*model.Account, error) {
@@ -269,4 +386,18 @@ func (s *AccountService) GetBankRSDAccount() (*model.Account, error) {
 // UpdateSpending increments daily_spending and monthly_spending by amount on client accounts.
 func (s *AccountService) UpdateSpending(accountNumber string, amount decimal.Decimal) error {
 	return s.repo.UpdateSpending(accountNumber, amount)
+}
+
+// invalidateAccountCache removes an account from Redis cache by ID and/or number.
+func (s *AccountService) invalidateAccountCache(id uint64, accountNumber string) {
+	if s.cache == nil {
+		return
+	}
+	ctx := context.Background()
+	if id != 0 {
+		_ = s.cache.Delete(ctx, fmt.Sprintf("account:id:%d", id))
+	}
+	if accountNumber != "" {
+		_ = s.cache.Delete(ctx, fmt.Sprintf("account:num:%s", accountNumber))
+	}
 }

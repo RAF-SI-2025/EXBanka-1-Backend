@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/accountpb"
-	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/account-service/internal/kafka"
 	"github.com/exbanka/account-service/internal/service"
+	pb "github.com/exbanka/contract/accountpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 type BankAccountGRPCHandler struct {
@@ -25,7 +26,7 @@ func NewBankAccountGRPCHandler(accountSvc *service.AccountService, producer *kaf
 }
 
 func (h *BankAccountGRPCHandler) CreateBankAccount(ctx context.Context, req *pb.CreateBankAccountRequest) (*pb.AccountResponse, error) {
-	account, err := h.accountSvc.CreateBankAccount(req.CurrencyCode, req.AccountKind, req.AccountName)
+	account, err := h.accountSvc.CreateBankAccount(req.CurrencyCode, req.AccountKind, req.AccountName, decimal.Zero)
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to create bank account: %v", err)
 	}
@@ -43,7 +44,7 @@ func (h *BankAccountGRPCHandler) ListBankAccounts(ctx context.Context, req *pb.L
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to list bank accounts: %v", err)
 	}
-	resp := &pb.ListBankAccountsResponse{}
+	resp := &pb.ListBankAccountsResponse{Accounts: make([]*pb.AccountResponse, 0, len(accounts))}
 	for _, a := range accounts {
 		a := a
 		resp.Accounts = append(resp.Accounts, toAccountResponse(&a))

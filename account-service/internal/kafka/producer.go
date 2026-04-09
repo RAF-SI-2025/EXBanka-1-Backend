@@ -104,6 +104,17 @@ func (p *Producer) PublishSpendingReset(ctx context.Context, msg kafkamsg.Spendi
 	})
 }
 
+func (p *Producer) PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return p.writer.WriteMessages(ctx, kafkago.Message{
+		Topic: kafkamsg.TopicGeneralNotification,
+		Value: data,
+	})
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

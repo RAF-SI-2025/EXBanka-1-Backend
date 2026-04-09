@@ -58,3 +58,18 @@ func (r *TokenRepository) GetPasswordResetToken(token string) (*model.PasswordRe
 func (r *TokenRepository) MarkPasswordResetUsed(token string) error {
 	return r.db.Model(&model.PasswordResetToken{}).Where("token = ?", token).Update("used", true).Error
 }
+
+// GetRefreshTokenIncludingRevoked returns a refresh token regardless of revoked status.
+// Used by logout to find the session association.
+func (r *TokenRepository) GetRefreshTokenIncludingRevoked(token string) (*model.RefreshToken, error) {
+	var t model.RefreshToken
+	err := r.db.Where("token = ?", token).First(&t).Error
+	return &t, err
+}
+
+// RevokeAllTokensForSession revokes all non-revoked refresh tokens linked to a session.
+func (r *TokenRepository) RevokeAllTokensForSession(sessionID int64) error {
+	return r.db.Model(&model.RefreshToken{}).
+		Where("session_id = ? AND revoked = false", sessionID).
+		Update("revoked", true).Error
+}

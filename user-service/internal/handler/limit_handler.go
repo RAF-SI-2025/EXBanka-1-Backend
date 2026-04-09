@@ -6,6 +6,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/exbanka/user-service/internal/service"
@@ -61,7 +62,8 @@ func (h *LimitGRPCHandler) SetEmployeeLimits(ctx context.Context, req *pb.SetEmp
 		MaxClientMonthlyLimit: maxClientMonthly,
 	}
 
-	result, err := h.limitSvc.SetEmployeeLimits(ctx, limit)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	result, err := h.limitSvc.SetEmployeeLimits(ctx, limit, changedBy)
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to set employee limits: %v", err)
 	}
@@ -69,7 +71,8 @@ func (h *LimitGRPCHandler) SetEmployeeLimits(ctx context.Context, req *pb.SetEmp
 }
 
 func (h *LimitGRPCHandler) ApplyLimitTemplate(ctx context.Context, req *pb.ApplyLimitTemplateRequest) (*pb.EmployeeLimitResponse, error) {
-	result, err := h.limitSvc.ApplyTemplate(ctx, req.EmployeeId, req.TemplateName)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	result, err := h.limitSvc.ApplyTemplate(ctx, req.EmployeeId, req.TemplateName, changedBy)
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to apply limit template: %v", err)
 	}
@@ -81,7 +84,7 @@ func (h *LimitGRPCHandler) ListLimitTemplates(ctx context.Context, req *pb.ListL
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to list limit templates: %v", err)
 	}
-	resp := &pb.ListLimitTemplatesResponse{}
+	resp := &pb.ListLimitTemplatesResponse{Templates: make([]*pb.LimitTemplateResponse, 0, len(templates))}
 	for _, t := range templates {
 		t := t
 		resp.Templates = append(resp.Templates, toLimitTemplateResponse(&t))

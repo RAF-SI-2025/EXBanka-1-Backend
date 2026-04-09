@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	creditpb "github.com/exbanka/contract/creditpb"
 )
 
@@ -203,7 +204,7 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 	uid, _ := c.Get("user_id")
 	employeeID := uid.(int64)
 
-	resp, err := h.creditClient.ApproveLoanRequest(c.Request.Context(), &creditpb.ApproveLoanRequestReq{
+	resp, err := h.creditClient.ApproveLoanRequest(middleware.GRPCContextWithChangedBy(c), &creditpb.ApproveLoanRequestReq{
 		RequestId:  id,
 		EmployeeId: uint64(employeeID),
 	})
@@ -231,7 +232,7 @@ func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.creditClient.RejectLoanRequest(c.Request.Context(), &creditpb.RejectLoanRequestReq{RequestId: id})
+	resp, err := h.creditClient.RejectLoanRequest(middleware.GRPCContextWithChangedBy(c), &creditpb.RejectLoanRequestReq{RequestId: id})
 	if err != nil {
 		handleGRPCError(c, err)
 		return

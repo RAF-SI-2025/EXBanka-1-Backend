@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // ClientLimit defines the transaction limits for a client account.
@@ -17,4 +18,11 @@ type ClientLimit struct {
 	SetByEmployee int64           `gorm:"not null" json:"set_by_employee"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
+	Version       int64           `gorm:"not null;default:1" json:"version"`
+}
+
+func (cl *ClientLimit) BeforeUpdate(tx *gorm.DB) error {
+	tx.Statement.Where("version = ?", cl.Version)
+	cl.Version++
+	return nil
 }

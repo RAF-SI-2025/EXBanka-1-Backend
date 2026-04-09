@@ -143,13 +143,15 @@ message PaymentRecipientResponse {
 message ExecutePaymentRequest {
   uint64 payment_id = 1;
   uint64 client_id = 2;
-  string verification_code = 3;
+  string verification_code = 3;   // deprecated: kept for backwards compat
+  uint64 challenge_id = 4;        // verification-service challenge ID
 }
 
 message ExecuteTransferRequest {
   uint64 transfer_id = 1;
   uint64 client_id = 2;
-  string verification_code = 3;
+  string verification_code = 3;   // deprecated: kept for backwards compat
+  uint64 challenge_id = 4;        // verification-service challenge ID
 }
 
 service FeeService {
@@ -157,6 +159,7 @@ service FeeService {
   rpc CreateFee(CreateFeeRequest) returns (TransferFeeResponse);
   rpc UpdateFee(UpdateFeeRequest) returns (TransferFeeResponse);
   rpc DeleteFee(DeleteFeeRequest) returns (DeleteFeeResponse);
+  rpc CalculateFee(CalculateFeeRequest) returns (CalculateFeeResponse);
 }
 
 message ListFeesRequest {}
@@ -192,6 +195,24 @@ message DeleteFeeRequest { uint64 id = 1; }
 message DeleteFeeResponse {
   bool success = 1;
   string message = 2;
+}
+
+message CalculateFeeRequest {
+  string amount = 1;
+  string transaction_type = 2;   // "payment" or "transfer"
+  string currency_code = 3;      // e.g. "RSD", "EUR"
+}
+
+message CalculateFeeResponse {
+  string total_fee = 1;
+  repeated FeeBreakdown applied_fees = 2;
+}
+
+message FeeBreakdown {
+  string name = 1;
+  string fee_type = 2;
+  string fee_value = 3;
+  string calculated_amount = 4;
 }
 
 message TransferFeeResponse {

@@ -14,6 +14,7 @@ type Config struct {
 	KafkaBrokers string
 	RedisAddr    string
 	UserGRPCAddr string
+	MetricsPort  string
 }
 
 func Load() *Config {
@@ -27,6 +28,7 @@ func Load() *Config {
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
 		RedisAddr:    getEnv("REDIS_ADDR", "localhost:6379"),
 		UserGRPCAddr: getEnv("USER_GRPC_ADDR", "localhost:50052"),
+		MetricsPort:  getEnv("METRICS_PORT", "9104"),
 	}
 }
 

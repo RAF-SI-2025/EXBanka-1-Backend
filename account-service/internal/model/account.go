@@ -7,6 +7,14 @@ import (
 	"gorm.io/gorm"
 )
 
+// BeforeUpdate adds a WHERE version=? clause and increments the version,
+// providing optimistic locking on every Save/Update of an Account.
+func (a *Account) BeforeUpdate(tx *gorm.DB) error {
+	tx.Statement.Where("version = ?", a.Version)
+	a.Version++
+	return nil
+}
+
 type Account struct {
 	ID               uint64          `gorm:"primaryKey;autoIncrement"`
 	AccountNumber    string          `gorm:"uniqueIndex;size:18;not null"`
@@ -32,5 +40,5 @@ type Account struct {
 	Version          int64           `gorm:"not null;default:1"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
-	DeletedAt        gorm.DeletedAt  `gorm:"index"`
+	DeletedAt        gorm.DeletedAt `gorm:"index"`
 }

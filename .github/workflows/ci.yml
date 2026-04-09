@@ -1,0 +1,206 @@
+name: CI
+
+on:
+  push:
+    branches: [Development, main]
+  pull_request:
+    branches: [Development, main]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - auth-service
+          - user-service
+          - notification-service
+          - client-service
+          - account-service
+          - card-service
+          - transaction-service
+          - credit-service
+          - exchange-service
+          - stock-service
+          - verification-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Build ${{ matrix.service }}
+        run: cd ${{ matrix.service }} && go build -o bin/${{ matrix.service }} ./cmd
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - contract
+          - api-gateway
+          - auth-service
+          - user-service
+          - notification-service
+          - client-service
+          - account-service
+          - card-service
+          - transaction-service
+          - credit-service
+          - exchange-service
+          - stock-service
+          - verification-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Install gcc (for SQLite tests)
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Test ${{ matrix.service }}
+        env:
+          CGO_ENABLED: 1
+        run: cd ${{ matrix.service }} && go test ./... -v -count=1
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - auth-service
+          - user-service
+          - notification-service
+          - client-service
+          - account-service
+          - card-service
+          - transaction-service
+          - credit-service
+          - exchange-service
+          - stock-service
+          - verification-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+      - name: Run golangci-lint on ${{ matrix.service }}
+        run: cd ${{ matrix.service }} && golangci-lint run ./...
+
+  gofmt:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+  go-mod-tidy:
+    name: Go Mod Tidy Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Check go mod tidy
+        run: |
+          services=(
+            contract
+            api-gateway
+            auth-service
+            user-service
+            notification-service
+            client-service
+            account-service
+            card-service
+            transaction-service
+            credit-service
+            exchange-service
+            stock-service
+            verification-service
+          )
+          for svc in "${services[@]}"; do
+            echo "Checking $svc..."
+            cd "$svc" && go mod tidy && cd ..
+          done
+          if [ -n "$(git diff -- '**/go.mod' '**/go.sum')" ]; then
+            echo "go.mod or go.sum is not tidy. Run 'make tidy' and commit the changes."
+            git diff -- '**/go.mod' '**/go.sum'
+            exit 1
+          fi
+
+  generated-files:
+    name: Generated Files Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+      - name: Install swag
+        run: go install github.com/swaggo/swag/cmd/swag@latest
+
+      - name: Regenerate protobuf files
+        run: make proto
+
+      - name: Regenerate swagger docs
+        run: make swagger
+
+      - name: Check for diff
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Generated files are not up to date. Run 'make proto' and 'make swagger', then commit."
+            git diff
+            git status
+            exit 1
+          fi

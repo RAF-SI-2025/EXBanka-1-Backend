@@ -19,7 +19,7 @@ func (m *mockFeeRepo) Create(fee *model.TransferFee) error { return nil }
 func (m *mockFeeRepo) GetByID(id uint64) (*model.TransferFee, error) {
 	return nil, nil
 }
-func (m *mockFeeRepo) List() ([]model.TransferFee, error) { return m.fees, nil }
+func (m *mockFeeRepo) List() ([]model.TransferFee, error)  { return m.fees, nil }
 func (m *mockFeeRepo) Update(fee *model.TransferFee) error { return nil }
 func (m *mockFeeRepo) Deactivate(id uint64) error          { return nil }
 func (m *mockFeeRepo) GetApplicableFees(amount decimal.Decimal, txType, currency string) ([]model.TransferFee, error) {

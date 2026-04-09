@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -13,9 +14,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	clientpb "github.com/exbanka/contract/clientpb"
-	userpb "github.com/exbanka/contract/userpb"
-	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/client-service/internal/cache"
 	"github.com/exbanka/client-service/internal/config"
 	"github.com/exbanka/client-service/internal/handler"
@@ -23,6 +21,10 @@ import (
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/client-service/internal/repository"
 	"github.com/exbanka/client-service/internal/service"
+	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/metrics"
+	shared "github.com/exbanka/contract/shared"
+	userpb "github.com/exbanka/contract/userpb"
 )
 
 func main() {
@@ -32,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Client{}, &model.ClientLimit{}); err != nil {
+	if err := db.AutoMigrate(&model.Client{}, &model.ClientLimit{}, &model.Changelog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -45,6 +47,7 @@ func main() {
 		"client.created",
 		"client.updated",
 		"client.limits-updated",
+		"client.changelog",
 		"notification.send-email",
 	)
 
@@ -69,9 +72,10 @@ func main() {
 
 	repo := repository.NewClientRepository(db)
 	clientLimitRepo := repository.NewClientLimitRepository(db)
+	changelogRepo := repository.NewChangelogRepository(db)
 
-	clientService := service.NewClientService(repo, producer, redisCache)
-	clientLimitSvc := service.NewClientLimitService(clientLimitRepo, userLimitClient, producer)
+	clientService := service.NewClientService(repo, producer, redisCache, changelogRepo)
+	clientLimitSvc := service.NewClientLimitService(clientLimitRepo, userLimitClient, producer, changelogRepo)
 
 	grpcHandler := handler.NewClientGRPCHandler(clientService)
 	limitHandler := handler.NewClientLimitGRPCHandler(clientLimitSvc)
@@ -81,12 +85,24 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	clientpb.RegisterClientServiceServer(s, grpcHandler)
 	clientpb.RegisterClientLimitServiceServer(s, limitHandler)
 	shared.RegisterHealthCheck(s, "client-service")
+	metrics.InitializeGRPCMetrics(s)
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
+
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
 
 	// Start gRPC server in goroutine
+	markReady()
 	go func() {
 		fmt.Printf("client service listening on %s\n", cfg.GRPCAddr)
 		if err := s.Serve(lis); err != nil {

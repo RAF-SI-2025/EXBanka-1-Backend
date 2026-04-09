@@ -6,9 +6,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/exbanka/contract/clientpb"
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/client-service/internal/service"
+	"github.com/exbanka/contract/changelog"
+	pb "github.com/exbanka/contract/clientpb"
 	"github.com/shopspring/decimal"
 )
 
@@ -52,7 +53,8 @@ func (h *ClientLimitGRPCHandler) SetClientLimits(ctx context.Context, req *pb.Se
 		SetByEmployee: req.SetByEmployee,
 	}
 
-	result, err := h.limitSvc.SetClientLimits(ctx, limit)
+	changedBy := changelog.ExtractChangedBy(ctx)
+	result, err := h.limitSvc.SetClientLimits(ctx, limit, changedBy)
 	if err != nil {
 		return nil, status.Errorf(mapServiceError(err), "failed to set client limits: %v", err)
 	}

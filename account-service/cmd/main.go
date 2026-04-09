@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -14,9 +15,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/accountpb"
-	clientpb "github.com/exbanka/contract/clientpb"
-	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/account-service/internal/cache"
 	"github.com/exbanka/account-service/internal/config"
 	"github.com/exbanka/account-service/internal/handler"
@@ -24,6 +22,10 @@ import (
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
+	pb "github.com/exbanka/contract/accountpb"
+	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/metrics"
+	shared "github.com/exbanka/contract/shared"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -34,7 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}); err != nil {
+	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 	if err := model.SeedCurrencies(db); err != nil {
@@ -53,7 +55,9 @@ func main() {
 		"account.limits-updated",
 		"account.maintenance-charged",
 		"account.spending-reset",
+		"account.changelog",
 		"notification.send-email",
+		"notification.general",
 	)
 
 	var redisCache *cache.RedisCache
@@ -80,17 +84,21 @@ func main() {
 	companyRepo := repository.NewCompanyRepository(db)
 	currencyRepo := repository.NewCurrencyRepository(db)
 	ledgerRepo := repository.NewLedgerRepository(db)
+	changelogRepo := repository.NewChangelogRepository(db)
 
-	accountService := service.NewAccountService(accountRepo)
+	accountService := service.NewAccountService(accountRepo, db, redisCache, changelogRepo)
 	companyService := service.NewCompanyService(companyRepo)
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
 
-	spendingCron := service.NewSpendingCronService(accountRepo)
-	spendingCron.Start()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	maintenanceCron := service.NewMaintenanceCronService(accountRepo)
-	maintenanceCron.Start()
+	spendingCron := service.NewSpendingCronService(accountRepo)
+	spendingCron.Start(ctx)
+
+	maintenanceCron := service.NewMaintenanceCronService(accountRepo, ledgerService)
+	maintenanceCron.Start(ctx)
 
 	// Seed bank accounts for all supported currencies (idempotent)
 	bankAccounts, _ := accountService.ListBankAccounts()
@@ -116,7 +124,7 @@ func main() {
 		if existingCurrencies[c.Code] {
 			continue
 		}
-		if _, err := accountService.CreateBankAccount(c.Code, c.Kind, c.Name); err != nil {
+		if _, err := accountService.CreateBankAccount(c.Code, c.Kind, c.Name, decimal.NewFromInt(10_000_000)); err != nil {
 			log.Printf("warn: failed to seed bank %s account: %v", c.Code, err)
 		} else {
 			log.Printf("Seeded bank %s account", c.Code)
@@ -147,7 +155,7 @@ func main() {
 				AccountKind:    "current",
 				AccountType:    "standard",
 				IsBankAccount:  false,
-				AccountNumber:  service.GenerateAccountNumber("current"),
+				AccountNumber:  "0000000000000099", // well-known state account number for tax deposits
 				ExpiresAt:      time.Now().AddDate(50, 0, 0),
 				MaintenanceFee: decimal.Zero,
 				CompanyID:      &stateCompany.ID,
@@ -160,6 +168,9 @@ func main() {
 		}
 	}
 
+	reconcileSvc := service.NewReconciliationService(db, ledgerService)
+	reconcileSvc.CheckAllBalances(ctx)
+
 	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer, clientClient)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
@@ -168,12 +179,24 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	pb.RegisterAccountServiceServer(s, grpcHandler)
 	pb.RegisterBankAccountServiceServer(s, bankAccountHandler)
 	shared.RegisterHealthCheck(s, "account-service")
+	metrics.InitializeGRPCMetrics(s)
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
+
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
 
 	// Start gRPC server in goroutine
+	markReady()
 	go func() {
 		fmt.Printf("account service listening on %s\n", cfg.GRPCAddr)
 		if err := s.Serve(lis); err != nil {
@@ -190,4 +213,3 @@ func main() {
 	s.GracefulStop()
 	log.Println("Server stopped")
 }
-

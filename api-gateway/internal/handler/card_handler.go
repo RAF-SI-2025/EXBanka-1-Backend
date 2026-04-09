@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	cardpb "github.com/exbanka/contract/cardpb"
 )
 
@@ -204,7 +205,7 @@ func (h *CardHandler) BlockCard(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.cardClient.BlockCard(c.Request.Context(), &cardpb.BlockCardRequest{Id: id})
+	resp, err := h.cardClient.BlockCard(middleware.GRPCContextWithChangedBy(c), &cardpb.BlockCardRequest{Id: id})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
@@ -238,7 +239,7 @@ func (h *CardHandler) ClientBlockCard(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.cardClient.BlockCard(c.Request.Context(), &cardpb.BlockCardRequest{Id: id})
+	resp, err := h.cardClient.BlockCard(middleware.GRPCContextWithChangedBy(c), &cardpb.BlockCardRequest{Id: id})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
@@ -263,7 +264,7 @@ func (h *CardHandler) UnblockCard(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.cardClient.UnblockCard(c.Request.Context(), &cardpb.UnblockCardRequest{Id: id})
+	resp, err := h.cardClient.UnblockCard(middleware.GRPCContextWithChangedBy(c), &cardpb.UnblockCardRequest{Id: id})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
@@ -288,7 +289,7 @@ func (h *CardHandler) DeactivateCard(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.cardClient.DeactivateCard(c.Request.Context(), &cardpb.DeactivateCardRequest{Id: id})
+	resp, err := h.cardClient.DeactivateCard(middleware.GRPCContextWithChangedBy(c), &cardpb.DeactivateCardRequest{Id: id})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
@@ -515,7 +516,7 @@ func (h *CardHandler) TemporaryBlockCard(c *gin.Context) {
 		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
-	resp, err := h.virtualCardClient.TemporaryBlockCard(c.Request.Context(), &cardpb.TemporaryBlockCardRequest{
+	resp, err := h.virtualCardClient.TemporaryBlockCard(middleware.GRPCContextWithChangedBy(c), &cardpb.TemporaryBlockCardRequest{
 		Id:            id,
 		DurationHours: body.DurationHours,
 		Reason:        body.Reason,

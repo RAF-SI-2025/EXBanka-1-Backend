@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -13,9 +14,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/cardpb"
-	clientpb "github.com/exbanka/contract/clientpb"
-	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/card-service/internal/cache"
 	"github.com/exbanka/card-service/internal/config"
 	"github.com/exbanka/card-service/internal/handler"
@@ -23,6 +21,10 @@ import (
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/repository"
 	"github.com/exbanka/card-service/internal/service"
+	pb "github.com/exbanka/contract/cardpb"
+	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/metrics"
+	shared "github.com/exbanka/contract/shared"
 )
 
 func main() {
@@ -32,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}, &model.CardRequest{}); err != nil {
+	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}, &model.CardRequest{}, &model.Changelog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -49,7 +51,9 @@ func main() {
 		"card.request-created",
 		"card.request-approved",
 		"card.request-rejected",
+		"card.changelog",
 		"notification.send-email",
+		"notification.general",
 	)
 
 	var redisCache *cache.RedisCache
@@ -73,26 +77,41 @@ func main() {
 	blockRepo := repository.NewCardBlockRepository(db)
 	authRepo := repository.NewAuthorizedPersonRepository(db)
 	cardRequestRepo := repository.NewCardRequestRepository(db)
-	cardService := service.NewCardService(cardRepo, blockRepo, authRepo, producer, redisCache)
+	changelogRepo := repository.NewChangelogRepository(db)
+	cardService := service.NewCardService(cardRepo, blockRepo, authRepo, producer, redisCache, db, changelogRepo)
 	cardRequestSvc := service.NewCardRequestService(cardRequestRepo, cardService, producer)
 	grpcHandler := handler.NewCardGRPCHandler(cardService, producer, clientClient)
 	virtualCardHandler := handler.NewVirtualCardGRPCHandler(cardService)
 	cardRequestHandler := handler.NewCardRequestGRPCHandler(cardRequestSvc)
 
-	service.StartCardCron(cardRepo, blockRepo)
+	cronCtx, cronCancel := context.WithCancel(context.Background())
+	defer cronCancel()
+	service.StartCardCron(cronCtx, cardRepo, blockRepo, db)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
+	s := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	)
 	pb.RegisterCardServiceServer(s, grpcHandler)
 	pb.RegisterVirtualCardServiceServer(s, virtualCardHandler)
 	pb.RegisterCardRequestServiceServer(s, cardRequestHandler)
 	shared.RegisterHealthCheck(s, "card-service")
+	metrics.InitializeGRPCMetrics(s)
+	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
+	defer func() { _ = metricsShutdown(context.Background()) }()
+
+	sqlDB, _ := db.DB()
+	addReadinessCheck(func(ctx context.Context) error {
+		return sqlDB.PingContext(ctx)
+	})
 
 	// Start gRPC server in goroutine
+	markReady()
 	go func() {
 		fmt.Printf("card service listening on %s\n", cfg.GRPCAddr)
 		if err := s.Serve(lis); err != nil {

@@ -84,15 +84,6 @@ func notEqual(field1, val1, field2, val2 string) error {
 	return nil
 }
 
-// grpcMessage extracts the human-readable message from a gRPC error,
-// stripping the "rpc error: code = ... desc = ..." wrapper.
-func grpcMessage(err error) string {
-	if s, ok := status.FromError(err); ok {
-		return s.Message()
-	}
-	return err.Error()
-}
-
 // enforceClientSelf checks that a client can only access their own resources.
 // If the caller is a client (system_type == "client"), the path client_id must match their JWT user_id.
 // Employees are allowed to access any client_id.
@@ -137,12 +128,6 @@ func apiError(c *gin.Context, status int, code, message string, details ...map[s
 	c.JSON(status, gin.H{"error": body})
 }
 
-// apiErrorAbort is like apiError but also aborts the middleware chain.
-// Use this in middleware; use apiError in handlers.
-func apiErrorAbort(c *gin.Context, status int, code, message string) {
-	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": code, "message": message}})
-}
-
 // grpcToHTTPError maps a gRPC error to an HTTP status code and error code string.
 func grpcToHTTPError(err error) (int, string, string) {
 	s, ok := status.FromError(err)
@@ -173,4 +158,13 @@ func grpcToHTTPError(err error) (int, string, string) {
 func handleGRPCError(c *gin.Context, err error) {
 	httpStatus, code, message := grpcToHTTPError(err)
 	apiError(c, httpStatus, code, message)
+}
+
+// emptyIfNil returns an initialized empty slice when s is nil.
+// This prevents encoding/json from serializing nil slices as null.
+func emptyIfNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }

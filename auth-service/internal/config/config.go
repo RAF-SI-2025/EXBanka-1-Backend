@@ -6,41 +6,49 @@ import (
 )
 
 type Config struct {
-	DBHost          string
-	DBPort          string
-	DBUser          string
-	DBPassword      string
-	DBName          string
-	GRPCAddr        string
-	UserGRPCAddr    string
-	KafkaBrokers    string
-	JWTSecret       string
-	AccessExpiry    time.Duration
-	RefreshExpiry   time.Duration
-	RedisAddr       string
-	FrontendBaseURL string
-	PasswordPepper  string
+	DBHost                 string
+	DBPort                 string
+	DBUser                 string
+	DBPassword             string
+	DBName                 string
+	GRPCAddr               string
+	UserGRPCAddr           string
+	KafkaBrokers           string
+	JWTSecret              string
+	AccessExpiry           time.Duration
+	RefreshExpiry          time.Duration
+	RedisAddr              string
+	FrontendBaseURL        string
+	PasswordPepper         string
+	MobileRefreshExpiry    time.Duration
+	MobileActivationExpiry time.Duration
+	MetricsPort            string
 }
 
 func Load() *Config {
 	accessExp, _ := time.ParseDuration(getEnv("JWT_ACCESS_EXPIRY", "15m"))
 	refreshExp, _ := time.ParseDuration(getEnv("JWT_REFRESH_EXPIRY", "168h"))
+	mobileRefreshExp, _ := time.ParseDuration(getEnv("MOBILE_REFRESH_EXPIRY", "2160h"))
+	mobileActivationExp, _ := time.ParseDuration(getEnv("MOBILE_ACTIVATION_EXPIRY", "15m"))
 
 	return &Config{
-		DBHost:        getEnv("AUTH_DB_HOST", "localhost"),
-		DBPort:        getEnv("AUTH_DB_PORT", "5432"),
-		DBUser:        getEnv("AUTH_DB_USER", "postgres"),
-		DBPassword:    getEnv("AUTH_DB_PASSWORD", "postgres"),
-		DBName:        getEnv("AUTH_DB_NAME", "authdb"),
-		GRPCAddr:     getEnv("AUTH_GRPC_ADDR", ":50051"),
-		UserGRPCAddr: getEnv("USER_GRPC_ADDR", "localhost:50052"),
-		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
-		JWTSecret:     getEnv("JWT_SECRET", "change-me"),
-		AccessExpiry:  accessExp,
-		RefreshExpiry: refreshExp,
-		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
-		FrontendBaseURL: getEnv("FRONTEND_BASE_URL", "http://localhost:3000"),
-		PasswordPepper:  getEnv("PASSWORD_PEPPER", ""),
+		DBHost:                 getEnv("AUTH_DB_HOST", "localhost"),
+		DBPort:                 getEnv("AUTH_DB_PORT", "5432"),
+		DBUser:                 getEnv("AUTH_DB_USER", "postgres"),
+		DBPassword:             getEnv("AUTH_DB_PASSWORD", "postgres"),
+		DBName:                 getEnv("AUTH_DB_NAME", "authdb"),
+		GRPCAddr:               getEnv("AUTH_GRPC_ADDR", ":50051"),
+		UserGRPCAddr:           getEnv("USER_GRPC_ADDR", "localhost:50052"),
+		KafkaBrokers:           getEnv("KAFKA_BROKERS", "localhost:9092"),
+		JWTSecret:              getEnv("JWT_SECRET", "change-me"),
+		AccessExpiry:           accessExp,
+		RefreshExpiry:          refreshExp,
+		RedisAddr:              getEnv("REDIS_ADDR", "localhost:6379"),
+		FrontendBaseURL:        getEnv("FRONTEND_BASE_URL", "http://localhost:3000"),
+		PasswordPepper:         getEnv("PASSWORD_PEPPER", ""),
+		MobileRefreshExpiry:    mobileRefreshExp,
+		MobileActivationExpiry: mobileActivationExp,
+		MetricsPort:            getEnv("METRICS_PORT", "9101"),
 	}
 }
 

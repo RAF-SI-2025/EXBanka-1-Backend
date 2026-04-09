@@ -8,9 +8,9 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/cardpb"
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/service"
+	pb "github.com/exbanka/contract/cardpb"
 )
 
 type VirtualCardGRPCHandler struct {

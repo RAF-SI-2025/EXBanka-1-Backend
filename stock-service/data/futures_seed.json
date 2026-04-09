@@ -1,0 +1,122 @@
+[
+  {
+    "ticker": "CLJ26",
+    "name": "Crude Oil Futures Apr 2026",
+    "contract_size": 1000,
+    "contract_unit": "barrel",
+    "settlement_date": "2026-04-30",
+    "exchange_acronym": "NYMEX",
+    "price": 72.50,
+    "high": 73.20,
+    "low": 71.80,
+    "volume": 120000
+  },
+  {
+    "ticker": "CLK26",
+    "name": "Crude Oil Futures May 2026",
+    "contract_size": 1000,
+    "contract_unit": "barrel",
+    "settlement_date": "2026-05-29",
+    "exchange_acronym": "NYMEX",
+    "price": 73.10,
+    "high": 74.00,
+    "low": 72.50,
+    "volume": 95000
+  },
+  {
+    "ticker": "GCJ26",
+    "name": "Gold Futures Apr 2026",
+    "contract_size": 100,
+    "contract_unit": "troy_ounce",
+    "settlement_date": "2026-04-28",
+    "exchange_acronym": "CME",
+    "price": 2045.30,
+    "high": 2060.00,
+    "low": 2030.00,
+    "volume": 80000
+  },
+  {
+    "ticker": "GCM26",
+    "name": "Gold Futures Jun 2026",
+    "contract_size": 100,
+    "contract_unit": "troy_ounce",
+    "settlement_date": "2026-06-26",
+    "exchange_acronym": "CME",
+    "price": 2055.80,
+    "high": 2070.00,
+    "low": 2040.00,
+    "volume": 65000
+  },
+  {
+    "ticker": "SIK26",
+    "name": "Silver Futures May 2026",
+    "contract_size": 5000,
+    "contract_unit": "troy_ounce",
+    "settlement_date": "2026-05-27",
+    "exchange_acronym": "CME",
+    "price": 24.85,
+    "high": 25.10,
+    "low": 24.50,
+    "volume": 45000
+  },
+  {
+    "ticker": "NGJ26",
+    "name": "Natural Gas Futures Apr 2026",
+    "contract_size": 10000,
+    "contract_unit": "mmbtu",
+    "settlement_date": "2026-04-28",
+    "exchange_acronym": "NYMEX",
+    "price": 3.45,
+    "high": 3.55,
+    "low": 3.35,
+    "volume": 110000
+  },
+  {
+    "ticker": "ZCK26",
+    "name": "Corn Futures May 2026",
+    "contract_size": 5000,
+    "contract_unit": "bushel",
+    "settlement_date": "2026-05-14",
+    "exchange_acronym": "CBOT",
+    "price": 4.52,
+    "high": 4.60,
+    "low": 4.45,
+    "volume": 70000
+  },
+  {
+    "ticker": "ZWN26",
+    "name": "Wheat Futures Jul 2026",
+    "contract_size": 5000,
+    "contract_unit": "bushel",
+    "settlement_date": "2026-07-14",
+    "exchange_acronym": "CBOT",
+    "price": 5.78,
+    "high": 5.90,
+    "low": 5.65,
+    "volume": 55000
+  },
+  {
+    "ticker": "ZSN26",
+    "name": "Soybean Futures Jul 2026",
+    "contract_size": 5000,
+    "contract_unit": "bushel",
+    "settlement_date": "2026-07-14",
+    "exchange_acronym": "CBOT",
+    "price": 12.35,
+    "high": 12.50,
+    "low": 12.20,
+    "volume": 60000
+  },
+  {
+    "ticker": "HGK26",
+    "name": "Copper Futures May 2026",
+    "contract_size": 25000,
+    "contract_unit": "kilogram",
+    "settlement_date": "2026-05-27",
+    "exchange_acronym": "CME",
+    "price": 4.12,
+    "high": 4.20,
+    "low": 4.05,
+    "volume": 40000
+  }
+]

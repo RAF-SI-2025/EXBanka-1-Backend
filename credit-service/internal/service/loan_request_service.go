@@ -3,13 +3,16 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/changelog"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/credit-service/internal/model"
 	"github.com/exbanka/credit-service/internal/repository"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 var validLoanTypes = map[string]bool{
@@ -42,12 +45,14 @@ func validateRepaymentPeriod(loanType string, period int) error {
 }
 
 type LoanRequestService struct {
-	repo           *repository.LoanRequestRepository
-	loanRepo       *repository.LoanRepository
-	installRepo    *repository.InstallmentRepository
-	limitClient    userpb.EmployeeLimitServiceClient
-	accountClient  accountpb.AccountServiceClient
-	rateConfigSvc  *RateConfigService
+	repo          *repository.LoanRequestRepository
+	loanRepo      *repository.LoanRepository
+	installRepo   *repository.InstallmentRepository
+	limitClient   userpb.EmployeeLimitServiceClient
+	accountClient accountpb.AccountServiceClient
+	rateConfigSvc *RateConfigService
+	changelogRepo *repository.ChangelogRepository
+	db            *gorm.DB
 }
 
 func NewLoanRequestService(
@@ -57,8 +62,14 @@ func NewLoanRequestService(
 	limitClient userpb.EmployeeLimitServiceClient,
 	accountClient accountpb.AccountServiceClient,
 	rateConfigSvc *RateConfigService,
+	db *gorm.DB,
+	changelogRepo ...*repository.ChangelogRepository,
 ) *LoanRequestService {
-	return &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient, accountClient: accountClient, rateConfigSvc: rateConfigSvc}
+	svc := &LoanRequestService{repo: repo, loanRepo: loanRepo, installRepo: installRepo, limitClient: limitClient, accountClient: accountClient, rateConfigSvc: rateConfigSvc, db: db}
+	if len(changelogRepo) > 0 {
+		svc.changelogRepo = changelogRepo[0]
+	}
+	return svc
 }
 
 func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
@@ -91,6 +102,7 @@ func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
 		return fmt.Errorf("failed to save loan request for account %s (loan_type=%s, amount=%s): %v",
 			req.AccountNumber, req.LoanType, req.Amount.StringFixed(2), err)
 	}
+	CreditLoanRequestTotal.WithLabelValues("created").Inc()
 	return nil
 }
 
@@ -111,7 +123,9 @@ func (s *LoanRequestService) ListLoanRequests(loanTypeFilter, accountFilter, sta
 	return requests, total, nil
 }
 
-func (s *LoanRequestService) ApproveLoanRequest(requestID uint64, employeeID uint64) (*model.Loan, error) {
+func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID uint64, employeeID uint64) (*model.Loan, error) {
+	// Pre-check: read loan request to validate before taking any locks.
+	// A second authoritative check happens inside the transaction.
 	req, err := s.repo.GetByID(requestID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve loan request %d for approval: %v", requestID, err)
@@ -120,9 +134,9 @@ func (s *LoanRequestService) ApproveLoanRequest(requestID uint64, employeeID uin
 		return nil, fmt.Errorf("loan request %d is already %s; only pending requests can be approved", requestID, req.Status)
 	}
 
-	// Check employee MaxLoanApprovalAmount limit
+	// Check employee MaxLoanApprovalAmount limit (advisory — gRPC call cannot be held inside a DB TX).
 	if employeeID > 0 && s.limitClient != nil {
-		limits, limErr := s.limitClient.GetEmployeeLimits(context.Background(), &userpb.EmployeeLimitRequest{EmployeeId: int64(employeeID)})
+		limits, limErr := s.limitClient.GetEmployeeLimits(ctx, &userpb.EmployeeLimitRequest{EmployeeId: int64(employeeID)})
 		if limErr == nil && limits.MaxLoanApprovalAmount != "" && limits.MaxLoanApprovalAmount != "0" {
 			maxAmount, parseErr := decimal.NewFromString(limits.MaxLoanApprovalAmount)
 			if parseErr == nil && maxAmount.IsPositive() && req.Amount.GreaterThan(maxAmount) {
@@ -132,78 +146,130 @@ func (s *LoanRequestService) ApproveLoanRequest(requestID uint64, employeeID uin
 		}
 	}
 
+	// Compute rates outside the TX (pure calculation, no I/O).
 	baseRate, bankMargin, nominalRate, rateErr := s.rateConfigSvc.GetNominalRateComponents(req.LoanType, req.InterestType, req.Amount)
 	if rateErr != nil {
 		return nil, fmt.Errorf("failed to determine interest rate for loan request %d (loan_type=%s, interest_type=%s, amount=%s): %v",
 			requestID, req.LoanType, req.InterestType, req.Amount.StringFixed(2), rateErr)
 	}
-	effectiveRate := CalculateEffectiveInterestRate(nominalRate, 12)
-	monthlyInstallment := CalculateMonthlyInstallment(req.Amount, nominalRate, req.RepaymentPeriod)
 
-	now := time.Now()
-	maturityDate := now.AddDate(0, req.RepaymentPeriod, 0)
-	nextInstallmentDate := now.AddDate(0, 1, 0)
+	var loan *model.Loan
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// Re-read with SELECT FOR UPDATE to prevent concurrent double-approval.
+		locked, e := s.repo.GetByIDForUpdate(tx, requestID)
+		if e != nil {
+			return fmt.Errorf("failed to retrieve loan request %d for approval: %v", requestID, e)
+		}
+		if locked.Status != "pending" {
+			return fmt.Errorf("loan request %d is already %s; only pending requests can be approved", requestID, locked.Status)
+		}
 
-	loan := &model.Loan{
-		LoanNumber:            s.loanRepo.GenerateLoanNumber(),
-		LoanType:              req.LoanType,
-		AccountNumber:         req.AccountNumber,
-		Amount:                req.Amount,
-		RepaymentPeriod:       req.RepaymentPeriod,
-		NominalInterestRate:   nominalRate,
-		EffectiveInterestRate: effectiveRate,
-		ContractDate:          now,
-		MaturityDate:          maturityDate,
-		NextInstallmentAmount: monthlyInstallment,
-		NextInstallmentDate:   nextInstallmentDate,
-		RemainingDebt:         req.Amount,
-		CurrencyCode:          req.CurrencyCode,
-		Status:                "approved",
-		InterestType:          req.InterestType,
-		BaseRate:              baseRate,
-		BankMargin:            bankMargin,
-		CurrentRate:           nominalRate,
-		ClientID:              req.ClientID,
+		effectiveRate := CalculateEffectiveInterestRate(nominalRate, 12)
+		monthlyInstallment := CalculateMonthlyInstallment(locked.Amount, nominalRate, locked.RepaymentPeriod)
+
+		now := time.Now()
+		loan = &model.Loan{
+			LoanNumber:            s.loanRepo.GenerateLoanNumber(),
+			LoanType:              locked.LoanType,
+			AccountNumber:         locked.AccountNumber,
+			Amount:                locked.Amount,
+			RepaymentPeriod:       locked.RepaymentPeriod,
+			NominalInterestRate:   nominalRate,
+			EffectiveInterestRate: effectiveRate,
+			ContractDate:          now,
+			MaturityDate:          now.AddDate(0, locked.RepaymentPeriod, 0),
+			NextInstallmentAmount: monthlyInstallment,
+			NextInstallmentDate:   now.AddDate(0, 1, 0),
+			RemainingDebt:         locked.Amount,
+			CurrencyCode:          locked.CurrencyCode,
+			Status:                "approved",
+			InterestType:          locked.InterestType,
+			BaseRate:              baseRate,
+			BankMargin:            bankMargin,
+			CurrentRate:           nominalRate,
+			ClientID:              locked.ClientID,
+		}
+
+		if e := tx.Create(loan).Error; e != nil {
+			return fmt.Errorf("failed to create loan for request %d (loan_type=%s, amount=%s, account=%s): %v",
+				requestID, locked.LoanType, locked.Amount.StringFixed(2), locked.AccountNumber, e)
+		}
+
+		startDateStr := now.Format("2006-01-02")
+		installments := CreateInstallmentSchedule(locked.Amount, nominalRate, locked.RepaymentPeriod, locked.CurrencyCode, startDateStr)
+		for i := range installments {
+			installments[i].LoanID = loan.ID
+		}
+		if e := tx.Create(&installments).Error; e != nil {
+			return fmt.Errorf("failed to create installment schedule for loan request %d, loan %d (amount=%s, period=%d months): %v",
+				requestID, loan.ID, locked.Amount.StringFixed(2), locked.RepaymentPeriod, e)
+		}
+
+		locked.Status = "approved"
+		if e := tx.Save(locked).Error; e != nil {
+			return fmt.Errorf("failed to update loan request %d status to approved: %v", requestID, e)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	if err := s.loanRepo.Create(loan); err != nil {
-		return nil, fmt.Errorf("failed to create loan account entry for request %d (loan_type=%s, amount=%s, account=%s): %v",
-			requestID, req.LoanType, req.Amount.StringFixed(2), req.AccountNumber, err)
+	// Record changelog for loan request approval.
+	if s.changelogRepo != nil {
+		entry := changelog.NewStatusChangeEntry("loan_request", int64(requestID), int64(employeeID), "pending", "approved", "")
+		_ = s.changelogRepo.Create(entry)
 	}
 
-	// Create installment schedule
-	startDateStr := now.Format("2006-01-02")
-	installments := CreateInstallmentSchedule(req.Amount, nominalRate, req.RepaymentPeriod, req.CurrencyCode, startDateStr)
-	for i := range installments {
-		installments[i].LoanID = loan.ID
+	// Disbursement: credit the loan amount to the borrower's account (outside TX — gRPC cannot be held inside a DB TX).
+	if s.accountClient == nil {
+		return loan, nil
 	}
-	if err := s.installRepo.CreateBatch(installments); err != nil {
-		return nil, fmt.Errorf("failed to create installment schedule for loan request %d, loan %d (amount=%s, period=%d months): %v",
-			requestID, loan.ID, req.Amount.StringFixed(2), req.RepaymentPeriod, err)
+	_, disburseErr := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+		AccountNumber:   loan.AccountNumber,
+		Amount:          loan.Amount.StringFixed(4),
+		UpdateAvailable: true,
+	})
+	if disburseErr != nil {
+		loan.Status = "disbursement_failed"
+	} else {
+		loan.Status = "active"
 	}
-
-	// Update loan request status
-	req.Status = "approved"
-	if err := s.repo.Update(req); err != nil {
-		return nil, fmt.Errorf("failed to update loan request %d status to approved (loan %d already created): %v",
-			requestID, loan.ID, err)
+	if updateErr := s.loanRepo.Update(loan); updateErr != nil {
+		log.Printf("ApproveLoanRequest: failed to update loan %d status to %s after disbursement: %v", loan.ID, loan.Status, updateErr)
 	}
-
+	CreditLoanRequestTotal.WithLabelValues("approved").Inc()
 	return loan, nil
 }
 
-func (s *LoanRequestService) RejectLoanRequest(requestID uint64) (*model.LoanRequest, error) {
-	req, err := s.repo.GetByID(requestID)
+func (s *LoanRequestService) RejectLoanRequest(requestID uint64, changedBy int64, reason string) (*model.LoanRequest, error) {
+	var req *model.LoanRequest
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		locked, e := s.repo.GetByIDForUpdate(tx, requestID)
+		if e != nil {
+			return fmt.Errorf("failed to retrieve loan request %d for rejection: %v", requestID, e)
+		}
+		if locked.Status != "pending" {
+			return fmt.Errorf("loan request %d is already %s; only pending requests can be rejected", requestID, locked.Status)
+		}
+		locked.Status = "rejected"
+		if e := tx.Save(locked).Error; e != nil {
+			return fmt.Errorf("failed to update loan request %d status to rejected (loan_type=%s, amount=%s, account=%s): %v",
+				requestID, locked.LoanType, locked.Amount.StringFixed(2), locked.AccountNumber, e)
+		}
+		req = locked
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve loan request %d for rejection: %v", requestID, err)
+		return nil, err
 	}
-	if req.Status != "pending" {
-		return nil, fmt.Errorf("loan request %d is already %s; only pending requests can be rejected", requestID, req.Status)
+
+	// Record changelog for rejection.
+	if s.changelogRepo != nil {
+		entry := changelog.NewStatusChangeEntry("loan_request", int64(requestID), changedBy, "pending", "rejected", reason)
+		_ = s.changelogRepo.Create(entry)
 	}
-	req.Status = "rejected"
-	if err := s.repo.Update(req); err != nil {
-		return nil, fmt.Errorf("failed to update loan request %d status to rejected (loan_type=%s, amount=%s, account=%s): %v",
-			requestID, req.LoanType, req.Amount.StringFixed(2), req.AccountNumber, err)
-	}
+
+	CreditLoanRequestTotal.WithLabelValues("rejected").Inc()
 	return req, nil
 }

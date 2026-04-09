@@ -1,0 +1,89 @@
+syntax = "proto3";
+package verification;
+option go_package = "github.com/exbanka/contract/verificationpb;verificationpb";
+
+service VerificationGRPCService {
+  // CreateChallenge creates a new verification challenge for a transaction.
+  rpc CreateChallenge(CreateChallengeRequest) returns (CreateChallengeResponse);
+  // GetChallengeStatus returns the current status of a verification challenge.
+  rpc GetChallengeStatus(GetChallengeStatusRequest) returns (GetChallengeStatusResponse);
+  // GetPendingChallenge returns the pending challenge for a user+device (mobile polling).
+  rpc GetPendingChallenge(GetPendingChallengeRequest) returns (GetPendingChallengeResponse);
+  // SubmitVerification validates a mobile-submitted response (qr_scan, number_match, code_pull with biometric).
+  rpc SubmitVerification(SubmitVerificationRequest) returns (SubmitVerificationResponse);
+  // SubmitCode validates a browser-submitted 6-digit code (code_pull, email fallback).
+  rpc SubmitCode(SubmitCodeRequest) returns (SubmitCodeResponse);
+  // VerifyByBiometric verifies a challenge using device biometrics (device signature is the proof).
+  rpc VerifyByBiometric(VerifyByBiometricRequest) returns (VerifyByBiometricResponse);
+}
+
+message CreateChallengeRequest {
+  uint64 user_id        = 1;
+  string source_service = 2; // "transaction", "payment", "transfer"
+  uint64 source_id      = 3;
+  string method         = 4; // "code_pull"
+  string device_id      = 5; // UUID of mobile device, empty for browser sessions
+}
+
+message CreateChallengeResponse {
+  uint64 challenge_id    = 1;
+  string method          = 2;
+  string challenge_data  = 3; // JSON string with method-specific data
+  string expires_at      = 4; // RFC3339
+}
+
+message GetChallengeStatusRequest {
+  uint64 challenge_id = 1;
+}
+
+message GetChallengeStatusResponse {
+  uint64 challenge_id = 1;
+  string status       = 2; // "pending", "verified", "expired", "failed"
+  string method       = 3;
+  string expires_at   = 4; // RFC3339
+  string verified_at  = 5; // RFC3339, empty if not verified
+}
+
+message GetPendingChallengeRequest {
+  uint64 user_id = 1;
+}
+
+message GetPendingChallengeResponse {
+  bool   found          = 1;
+  uint64 challenge_id   = 2;
+  string method         = 3;
+  string challenge_data = 4; // JSON string
+  string expires_at     = 5; // RFC3339
+}
+
+message SubmitVerificationRequest {
+  uint64 challenge_id = 1;
+  string device_id    = 2;
+  string response     = 3; // the user's answer: selected number, QR token, or code
+}
+
+message SubmitVerificationResponse {
+  bool   success            = 1;
+  int32  remaining_attempts = 2;
+  string new_challenge_data = 3; // regenerated challenge data on wrong answer (number_match)
+}
+
+message SubmitCodeRequest {
+  uint64 challenge_id = 1;
+  string code         = 2; // 6-digit code
+}
+
+message SubmitCodeResponse {
+  bool  success            = 1;
+  int32 remaining_attempts = 2;
+}
+
+message VerifyByBiometricRequest {
+  uint64 challenge_id = 1;
+  uint64 user_id      = 2;
+  string device_id    = 3;
+}
+
+message VerifyByBiometricResponse {
+  bool success = 1;
+}

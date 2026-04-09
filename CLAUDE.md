@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Specification Reference
+
+**Before implementing any new feature, read `Specification.md` in the repo root.** It contains the complete system specification: every entity, API route, pattern, convention, Kafka topic, enum value, and business rule. Use it as the single source of truth instead of scanning the entire codebase. The "Adding a New Feature Checklist" section (Section 4) is the step-by-step guide for full-stack feature implementation.
+
+**After implementing any feature or change, update `Specification.md` to reflect what was added or modified.** This includes: new API routes (Section 17), new or changed entities (Section 18), new Kafka topics or message types (Section 19), new enum values (Section 20), new business rules (Section 21), new gRPC service definitions (Section 11), new permissions (Section 6), and any changes to the gateway client wiring (Section 3). The spec must always match the current state of the codebase.
+
 ## Repository Layout
 
 This is a Go workspace monorepo. Each service has its own self-contained directory at the repo root:
@@ -19,6 +25,7 @@ This is a Go workspace monorepo. Each service has its own self-contained directo
 ├── transaction-service/     # Payments, transfers, currency conversion via exchange-service (gRPC, port 50057)
 ├── credit-service/          # Loan requests, loans, installments (gRPC, port 50058)
 ├── exchange-service/        # Currency exchange rates and conversion (gRPC, port 50059)
+├── verification-service/    # Mobile verification challenges (gRPC, port 50061)
 ├── docs/                    # API documentation and implementation plans
 ├── docker-compose.yml
 ├── Makefile
@@ -33,6 +40,7 @@ All commands should be run from the repo root.
 make proto        # Regenerate protobuf Go files (run after editing .proto files)
 make build        # Build all four services into their respective bin/ directories
 make tidy         # Run go mod tidy for all services
+make lint         # Run golangci-lint on all services (requires golangci-lint installed)
 make docker-up    # Start all infrastructure + services via Docker
 make docker-down  # Stop containers
 make docker-logs  # Stream logs
@@ -65,7 +73,12 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | `TRANSACTION_GRPC_ADDR` | localhost:50057 | transaction-service gRPC address |
 | `CREDIT_GRPC_ADDR` | localhost:50058 | credit-service gRPC address |
 | `EXCHANGE_GRPC_ADDR` | localhost:50059 | exchange-service gRPC address; also required by transaction-service |
+| `VERIFICATION_GRPC_ADDR` | localhost:50061 | verification-service gRPC address; also required by transaction-service |
 | `GATEWAY_HTTP_ADDR` | :8080 | |
+| `MOBILE_REFRESH_EXPIRY` | 2160h (90 days) | Mobile refresh token expiry (auth-service) |
+| `MOBILE_ACTIVATION_EXPIRY` | 15m | Mobile activation code expiry (auth-service) |
+| `VERIFICATION_CHALLENGE_EXPIRY` | 5m | Verification challenge expiry (verification-service) |
+| `VERIFICATION_MAX_ATTEMPTS` | 3 | Max verification attempts (verification-service) |
 | `KAFKA_BROKERS` | localhost:9092 | |
 | `REDIS_ADDR` | localhost:6379 | Shared by auth + user services |
 | `SMTP_HOST` / `SMTP_PORT` | smtp.gmail.com / 587 | |
@@ -83,6 +96,8 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | transaction-service | 5437 |
 | credit-service | 5438 |
 | exchange-service | 5439 |
+| verification-service | 5440 |
+| notification-service | 5441 |
 
 **Note:** `credit-service` and `card-service` both depend on `CLIENT_GRPC_ADDR` and `ACCOUNT_GRPC_ADDR` in addition to their own gRPC addresses. Ensure these variables are set in their docker-compose environment sections.
 
@@ -93,6 +108,9 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 - API Gateway → Services: gRPC (protobuf, defined in `contract/proto/`)
 - Services → Notification: Kafka topic `notification.send-email`
 - Notification → Services: Kafka topic `notification.email-sent` (delivery confirmation)
+- Verification-service → Notification: Kafka topic `verification.challenge-created`
+- Verification-service → Transaction: Kafka topic `verification.challenge-verified`
+- Notification → Gateway: Kafka topic `notification.mobile-push` (WebSocket delivery)
 - Persistence: PostgreSQL via GORM (auto-migrated on startup)
 - Caching: Redis (JWT validation in auth-service, employee lookups in user-service)
 - Swagger UI: Available at /swagger/index.html on the API Gateway (port 8080)
@@ -112,7 +130,7 @@ internal/
 
 The API Gateway has no DB; instead it has `internal/grpc/` clients and `internal/middleware/auth.go` for JWT validation.
 
-The Notification Service has no DB; it has `internal/consumer/` for Kafka consumption, `internal/sender/` for SMTP, and `internal/push/` for future push notification providers.
+The Notification Service has a PostgreSQL database (`notification_db`, port 5441) for mobile inbox storage. It also has `internal/consumer/` for Kafka consumption, `internal/sender/` for SMTP, and `internal/push/` for future push notification providers.
 
 **Database auto-migration:** Both DB-backed services call `db.AutoMigrate(...)` on startup — no separate migration tool is needed.
 
@@ -123,7 +141,9 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 **Roles & permissions** (stored in `user_db`, seeded from `user-service/internal/service/role_service.go`):
 - Roles (`EmployeeBasic`, `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin`) are stored in the `roles` table with their associated `permissions` in a `role_permissions` join table.
 - Employees can have multiple roles (`employee_roles`) and additional per-employee permissions (`employee_additional_permissions`).
-- Default seed: `EmployeeBasic` → clients/accounts/cards/credits access; `EmployeeAgent` → adds securities trading; `EmployeeSupervisor` → adds agents/OTC/funds management; `EmployeeAdmin` → adds employees management.
+- Default seed: `EmployeeBasic` → clients/accounts/cards/credits access; `EmployeeAgent` → adds securities trading; `EmployeeSupervisor` → adds agents/OTC/funds management + verification.skip + verification.manage; `EmployeeAdmin` → adds employees management + all permissions.
+- `verification.skip` — allows skipping mobile verification for transactions (EmployeeSupervisor, EmployeeAdmin)
+- `verification.manage` — allows managing verification settings per role (EmployeeSupervisor, EmployeeAdmin)
 
 **Employee limits** (stored in `user_db`, `employee_limits` table):
 - Each employee has configurable limits: `MaxLoanApprovalAmount`, `MaxSingleTransaction`, `MaxDailyTransaction`, `MaxClientDailyLimit`, `MaxClientMonthlyLimit` (all `decimal.Decimal`).
@@ -156,7 +176,7 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 - Configurable fee rules stored in `transfer_fees` table (type: `percentage` or `fixed`, with `min_amount` threshold and `max_fee` cap).
 - Multiple matching rules are cumulative (stack).
 - Fee lookup failure (DB error) REJECTS the transaction (not silently ignored).
-- Default seed: 0.1% percentage fee for all transactions >= 1000 RSD.
+- Default seeds: (1) 0.1% percentage fee for all transactions >= 1000 RSD; (2) 5% commission for all transactions >= 5000 RSD.
 - Collected fees are credited to the bank's own RSD account after each transaction.
 
 **Auth token system type** (auth-service):
@@ -197,6 +217,7 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
   - `fee_type`: `percentage`, `fixed`
   - `loan_type`: `cash`, `housing`, `auto`, `refinancing`, `student`
   - `interest_type`: `fixed`, `variable`
+  - `verification_method`: `code_pull`, `qr_scan`, `number_match`, `email`
 
 ## REST API Conventions
 
@@ -257,6 +278,27 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 - Remove sections for any deleted routes.
 - `docs/api/REST_API.md` must be committed alongside handler and router changes.
 
+## Testing Requirement
+
+**Every feature or change must include tests.** This is a hard requirement — not optional.
+
+- **Unit tests** (service + handler layers) must be added or updated for every service change. Use mocked repositories and gRPC clients. Test both success and error paths.
+- **Integration tests** (`test-app/workflows/`) must be added or updated when a feature touches API endpoints or cross-service flows. Each new endpoint needs at least one integration test.
+- **Implementation plans must include a testing section** — every plan must specify which unit tests and integration tests to add or update. Plans without testing steps are incomplete.
+- Use shared helpers from `contract/testutil/` (unit tests) and `test-app/workflows/helpers_test.go` (integration tests) to avoid duplication. Never inline Kafka scanning, verification flows, or client setup — use the shared helpers.
+- Tests must validate **spec behavior** — not just HTTP status codes. Check response bodies, side effects (balance changes, Kafka events), and business rules from the spec.
+- Tests must pass before committing. Run `make test` for unit tests and the integration suite for workflow tests.
+- See `docs/superpowers/specs/2026-04-04-comprehensive-testing-design.md` for the full testing design and patterns.
+
+## Linting Requirement
+
+**After every code change, run `make lint` on the affected services.** This is a hard requirement — not optional.
+
+- Run `make lint` (or `cd <service> && golangci-lint run ./...` for individual services) after modifying any Go code.
+- All new or modified code must pass lint with zero new warnings. Do not introduce new `errcheck`, `unused`, `staticcheck`, or other lint violations.
+- Fix any lint errors in code you touched before committing. You are not required to fix pre-existing lint issues in code you did not modify.
+- Requires `golangci-lint` installed (`go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`).
+
 ## Kafka Event Publishing Requirement
 
 **All services must publish Kafka events for every significant action they perform.** This is a hard requirement — not optional.
@@ -276,6 +318,61 @@ The Notification Service has no DB; it has `internal/consumer/` for Kafka consum
 - In `cmd/main.go`, call `kafkaprod.EnsureTopics(cfg.KafkaBrokers, ...)` immediately after creating the producer, listing **all topics the service produces to AND consumes from**.
 - When adding a new Kafka topic (new event type in `contract/kafka/messages.go`), add it to the `EnsureTopics` call in every service that produces or consumes that topic.
 - The function retries Kafka connection up to 10 times (2s apart) to handle startup ordering in Docker Compose.
+
+## Concurrency & Transaction Safety Requirement
+
+**All code in this banking system must be concurrency-safe.** This is a hard requirement — not optional. Every service handles real money and must be bank-grade safe.
+
+### Optimistic Locking (Version Field)
+
+- Every model with a `Version int64` field **MUST** have a `BeforeUpdate` GORM hook that enforces version matching:
+  ```go
+  func (m *MyModel) BeforeUpdate(tx *gorm.DB) error {
+      tx.Statement.Where("version = ?", m.Version)
+      m.Version++
+      return nil
+  }
+  ```
+- **NEVER** use `db.Model(&MyModel{}).Updates(map...)` on a versioned model — this creates a zero-value struct with `Version=0`, and the hook adds `WHERE version = 0` which matches nothing. Always load the struct first, modify it, then call `db.Save(&struct)`.
+- For bulk updates that intentionally skip version checks (e.g., spending resets, overdue marking), use `db.Session(&gorm.Session{SkipHooks: true})`.
+- After every `db.Save()` on a versioned model, check `result.RowsAffected == 0` for optimistic lock conflict and return `shared.ErrOptimisticLock`.
+- Models currently with Version fields: `Account`, `Company`, `Card`, `Loan`, `LoanRequest`, `Installment`, `Payment`, `Transfer`, `ExchangeRate`, `Client`, `ClientLimit`, `Employee`, `EmployeeLimit`.
+
+### Transaction Requirements
+
+- **Every multi-step DB write** (create + update, debit + credit, status check + status change) **MUST** be wrapped in `db.Transaction(func(tx *gorm.DB) error { ... })`. No exceptions.
+- **Every read-modify-write pattern** (read value → check condition → update) **MUST** use `SELECT FOR UPDATE` inside a transaction:
+  ```go
+  db.Transaction(func(tx *gorm.DB) error {
+      tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&entity, id)
+      // ... modify entity ...
+      return tx.Save(&entity).Error
+  })
+  ```
+- **Upsert operations** (check existence → create or update) **MUST** use PostgreSQL `ON CONFLICT` via GORM's `clause.OnConflict{}` — never SELECT-then-INSERT.
+
+### Cross-Service Operations (Saga Pattern)
+
+- When a business operation spans multiple gRPC calls to different services (e.g., transfer: debit account A → credit account B), use the **saga log pattern** (`transaction-service/internal/model/saga_log.go`).
+- Each saga step is recorded as `pending` before execution, marked `completed` on success, or triggers compensation steps marked `compensating`.
+- Failed compensations remain in `compensating` status for background recovery.
+- **Kafka events MUST be published AFTER the DB transaction commits**, not inside the transaction.
+
+### Spending Limits
+
+- Spending limits (daily/monthly) are enforced **atomically** inside `account-service`'s `UpdateBalance` method, within a `SELECT FOR UPDATE` transaction. This is the **authoritative** check.
+- Transaction-service and payment-service may perform advisory pre-checks via gRPC reads, but these are NOT authoritative — they are early-exit optimizations only.
+
+### Background Goroutines
+
+- All background goroutines (cron jobs, tickers) **MUST** accept `context.Context` and honor cancellation via `ctx.Done()`.
+- Tickers **MUST** be stopped with `defer ticker.Stop()`.
+- Use `select { case <-time.After(...): ... case <-ctx.Done(): return }` instead of bare `time.Sleep()`.
+
+### Key Patterns Reference
+
+- **Exemplary implementation:** `exchange-service/internal/repository/exchange_rate_repository.go` `Upsert()` — uses `db.Transaction` + `clause.Locking{Strength: "UPDATE"}` + version increment.
+- **Exemplary implementation:** `account-service/internal/repository/ledger_repository.go` `DebitWithLock`/`CreditWithLock` — uses FOR UPDATE + balance check + ledger entry + spending update (for non-bank accounts) in single TX.
 
 ## Docker Compose Requirement
 

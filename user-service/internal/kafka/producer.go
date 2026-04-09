@@ -68,6 +68,27 @@ func (p *Producer) PublishLimitTemplate(ctx context.Context, msg kafkamsg.LimitT
 	return p.publish(ctx, topic, msg)
 }
 
+func (p *Producer) PublishActuaryLimitUpdated(ctx context.Context, msg kafkamsg.ActuaryLimitUpdatedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicActuaryLimitUpdated, msg)
+}
+
+func (p *Producer) PublishBlueprint(ctx context.Context, msg kafkamsg.BlueprintMessage) error {
+	var topic string
+	switch msg.Action {
+	case "created":
+		topic = kafkamsg.TopicBlueprintCreated
+	case "updated":
+		topic = kafkamsg.TopicBlueprintUpdated
+	case "deleted":
+		topic = kafkamsg.TopicBlueprintDeleted
+	case "applied":
+		topic = kafkamsg.TopicBlueprintApplied
+	default:
+		topic = kafkamsg.TopicBlueprintCreated
+	}
+	return p.publish(ctx, topic, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

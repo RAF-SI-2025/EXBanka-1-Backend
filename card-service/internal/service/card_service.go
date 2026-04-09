@@ -4,30 +4,38 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"github.com/shopspring/decimal"
 	"github.com/exbanka/card-service/internal/cache"
-	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/card-service/internal/kafka"
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/repository"
+	"github.com/exbanka/contract/changelog"
+	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/shopspring/decimal"
 )
 
 type CardService struct {
-	cardRepo  *repository.CardRepository
-	blockRepo *repository.CardBlockRepository
-	authRepo  *repository.AuthorizedPersonRepository
-	producer  *kafkaprod.Producer
-	cache     *cache.RedisCache
+	cardRepo      *repository.CardRepository
+	blockRepo     *repository.CardBlockRepository
+	authRepo      *repository.AuthorizedPersonRepository
+	producer      *kafkaprod.Producer
+	cache         *cache.RedisCache
+	changelogRepo *repository.ChangelogRepository
+	db            *gorm.DB
 }
 
-func NewCardService(cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, authRepo *repository.AuthorizedPersonRepository, producer *kafkaprod.Producer, cache *cache.RedisCache) *CardService {
-	return &CardService{cardRepo: cardRepo, blockRepo: blockRepo, authRepo: authRepo, producer: producer, cache: cache}
+func NewCardService(cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, authRepo *repository.AuthorizedPersonRepository, producer *kafkaprod.Producer, cache *cache.RedisCache, db *gorm.DB, changelogRepo ...*repository.ChangelogRepository) *CardService {
+	svc := &CardService{cardRepo: cardRepo, blockRepo: blockRepo, authRepo: authRepo, producer: producer, cache: cache, db: db}
+	if len(changelogRepo) > 0 {
+		svc.changelogRepo = changelogRepo[0]
+	}
+	return svc
 }
 
 func (s *CardService) CreateCard(ctx context.Context, accountNumber string, ownerID uint64, ownerType, cardBrand string) (*model.Card, string, error) {
@@ -38,27 +46,6 @@ func (s *CardService) CreateCard(ctx context.Context, accountNumber string, owne
 	validOwnerTypes := map[string]bool{"client": true, "authorized_person": true}
 	if !validOwnerTypes[ownerType] {
 		return nil, "", fmt.Errorf("owner type must be one of: client, authorized_person; got: %s", ownerType)
-	}
-
-	// Enforce card-per-account limits based on owner type.
-	// "authorized_person" indicates a business account context: max 1 card per owner per account.
-	// "client" indicates a personal account context: max 2 cards total per account.
-	if ownerType == "authorized_person" {
-		count, err := s.cardRepo.CountByAccountAndOwner(accountNumber, ownerID)
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to check card count: %w", err)
-		}
-		if count >= 1 {
-			return nil, "", fmt.Errorf("business accounts can have at most 1 card per person; person %d already has a card on account %s", ownerID, accountNumber)
-		}
-	} else {
-		count, err := s.cardRepo.CountByAccount(accountNumber)
-		if err != nil {
-			return nil, "", fmt.Errorf("failed to check card count: %w", err)
-		}
-		if count >= 2 {
-			return nil, "", fmt.Errorf("personal accounts can have at most 2 cards; account %s already has %d", accountNumber, count)
-		}
 	}
 
 	cardNumber := GenerateCardNumber(cardBrand)
@@ -78,14 +65,70 @@ func (s *CardService) CreateCard(ctx context.Context, accountNumber string, owne
 		ExpiresAt:      time.Now().AddDate(3, 0, 0),
 	}
 
-	if err := s.cardRepo.Create(card); err != nil {
-		return nil, "", fmt.Errorf("account %s not found or inactive", accountNumber)
+	// Serialize card creation for this account using a PostgreSQL advisory lock
+	// to eliminate the TOCTOU race between the card count check and the INSERT.
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if e := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))", accountNumber).Error; e != nil {
+			return e
+		}
+
+		// Enforce card-per-account limits based on owner type.
+		// "authorized_person" indicates a business account context: max 1 card per owner per account.
+		// "client" indicates a personal account context: max 2 cards total per account.
+		if ownerType == "authorized_person" {
+			var count int64
+			if e := tx.Model(&model.Card{}).Where("account_number = ? AND owner_id = ? AND status != ?", accountNumber, ownerID, "deactivated").Count(&count).Error; e != nil {
+				return fmt.Errorf("failed to check card count: %w", e)
+			}
+			if count >= 1 {
+				return fmt.Errorf("business accounts can have at most 1 card per person; person %d already has a card on account %s", ownerID, accountNumber)
+			}
+		} else {
+			var count int64
+			if e := tx.Model(&model.Card{}).Where("account_number = ? AND status != ?", accountNumber, "deactivated").Count(&count).Error; e != nil {
+				return fmt.Errorf("failed to check card count: %w", e)
+			}
+			if count >= 2 {
+				return fmt.Errorf("personal accounts can have at most 2 cards; account %s already has %d", accountNumber, count)
+			}
+		}
+
+		if e := tx.Create(card).Error; e != nil {
+			return fmt.Errorf("account %s not found or inactive", accountNumber)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, "", err
 	}
+	CardCreatedTotal.WithLabelValues("physical").Inc()
 	return card, cvv, nil
 }
 
+const cardCacheTTL = 3 * time.Minute
+
 func (s *CardService) GetCard(id uint64) (*model.Card, error) {
-	return s.cardRepo.GetByID(id)
+	ctx := context.Background()
+	key := fmt.Sprintf("card:id:%d", id)
+
+	if s.cache != nil {
+		var cached model.Card
+		if err := s.cache.Get(ctx, key, &cached); err == nil {
+			return &cached, nil
+		}
+	}
+
+	card, err := s.cardRepo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		if err := s.cache.Set(ctx, key, card, cardCacheTTL); err != nil {
+			log.Printf("warn: cache set failed for %s: %v", key, err)
+		}
+	}
+	return card, nil
 }
 
 func (s *CardService) ListCardsByAccount(accountNumber string) ([]model.Card, error) {
@@ -96,49 +139,95 @@ func (s *CardService) ListCardsByClient(clientID uint64) ([]model.Card, error) {
 	return s.cardRepo.ListByClient(clientID)
 }
 
-func (s *CardService) BlockCard(id uint64) (*model.Card, error) {
-	card, err := s.cardRepo.GetByID(id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("card %d not found", id)
+func (s *CardService) BlockCard(id uint64, changedBy int64) (*model.Card, error) {
+	var card *model.Card
+	var oldStatus string
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var e error
+		card, e = s.cardRepo.GetByIDForUpdate(tx, id)
+		if e != nil {
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("card %d not found", id)
+			}
+			return e
 		}
-		return nil, err
+		oldStatus = card.Status
+		if card.Status == "blocked" {
+			return fmt.Errorf("card %d is already blocked", id)
+		}
+		if card.Status == "deactivated" {
+			return fmt.Errorf("card %d is deactivated and cannot be blocked", id)
+		}
+		card.Status = "blocked"
+		return tx.Save(card).Error
+	})
+	if err == nil {
+		CardStatusChangesTotal.WithLabelValues("block").Inc()
+		s.invalidateCardCache(id)
+		if s.changelogRepo != nil {
+			entry := changelog.NewStatusChangeEntry("card", int64(id), changedBy, oldStatus, "blocked", "")
+			_ = s.changelogRepo.Create(entry)
+		}
 	}
-	if card.Status == "blocked" {
-		return nil, fmt.Errorf("card %d is already blocked", id)
-	}
-	if card.Status == "deactivated" {
-		return nil, fmt.Errorf("card %d is deactivated and cannot be blocked", id)
-	}
-	return s.cardRepo.UpdateStatus(id, "blocked")
+	return card, err
 }
 
-func (s *CardService) UnblockCard(id uint64) (*model.Card, error) {
-	card, err := s.cardRepo.GetByID(id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("card %d not found", id)
+func (s *CardService) UnblockCard(id uint64, changedBy int64) (*model.Card, error) {
+	var card *model.Card
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var e error
+		card, e = s.cardRepo.GetByIDForUpdate(tx, id)
+		if e != nil {
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("card %d not found", id)
+			}
+			return e
 		}
-		return nil, err
+		if card.Status != "blocked" {
+			return fmt.Errorf("card %d is not blocked", id)
+		}
+		card.Status = "active"
+		return tx.Save(card).Error
+	})
+	if err == nil {
+		CardStatusChangesTotal.WithLabelValues("unblock").Inc()
+		s.invalidateCardCache(id)
+		if s.changelogRepo != nil {
+			entry := changelog.NewStatusChangeEntry("card", int64(id), changedBy, "blocked", "active", "")
+			_ = s.changelogRepo.Create(entry)
+		}
 	}
-	if card.Status != "blocked" {
-		return nil, fmt.Errorf("card %d is not blocked", id)
-	}
-	return s.cardRepo.UpdateStatus(id, "active")
+	return card, err
 }
 
-func (s *CardService) DeactivateCard(id uint64) (*model.Card, error) {
-	card, err := s.cardRepo.GetByID(id)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("card %d not found", id)
+func (s *CardService) DeactivateCard(id uint64, changedBy int64) (*model.Card, error) {
+	var card *model.Card
+	var oldStatus string
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var e error
+		card, e = s.cardRepo.GetByIDForUpdate(tx, id)
+		if e != nil {
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("card %d not found", id)
+			}
+			return e
 		}
-		return nil, err
+		if card.Status == "deactivated" {
+			return fmt.Errorf("card %d is already deactivated", id)
+		}
+		oldStatus = card.Status
+		card.Status = "deactivated"
+		return tx.Save(card).Error
+	})
+	if err == nil {
+		CardStatusChangesTotal.WithLabelValues("deactivate").Inc()
+		s.invalidateCardCache(id)
+		if s.changelogRepo != nil {
+			entry := changelog.NewStatusChangeEntry("card", int64(id), changedBy, oldStatus, "deactivated", "")
+			_ = s.changelogRepo.Create(entry)
+		}
 	}
-	if card.Status == "deactivated" {
-		return nil, fmt.Errorf("card %d is already deactivated", id)
-	}
-	return s.cardRepo.UpdateStatus(id, "deactivated")
+	return card, err
 }
 
 func (s *CardService) CreateAuthorizedPerson(ctx context.Context, ap *model.AuthorizedPerson) error {
@@ -196,6 +285,7 @@ func (s *CardService) CreateVirtualCard(ctx context.Context, accountNumber strin
 	if err := s.cardRepo.Create(card); err != nil {
 		return nil, "", err
 	}
+	CardCreatedTotal.WithLabelValues("virtual").Inc()
 	_ = s.producer.PublishVirtualCardCreated(ctx, kafkamsg.VirtualCardCreatedMessage{
 		CardID:        card.ID,
 		AccountNumber: card.AccountNumber,
@@ -220,54 +310,72 @@ func (s *CardService) SetPin(cardID uint64, pin string) error {
 	}
 	card.PinHash = string(hash)
 	card.PinAttempts = 0
-	return s.cardRepo.Update(card)
+	if err := s.cardRepo.Update(card); err != nil {
+		return err
+	}
+	s.invalidateCardCache(cardID)
+	return nil
 }
 
 func (s *CardService) VerifyPin(cardID uint64, pin string) (bool, error) {
-	card, err := s.cardRepo.GetByID(cardID)
-	if err != nil {
-		return false, err
-	}
-	if card.PinAttempts >= 3 {
-		return false, errors.New("card blocked due to too many failed PIN attempts")
-	}
-	err = bcrypt.CompareHashAndPassword([]byte(card.PinHash), []byte(pin))
-	if err != nil {
-		card.PinAttempts++
-		if card.PinAttempts >= 3 {
-			card.Status = "blocked"
+	var ok bool
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		card, e := s.cardRepo.GetByIDForUpdate(tx, cardID)
+		if e != nil {
+			return e
 		}
-		_ = s.cardRepo.Update(card)
-		return false, nil
-	}
-	card.PinAttempts = 0
-	_ = s.cardRepo.Update(card)
-	return true, nil
+		if card.PinAttempts >= 3 {
+			return errors.New("card blocked due to too many failed PIN attempts")
+		}
+		if e = bcrypt.CompareHashAndPassword([]byte(card.PinHash), []byte(pin)); e != nil {
+			card.PinAttempts++
+			if card.PinAttempts >= 3 {
+				card.Status = "blocked"
+				CardPinAttemptsTotal.WithLabelValues("locked").Inc()
+			} else {
+				CardPinAttemptsTotal.WithLabelValues("failure").Inc()
+			}
+			ok = false
+			return tx.Save(card).Error
+		}
+		card.PinAttempts = 0
+		ok = true
+		CardPinAttemptsTotal.WithLabelValues("success").Inc()
+		return tx.Save(card).Error
+	})
+	return ok, err
 }
 
 func (s *CardService) TemporaryBlockCard(ctx context.Context, cardID uint64, durationHours int, reason string) (*model.Card, error) {
 	if durationHours <= 0 || durationHours > 720 {
 		return nil, errors.New("duration_hours must be between 1 and 720")
 	}
-	card, err := s.cardRepo.GetByID(cardID)
+	expiresAt := time.Now().Add(time.Duration(durationHours) * time.Hour)
+	var card *model.Card
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var e error
+		card, e = s.cardRepo.GetByIDForUpdate(tx, cardID)
+		if e != nil {
+			return e
+		}
+		card.Status = "blocked"
+		if e = tx.Save(card).Error; e != nil {
+			return e
+		}
+		block := &model.CardBlock{
+			CardID:    cardID,
+			Reason:    reason,
+			BlockedAt: time.Now(),
+			ExpiresAt: &expiresAt,
+			Active:    true,
+		}
+		return tx.Create(block).Error
+	})
 	if err != nil {
 		return nil, err
 	}
-	card.Status = "blocked"
-	if err := s.cardRepo.Update(card); err != nil {
-		return nil, err
-	}
-	expiresAt := time.Now().Add(time.Duration(durationHours) * time.Hour)
-	block := &model.CardBlock{
-		CardID:    cardID,
-		Reason:    reason,
-		BlockedAt: time.Now(),
-		ExpiresAt: &expiresAt,
-		Active:    true,
-	}
-	if err := s.blockRepo.Create(block); err != nil {
-		return nil, err
-	}
+	s.invalidateCardCache(cardID)
+	// Publish Kafka event after the transaction commits (not inside TX).
 	_ = s.producer.PublishCardTemporaryBlocked(ctx, kafkamsg.CardTemporaryBlockedMessage{
 		CardID:    card.ID,
 		ExpiresAt: expiresAt.Format(time.RFC3339),
@@ -277,19 +385,32 @@ func (s *CardService) TemporaryBlockCard(ctx context.Context, cardID uint64, dur
 }
 
 func (s *CardService) UseCard(cardID uint64) error {
-	card, err := s.cardRepo.GetByID(cardID)
-	if err != nil {
-		return err
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		card, err := s.cardRepo.GetByIDForUpdate(tx, cardID)
+		if err != nil {
+			return err
+		}
+		if !card.IsVirtual || card.UsageType == "unlimited" {
+			return nil
+		}
+		if card.UsesRemaining <= 0 {
+			return errors.New("virtual card has no remaining uses")
+		}
+		card.UsesRemaining--
+		if card.UsesRemaining == 0 {
+			card.Status = "deactivated"
+		}
+		return tx.Save(card).Error
+	})
+	if err == nil {
+		s.invalidateCardCache(cardID)
 	}
-	if !card.IsVirtual || card.UsageType == "unlimited" {
-		return nil
+	return err
+}
+
+// invalidateCardCache removes a card from Redis cache after a mutation.
+func (s *CardService) invalidateCardCache(cardID uint64) {
+	if s.cache != nil {
+		_ = s.cache.Delete(context.Background(), fmt.Sprintf("card:id:%d", cardID))
 	}
-	if card.UsesRemaining <= 0 {
-		return errors.New("virtual card has no remaining uses")
-	}
-	card.UsesRemaining--
-	if card.UsesRemaining == 0 {
-		card.Status = "deactivated"
-	}
-	return s.cardRepo.Update(card)
 }

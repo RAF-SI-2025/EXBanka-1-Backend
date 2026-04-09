@@ -4,7 +4,16 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
+
+// BeforeUpdate adds a WHERE version=? clause and increments the version,
+// providing optimistic locking on every Save/Update of a Loan.
+func (l *Loan) BeforeUpdate(tx *gorm.DB) error {
+	tx.Statement.Where("version = ?", l.Version)
+	l.Version++
+	return nil
+}
 
 type Loan struct {
 	ID                    uint64          `gorm:"primaryKey;autoIncrement" json:"id"`

@@ -753,3 +753,587 @@ var EmployeeLimitService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "user/user.proto",
 }
+
+const (
+	ActuaryService_ListActuaries_FullMethodName         = "/user.ActuaryService/ListActuaries"
+	ActuaryService_GetActuaryInfo_FullMethodName        = "/user.ActuaryService/GetActuaryInfo"
+	ActuaryService_SetActuaryLimit_FullMethodName       = "/user.ActuaryService/SetActuaryLimit"
+	ActuaryService_ResetActuaryUsedLimit_FullMethodName = "/user.ActuaryService/ResetActuaryUsedLimit"
+	ActuaryService_SetNeedApproval_FullMethodName       = "/user.ActuaryService/SetNeedApproval"
+	ActuaryService_UpdateUsedLimit_FullMethodName       = "/user.ActuaryService/UpdateUsedLimit"
+)
+
+// ActuaryServiceClient is the client API for ActuaryService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ActuaryServiceClient interface {
+	ListActuaries(ctx context.Context, in *ListActuariesRequest, opts ...grpc.CallOption) (*ListActuariesResponse, error)
+	GetActuaryInfo(ctx context.Context, in *GetActuaryInfoRequest, opts ...grpc.CallOption) (*ActuaryInfo, error)
+	SetActuaryLimit(ctx context.Context, in *SetActuaryLimitRequest, opts ...grpc.CallOption) (*ActuaryInfo, error)
+	ResetActuaryUsedLimit(ctx context.Context, in *ResetActuaryUsedLimitRequest, opts ...grpc.CallOption) (*ActuaryInfo, error)
+	SetNeedApproval(ctx context.Context, in *SetNeedApprovalRequest, opts ...grpc.CallOption) (*ActuaryInfo, error)
+	UpdateUsedLimit(ctx context.Context, in *UpdateUsedLimitRequest, opts ...grpc.CallOption) (*ActuaryInfo, error)
+}
+
+type actuaryServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewActuaryServiceClient(cc grpc.ClientConnInterface) ActuaryServiceClient {
+	return &actuaryServiceClient{cc}
+}
+
+func (c *actuaryServiceClient) ListActuaries(ctx context.Context, in *ListActuariesRequest, opts ...grpc.CallOption) (*ListActuariesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListActuariesResponse)
+	err := c.cc.Invoke(ctx, ActuaryService_ListActuaries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *actuaryServiceClient) GetActuaryInfo(ctx context.Context, in *GetActuaryInfoRequest, opts ...grpc.CallOption) (*ActuaryInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActuaryInfo)
+	err := c.cc.Invoke(ctx, ActuaryService_GetActuaryInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *actuaryServiceClient) SetActuaryLimit(ctx context.Context, in *SetActuaryLimitRequest, opts ...grpc.CallOption) (*ActuaryInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActuaryInfo)
+	err := c.cc.Invoke(ctx, ActuaryService_SetActuaryLimit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *actuaryServiceClient) ResetActuaryUsedLimit(ctx context.Context, in *ResetActuaryUsedLimitRequest, opts ...grpc.CallOption) (*ActuaryInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActuaryInfo)
+	err := c.cc.Invoke(ctx, ActuaryService_ResetActuaryUsedLimit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *actuaryServiceClient) SetNeedApproval(ctx context.Context, in *SetNeedApprovalRequest, opts ...grpc.CallOption) (*ActuaryInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActuaryInfo)
+	err := c.cc.Invoke(ctx, ActuaryService_SetNeedApproval_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *actuaryServiceClient) UpdateUsedLimit(ctx context.Context, in *UpdateUsedLimitRequest, opts ...grpc.CallOption) (*ActuaryInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ActuaryInfo)
+	err := c.cc.Invoke(ctx, ActuaryService_UpdateUsedLimit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ActuaryServiceServer is the server API for ActuaryService service.
+// All implementations must embed UnimplementedActuaryServiceServer
+// for forward compatibility.
+type ActuaryServiceServer interface {
+	ListActuaries(context.Context, *ListActuariesRequest) (*ListActuariesResponse, error)
+	GetActuaryInfo(context.Context, *GetActuaryInfoRequest) (*ActuaryInfo, error)
+	SetActuaryLimit(context.Context, *SetActuaryLimitRequest) (*ActuaryInfo, error)
+	ResetActuaryUsedLimit(context.Context, *ResetActuaryUsedLimitRequest) (*ActuaryInfo, error)
+	SetNeedApproval(context.Context, *SetNeedApprovalRequest) (*ActuaryInfo, error)
+	UpdateUsedLimit(context.Context, *UpdateUsedLimitRequest) (*ActuaryInfo, error)
+	mustEmbedUnimplementedActuaryServiceServer()
+}
+
+// UnimplementedActuaryServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedActuaryServiceServer struct{}
+
+func (UnimplementedActuaryServiceServer) ListActuaries(context.Context, *ListActuariesRequest) (*ListActuariesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListActuaries not implemented")
+}
+func (UnimplementedActuaryServiceServer) GetActuaryInfo(context.Context, *GetActuaryInfoRequest) (*ActuaryInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetActuaryInfo not implemented")
+}
+func (UnimplementedActuaryServiceServer) SetActuaryLimit(context.Context, *SetActuaryLimitRequest) (*ActuaryInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetActuaryLimit not implemented")
+}
+func (UnimplementedActuaryServiceServer) ResetActuaryUsedLimit(context.Context, *ResetActuaryUsedLimitRequest) (*ActuaryInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResetActuaryUsedLimit not implemented")
+}
+func (UnimplementedActuaryServiceServer) SetNeedApproval(context.Context, *SetNeedApprovalRequest) (*ActuaryInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetNeedApproval not implemented")
+}
+func (UnimplementedActuaryServiceServer) UpdateUsedLimit(context.Context, *UpdateUsedLimitRequest) (*ActuaryInfo, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateUsedLimit not implemented")
+}
+func (UnimplementedActuaryServiceServer) mustEmbedUnimplementedActuaryServiceServer() {}
+func (UnimplementedActuaryServiceServer) testEmbeddedByValue()                        {}
+
+// UnsafeActuaryServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ActuaryServiceServer will
+// result in compilation errors.
+type UnsafeActuaryServiceServer interface {
+	mustEmbedUnimplementedActuaryServiceServer()
+}
+
+func RegisterActuaryServiceServer(s grpc.ServiceRegistrar, srv ActuaryServiceServer) {
+	// If the following call panics, it indicates UnimplementedActuaryServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ActuaryService_ServiceDesc, srv)
+}
+
+func _ActuaryService_ListActuaries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListActuariesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ActuaryServiceServer).ListActuaries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ActuaryService_ListActuaries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ActuaryServiceServer).ListActuaries(ctx, req.(*ListActuariesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ActuaryService_GetActuaryInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetActuaryInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ActuaryServiceServer).GetActuaryInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ActuaryService_GetActuaryInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ActuaryServiceServer).GetActuaryInfo(ctx, req.(*GetActuaryInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ActuaryService_SetActuaryLimit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetActuaryLimitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ActuaryServiceServer).SetActuaryLimit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ActuaryService_SetActuaryLimit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ActuaryServiceServer).SetActuaryLimit(ctx, req.(*SetActuaryLimitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ActuaryService_ResetActuaryUsedLimit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResetActuaryUsedLimitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ActuaryServiceServer).ResetActuaryUsedLimit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ActuaryService_ResetActuaryUsedLimit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ActuaryServiceServer).ResetActuaryUsedLimit(ctx, req.(*ResetActuaryUsedLimitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ActuaryService_SetNeedApproval_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetNeedApprovalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ActuaryServiceServer).SetNeedApproval(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ActuaryService_SetNeedApproval_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ActuaryServiceServer).SetNeedApproval(ctx, req.(*SetNeedApprovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ActuaryService_UpdateUsedLimit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateUsedLimitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ActuaryServiceServer).UpdateUsedLimit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ActuaryService_UpdateUsedLimit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ActuaryServiceServer).UpdateUsedLimit(ctx, req.(*UpdateUsedLimitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ActuaryService_ServiceDesc is the grpc.ServiceDesc for ActuaryService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ActuaryService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "user.ActuaryService",
+	HandlerType: (*ActuaryServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ListActuaries",
+			Handler:    _ActuaryService_ListActuaries_Handler,
+		},
+		{
+			MethodName: "GetActuaryInfo",
+			Handler:    _ActuaryService_GetActuaryInfo_Handler,
+		},
+		{
+			MethodName: "SetActuaryLimit",
+			Handler:    _ActuaryService_SetActuaryLimit_Handler,
+		},
+		{
+			MethodName: "ResetActuaryUsedLimit",
+			Handler:    _ActuaryService_ResetActuaryUsedLimit_Handler,
+		},
+		{
+			MethodName: "SetNeedApproval",
+			Handler:    _ActuaryService_SetNeedApproval_Handler,
+		},
+		{
+			MethodName: "UpdateUsedLimit",
+			Handler:    _ActuaryService_UpdateUsedLimit_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "user/user.proto",
+}
+
+const (
+	BlueprintService_CreateBlueprint_FullMethodName = "/user.BlueprintService/CreateBlueprint"
+	BlueprintService_GetBlueprint_FullMethodName    = "/user.BlueprintService/GetBlueprint"
+	BlueprintService_ListBlueprints_FullMethodName  = "/user.BlueprintService/ListBlueprints"
+	BlueprintService_UpdateBlueprint_FullMethodName = "/user.BlueprintService/UpdateBlueprint"
+	BlueprintService_DeleteBlueprint_FullMethodName = "/user.BlueprintService/DeleteBlueprint"
+	BlueprintService_ApplyBlueprint_FullMethodName  = "/user.BlueprintService/ApplyBlueprint"
+)
+
+// BlueprintServiceClient is the client API for BlueprintService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type BlueprintServiceClient interface {
+	CreateBlueprint(ctx context.Context, in *CreateBlueprintRequest, opts ...grpc.CallOption) (*BlueprintResponse, error)
+	GetBlueprint(ctx context.Context, in *GetBlueprintRequest, opts ...grpc.CallOption) (*BlueprintResponse, error)
+	ListBlueprints(ctx context.Context, in *ListBlueprintsRequest, opts ...grpc.CallOption) (*ListBlueprintsResponse, error)
+	UpdateBlueprint(ctx context.Context, in *UpdateBlueprintRequest, opts ...grpc.CallOption) (*BlueprintResponse, error)
+	DeleteBlueprint(ctx context.Context, in *DeleteBlueprintRequest, opts ...grpc.CallOption) (*DeleteBlueprintResponse, error)
+	ApplyBlueprint(ctx context.Context, in *ApplyBlueprintRequest, opts ...grpc.CallOption) (*ApplyBlueprintResponse, error)
+}
+
+type blueprintServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewBlueprintServiceClient(cc grpc.ClientConnInterface) BlueprintServiceClient {
+	return &blueprintServiceClient{cc}
+}
+
+func (c *blueprintServiceClient) CreateBlueprint(ctx context.Context, in *CreateBlueprintRequest, opts ...grpc.CallOption) (*BlueprintResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BlueprintResponse)
+	err := c.cc.Invoke(ctx, BlueprintService_CreateBlueprint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *blueprintServiceClient) GetBlueprint(ctx context.Context, in *GetBlueprintRequest, opts ...grpc.CallOption) (*BlueprintResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BlueprintResponse)
+	err := c.cc.Invoke(ctx, BlueprintService_GetBlueprint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *blueprintServiceClient) ListBlueprints(ctx context.Context, in *ListBlueprintsRequest, opts ...grpc.CallOption) (*ListBlueprintsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListBlueprintsResponse)
+	err := c.cc.Invoke(ctx, BlueprintService_ListBlueprints_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *blueprintServiceClient) UpdateBlueprint(ctx context.Context, in *UpdateBlueprintRequest, opts ...grpc.CallOption) (*BlueprintResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BlueprintResponse)
+	err := c.cc.Invoke(ctx, BlueprintService_UpdateBlueprint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *blueprintServiceClient) DeleteBlueprint(ctx context.Context, in *DeleteBlueprintRequest, opts ...grpc.CallOption) (*DeleteBlueprintResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteBlueprintResponse)
+	err := c.cc.Invoke(ctx, BlueprintService_DeleteBlueprint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *blueprintServiceClient) ApplyBlueprint(ctx context.Context, in *ApplyBlueprintRequest, opts ...grpc.CallOption) (*ApplyBlueprintResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ApplyBlueprintResponse)
+	err := c.cc.Invoke(ctx, BlueprintService_ApplyBlueprint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// BlueprintServiceServer is the server API for BlueprintService service.
+// All implementations must embed UnimplementedBlueprintServiceServer
+// for forward compatibility.
+type BlueprintServiceServer interface {
+	CreateBlueprint(context.Context, *CreateBlueprintRequest) (*BlueprintResponse, error)
+	GetBlueprint(context.Context, *GetBlueprintRequest) (*BlueprintResponse, error)
+	ListBlueprints(context.Context, *ListBlueprintsRequest) (*ListBlueprintsResponse, error)
+	UpdateBlueprint(context.Context, *UpdateBlueprintRequest) (*BlueprintResponse, error)
+	DeleteBlueprint(context.Context, *DeleteBlueprintRequest) (*DeleteBlueprintResponse, error)
+	ApplyBlueprint(context.Context, *ApplyBlueprintRequest) (*ApplyBlueprintResponse, error)
+	mustEmbedUnimplementedBlueprintServiceServer()
+}
+
+// UnimplementedBlueprintServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedBlueprintServiceServer struct{}
+
+func (UnimplementedBlueprintServiceServer) CreateBlueprint(context.Context, *CreateBlueprintRequest) (*BlueprintResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateBlueprint not implemented")
+}
+func (UnimplementedBlueprintServiceServer) GetBlueprint(context.Context, *GetBlueprintRequest) (*BlueprintResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetBlueprint not implemented")
+}
+func (UnimplementedBlueprintServiceServer) ListBlueprints(context.Context, *ListBlueprintsRequest) (*ListBlueprintsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBlueprints not implemented")
+}
+func (UnimplementedBlueprintServiceServer) UpdateBlueprint(context.Context, *UpdateBlueprintRequest) (*BlueprintResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateBlueprint not implemented")
+}
+func (UnimplementedBlueprintServiceServer) DeleteBlueprint(context.Context, *DeleteBlueprintRequest) (*DeleteBlueprintResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteBlueprint not implemented")
+}
+func (UnimplementedBlueprintServiceServer) ApplyBlueprint(context.Context, *ApplyBlueprintRequest) (*ApplyBlueprintResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyBlueprint not implemented")
+}
+func (UnimplementedBlueprintServiceServer) mustEmbedUnimplementedBlueprintServiceServer() {}
+func (UnimplementedBlueprintServiceServer) testEmbeddedByValue()                          {}
+
+// UnsafeBlueprintServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to BlueprintServiceServer will
+// result in compilation errors.
+type UnsafeBlueprintServiceServer interface {
+	mustEmbedUnimplementedBlueprintServiceServer()
+}
+
+func RegisterBlueprintServiceServer(s grpc.ServiceRegistrar, srv BlueprintServiceServer) {
+	// If the following call panics, it indicates UnimplementedBlueprintServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&BlueprintService_ServiceDesc, srv)
+}
+
+func _BlueprintService_CreateBlueprint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateBlueprintRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlueprintServiceServer).CreateBlueprint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlueprintService_CreateBlueprint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlueprintServiceServer).CreateBlueprint(ctx, req.(*CreateBlueprintRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BlueprintService_GetBlueprint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBlueprintRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlueprintServiceServer).GetBlueprint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlueprintService_GetBlueprint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlueprintServiceServer).GetBlueprint(ctx, req.(*GetBlueprintRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BlueprintService_ListBlueprints_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBlueprintsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlueprintServiceServer).ListBlueprints(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlueprintService_ListBlueprints_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlueprintServiceServer).ListBlueprints(ctx, req.(*ListBlueprintsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BlueprintService_UpdateBlueprint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateBlueprintRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlueprintServiceServer).UpdateBlueprint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlueprintService_UpdateBlueprint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlueprintServiceServer).UpdateBlueprint(ctx, req.(*UpdateBlueprintRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BlueprintService_DeleteBlueprint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteBlueprintRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlueprintServiceServer).DeleteBlueprint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlueprintService_DeleteBlueprint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlueprintServiceServer).DeleteBlueprint(ctx, req.(*DeleteBlueprintRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BlueprintService_ApplyBlueprint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyBlueprintRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BlueprintServiceServer).ApplyBlueprint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BlueprintService_ApplyBlueprint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BlueprintServiceServer).ApplyBlueprint(ctx, req.(*ApplyBlueprintRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// BlueprintService_ServiceDesc is the grpc.ServiceDesc for BlueprintService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var BlueprintService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "user.BlueprintService",
+	HandlerType: (*BlueprintServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateBlueprint",
+			Handler:    _BlueprintService_CreateBlueprint_Handler,
+		},
+		{
+			MethodName: "GetBlueprint",
+			Handler:    _BlueprintService_GetBlueprint_Handler,
+		},
+		{
+			MethodName: "ListBlueprints",
+			Handler:    _BlueprintService_ListBlueprints_Handler,
+		},
+		{
+			MethodName: "UpdateBlueprint",
+			Handler:    _BlueprintService_UpdateBlueprint_Handler,
+		},
+		{
+			MethodName: "DeleteBlueprint",
+			Handler:    _BlueprintService_DeleteBlueprint_Handler,
+		},
+		{
+			MethodName: "ApplyBlueprint",
+			Handler:    _BlueprintService_ApplyBlueprint_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "user/user.proto",
+}

@@ -32,7 +32,7 @@ func newTestService(t *testing.T) (*service.ExchangeService, *repository.Exchang
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
 	repo := repository.NewExchangeRateRepository(db)
-	svc, err := service.NewExchangeService(repo, "0.005", "0.003")
+	svc, err := service.NewExchangeService(repo, db, "0.005", "0.003", nil)
 	require.NoError(t, err)
 	return svc, repo
 }
@@ -159,4 +159,54 @@ func TestSyncRates_ProviderError_DoesNotWipeExistingRates(t *testing.T) {
 	rate, err2 := repo.GetByPair("EUR", "RSD")
 	require.NoError(t, err2)
 	assert.True(t, rate.SellRate.Equal(decimal.NewFromFloat(118)))
+}
+
+// failingUpserterAfterN satisfies service.RateUpserter and wraps a real repository,
+// returning an error on the Nth call to UpsertInTx. Used to inject mid-sync failure.
+type failingUpserterAfterN struct {
+	inner  *repository.ExchangeRateRepository
+	failAt int
+	callN  int
+}
+
+// Compile-time check: *failingUpserterAfterN must satisfy service.RateUpserter.
+var _ service.RateUpserter = (*failingUpserterAfterN)(nil)
+
+func (f *failingUpserterAfterN) UpsertInTx(tx *gorm.DB, from, to string, buy, sell decimal.Decimal) error {
+	f.callN++
+	if f.callN >= f.failAt {
+		return errors.New("injected upsert failure")
+	}
+	return f.inner.UpsertInTx(tx, from, to, buy, sell)
+}
+
+// TestSyncRates_AtomicOnFailure verifies that if any single upsert fails during sync,
+// NO rate changes are committed (all-or-nothing). The pre-seeded EUR/RSD value must
+// be unchanged even though the failing upsert happens on the 2nd pair.
+func TestSyncRates_AtomicOnFailure(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
+	repo := repository.NewExchangeRateRepository(db)
+
+	// Pre-seed EUR/RSD with a known sell rate so we can detect if it changed.
+	require.NoError(t, repo.Upsert("EUR", "RSD",
+		decimal.NewFromFloat(116.0), decimal.NewFromFloat(118.5)))
+
+	// failing upserter: first call succeeds, second call (RSD/EUR inverse) fails.
+	failing := &failingUpserterAfterN{inner: repo, failAt: 2}
+	svc, err := service.NewExchangeServiceWithUpserter(repo, failing, db, "0.005", "0.003")
+	require.NoError(t, err)
+
+	provider := &mockProvider{rates: map[string]decimal.Decimal{
+		"EUR": decimal.NewFromFloat(0.0090), // new mid rate — would change sell from 118.5
+	}}
+	err = svc.SyncRates(context.Background(), provider)
+	require.Error(t, err, "SyncRates must return error when an upsert fails")
+
+	// EUR/RSD sell rate must NOT have changed — the transaction was rolled back.
+	rate, fetchErr := repo.GetByPair("EUR", "RSD")
+	require.NoError(t, fetchErr)
+	assert.True(t, rate.SellRate.Equal(decimal.NewFromFloat(118.5)),
+		"EUR/RSD sell rate must be unchanged — transaction must have rolled back on failure")
 }

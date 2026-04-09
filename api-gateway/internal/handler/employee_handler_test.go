@@ -31,6 +31,16 @@ func TestCreateEmployee_MissingRequired(t *testing.T) {
 	})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	errMsg, ok := resp["error"].(string)
+	assert.True(t, ok, "response should contain an 'error' string")
+	// Body only has first_name; last_name, email, jmbg, username, role, date_of_birth are missing
+	assert.Contains(t, errMsg, "LastName", "error should mention missing LastName field")
+	assert.Contains(t, errMsg, "Email", "error should mention missing Email field")
+	assert.Contains(t, errMsg, "JMBG", "error should mention missing JMBG field")
 }
 
 func TestCreateEmployee_InvalidEmail(t *testing.T) {
@@ -58,6 +68,13 @@ func TestCreateEmployee_InvalidEmail(t *testing.T) {
 	})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	errMsg, ok := resp["error"].(string)
+	assert.True(t, ok, "response should contain an 'error' string")
+	assert.Contains(t, errMsg, "email", "error should mention the email field validation failure")
 }
 
 func TestGetEmployee_InvalidID(t *testing.T) {
@@ -73,4 +90,11 @@ func TestGetEmployee_InvalidID(t *testing.T) {
 	})
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err, "response should be valid JSON")
+	errMsg, ok := resp["error"].(string)
+	assert.True(t, ok, "response should contain an 'error' string")
+	assert.Equal(t, "invalid id", errMsg, "error message should be 'invalid id'")
 }

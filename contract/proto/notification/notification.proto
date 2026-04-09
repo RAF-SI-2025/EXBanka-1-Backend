@@ -7,6 +7,14 @@ option go_package = "github.com/exbanka/contract/notificationpb;notificationpb";
 service NotificationService {
   rpc SendEmail(SendEmailRequest) returns (SendEmailResponse);
   rpc GetDeliveryStatus(GetDeliveryStatusRequest) returns (GetDeliveryStatusResponse);
+  rpc GetPendingMobileItems(GetPendingMobileRequest) returns (PendingMobileResponse);
+  rpc AckMobileItem(AckMobileRequest) returns (AckMobileResponse);
+
+  // General notifications (persistent, read/unread, no expiry)
+  rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
+  rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse);
+  rpc MarkNotificationRead(MarkNotificationReadRequest) returns (MarkNotificationReadResponse);
+  rpc MarkAllNotificationsRead(MarkAllNotificationsReadRequest) returns (MarkAllNotificationsReadResponse);
 }
 
 message SendEmailRequest {
@@ -28,4 +36,78 @@ message GetDeliveryStatusResponse {
   string message_id = 1;
   string status = 2;
   string delivered_at = 3;
+}
+
+message GetPendingMobileRequest {
+  uint64 user_id = 1;
+}
+
+message MobileInboxEntry {
+  uint64 id = 1;
+  uint64 challenge_id = 2;
+  string method = 3;
+  string display_data = 4;
+  string expires_at = 5;
+}
+
+message PendingMobileResponse {
+  repeated MobileInboxEntry items = 1;
+}
+
+message AckMobileRequest {
+  uint64 id = 1;
+}
+
+message AckMobileResponse {
+  bool success = 1;
+}
+
+// ── General notifications ────────────────────────────────────────────────────
+
+message ListNotificationsRequest {
+  uint64 user_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  string read_filter = 4; // "", "read", "unread"
+}
+
+message NotificationEntry {
+  uint64 id = 1;
+  string type = 2;
+  string title = 3;
+  string message = 4;
+  bool is_read = 5;
+  string ref_type = 6;
+  uint64 ref_id = 7;
+  string created_at = 8;
+}
+
+message ListNotificationsResponse {
+  repeated NotificationEntry notifications = 1;
+  int64 total = 2;
+}
+
+message GetUnreadCountRequest {
+  uint64 user_id = 1;
+}
+
+message GetUnreadCountResponse {
+  int64 count = 1;
+}
+
+message MarkNotificationReadRequest {
+  uint64 id = 1;
+  uint64 user_id = 2;
+}
+
+message MarkNotificationReadResponse {
+  bool success = 1;
+}
+
+message MarkAllNotificationsReadRequest {
+  uint64 user_id = 1;
+}
+
+message MarkAllNotificationsReadResponse {
+  int64 count = 1;
 }

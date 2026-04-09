@@ -1697,6 +1697,1014 @@ func (x *LimitTemplateResponse) GetMaxClientMonthlyLimit() string {
 	return ""
 }
 
+type ActuaryInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	EmployeeId    uint64                 `protobuf:"varint,2,opt,name=employee_id,json=employeeId,proto3" json:"employee_id,omitempty"`
+	FirstName     string                 `protobuf:"bytes,3,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
+	LastName      string                 `protobuf:"bytes,4,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
+	Email         string                 `protobuf:"bytes,5,opt,name=email,proto3" json:"email,omitempty"`
+	Role          string                 `protobuf:"bytes,6,opt,name=role,proto3" json:"role,omitempty"`
+	Limit         string                 `protobuf:"bytes,7,opt,name=limit,proto3" json:"limit,omitempty"`
+	UsedLimit     string                 `protobuf:"bytes,8,opt,name=used_limit,json=usedLimit,proto3" json:"used_limit,omitempty"`
+	NeedApproval  bool                   `protobuf:"varint,9,opt,name=need_approval,json=needApproval,proto3" json:"need_approval,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ActuaryInfo) Reset() {
+	*x = ActuaryInfo{}
+	mi := &file_user_user_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActuaryInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActuaryInfo) ProtoMessage() {}
+
+func (x *ActuaryInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActuaryInfo.ProtoReflect.Descriptor instead.
+func (*ActuaryInfo) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ActuaryInfo) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *ActuaryInfo) GetEmployeeId() uint64 {
+	if x != nil {
+		return x.EmployeeId
+	}
+	return 0
+}
+
+func (x *ActuaryInfo) GetFirstName() string {
+	if x != nil {
+		return x.FirstName
+	}
+	return ""
+}
+
+func (x *ActuaryInfo) GetLastName() string {
+	if x != nil {
+		return x.LastName
+	}
+	return ""
+}
+
+func (x *ActuaryInfo) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *ActuaryInfo) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *ActuaryInfo) GetLimit() string {
+	if x != nil {
+		return x.Limit
+	}
+	return ""
+}
+
+func (x *ActuaryInfo) GetUsedLimit() string {
+	if x != nil {
+		return x.UsedLimit
+	}
+	return ""
+}
+
+func (x *ActuaryInfo) GetNeedApproval() bool {
+	if x != nil {
+		return x.NeedApproval
+	}
+	return false
+}
+
+type ListActuariesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Search        string                 `protobuf:"bytes,1,opt,name=search,proto3" json:"search,omitempty"`
+	Position      string                 `protobuf:"bytes,2,opt,name=position,proto3" json:"position,omitempty"`
+	Page          int32                  `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize      int32                  `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListActuariesRequest) Reset() {
+	*x = ListActuariesRequest{}
+	mi := &file_user_user_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListActuariesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListActuariesRequest) ProtoMessage() {}
+
+func (x *ListActuariesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListActuariesRequest.ProtoReflect.Descriptor instead.
+func (*ListActuariesRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ListActuariesRequest) GetSearch() string {
+	if x != nil {
+		return x.Search
+	}
+	return ""
+}
+
+func (x *ListActuariesRequest) GetPosition() string {
+	if x != nil {
+		return x.Position
+	}
+	return ""
+}
+
+func (x *ListActuariesRequest) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *ListActuariesRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+type ListActuariesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Actuaries     []*ActuaryInfo         `protobuf:"bytes,1,rep,name=actuaries,proto3" json:"actuaries,omitempty"`
+	TotalCount    int64                  `protobuf:"varint,2,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListActuariesResponse) Reset() {
+	*x = ListActuariesResponse{}
+	mi := &file_user_user_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListActuariesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListActuariesResponse) ProtoMessage() {}
+
+func (x *ListActuariesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListActuariesResponse.ProtoReflect.Descriptor instead.
+func (*ListActuariesResponse) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ListActuariesResponse) GetActuaries() []*ActuaryInfo {
+	if x != nil {
+		return x.Actuaries
+	}
+	return nil
+}
+
+func (x *ListActuariesResponse) GetTotalCount() int64 {
+	if x != nil {
+		return x.TotalCount
+	}
+	return 0
+}
+
+type GetActuaryInfoRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EmployeeId    uint64                 `protobuf:"varint,1,opt,name=employee_id,json=employeeId,proto3" json:"employee_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetActuaryInfoRequest) Reset() {
+	*x = GetActuaryInfoRequest{}
+	mi := &file_user_user_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActuaryInfoRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActuaryInfoRequest) ProtoMessage() {}
+
+func (x *GetActuaryInfoRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActuaryInfoRequest.ProtoReflect.Descriptor instead.
+func (*GetActuaryInfoRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *GetActuaryInfoRequest) GetEmployeeId() uint64 {
+	if x != nil {
+		return x.EmployeeId
+	}
+	return 0
+}
+
+type SetActuaryLimitRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Limit         string                 `protobuf:"bytes,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetActuaryLimitRequest) Reset() {
+	*x = SetActuaryLimitRequest{}
+	mi := &file_user_user_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetActuaryLimitRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetActuaryLimitRequest) ProtoMessage() {}
+
+func (x *SetActuaryLimitRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetActuaryLimitRequest.ProtoReflect.Descriptor instead.
+func (*SetActuaryLimitRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *SetActuaryLimitRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *SetActuaryLimitRequest) GetLimit() string {
+	if x != nil {
+		return x.Limit
+	}
+	return ""
+}
+
+type ResetActuaryUsedLimitRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResetActuaryUsedLimitRequest) Reset() {
+	*x = ResetActuaryUsedLimitRequest{}
+	mi := &file_user_user_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResetActuaryUsedLimitRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResetActuaryUsedLimitRequest) ProtoMessage() {}
+
+func (x *ResetActuaryUsedLimitRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResetActuaryUsedLimitRequest.ProtoReflect.Descriptor instead.
+func (*ResetActuaryUsedLimitRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ResetActuaryUsedLimitRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+type SetNeedApprovalRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	NeedApproval  bool                   `protobuf:"varint,2,opt,name=need_approval,json=needApproval,proto3" json:"need_approval,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetNeedApprovalRequest) Reset() {
+	*x = SetNeedApprovalRequest{}
+	mi := &file_user_user_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetNeedApprovalRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetNeedApprovalRequest) ProtoMessage() {}
+
+func (x *SetNeedApprovalRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetNeedApprovalRequest.ProtoReflect.Descriptor instead.
+func (*SetNeedApprovalRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *SetNeedApprovalRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *SetNeedApprovalRequest) GetNeedApproval() bool {
+	if x != nil {
+		return x.NeedApproval
+	}
+	return false
+}
+
+type UpdateUsedLimitRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Amount        string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	Currency      string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateUsedLimitRequest) Reset() {
+	*x = UpdateUsedLimitRequest{}
+	mi := &file_user_user_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateUsedLimitRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateUsedLimitRequest) ProtoMessage() {}
+
+func (x *UpdateUsedLimitRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateUsedLimitRequest.ProtoReflect.Descriptor instead.
+func (*UpdateUsedLimitRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *UpdateUsedLimitRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *UpdateUsedLimitRequest) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *UpdateUsedLimitRequest) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+type CreateBlueprintRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`                               // "employee", "actuary", "client"
+	ValuesJson    string                 `protobuf:"bytes,4,opt,name=values_json,json=valuesJson,proto3" json:"values_json,omitempty"` // JSON string of type-specific values
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateBlueprintRequest) Reset() {
+	*x = CreateBlueprintRequest{}
+	mi := &file_user_user_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateBlueprintRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateBlueprintRequest) ProtoMessage() {}
+
+func (x *CreateBlueprintRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateBlueprintRequest.ProtoReflect.Descriptor instead.
+func (*CreateBlueprintRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *CreateBlueprintRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateBlueprintRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *CreateBlueprintRequest) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *CreateBlueprintRequest) GetValuesJson() string {
+	if x != nil {
+		return x.ValuesJson
+	}
+	return ""
+}
+
+type GetBlueprintRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetBlueprintRequest) Reset() {
+	*x = GetBlueprintRequest{}
+	mi := &file_user_user_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetBlueprintRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetBlueprintRequest) ProtoMessage() {}
+
+func (x *GetBlueprintRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetBlueprintRequest.ProtoReflect.Descriptor instead.
+func (*GetBlueprintRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *GetBlueprintRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+type ListBlueprintsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"` // optional filter; empty = all
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBlueprintsRequest) Reset() {
+	*x = ListBlueprintsRequest{}
+	mi := &file_user_user_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBlueprintsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBlueprintsRequest) ProtoMessage() {}
+
+func (x *ListBlueprintsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBlueprintsRequest.ProtoReflect.Descriptor instead.
+func (*ListBlueprintsRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ListBlueprintsRequest) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+type UpdateBlueprintRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	ValuesJson    string                 `protobuf:"bytes,4,opt,name=values_json,json=valuesJson,proto3" json:"values_json,omitempty"` // JSON string; empty = keep existing
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateBlueprintRequest) Reset() {
+	*x = UpdateBlueprintRequest{}
+	mi := &file_user_user_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateBlueprintRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateBlueprintRequest) ProtoMessage() {}
+
+func (x *UpdateBlueprintRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateBlueprintRequest.ProtoReflect.Descriptor instead.
+func (*UpdateBlueprintRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *UpdateBlueprintRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *UpdateBlueprintRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *UpdateBlueprintRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *UpdateBlueprintRequest) GetValuesJson() string {
+	if x != nil {
+		return x.ValuesJson
+	}
+	return ""
+}
+
+type DeleteBlueprintRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteBlueprintRequest) Reset() {
+	*x = DeleteBlueprintRequest{}
+	mi := &file_user_user_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteBlueprintRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteBlueprintRequest) ProtoMessage() {}
+
+func (x *DeleteBlueprintRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteBlueprintRequest.ProtoReflect.Descriptor instead.
+func (*DeleteBlueprintRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *DeleteBlueprintRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+type DeleteBlueprintResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteBlueprintResponse) Reset() {
+	*x = DeleteBlueprintResponse{}
+	mi := &file_user_user_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteBlueprintResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteBlueprintResponse) ProtoMessage() {}
+
+func (x *DeleteBlueprintResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteBlueprintResponse.ProtoReflect.Descriptor instead.
+func (*DeleteBlueprintResponse) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{38}
+}
+
+type ApplyBlueprintRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BlueprintId   uint64                 `protobuf:"varint,1,opt,name=blueprint_id,json=blueprintId,proto3" json:"blueprint_id,omitempty"`
+	TargetId      int64                  `protobuf:"varint,2,opt,name=target_id,json=targetId,proto3" json:"target_id,omitempty"` // employee_id or client_id depending on type
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyBlueprintRequest) Reset() {
+	*x = ApplyBlueprintRequest{}
+	mi := &file_user_user_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyBlueprintRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyBlueprintRequest) ProtoMessage() {}
+
+func (x *ApplyBlueprintRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyBlueprintRequest.ProtoReflect.Descriptor instead.
+func (*ApplyBlueprintRequest) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *ApplyBlueprintRequest) GetBlueprintId() uint64 {
+	if x != nil {
+		return x.BlueprintId
+	}
+	return 0
+}
+
+func (x *ApplyBlueprintRequest) GetTargetId() int64 {
+	if x != nil {
+		return x.TargetId
+	}
+	return 0
+}
+
+type ApplyBlueprintResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyBlueprintResponse) Reset() {
+	*x = ApplyBlueprintResponse{}
+	mi := &file_user_user_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyBlueprintResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyBlueprintResponse) ProtoMessage() {}
+
+func (x *ApplyBlueprintResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyBlueprintResponse.ProtoReflect.Descriptor instead.
+func (*ApplyBlueprintResponse) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{40}
+}
+
+type BlueprintResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Type          string                 `protobuf:"bytes,4,opt,name=type,proto3" json:"type,omitempty"`
+	ValuesJson    string                 `protobuf:"bytes,5,opt,name=values_json,json=valuesJson,proto3" json:"values_json,omitempty"` // JSON string
+	CreatedAt     string                 `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`    // RFC3339
+	UpdatedAt     string                 `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`    // RFC3339
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BlueprintResponse) Reset() {
+	*x = BlueprintResponse{}
+	mi := &file_user_user_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BlueprintResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BlueprintResponse) ProtoMessage() {}
+
+func (x *BlueprintResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BlueprintResponse.ProtoReflect.Descriptor instead.
+func (*BlueprintResponse) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *BlueprintResponse) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *BlueprintResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *BlueprintResponse) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *BlueprintResponse) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *BlueprintResponse) GetValuesJson() string {
+	if x != nil {
+		return x.ValuesJson
+	}
+	return ""
+}
+
+func (x *BlueprintResponse) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *BlueprintResponse) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+type ListBlueprintsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Blueprints    []*BlueprintResponse   `protobuf:"bytes,1,rep,name=blueprints,proto3" json:"blueprints,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBlueprintsResponse) Reset() {
+	*x = ListBlueprintsResponse{}
+	mi := &file_user_user_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBlueprintsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBlueprintsResponse) ProtoMessage() {}
+
+func (x *ListBlueprintsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_user_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBlueprintsResponse.ProtoReflect.Descriptor instead.
+func (*ListBlueprintsResponse) Descriptor() ([]byte, []int) {
+	return file_user_user_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *ListBlueprintsResponse) GetBlueprints() []*BlueprintResponse {
+	if x != nil {
+		return x.Blueprints
+	}
+	return nil
+}
+
 var File_user_user_proto protoreflect.FileDescriptor
 
 const file_user_user_proto_rawDesc = "" +
@@ -1853,7 +2861,82 @@ const file_user_user_proto_rawDesc = "" +
 	"\x16max_single_transaction\x18\x05 \x01(\tR\x14maxSingleTransaction\x122\n" +
 	"\x15max_daily_transaction\x18\x06 \x01(\tR\x13maxDailyTransaction\x123\n" +
 	"\x16max_client_daily_limit\x18\a \x01(\tR\x13maxClientDailyLimit\x127\n" +
-	"\x18max_client_monthly_limit\x18\b \x01(\tR\x15maxClientMonthlyLimit2\xa1\x06\n" +
+	"\x18max_client_monthly_limit\x18\b \x01(\tR\x15maxClientMonthlyLimit\"\xfe\x01\n" +
+	"\vActuaryInfo\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1f\n" +
+	"\vemployee_id\x18\x02 \x01(\x04R\n" +
+	"employeeId\x12\x1d\n" +
+	"\n" +
+	"first_name\x18\x03 \x01(\tR\tfirstName\x12\x1b\n" +
+	"\tlast_name\x18\x04 \x01(\tR\blastName\x12\x14\n" +
+	"\x05email\x18\x05 \x01(\tR\x05email\x12\x12\n" +
+	"\x04role\x18\x06 \x01(\tR\x04role\x12\x14\n" +
+	"\x05limit\x18\a \x01(\tR\x05limit\x12\x1d\n" +
+	"\n" +
+	"used_limit\x18\b \x01(\tR\tusedLimit\x12#\n" +
+	"\rneed_approval\x18\t \x01(\bR\fneedApproval\"{\n" +
+	"\x14ListActuariesRequest\x12\x16\n" +
+	"\x06search\x18\x01 \x01(\tR\x06search\x12\x1a\n" +
+	"\bposition\x18\x02 \x01(\tR\bposition\x12\x12\n" +
+	"\x04page\x18\x03 \x01(\x05R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"i\n" +
+	"\x15ListActuariesResponse\x12/\n" +
+	"\tactuaries\x18\x01 \x03(\v2\x11.user.ActuaryInfoR\tactuaries\x12\x1f\n" +
+	"\vtotal_count\x18\x02 \x01(\x03R\n" +
+	"totalCount\"8\n" +
+	"\x15GetActuaryInfoRequest\x12\x1f\n" +
+	"\vemployee_id\x18\x01 \x01(\x04R\n" +
+	"employeeId\">\n" +
+	"\x16SetActuaryLimitRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\tR\x05limit\".\n" +
+	"\x1cResetActuaryUsedLimitRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\"M\n" +
+	"\x16SetNeedApprovalRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12#\n" +
+	"\rneed_approval\x18\x02 \x01(\bR\fneedApproval\"\\\n" +
+	"\x16UpdateUsedLimitRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x1a\n" +
+	"\bcurrency\x18\x03 \x01(\tR\bcurrency\"\x83\x01\n" +
+	"\x16CreateBlueprintRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12\x1f\n" +
+	"\vvalues_json\x18\x04 \x01(\tR\n" +
+	"valuesJson\"%\n" +
+	"\x13GetBlueprintRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\"+\n" +
+	"\x15ListBlueprintsRequest\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\"\x7f\n" +
+	"\x16UpdateBlueprintRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x1f\n" +
+	"\vvalues_json\x18\x04 \x01(\tR\n" +
+	"valuesJson\"(\n" +
+	"\x16DeleteBlueprintRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\"\x19\n" +
+	"\x17DeleteBlueprintResponse\"W\n" +
+	"\x15ApplyBlueprintRequest\x12!\n" +
+	"\fblueprint_id\x18\x01 \x01(\x04R\vblueprintId\x12\x1b\n" +
+	"\ttarget_id\x18\x02 \x01(\x03R\btargetId\"\x18\n" +
+	"\x16ApplyBlueprintResponse\"\xcc\x01\n" +
+	"\x11BlueprintResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04type\x18\x04 \x01(\tR\x04type\x12\x1f\n" +
+	"\vvalues_json\x18\x05 \x01(\tR\n" +
+	"valuesJson\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\a \x01(\tR\tupdatedAt\"Q\n" +
+	"\x16ListBlueprintsResponse\x127\n" +
+	"\n" +
+	"blueprints\x18\x01 \x03(\v2\x17.user.BlueprintResponseR\n" +
+	"blueprints2\xa1\x06\n" +
 	"\vUserService\x12E\n" +
 	"\x0eCreateEmployee\x12\x1b.user.CreateEmployeeRequest\x1a\x16.user.EmployeeResponse\x12?\n" +
 	"\vGetEmployee\x12\x18.user.GetEmployeeRequest\x1a\x16.user.EmployeeResponse\x12H\n" +
@@ -1872,7 +2955,21 @@ const file_user_user_proto_rawDesc = "" +
 	"\x11SetEmployeeLimits\x12\x1e.user.SetEmployeeLimitsRequest\x1a\x1b.user.EmployeeLimitResponse\x12R\n" +
 	"\x12ApplyLimitTemplate\x12\x1f.user.ApplyLimitTemplateRequest\x1a\x1b.user.EmployeeLimitResponse\x12W\n" +
 	"\x12ListLimitTemplates\x12\x1f.user.ListLimitTemplatesRequest\x1a .user.ListLimitTemplatesResponse\x12T\n" +
-	"\x13CreateLimitTemplate\x12 .user.CreateLimitTemplateRequest\x1a\x1b.user.LimitTemplateResponseB+Z)github.com/exbanka/contract/userpb;userpbb\x06proto3"
+	"\x13CreateLimitTemplate\x12 .user.CreateLimitTemplateRequest\x1a\x1b.user.LimitTemplateResponse2\xb8\x03\n" +
+	"\x0eActuaryService\x12H\n" +
+	"\rListActuaries\x12\x1a.user.ListActuariesRequest\x1a\x1b.user.ListActuariesResponse\x12@\n" +
+	"\x0eGetActuaryInfo\x12\x1b.user.GetActuaryInfoRequest\x1a\x11.user.ActuaryInfo\x12B\n" +
+	"\x0fSetActuaryLimit\x12\x1c.user.SetActuaryLimitRequest\x1a\x11.user.ActuaryInfo\x12N\n" +
+	"\x15ResetActuaryUsedLimit\x12\".user.ResetActuaryUsedLimitRequest\x1a\x11.user.ActuaryInfo\x12B\n" +
+	"\x0fSetNeedApproval\x12\x1c.user.SetNeedApprovalRequest\x1a\x11.user.ActuaryInfo\x12B\n" +
+	"\x0fUpdateUsedLimit\x12\x1c.user.UpdateUsedLimitRequest\x1a\x11.user.ActuaryInfo2\xd4\x03\n" +
+	"\x10BlueprintService\x12H\n" +
+	"\x0fCreateBlueprint\x12\x1c.user.CreateBlueprintRequest\x1a\x17.user.BlueprintResponse\x12B\n" +
+	"\fGetBlueprint\x12\x19.user.GetBlueprintRequest\x1a\x17.user.BlueprintResponse\x12K\n" +
+	"\x0eListBlueprints\x12\x1b.user.ListBlueprintsRequest\x1a\x1c.user.ListBlueprintsResponse\x12H\n" +
+	"\x0fUpdateBlueprint\x12\x1c.user.UpdateBlueprintRequest\x1a\x17.user.BlueprintResponse\x12N\n" +
+	"\x0fDeleteBlueprint\x12\x1c.user.DeleteBlueprintRequest\x1a\x1d.user.DeleteBlueprintResponse\x12K\n" +
+	"\x0eApplyBlueprint\x12\x1b.user.ApplyBlueprintRequest\x1a\x1c.user.ApplyBlueprintResponseB+Z)github.com/exbanka/contract/userpb;userpbb\x06proto3"
 
 var (
 	file_user_user_proto_rawDescOnce sync.Once
@@ -1886,7 +2983,7 @@ func file_user_user_proto_rawDescGZIP() []byte {
 	return file_user_user_proto_rawDescData
 }
 
-var file_user_user_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_user_user_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_user_user_proto_goTypes = []any{
 	(*CreateEmployeeRequest)(nil),         // 0: user.CreateEmployeeRequest
 	(*UpdateEmployeeRequest)(nil),         // 1: user.UpdateEmployeeRequest
@@ -1913,49 +3010,93 @@ var file_user_user_proto_goTypes = []any{
 	(*ListLimitTemplatesResponse)(nil),    // 22: user.ListLimitTemplatesResponse
 	(*CreateLimitTemplateRequest)(nil),    // 23: user.CreateLimitTemplateRequest
 	(*LimitTemplateResponse)(nil),         // 24: user.LimitTemplateResponse
+	(*ActuaryInfo)(nil),                   // 25: user.ActuaryInfo
+	(*ListActuariesRequest)(nil),          // 26: user.ListActuariesRequest
+	(*ListActuariesResponse)(nil),         // 27: user.ListActuariesResponse
+	(*GetActuaryInfoRequest)(nil),         // 28: user.GetActuaryInfoRequest
+	(*SetActuaryLimitRequest)(nil),        // 29: user.SetActuaryLimitRequest
+	(*ResetActuaryUsedLimitRequest)(nil),  // 30: user.ResetActuaryUsedLimitRequest
+	(*SetNeedApprovalRequest)(nil),        // 31: user.SetNeedApprovalRequest
+	(*UpdateUsedLimitRequest)(nil),        // 32: user.UpdateUsedLimitRequest
+	(*CreateBlueprintRequest)(nil),        // 33: user.CreateBlueprintRequest
+	(*GetBlueprintRequest)(nil),           // 34: user.GetBlueprintRequest
+	(*ListBlueprintsRequest)(nil),         // 35: user.ListBlueprintsRequest
+	(*UpdateBlueprintRequest)(nil),        // 36: user.UpdateBlueprintRequest
+	(*DeleteBlueprintRequest)(nil),        // 37: user.DeleteBlueprintRequest
+	(*DeleteBlueprintResponse)(nil),       // 38: user.DeleteBlueprintResponse
+	(*ApplyBlueprintRequest)(nil),         // 39: user.ApplyBlueprintRequest
+	(*ApplyBlueprintResponse)(nil),        // 40: user.ApplyBlueprintResponse
+	(*BlueprintResponse)(nil),             // 41: user.BlueprintResponse
+	(*ListBlueprintsResponse)(nil),        // 42: user.ListBlueprintsResponse
 }
 var file_user_user_proto_depIdxs = []int32{
 	4,  // 0: user.ListEmployeesResponse.employees:type_name -> user.EmployeeResponse
 	6,  // 1: user.ListRolesResponse.roles:type_name -> user.RoleResponse
 	12, // 2: user.ListPermissionsResponse.permissions:type_name -> user.PermissionResponse
 	24, // 3: user.ListLimitTemplatesResponse.templates:type_name -> user.LimitTemplateResponse
-	0,  // 4: user.UserService.CreateEmployee:input_type -> user.CreateEmployeeRequest
-	2,  // 5: user.UserService.GetEmployee:input_type -> user.GetEmployeeRequest
-	3,  // 6: user.UserService.ListEmployees:input_type -> user.ListEmployeesRequest
-	1,  // 7: user.UserService.UpdateEmployee:input_type -> user.UpdateEmployeeRequest
-	7,  // 8: user.UserService.ListRoles:input_type -> user.ListRolesRequest
-	9,  // 9: user.UserService.GetRole:input_type -> user.GetRoleRequest
-	10, // 10: user.UserService.CreateRole:input_type -> user.CreateRoleRequest
-	11, // 11: user.UserService.UpdateRolePermissions:input_type -> user.UpdateRolePermissionsRequest
-	13, // 12: user.UserService.ListPermissions:input_type -> user.ListPermissionsRequest
-	15, // 13: user.UserService.SetEmployeeRoles:input_type -> user.SetEmployeeRolesRequest
-	16, // 14: user.UserService.SetEmployeeAdditionalPermissions:input_type -> user.SetEmployeePermissionsRequest
-	17, // 15: user.EmployeeLimitService.GetEmployeeLimits:input_type -> user.EmployeeLimitRequest
-	19, // 16: user.EmployeeLimitService.SetEmployeeLimits:input_type -> user.SetEmployeeLimitsRequest
-	20, // 17: user.EmployeeLimitService.ApplyLimitTemplate:input_type -> user.ApplyLimitTemplateRequest
-	21, // 18: user.EmployeeLimitService.ListLimitTemplates:input_type -> user.ListLimitTemplatesRequest
-	23, // 19: user.EmployeeLimitService.CreateLimitTemplate:input_type -> user.CreateLimitTemplateRequest
-	4,  // 20: user.UserService.CreateEmployee:output_type -> user.EmployeeResponse
-	4,  // 21: user.UserService.GetEmployee:output_type -> user.EmployeeResponse
-	5,  // 22: user.UserService.ListEmployees:output_type -> user.ListEmployeesResponse
-	4,  // 23: user.UserService.UpdateEmployee:output_type -> user.EmployeeResponse
-	8,  // 24: user.UserService.ListRoles:output_type -> user.ListRolesResponse
-	6,  // 25: user.UserService.GetRole:output_type -> user.RoleResponse
-	6,  // 26: user.UserService.CreateRole:output_type -> user.RoleResponse
-	6,  // 27: user.UserService.UpdateRolePermissions:output_type -> user.RoleResponse
-	14, // 28: user.UserService.ListPermissions:output_type -> user.ListPermissionsResponse
-	4,  // 29: user.UserService.SetEmployeeRoles:output_type -> user.EmployeeResponse
-	4,  // 30: user.UserService.SetEmployeeAdditionalPermissions:output_type -> user.EmployeeResponse
-	18, // 31: user.EmployeeLimitService.GetEmployeeLimits:output_type -> user.EmployeeLimitResponse
-	18, // 32: user.EmployeeLimitService.SetEmployeeLimits:output_type -> user.EmployeeLimitResponse
-	18, // 33: user.EmployeeLimitService.ApplyLimitTemplate:output_type -> user.EmployeeLimitResponse
-	22, // 34: user.EmployeeLimitService.ListLimitTemplates:output_type -> user.ListLimitTemplatesResponse
-	24, // 35: user.EmployeeLimitService.CreateLimitTemplate:output_type -> user.LimitTemplateResponse
-	20, // [20:36] is the sub-list for method output_type
-	4,  // [4:20] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	25, // 4: user.ListActuariesResponse.actuaries:type_name -> user.ActuaryInfo
+	41, // 5: user.ListBlueprintsResponse.blueprints:type_name -> user.BlueprintResponse
+	0,  // 6: user.UserService.CreateEmployee:input_type -> user.CreateEmployeeRequest
+	2,  // 7: user.UserService.GetEmployee:input_type -> user.GetEmployeeRequest
+	3,  // 8: user.UserService.ListEmployees:input_type -> user.ListEmployeesRequest
+	1,  // 9: user.UserService.UpdateEmployee:input_type -> user.UpdateEmployeeRequest
+	7,  // 10: user.UserService.ListRoles:input_type -> user.ListRolesRequest
+	9,  // 11: user.UserService.GetRole:input_type -> user.GetRoleRequest
+	10, // 12: user.UserService.CreateRole:input_type -> user.CreateRoleRequest
+	11, // 13: user.UserService.UpdateRolePermissions:input_type -> user.UpdateRolePermissionsRequest
+	13, // 14: user.UserService.ListPermissions:input_type -> user.ListPermissionsRequest
+	15, // 15: user.UserService.SetEmployeeRoles:input_type -> user.SetEmployeeRolesRequest
+	16, // 16: user.UserService.SetEmployeeAdditionalPermissions:input_type -> user.SetEmployeePermissionsRequest
+	17, // 17: user.EmployeeLimitService.GetEmployeeLimits:input_type -> user.EmployeeLimitRequest
+	19, // 18: user.EmployeeLimitService.SetEmployeeLimits:input_type -> user.SetEmployeeLimitsRequest
+	20, // 19: user.EmployeeLimitService.ApplyLimitTemplate:input_type -> user.ApplyLimitTemplateRequest
+	21, // 20: user.EmployeeLimitService.ListLimitTemplates:input_type -> user.ListLimitTemplatesRequest
+	23, // 21: user.EmployeeLimitService.CreateLimitTemplate:input_type -> user.CreateLimitTemplateRequest
+	26, // 22: user.ActuaryService.ListActuaries:input_type -> user.ListActuariesRequest
+	28, // 23: user.ActuaryService.GetActuaryInfo:input_type -> user.GetActuaryInfoRequest
+	29, // 24: user.ActuaryService.SetActuaryLimit:input_type -> user.SetActuaryLimitRequest
+	30, // 25: user.ActuaryService.ResetActuaryUsedLimit:input_type -> user.ResetActuaryUsedLimitRequest
+	31, // 26: user.ActuaryService.SetNeedApproval:input_type -> user.SetNeedApprovalRequest
+	32, // 27: user.ActuaryService.UpdateUsedLimit:input_type -> user.UpdateUsedLimitRequest
+	33, // 28: user.BlueprintService.CreateBlueprint:input_type -> user.CreateBlueprintRequest
+	34, // 29: user.BlueprintService.GetBlueprint:input_type -> user.GetBlueprintRequest
+	35, // 30: user.BlueprintService.ListBlueprints:input_type -> user.ListBlueprintsRequest
+	36, // 31: user.BlueprintService.UpdateBlueprint:input_type -> user.UpdateBlueprintRequest
+	37, // 32: user.BlueprintService.DeleteBlueprint:input_type -> user.DeleteBlueprintRequest
+	39, // 33: user.BlueprintService.ApplyBlueprint:input_type -> user.ApplyBlueprintRequest
+	4,  // 34: user.UserService.CreateEmployee:output_type -> user.EmployeeResponse
+	4,  // 35: user.UserService.GetEmployee:output_type -> user.EmployeeResponse
+	5,  // 36: user.UserService.ListEmployees:output_type -> user.ListEmployeesResponse
+	4,  // 37: user.UserService.UpdateEmployee:output_type -> user.EmployeeResponse
+	8,  // 38: user.UserService.ListRoles:output_type -> user.ListRolesResponse
+	6,  // 39: user.UserService.GetRole:output_type -> user.RoleResponse
+	6,  // 40: user.UserService.CreateRole:output_type -> user.RoleResponse
+	6,  // 41: user.UserService.UpdateRolePermissions:output_type -> user.RoleResponse
+	14, // 42: user.UserService.ListPermissions:output_type -> user.ListPermissionsResponse
+	4,  // 43: user.UserService.SetEmployeeRoles:output_type -> user.EmployeeResponse
+	4,  // 44: user.UserService.SetEmployeeAdditionalPermissions:output_type -> user.EmployeeResponse
+	18, // 45: user.EmployeeLimitService.GetEmployeeLimits:output_type -> user.EmployeeLimitResponse
+	18, // 46: user.EmployeeLimitService.SetEmployeeLimits:output_type -> user.EmployeeLimitResponse
+	18, // 47: user.EmployeeLimitService.ApplyLimitTemplate:output_type -> user.EmployeeLimitResponse
+	22, // 48: user.EmployeeLimitService.ListLimitTemplates:output_type -> user.ListLimitTemplatesResponse
+	24, // 49: user.EmployeeLimitService.CreateLimitTemplate:output_type -> user.LimitTemplateResponse
+	27, // 50: user.ActuaryService.ListActuaries:output_type -> user.ListActuariesResponse
+	25, // 51: user.ActuaryService.GetActuaryInfo:output_type -> user.ActuaryInfo
+	25, // 52: user.ActuaryService.SetActuaryLimit:output_type -> user.ActuaryInfo
+	25, // 53: user.ActuaryService.ResetActuaryUsedLimit:output_type -> user.ActuaryInfo
+	25, // 54: user.ActuaryService.SetNeedApproval:output_type -> user.ActuaryInfo
+	25, // 55: user.ActuaryService.UpdateUsedLimit:output_type -> user.ActuaryInfo
+	41, // 56: user.BlueprintService.CreateBlueprint:output_type -> user.BlueprintResponse
+	41, // 57: user.BlueprintService.GetBlueprint:output_type -> user.BlueprintResponse
+	42, // 58: user.BlueprintService.ListBlueprints:output_type -> user.ListBlueprintsResponse
+	41, // 59: user.BlueprintService.UpdateBlueprint:output_type -> user.BlueprintResponse
+	38, // 60: user.BlueprintService.DeleteBlueprint:output_type -> user.DeleteBlueprintResponse
+	40, // 61: user.BlueprintService.ApplyBlueprint:output_type -> user.ApplyBlueprintResponse
+	34, // [34:62] is the sub-list for method output_type
+	6,  // [6:34] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_user_user_proto_init() }
@@ -1970,9 +3111,9 @@ func file_user_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_user_proto_rawDesc), len(file_user_user_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   43,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   4,
 		},
 		GoTypes:           file_user_user_proto_goTypes,
 		DependencyIndexes: file_user_user_proto_depIdxs,

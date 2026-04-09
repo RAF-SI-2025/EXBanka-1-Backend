@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -9,22 +11,30 @@ import (
 
 type MaintenanceCronService struct {
 	accountRepo *repository.AccountRepository
+	ledgerSvc   *LedgerService
 }
 
-func NewMaintenanceCronService(accountRepo *repository.AccountRepository) *MaintenanceCronService {
-	return &MaintenanceCronService{accountRepo: accountRepo}
+func NewMaintenanceCronService(accountRepo *repository.AccountRepository, ledgerSvc *LedgerService) *MaintenanceCronService {
+	return &MaintenanceCronService{accountRepo: accountRepo, ledgerSvc: ledgerSvc}
 }
 
-func (s *MaintenanceCronService) Start() {
-	go s.runMonthlyCharge()
+// Start launches the monthly charge goroutine. It exits when ctx is cancelled.
+func (s *MaintenanceCronService) Start(ctx context.Context) {
+	go s.runMonthlyCharge(ctx)
 }
 
-func (s *MaintenanceCronService) runMonthlyCharge() {
+func (s *MaintenanceCronService) runMonthlyCharge(ctx context.Context) {
 	for {
 		now := time.Now()
 		// Next 1st of month at 00:01
 		nextMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 1, 0, 0, now.Location())
-		time.Sleep(time.Until(nextMonth))
+		timer := time.NewTimer(time.Until(nextMonth))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 		s.chargeMaintenanceFees()
 	}
 }
@@ -36,7 +46,7 @@ func (s *MaintenanceCronService) chargeMaintenanceFees() {
 		return
 	}
 
-	// Get bank RSD account for crediting fees
+	// Get bank RSD account for crediting fees.
 	bankAccounts, _ := s.accountRepo.ListBankAccounts()
 	var bankRSDNumber string
 	for _, ba := range bankAccounts {
@@ -51,22 +61,25 @@ func (s *MaintenanceCronService) chargeMaintenanceFees() {
 		if acc.MaintenanceFee.IsZero() {
 			continue
 		}
-		// Check sufficient balance
+		// Check sufficient balance (pre-check; authoritative check is inside Transfer).
 		if acc.Balance.LessThan(acc.MaintenanceFee) {
 			log.Printf("warn: insufficient balance for maintenance fee on %s (balance: %s, fee: %s)",
 				acc.AccountNumber, acc.Balance.StringFixed(2), acc.MaintenanceFee.StringFixed(2))
 			continue
 		}
-		// Debit account (updateAvailable=true so available balance is also adjusted)
-		if err := s.accountRepo.UpdateBalance(acc.AccountNumber, acc.MaintenanceFee.Neg(), true); err != nil {
-			log.Printf("error charging maintenance fee for %s: %v", acc.AccountNumber, err)
+
+		if bankRSDNumber == "" {
+			log.Printf("warn: no bank RSD account found; skipping maintenance fee for %s", acc.AccountNumber)
 			continue
 		}
-		// Credit bank RSD account
-		if bankRSDNumber != "" {
-			if err := s.accountRepo.UpdateBalance(bankRSDNumber, acc.MaintenanceFee, true); err != nil {
-				log.Printf("error crediting bank RSD account for maintenance fee on %s: %v", acc.AccountNumber, err)
-			}
+
+		// Use LedgerService.Transfer for atomic debit+credit in a single transaction.
+		// If the credit step fails, the entire TX is rolled back and no money is lost.
+		refID := fmt.Sprintf("maint-%s-%s", acc.AccountNumber, time.Now().Format("2006-01"))
+		if err := s.ledgerSvc.Transfer(acc.AccountNumber, bankRSDNumber, acc.MaintenanceFee,
+			"Monthly maintenance fee", refID, "maintenance"); err != nil {
+			log.Printf("error charging maintenance fee for %s: %v", acc.AccountNumber, err)
+			continue
 		}
 		charged++
 	}

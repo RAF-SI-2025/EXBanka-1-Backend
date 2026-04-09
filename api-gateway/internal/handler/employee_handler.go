@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	authpb "github.com/exbanka/contract/authpb"
 	userpb "github.com/exbanka/contract/userpb"
 )
@@ -256,7 +257,7 @@ func (h *EmployeeHandler) UpdateEmployee(c *gin.Context) {
 			pbReq.Role = req.Role
 		}
 
-		resp, err = h.userClient.UpdateEmployee(c.Request.Context(), pbReq)
+		resp, err = h.userClient.UpdateEmployee(middleware.GRPCContextWithChangedBy(c), pbReq)
 		if err != nil {
 			handleGRPCError(c, err)
 			return

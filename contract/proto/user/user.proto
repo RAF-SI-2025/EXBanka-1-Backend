@@ -183,3 +183,122 @@ message LimitTemplateResponse {
   string max_client_daily_limit = 7;
   string max_client_monthly_limit = 8;
 }
+
+// ==================== Actuary ====================
+
+service ActuaryService {
+  rpc ListActuaries(ListActuariesRequest) returns (ListActuariesResponse);
+  rpc GetActuaryInfo(GetActuaryInfoRequest) returns (ActuaryInfo);
+  rpc SetActuaryLimit(SetActuaryLimitRequest) returns (ActuaryInfo);
+  rpc ResetActuaryUsedLimit(ResetActuaryUsedLimitRequest) returns (ActuaryInfo);
+  rpc SetNeedApproval(SetNeedApprovalRequest) returns (ActuaryInfo);
+  rpc UpdateUsedLimit(UpdateUsedLimitRequest) returns (ActuaryInfo);
+}
+
+message ActuaryInfo {
+  uint64 id = 1;
+  uint64 employee_id = 2;
+  string first_name = 3;
+  string last_name = 4;
+  string email = 5;
+  string role = 6;
+  string limit = 7;
+  string used_limit = 8;
+  bool need_approval = 9;
+}
+
+message ListActuariesRequest {
+  string search = 1;
+  string position = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message ListActuariesResponse {
+  repeated ActuaryInfo actuaries = 1;
+  int64 total_count = 2;
+}
+
+message GetActuaryInfoRequest {
+  uint64 employee_id = 1;
+}
+
+message SetActuaryLimitRequest {
+  uint64 id = 1;
+  string limit = 2;
+}
+
+message ResetActuaryUsedLimitRequest {
+  uint64 id = 1;
+}
+
+message SetNeedApprovalRequest {
+  uint64 id = 1;
+  bool need_approval = 2;
+}
+
+message UpdateUsedLimitRequest {
+  uint64 id = 1;
+  string amount = 2;
+  string currency = 3;
+}
+
+// ==================== Blueprints ====================
+
+service BlueprintService {
+  rpc CreateBlueprint(CreateBlueprintRequest) returns (BlueprintResponse);
+  rpc GetBlueprint(GetBlueprintRequest) returns (BlueprintResponse);
+  rpc ListBlueprints(ListBlueprintsRequest) returns (ListBlueprintsResponse);
+  rpc UpdateBlueprint(UpdateBlueprintRequest) returns (BlueprintResponse);
+  rpc DeleteBlueprint(DeleteBlueprintRequest) returns (DeleteBlueprintResponse);
+  rpc ApplyBlueprint(ApplyBlueprintRequest) returns (ApplyBlueprintResponse);
+}
+
+message CreateBlueprintRequest {
+  string name = 1;
+  string description = 2;
+  string type = 3;           // "employee", "actuary", "client"
+  string values_json = 4;    // JSON string of type-specific values
+}
+
+message GetBlueprintRequest {
+  uint64 id = 1;
+}
+
+message ListBlueprintsRequest {
+  string type = 1;           // optional filter; empty = all
+}
+
+message UpdateBlueprintRequest {
+  uint64 id = 1;
+  string name = 2;
+  string description = 3;
+  string values_json = 4;    // JSON string; empty = keep existing
+}
+
+message DeleteBlueprintRequest {
+  uint64 id = 1;
+}
+
+message DeleteBlueprintResponse {}
+
+message ApplyBlueprintRequest {
+  uint64 blueprint_id = 1;
+  int64 target_id = 2;       // employee_id or client_id depending on type
+}
+
+message ApplyBlueprintResponse {}
+
+message BlueprintResponse {
+  uint64 id = 1;
+  string name = 2;
+  string description = 3;
+  string type = 4;
+  string values_json = 5;    // JSON string
+  string created_at = 6;     // RFC3339
+  string updated_at = 7;     // RFC3339
+}
+
+message ListBlueprintsResponse {
+  repeated BlueprintResponse blueprints = 1;
+}

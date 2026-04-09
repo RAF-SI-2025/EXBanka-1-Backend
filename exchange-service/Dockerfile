@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 COPY contract/ contract/
 COPY exchange-service/ exchange-service/
@@ -8,6 +8,6 @@ RUN cd exchange-service && \
     go mod download && go build -o /exchange-service ./cmd
 
 FROM alpine:3.19
-RUN apk --no-cache add ca-certificates netcat-openbsd
+RUN apk --no-cache add ca-certificates
 COPY --from=builder /exchange-service /exchange-service
 CMD ["/exchange-service"]

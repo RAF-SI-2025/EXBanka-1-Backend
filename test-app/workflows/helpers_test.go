@@ -5,8 +5,8 @@ package workflows
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,22 +16,79 @@ import (
 	"github.com/exbanka/test-app/internal/helpers"
 )
 
-// clientEmailCounter is a package-level counter used to generate unique tagged
-// client emails of the form base+clientN@domain. Using atomic.Int32 ensures
-// parallel sub-tests do not collide on email uniqueness constraints.
-var clientEmailCounter atomic.Int32
+// setupMobileDevice creates an activated client with a funded RSD account,
+// activates a mobile device for them, and returns both browser and mobile clients.
+// The mobile client supports signed requests for /api/mobile/verifications/* endpoints.
+func setupMobileDevice(t *testing.T, adminC *client.APIClient) (clientID int, accountNumber string, browserC *client.APIClient, mobileC *client.MobileAPIClient, email string) {
+	t.Helper()
 
-func init() {
-	// Start counter at 9 so nextClientEmail() returns +client10, +client11, etc.
-	// Slots 1–9 are reserved for hardcoded uses in payment_test.go and transfer_test.go.
-	clientEmailCounter.Store(9)
+	clientID, accountNumber, browserC, email = setupActivatedClient(t, adminC)
+
+	c := newClient()
+	reqResp, err := c.POST("/api/mobile/auth/request-activation", map[string]interface{}{
+		"email": email,
+	})
+	if err != nil {
+		t.Fatalf("setupMobileDevice: request activation: %v", err)
+	}
+	helpers.RequireStatus(t, reqResp, 200)
+
+	code := scanKafkaForMobileActivationCode(t, email)
+
+	actResp, err := c.POST("/api/mobile/auth/activate", map[string]interface{}{
+		"email":       email,
+		"code":        code,
+		"device_name": "Integration Test Device",
+	})
+	if err != nil {
+		t.Fatalf("setupMobileDevice: activate: %v", err)
+	}
+	helpers.RequireStatus(t, actResp, 200)
+
+	mobileToken := helpers.GetStringField(t, actResp, "access_token")
+	deviceID := helpers.GetStringField(t, actResp, "device_id")
+	deviceSecret := helpers.GetStringField(t, actResp, "device_secret")
+
+	mobileBase := newClient()
+	mobileBase.SetToken(mobileToken)
+	mobileC = client.NewMobile(mobileBase, deviceID, deviceSecret)
+
+	return
 }
 
-// nextClientEmail returns cfg.ClientEmail(n) where n is a monotonically
-// increasing integer. Each call increments the counter.
-func nextClientEmail() string {
-	n := int(clientEmailCounter.Add(1))
-	return cfg.ClientEmail(n)
+// pollPendingUntilFound polls the mobile pending verifications endpoint until the
+// given challenge_id appears or timeout expires. Returns the challenge item map.
+// Handles the async delay between challenge creation and Kafka-based inbox delivery.
+func pollPendingUntilFound(t *testing.T, mobileC *client.MobileAPIClient, challengeID int, timeout time.Duration) map[string]interface{} {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := mobileC.SignedGET("/api/mobile/verifications/pending")
+		if err != nil {
+			t.Fatalf("pollPending: %v", err)
+		}
+		if resp.StatusCode != 200 {
+			t.Logf("pollPending: got status %d, retrying...", resp.StatusCode)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		items, ok := resp.Body["items"].([]interface{})
+		if ok {
+			for _, item := range items {
+				m, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if cid, ok := m["challenge_id"].(float64); ok && int(cid) == challengeID {
+					return m
+				}
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("pollPending: challenge %d not found in pending within %s", challengeID, timeout)
+	return nil
 }
 
 // getAccountBalance fetches the available_balance for a single account by account number.
@@ -126,50 +183,6 @@ func scanKafkaForActivationToken(t *testing.T, email string) string {
 	return latestToken
 }
 
-// scanKafkaForVerificationCode reads the notification.send-email topic from the earliest
-// offset and returns the most recent TRANSACTION_VERIFICATION code sent to the given email.
-// Blocks up to 15 seconds; fails the test if no code is found.
-func scanKafkaForVerificationCode(t *testing.T, email string) string {
-	t.Helper()
-	r := kafkalib.NewReader(kafkalib.ReaderConfig{
-		Brokers:     []string{cfg.KafkaBrokers},
-		Topic:       "notification.send-email",
-		Partition:   0,
-		StartOffset: kafkalib.FirstOffset,
-		MaxWait:     500 * time.Millisecond,
-	})
-	defer r.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	var latestCode string
-	for {
-		msg, err := r.ReadMessage(ctx)
-		if err != nil {
-			break
-		}
-		var body struct {
-			To        string            `json:"to"`
-			EmailType string            `json:"email_type"`
-			Data      map[string]string `json:"data"`
-		}
-		if json.Unmarshal(msg.Value, &body) != nil {
-			continue
-		}
-		if body.To == email && body.EmailType == "TRANSACTION_VERIFICATION" {
-			if code := body.Data["verification_code"]; code != "" {
-				latestCode = code
-			}
-		}
-	}
-
-	if latestCode == "" {
-		t.Fatalf("scanKafkaForVerificationCode: no TRANSACTION_VERIFICATION code found for %s within 15s", email)
-	}
-	return latestCode
-}
-
 // setupActivatedClient creates a new bank client, creates a funded RSD account for them,
 // activates their account via the Kafka activation token, and returns the client's ID,
 // their account number, and an authenticated APIClient ready for use in tests.
@@ -226,6 +239,35 @@ func setupActivatedClient(t *testing.T, adminC *client.APIClient) (clientID int,
 	return clientID, accountNumber, clientC, email
 }
 
+// createVerificationAndGetChallengeID creates a verification challenge for the given
+// source (e.g., "payment" or "transfer") and source_id, submits the bypass code "111111"
+// to verify it, and returns the challenge_id to use when executing.
+func createVerificationAndGetChallengeID(t *testing.T, c *client.APIClient, sourceService string, sourceID int) int {
+	t.Helper()
+
+	// Create verification challenge
+	createResp, err := c.POST("/api/verifications", map[string]interface{}{
+		"source_service": sourceService,
+		"source_id":      sourceID,
+	})
+	if err != nil {
+		t.Fatalf("createVerification: POST /api/verifications: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 200)
+	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
+
+	// Submit bypass code to verify
+	submitResp, err := c.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
+		"code": "111111",
+	})
+	if err != nil {
+		t.Fatalf("createVerification: submit code: %v", err)
+	}
+	helpers.RequireStatus(t, submitResp, 200)
+
+	return challengeID
+}
+
 // parseJSONBalance extracts a balance field that may be a JSON number (float64) or
 // a JSON string (e.g., "50000.0000" from the decimal serialisation). Returns float64.
 func parseJSONBalance(t *testing.T, m map[string]interface{}, field string) float64 {
@@ -246,5 +288,220 @@ func parseJSONBalance(t *testing.T, m map[string]interface{}, field string) floa
 	default:
 		t.Fatalf("parseJSONBalance: field %q has unexpected type %T: %v", field, val, val)
 		return 0
+	}
+}
+
+// createAndVerifyChallenge creates a verification challenge and verifies it
+// using the universal bypass code. Returns the challenge ID.
+func createAndVerifyChallenge(t *testing.T, c *client.APIClient, sourceService string, sourceID int) int {
+	t.Helper()
+	challengeID, code := createChallengeOnly(t, c, sourceService, sourceID)
+	submitVerificationCode(t, c, challengeID, code)
+	return challengeID
+}
+
+// createChallengeOnly creates a verification challenge and returns the challenge ID
+// and the universal bypass code. No email scanning needed — code_pull challenges
+// are verified with the bypass code "111111".
+func createChallengeOnly(t *testing.T, c *client.APIClient, sourceService string, sourceID int) (int, string) {
+	t.Helper()
+	createResp, err := c.POST("/api/verifications", map[string]interface{}{
+		"source_service": sourceService,
+		"source_id":      sourceID,
+	})
+	if err != nil {
+		t.Fatalf("createChallengeOnly: POST /api/verifications: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 200)
+	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
+	return challengeID, "111111"
+}
+
+// submitVerificationCode submits a verification code and asserts success.
+func submitVerificationCode(t *testing.T, c *client.APIClient, challengeID int, code string) {
+	t.Helper()
+	resp, err := c.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
+		"code": code,
+	})
+	if err != nil {
+		t.Fatalf("submitVerificationCode: POST /api/verifications/%d/code: %v", challengeID, err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}
+
+// setupActivatedClientWithForeignAccount creates a client with RSD (100k) + foreign currency account (10k).
+func setupActivatedClientWithForeignAccount(t *testing.T, adminC *client.APIClient, currency string) (clientID int, rsdAccountNum string, foreignAccountNum string, clientC *client.APIClient, email string) {
+	t.Helper()
+	clientID, rsdAccountNum, clientC, email = setupActivatedClient(t, adminC)
+
+	acctResp, err := adminC.POST("/api/accounts", map[string]interface{}{
+		"owner_id":        clientID,
+		"account_kind":    "foreign",
+		"account_type":    "personal",
+		"currency_code":   currency,
+		"initial_balance": 10000,
+	})
+	if err != nil {
+		t.Fatalf("setupActivatedClientWithForeignAccount: create foreign account: %v", err)
+	}
+	helpers.RequireStatus(t, acctResp, 201)
+	foreignAccountNum = helpers.GetStringField(t, acctResp, "account_number")
+	return
+}
+
+// setupClientWithCard creates a client with an RSD account and an approved card.
+func setupClientWithCard(t *testing.T, adminC *client.APIClient, brand string) (clientID int, accountNum string, cardID int, clientC *client.APIClient, email string) {
+	t.Helper()
+	clientID, accountNum, clientC, email = setupActivatedClient(t, adminC)
+
+	cardResp, err := adminC.POST("/api/cards", map[string]interface{}{
+		"account_number": accountNum,
+		"card_brand":     brand,
+		"owner_type":     "client",
+	})
+	if err != nil {
+		t.Fatalf("setupClientWithCard: create card: %v", err)
+	}
+	helpers.RequireStatus(t, cardResp, 201)
+	cardID = int(helpers.GetNumberField(t, cardResp, "id"))
+	return
+}
+
+// createAndExecutePayment creates a payment, verifies via challenge, and executes it.
+func createAndExecutePayment(t *testing.T, fromClient *client.APIClient, toAccountNum string, amount float64) int {
+	t.Helper()
+
+	createResp, err := fromClient.POST("/api/me/payments", map[string]interface{}{
+		"to_account_number": toAccountNum,
+		"amount":            amount,
+		"payment_purpose":   "test payment",
+	})
+	if err != nil {
+		t.Fatalf("createAndExecutePayment: create: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 201)
+	paymentID := int(helpers.GetNumberField(t, createResp, "id"))
+
+	challengeID := createAndVerifyChallenge(t, fromClient, "payment", paymentID)
+
+	execResp, err := fromClient.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
+		"verification_code": "111111",
+		"challenge_id":      challengeID,
+	})
+	if err != nil {
+		t.Fatalf("createAndExecutePayment: execute: %v", err)
+	}
+	helpers.RequireStatus(t, execResp, 200)
+	return paymentID
+}
+
+// createAndExecuteTransfer creates a transfer between own accounts, verifies, and executes.
+func createAndExecuteTransfer(t *testing.T, clientC *client.APIClient, fromAccountNum string, toAccountNum string, amount float64) int {
+	t.Helper()
+
+	createResp, err := clientC.POST("/api/me/transfers", map[string]interface{}{
+		"from_account_number": fromAccountNum,
+		"to_account_number":   toAccountNum,
+		"amount":              amount,
+	})
+	if err != nil {
+		t.Fatalf("createAndExecuteTransfer: create: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 201)
+	transferID := int(helpers.GetNumberField(t, createResp, "id"))
+
+	challengeID := createAndVerifyChallenge(t, clientC, "transfer", transferID)
+
+	execResp, err := clientC.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
+		"verification_code": "111111",
+		"challenge_id":      challengeID,
+	})
+	if err != nil {
+		t.Fatalf("createAndExecuteTransfer: execute: %v", err)
+	}
+	helpers.RequireStatus(t, execResp, 200)
+	return transferID
+}
+
+// buyStock places a market buy order and waits for it to fill.
+func buyStock(t *testing.T, c *client.APIClient, listingID uint64, quantity int) int {
+	t.Helper()
+
+	orderResp, err := c.POST("/api/me/orders", map[string]interface{}{
+		"listing_id": listingID,
+		"order_type": "market",
+		"direction":  "buy",
+		"quantity":   quantity,
+	})
+	if err != nil {
+		t.Fatalf("buyStock: create order: %v", err)
+	}
+	helpers.RequireStatus(t, orderResp, 201)
+	orderID := int(helpers.GetNumberField(t, orderResp, "id"))
+
+	waitForOrderFill(t, c, orderID, 30*time.Second)
+	return orderID
+}
+
+// waitForOrderFill polls until an order's is_done field is true or timeout.
+func waitForOrderFill(t *testing.T, c *client.APIClient, orderID int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := c.GET(fmt.Sprintf("/api/me/orders/%d", orderID))
+		if err != nil {
+			t.Fatalf("waitForOrderFill: GET order: %v", err)
+		}
+		helpers.RequireStatus(t, resp, 200)
+		if done, ok := resp.Body["is_done"].(bool); ok && done {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("waitForOrderFill: order %d not filled within %s", orderID, timeout)
+}
+
+// createLoanAndApprove submits a loan request and has admin approve it.
+func createLoanAndApprove(t *testing.T, adminC *client.APIClient, clientC *client.APIClient, loanType string, amount float64, accountNum string, months int) int {
+	t.Helper()
+
+	reqResp, err := clientC.POST("/api/me/loan-requests", map[string]interface{}{
+		"loan_type":         loanType,
+		"interest_type":     "fixed",
+		"amount":            amount,
+		"currency":          "RSD",
+		"purpose":           "test loan",
+		"monthly_income":    50000,
+		"employment_status": "permanent",
+		"employment_period": 24,
+		"repayment_period":  months,
+		"phone":             helpers.RandomPhone(),
+		"account_number":    accountNum,
+	})
+	if err != nil {
+		t.Fatalf("createLoanAndApprove: create request: %v", err)
+	}
+	helpers.RequireStatus(t, reqResp, 201)
+	requestID := int(helpers.GetNumberField(t, reqResp, "id"))
+
+	approveResp, err := adminC.POST(fmt.Sprintf("/api/loan-requests/%d/approve", requestID), nil)
+	if err != nil {
+		t.Fatalf("createLoanAndApprove: approve: %v", err)
+	}
+	helpers.RequireStatus(t, approveResp, 200)
+	loanID := int(helpers.GetNumberField(t, approveResp, "loan_id"))
+	return loanID
+}
+
+// assertBalanceChanged fetches current balance and asserts it changed by expectedDelta.
+func assertBalanceChanged(t *testing.T, c *client.APIClient, accountNum string, before float64, expectedDelta float64) {
+	t.Helper()
+	after := getAccountBalance(t, c, accountNum)
+	actual := after - before
+	tolerance := 0.01
+	diff := actual - expectedDelta
+	if diff < -tolerance || diff > tolerance {
+		t.Errorf("assertBalanceChanged(%s): expected delta %.2f, got %.2f (before=%.2f, after=%.2f)",
+			accountNum, expectedDelta, actual, before, after)
 	}
 }

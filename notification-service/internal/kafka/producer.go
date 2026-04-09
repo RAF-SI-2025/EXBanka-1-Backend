@@ -21,6 +21,17 @@ func NewProducer(brokers string) *Producer {
 	}
 }
 
+func (p *Producer) Publish(ctx context.Context, topic string, msg interface{}) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return p.writer.WriteMessages(ctx, kafkago.Message{
+		Topic: topic,
+		Value: data,
+	})
+}
+
 func (p *Producer) PublishEmailSent(ctx context.Context, msg kafkamsg.EmailSentMessage) error {
 	data, err := json.Marshal(msg)
 	if err != nil {

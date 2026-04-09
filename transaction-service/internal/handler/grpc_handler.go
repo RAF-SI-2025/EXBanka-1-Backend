@@ -14,6 +14,7 @@ import (
 
 	kafkamsg "github.com/exbanka/contract/kafka"
 	pb "github.com/exbanka/contract/transactionpb"
+	verificationpb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/service"
@@ -54,26 +55,26 @@ func generateIdempotencyKey() string {
 
 type TransactionGRPCHandler struct {
 	pb.UnimplementedTransactionServiceServer
-	paymentSvc      *service.PaymentService
-	transferSvc     *service.TransferService
-	recipientSvc    *service.PaymentRecipientService
-	verificationSvc *service.VerificationService
-	producer        *kafka.Producer
+	paymentSvc         *service.PaymentService
+	transferSvc        *service.TransferService
+	recipientSvc       *service.PaymentRecipientService
+	verificationClient verificationpb.VerificationGRPCServiceClient
+	producer           *kafka.Producer
 }
 
 func NewTransactionGRPCHandler(
 	paymentSvc *service.PaymentService,
 	transferSvc *service.TransferService,
 	recipientSvc *service.PaymentRecipientService,
-	verificationSvc *service.VerificationService,
+	verificationClient verificationpb.VerificationGRPCServiceClient,
 	producer *kafka.Producer,
 ) *TransactionGRPCHandler {
 	return &TransactionGRPCHandler{
-		paymentSvc:      paymentSvc,
-		transferSvc:     transferSvc,
-		recipientSvc:    recipientSvc,
-		verificationSvc: verificationSvc,
-		producer:        producer,
+		paymentSvc:         paymentSvc,
+		transferSvc:        transferSvc,
+		recipientSvc:       recipientSvc,
+		verificationClient: verificationClient,
+		producer:           producer,
 	}
 }
 
@@ -109,40 +110,23 @@ func (h *TransactionGRPCHandler) CreatePayment(ctx context.Context, req *pb.Crea
 		log.Printf("warn: failed to publish payment-created event: %v", err)
 	}
 
-	// Auto-generate verification code and email it to the client
-	var vcExpiresAt int64
-	if req.GetClientId() > 0 {
-		vc, code, vcErr := h.verificationSvc.CreateVerificationCode(ctx, req.GetClientId(), payment.ID, "payment")
-		if vcErr != nil {
-			log.Printf("warn: failed to create verification code for payment %d: %v", payment.ID, vcErr)
-		} else {
-			vcExpiresAt = vc.ExpiresAt.Unix()
-			if email := req.GetClientEmail(); email != "" {
-				_ = h.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-					To:        email,
-					EmailType: kafkamsg.EmailTypeTransactionVerify,
-					Data: map[string]string{
-						"verification_code": code,
-						"expires_in":        "5 minutes",
-					},
-				})
-			}
-		}
-	}
-
-	resp := paymentToProto(payment)
-	resp.VerificationCodeExpiresAt = vcExpiresAt
-	return resp, nil
+	// Payment created in pending_verification status.
+	// The gateway or browser will call verification-service to create the challenge.
+	return paymentToProto(payment), nil
 }
 
 func (h *TransactionGRPCHandler) ExecutePayment(ctx context.Context, req *pb.ExecutePaymentRequest) (*pb.PaymentResponse, error) {
-	// 1. Validate verification code
-	valid, _, err := h.verificationSvc.ValidateVerificationCode(req.GetClientId(), req.GetPaymentId(), "payment", req.GetVerificationCode())
-	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "verify: %v", err)
-	}
-	if !valid {
-		return nil, status.Errorf(codes.FailedPrecondition, "invalid verification code")
+	// 1. Verify via verification-service
+	if req.GetChallengeId() > 0 {
+		verifyResp, err := h.verificationClient.GetChallengeStatus(ctx, &verificationpb.GetChallengeStatusRequest{
+			ChallengeId: req.GetChallengeId(),
+		})
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "verification check failed: %v", err)
+		}
+		if verifyResp.Status != "verified" {
+			return nil, status.Errorf(codes.FailedPrecondition, "verification not completed")
+		}
 	}
 
 	// 2. Execute the payment (balance changes)
@@ -168,6 +152,7 @@ func (h *TransactionGRPCHandler) ExecutePayment(ctx context.Context, req *pb.Exe
 		if err := h.producer.PublishPaymentCompleted(ctx, msg); err != nil {
 			log.Printf("warn: failed to publish payment-completed event: %v", err)
 		}
+
 	}
 
 	return paymentToProto(payment), nil
@@ -254,40 +239,23 @@ func (h *TransactionGRPCHandler) CreateTransfer(ctx context.Context, req *pb.Cre
 		log.Printf("warn: failed to publish transfer-created event: %v", err)
 	}
 
-	// Auto-generate verification code and email it to the client
-	var vcExpiresAt int64
-	if req.GetClientId() > 0 {
-		vc, code, vcErr := h.verificationSvc.CreateVerificationCode(ctx, req.GetClientId(), transfer.ID, "transfer")
-		if vcErr != nil {
-			log.Printf("warn: failed to create verification code for transfer %d: %v", transfer.ID, vcErr)
-		} else {
-			vcExpiresAt = vc.ExpiresAt.Unix()
-			if email := req.GetClientEmail(); email != "" {
-				_ = h.producer.SendEmail(ctx, kafkamsg.SendEmailMessage{
-					To:        email,
-					EmailType: kafkamsg.EmailTypeTransactionVerify,
-					Data: map[string]string{
-						"verification_code": code,
-						"expires_in":        "5 minutes",
-					},
-				})
-			}
-		}
-	}
-
-	resp := transferToProto(transfer)
-	resp.VerificationCodeExpiresAt = vcExpiresAt
-	return resp, nil
+	// Transfer created in pending_verification status.
+	// The gateway or browser will call verification-service to create the challenge.
+	return transferToProto(transfer), nil
 }
 
 func (h *TransactionGRPCHandler) ExecuteTransfer(ctx context.Context, req *pb.ExecuteTransferRequest) (*pb.TransferResponse, error) {
-	// 1. Validate verification code
-	valid, _, err := h.verificationSvc.ValidateVerificationCode(req.GetClientId(), req.GetTransferId(), "transfer", req.GetVerificationCode())
-	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "verify: %v", err)
-	}
-	if !valid {
-		return nil, status.Errorf(codes.FailedPrecondition, "invalid verification code")
+	// 1. Verify via verification-service
+	if req.GetChallengeId() > 0 {
+		verifyResp, err := h.verificationClient.GetChallengeStatus(ctx, &verificationpb.GetChallengeStatusRequest{
+			ChallengeId: req.GetChallengeId(),
+		})
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "verification check failed: %v", err)
+		}
+		if verifyResp.Status != "verified" {
+			return nil, status.Errorf(codes.FailedPrecondition, "verification not completed")
+		}
 	}
 
 	// 2. Execute the transfer (balance changes)
@@ -314,6 +282,7 @@ func (h *TransactionGRPCHandler) ExecuteTransfer(ctx context.Context, req *pb.Ex
 		if err := h.producer.PublishTransferCompleted(ctx, msg); err != nil {
 			log.Printf("warn: failed to publish transfer-completed event: %v", err)
 		}
+
 	}
 
 	return transferToProto(transfer), nil
@@ -428,4 +397,3 @@ func recipientToProto(r *model.PaymentRecipient) *pb.PaymentRecipientResponse {
 		CreatedAt:     r.CreatedAt.String(),
 	}
 }
-

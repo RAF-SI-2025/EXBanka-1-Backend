@@ -105,12 +105,88 @@ func TestInterestRateTiers_UpdateTier(t *testing.T) {
 	}
 }
 
+func TestInterestRateTiers_DeleteTier(t *testing.T) {
+	c := loginAsAdmin(t)
+
+	// Create a tier to delete
+	createResp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
+		"fixed_rate":    7.0,
+		"variable_base": 0.01,
+	})
+	if err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+	if createResp.StatusCode >= 400 {
+		t.Skipf("skipping delete: create returned %d", createResp.StatusCode)
+	}
+	tierID := int(helpers.GetNumberField(t, createResp, "id"))
+
+	resp, err := c.DELETE(fmt.Sprintf("/api/interest-rate-tiers/%d", tierID))
+	if err != nil {
+		t.Fatalf("delete error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}
+
+func TestInterestRateTiers_ApplyVariableRate(t *testing.T) {
+	c := loginAsAdmin(t)
+
+	// Create a variable rate tier
+	createResp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
+		"fixed_rate":    0.01,
+		"variable_base": 4.0,
+	})
+	if err != nil {
+		t.Fatalf("create error: %v", err)
+	}
+	if createResp.StatusCode >= 400 {
+		t.Skipf("skipping apply: create returned %d", createResp.StatusCode)
+	}
+	tierID := int(helpers.GetNumberField(t, createResp, "id"))
+
+	// Apply variable rate update
+	resp, err := c.POST(fmt.Sprintf("/api/interest-rate-tiers/%d/apply", tierID), map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("apply error: %v", err)
+	}
+	// May succeed or return 200/409 depending on whether loans exist
+	if resp.StatusCode >= 500 {
+		t.Fatalf("unexpected server error applying variable rate: %d: %s", resp.StatusCode, string(resp.RawBody))
+	}
+}
+
 func TestBankMargins_List(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/bank-margins")
 	if err != nil {
 		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}
+
+func TestBankMargins_Update(t *testing.T) {
+	c := loginAsAdmin(t)
+
+	// List margins to get an ID
+	listResp, err := c.GET("/api/bank-margins")
+	if err != nil {
+		t.Fatalf("list error: %v", err)
+	}
+	helpers.RequireStatus(t, listResp, 200)
+
+	margins, ok := listResp.Body["margins"].([]interface{})
+	if !ok || len(margins) == 0 {
+		t.Skip("no bank margins seeded to update")
+	}
+	first := margins[0].(map[string]interface{})
+	marginID := int(first["id"].(float64))
+
+	resp, err := c.PUT(fmt.Sprintf("/api/bank-margins/%d", marginID), map[string]interface{}{
+		"margin": 2.5,
+	})
+	if err != nil {
+		t.Fatalf("update error: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 200)
 }

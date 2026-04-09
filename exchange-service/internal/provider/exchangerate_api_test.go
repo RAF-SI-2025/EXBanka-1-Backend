@@ -29,7 +29,7 @@ func TestFetchRatesFromRSD(t *testing.T) {
 				"BGN": 0.01665, // unsupported — should be ignored
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 

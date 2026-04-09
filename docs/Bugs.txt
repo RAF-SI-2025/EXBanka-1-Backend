@@ -1,0 +1,3 @@
+2. Back refactoring(Vasilije and Luka needed, making services more loose coupled), docker compose cycles problem, services too coupled
+4. standardize time (UTC+0) then front or back converts it
+6. maybe update test mode(it should be whole stock service switch for all users, users should be able to trade buy stocks sell...)

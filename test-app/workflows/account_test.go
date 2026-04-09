@@ -22,7 +22,7 @@ func createTestClient(t *testing.T, c *client.APIClient) int {
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
 		"gender":        "male",
-		"email":         nextClientEmail(),
+		"email":         helpers.RandomEmail(),
 		"phone":         helpers.RandomPhone(),
 		"address":       "Account Test St",
 		"jmbg":          helpers.RandomJMBG(),
@@ -385,5 +385,114 @@ func TestAccount_UnauthenticatedCannotCreate(t *testing.T) {
 	}
 	if resp.StatusCode != 401 {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+func TestAccount_UpdateName(t *testing.T) {
+	c := loginAsAdmin(t)
+	clientID := createTestClient(t, c)
+
+	createResp, err := c.POST("/api/accounts", map[string]interface{}{
+		"owner_id":      clientID,
+		"account_kind":  "current",
+		"account_type":  "personal",
+		"currency_code": "RSD",
+	})
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 201)
+	acctID := int(helpers.GetNumberField(t, createResp, "id"))
+
+	resp, err := c.PUT(fmt.Sprintf("/api/accounts/%d/name", acctID), map[string]interface{}{
+		"new_name":  "My Savings Account",
+		"client_id": clientID,
+	})
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}
+
+func TestAccount_UpdateLimits(t *testing.T) {
+	c := loginAsAdmin(t)
+	clientID := createTestClient(t, c)
+
+	createResp, err := c.POST("/api/accounts", map[string]interface{}{
+		"owner_id":      clientID,
+		"account_kind":  "current",
+		"account_type":  "personal",
+		"currency_code": "RSD",
+	})
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 201)
+	acctID := int(helpers.GetNumberField(t, createResp, "id"))
+
+	resp, err := c.PUT(fmt.Sprintf("/api/accounts/%d/limits", acctID), map[string]interface{}{
+		"daily_limit":   50000.0,
+		"monthly_limit": 500000.0,
+	})
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}
+
+func TestAccount_UpdateLimitsNegativeRejected(t *testing.T) {
+	c := loginAsAdmin(t)
+	resp, err := c.PUT("/api/accounts/1/limits", map[string]interface{}{
+		"daily_limit": -100.0,
+	})
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if resp.StatusCode != 400 {
+		t.Fatalf("expected 400 for negative limit, got %d", resp.StatusCode)
+	}
+}
+
+func TestAccount_DeleteBankAccount(t *testing.T) {
+	c := loginAsAdmin(t)
+
+	// Create a bank account to delete (use a less common currency)
+	createResp, err := c.POST("/api/bank-accounts", map[string]interface{}{
+		"currency_code": "CHF",
+		"account_kind":  "foreign",
+	})
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if createResp.StatusCode >= 400 {
+		t.Skipf("skipping delete test: create bank account returned %d", createResp.StatusCode)
+	}
+	bankAcctID := int(helpers.GetNumberField(t, createResp, "id"))
+
+	// Delete it
+	resp, err := c.DELETE(fmt.Sprintf("/api/bank-accounts/%d", bankAcctID))
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+}
+
+func TestAccount_CreateCompany(t *testing.T) {
+	c := loginAsAdmin(t)
+	clientID := createTestClient(t, c)
+
+	resp, err := c.POST("/api/companies", map[string]interface{}{
+		"company_name":        fmt.Sprintf("TestCo_%d", helpers.DateOfBirthUnix()),
+		"registration_number": fmt.Sprintf("%08d", time.Now().UnixNano()%100000000),
+		"tax_number":          fmt.Sprintf("%09d", time.Now().UnixNano()%1000000000),
+		"activity_code":       "62.01",
+		"address":             "Test Business St 1",
+		"owner_id":            clientID,
+	})
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if resp.StatusCode >= 400 {
+		t.Fatalf("expected success creating company, got %d: %s", resp.StatusCode, string(resp.RawBody))
 	}
 }
