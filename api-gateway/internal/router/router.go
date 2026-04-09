@@ -227,6 +227,7 @@ func Setup(
 			verifyHandler := handler.NewVerificationHandler(verificationClient, notificationClient)
 			mobileVerify.GET("/pending", verifyHandler.GetPendingVerifications)
 			mobileVerify.POST("/:challenge_id/submit", verifyHandler.SubmitMobileVerification)
+			mobileVerify.POST("/:id/ack", verifyHandler.AckVerification)
 		}
 
 		// --- QR Verification (MobileAuthMiddleware + RequireDeviceSignature) ---

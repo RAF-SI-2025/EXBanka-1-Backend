@@ -45,7 +45,7 @@ func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 	if req.Method == "" {
 		req.Method = "code_pull"
 	}
-	method, err := oneOf("method", req.Method, "code_pull", "email")
+	method, err := oneOf("method", req.Method, "code_pull")
 	if err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
 		return
@@ -53,7 +53,6 @@ func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 
 	userID := c.GetInt64("user_id")
 	deviceIDStr := c.GetString("device_id")
-	emailStr := c.GetString("email")
 
 	resp, err := h.verificationClient.CreateChallenge(c.Request.Context(), &verificationpb.CreateChallengeRequest{
 		UserId:        uint64(userID),
@@ -61,7 +60,6 @@ func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 		SourceId:      req.SourceID,
 		Method:        method,
 		DeviceId:      deviceIDStr,
-		Email:         emailStr,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -154,11 +152,9 @@ func (h *VerificationHandler) SubmitVerificationCode(c *gin.Context) {
 // @Router /api/mobile/verifications/pending [get]
 func (h *VerificationHandler) GetPendingVerifications(c *gin.Context) {
 	userID := c.GetInt64("user_id")
-	deviceID, _ := c.Get("device_id")
 
 	resp, err := h.notificationClient.GetPendingMobileItems(c.Request.Context(), &notificationpb.GetPendingMobileRequest{
-		UserId:   uint64(userID),
-		DeviceId: deviceID.(string),
+		UserId: uint64(userID),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -254,6 +250,34 @@ func (h *VerificationHandler) VerifyQR(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": resp.Success})
+}
+
+// @Summary Acknowledge a delivered mobile verification notification
+// @Description Marks an inbox item as delivered so it no longer appears in future polls.
+// @Tags mobile-verifications
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "Inbox item ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]interface{} "Invalid item id"
+// @Failure 404 {object} map[string]interface{} "Item not found or already delivered"
+// @Router /api/mobile/verifications/{id}/ack [post]
+func (h *VerificationHandler) AckVerification(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid item id")
+		return
+	}
+
+	_, err = h.notificationClient.AckMobileItem(c.Request.Context(), &notificationpb.AckMobileRequest{
+		Id: id,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // @Summary Verify challenge using device biometrics
