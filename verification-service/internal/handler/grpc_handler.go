@@ -55,7 +55,7 @@ func (h *VerificationGRPCHandler) CreateChallenge(ctx context.Context, req *pb.C
 
 	// Build response challenge_data based on method.
 	// For the browser: code_pull returns {}, qr_scan returns {"token":..., "verify_url":...},
-	// number_match returns {"target":...}, email returns {}.
+	// number_match returns {"target":...}.
 	var responseData map[string]interface{}
 	if err := json.Unmarshal(vc.ChallengeData, &responseData); err != nil {
 		responseData = map[string]interface{}{}
