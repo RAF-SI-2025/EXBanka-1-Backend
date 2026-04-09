@@ -54,6 +54,7 @@ func main() {
 		"credit.late-penalty-applied",
 		"credit.changelog",
 		"notification.send-email",
+		"notification.general",
 	)
 
 	// Connect to account-service

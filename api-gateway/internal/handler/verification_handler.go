@@ -183,12 +183,12 @@ type submitMobileVerificationReq struct {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param challenge_id path int true "Challenge ID"
+// @Param id path int true "Challenge ID"
 // @Param body body submitMobileVerificationReq true "Verification response"
 // @Success 200 {object} map[string]interface{}
-// @Router /api/mobile/verifications/{challenge_id}/submit [post]
+// @Router /api/mobile/verifications/{id}/submit [post]
 func (h *VerificationHandler) SubmitMobileVerification(c *gin.Context) {
-	challengeID, err := strconv.ParseUint(c.Param("challenge_id"), 10, 64)
+	challengeID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid challenge id")
 		return
@@ -292,9 +292,9 @@ func (h *VerificationHandler) AckVerification(c *gin.Context) {
 // @Failure 400 {object} map[string]interface{}
 // @Failure 403 {object} map[string]interface{} "Biometrics not enabled"
 // @Failure 409 {object} map[string]interface{} "Challenge expired or already verified"
-// @Router /api/v1/mobile/verifications/{challenge_id}/biometric [post]
+// @Router /api/v1/mobile/verifications/{id}/biometric [post]
 func (h *VerificationHandler) BiometricVerify(c *gin.Context) {
-	challengeID, err := strconv.ParseUint(c.Param("challenge_id"), 10, 64)
+	challengeID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid challenge id")
 		return

@@ -220,6 +220,13 @@ func SetupV1Routes(
 			me.POST("/sessions/revoke", sessionHandler.RevokeSession)
 			me.POST("/sessions/revoke-others", sessionHandler.RevokeAllSessions)
 			me.GET("/login-history", sessionHandler.GetMyLoginHistory)
+
+			// Notifications (general, persistent, read/unread)
+			notifHandler := handler.NewNotificationHandler(notificationClient)
+			me.GET("/notifications", notifHandler.ListNotifications)
+			me.GET("/notifications/unread-count", notifHandler.GetUnreadCount)
+			me.POST("/notifications/read-all", notifHandler.MarkAllRead)
+			me.POST("/notifications/:id/read", notifHandler.MarkRead)
 		}
 
 		// ── Stock exchanges (AnyAuthMiddleware) ─────────────────────
@@ -293,8 +300,9 @@ func SetupV1Routes(
 		{
 			verifyHandler := handler.NewVerificationHandler(verificationClient, notificationClient)
 			mobileVerify.GET("/pending", verifyHandler.GetPendingVerifications)
-			mobileVerify.POST("/:challenge_id/submit", verifyHandler.SubmitMobileVerification)
-			mobileVerify.POST("/:challenge_id/biometric", verifyHandler.BiometricVerify)
+			mobileVerify.POST("/:id/submit", verifyHandler.SubmitMobileVerification)
+			mobileVerify.POST("/:id/ack", verifyHandler.AckVerification)
+			mobileVerify.POST("/:id/biometric", verifyHandler.BiometricVerify)
 		}
 
 		// ── QR verification (MobileAuth + DeviceSignature) ──────────

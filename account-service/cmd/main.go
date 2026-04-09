@@ -57,6 +57,7 @@ func main() {
 		"account.spending-reset",
 		"account.changelog",
 		"notification.send-email",
+		"notification.general",
 	)
 
 	var redisCache *cache.RedisCache

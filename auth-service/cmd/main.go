@@ -114,6 +114,7 @@ func main() {
 		"user.employee-created",
 		"client.created",
 		"notification.send-email",
+		"notification.general",
 		kafkamsg.TopicAuthAccountStatusChanged,
 		kafkamsg.TopicAuthDeadLetter,
 		kafkamsg.TopicAuthMobileDeviceActivated,

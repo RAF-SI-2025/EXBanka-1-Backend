@@ -430,6 +430,22 @@ type ActuaryLimitUpdatedMessage struct {
 	Action     string `json:"action"` // limit_set, used_limit_reset, need_approval_changed
 }
 
+// General notification topic — consumed by notification-service to create persistent user notifications
+const (
+	TopicGeneralNotification = "notification.general"
+)
+
+// GeneralNotificationMessage is published by any service that wants to create
+// a persistent, user-visible notification (no email, no expiry).
+type GeneralNotificationMessage struct {
+	UserID  uint64 `json:"user_id"`
+	Type    string `json:"type"`    // e.g. "money_received", "loan_approved", "card_issued"
+	Title   string `json:"title"`   // human-readable title
+	Message string `json:"message"` // human-readable body
+	RefType string `json:"ref_type,omitempty"` // optional: "payment", "transfer", "loan", "card", "account"
+	RefID   uint64 `json:"ref_id,omitempty"`   // optional: ID of the referenced entity
+}
+
 // Verification service topic constants
 const (
 	TopicVerificationChallengeCreated  = "verification.challenge-created"

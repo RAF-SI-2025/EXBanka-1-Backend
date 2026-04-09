@@ -61,6 +61,7 @@ func main() {
 		"transaction.transfer-failed",
 		"transaction.saga-dead-letter",
 		"notification.send-email",
+		"notification.general",
 	)
 
 	// Connect to account-service

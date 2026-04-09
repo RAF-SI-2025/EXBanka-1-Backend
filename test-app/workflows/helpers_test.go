@@ -16,6 +16,81 @@ import (
 	"github.com/exbanka/test-app/internal/helpers"
 )
 
+// setupMobileDevice creates an activated client with a funded RSD account,
+// activates a mobile device for them, and returns both browser and mobile clients.
+// The mobile client supports signed requests for /api/mobile/verifications/* endpoints.
+func setupMobileDevice(t *testing.T, adminC *client.APIClient) (clientID int, accountNumber string, browserC *client.APIClient, mobileC *client.MobileAPIClient, email string) {
+	t.Helper()
+
+	clientID, accountNumber, browserC, email = setupActivatedClient(t, adminC)
+
+	c := newClient()
+	reqResp, err := c.POST("/api/mobile/auth/request-activation", map[string]interface{}{
+		"email": email,
+	})
+	if err != nil {
+		t.Fatalf("setupMobileDevice: request activation: %v", err)
+	}
+	helpers.RequireStatus(t, reqResp, 200)
+
+	code := scanKafkaForMobileActivationCode(t, email)
+
+	actResp, err := c.POST("/api/mobile/auth/activate", map[string]interface{}{
+		"email":       email,
+		"code":        code,
+		"device_name": "Integration Test Device",
+	})
+	if err != nil {
+		t.Fatalf("setupMobileDevice: activate: %v", err)
+	}
+	helpers.RequireStatus(t, actResp, 200)
+
+	mobileToken := helpers.GetStringField(t, actResp, "access_token")
+	deviceID := helpers.GetStringField(t, actResp, "device_id")
+	deviceSecret := helpers.GetStringField(t, actResp, "device_secret")
+
+	mobileBase := newClient()
+	mobileBase.SetToken(mobileToken)
+	mobileC = client.NewMobile(mobileBase, deviceID, deviceSecret)
+
+	return
+}
+
+// pollPendingUntilFound polls the mobile pending verifications endpoint until the
+// given challenge_id appears or timeout expires. Returns the challenge item map.
+// Handles the async delay between challenge creation and Kafka-based inbox delivery.
+func pollPendingUntilFound(t *testing.T, mobileC *client.MobileAPIClient, challengeID int, timeout time.Duration) map[string]interface{} {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := mobileC.SignedGET("/api/mobile/verifications/pending")
+		if err != nil {
+			t.Fatalf("pollPending: %v", err)
+		}
+		if resp.StatusCode != 200 {
+			t.Logf("pollPending: got status %d, retrying...", resp.StatusCode)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		items, ok := resp.Body["items"].([]interface{})
+		if ok {
+			for _, item := range items {
+				m, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if cid, ok := m["challenge_id"].(float64); ok && int(cid) == challengeID {
+					return m
+				}
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	t.Fatalf("pollPending: challenge %d not found in pending within %s", challengeID, timeout)
+	return nil
+}
+
 // getAccountBalance fetches the available_balance for a single account by account number.
 // Uses GET /api/accounts/by-number/:account_number (anyAuth — employee or client token).
 // The balance field is returned as a JSON string by the account service; this function

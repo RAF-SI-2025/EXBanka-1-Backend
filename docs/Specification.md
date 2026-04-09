@@ -1175,6 +1175,10 @@ api-gateway:
 | GET | `/api/me/loans/:id` | - | creditHandler.GetMyLoan | Get own loan |
 | GET | `/api/me/loans/:id/installments` | - | creditHandler.GetMyInstallments | Get loan installments |
 | GET | `/api/me/tax` | - | taxHandler.ListMyTaxRecords | List own capital gains tax records + balance |
+| GET | `/api/v1/me/notifications` | - | notifHandler.ListNotifications | List general notifications (v1 only) |
+| GET | `/api/v1/me/notifications/unread-count` | - | notifHandler.GetUnreadCount | Get unread notification count (v1 only) |
+| POST | `/api/v1/me/notifications/:id/read` | - | notifHandler.MarkRead | Mark notification as read (v1 only) |
+| POST | `/api/v1/me/notifications/read-all` | - | notifHandler.MarkAllRead | Mark all as read (v1 only) |
 
 ### Employee/Admin Routes (AuthMiddleware + RequirePermission)
 
@@ -1614,6 +1618,22 @@ Status(pending|delivered|expired), ExpiresAt, DeliveredAt(nullable), CreatedAt
 | `verification.challenge-verified` | verification-service | transaction-service | VerificationChallengeVerifiedMessage |
 | `verification.challenge-failed` | verification-service | transaction-service | VerificationChallengeFailedMessage |
 | `notification.mobile-push` | notification-service | api-gateway | MobilePushMessage |
+| `notification.general` | account/card/credit/auth/transaction-service | notification-service | GeneralNotificationMessage |
+
+### General Notification Types
+
+Published to `notification.general` by various services. notification-service consumes and stores as persistent user notifications (no email, no expiry).
+
+| Type | Source | Trigger |
+|---|---|---|
+| `account_created` | account-service | Account created |
+| `card_issued` | card-service | Card created |
+| `card_blocked` | card-service | Card blocked |
+| `money_sent` | transaction-service | Payment/transfer executed (sender side) |
+| `money_received` | transaction-service | Payment/transfer executed (receiver side) |
+| `loan_approved` | credit-service | Loan request approved |
+| `loan_rejected` | credit-service | Loan request rejected |
+| `password_changed` | auth-service | Password reset completed |
 
 ### Email Types (SendEmailMessage.EmailType)
 

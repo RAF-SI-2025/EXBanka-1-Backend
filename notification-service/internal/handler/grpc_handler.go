@@ -17,10 +17,11 @@ type GRPCHandler struct {
 	notifpb.UnimplementedNotificationServiceServer
 	emailSender *sender.EmailSender
 	inboxRepo   *repository.MobileInboxRepository
+	notifRepo   *repository.GeneralNotificationRepository
 }
 
-func NewGRPCHandler(emailSender *sender.EmailSender, inboxRepo *repository.MobileInboxRepository) *GRPCHandler {
-	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo}
+func NewGRPCHandler(emailSender *sender.EmailSender, inboxRepo *repository.MobileInboxRepository, notifRepo *repository.GeneralNotificationRepository) *GRPCHandler {
+	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo}
 }
 
 func (h *GRPCHandler) SendEmail(ctx context.Context, req *notifpb.SendEmailRequest) (*notifpb.SendEmailResponse, error) {
@@ -75,4 +76,70 @@ func (h *GRPCHandler) AckMobileItem(ctx context.Context, req *notifpb.AckMobileR
 		return nil, status.Errorf(codes.NotFound, "item not found or already delivered")
 	}
 	return &notifpb.AckMobileResponse{Success: true}, nil
+}
+
+// ── General notifications ────────────────────────────────────────────────────
+
+func (h *GRPCHandler) ListNotifications(ctx context.Context, req *notifpb.ListNotificationsRequest) (*notifpb.ListNotificationsResponse, error) {
+	page := int(req.Page)
+	if page < 1 {
+		page = 1
+	}
+	pageSize := int(req.PageSize)
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	var readFilter *bool
+	switch req.ReadFilter {
+	case "read":
+		v := true
+		readFilter = &v
+	case "unread":
+		v := false
+		readFilter = &v
+	}
+
+	items, total, err := h.notifRepo.ListByUser(req.UserId, readFilter, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list notifications: %v", err)
+	}
+
+	entries := make([]*notifpb.NotificationEntry, len(items))
+	for i, item := range items {
+		entries[i] = &notifpb.NotificationEntry{
+			Id:        item.ID,
+			Type:      item.Type,
+			Title:     item.Title,
+			Message:   item.Message,
+			IsRead:    item.IsRead,
+			RefType:   item.RefType,
+			RefId:     item.RefID,
+			CreatedAt: item.CreatedAt.Format(time.RFC3339),
+		}
+	}
+	return &notifpb.ListNotificationsResponse{Notifications: entries, Total: total}, nil
+}
+
+func (h *GRPCHandler) GetUnreadCount(ctx context.Context, req *notifpb.GetUnreadCountRequest) (*notifpb.GetUnreadCountResponse, error) {
+	count, err := h.notifRepo.UnreadCount(req.UserId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to count unread: %v", err)
+	}
+	return &notifpb.GetUnreadCountResponse{Count: count}, nil
+}
+
+func (h *GRPCHandler) MarkNotificationRead(ctx context.Context, req *notifpb.MarkNotificationReadRequest) (*notifpb.MarkNotificationReadResponse, error) {
+	if err := h.notifRepo.MarkRead(req.Id, req.UserId); err != nil {
+		return nil, status.Errorf(codes.NotFound, "notification not found")
+	}
+	return &notifpb.MarkNotificationReadResponse{Success: true}, nil
+}
+
+func (h *GRPCHandler) MarkAllNotificationsRead(ctx context.Context, req *notifpb.MarkAllNotificationsReadRequest) (*notifpb.MarkAllNotificationsReadResponse, error) {
+	count, err := h.notifRepo.MarkAllRead(req.UserId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to mark all read: %v", err)
+	}
+	return &notifpb.MarkAllNotificationsReadResponse{Count: count}, nil
 }

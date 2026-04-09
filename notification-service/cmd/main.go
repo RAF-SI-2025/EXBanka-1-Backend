@@ -34,12 +34,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.MobileInboxItem{}); err != nil {
+	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
-	// Inbox repository
+	// Repositories
 	inboxRepo := repository.NewMobileInboxRepository(db)
+	notifRepo := repository.NewGeneralNotificationRepository(db)
 
 	// Email sender
 	emailSender := sender.NewEmailSender(
@@ -58,6 +59,7 @@ func main() {
 		"notification.email-sent",
 		"verification.challenge-created",
 		"notification.mobile-push",
+		"notification.general",
 	)
 
 	// Kafka consumer (email events)
@@ -74,6 +76,11 @@ func main() {
 	verificationConsumer.Start(ctx)
 	defer verificationConsumer.Close()
 
+	// General notification consumer (persistent user notifications)
+	generalConsumer := consumer.NewGeneralNotificationConsumer(cfg.KafkaBrokers, notifRepo)
+	generalConsumer.Start(ctx)
+	defer generalConsumer.Close()
+
 	// Background inbox cleanup
 	cleanupSvc := service.NewInboxCleanupService(inboxRepo)
 	cleanupSvc.StartCleanupCron(ctx)
@@ -88,7 +95,7 @@ func main() {
 		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
 		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 	)
-	notifpb.RegisterNotificationServiceServer(grpcServer, handler.NewGRPCHandler(emailSender, inboxRepo))
+	notifpb.RegisterNotificationServiceServer(grpcServer, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo))
 	shared.RegisterHealthCheck(grpcServer, "notification-service")
 	reflection.Register(grpcServer)
 	metrics.InitializeGRPCMetrics(grpcServer)

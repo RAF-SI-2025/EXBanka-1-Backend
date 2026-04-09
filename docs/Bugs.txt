@@ -1,7 +1,3 @@
-1. SOLVED BUG: add a way for front to check commission and exchange rate data before confirming transfer with verification(right now front only checks exchange api so commission is 0 but after transaction is done it shows right) so a preliminary route is needed add it to v1 api
 2. Back refactoring(Vasilije and Luka needed, making services more loose coupled), docker compose cycles problem, services too coupled
-3. SOLVED BUG: fix mobile app verification codes not working(mobile app cannot see it, also ws is failing), all verification codes should be seen by mobile app whatever the way they are sent
 4. standardize time (UTC+0) then front or back converts it
-5. SOLVED BUG: update docker-compose-images
 6. maybe update test mode(it should be whole stock service switch for all users, users should be able to trade buy stocks sell...)
-7. SOLVED BUG: test and see if blueprints for limits are working as they should

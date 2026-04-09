@@ -64,6 +64,10 @@ func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage)
 	return p.publish(ctx, kafkamsg.TopicSendEmail, msg)
 }
 
+func (p *Producer) PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error {
+	return p.publish(ctx, kafkamsg.TopicGeneralNotification, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

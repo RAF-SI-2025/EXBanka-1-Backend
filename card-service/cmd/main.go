@@ -53,6 +53,7 @@ func main() {
 		"card.request-rejected",
 		"card.changelog",
 		"notification.send-email",
+		"notification.general",
 	)
 
 	var redisCache *cache.RedisCache
