@@ -108,50 +108,6 @@ func scanKafkaForActivationToken(t *testing.T, email string) string {
 	return latestToken
 }
 
-// scanKafkaForVerificationCode reads the notification.send-email topic from the earliest
-// offset and returns the most recent TRANSACTION_VERIFICATION code sent to the given email.
-// Blocks up to 15 seconds; fails the test if no code is found.
-func scanKafkaForVerificationCode(t *testing.T, email string) string {
-	t.Helper()
-	r := kafkalib.NewReader(kafkalib.ReaderConfig{
-		Brokers:     []string{cfg.KafkaBrokers},
-		Topic:       "notification.send-email",
-		Partition:   0,
-		StartOffset: kafkalib.FirstOffset,
-		MaxWait:     500 * time.Millisecond,
-	})
-	defer r.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	var latestCode string
-	for {
-		msg, err := r.ReadMessage(ctx)
-		if err != nil {
-			break
-		}
-		var body struct {
-			To        string            `json:"to"`
-			EmailType string            `json:"email_type"`
-			Data      map[string]string `json:"data"`
-		}
-		if json.Unmarshal(msg.Value, &body) != nil {
-			continue
-		}
-		if body.To == email && body.EmailType == "VERIFICATION_CODE" {
-			if code := body.Data["code"]; code != "" {
-				latestCode = code
-			}
-		}
-	}
-
-	if latestCode == "" {
-		t.Fatalf("scanKafkaForVerificationCode: no VERIFICATION_CODE email found for %s within 15s", email)
-	}
-	return latestCode
-}
-
 // setupActivatedClient creates a new bank client, creates a funded RSD account for them,
 // activates their account via the Kafka activation token, and returns the client's ID,
 // their account number, and an authenticated APIClient ready for use in tests.
@@ -261,17 +217,18 @@ func parseJSONBalance(t *testing.T, m map[string]interface{}, field string) floa
 }
 
 // createAndVerifyChallenge creates a verification challenge and verifies it
-// using the Kafka email verification code. Returns the challenge ID.
-func createAndVerifyChallenge(t *testing.T, c *client.APIClient, sourceService string, sourceID int, email string) int {
+// using the universal bypass code. Returns the challenge ID.
+func createAndVerifyChallenge(t *testing.T, c *client.APIClient, sourceService string, sourceID int) int {
 	t.Helper()
-	challengeID, code := createChallengeOnly(t, c, sourceService, sourceID, email)
+	challengeID, code := createChallengeOnly(t, c, sourceService, sourceID)
 	submitVerificationCode(t, c, challengeID, code)
 	return challengeID
 }
 
-// createChallengeOnly creates a verification challenge and extracts the code
-// from Kafka without submitting it.
-func createChallengeOnly(t *testing.T, c *client.APIClient, sourceService string, sourceID int, email string) (int, string) {
+// createChallengeOnly creates a verification challenge and returns the challenge ID
+// and the universal bypass code. No email scanning needed — code_pull challenges
+// are verified with the bypass code "111111".
+func createChallengeOnly(t *testing.T, c *client.APIClient, sourceService string, sourceID int) (int, string) {
 	t.Helper()
 	createResp, err := c.POST("/api/verifications", map[string]interface{}{
 		"source_service": sourceService,
@@ -282,9 +239,7 @@ func createChallengeOnly(t *testing.T, c *client.APIClient, sourceService string
 	}
 	helpers.RequireStatus(t, createResp, 200)
 	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
-
-	code := scanKafkaForVerificationCode(t, email)
-	return challengeID, code
+	return challengeID, "111111"
 }
 
 // submitVerificationCode submits a verification code and asserts success.
@@ -338,7 +293,7 @@ func setupClientWithCard(t *testing.T, adminC *client.APIClient, brand string) (
 }
 
 // createAndExecutePayment creates a payment, verifies via challenge, and executes it.
-func createAndExecutePayment(t *testing.T, fromClient *client.APIClient, toAccountNum string, amount float64, email string) int {
+func createAndExecutePayment(t *testing.T, fromClient *client.APIClient, toAccountNum string, amount float64) int {
 	t.Helper()
 
 	createResp, err := fromClient.POST("/api/me/payments", map[string]interface{}{
@@ -352,7 +307,7 @@ func createAndExecutePayment(t *testing.T, fromClient *client.APIClient, toAccou
 	helpers.RequireStatus(t, createResp, 201)
 	paymentID := int(helpers.GetNumberField(t, createResp, "id"))
 
-	challengeID := createAndVerifyChallenge(t, fromClient, "payment", paymentID, email)
+	challengeID := createAndVerifyChallenge(t, fromClient, "payment", paymentID)
 
 	execResp, err := fromClient.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": "111111",
@@ -366,7 +321,7 @@ func createAndExecutePayment(t *testing.T, fromClient *client.APIClient, toAccou
 }
 
 // createAndExecuteTransfer creates a transfer between own accounts, verifies, and executes.
-func createAndExecuteTransfer(t *testing.T, clientC *client.APIClient, fromAccountNum string, toAccountNum string, amount float64, email string) int {
+func createAndExecuteTransfer(t *testing.T, clientC *client.APIClient, fromAccountNum string, toAccountNum string, amount float64) int {
 	t.Helper()
 
 	createResp, err := clientC.POST("/api/me/transfers", map[string]interface{}{
@@ -380,7 +335,7 @@ func createAndExecuteTransfer(t *testing.T, clientC *client.APIClient, fromAccou
 	helpers.RequireStatus(t, createResp, 201)
 	transferID := int(helpers.GetNumberField(t, createResp, "id"))
 
-	challengeID := createAndVerifyChallenge(t, clientC, "transfer", transferID, email)
+	challengeID := createAndVerifyChallenge(t, clientC, "transfer", transferID)
 
 	execResp, err := clientC.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
 		"verification_code": "111111",

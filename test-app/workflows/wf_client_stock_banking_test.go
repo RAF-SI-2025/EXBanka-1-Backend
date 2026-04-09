@@ -19,7 +19,7 @@ func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create two clients — one for trading+paying, one as payment receiver
-	_, senderAcct, senderC, senderEmail := setupActivatedClient(t, adminC)
+	_, senderAcct, senderC, _ := setupActivatedClient(t, adminC)
 	_, receiverAcct, _, _ := setupActivatedClient(t, adminC)
 	t.Logf("WF-11: sender acct=%s, receiver acct=%s", senderAcct, receiverAcct)
 
@@ -52,7 +52,7 @@ func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
 
 	// Step 4: Client makes a regular payment to the receiver
 	const paymentAmount = 5000.0
-	paymentID := createAndExecutePayment(t, senderC, receiverAcct, paymentAmount, senderEmail)
+	paymentID := createAndExecutePayment(t, senderC, receiverAcct, paymentAmount)
 	t.Logf("WF-11: payment executed id=%d amount=%.2f", paymentID, paymentAmount)
 
 	// Step 5: Assert portfolio has a stock holding

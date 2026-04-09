@@ -19,7 +19,7 @@ func TestWF_FullClientOnboardingToFirstTransaction(t *testing.T) {
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create sender and receiver clients via helper
-	senderID, senderAcct, senderC, senderEmail := setupActivatedClient(t, adminC)
+	senderID, senderAcct, senderC, _ := setupActivatedClient(t, adminC)
 	_, receiverAcct, _, _ := setupActivatedClient(t, adminC)
 
 	t.Logf("WF-1: sender id=%d acct=%s, receiver acct=%s", senderID, senderAcct, receiverAcct)
@@ -43,7 +43,7 @@ func TestWF_FullClientOnboardingToFirstTransaction(t *testing.T) {
 
 	// Step 4: Sender creates and executes payment of 5000 RSD
 	const paymentAmount = 5000.0
-	paymentID := createAndExecutePayment(t, senderC, receiverAcct, paymentAmount, senderEmail)
+	paymentID := createAndExecutePayment(t, senderC, receiverAcct, paymentAmount)
 	t.Logf("WF-1: payment executed id=%d", paymentID)
 
 	// Step 5: Assert balances changed correctly

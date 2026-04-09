@@ -18,7 +18,7 @@ func TestWF_PaymentVerificationFailureAndRetry(t *testing.T) {
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create sender and receiver
-	_, senderAcct, senderC, senderEmail := setupActivatedClient(t, adminC)
+	_, senderAcct, senderC, _ := setupActivatedClient(t, adminC)
 	_, receiverAcct, _, _ := setupActivatedClient(t, adminC)
 	t.Logf("WF-5: sender acct=%s, receiver acct=%s", senderAcct, receiverAcct)
 
@@ -37,7 +37,7 @@ func TestWF_PaymentVerificationFailureAndRetry(t *testing.T) {
 	t.Logf("WF-5: payment created id=%d", paymentID)
 
 	// Step 3: Create challenge (get code but don't submit the correct one)
-	challengeID, _ := createChallengeOnly(t, senderC, "payment", paymentID, senderEmail)
+	challengeID, _ := createChallengeOnly(t, senderC, "payment", paymentID)
 	t.Logf("WF-5: challenge id=%d", challengeID)
 
 	// Step 4: Submit wrong code "000000" three times
@@ -72,7 +72,7 @@ func TestWF_PaymentVerificationFailureAndRetry(t *testing.T) {
 	balBefore := getAccountBalance(t, adminC, senderAcct)
 
 	// Step 7: Create a NEW payment and use createAndExecutePayment with the correct flow
-	newPaymentID := createAndExecutePayment(t, senderC, receiverAcct, paymentAmount, senderEmail)
+	newPaymentID := createAndExecutePayment(t, senderC, receiverAcct, paymentAmount)
 	t.Logf("WF-5: new payment executed id=%d", newPaymentID)
 
 	// Step 8: Assert sender balance decreased (second payment went through)
