@@ -349,7 +349,7 @@ func createAndExecuteTransfer(t *testing.T, clientC *client.APIClient, fromAccou
 }
 
 // buyStock places a market buy order and waits for it to fill.
-func buyStock(t *testing.T, c *client.APIClient, listingID uint64, quantity int, email string) int {
+func buyStock(t *testing.T, c *client.APIClient, listingID uint64, quantity int) int {
 	t.Helper()
 
 	orderResp, err := c.POST("/api/me/orders", map[string]interface{}{
