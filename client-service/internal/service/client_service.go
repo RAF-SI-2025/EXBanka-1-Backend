@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/exbanka/contract/changelog"
-	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/client-service/internal/cache"
 	kafkaprod "github.com/exbanka/client-service/internal/kafka"
 	"github.com/exbanka/client-service/internal/model"
+	"github.com/exbanka/contract/changelog"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 // ChangelogRepo is the interface for changelog persistence.
@@ -210,4 +210,3 @@ func (s *ClientService) ListClients(emailFilter, nameFilter string, page, pageSi
 	}
 	return s.repo.List(emailFilter, nameFilter, page, pageSize)
 }
-

@@ -254,18 +254,18 @@ func createDefaultOrder(t *testing.T, svc *OrderService, listingRepo *mockListin
 	listingRepo.addListing(listing)
 
 	order, err := svc.CreateOrder(
-		42,           // userID
-		"employee",   // systemType
-		1,            // listingID
-		nil,          // holdingID
-		"buy",        // direction
-		"market",     // orderType
-		10,           // quantity
-		nil,          // limitValue
-		nil,          // stopValue
-		false,        // allOrNone
-		false,        // margin
-		1,            // accountID
+		42,         // userID
+		"employee", // systemType
+		1,          // listingID
+		nil,        // holdingID
+		"buy",      // direction
+		"market",   // orderType
+		10,         // quantity
+		nil,        // limitValue
+		nil,        // stopValue
+		false,      // allOrNone
+		false,      // margin
+		1,          // accountID
 	)
 	if err != nil {
 		t.Fatalf("createDefaultOrder failed: %v", err)

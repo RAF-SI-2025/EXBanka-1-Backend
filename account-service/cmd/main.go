@@ -15,10 +15,6 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/accountpb"
-	clientpb "github.com/exbanka/contract/clientpb"
-	"github.com/exbanka/contract/metrics"
-	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/account-service/internal/cache"
 	"github.com/exbanka/account-service/internal/config"
 	"github.com/exbanka/account-service/internal/handler"
@@ -26,6 +22,10 @@ import (
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
+	pb "github.com/exbanka/contract/accountpb"
+	clientpb "github.com/exbanka/contract/clientpb"
+	"github.com/exbanka/contract/metrics"
+	shared "github.com/exbanka/contract/shared"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -213,4 +213,3 @@ func main() {
 	s.GracefulStop()
 	log.Println("Server stopped")
 }
-

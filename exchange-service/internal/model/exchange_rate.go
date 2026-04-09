@@ -38,7 +38,7 @@ func SeedDefaultRates(repo interface {
 	Upsert(from, to string, buy, sell decimal.Decimal) error
 }) {
 	defaults := []struct {
-		from, to string
+		from, to  string
 		buy, sell float64
 	}{
 		{"EUR", "RSD", 116.00, 118.00},

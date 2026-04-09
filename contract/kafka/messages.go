@@ -439,9 +439,9 @@ const (
 // a persistent, user-visible notification (no email, no expiry).
 type GeneralNotificationMessage struct {
 	UserID  uint64 `json:"user_id"`
-	Type    string `json:"type"`    // e.g. "money_received", "loan_approved", "card_issued"
-	Title   string `json:"title"`   // human-readable title
-	Message string `json:"message"` // human-readable body
+	Type    string `json:"type"`               // e.g. "money_received", "loan_approved", "card_issued"
+	Title   string `json:"title"`              // human-readable title
+	Message string `json:"message"`            // human-readable body
 	RefType string `json:"ref_type,omitempty"` // optional: "payment", "transfer", "loan", "card", "account"
 	RefID   uint64 `json:"ref_id,omitempty"`   // optional: ID of the referenced entity
 }
@@ -489,9 +489,9 @@ type VerificationChallengeFailedMessage struct {
 // MobilePushMessage is published by notification-service when a mobile inbox item is stored.
 // api-gateway consumes this to push via WebSocket to connected mobile devices.
 type MobilePushMessage struct {
-	UserID   uint64 `json:"user_id"`
-	Type     string `json:"type"`    // "verification_challenge"
-	Payload  string `json:"payload"` // JSON string
+	UserID  uint64 `json:"user_id"`
+	Type    string `json:"type"`    // "verification_challenge"
+	Payload string `json:"payload"` // JSON string
 }
 
 // Changelog event topic constants -- one per service for downstream consumption.

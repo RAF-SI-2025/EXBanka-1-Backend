@@ -20,9 +20,9 @@ type Claims struct {
 	Email       string   `json:"email"`
 	Roles       []string `json:"roles"`
 	Permissions []string `json:"permissions"`
-	SystemType  string   `json:"system_type"`            // "employee" or "client"
-	DeviceType  string   `json:"device_type,omitempty"`  // "mobile" for mobile app tokens, empty for browser
-	DeviceID    string   `json:"device_id,omitempty"`    // UUID of registered mobile device
+	SystemType  string   `json:"system_type"`           // "employee" or "client"
+	DeviceType  string   `json:"device_type,omitempty"` // "mobile" for mobile app tokens, empty for browser
+	DeviceID    string   `json:"device_id,omitempty"`   // UUID of registered mobile device
 	jwt.RegisteredClaims
 }
 

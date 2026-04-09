@@ -6,10 +6,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/exbanka/contract/changelog"
-	pb "github.com/exbanka/contract/clientpb"
 	"github.com/exbanka/client-service/internal/model"
 	"github.com/exbanka/client-service/internal/service"
+	"github.com/exbanka/contract/changelog"
+	pb "github.com/exbanka/contract/clientpb"
 	"github.com/shopspring/decimal"
 )
 

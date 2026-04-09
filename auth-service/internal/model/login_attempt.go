@@ -15,10 +15,10 @@ type LoginAttempt struct {
 
 // AccountLock tracks locked accounts after too many failed attempts.
 type AccountLock struct {
-	ID         int64      `gorm:"primaryKey;autoIncrement"`
-	Email      string     `gorm:"not null;index"`
-	Reason     string     `gorm:"not null;default:'too_many_failed_attempts'"`
-	LockedAt   time.Time  `gorm:"not null"`
-	ExpiresAt  time.Time  `gorm:"not null"`
+	ID         int64     `gorm:"primaryKey;autoIncrement"`
+	Email      string    `gorm:"not null;index"`
+	Reason     string    `gorm:"not null;default:'too_many_failed_attempts'"`
+	LockedAt   time.Time `gorm:"not null"`
+	ExpiresAt  time.Time `gorm:"not null"`
 	UnlockedAt *time.Time
 }

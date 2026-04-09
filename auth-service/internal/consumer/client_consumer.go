@@ -8,8 +8,8 @@ import (
 
 	"github.com/segmentio/kafka-go"
 
-	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/auth-service/internal/service"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 // ClientConsumer listens for client.created events and creates activation tokens.

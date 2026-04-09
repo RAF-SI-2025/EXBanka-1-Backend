@@ -119,12 +119,12 @@ func TestConcurrentUseCardDecrementsCorrectly(t *testing.T) {
 
 	const initialUses = 5
 	card := seedCard(t, db, model.Card{
-		CardNumber:    "411222XXXXXX2222",
+		CardNumber:     "411222XXXXXX2222",
 		CardNumberFull: "4112222222222222",
-		IsVirtual:     true,
-		UsageType:     "multi_use",
-		UsesRemaining: initialUses,
-		MaxUses:       initialUses,
+		IsVirtual:      true,
+		UsageType:      "multi_use",
+		UsesRemaining:  initialUses,
+		MaxUses:        initialUses,
 	})
 
 	cardRepo := repository.NewCardRepository(db)

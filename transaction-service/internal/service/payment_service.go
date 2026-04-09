@@ -34,7 +34,7 @@ type PaymentService struct {
 	accountClient  accountpb.AccountServiceClient
 	feeSvc         *FeeService
 	producer       *kafka.Producer
-	bankRSDAccount string // account number of bank's RSD account
+	bankRSDAccount string                        // account number of bank's RSD account
 	sagaRepo       *repository.SagaLogRepository // nil-safe: saga logging skipped when nil
 	retryConfig    shared.RetryConfig
 }

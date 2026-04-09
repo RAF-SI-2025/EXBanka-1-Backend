@@ -50,4 +50,3 @@ func (p *Producer) PublishChallengeVerified(ctx context.Context, msg kafkamsg.Ve
 func (p *Producer) PublishChallengeFailed(ctx context.Context, msg kafkamsg.VerificationChallengeFailedMessage) error {
 	return p.publish(ctx, kafkamsg.TopicVerificationChallengeFailed, msg)
 }
-

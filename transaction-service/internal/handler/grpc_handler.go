@@ -397,4 +397,3 @@ func recipientToProto(r *model.PaymentRecipient) *pb.PaymentRecipientResponse {
 		CreatedAt:     r.CreatedAt.String(),
 	}
 }
-

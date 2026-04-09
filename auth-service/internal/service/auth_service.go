@@ -13,12 +13,12 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	kafkamsg "github.com/exbanka/contract/kafka"
-	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/auth-service/internal/cache"
 	kafkaprod "github.com/exbanka/auth-service/internal/kafka"
 	"github.com/exbanka/auth-service/internal/model"
 	"github.com/exbanka/auth-service/internal/repository"
+	kafkamsg "github.com/exbanka/contract/kafka"
+	userpb "github.com/exbanka/contract/userpb"
 )
 
 type AuthService struct {

@@ -198,11 +198,15 @@ func newMockStockRepo() *mockStockRepo {
 	return &mockStockRepo{stocks: make(map[uint64]*model.Stock)}
 }
 
-func (m *mockStockRepo) Create(stock *model.Stock) error                                { return nil }
-func (m *mockStockRepo) GetByTicker(ticker string) (*model.Stock, error)                { return nil, gorm.ErrRecordNotFound }
-func (m *mockStockRepo) Update(stock *model.Stock) error                                { return nil }
-func (m *mockStockRepo) UpsertByTicker(stock *model.Stock) error                        { return nil }
-func (m *mockStockRepo) List(filter repository.StockFilter) ([]model.Stock, int64, error) { return nil, 0, nil }
+func (m *mockStockRepo) Create(stock *model.Stock) error { return nil }
+func (m *mockStockRepo) GetByTicker(ticker string) (*model.Stock, error) {
+	return nil, gorm.ErrRecordNotFound
+}
+func (m *mockStockRepo) Update(stock *model.Stock) error         { return nil }
+func (m *mockStockRepo) UpsertByTicker(stock *model.Stock) error { return nil }
+func (m *mockStockRepo) List(filter repository.StockFilter) ([]model.Stock, int64, error) {
+	return nil, 0, nil
+}
 
 func (m *mockStockRepo) GetByID(id uint64) (*model.Stock, error) {
 	s, ok := m.stocks[id]
@@ -226,12 +230,16 @@ func newMockOptionRepo() *mockOptionRepo {
 	return &mockOptionRepo{options: make(map[uint64]*model.Option)}
 }
 
-func (m *mockOptionRepo) Create(o *model.Option) error                                   { return nil }
-func (m *mockOptionRepo) GetByTicker(ticker string) (*model.Option, error)               { return nil, gorm.ErrRecordNotFound }
-func (m *mockOptionRepo) Update(o *model.Option) error                                   { return nil }
-func (m *mockOptionRepo) UpsertByTicker(o *model.Option) error                           { return nil }
-func (m *mockOptionRepo) List(filter repository.OptionFilter) ([]model.Option, int64, error) { return nil, 0, nil }
-func (m *mockOptionRepo) DeleteExpiredBefore(cutoff time.Time) (int64, error)             { return 0, nil }
+func (m *mockOptionRepo) Create(o *model.Option) error { return nil }
+func (m *mockOptionRepo) GetByTicker(ticker string) (*model.Option, error) {
+	return nil, gorm.ErrRecordNotFound
+}
+func (m *mockOptionRepo) Update(o *model.Option) error         { return nil }
+func (m *mockOptionRepo) UpsertByTicker(o *model.Option) error { return nil }
+func (m *mockOptionRepo) List(filter repository.OptionFilter) ([]model.Option, int64, error) {
+	return nil, 0, nil
+}
+func (m *mockOptionRepo) DeleteExpiredBefore(cutoff time.Time) (int64, error) { return 0, nil }
 
 func (m *mockOptionRepo) GetByID(id uint64) (*model.Option, error) {
 	o, ok := m.options[id]
