@@ -6,7 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/raf-si-2025
+  IMAGE_PREFIX: ghcr.io/raf-si-2025/exbanka-1-backend
 
 jobs:
   publish:
