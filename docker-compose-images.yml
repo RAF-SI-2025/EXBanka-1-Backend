@@ -18,7 +18,7 @@ services:
   # ─── Third-party infrastructure ───────────────────────────────────────────
 
   kafka:
-    image: apache/kafka:3.9.0
+    image: apache/kafka:3.8.1
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
@@ -50,6 +50,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  influxdb:
+    image: influxdb:2.7-alpine
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
+      DOCKER_INFLUXDB_INIT_ORG: exbanka
+      DOCKER_INFLUXDB_INIT_BUCKET: stock_prices
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: exbanka-influx-dev-token
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   # ─── Databases ────────────────────────────────────────────────────────────
 
@@ -181,6 +201,22 @@ services:
       timeout: 5s
       retries: 5
 
+  stock-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: stockdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5442:5432"
+    volumes:
+      - stock-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   verification-db:
     image: postgres:17-alpine
     environment:
@@ -213,22 +249,6 @@ services:
       timeout: 5s
       retries: 5
 
-  stock-db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: stockdb
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5442:5432"
-    volumes:
-      - stock-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # ─── Services ─────────────────────────────────────────────────────────────
 
   user-service:
@@ -243,8 +263,11 @@ services:
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
       USER_DB_SSLMODE: disable
+      METRICS_PORT: "9102"
+      CLIENT_GRPC_ADDR: "client-service:50054"
     ports:
       - "50052:50052"
+      - "9102:9102"
     depends_on:
       user-db:
         condition: service_healthy
@@ -273,8 +296,10 @@ services:
       PASSWORD_PEPPER: "${PASSWORD_PEPPER}"
       MOBILE_REFRESH_EXPIRY: "2160h"
       MOBILE_ACTIVATION_EXPIRY: "15m"
+      METRICS_PORT: "9101"
     ports:
       - "50051:50051"
+      - "9101:9101"
     depends_on:
       auth-db:
         condition: service_healthy
@@ -301,8 +326,10 @@ services:
       NOTIFICATION_DB_PASSWORD: postgres
       NOTIFICATION_DB_NAME: notification_db
       NOTIFICATION_DB_SSLMODE: disable
+      METRICS_PORT: "9103"
     ports:
       - "50053:50053"
+      - "9103:9103"
     depends_on:
       notification-db:
         condition: service_healthy
@@ -318,11 +345,13 @@ services:
       CLIENT_DB_PASSWORD: postgres
       CLIENT_DB_NAME: clientdb
       CLIENT_GRPC_ADDR: ":50054"
+      USER_GRPC_ADDR: "user-service:50052"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
-      USER_GRPC_ADDR: "user-service:50052"
+      METRICS_PORT: "9104"
     ports:
       - "50054:50054"
+      - "9104:9104"
     depends_on:
       client-db:
         condition: service_healthy
@@ -345,8 +374,10 @@ services:
       CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      METRICS_PORT: "9105"
     ports:
       - "50055:50055"
+      - "9105:9105"
     depends_on:
       account-db:
         condition: service_healthy
@@ -369,8 +400,10 @@ services:
       CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
+      METRICS_PORT: "9106"
     ports:
       - "50056:50056"
+      - "9106:9106"
     depends_on:
       card-db:
         condition: service_healthy
@@ -391,18 +424,17 @@ services:
       TRANSACTION_DB_NAME: transactiondb
       TRANSACTION_GRPC_ADDR: ":50057"
       ACCOUNT_GRPC_ADDR: "account-service:50055"
+      KAFKA_BROKERS: kafka:9092
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
       VERIFICATION_GRPC_ADDR: "verification-service:50061"
-      KAFKA_BROKERS: kafka:9092
-      REDIS_ADDR: redis:6379
+      METRICS_PORT: "9107"
     ports:
       - "50057:50057"
+      - "9107:9107"
     depends_on:
       transaction-db:
         condition: service_healthy
       kafka:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       account-service:
         condition: service_started
@@ -424,15 +456,14 @@ services:
       CLIENT_GRPC_ADDR: "client-service:50054"
       USER_GRPC_ADDR: "user-service:50052"
       KAFKA_BROKERS: kafka:9092
-      REDIS_ADDR: redis:6379
+      METRICS_PORT: "9108"
     ports:
       - "50058:50058"
+      - "9108:9108"
     depends_on:
       credit-db:
         condition: service_healthy
       kafka:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       account-service:
         condition: service_started
@@ -451,11 +482,14 @@ services:
       EXCHANGE_DB_NAME: exchangedb
       EXCHANGE_GRPC_ADDR: ":50059"
       KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
       EXCHANGE_COMMISSION_RATE: "0.005"
       EXCHANGE_SPREAD: "0.003"
       EXCHANGE_DB_SSLMODE: disable
+      METRICS_PORT: "9109"
     ports:
       - "50059:50059"
+      - "9109:9109"
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 50059 || exit 1"]
       interval: 10s
@@ -466,6 +500,8 @@ services:
       exchange-db:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   verification-service:
@@ -481,13 +517,18 @@ services:
       VERIFICATION_DB_SSLMODE: disable
       VERIFICATION_CHALLENGE_EXPIRY: "5m"
       VERIFICATION_MAX_ATTEMPTS: "3"
+      METRICS_PORT: "9111"
+      AUTH_GRPC_ADDR: "auth-service:50051"
     ports:
       - "50061:50061"
+      - "9111:9111"
     depends_on:
       verification-db:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      auth-service:
+        condition: service_started
 
   stock-service:
     image: ghcr.io/raf-si-2025/stock-service:${TAG:-latest}
@@ -500,19 +541,34 @@ services:
       STOCK_DB_SSLMODE: disable
       STOCK_GRPC_ADDR: ":50060"
       KAFKA_BROKERS: kafka:9092
+      REDIS_ADDR: redis:6379
       USER_GRPC_ADDR: "user-service:50052"
       ACCOUNT_GRPC_ADDR: "account-service:50055"
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
       CLIENT_GRPC_ADDR: "client-service:50054"
       STATE_ACCOUNT_NUMBER: "0000000000000099"
-      ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY:-}
+      ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY:-48LZWZHF4RBSPT4W}
       SECURITY_SYNC_INTERVAL_MINUTES: "15"
+      EODHD_API_KEY: ${EODHD_API_KEY:-69ceead76aa151.58974488}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_API_SECRET: ${ALPACA_API_SECRET:-}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-d77em2pr01qp6aflc4i0d77em2pr01qp6aflc4ig}
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: exbanka-influx-dev-token
+      INFLUX_ORG: exbanka
+      INFLUX_BUCKET: stock_prices
+      METRICS_PORT: "9110"
     ports:
       - "50060:50060"
+      - "9110:9110"
     depends_on:
       stock-db:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      influxdb:
         condition: service_healthy
       user-service:
         condition: service_started
@@ -541,8 +597,10 @@ services:
       VERIFICATION_GRPC_ADDR: "verification-service:50061"
       NOTIFICATION_GRPC_ADDR: "notification-service:50053"
       KAFKA_BROKERS: kafka:9092
+      METRICS_PORT: "9100"
     ports:
       - "8080:8080"
+      - "9100:9100"
     depends_on:
       auth-service:
         condition: service_started
@@ -575,6 +633,7 @@ services:
     environment:
       USER_GRPC_ADDR: "user-service:50052"
       AUTH_GRPC_ADDR: "auth-service:50051"
+      CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: "kafka:9092"
       ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@admin.com}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-AdminAdmin2026!.}"
@@ -588,6 +647,8 @@ services:
         condition: service_started
       notification-service:
         condition: service_started
+      client-service:
+        condition: service_started
     restart: on-failure
 
 volumes:
@@ -600,6 +661,7 @@ volumes:
   transaction-db-data:
   credit-db-data:
   exchange-db-data:
+  stock-db-data:
+  influxdb_data:
   verification-db-data:
   notification-db-data:
-  stock-db-data:
