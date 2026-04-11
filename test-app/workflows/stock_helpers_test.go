@@ -4,6 +4,7 @@ package workflows
 
 import (
 	"testing"
+	"time"
 
 	"github.com/exbanka/test-app/internal/client"
 	"github.com/exbanka/test-app/internal/helpers"
@@ -98,21 +99,34 @@ func setupSupervisorEmployee(t *testing.T, adminC *client.APIClient) (empID int,
 // Assumes stock-service has seeded data.
 func getFirstStockListingID(t *testing.T, c *client.APIClient) (stockID uint64, listingID uint64) {
 	t.Helper()
-	resp, err := c.GET("/api/securities/stocks?page=1&page_size=1")
-	if err != nil {
-		t.Fatalf("getFirstStockListingID: %v", err)
-	}
-	helpers.RequireStatus(t, resp, 200)
 
-	stocks, ok := resp.Body["stocks"].([]interface{})
-	if !ok || len(stocks) == 0 {
-		t.Fatal("getFirstStockListingID: no stocks found")
-	}
-	stock := stocks[0].(map[string]interface{})
-	stockID = uint64(stock["id"].(float64))
+	// Retry a few times — the seeder may still be populating listings.
+	for attempt := 0; attempt < 10; attempt++ {
+		resp, err := c.GET("/api/securities/stocks?page=1&page_size=1")
+		if err != nil {
+			t.Fatalf("getFirstStockListingID: %v", err)
+		}
+		helpers.RequireStatus(t, resp, 200)
 
-	listing := stock["listing"].(map[string]interface{})
-	listingID = uint64(listing["id"].(float64))
+		stocks, ok := resp.Body["stocks"].([]interface{})
+		if !ok || len(stocks) == 0 {
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		stock := stocks[0].(map[string]interface{})
+
+		listing, ok := stock["listing"].(map[string]interface{})
+		if !ok || listing == nil {
+			t.Logf("getFirstStockListingID: stock has no listing yet, retrying (%d/10)...", attempt+1)
+			time.Sleep(3 * time.Second)
+			continue
+		}
+
+		stockID = uint64(stock["id"].(float64))
+		listingID = uint64(listing["id"].(float64))
+		return
+	}
+	t.Fatal("getFirstStockListingID: no stock with listing found after 10 attempts")
 	return
 }
 
