@@ -231,9 +231,16 @@ jobs:
         run: docker compose up --build -d --wait
         timeout-minutes: 15
 
+      - name: Wait for seeder to complete
+        run: |
+          echo "Waiting for seeder to finish bootstrapping..."
+          timeout 180 bash -c 'while ! docker compose logs seeder 2>&1 | grep -q "all bootstrapping complete"; do sleep 5; done'
+          echo "Seeder completed successfully"
+        timeout-minutes: 5
+
       - name: Dump container logs on failure
         if: failure()
-        run: docker compose logs --tail=100
+        run: docker compose logs --tail=200
 
       - name: Run integration tests
         working-directory: test-app
