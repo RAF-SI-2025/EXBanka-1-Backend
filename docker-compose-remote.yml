@@ -5,10 +5,10 @@
 #      echo $GITHUB_TOKEN | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
 #
 #   2. Run the latest build:
-#      docker compose -f docker-compose-images.yml up -d
+#      docker compose -f docker-compose-remote.yml up -d
 #
 #      Or pin to a specific PR:
-#      TAG=pr-42 docker compose -f docker-compose-images.yml up -d
+#      TAG=pr-42 docker compose -f docker-compose-remote.yml up -d
 #
 #   3. API Gateway is available at http://localhost:8080
 #      Swagger UI at http://localhost:8080/swagger/index.html
