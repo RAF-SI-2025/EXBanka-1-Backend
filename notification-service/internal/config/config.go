@@ -46,7 +46,7 @@ func Load() *Config {
 
 func (c *Config) DSN() string {
 	sslmode := getEnv("NOTIFICATION_DB_SSLMODE", "disable")
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s TimeZone=UTC",
 		c.DBHost, c.DBPort, c.DBUser, c.DBPassword, c.DBName, sslmode)
 }
 
