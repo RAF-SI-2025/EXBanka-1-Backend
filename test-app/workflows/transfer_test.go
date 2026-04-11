@@ -30,7 +30,7 @@ func TestTransfer_UnauthenticatedCannotCreateTransfer(t *testing.T) {
 func TestTransfer_EmployeeCanReadTransfers(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/transfers/999999")
+	resp, err := c.GET("/api/v1/transfers/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestTransfer_ListByClient(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.GET(fmt.Sprintf("/api/transfers?client_id=%d", clientID))
+	resp, err := c.GET(fmt.Sprintf("/api/v1/transfers?client_id=%d", clientID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	email1 := helpers.RandomEmail()
 	password1 := helpers.RandomPassword()
 
-	createResp1, err := adminClient.POST("/api/clients", map[string]interface{}{
+	createResp1, err := adminClient.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("TrfA"),
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -75,7 +75,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	client1ID := int(helpers.GetNumberField(t, createResp1, "id"))
 
 	// Create RSD account for client 1 with 100000 RSD
-	acct1Resp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	acct1Resp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        client1ID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -89,7 +89,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	acctNum1 := helpers.GetStringField(t, acct1Resp, "account_number")
 
 	// Create second RSD account for client 1 (transfers are same-client only)
-	acct2Resp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	acct2Resp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        client1ID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -169,7 +169,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	email1 := helpers.RandomEmail()
 	password1 := helpers.RandomPassword()
 
-	createResp1, err := adminClient.POST("/api/clients", map[string]interface{}{
+	createResp1, err := adminClient.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("XCurA"),
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -186,7 +186,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	client1ID := int(helpers.GetNumberField(t, createResp1, "id"))
 
 	// RSD account (source) with 100000 RSD
-	rsdAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	rsdAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        client1ID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -200,7 +200,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	rsdAccountNumber := helpers.GetStringField(t, rsdAcctResp, "account_number")
 
 	// EUR account (destination) — seed with 10000 EUR to cover cross-currency fees
-	eurAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	eurAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        client1ID,
 		"account_kind":    "foreign",
 		"account_type":    "personal",
@@ -297,14 +297,14 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 	_, accountNumber, clientC, clientEmail := setupActivatedClient(t, adminClient)
 
 	// Second account for same client
-	meResp, err := clientC.GET("/api/me")
+	meResp, err := clientC.GET("/api/v1/me")
 	if err != nil {
 		t.Fatalf("get me error: %v", err)
 	}
 	helpers.RequireStatus(t, meResp, 200)
 	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
 
-	acct2Resp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	acct2Resp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        meClientID,
 		"account_kind":    "current",
 		"account_type":    "personal",

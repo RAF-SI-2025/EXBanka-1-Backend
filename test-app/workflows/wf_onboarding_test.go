@@ -74,7 +74,7 @@ func TestWF_FullClientOnboardingToFirstTransaction(t *testing.T) {
 	}
 
 	// Step 6: Verify admin can view the payment
-	adminPaymentResp, err := adminC.GET(fmt.Sprintf("/api/payments/%d", paymentID))
+	adminPaymentResp, err := adminC.GET(fmt.Sprintf("/api/v1/payments/%d", paymentID))
 	if err != nil {
 		t.Fatalf("WF-1: admin get payment: %v", err)
 	}

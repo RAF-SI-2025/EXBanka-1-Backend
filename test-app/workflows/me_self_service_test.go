@@ -15,7 +15,7 @@ func TestMe_GetProfile(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me")
+	resp, err := clientC.GET("/api/v1/me")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestMe_UnauthenticatedRejected(t *testing.T) {
 	c := newClient()
 
 	endpoints := []string{
-		"/api/me",
+		"/api/v1/me",
 		"/api/me/accounts",
 		"/api/me/cards",
 		"/api/me/payments",

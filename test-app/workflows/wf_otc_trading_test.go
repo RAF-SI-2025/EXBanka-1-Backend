@@ -83,7 +83,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 
 	// Step 5: Agent B lists OTC offers
 	time.Sleep(1 * time.Second) // brief wait for offer to propagate
-	offersResp, err := agentB.GET("/api/otc/offers")
+	offersResp, err := agentB.GET("/api/v1/otc/offers")
 	if err != nil {
 		t.Fatalf("WF-9: agent B list OTC offers: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 	t.Logf("WF-9: agent B will buy offer id=%d", offerID)
 
 	// Step 6: Agent B buys from A's OTC offer
-	otcBuyResp, err := agentB.POST(fmt.Sprintf("/api/otc/offers/%d/buy", offerID), map[string]interface{}{
+	otcBuyResp, err := agentB.POST(fmt.Sprintf("/api/v1/otc/offers/%d/buy", offerID), map[string]interface{}{
 		"quantity":   1,
 		"account_id": 1,
 	})

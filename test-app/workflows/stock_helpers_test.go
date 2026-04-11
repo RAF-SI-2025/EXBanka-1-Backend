@@ -17,7 +17,7 @@ func setupAdminEmployee(t *testing.T, adminC *client.APIClient) (empID int, empC
 	email = helpers.RandomEmail()
 	password := helpers.RandomPassword()
 
-	createResp, err := adminC.POST("/api/employees", map[string]interface{}{
+	createResp, err := adminC.POST("/api/v1/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Admin"),
 		"last_name":     helpers.RandomName("Emp"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -60,7 +60,7 @@ func setupAgentEmployee(t *testing.T, adminC *client.APIClient) (empID int, agen
 	email = helpers.RandomEmail()
 	password := helpers.RandomPassword()
 
-	createResp, err := adminC.POST("/api/employees", map[string]interface{}{
+	createResp, err := adminC.POST("/api/v1/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Agent"),
 		"last_name":     helpers.RandomName("Emp"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -102,7 +102,7 @@ func setupSupervisorEmployee(t *testing.T, adminC *client.APIClient) (empID int,
 	email = helpers.RandomEmail()
 	password := helpers.RandomPassword()
 
-	createResp, err := adminC.POST("/api/employees", map[string]interface{}{
+	createResp, err := adminC.POST("/api/v1/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Super"),
 		"last_name":     helpers.RandomName("Visor"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -145,7 +145,7 @@ func getFirstStockListingID(t *testing.T, c *client.APIClient) (stockID uint64, 
 
 	// Retry a few times — the seeder may still be populating listings.
 	for attempt := 0; attempt < 10; attempt++ {
-		resp, err := c.GET("/api/securities/stocks?page=1&page_size=1")
+		resp, err := c.GET("/api/v1/securities/stocks?page=1&page_size=1")
 		if err != nil {
 			t.Fatalf("getFirstStockListingID: %v", err)
 		}
@@ -176,7 +176,7 @@ func getFirstStockListingID(t *testing.T, c *client.APIClient) (stockID uint64, 
 // getFirstFuturesID fetches futures and returns the first futures contract's ID.
 func getFirstFuturesID(t *testing.T, c *client.APIClient) uint64 {
 	t.Helper()
-	resp, err := c.GET("/api/securities/futures?page=1&page_size=1")
+	resp, err := c.GET("/api/v1/securities/futures?page=1&page_size=1")
 	if err != nil {
 		t.Fatalf("getFirstFuturesID: %v", err)
 	}
@@ -192,7 +192,7 @@ func getFirstFuturesID(t *testing.T, c *client.APIClient) uint64 {
 // getFirstForexPairID fetches forex pairs and returns the first pair's ID.
 func getFirstForexPairID(t *testing.T, c *client.APIClient) uint64 {
 	t.Helper()
-	resp, err := c.GET("/api/securities/forex?page=1&page_size=1")
+	resp, err := c.GET("/api/v1/securities/forex?page=1&page_size=1")
 	if err != nil {
 		t.Fatalf("getFirstForexPairID: %v", err)
 	}
@@ -208,7 +208,7 @@ func getFirstForexPairID(t *testing.T, c *client.APIClient) uint64 {
 // getFirstOptionID fetches options for a stock and returns the first option's ID.
 func getFirstOptionID(t *testing.T, c *client.APIClient, stockID uint64) uint64 {
 	t.Helper()
-	resp, err := c.GET("/api/securities/options?stock_id=" + helpers.FormatID(int(stockID)) + "&page_size=1")
+	resp, err := c.GET("/api/v1/securities/options?stock_id=" + helpers.FormatID(int(stockID)) + "&page_size=1")
 	if err != nil {
 		t.Fatalf("getFirstOptionID: %v", err)
 	}

@@ -83,7 +83,7 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 		t.Logf("WF-7: using futures_id=%d", futuresID)
 
 		// Futures use listing ID — fetch the listing for this futures contract
-		futuresResp, err := supervisorC.GET(fmt.Sprintf("/api/securities/futures?page=1&page_size=1"))
+		futuresResp, err := supervisorC.GET(fmt.Sprintf("/api/v1/securities/futures?page=1&page_size=1"))
 		if err != nil {
 			t.Fatalf("WF-7: get futures: %v", err)
 		}

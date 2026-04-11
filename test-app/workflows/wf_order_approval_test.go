@@ -51,7 +51,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: order #1 initial status=%s", status1)
 
 	// Step 3: Supervisor approves the order
-	approveResp, err := supervisorC.POST(fmt.Sprintf("/api/orders/%d/approve", orderID1), nil)
+	approveResp, err := supervisorC.POST(fmt.Sprintf("/api/v1/orders/%d/approve", orderID1), nil)
 	if err != nil {
 		t.Fatalf("WF-8: supervisor approve order: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: agent order #2 created id=%d", orderID2)
 
 	// Step 6: Supervisor declines this order
-	declineResp, err := supervisorC.POST(fmt.Sprintf("/api/orders/%d/decline", orderID2), nil)
+	declineResp, err := supervisorC.POST(fmt.Sprintf("/api/v1/orders/%d/decline", orderID2), nil)
 	if err != nil {
 		t.Fatalf("WF-8: supervisor decline order: %v", err)
 	}

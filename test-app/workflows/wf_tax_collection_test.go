@@ -74,7 +74,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
 	// Step 4: Supervisor triggers tax collection
-	collectResp, err := supervisorC.POST("/api/tax/collect", nil)
+	collectResp, err := supervisorC.POST("/api/v1/tax/collect", nil)
 	if err != nil {
 		t.Fatalf("WF-10: supervisor collect tax: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 		collectResp.Body["collected_count"], collectResp.Body["total_collected_rsd"])
 
 	// Step 5: Supervisor can list all tax records
-	taxListResp, err := supervisorC.GET("/api/tax")
+	taxListResp, err := supervisorC.GET("/api/v1/tax")
 	if err != nil {
 		t.Fatalf("WF-10: supervisor list tax: %v", err)
 	}

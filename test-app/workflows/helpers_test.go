@@ -97,7 +97,7 @@ func pollPendingUntilFound(t *testing.T, mobileC *client.MobileAPIClient, challe
 // parses it to float64 for arithmetic comparisons in tests.
 func getAccountBalance(t *testing.T, c *client.APIClient, accountNumber string) float64 {
 	t.Helper()
-	resp, err := c.GET("/api/accounts/by-number/" + accountNumber)
+	resp, err := c.GET("/api/v1/accounts/by-number/" + accountNumber)
 	if err != nil {
 		t.Fatalf("getAccountBalance: GET /api/accounts/by-number/%s: %v", accountNumber, err)
 	}
@@ -109,7 +109,7 @@ func getAccountBalance(t *testing.T, c *client.APIClient, accountNumber string) 
 // bank-owned RSD account. Uses GET /api/bank-accounts (employee auth required).
 func getBankRSDAccount(t *testing.T, c *client.APIClient) (string, float64) {
 	t.Helper()
-	resp, err := c.GET("/api/bank-accounts")
+	resp, err := c.GET("/api/v1/bank-accounts")
 	if err != nil {
 		t.Fatalf("getBankRSDAccount: GET /api/bank-accounts: %v", err)
 	}
@@ -196,7 +196,7 @@ func setupActivatedClient(t *testing.T, adminC *client.APIClient) (clientID int,
 	password := helpers.RandomPassword()
 
 	// Create client
-	createResp, err := adminC.POST("/api/clients", map[string]interface{}{
+	createResp, err := adminC.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("Cli"),
 		"last_name":     helpers.RandomName("User"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -213,7 +213,7 @@ func setupActivatedClient(t *testing.T, adminC *client.APIClient) (clientID int,
 	clientID = int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Create funded RSD account
-	acctResp, err := adminC.POST("/api/accounts", map[string]interface{}{
+	acctResp, err := adminC.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -246,7 +246,7 @@ func createVerificationAndGetChallengeID(t *testing.T, c *client.APIClient, sour
 	t.Helper()
 
 	// Create verification challenge
-	createResp, err := c.POST("/api/verifications", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/verifications", map[string]interface{}{
 		"source_service": sourceService,
 		"source_id":      sourceID,
 	})
@@ -257,7 +257,7 @@ func createVerificationAndGetChallengeID(t *testing.T, c *client.APIClient, sour
 	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
 
 	// Submit bypass code to verify
-	submitResp, err := c.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
+	submitResp, err := c.POST(fmt.Sprintf("/api/v1/verifications/%d/code", challengeID), map[string]interface{}{
 		"code": "111111",
 	})
 	if err != nil {
@@ -305,7 +305,7 @@ func createAndVerifyChallenge(t *testing.T, c *client.APIClient, sourceService s
 // are verified with the bypass code "111111".
 func createChallengeOnly(t *testing.T, c *client.APIClient, sourceService string, sourceID int) (int, string) {
 	t.Helper()
-	createResp, err := c.POST("/api/verifications", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/verifications", map[string]interface{}{
 		"source_service": sourceService,
 		"source_id":      sourceID,
 	})
@@ -320,7 +320,7 @@ func createChallengeOnly(t *testing.T, c *client.APIClient, sourceService string
 // submitVerificationCode submits a verification code and asserts success.
 func submitVerificationCode(t *testing.T, c *client.APIClient, challengeID int, code string) {
 	t.Helper()
-	resp, err := c.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
+	resp, err := c.POST(fmt.Sprintf("/api/v1/verifications/%d/code", challengeID), map[string]interface{}{
 		"code": code,
 	})
 	if err != nil {
@@ -334,7 +334,7 @@ func setupActivatedClientWithForeignAccount(t *testing.T, adminC *client.APIClie
 	t.Helper()
 	clientID, rsdAccountNum, clientC, email = setupActivatedClient(t, adminC)
 
-	acctResp, err := adminC.POST("/api/accounts", map[string]interface{}{
+	acctResp, err := adminC.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientID,
 		"account_kind":    "foreign",
 		"account_type":    "personal",
@@ -354,7 +354,7 @@ func setupClientWithCard(t *testing.T, adminC *client.APIClient, brand string) (
 	t.Helper()
 	clientID, accountNum, clientC, email = setupActivatedClient(t, adminC)
 
-	cardResp, err := adminC.POST("/api/cards", map[string]interface{}{
+	cardResp, err := adminC.POST("/api/v1/cards", map[string]interface{}{
 		"account_number": accountNum,
 		"card_brand":     brand,
 		"owner_type":     "client",
@@ -492,7 +492,7 @@ func createLoanAndApprove(t *testing.T, adminC *client.APIClient, clientC *clien
 	helpers.RequireStatus(t, reqResp, 201)
 	requestID := int(helpers.GetNumberField(t, reqResp, "id"))
 
-	approveResp, err := adminC.POST(fmt.Sprintf("/api/loan-requests/%d/approve", requestID), nil)
+	approveResp, err := adminC.POST(fmt.Sprintf("/api/v1/loan-requests/%d/approve", requestID), nil)
 	if err != nil {
 		t.Fatalf("createLoanAndApprove: approve: %v", err)
 	}

@@ -20,25 +20,25 @@ func TestNeg_NoTokenOnProtectedRoutes(t *testing.T) {
 		method string
 		path   string
 	}{
-		{"GET", "/api/employees"},
-		{"GET", "/api/employees/1"},
-		{"POST", "/api/employees"},
-		{"GET", "/api/clients"},
-		{"POST", "/api/clients"},
-		{"GET", "/api/accounts"},
-		{"POST", "/api/accounts"},
-		{"GET", "/api/roles"},
-		{"POST", "/api/roles"},
-		{"GET", "/api/permissions"},
-		{"GET", "/api/fees"},
-		{"POST", "/api/fees"},
-		{"GET", "/api/bank-accounts"},
-		{"POST", "/api/bank-accounts"},
-		{"GET", "/api/interest-rate-tiers"},
-		{"GET", "/api/bank-margins"},
-		{"GET", "/api/loan-requests"},
-		{"GET", "/api/loans"},
-		{"GET", "/api/currencies"},
+		{"GET", "/api/v1/employees"},
+		{"GET", "/api/v1/employees/1"},
+		{"POST", "/api/v1/employees"},
+		{"GET", "/api/v1/clients"},
+		{"POST", "/api/v1/clients"},
+		{"GET", "/api/v1/accounts"},
+		{"POST", "/api/v1/accounts"},
+		{"GET", "/api/v1/roles"},
+		{"POST", "/api/v1/roles"},
+		{"GET", "/api/v1/permissions"},
+		{"GET", "/api/v1/fees"},
+		{"POST", "/api/v1/fees"},
+		{"GET", "/api/v1/bank-accounts"},
+		{"POST", "/api/v1/bank-accounts"},
+		{"GET", "/api/v1/interest-rate-tiers"},
+		{"GET", "/api/v1/bank-margins"},
+		{"GET", "/api/v1/loan-requests"},
+		{"GET", "/api/v1/loans"},
+		{"GET", "/api/v1/currencies"},
 	}
 
 	for _, r := range routes {
@@ -66,7 +66,7 @@ func TestNeg_InvalidTokenOnProtectedRoutes(t *testing.T) {
 	c := newClient()
 	c.SetToken("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.payload")
 
-	resp, err := c.GET("/api/employees")
+	resp, err := c.GET("/api/v1/employees")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestNeg_ExpiredToken(t *testing.T) {
 	// Use a clearly expired JWT (we can't easily forge one, but an obviously malformed one should fail)
 	c := newClient()
 	c.SetToken("expired.token.here")
-	resp, err := c.GET("/api/employees")
+	resp, err := c.GET("/api/v1/employees")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestNeg_EmployeeCannotAccessClientOnlyRoutes(t *testing.T) {
 		method string
 		path   string
 	}{
-		{"GET", "/api/me"},
+		{"GET", "/api/v1/me"},
 		{"POST", "/api/me/payments"},
 		{"POST", "/api/me/transfers"},
 		{"POST", "/api/me/loan-requests"},
@@ -135,7 +135,7 @@ func TestNeg_EmployeeCannotAccessClientOnlyRoutes(t *testing.T) {
 func TestNeg_EmployeeCreateMissingRequiredFields(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/employees", map[string]interface{}{
+	resp, err := c.POST("/api/v1/employees", map[string]interface{}{
 		// Missing most required fields
 		"first_name": "Only",
 	})
@@ -150,7 +150,7 @@ func TestNeg_EmployeeCreateMissingRequiredFields(t *testing.T) {
 func TestNeg_ClientCreateInvalidEmail(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/clients", map[string]interface{}{
+	resp, err := c.POST("/api/v1/clients", map[string]interface{}{
 		"first_name": "Bad",
 		"last_name":  "Email",
 		"email":      "not-an-email",
@@ -170,12 +170,12 @@ func TestNeg_GetNonExistentResources(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 	notFoundRoutes := []string{
-		"/api/employees/999999",
-		"/api/clients/999999",
-		"/api/accounts/999999",
-		"/api/cards/999999",
-		"/api/loans/999999",
-		"/api/roles/999999",
+		"/api/v1/employees/999999",
+		"/api/v1/clients/999999",
+		"/api/v1/accounts/999999",
+		"/api/v1/cards/999999",
+		"/api/v1/loans/999999",
+		"/api/v1/roles/999999",
 	}
 
 	for _, path := range notFoundRoutes {
@@ -198,7 +198,7 @@ func TestNeg_PublicRoutesNoAuth(t *testing.T) {
 	c := newClient()
 
 	// Auth routes (public)
-	resp, err := c.POST("/api/auth/password/reset-request", map[string]string{"email": "test@test.com"})
+	resp, err := c.POST("/api/v1/auth/password/reset-request", map[string]string{"email": "test@test.com"})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestNeg_PublicRoutesNoAuth(t *testing.T) {
 	}
 
 	// Exchange rates (public)
-	resp, err = c.GET("/api/exchange/rates")
+	resp, err = c.GET("/api/v1/exchange/rates")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

@@ -13,7 +13,7 @@ import (
 func TestExchangeRates_ListAll(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.GET("/api/exchange/rates")
+	resp, err := c.GET("/api/v1/exchange/rates")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestExchangeRates_ListAll(t *testing.T) {
 func TestExchangeRates_GetSpecific(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.GET("/api/exchange/rates/EUR/RSD")
+	resp, err := c.GET("/api/v1/exchange/rates/EUR/RSD")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestExchangeRates_GetSpecific(t *testing.T) {
 func TestExchangeRates_Calculate(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/exchange/calculate", map[string]interface{}{
+	resp, err := c.POST("/api/v1/exchange/calculate", map[string]interface{}{
 		"fromCurrency": "EUR",
 		"toCurrency":   "RSD",
 		"amount":       "100.00",
@@ -64,7 +64,7 @@ func TestExchangeRates_Calculate(t *testing.T) {
 func TestExchangeRates_Calculate_MissingFields(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/exchange/calculate", map[string]interface{}{
+	resp, err := c.POST("/api/v1/exchange/calculate", map[string]interface{}{
 		"fromCurrency": "EUR",
 	})
 	if err != nil {
@@ -76,7 +76,7 @@ func TestExchangeRates_Calculate_MissingFields(t *testing.T) {
 func TestExchangeRates_Calculate_InvalidAmount(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/exchange/calculate", map[string]interface{}{
+	resp, err := c.POST("/api/v1/exchange/calculate", map[string]interface{}{
 		"fromCurrency": "EUR",
 		"toCurrency":   "RSD",
 		"amount":       "-100",
@@ -90,7 +90,7 @@ func TestExchangeRates_Calculate_InvalidAmount(t *testing.T) {
 func TestExchangeRates_Calculate_UnsupportedCurrency(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/exchange/calculate", map[string]interface{}{
+	resp, err := c.POST("/api/v1/exchange/calculate", map[string]interface{}{
 		"fromCurrency": "XYZ",
 		"toCurrency":   "RSD",
 		"amount":       "100",

@@ -36,7 +36,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card request id=%d", cardReqID)
 
 	// Step 3: Admin approves the card request
-	approveResp, err := adminC.POST(fmt.Sprintf("/api/cards/requests/%d/approve", cardReqID), nil)
+	approveResp, err := adminC.POST(fmt.Sprintf("/api/v1/cards/requests/%d/approve", cardReqID), nil)
 	if err != nil {
 		t.Fatalf("WF-3: approve card request: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card request approved")
 
 	// Step 4: List client's cards to get the card ID
-	cardsResp, err := adminC.GET(fmt.Sprintf("/api/cards?account_number=%s", accountNum))
+	cardsResp, err := adminC.GET(fmt.Sprintf("/api/v1/cards?account_number=%s", accountNum))
 	if err != nil {
 		t.Fatalf("WF-3: list cards: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card temporarily blocked")
 
 	// Step 7: Admin unblocks the card
-	unblockResp, err := adminC.POST(fmt.Sprintf("/api/cards/%d/unblock", cardID), nil)
+	unblockResp, err := adminC.POST(fmt.Sprintf("/api/v1/cards/%d/unblock", cardID), nil)
 	if err != nil {
 		t.Fatalf("WF-3: admin unblock: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card unblocked by admin")
 
 	// Step 8: Admin deactivates the card
-	deactivateResp, err := adminC.POST(fmt.Sprintf("/api/cards/%d/deactivate", cardID), nil)
+	deactivateResp, err := adminC.POST(fmt.Sprintf("/api/v1/cards/%d/deactivate", cardID), nil)
 	if err != nil {
 		t.Fatalf("WF-3: deactivate: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card deactivated")
 
 	// Step 9: Try to unblock after deactivation — should fail (non-200)
-	unblockAfterDeactivate, err := adminC.POST(fmt.Sprintf("/api/cards/%d/unblock", cardID), nil)
+	unblockAfterDeactivate, err := adminC.POST(fmt.Sprintf("/api/v1/cards/%d/unblock", cardID), nil)
 	if err != nil {
 		t.Fatalf("WF-3: unblock after deactivate request: %v", err)
 	}

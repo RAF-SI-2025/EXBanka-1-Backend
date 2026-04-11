@@ -4,9 +4,13 @@ package router
 import (
 	"net/http"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/exbanka/api-gateway/internal/handler"
+	apimetrics "github.com/exbanka/api-gateway/internal/metrics"
 	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	authpb "github.com/exbanka/contract/authpb"
@@ -85,6 +89,23 @@ func v1GetLoanChangelog(c *gin.Context) { notImplemented(c) }
 //
 // IMPORTANT: This function must be called AFTER Setup() has already configured
 // the engine (CORS, swagger, etc.) and registered /api/ routes.
+// NewRouter creates the Gin engine with CORS, metrics, and Swagger.
+// Version-specific route functions (SetupV1Routes, future SetupV2Routes, etc.)
+// attach their routes to this engine.
+func NewRouter() *gin.Engine {
+	r := gin.Default()
+	r.Use(apimetrics.GinMiddleware())
+	r.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: false,
+	}))
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	return r
+}
+
 func SetupV1Routes(
 	r *gin.Engine,
 	authClient authpb.AuthServiceClient,
@@ -113,7 +134,7 @@ func SetupV1Routes(
 	notificationClient notificationpb.NotificationServiceClient,
 	wsHandler *handler.WebSocketHandler,
 ) {
-	// ── Create handlers (same as Setup, stateless wrappers) ──────────────
+	// ── Create handlers ─────────────────────────────────────────────────
 	authHandler := handler.NewAuthHandler(authClient)
 	empHandler := handler.NewEmployeeHandler(userClient, authClient)
 	roleHandler := handler.NewRoleHandler(userClient)

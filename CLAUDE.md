@@ -181,7 +181,7 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 
 **Auth token system type** (auth-service):
 - JWT claims include a `system_type` field: `employee` for employee logins, `client` for client logins.
-- Middleware uses `system_type` to route to `AuthMiddleware` (employee) or `ClientAuthMiddleware` (client).
+- Middleware uses `system_type` to route to `AuthMiddleware` (employee) or `AnyAuthMiddleware` (client + employee).
 
 **Token types** (auth-service):
 - Access token: short-lived JWT (15 min), stateless validation. Claims include `user_id`, `roles []string`, `permissions []string`, and `system_type` (`employee` or `client`).
@@ -193,7 +193,7 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 
 **Employee creation flow:** API Gateway → User service (create employee) → Auth service (create activation token) → Kafka → Notification service (send activation email).
 
-**Client login flow:** API Gateway (`POST /api/auth/client-login`) → Auth service (`ClientLogin` RPC) → Client service (`ValidateCredentials` RPC) → Auth service generates JWT with `role="client"` and issues refresh token. The client JWT is then validated by `ClientAuthMiddleware` in the API Gateway for client-protected routes.
+**Client login flow:** API Gateway (`POST /api/auth/client-login`) → Auth service (`ClientLogin` RPC) → Client service (`ValidateCredentials` RPC) → Auth service generates JWT with `role="client"` and issues refresh token. The client JWT is validated by `AnyAuthMiddleware` in the API Gateway for `/api/me/*` routes.
 
 **JMBG (Jedinstveni Matični Broj Građana):**
 - Unique 13-digit national identification number required for all employees
@@ -250,14 +250,14 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 **Middleware assignment:**
 - `AnyAuthMiddleware` for `/api/me/*` routes (accepts both client and employee tokens).
 - `AuthMiddleware` + `RequirePermission("...")` for employee/admin routes.
-- `ClientAuthMiddleware` is no longer routed but kept in codebase (may be useful for future client-only restrictions).
+- Client routes use `AnyAuthMiddleware` which accepts both client and employee tokens.
 - Public routes (auth, exchange rates) need no middleware.
 
 **When adding a new endpoint:**
 - If it's "user accesses their own resource" → add under `/api/me/*` with `AnyAuthMiddleware`.
 - If it's an employee/admin operation or general data → add under `/api/<resource>` with `AuthMiddleware`.
 - Use `apiError()` for all error responses, `handleGRPCError()` for gRPC errors.
-- Update swagger annotations, `docs/api/REST_API.md`, and `test-app` integration tests.
+- Update swagger annotations, `docs/api/REST_API_v1.md`, and `test-app` integration tests.
 - For `/api/me` handlers: create a `ListMy<Resource>` wrapper that extracts `user_id` from JWT context.
 
 ## Swagger Documentation Requirement
@@ -271,12 +271,12 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 
 ## REST API Documentation Requirement
 
-**Every route added, changed, or removed in `api-gateway` must be reflected in `docs/api/REST_API.md`.** This is a hard requirement — not optional.
+**Every route added, changed, or removed in `api-gateway` must be reflected in `docs/api/REST_API_v1.md`.** This is a hard requirement — not optional.
 
 - Add a new section or subsection for every new endpoint, following the existing format (authentication, path/query parameters, request body, example request, and all response codes).
 - Update existing sections when request/response shapes, authentication requirements, or behavior changes.
 - Remove sections for any deleted routes.
-- `docs/api/REST_API.md` must be committed alongside handler and router changes.
+- `docs/api/REST_API_v1.md` must be committed alongside handler and router changes.
 
 ## Testing Requirement
 

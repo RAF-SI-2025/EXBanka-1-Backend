@@ -14,7 +14,7 @@ import (
 func TestLimits_GetEmployeeLimits(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/employees/1/limits")
+	resp, err := c.GET("/api/v1/employees/1/limits")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestLimits_SetEmployeeLimits(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 
-	createResp, err := c.POST("/api/employees", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Limit"),
 		"last_name":     helpers.RandomName("Test"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -41,7 +41,7 @@ func TestLimits_SetEmployeeLimits(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	empID := helpers.GetNumberField(t, createResp, "id")
 
-	resp, err := c.PUT(fmt.Sprintf("/api/employees/%d/limits", int(empID)), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v1/employees/%d/limits", int(empID)), map[string]interface{}{
 		"max_loan_approval_amount": "500000.00",
 		"max_single_transaction":   "100000.00",
 		"max_daily_transaction":    "250000.00",
@@ -54,7 +54,7 @@ func TestLimits_SetEmployeeLimits(t *testing.T) {
 	helpers.RequireStatus(t, resp, 200)
 
 	// Verify limits were set
-	getResp, err := c.GET(fmt.Sprintf("/api/employees/%d/limits", int(empID)))
+	getResp, err := c.GET(fmt.Sprintf("/api/v1/employees/%d/limits", int(empID)))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestLimits_ApplyTemplate(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 
-	createResp, err := c.POST("/api/employees", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Template"),
 		"last_name":     helpers.RandomName("Test"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -81,7 +81,7 @@ func TestLimits_ApplyTemplate(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	empID := helpers.GetNumberField(t, createResp, "id")
 
-	resp, err := c.POST(fmt.Sprintf("/api/employees/%d/limits/template", int(empID)), map[string]interface{}{
+	resp, err := c.POST(fmt.Sprintf("/api/v1/employees/%d/limits/template", int(empID)), map[string]interface{}{
 		"template_name": "BasicTeller",
 	})
 	if err != nil {
@@ -93,7 +93,7 @@ func TestLimits_ApplyTemplate(t *testing.T) {
 func TestLimits_ListTemplates(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/limits/templates")
+	resp, err := c.GET("/api/v1/limits/templates")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestLimits_ListTemplates(t *testing.T) {
 func TestLimits_CreateTemplate(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/limits/templates", map[string]interface{}{
+	resp, err := c.POST("/api/v1/limits/templates", map[string]interface{}{
 		"name":                     fmt.Sprintf("TestTemplate_%d", helpers.DateOfBirthUnix()),
 		"description":              "Test template",
 		"max_loan_approval_amount": "1000000.00",

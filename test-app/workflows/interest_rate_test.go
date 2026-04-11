@@ -14,7 +14,7 @@ import (
 func TestInterestRateTiers_List(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/interest-rate-tiers")
+	resp, err := c.GET("/api/v1/interest-rate-tiers")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestInterestRateTiers_List(t *testing.T) {
 func TestInterestRateTiers_UnauthenticatedDenied(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.GET("/api/interest-rate-tiers")
+	resp, err := c.GET("/api/v1/interest-rate-tiers")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestInterestRateTiers_UnauthenticatedDenied(t *testing.T) {
 func TestInterestRateTiers_CreateFixed(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
+	resp, err := c.POST("/api/v1/interest-rate-tiers", map[string]interface{}{
 		"fixed_rate":    5.50,
 		"variable_base": 0.01,
 	})
@@ -51,7 +51,7 @@ func TestInterestRateTiers_CreateFixed(t *testing.T) {
 func TestInterestRateTiers_CreateVariable(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
+	resp, err := c.POST("/api/v1/interest-rate-tiers", map[string]interface{}{
 		"fixed_rate":    0.01,
 		"variable_base": 3.25,
 	})
@@ -66,7 +66,7 @@ func TestInterestRateTiers_CreateVariable(t *testing.T) {
 func TestInterestRateTiers_CreateMissingFixedRate(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
+	resp, err := c.POST("/api/v1/interest-rate-tiers", map[string]interface{}{
 		// "fixed_rate" intentionally omitted
 		"variable_base": 3.25,
 	})
@@ -84,7 +84,7 @@ func TestInterestRateTiers_UpdateTier(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// Create a tier first
-	createResp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/interest-rate-tiers", map[string]interface{}{
 		"fixed_rate":    4.0,
 		"variable_base": 0.01,
 	})
@@ -97,7 +97,7 @@ func TestInterestRateTiers_UpdateTier(t *testing.T) {
 	tierID := int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Update the tier
-	resp, err := c.PUT(fmt.Sprintf("/api/interest-rate-tiers/%d", tierID), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v1/interest-rate-tiers/%d", tierID), map[string]interface{}{
 		"fixed_rate":    6.0,
 		"variable_base": 0.01,
 	})
@@ -114,7 +114,7 @@ func TestInterestRateTiers_DeleteTier(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// Create a tier to delete
-	createResp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/interest-rate-tiers", map[string]interface{}{
 		"fixed_rate":    7.0,
 		"variable_base": 0.01,
 	})
@@ -126,7 +126,7 @@ func TestInterestRateTiers_DeleteTier(t *testing.T) {
 	}
 	tierID := int(helpers.GetNumberField(t, createResp, "id"))
 
-	resp, err := c.DELETE(fmt.Sprintf("/api/interest-rate-tiers/%d", tierID))
+	resp, err := c.DELETE(fmt.Sprintf("/api/v1/interest-rate-tiers/%d", tierID))
 	if err != nil {
 		t.Fatalf("delete error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestInterestRateTiers_ApplyVariableRate(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// Create a variable rate tier
-	createResp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/interest-rate-tiers", map[string]interface{}{
 		"fixed_rate":    0.01,
 		"variable_base": 4.0,
 	})
@@ -151,7 +151,7 @@ func TestInterestRateTiers_ApplyVariableRate(t *testing.T) {
 	tierID := int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Apply variable rate update
-	resp, err := c.POST(fmt.Sprintf("/api/interest-rate-tiers/%d/apply", tierID), map[string]interface{}{})
+	resp, err := c.POST(fmt.Sprintf("/api/v1/interest-rate-tiers/%d/apply", tierID), map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("apply error: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestInterestRateTiers_ApplyVariableRate(t *testing.T) {
 func TestBankMargins_List(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/bank-margins")
+	resp, err := c.GET("/api/v1/bank-margins")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestBankMargins_Update(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// List margins to get an ID
-	listResp, err := c.GET("/api/bank-margins")
+	listResp, err := c.GET("/api/v1/bank-margins")
 	if err != nil {
 		t.Fatalf("list error: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestBankMargins_Update(t *testing.T) {
 	first := margins[0].(map[string]interface{})
 	marginID := int(first["id"].(float64))
 
-	resp, err := c.PUT(fmt.Sprintf("/api/bank-margins/%d", marginID), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v1/bank-margins/%d", marginID), map[string]interface{}{
 		"margin": 2.5,
 	})
 	if err != nil {

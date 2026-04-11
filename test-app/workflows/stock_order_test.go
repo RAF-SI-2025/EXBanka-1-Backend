@@ -16,7 +16,7 @@ func TestOrder_CreateMarketBuyOrder(t *testing.T) {
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
 
-	bankAcctResp, err := adminC.GET("/api/bank-accounts")
+	bankAcctResp, err := adminC.GET("/api/v1/bank-accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestOrder_GetMyOrder(t *testing.T) {
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
 
-	bankAcctResp, err := adminC.GET("/api/bank-accounts")
+	bankAcctResp, err := adminC.GET("/api/v1/bank-accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestOrder_CancelOrder(t *testing.T) {
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
 
-	bankAcctResp, err := adminC.GET("/api/bank-accounts")
+	bankAcctResp, err := adminC.GET("/api/v1/bank-accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestOrder_ListOrders_RequiresSupervisor(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/orders")
+	resp, err := agentC.GET("/api/v1/orders")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestOrder_ListOrders_Supervisor(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
-	resp, err := supervisorC.GET("/api/orders")
+	resp, err := supervisorC.GET("/api/v1/orders")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -308,7 +308,7 @@ func TestOrder_ApproveOrder_RequiresSupervisor(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/orders/1/approve", nil)
+	resp, err := agentC.POST("/api/v1/orders/1/approve", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestOrder_DeclineOrder_RequiresSupervisor(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/orders/1/decline", nil)
+	resp, err := agentC.POST("/api/v1/orders/1/decline", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

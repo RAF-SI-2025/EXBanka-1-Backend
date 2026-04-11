@@ -22,7 +22,7 @@ func TestPayment_EmployeeCanReadPayments(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 	// Get payment by ID (may not exist but should return 404, not 401/403)
-	resp, err := c.GET("/api/payments/999999")
+	resp, err := c.GET("/api/v1/payments/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestPayment_EndToEnd(t *testing.T) {
 	emailA := helpers.RandomEmail()
 	passwordA := helpers.RandomPassword()
 
-	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
+	createRespA, err := adminClient.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("PayA"),
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -97,7 +97,7 @@ func TestPayment_EndToEnd(t *testing.T) {
 	clientAID = int(helpers.GetNumberField(t, createRespA, "id"))
 
 	// Create source account for client A with 50000 RSD
-	srcAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	srcAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientAID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -112,7 +112,7 @@ func TestPayment_EndToEnd(t *testing.T) {
 
 	// Create destination account for client B with 0 RSD
 	_ = clientBID
-	dstAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	dstAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientBID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -195,7 +195,7 @@ func TestPayment_WithFee(t *testing.T) {
 	emailA := helpers.RandomEmail()
 	passwordA := helpers.RandomPassword()
 
-	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
+	createRespA, err := adminClient.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("FeeA"),
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -214,7 +214,7 @@ func TestPayment_WithFee(t *testing.T) {
 	clientBID := createTestClient(t, adminClient)
 
 	// Source account with 50000 RSD
-	srcAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	srcAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientAID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -228,7 +228,7 @@ func TestPayment_WithFee(t *testing.T) {
 	srcAccountNumber := helpers.GetStringField(t, srcAcctResp, "account_number")
 
 	// Dest account with 0 RSD
-	dstAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	dstAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientBID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -296,7 +296,7 @@ func TestPayment_ExternalPayment(t *testing.T) {
 	emailA := helpers.RandomEmail()
 	passwordA := helpers.RandomPassword()
 
-	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
+	createRespA, err := adminClient.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("ExtA"),
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -312,7 +312,7 @@ func TestPayment_ExternalPayment(t *testing.T) {
 	helpers.RequireStatus(t, createRespA, 201)
 	clientAID := int(helpers.GetNumberField(t, createRespA, "id"))
 
-	srcAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	srcAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientAID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -380,7 +380,7 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	emailA := helpers.RandomEmail()
 	passwordA := helpers.RandomPassword()
 
-	createRespA, err := adminClient.POST("/api/clients", map[string]interface{}{
+	createRespA, err := adminClient.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("OtpA"),
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -397,7 +397,7 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	clientAID := int(helpers.GetNumberField(t, createRespA, "id"))
 	clientBID := createTestClient(t, adminClient)
 
-	srcAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	srcAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientAID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -410,7 +410,7 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	helpers.RequireStatus(t, srcAcctResp, 201)
 	srcAccountNumber := helpers.GetStringField(t, srcAcctResp, "account_number")
 
-	dstAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	dstAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientBID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -445,7 +445,7 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 
 	// Create verification challenge but submit wrong code
-	createResp, err := clientA.POST("/api/verifications", map[string]interface{}{
+	createResp, err := clientA.POST("/api/v1/verifications", map[string]interface{}{
 		"source_service": "payment",
 		"source_id":      paymentID,
 	})
@@ -456,7 +456,7 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
 
 	// Submit WRONG code (not the bypass code 111111)
-	submitResp, err := clientA.POST(fmt.Sprintf("/api/verifications/%d/code", challengeID), map[string]interface{}{
+	submitResp, err := clientA.POST(fmt.Sprintf("/api/v1/verifications/%d/code", challengeID), map[string]interface{}{
 		"code": "999999",
 	})
 	if err != nil {
@@ -485,7 +485,7 @@ func TestPayment_InsufficientBalance(t *testing.T) {
 
 	// The account has 100000 RSD. Create a destination.
 	destClientID := createTestClient(t, adminClient)
-	dstAcctResp, err := adminClient.POST("/api/accounts", map[string]interface{}{
+	dstAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        destClientID,
 		"account_kind":    "current",
 		"account_type":    "personal",
