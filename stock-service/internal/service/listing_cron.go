@@ -67,7 +67,7 @@ func (c *ListingCronService) StartDailyCron(ctx context.Context) {
 		for {
 			now := time.Now()
 			// Next run at 23:55 today (or tomorrow if already past)
-			next := time.Date(now.Year(), now.Month(), now.Day(), 23, 55, 0, 0, now.Location())
+			next := time.Date(now.Year(), now.Month(), now.Day(), 23, 55, 0, 0, time.UTC)
 			if now.After(next) {
 				next = next.AddDate(0, 0, 1)
 			}
