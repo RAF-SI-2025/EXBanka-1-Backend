@@ -231,6 +231,10 @@ jobs:
         run: docker compose up --build -d --wait
         timeout-minutes: 15
 
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs --tail=100
+
       - name: Run integration tests
         working-directory: test-app
         env:
