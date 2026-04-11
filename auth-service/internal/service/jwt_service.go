@@ -16,13 +16,17 @@ func generateJTI() string {
 }
 
 type Claims struct {
-	UserID      int64    `json:"user_id"`
-	Email       string   `json:"email"`
-	Roles       []string `json:"roles"`
-	Permissions []string `json:"permissions"`
-	SystemType  string   `json:"system_type"`           // "employee" or "client"
-	DeviceType  string   `json:"device_type,omitempty"` // "mobile" for mobile app tokens, empty for browser
-	DeviceID    string   `json:"device_id,omitempty"`   // UUID of registered mobile device
+	UserID            int64    `json:"user_id"`
+	Email             string   `json:"email"`
+	Roles             []string `json:"roles"`
+	Permissions       []string `json:"permissions"`
+	SystemType        string   `json:"system_type"`                    // "employee" or "client"
+	DeviceType        string   `json:"device_type,omitempty"`          // "mobile" for mobile app tokens, empty for browser
+	DeviceID          string   `json:"device_id,omitempty"`            // UUID of registered mobile device
+	FirstName         string   `json:"first_name,omitempty"`
+	LastName          string   `json:"last_name,omitempty"`
+	AccountActive     bool     `json:"account_active"`
+	BiometricsEnabled bool     `json:"biometrics_enabled,omitempty"`   // only for mobile tokens
 	jwt.RegisteredClaims
 }
 
@@ -38,13 +42,31 @@ func NewJWTService(secret string, accessExpiry time.Duration) *JWTService {
 	}
 }
 
-func (s *JWTService) GenerateAccessToken(userID int64, email string, roles []string, permissions []string, systemType string) (string, error) {
+// TokenProfile holds the extra identity fields embedded in every JWT.
+type TokenProfile struct {
+	FirstName     string
+	LastName      string
+	AccountActive bool
+}
+
+// MobileProfile extends TokenProfile with mobile-specific fields.
+type MobileProfile struct {
+	TokenProfile
+	DeviceType        string
+	DeviceID          string
+	BiometricsEnabled bool
+}
+
+func (s *JWTService) GenerateAccessToken(userID int64, email string, roles []string, permissions []string, systemType string, prof TokenProfile) (string, error) {
 	claims := &Claims{
-		UserID:      userID,
-		Email:       email,
-		Roles:       roles,
-		Permissions: permissions,
-		SystemType:  systemType,
+		UserID:        userID,
+		Email:         email,
+		Roles:         roles,
+		Permissions:   permissions,
+		SystemType:    systemType,
+		FirstName:     prof.FirstName,
+		LastName:      prof.LastName,
+		AccountActive: prof.AccountActive,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        generateJTI(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessExpiry)),
@@ -55,15 +77,19 @@ func (s *JWTService) GenerateAccessToken(userID int64, email string, roles []str
 	return token.SignedString(s.secret)
 }
 
-func (s *JWTService) GenerateMobileAccessToken(userID int64, email string, roles []string, permissions []string, systemType, deviceType, deviceID string) (string, error) {
+func (s *JWTService) GenerateMobileAccessToken(userID int64, email string, roles []string, permissions []string, systemType string, mp MobileProfile) (string, error) {
 	claims := &Claims{
-		UserID:      userID,
-		Email:       email,
-		Roles:       roles,
-		Permissions: permissions,
-		SystemType:  systemType,
-		DeviceType:  deviceType,
-		DeviceID:    deviceID,
+		UserID:            userID,
+		Email:             email,
+		Roles:             roles,
+		Permissions:       permissions,
+		SystemType:        systemType,
+		DeviceType:        mp.DeviceType,
+		DeviceID:          mp.DeviceID,
+		FirstName:         mp.FirstName,
+		LastName:          mp.LastName,
+		AccountActive:     mp.AccountActive,
+		BiometricsEnabled: mp.BiometricsEnabled,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        generateJTI(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessExpiry)),

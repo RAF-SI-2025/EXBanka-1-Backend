@@ -229,7 +229,7 @@ func TestGetAccountStatusBatch(t *testing.T) {
 func TestEmployeeLogin_SystemTypeEmployee(t *testing.T) {
 	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
 
-	token, err := jwtSvc.GenerateAccessToken(1, "emp@test.com", []string{"EmployeeAdmin"}, []string{"users.manage"}, "employee")
+	token, err := jwtSvc.GenerateAccessToken(1, "emp@test.com", []string{"EmployeeAdmin"}, []string{"users.manage"}, "employee", TokenProfile{AccountActive: true})
 	require.NoError(t, err)
 
 	claims, err := jwtSvc.ValidateToken(token)
@@ -244,7 +244,7 @@ func TestEmployeeLogin_SystemTypeEmployee(t *testing.T) {
 func TestClientLogin_SystemTypeClient(t *testing.T) {
 	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
 
-	token, err := jwtSvc.GenerateAccessToken(42, "client@test.com", []string{"client"}, nil, "client")
+	token, err := jwtSvc.GenerateAccessToken(42, "client@test.com", []string{"client"}, nil, "client", TokenProfile{AccountActive: true})
 	require.NoError(t, err)
 
 	claims, err := jwtSvc.ValidateToken(token)
@@ -262,7 +262,11 @@ func TestMobileAccessToken_ContainsDeviceClaims(t *testing.T) {
 	deviceID := "abc-123-def-456"
 	token, err := jwtSvc.GenerateMobileAccessToken(
 		10, "mobile@test.com", []string{"client"}, nil,
-		"client", "mobile", deviceID,
+		"client", MobileProfile{
+			TokenProfile:  TokenProfile{AccountActive: true},
+			DeviceType:    "mobile",
+			DeviceID:      deviceID,
+		},
 	)
 	require.NoError(t, err)
 
@@ -276,7 +280,7 @@ func TestMobileAccessToken_ContainsDeviceClaims(t *testing.T) {
 func TestAccessToken_HasJTI(t *testing.T) {
 	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
 
-	token, err := jwtSvc.GenerateAccessToken(1, "user@test.com", []string{"client"}, nil, "client")
+	token, err := jwtSvc.GenerateAccessToken(1, "user@test.com", []string{"client"}, nil, "client", TokenProfile{AccountActive: true})
 	require.NoError(t, err)
 
 	claims, err := jwtSvc.ValidateToken(token)
@@ -287,9 +291,9 @@ func TestAccessToken_HasJTI(t *testing.T) {
 func TestAccessToken_UniqueJTIs(t *testing.T) {
 	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
 
-	token1, err := jwtSvc.GenerateAccessToken(1, "user@test.com", []string{"client"}, nil, "client")
+	token1, err := jwtSvc.GenerateAccessToken(1, "user@test.com", []string{"client"}, nil, "client", TokenProfile{AccountActive: true})
 	require.NoError(t, err)
-	token2, err := jwtSvc.GenerateAccessToken(1, "user@test.com", []string{"client"}, nil, "client")
+	token2, err := jwtSvc.GenerateAccessToken(1, "user@test.com", []string{"client"}, nil, "client", TokenProfile{AccountActive: true})
 	require.NoError(t, err)
 
 	claims1, err := jwtSvc.ValidateToken(token1)

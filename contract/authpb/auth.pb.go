@@ -170,18 +170,22 @@ func (x *ValidateTokenRequest) GetToken() string {
 }
 
 type ValidateTokenResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Valid         bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
-	UserId        int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
-	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
-	Permissions   []string               `protobuf:"bytes,5,rep,name=permissions,proto3" json:"permissions,omitempty"`
-	SystemType    string                 `protobuf:"bytes,6,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
-	Roles         []string               `protobuf:"bytes,7,rep,name=roles,proto3" json:"roles,omitempty"`
-	DeviceType    string                 `protobuf:"bytes,8,opt,name=device_type,json=deviceType,proto3" json:"device_type,omitempty"` // "mobile" or empty for browser
-	DeviceId      string                 `protobuf:"bytes,9,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`       // UUID of mobile device or empty
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Valid             bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
+	UserId            int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Email             string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	Role              string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	Permissions       []string               `protobuf:"bytes,5,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	SystemType        string                 `protobuf:"bytes,6,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
+	Roles             []string               `protobuf:"bytes,7,rep,name=roles,proto3" json:"roles,omitempty"`
+	DeviceType        string                 `protobuf:"bytes,8,opt,name=device_type,json=deviceType,proto3" json:"device_type,omitempty"` // "mobile" or empty for browser
+	DeviceId          string                 `protobuf:"bytes,9,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`       // UUID of mobile device or empty
+	FirstName         string                 `protobuf:"bytes,10,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
+	LastName          string                 `protobuf:"bytes,11,opt,name=last_name,json=lastName,proto3" json:"last_name,omitempty"`
+	AccountActive     bool                   `protobuf:"varint,12,opt,name=account_active,json=accountActive,proto3" json:"account_active,omitempty"`
+	BiometricsEnabled bool                   `protobuf:"varint,13,opt,name=biometrics_enabled,json=biometricsEnabled,proto3" json:"biometrics_enabled,omitempty"` // only set when device_type == "mobile"
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ValidateTokenResponse) Reset() {
@@ -275,6 +279,34 @@ func (x *ValidateTokenResponse) GetDeviceId() string {
 		return x.DeviceId
 	}
 	return ""
+}
+
+func (x *ValidateTokenResponse) GetFirstName() string {
+	if x != nil {
+		return x.FirstName
+	}
+	return ""
+}
+
+func (x *ValidateTokenResponse) GetLastName() string {
+	if x != nil {
+		return x.LastName
+	}
+	return ""
+}
+
+func (x *ValidateTokenResponse) GetAccountActive() bool {
+	if x != nil {
+		return x.AccountActive
+	}
+	return false
+}
+
+func (x *ValidateTokenResponse) GetBiometricsEnabled() bool {
+	if x != nil {
+		return x.BiometricsEnabled
+	}
+	return false
 }
 
 type RefreshTokenRequest struct {
@@ -2997,7 +3029,7 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\",\n" +
 	"\x14ValidateTokenRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"\x87\x02\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\x99\x03\n" +
 	"\x15ValidateTokenResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x14\n" +
@@ -3009,7 +3041,13 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\x05roles\x18\a \x03(\tR\x05roles\x12\x1f\n" +
 	"\vdevice_type\x18\b \x01(\tR\n" +
 	"deviceType\x12\x1b\n" +
-	"\tdevice_id\x18\t \x01(\tR\bdeviceId\":\n" +
+	"\tdevice_id\x18\t \x01(\tR\bdeviceId\x12\x1d\n" +
+	"\n" +
+	"first_name\x18\n" +
+	" \x01(\tR\tfirstName\x12\x1b\n" +
+	"\tlast_name\x18\v \x01(\tR\blastName\x12%\n" +
+	"\x0eaccount_active\x18\f \x01(\bR\raccountActive\x12-\n" +
+	"\x12biometrics_enabled\x18\r \x01(\bR\x11biometricsEnabled\":\n" +
 	"\x13RefreshTokenRequest\x12#\n" +
 	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"^\n" +
 	"\x14RefreshTokenResponse\x12!\n" +
