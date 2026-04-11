@@ -21,7 +21,7 @@ func TestWF_LoanFullLifecycle(t *testing.T) {
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create client with funded RSD account
-	_, accountNum, clientC, _ := setupActivatedClient(t, adminC)
+	clientID, accountNum, clientC, _ := setupActivatedClient(t, adminC)
 	t.Logf("WF-4: account=%s", accountNum)
 
 	// Step 2: Record balance before loan disbursement
@@ -30,7 +30,7 @@ func TestWF_LoanFullLifecycle(t *testing.T) {
 	// Step 3: Submit housing loan request (2M RSD, 60 months, fixed interest)
 	const loanAmount = 2000000.0
 	const months = 60
-	loanID := createLoanAndApprove(t, adminC, clientC, "housing", loanAmount, accountNum, months)
+	loanID := createLoanAndApprove(t, adminC, clientC, "housing", loanAmount, accountNum, months, clientID)
 	t.Logf("WF-4: loan approved id=%d", loanID)
 
 	// Step 5: Assert balance increased by approximately 2M (loan disbursed)

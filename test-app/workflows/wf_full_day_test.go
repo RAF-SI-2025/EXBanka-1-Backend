@@ -32,7 +32,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	_, acctB, _, _ := setupActivatedClient(t, adminC)
 	t.Logf("WF-14: Client B onboarded, acct=%s", acctB)
 
-	_, acctC, clientCC, _ := setupActivatedClient(t, adminC)
+	clientCID, acctC, clientCC, _ := setupActivatedClient(t, adminC)
 	t.Logf("WF-14: Client C onboarded, acct=%s", acctC)
 
 	_, agentC, _ := setupAgentEmployee(t, adminC)
@@ -49,7 +49,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	balBBefore := getAccountBalance(t, adminC, acctB)
 
 	const paymentAmount = 5000.0
-	paymentID := createAndExecutePayment(t, clientAC, acctB, paymentAmount)
+	paymentID := createAndExecutePayment(t, clientAC, acctA, acctB, paymentAmount)
 	t.Logf("WF-14: Payment A->B executed id=%d amount=%.2f", paymentID, paymentAmount)
 
 	balAAfter := getAccountBalance(t, adminC, acctA)
@@ -79,7 +79,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 
 	const loanAmount = 1000000.0
 	const loanMonths = 60
-	loanID := createLoanAndApprove(t, adminC, clientCC, "housing", loanAmount, acctC, loanMonths)
+	loanID := createLoanAndApprove(t, adminC, clientCC, "housing", loanAmount, acctC, loanMonths, clientCID)
 	t.Logf("WF-14: Housing loan approved id=%d amount=%.2f months=%d", loanID, loanAmount, loanMonths)
 
 	balCAfter := getAccountBalance(t, adminC, acctC)

@@ -56,10 +56,8 @@ func TestMobileAuth_RequestActivation_NonexistentEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request activation error: %v", err)
 	}
-	// Should fail — no such account
-	if resp.StatusCode == 200 {
-		t.Fatalf("expected error for nonexistent email, got 200")
-	}
+	// API returns 200 even for nonexistent emails (prevents email enumeration)
+	helpers.RequireStatus(t, resp, 200)
 }
 
 func TestMobileAuth_Activate_InvalidCode(t *testing.T) {

@@ -10,6 +10,49 @@ import (
 	"github.com/exbanka/test-app/internal/helpers"
 )
 
+// setupAdminEmployee creates an employee with EmployeeAdmin role, activates them,
+// and returns the employee ID and an authenticated client.
+func setupAdminEmployee(t *testing.T, adminC *client.APIClient) (empID int, empC *client.APIClient, email string) {
+	t.Helper()
+	email = helpers.RandomEmail()
+	password := helpers.RandomPassword()
+
+	createResp, err := adminC.POST("/api/employees", map[string]interface{}{
+		"first_name":    helpers.RandomName("Admin"),
+		"last_name":     helpers.RandomName("Emp"),
+		"date_of_birth": helpers.DateOfBirthUnix(),
+		"gender":        "male",
+		"email":         email,
+		"phone":         helpers.RandomPhone(),
+		"address":       "Admin St 1",
+		"username":      helpers.RandomName("admin"),
+		"position":      "administrator",
+		"department":    "Management",
+		"role":          "EmployeeAdmin",
+		"jmbg":          helpers.RandomJMBG(),
+	})
+	if err != nil {
+		t.Fatalf("setupAdminEmployee: create: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 201)
+	empID = int(helpers.GetNumberField(t, createResp, "id"))
+
+	token := scanKafkaForActivationToken(t, email)
+	activateResp, err := newClient().ActivateAccount(token, password)
+	if err != nil {
+		t.Fatalf("setupAdminEmployee: activate: %v", err)
+	}
+	helpers.RequireStatus(t, activateResp, 200)
+
+	empC = newClient()
+	loginResp, err := empC.Login(email, password)
+	if err != nil {
+		t.Fatalf("setupAdminEmployee: login: %v", err)
+	}
+	helpers.RequireStatus(t, loginResp, 200)
+	return empID, empC, email
+}
+
 // setupAgentEmployee creates an employee with EmployeeAgent role, activates them,
 // and returns the employee ID and an authenticated client.
 func setupAgentEmployee(t *testing.T, adminC *client.APIClient) (empID int, agentC *client.APIClient, email string) {

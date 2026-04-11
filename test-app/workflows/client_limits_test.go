@@ -25,24 +25,11 @@ func TestClientLimits_GetLimits(t *testing.T) {
 
 func TestClientLimits_SetLimits(t *testing.T) {
 	t.Parallel()
-	c := loginAsAdmin(t)
-	clientID := createTestClient(t, c)
+	adminC := loginAsAdmin(t)
+	clientID := createTestClient(t, adminC)
 
-	// First set admin employee limits (required for client limit enforcement)
-	resp, err := c.PUT("/api/employees/1/limits", map[string]interface{}{
-		"max_loan_approval_amount": "10000000.00",
-		"max_single_transaction":   "1000000.00",
-		"max_daily_transaction":    "5000000.00",
-		"max_client_daily_limit":   "500000.00",
-		"max_client_monthly_limit": "2000000.00",
-	})
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	helpers.RequireStatus(t, resp, 200)
-
-	// Set client limits (within employee's max)
-	resp, err = c.PUT(fmt.Sprintf("/api/clients/%d/limits", clientID), map[string]interface{}{
+	// Admin has unlimited limits set by seeder — can set client limits directly
+	resp, err := adminC.PUT(fmt.Sprintf("/api/clients/%d/limits", clientID), map[string]interface{}{
 		"daily_limit":    "100000.00",
 		"monthly_limit":  "500000.00",
 		"transfer_limit": "50000.00",
@@ -55,21 +42,28 @@ func TestClientLimits_SetLimits(t *testing.T) {
 
 func TestClientLimits_SetLimitsExceedingEmployeeMax(t *testing.T) {
 	t.Parallel()
-	c := loginAsAdmin(t)
-	clientID := createTestClient(t, c)
+	adminC := loginAsAdmin(t)
+	clientID := createTestClient(t, adminC)
 
-	// Set modest employee limits
-	_, err := c.PUT("/api/employees/1/limits", map[string]interface{}{
+	// Create an agent employee with modest limits
+	agentID, agentC, _ := setupAgentEmployee(t, adminC)
+
+	// Admin sets modest limits on the agent (all fields required)
+	resp, err := adminC.PUT(fmt.Sprintf("/api/employees/%d/limits", agentID), map[string]interface{}{
+		"max_loan_approval_amount": "50000.00",
+		"max_single_transaction":   "100000.00",
+		"max_daily_transaction":    "500000.00",
 		"max_client_daily_limit":   "10000.00",
 		"max_client_monthly_limit": "50000.00",
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
+	helpers.RequireStatus(t, resp, 200)
 
-	// Try to set client limits exceeding employee's max
-	resp, err := c.PUT(fmt.Sprintf("/api/clients/%d/limits", clientID), map[string]interface{}{
-		"daily_limit":   "999999.00", // exceeds max_client_daily_limit
+	// Agent tries to set client limits exceeding their own max
+	resp, err = agentC.PUT(fmt.Sprintf("/api/clients/%d/limits", clientID), map[string]interface{}{
+		"daily_limit":   "999999.00",
 		"monthly_limit": "9999999.00",
 	})
 	if err != nil {

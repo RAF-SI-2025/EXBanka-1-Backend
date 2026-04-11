@@ -368,13 +368,14 @@ func setupClientWithCard(t *testing.T, adminC *client.APIClient, brand string) (
 }
 
 // createAndExecutePayment creates a payment, verifies via challenge, and executes it.
-func createAndExecutePayment(t *testing.T, fromClient *client.APIClient, toAccountNum string, amount float64) int {
+func createAndExecutePayment(t *testing.T, fromClient *client.APIClient, fromAccountNum string, toAccountNum string, amount float64) int {
 	t.Helper()
 
 	createResp, err := fromClient.POST("/api/me/payments", map[string]interface{}{
-		"to_account_number": toAccountNum,
-		"amount":            amount,
-		"payment_purpose":   "test payment",
+		"from_account_number": fromAccountNum,
+		"to_account_number":   toAccountNum,
+		"amount":              amount,
+		"payment_purpose":     "test payment",
 	})
 	if err != nil {
 		t.Fatalf("createAndExecutePayment: create: %v", err)
@@ -462,14 +463,21 @@ func waitForOrderFill(t *testing.T, c *client.APIClient, orderID int, timeout ti
 }
 
 // createLoanAndApprove submits a loan request and has admin approve it.
-func createLoanAndApprove(t *testing.T, adminC *client.APIClient, clientC *client.APIClient, loanType string, amount float64, accountNum string, months int) int {
+func createLoanAndApprove(t *testing.T, adminC *client.APIClient, clientC *client.APIClient, loanType string, amount float64, accountNum string, months int, clientID ...int) int {
 	t.Helper()
 
+	// Use provided client_id or default to 0 (let service resolve)
+	var cid int
+	if len(clientID) > 0 {
+		cid = clientID[0]
+	}
+
 	reqResp, err := clientC.POST("/api/me/loan-requests", map[string]interface{}{
+		"client_id":         cid,
 		"loan_type":         loanType,
 		"interest_type":     "fixed",
 		"amount":            amount,
-		"currency":          "RSD",
+		"currency_code":     "RSD",
 		"purpose":           "test loan",
 		"monthly_income":    50000,
 		"employment_status": "permanent",
@@ -489,7 +497,7 @@ func createLoanAndApprove(t *testing.T, adminC *client.APIClient, clientC *clien
 		t.Fatalf("createLoanAndApprove: approve: %v", err)
 	}
 	helpers.RequireStatus(t, approveResp, 200)
-	loanID := int(helpers.GetNumberField(t, approveResp, "loan_id"))
+	loanID := int(helpers.GetNumberField(t, approveResp, "id"))
 	return loanID
 }
 

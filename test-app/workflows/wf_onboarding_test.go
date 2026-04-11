@@ -43,7 +43,7 @@ func TestWF_FullClientOnboardingToFirstTransaction(t *testing.T) {
 
 	// Step 4: Sender creates and executes payment of 5000 RSD
 	const paymentAmount = 5000.0
-	paymentID := createAndExecutePayment(t, senderC, receiverAcct, paymentAmount)
+	paymentID := createAndExecutePayment(t, senderC, senderAcct, receiverAcct, paymentAmount)
 	t.Logf("WF-1: payment executed id=%d", paymentID)
 
 	// Step 5: Assert balances changed correctly
