@@ -132,7 +132,6 @@ func SetupV1Routes(
 	blueprintClient userpb.BlueprintServiceClient,
 	verificationClient verificationpb.VerificationGRPCServiceClient,
 	notificationClient notificationpb.NotificationServiceClient,
-	wsHandler *handler.WebSocketHandler,
 ) {
 	// ── Create handlers ─────────────────────────────────────────────────
 	authHandler := handler.NewAuthHandler(authClient)
@@ -250,7 +249,7 @@ func SetupV1Routes(
 			me.POST("/notifications/:id/read", notifHandler.MarkRead)
 		}
 
-		// ── Stock exchanges (AnyAuthMiddleware) ─────────────────────
+		// ── Stock exchanges (AnyAuth — market data is browsable) ────
 		stockExchanges := v1.Group("/stock-exchanges")
 		stockExchanges.Use(middleware.AnyAuthMiddleware(authClient))
 		{
@@ -258,7 +257,7 @@ func SetupV1Routes(
 			stockExchanges.GET("/:id", stockExchangeHandler.GetExchange)
 		}
 
-		// ── Securities (AnyAuthMiddleware) ──────────────────────────
+		// ── Securities (AnyAuth — market data is browsable) ─────────
 		securities := v1.Group("/securities")
 		securities.Use(middleware.AnyAuthMiddleware(authClient))
 		{
@@ -277,12 +276,17 @@ func SetupV1Routes(
 			securities.GET("/candles", securitiesHandler.GetCandles)
 		}
 
-		// ── OTC (AnyAuthMiddleware) ─────────────────────────────────
+		// ── OTC (AnyAuth for browsing, securities.trade for buying) ─
 		otc := v1.Group("/otc/offers")
 		otc.Use(middleware.AnyAuthMiddleware(authClient))
 		{
 			otc.GET("", portfolioHandler.ListOTCOffers)
-			otc.POST("/:id/buy", portfolioHandler.BuyOTCOffer)
+		}
+		otcTrade := v1.Group("/otc/offers")
+		otcTrade.Use(middleware.AuthMiddleware(authClient))
+		otcTrade.Use(middleware.RequirePermission("securities.trade"))
+		{
+			otcTrade.POST("/:id/buy", portfolioHandler.BuyOTCOffer)
 		}
 
 		// ── Mobile auth (public) ────────────────────────────────────
@@ -334,9 +338,6 @@ func SetupV1Routes(
 			verifyHandler := handler.NewVerificationHandler(verificationClient, notificationClient)
 			qrVerify.POST("/:challenge_id", verifyHandler.VerifyQR)
 		}
-
-		// ── WebSocket ───────────────────────────────────────────────
-		v1.GET("/ws/mobile", wsHandler.HandleConnect)
 
 		// ── Browser-facing verifications (AnyAuthMiddleware) ────────
 		verifications := v1.Group("/verifications")

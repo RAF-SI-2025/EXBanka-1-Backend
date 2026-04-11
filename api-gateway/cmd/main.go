@@ -191,7 +191,7 @@ func main() {
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
 	r := router.NewRouter()
-	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, wsHandler)
+	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,
