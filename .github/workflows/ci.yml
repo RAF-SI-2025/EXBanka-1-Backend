@@ -26,6 +26,7 @@ jobs:
           - exchange-service
           - stock-service
           - verification-service
+          - seeder
     steps:
       - uses: actions/checkout@v4
 
@@ -58,6 +59,7 @@ jobs:
           - exchange-service
           - stock-service
           - verification-service
+          - seeder
     steps:
       - uses: actions/checkout@v4
 
@@ -94,6 +96,7 @@ jobs:
           - exchange-service
           - stock-service
           - verification-service
+          - seeder
     steps:
       - uses: actions/checkout@v4
 
@@ -158,6 +161,7 @@ jobs:
             exchange-service
             stock-service
             verification-service
+            seeder
           )
           for svc in "${services[@]}"; do
             echo "Checking $svc..."
