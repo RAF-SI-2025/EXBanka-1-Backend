@@ -62,6 +62,7 @@ func TestEmployee_CreateWithBasicRole(t *testing.T) {
 }
 
 func TestEmployee_CreateWithAgentRole(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Emp"),
@@ -85,6 +86,7 @@ func TestEmployee_CreateWithAgentRole(t *testing.T) {
 }
 
 func TestEmployee_CreateWithSupervisorRole(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Emp"),
@@ -107,6 +109,7 @@ func TestEmployee_CreateWithSupervisorRole(t *testing.T) {
 }
 
 func TestEmployee_CreateWithAdminRole(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Emp"),
@@ -129,6 +132,7 @@ func TestEmployee_CreateWithAdminRole(t *testing.T) {
 }
 
 func TestEmployee_CreateWithInvalidJMBG(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	// Too short
 	resp, err := c.POST("/api/employees", map[string]interface{}{
@@ -150,6 +154,7 @@ func TestEmployee_CreateWithInvalidJMBG(t *testing.T) {
 }
 
 func TestEmployee_CreateWithDuplicateEmail(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	email := helpers.RandomEmail()
 
@@ -189,6 +194,7 @@ func TestEmployee_CreateWithDuplicateEmail(t *testing.T) {
 }
 
 func TestEmployee_ListAndGet(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// List employees
@@ -209,6 +215,7 @@ func TestEmployee_ListAndGet(t *testing.T) {
 }
 
 func TestEmployee_Update(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create employee first
@@ -242,6 +249,7 @@ func TestEmployee_Update(t *testing.T) {
 }
 
 func TestEmployee_GetNonExistent(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/employees/999999")
 	if err != nil {

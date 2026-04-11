@@ -48,6 +48,7 @@ func TestClient_CreateMultipleClients(t *testing.T) {
 }
 
 func TestClient_CreateWithInvalidJMBG(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/clients", map[string]interface{}{
 		"first_name":    "Bad",
@@ -65,6 +66,7 @@ func TestClient_CreateWithInvalidJMBG(t *testing.T) {
 }
 
 func TestClient_CreateWithMissingRequiredFields(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Missing email
@@ -82,6 +84,7 @@ func TestClient_CreateWithMissingRequiredFields(t *testing.T) {
 }
 
 func TestClient_ListAndGet(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create a client first
@@ -116,6 +119,7 @@ func TestClient_ListAndGet(t *testing.T) {
 }
 
 func TestClient_Update(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	createResp, err := c.POST("/api/clients", map[string]interface{}{
@@ -143,6 +147,7 @@ func TestClient_Update(t *testing.T) {
 }
 
 func TestClient_GetNonExistent(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/clients/999999")
 	if err != nil {

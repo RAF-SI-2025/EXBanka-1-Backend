@@ -13,6 +13,7 @@ import (
 // --- WF9: Transfer Workflow ---
 
 func TestTransfer_UnauthenticatedCannotCreateTransfer(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.POST("/api/me/transfers", map[string]interface{}{
 		"from_account_number": "123",
@@ -28,6 +29,7 @@ func TestTransfer_UnauthenticatedCannotCreateTransfer(t *testing.T) {
 }
 
 func TestTransfer_EmployeeCanReadTransfers(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/transfers/999999")
 	if err != nil {
@@ -39,6 +41,7 @@ func TestTransfer_EmployeeCanReadTransfers(t *testing.T) {
 }
 
 func TestTransfer_ListByClient(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 	resp, err := c.GET(fmt.Sprintf("/api/transfers?client_id=%d", clientID))
@@ -49,6 +52,7 @@ func TestTransfer_ListByClient(t *testing.T) {
 }
 
 func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 
 	// Create client 1 with known email for activation
@@ -178,6 +182,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 }
 
 func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 
 	email1 := helpers.RandomEmail()
@@ -276,6 +281,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 }
 
 func TestTransfer_PaymentRecipientCRUD(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	clientID, _, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -305,6 +311,7 @@ func TestTransfer_PaymentRecipientCRUD(t *testing.T) {
 }
 
 func TestTransfer_InsufficientBalance(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	_, accountNumber, clientC, clientEmail := setupActivatedClient(t, adminClient)
 

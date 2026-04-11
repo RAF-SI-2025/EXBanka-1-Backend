@@ -66,6 +66,7 @@ func TestCard_CreateAllBrands(t *testing.T) {
 }
 
 func TestCard_CreateWithInvalidBrand(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID, acctNum := createTestAccountForCards(t, c)
 
@@ -84,6 +85,7 @@ func TestCard_CreateWithInvalidBrand(t *testing.T) {
 }
 
 func TestCard_BlockUnblockDeactivate(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID, acctNum := createTestAccountForCards(t, c)
 
@@ -156,6 +158,7 @@ func TestCard_PINManagement(t *testing.T) {
 }
 
 func TestCard_GetCard(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID, acctNum := createTestAccountForCards(t, c)
 
@@ -179,6 +182,7 @@ func TestCard_GetCard(t *testing.T) {
 }
 
 func TestCard_ListByAccount(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID, acctNum := createTestAccountForCards(t, c)
 
@@ -201,6 +205,7 @@ func TestCard_ListByAccount(t *testing.T) {
 }
 
 func TestCard_VirtualSingleUseWithClientAuth(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -221,6 +226,7 @@ func TestCard_VirtualSingleUseWithClientAuth(t *testing.T) {
 }
 
 func TestCard_VirtualMultiUseWithClientAuth(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -242,6 +248,7 @@ func TestCard_VirtualMultiUseWithClientAuth(t *testing.T) {
 }
 
 func TestCard_VirtualUnlimitedWithClientAuth(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -264,6 +271,7 @@ func TestCard_VirtualUnlimitedWithClientAuth(t *testing.T) {
 }
 
 func TestCard_VirtualInvalidUsageType(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -284,6 +292,7 @@ func TestCard_VirtualInvalidUsageType(t *testing.T) {
 }
 
 func TestCard_PINSetAndVerify(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -321,6 +330,7 @@ func TestCard_PINSetAndVerify(t *testing.T) {
 }
 
 func TestCard_PINWrongThreeTimes_LocksCard(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -370,6 +380,7 @@ func TestCard_PINWrongThreeTimes_LocksCard(t *testing.T) {
 }
 
 func TestCard_ChangePin(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -410,6 +421,7 @@ func TestCard_ChangePin(t *testing.T) {
 }
 
 func TestCard_TemporaryBlockWithExpiry(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -438,6 +450,7 @@ func TestCard_TemporaryBlockWithExpiry(t *testing.T) {
 }
 
 func TestCard_AllBrandsDebitAndCredit(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	brands := []string{"visa", "mastercard", "dinacard", "amex"}
 	cardTypes := []string{"debit", "credit"}

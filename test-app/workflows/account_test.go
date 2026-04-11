@@ -62,6 +62,7 @@ func TestAccount_CreateCurrentAccount(t *testing.T) {
 }
 
 func TestAccount_CreateForeignAccount(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
@@ -78,6 +79,7 @@ func TestAccount_CreateForeignAccount(t *testing.T) {
 }
 
 func TestAccount_CreateWithInvalidKind(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
@@ -106,6 +108,7 @@ func TestAccount_ListAllAccounts(t *testing.T) {
 }
 
 func TestAccount_GetAccountByID(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
@@ -129,6 +132,7 @@ func TestAccount_GetAccountByID(t *testing.T) {
 }
 
 func TestAccount_UpdateStatus(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
@@ -210,6 +214,7 @@ func TestAccount_GetNonExistent(t *testing.T) {
 }
 
 func TestAccount_CreateCurrentPersonalEUR(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 	resp, err := c.POST("/api/accounts", map[string]interface{}{
@@ -226,6 +231,7 @@ func TestAccount_CreateCurrentPersonalEUR(t *testing.T) {
 }
 
 func TestAccount_CreateCurrentPersonalUSD(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 	resp, err := c.POST("/api/accounts", map[string]interface{}{
@@ -241,6 +247,7 @@ func TestAccount_CreateCurrentPersonalUSD(t *testing.T) {
 }
 
 func TestAccount_CreateForeignPersonalUSD(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 	resp, err := c.POST("/api/accounts", map[string]interface{}{
@@ -256,6 +263,7 @@ func TestAccount_CreateForeignPersonalUSD(t *testing.T) {
 }
 
 func TestAccount_CreateWithInitialBalance(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 	resp, err := c.POST("/api/accounts", map[string]interface{}{
@@ -279,6 +287,7 @@ func TestAccount_CreateWithInitialBalance(t *testing.T) {
 }
 
 func TestAccount_GetByAccountNumber(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 	createResp, err := c.POST("/api/accounts", map[string]interface{}{
@@ -302,6 +311,7 @@ func TestAccount_GetByAccountNumber(t *testing.T) {
 }
 
 func TestAccount_MissingRequiredFields(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	// Missing account_kind
 	resp, err := c.POST("/api/accounts", map[string]interface{}{
@@ -318,6 +328,7 @@ func TestAccount_MissingRequiredFields(t *testing.T) {
 }
 
 func TestAccount_InvalidCurrencyCode(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 	resp, err := c.POST("/api/accounts", map[string]interface{}{
@@ -335,6 +346,7 @@ func TestAccount_InvalidCurrencyCode(t *testing.T) {
 }
 
 func TestAccount_UpdateStatusInvalidValue(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.PUT("/api/accounts/1/status", map[string]interface{}{
 		"status": "suspended", // invalid
@@ -389,6 +401,7 @@ func TestAccount_UnauthenticatedCannotCreate(t *testing.T) {
 }
 
 func TestAccount_UpdateName(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
@@ -415,6 +428,7 @@ func TestAccount_UpdateName(t *testing.T) {
 }
 
 func TestAccount_UpdateLimits(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
@@ -441,6 +455,7 @@ func TestAccount_UpdateLimits(t *testing.T) {
 }
 
 func TestAccount_UpdateLimitsNegativeRejected(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.PUT("/api/accounts/1/limits", map[string]interface{}{
 		"daily_limit": -100.0,
@@ -478,6 +493,7 @@ func TestAccount_DeleteBankAccount(t *testing.T) {
 }
 
 func TestAccount_CreateCompany(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 

@@ -12,6 +12,7 @@ import (
 // --- WF11: Client Limit Management ---
 
 func TestClientLimits_GetLimits(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
@@ -23,6 +24,7 @@ func TestClientLimits_GetLimits(t *testing.T) {
 }
 
 func TestClientLimits_SetLimits(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
@@ -52,6 +54,7 @@ func TestClientLimits_SetLimits(t *testing.T) {
 }
 
 func TestClientLimits_SetLimitsExceedingEmployeeMax(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 

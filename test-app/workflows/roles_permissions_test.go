@@ -12,6 +12,7 @@ import (
 // --- WF4: Role & Permission Management ---
 
 func TestRoles_ListRoles(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/roles")
 	if err != nil {
@@ -21,6 +22,7 @@ func TestRoles_ListRoles(t *testing.T) {
 }
 
 func TestRoles_GetRole(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/roles/1")
 	if err != nil {
@@ -32,6 +34,7 @@ func TestRoles_GetRole(t *testing.T) {
 }
 
 func TestRoles_CreateCustomRole(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/roles", map[string]interface{}{
 		"name":        fmt.Sprintf("CustomRole_%d", helpers.DateOfBirthUnix()),
@@ -46,6 +49,7 @@ func TestRoles_CreateCustomRole(t *testing.T) {
 }
 
 func TestRoles_UpdateRolePermissions(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create a role first
@@ -71,6 +75,7 @@ func TestRoles_UpdateRolePermissions(t *testing.T) {
 }
 
 func TestRoles_ListPermissions(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/permissions")
 	if err != nil {
@@ -80,6 +85,7 @@ func TestRoles_ListPermissions(t *testing.T) {
 }
 
 func TestRoles_SetEmployeeRoles(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create employee
@@ -110,6 +116,7 @@ func TestRoles_SetEmployeeRoles(t *testing.T) {
 }
 
 func TestRoles_SetEmployeeAdditionalPermissions(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	createResp, err := c.POST("/api/employees", map[string]interface{}{
@@ -138,6 +145,7 @@ func TestRoles_SetEmployeeAdditionalPermissions(t *testing.T) {
 }
 
 func TestRoles_NonAdminCannotManageRoles(t *testing.T) {
+	t.Parallel()
 	// Test that unauthenticated access fails.
 	c := newClient() // no token
 	resp, err := c.GET("/api/roles")

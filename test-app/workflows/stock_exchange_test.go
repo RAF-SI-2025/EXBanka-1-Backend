@@ -9,6 +9,7 @@ import (
 )
 
 func TestStockExchange_ListExchanges(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	resp, err := adminC.GET("/api/stock-exchanges")
 	if err != nil {
@@ -20,6 +21,7 @@ func TestStockExchange_ListExchanges(t *testing.T) {
 }
 
 func TestStockExchange_ListExchanges_Unauthenticated(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.GET("/api/stock-exchanges")
 	if err != nil {
@@ -29,6 +31,7 @@ func TestStockExchange_ListExchanges_Unauthenticated(t *testing.T) {
 }
 
 func TestStockExchange_ListExchanges_SearchFilter(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	resp, err := adminC.GET("/api/stock-exchanges?search=NYSE")
 	if err != nil {
@@ -38,6 +41,7 @@ func TestStockExchange_ListExchanges_SearchFilter(t *testing.T) {
 }
 
 func TestStockExchange_GetExchange(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	listResp, err := adminC.GET("/api/stock-exchanges?page_size=1")
 	if err != nil {
@@ -61,6 +65,7 @@ func TestStockExchange_GetExchange(t *testing.T) {
 }
 
 func TestStockExchange_GetExchange_NotFound(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	resp, err := adminC.GET("/api/stock-exchanges/999999")
 	if err != nil {
@@ -95,6 +100,7 @@ func TestStockExchange_TestingMode_SetAndGet(t *testing.T) {
 }
 
 func TestStockExchange_TestingMode_RequiresSupervisor(t *testing.T) {
+	t.Parallel()
 	_, agentC, _ := setupAgentEmployee(t, loginAsAdmin(t))
 	resp, err := agentC.POST("/api/stock-exchanges/testing-mode", map[string]interface{}{
 		"enabled": true,

@@ -10,6 +10,7 @@ import (
 )
 
 func TestActuary_ListActuaries(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
@@ -23,6 +24,7 @@ func TestActuary_ListActuaries(t *testing.T) {
 }
 
 func TestActuary_ListActuaries_AgentCannot(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -34,6 +36,7 @@ func TestActuary_ListActuaries_AgentCannot(t *testing.T) {
 }
 
 func TestActuary_SetLimit(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	agentID, _, _ := setupAgentEmployee(t, adminC)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
@@ -48,6 +51,7 @@ func TestActuary_SetLimit(t *testing.T) {
 }
 
 func TestActuary_SetLimit_EmptyValue(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
@@ -61,6 +65,7 @@ func TestActuary_SetLimit_EmptyValue(t *testing.T) {
 }
 
 func TestActuary_ResetLimit(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	agentID, _, _ := setupAgentEmployee(t, adminC)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
@@ -73,6 +78,7 @@ func TestActuary_ResetLimit(t *testing.T) {
 }
 
 func TestActuary_SetNeedApproval(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	agentID, _, _ := setupAgentEmployee(t, adminC)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
@@ -87,6 +93,7 @@ func TestActuary_SetNeedApproval(t *testing.T) {
 }
 
 func TestActuary_Unauthenticated(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.GET("/api/actuaries")
 	if err != nil {

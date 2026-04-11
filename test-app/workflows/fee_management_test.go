@@ -12,6 +12,7 @@ import (
 // --- WF13: Transfer Fee Management ---
 
 func TestFees_ListFees(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/fees")
 	if err != nil {
@@ -21,6 +22,7 @@ func TestFees_ListFees(t *testing.T) {
 }
 
 func TestFees_UnauthenticatedCannotManageFees(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.GET("/api/fees")
 	if err != nil {
@@ -32,6 +34,7 @@ func TestFees_UnauthenticatedCannotManageFees(t *testing.T) {
 }
 
 func TestFees_CreatePercentageFeeForAllTransactions(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/fees", map[string]interface{}{
 		"name":             fmt.Sprintf("PctAll_%d", helpers.DateOfBirthUnix()),
@@ -50,6 +53,7 @@ func TestFees_CreatePercentageFeeForAllTransactions(t *testing.T) {
 }
 
 func TestFees_CreateFixedFeeForPayments(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/fees", map[string]interface{}{
 		"name":             fmt.Sprintf("FixedPayment_%d", helpers.DateOfBirthUnix()),
@@ -68,6 +72,7 @@ func TestFees_CreateFixedFeeForPayments(t *testing.T) {
 }
 
 func TestFees_CreatePercentageFeeForTransfers(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/fees", map[string]interface{}{
 		"name":             fmt.Sprintf("PctTransfer_%d", helpers.DateOfBirthUnix()),
@@ -86,6 +91,7 @@ func TestFees_CreatePercentageFeeForTransfers(t *testing.T) {
 }
 
 func TestFees_CreateWithMissingName(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/fees", map[string]interface{}{
 		// "name" intentionally omitted — binding:"required"
@@ -102,6 +108,7 @@ func TestFees_CreateWithMissingName(t *testing.T) {
 }
 
 func TestFees_CreateWithMissingFeeValue(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/fees", map[string]interface{}{
 		"name":     "MissingValue",
@@ -118,6 +125,7 @@ func TestFees_CreateWithMissingFeeValue(t *testing.T) {
 }
 
 func TestFees_CreateWithMissingTransactionType(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/fees", map[string]interface{}{
 		"name":      "MissingTxType",
@@ -134,6 +142,7 @@ func TestFees_CreateWithMissingTransactionType(t *testing.T) {
 }
 
 func TestFees_CreateWithInvalidFeeType(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/fees", map[string]interface{}{
 		"name":             "InvalidType",
@@ -150,6 +159,7 @@ func TestFees_CreateWithInvalidFeeType(t *testing.T) {
 }
 
 func TestFees_CreateWithInvalidTransactionType(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/fees", map[string]interface{}{
 		"name":             "InvalidTxType",
@@ -166,6 +176,7 @@ func TestFees_CreateWithInvalidTransactionType(t *testing.T) {
 }
 
 func TestFees_UpdateFee(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create a fee to update
@@ -201,6 +212,7 @@ func TestFees_UpdateFee(t *testing.T) {
 }
 
 func TestFees_DeleteFee(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create a fee to delete

@@ -15,6 +15,7 @@ import (
 // TestCardRequest_UnauthenticatedCannotCreateRequest verifies that unauthenticated
 // access to the card request creation endpoint is rejected.
 func TestCardRequest_UnauthenticatedCannotCreateRequest(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.POST("/api/me/cards/requests", map[string]interface{}{
 		"account_number": "265-0000000001-00",
@@ -31,6 +32,7 @@ func TestCardRequest_UnauthenticatedCannotCreateRequest(t *testing.T) {
 // TestCardRequest_EmployeeCannotCreateRequest verifies that an employee token
 // cannot submit a card request (client-only endpoint).
 func TestCardRequest_EmployeeCannotCreateRequest(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/me/cards/requests", map[string]interface{}{
 		"account_number": "265-0000000001-00",
@@ -48,6 +50,7 @@ func TestCardRequest_EmployeeCannotCreateRequest(t *testing.T) {
 // TestCardRequest_EmployeeCanListRequests verifies that an employee with
 // cards.approve permission can list all card requests.
 func TestCardRequest_EmployeeCanListRequests(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/cards/requests")
 	if err != nil {
@@ -58,6 +61,7 @@ func TestCardRequest_EmployeeCanListRequests(t *testing.T) {
 
 // TestCardRequest_EmployeeCanFilterByStatus verifies filtering requests by status.
 func TestCardRequest_EmployeeCanFilterByStatus(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	statuses := []string{"pending", "approved", "rejected"}
@@ -75,6 +79,7 @@ func TestCardRequest_EmployeeCanFilterByStatus(t *testing.T) {
 // TestCardRequest_InvalidStatusFilterRejected verifies that an invalid status
 // filter returns HTTP 400.
 func TestCardRequest_InvalidStatusFilterRejected(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/cards/requests?status=unknown_status")
 	if err != nil {
@@ -88,6 +93,7 @@ func TestCardRequest_InvalidStatusFilterRejected(t *testing.T) {
 // TestCardRequest_GetNonExistentRequest verifies that getting a non-existent
 // request returns 404.
 func TestCardRequest_GetNonExistentRequest(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/cards/requests/999999")
 	if err != nil {
@@ -101,6 +107,7 @@ func TestCardRequest_GetNonExistentRequest(t *testing.T) {
 // TestCardRequest_ApproveNonExistentRequest verifies that approving a non-existent
 // request returns an error (not 200).
 func TestCardRequest_ApproveNonExistentRequest(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/cards/requests/999999/approve", nil)
 	if err != nil {
@@ -114,6 +121,7 @@ func TestCardRequest_ApproveNonExistentRequest(t *testing.T) {
 // TestCardRequest_RejectNonExistentRequest verifies that rejecting a non-existent
 // request returns an error (not 200).
 func TestCardRequest_RejectNonExistentRequest(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/cards/requests/999999/reject", map[string]interface{}{
 		"reason": "Test rejection",
@@ -129,6 +137,7 @@ func TestCardRequest_RejectNonExistentRequest(t *testing.T) {
 // TestCardRequest_RejectRequiresReason verifies that rejecting a request without
 // a reason returns HTTP 400.
 func TestCardRequest_RejectRequiresReason(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/cards/requests/1/reject", map[string]interface{}{})
 	if err != nil {
@@ -143,6 +152,7 @@ func TestCardRequest_RejectRequiresReason(t *testing.T) {
 // direct-create path and verifies the approve/reject endpoints are accessible
 // to authenticated employees.
 func TestCardRequest_EmployeeApproveAndRejectFlow(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create a client and account to have a valid account number
@@ -163,6 +173,7 @@ func TestCardRequest_EmployeeApproveAndRejectFlow(t *testing.T) {
 // TestCardRequest_FullLifecycle tests the complete card request lifecycle:
 // client submits a request, employee approves it, and a card is created.
 func TestCardRequest_FullLifecycle(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 
 	// Create client with funded RSD account and activate them

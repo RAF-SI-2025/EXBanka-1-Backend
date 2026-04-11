@@ -85,6 +85,7 @@ func TestLoan_RejectNonExistentRequest(t *testing.T) {
 }
 
 func TestLoan_ListLoanRequestsByClient(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 	resp, err := c.GET(fmt.Sprintf("/api/loan-requests?client_id=%d", clientID))
@@ -95,6 +96,7 @@ func TestLoan_ListLoanRequestsByClient(t *testing.T) {
 }
 
 func TestLoan_ListLoansByClient(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 	resp, err := c.GET(fmt.Sprintf("/api/loans?client_id=%d", clientID))
@@ -105,6 +107,7 @@ func TestLoan_ListLoansByClient(t *testing.T) {
 }
 
 func TestLoan_FullLifecycle(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 
 	// Create client and activate them with a funded account
@@ -234,6 +237,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 
 // TestLoan_AllLoanTypes verifies that loan requests can be created for all supported loan types.
 func TestLoan_AllLoanTypes(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	_, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
@@ -278,6 +282,7 @@ func TestLoan_AllLoanTypes(t *testing.T) {
 
 // TestLoan_RejectLoanRequest verifies the reject flow: create → reject → status = rejected.
 func TestLoan_RejectLoanRequest(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	_, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 

@@ -10,6 +10,7 @@ import (
 )
 
 func TestOrder_CreateMarketBuyOrder(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
@@ -41,6 +42,7 @@ func TestOrder_CreateMarketBuyOrder(t *testing.T) {
 }
 
 func TestOrder_CreateOrder_Unauthenticated(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	resp, err := c.POST("/api/me/orders", map[string]interface{}{
 		"listing_id": 1,
@@ -56,6 +58,7 @@ func TestOrder_CreateOrder_Unauthenticated(t *testing.T) {
 }
 
 func TestOrder_CreateOrder_InvalidDirection(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -73,6 +76,7 @@ func TestOrder_CreateOrder_InvalidDirection(t *testing.T) {
 }
 
 func TestOrder_CreateOrder_InvalidOrderType(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -90,6 +94,7 @@ func TestOrder_CreateOrder_InvalidOrderType(t *testing.T) {
 }
 
 func TestOrder_CreateOrder_ZeroQuantity(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -107,6 +112,7 @@ func TestOrder_CreateOrder_ZeroQuantity(t *testing.T) {
 }
 
 func TestOrder_CreateLimitOrder_RequiresLimitValue(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -124,6 +130,7 @@ func TestOrder_CreateLimitOrder_RequiresLimitValue(t *testing.T) {
 }
 
 func TestOrder_CreateBuyOrder_RequiresAccountID(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -140,6 +147,7 @@ func TestOrder_CreateBuyOrder_RequiresAccountID(t *testing.T) {
 }
 
 func TestOrder_ListMyOrders(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -153,6 +161,7 @@ func TestOrder_ListMyOrders(t *testing.T) {
 }
 
 func TestOrder_GetMyOrder(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
@@ -191,6 +200,7 @@ func TestOrder_GetMyOrder(t *testing.T) {
 }
 
 func TestOrder_GetMyOrder_NotFound(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -202,6 +212,7 @@ func TestOrder_GetMyOrder_NotFound(t *testing.T) {
 }
 
 func TestOrder_CancelOrder(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
@@ -241,6 +252,7 @@ func TestOrder_CancelOrder(t *testing.T) {
 }
 
 func TestOrder_CancelOrder_NotFound(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -252,6 +264,7 @@ func TestOrder_CancelOrder_NotFound(t *testing.T) {
 }
 
 func TestOrder_ListOrders_RequiresSupervisor(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -263,6 +276,7 @@ func TestOrder_ListOrders_RequiresSupervisor(t *testing.T) {
 }
 
 func TestOrder_ListOrders_Supervisor(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
@@ -275,6 +289,7 @@ func TestOrder_ListOrders_Supervisor(t *testing.T) {
 }
 
 func TestOrder_ApproveOrder_RequiresSupervisor(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -286,6 +301,7 @@ func TestOrder_ApproveOrder_RequiresSupervisor(t *testing.T) {
 }
 
 func TestOrder_DeclineOrder_RequiresSupervisor(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
@@ -297,6 +313,7 @@ func TestOrder_DeclineOrder_RequiresSupervisor(t *testing.T) {
 }
 
 func TestOrder_ClientOrderAutoApproved(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 	_, listingID := getFirstStockListingID(t, clientC)

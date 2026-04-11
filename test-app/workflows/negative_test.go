@@ -14,6 +14,7 @@ import (
 // --- Authorization Failures ---
 
 func TestNeg_NoTokenOnProtectedRoutes(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	routes := []struct {
 		method string
@@ -61,6 +62,7 @@ func TestNeg_NoTokenOnProtectedRoutes(t *testing.T) {
 }
 
 func TestNeg_InvalidTokenOnProtectedRoutes(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 	c.SetToken("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.invalid.payload")
 
@@ -74,6 +76,7 @@ func TestNeg_InvalidTokenOnProtectedRoutes(t *testing.T) {
 }
 
 func TestNeg_ExpiredToken(t *testing.T) {
+	t.Parallel()
 	// Use a clearly expired JWT (we can't easily forge one, but an obviously malformed one should fail)
 	c := newClient()
 	c.SetToken("expired.token.here")
@@ -89,6 +92,7 @@ func TestNeg_ExpiredToken(t *testing.T) {
 // --- Client-Only Routes with Employee Token ---
 
 func TestNeg_EmployeeCannotAccessClientOnlyRoutes(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientOnlyRoutes := []struct {
 		method string
@@ -129,6 +133,7 @@ func TestNeg_EmployeeCannotAccessClientOnlyRoutes(t *testing.T) {
 // --- Validation Failures ---
 
 func TestNeg_EmployeeCreateMissingRequiredFields(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/employees", map[string]interface{}{
 		// Missing most required fields
@@ -143,6 +148,7 @@ func TestNeg_EmployeeCreateMissingRequiredFields(t *testing.T) {
 }
 
 func TestNeg_ClientCreateInvalidEmail(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/clients", map[string]interface{}{
 		"first_name": "Bad",
@@ -161,6 +167,7 @@ func TestNeg_ClientCreateInvalidEmail(t *testing.T) {
 // --- Resource Not Found ---
 
 func TestNeg_GetNonExistentResources(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	notFoundRoutes := []string{
 		"/api/employees/999999",
@@ -187,6 +194,7 @@ func TestNeg_GetNonExistentResources(t *testing.T) {
 // --- Public routes should be accessible ---
 
 func TestNeg_PublicRoutesNoAuth(t *testing.T) {
+	t.Parallel()
 	c := newClient()
 
 	// Auth routes (public)

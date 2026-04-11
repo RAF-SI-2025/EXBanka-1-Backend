@@ -42,6 +42,7 @@ func setupTransferForVerification(t *testing.T, adminC *client.APIClient, client
 // --- Verification Endpoints ---
 
 func TestVerification_CreateChallenge(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
 	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
@@ -59,6 +60,7 @@ func TestVerification_CreateChallenge(t *testing.T) {
 }
 
 func TestVerification_InvalidMethodRejected(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -78,6 +80,7 @@ func TestVerification_InvalidMethodRejected(t *testing.T) {
 }
 
 func TestVerification_GetChallengeStatus(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
 	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
@@ -102,6 +105,7 @@ func TestVerification_GetChallengeStatus(t *testing.T) {
 }
 
 func TestVerification_SubmitBypassCode(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
 	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
@@ -127,6 +131,7 @@ func TestVerification_SubmitBypassCode(t *testing.T) {
 }
 
 func TestVerification_SubmitWrongCode(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
 	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
@@ -169,6 +174,7 @@ func TestVerification_UnauthenticatedRejected(t *testing.T) {
 // TestVerification_AckEndpointRequiresMobileAuth verifies that the ACK endpoint
 // rejects non-mobile tokens with 403.
 func TestVerification_AckEndpointRequiresMobileAuth(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 

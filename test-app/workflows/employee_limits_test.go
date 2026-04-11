@@ -12,6 +12,7 @@ import (
 // --- WF5: Employee Limit Management ---
 
 func TestLimits_GetEmployeeLimits(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/employees/1/limits")
 	if err != nil {
@@ -21,6 +22,7 @@ func TestLimits_GetEmployeeLimits(t *testing.T) {
 }
 
 func TestLimits_SetEmployeeLimits(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	createResp, err := c.POST("/api/employees", map[string]interface{}{
@@ -60,6 +62,7 @@ func TestLimits_SetEmployeeLimits(t *testing.T) {
 }
 
 func TestLimits_ApplyTemplate(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	createResp, err := c.POST("/api/employees", map[string]interface{}{
@@ -88,6 +91,7 @@ func TestLimits_ApplyTemplate(t *testing.T) {
 }
 
 func TestLimits_ListTemplates(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.GET("/api/limits/templates")
 	if err != nil {
@@ -97,6 +101,7 @@ func TestLimits_ListTemplates(t *testing.T) {
 }
 
 func TestLimits_CreateTemplate(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/limits/templates", map[string]interface{}{
 		"name":                     fmt.Sprintf("TestTemplate_%d", helpers.DateOfBirthUnix()),

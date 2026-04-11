@@ -34,6 +34,7 @@ func TestInterestRateTiers_UnauthenticatedDenied(t *testing.T) {
 }
 
 func TestInterestRateTiers_CreateFixed(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
 		"fixed_rate":    5.50,
@@ -48,6 +49,7 @@ func TestInterestRateTiers_CreateFixed(t *testing.T) {
 }
 
 func TestInterestRateTiers_CreateVariable(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
 		"fixed_rate":    0.01,
@@ -62,6 +64,7 @@ func TestInterestRateTiers_CreateVariable(t *testing.T) {
 }
 
 func TestInterestRateTiers_CreateMissingFixedRate(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	resp, err := c.POST("/api/interest-rate-tiers", map[string]interface{}{
 		// "fixed_rate" intentionally omitted
@@ -77,6 +80,7 @@ func TestInterestRateTiers_CreateMissingFixedRate(t *testing.T) {
 }
 
 func TestInterestRateTiers_UpdateTier(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create a tier first
@@ -106,6 +110,7 @@ func TestInterestRateTiers_UpdateTier(t *testing.T) {
 }
 
 func TestInterestRateTiers_DeleteTier(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create a tier to delete
@@ -129,6 +134,7 @@ func TestInterestRateTiers_DeleteTier(t *testing.T) {
 }
 
 func TestInterestRateTiers_ApplyVariableRate(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create a variable rate tier
@@ -166,6 +172,7 @@ func TestBankMargins_List(t *testing.T) {
 }
 
 func TestBankMargins_Update(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// List margins to get an ID

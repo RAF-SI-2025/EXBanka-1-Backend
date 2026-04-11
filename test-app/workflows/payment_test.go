@@ -189,6 +189,7 @@ func TestPayment_EndToEnd(t *testing.T) {
 }
 
 func TestPayment_WithFee(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 
 	emailA := helpers.RandomEmail()
@@ -289,6 +290,7 @@ func TestPayment_WithFee(t *testing.T) {
 }
 
 func TestPayment_ExternalPayment(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 
 	emailA := helpers.RandomEmail()
@@ -372,6 +374,7 @@ func TestPayment_ExternalPayment(t *testing.T) {
 }
 
 func TestPayment_WrongOTPCodeRejected(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 
 	emailA := helpers.RandomEmail()
@@ -476,6 +479,7 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 }
 
 func TestPayment_InsufficientBalance(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	_, accountNumber, clientC, clientEmail := setupActivatedClient(t, adminClient)
 

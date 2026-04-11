@@ -11,6 +11,7 @@ import (
 // --- Me Self-Service Endpoints ---
 
 func TestMe_GetProfile(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -24,6 +25,7 @@ func TestMe_GetProfile(t *testing.T) {
 }
 
 func TestMe_ListMyAccounts(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -35,6 +37,7 @@ func TestMe_ListMyAccounts(t *testing.T) {
 }
 
 func TestMe_GetMyAccountByID(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	clientID, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -61,6 +64,7 @@ func TestMe_GetMyAccountByID(t *testing.T) {
 }
 
 func TestMe_ListMyCards(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -72,6 +76,7 @@ func TestMe_ListMyCards(t *testing.T) {
 }
 
 func TestMe_ListMyPayments(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -83,6 +88,7 @@ func TestMe_ListMyPayments(t *testing.T) {
 }
 
 func TestMe_ListMyTransfers(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -94,6 +100,7 @@ func TestMe_ListMyTransfers(t *testing.T) {
 }
 
 func TestMe_ListMyPaymentRecipients(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -105,6 +112,7 @@ func TestMe_ListMyPaymentRecipients(t *testing.T) {
 }
 
 func TestMe_ListMyLoanRequests(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -116,6 +124,7 @@ func TestMe_ListMyLoanRequests(t *testing.T) {
 }
 
 func TestMe_ListMyLoans(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -127,6 +136,7 @@ func TestMe_ListMyLoans(t *testing.T) {
 }
 
 func TestMe_ListMyOrders(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -138,6 +148,7 @@ func TestMe_ListMyOrders(t *testing.T) {
 }
 
 func TestMe_GetPortfolio(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
@@ -149,6 +160,7 @@ func TestMe_GetPortfolio(t *testing.T) {
 }
 
 func TestMe_GetPortfolioSummary(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
