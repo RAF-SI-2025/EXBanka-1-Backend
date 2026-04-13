@@ -51,6 +51,7 @@ func main() {
 		"credit.loan-requested",
 		"credit.loan-approved",
 		"credit.loan-rejected",
+		"credit.loan-disbursed",
 		"credit.installment-collected",
 		"credit.installment-failed",
 		"credit.variable-rate-adjusted",
