@@ -220,6 +220,9 @@ func (m *mockStockRepo) GetByID(id uint64) (*model.Stock, error) {
 func (m *mockStockRepo) addStock(s *model.Stock) {
 	m.stocks[s.ID] = s
 }
+func (m *mockStockRepo) UpdatePriceByTicker(ticker string, price decimal.Decimal) error {
+	return nil
+}
 
 // mockOptionRepo returns pre-configured options.
 type mockOptionRepo struct {

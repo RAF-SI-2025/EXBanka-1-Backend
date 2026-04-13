@@ -150,6 +150,9 @@ func (m *mockListingRepo) ListAll() ([]model.Listing, error) { return nil, nil }
 func (m *mockListingRepo) ListBySecurityType(t string) ([]model.Listing, error) {
 	return nil, nil
 }
+func (m *mockListingRepo) UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error {
+	return nil
+}
 
 // mockSettingRepo returns configurable key-value pairs.
 type mockSettingRepo struct {

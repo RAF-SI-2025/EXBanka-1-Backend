@@ -1,8 +1,12 @@
 package repository
 
 import (
+	"fmt"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/shopspring/decimal"
 
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -102,6 +106,28 @@ func (r *ListingRepository) UpsertForOption(listing *model.Listing) (*model.List
 		return nil, err
 	}
 	return &result, nil
+}
+
+// UpdatePriceByTicker updates a listing's denormalized price columns by joining
+// on the underlying security table via ticker. The securityType must be one of
+// "stock", "futures", or "forex".
+func (r *ListingRepository) UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error {
+	var table string
+	switch securityType {
+	case "stock":
+		table = "stocks"
+	case "futures":
+		table = "futures_contracts"
+	case "forex":
+		table = "forex_pairs"
+	default:
+		return fmt.Errorf("unsupported security_type %q", securityType)
+	}
+	return r.db.Exec(
+		"UPDATE listings SET price = ?, high = ?, low = ?, last_refresh = NOW() "+
+			"FROM "+table+" s WHERE listings.security_id = s.id AND listings.security_type = ? AND s.ticker = ?", //nolint:gosec // table names are hardcoded
+		price, high, low, securityType, ticker,
+	).Error
 }
 
 func (r *ListingRepository) ListAll() ([]model.Listing, error) {

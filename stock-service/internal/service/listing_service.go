@@ -214,6 +214,11 @@ func (s *ListingService) GetDerivedData(listing *model.Listing) DerivedListingDa
 	)
 }
 
+// UpdatePriceByTicker delegates price-only updates for simulator refresh loops.
+func (s *ListingService) UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error {
+	return s.listingRepo.UpdatePriceByTicker(securityType, ticker, price, high, low)
+}
+
 // periodToDateRange converts a period string to (from, to) dates.
 func periodToDateRange(period string) (time.Time, time.Time) {
 	now := time.Now()

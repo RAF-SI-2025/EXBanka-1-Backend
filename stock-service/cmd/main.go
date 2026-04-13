@@ -149,6 +149,7 @@ func main() {
 	dailyPriceRepo := repository.NewListingDailyPriceRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
 	orderTxRepo := repository.NewOrderTransactionRepository(db)
+	wipeRepo := repository.NewWipeRepository(db)
 
 	holdingRepo := repository.NewHoldingRepository(db)
 	capitalGainRepo := repository.NewCapitalGainRepository(db)
@@ -219,6 +220,7 @@ func main() {
 		listingSvc, redisCache, influxClient,
 		avClient, finnhubClient,
 		extSource,
+		wipeRepo,
 	)
 
 	// Portfolio, OTC, and tax services

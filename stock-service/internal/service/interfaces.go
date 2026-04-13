@@ -16,6 +16,7 @@ type StockRepo interface {
 	Update(stock *model.Stock) error
 	UpsertByTicker(stock *model.Stock) error
 	List(filter repository.StockFilter) ([]model.Stock, int64, error)
+	UpdatePriceByTicker(ticker string, price decimal.Decimal) error
 }
 
 type FuturesRepo interface {
@@ -25,6 +26,7 @@ type FuturesRepo interface {
 	Update(f *model.FuturesContract) error
 	UpsertByTicker(f *model.FuturesContract) error
 	List(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error)
+	UpdatePriceByTicker(ticker string, price decimal.Decimal) error
 }
 
 type ForexPairRepo interface {
@@ -34,6 +36,7 @@ type ForexPairRepo interface {
 	Update(fp *model.ForexPair) error
 	UpsertByTicker(fp *model.ForexPair) error
 	List(filter repository.ForexFilter) ([]model.ForexPair, int64, error)
+	UpdatePriceByTicker(ticker string, rate decimal.Decimal) error
 }
 
 type OptionRepo interface {
@@ -70,6 +73,13 @@ type ListingRepo interface {
 	UpsertForOption(listing *model.Listing) (*model.Listing, error)
 	ListAll() ([]model.Listing, error)
 	ListBySecurityType(securityType string) ([]model.Listing, error)
+	UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error
+}
+
+// Wiper is the interface for wiping all stock-service tables.
+// A single-method interface so the sync service doesn't depend on the concrete WipeRepository.
+type Wiper interface {
+	WipeAll() error
 }
 
 type DailyPriceRepo interface {

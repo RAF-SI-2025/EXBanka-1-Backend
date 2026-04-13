@@ -57,6 +57,9 @@ func (m *syncMockStockRepo) UpsertByTicker(s *model.Stock) error {
 func (m *syncMockStockRepo) List(filter repository.StockFilter) ([]model.Stock, int64, error) {
 	return m.stocks, int64(len(m.stocks)), nil
 }
+func (m *syncMockStockRepo) UpdatePriceByTicker(ticker string, price decimal.Decimal) error {
+	return nil
+}
 
 // syncMockOptionRepo stores upserted options in memory and tracks SetListingID calls.
 type syncMockOptionRepo struct {
@@ -134,12 +137,30 @@ func (m *syncMockOptionRepo) SetListingID(optionID, listingID uint64) error {
 }
 
 // syncMockSettingRepo always reports testing_mode=false (generateAllOptions doesn't check it).
-type syncMockSettingRepo struct{}
+type syncMockSettingRepo struct {
+	setCalls map[string]string
+}
 
 func (m *syncMockSettingRepo) Get(key string) (string, error) {
 	return "", gorm.ErrRecordNotFound
 }
-func (m *syncMockSettingRepo) Set(key, value string) error { return nil }
+func (m *syncMockSettingRepo) Set(key, value string) error {
+	if m.setCalls == nil {
+		m.setCalls = make(map[string]string)
+	}
+	m.setCalls[key] = value
+	return nil
+}
+
+// fakeWiper is a stub Wiper that records calls and always succeeds.
+type fakeWiper struct {
+	called int
+}
+
+func (w *fakeWiper) WipeAll() error {
+	w.called++
+	return nil
+}
 
 // syncMockListingRepo stores listings in memory and satisfies ListingRepo.
 type syncMockListingRepo struct {
@@ -231,6 +252,9 @@ func (m *syncMockListingRepo) ListBySecurityType(securityType string) ([]model.L
 	}
 	return result, nil
 }
+func (m *syncMockListingRepo) UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error {
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // stubSource — a test double for source.Source
@@ -285,6 +309,9 @@ func (m *syncMockFuturesRepo) UpsertByTicker(fc *model.FuturesContract) error { 
 func (m *syncMockFuturesRepo) List(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error) {
 	return nil, 0, nil
 }
+func (m *syncMockFuturesRepo) UpdatePriceByTicker(ticker string, price decimal.Decimal) error {
+	return nil
+}
 
 // syncMockForexRepo is a minimal in-memory stub for ForexPairRepo.
 type syncMockForexRepo struct{}
@@ -296,10 +323,13 @@ func (m *syncMockForexRepo) GetByID(id uint64) (*model.ForexPair, error) {
 func (m *syncMockForexRepo) GetByTicker(ticker string) (*model.ForexPair, error) {
 	return nil, gorm.ErrRecordNotFound
 }
-func (m *syncMockForexRepo) Update(fp *model.ForexPair) error       { return nil }
+func (m *syncMockForexRepo) Update(fp *model.ForexPair) error         { return nil }
 func (m *syncMockForexRepo) UpsertByTicker(fp *model.ForexPair) error { return nil }
 func (m *syncMockForexRepo) List(filter repository.ForexFilter) ([]model.ForexPair, int64, error) {
 	return nil, 0, nil
+}
+func (m *syncMockForexRepo) UpdatePriceByTicker(ticker string, rate decimal.Decimal) error {
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +358,7 @@ func TestSecuritySyncService_DelegatesToSource(t *testing.T) {
 		nil, // avClient
 		nil, // finnhubClient
 		stub,
+		nil, // wipe — not exercised in this test
 	)
 
 	// SeedAll calls syncExchanges, syncStocks, seedForexPairs, seedFutures
@@ -381,6 +412,7 @@ func TestGenerateAllOptions_AttachesListingToEveryOption(t *testing.T) {
 		nil, // avClient
 		nil, // finnhubClient
 		source.NewExternalSource(nil, nil, nil, nil, "", ""),
+		nil, // wipe — not exercised in this test
 	)
 
 	// Act: generate options (test-exported wrapper).
@@ -403,4 +435,71 @@ func TestGenerateAllOptions_AttachesListingToEveryOption(t *testing.T) {
 		require.Equal(t, uint64(42), listing.ExchangeID,
 			"listing for option %s has wrong exchange_id", ticker)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// TestSwitchSource_GeneratedSucceeds verifies the switch lifecycle for the
+// "generated" source: synchronous reseed, status transitions, wipe called,
+// and settingRepo.Set invoked with the new source name.
+// ---------------------------------------------------------------------------
+
+func TestSwitchSource_GeneratedSucceeds(t *testing.T) {
+	initialSrc := &stubSource{name: "external"}
+	newSrc := &stubSource{name: "generated"}
+
+	stockRepo := &syncMockStockRepo{}
+	futuresRepo := &syncMockFuturesRepo{}
+	forexRepo := &syncMockForexRepo{}
+	listingRepo := newSyncMockListingRepo()
+	listingSvc := NewListingService(listingRepo, nil, stockRepo, futuresRepo, forexRepo)
+	settingRepo := &syncMockSettingRepo{}
+	wiper := &fakeWiper{}
+
+	svc := NewSecuritySyncService(
+		stockRepo,
+		futuresRepo,
+		forexRepo,
+		newSyncMockOptionRepo(),
+		nil, // exchangeRepo — nil is safe when stub returns empty slices
+		settingRepo,
+		listingSvc,
+		nil, // redisCache
+		nil, // influxClient
+		nil, // avClient
+		nil, // finnhubClient
+		initialSrc,
+		wiper,
+	)
+
+	// Before switch: status should be "idle".
+	status, lastErr, _, sourceName := svc.GetStatus()
+	require.Equal(t, "idle", status)
+	require.Empty(t, lastErr)
+	require.Equal(t, "external", sourceName)
+
+	// Execute switch to "generated" (synchronous).
+	err := svc.SwitchSource(context.Background(), newSrc)
+	require.NoError(t, err)
+
+	// After switch: status should be "idle" again (synchronous reseed completed).
+	status, lastErr, startedAt, sourceName := svc.GetStatus()
+	require.Equal(t, "idle", status, "expected idle after synchronous switch")
+	require.Empty(t, lastErr)
+	require.Equal(t, "generated", sourceName)
+	require.False(t, startedAt.IsZero(), "startedAt should be set")
+
+	// WipeAll must have been called exactly once.
+	require.Equal(t, 1, wiper.called, "WipeAll should be called once")
+
+	// settingRepo.Set must have recorded the new source name.
+	require.Equal(t, "generated", settingRepo.setCalls["active_stock_source"],
+		"settingRepo.Set must record the new source name")
+
+	// Concurrent switch attempt should fail fast.
+	// We simulate this by taking the switch lock manually and verifying TryLock fails.
+	svc.switchMu.Lock()
+	err2 := svc.SwitchSource(context.Background(), newSrc)
+	svc.switchMu.Unlock()
+	require.Error(t, err2, "concurrent switch should fail")
+	require.Contains(t, err2.Error(), "another source switch is in progress")
 }

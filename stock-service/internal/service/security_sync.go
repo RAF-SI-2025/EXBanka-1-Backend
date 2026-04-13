@@ -39,6 +39,15 @@ type SecuritySyncService struct {
 
 	srcMu sync.RWMutex
 	src   source.Source
+
+	// Switch orchestration state.
+	wipe       Wiper
+	switchMu   sync.Mutex
+	statusMu   sync.RWMutex
+	status     string             // "idle" | "reseeding" | "failed"
+	lastErr    string
+	startedAt  time.Time
+	refreshCtx context.CancelFunc // non-nil while the simulator refresh loop is running
 }
 
 func NewSecuritySyncService(
@@ -54,6 +63,7 @@ func NewSecuritySyncService(
 	avClient *provider.AlphaVantageClient,
 	finnhubClient *provider.FinnhubClient,
 	initialSource source.Source,
+	wipe Wiper,
 ) *SecuritySyncService {
 	return &SecuritySyncService{
 		stockRepo:     stockRepo,
@@ -68,6 +78,8 @@ func NewSecuritySyncService(
 		avClient:      avClient,
 		finnhubClient: finnhubClient,
 		src:           initialSource,
+		wipe:          wipe,
+		status:        "idle",
 	}
 }
 
@@ -386,4 +398,163 @@ func (s *SecuritySyncService) generateAllOptions() {
 // GenerateAllOptionsForTest is a test-only exported wrapper for generateAllOptions.
 func (s *SecuritySyncService) GenerateAllOptionsForTest() {
 	s.generateAllOptions()
+}
+
+// --- Switch orchestration ---
+
+// SwitchSource atomically switches the active data source. Wipes all
+// stock-service tables and reseeds from the new source. Concurrent calls
+// fail fast with an error.
+func (s *SecuritySyncService) SwitchSource(ctx context.Context, newSource source.Source) error {
+	if !s.switchMu.TryLock() {
+		return fmt.Errorf("another source switch is in progress")
+	}
+	defer s.switchMu.Unlock()
+
+	s.setStatus("reseeding", "")
+	s.statusMu.Lock()
+	s.startedAt = time.Now()
+	s.statusMu.Unlock()
+
+	// Stop the current simulator refresh loop if any.
+	if s.refreshCtx != nil {
+		s.refreshCtx()
+		s.refreshCtx = nil
+	}
+
+	// Persist the new source choice so restarts pick it up.
+	if err := s.settingRepo.Set("active_stock_source", newSource.Name()); err != nil {
+		s.setStatus("failed", err.Error())
+		return err
+	}
+
+	// Wipe.
+	if s.wipe != nil {
+		if err := s.wipe.WipeAll(); err != nil {
+			s.setStatus("failed", "wipe: "+err.Error())
+			return err
+		}
+	}
+
+	// Swap the source pointer.
+	s.SetSource(newSource)
+
+	// Reseed synchronously for generated (local, instant); async for others.
+	if newSource.Name() == "generated" {
+		if err := s.reseedAll(ctx, ""); err != nil {
+			s.setStatus("failed", err.Error())
+			return err
+		}
+		s.setStatus("idle", "")
+		return nil
+	}
+
+	// Async reseed for external / simulator sources.
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		if err := s.reseedAll(bgCtx, ""); err != nil {
+			s.setStatus("failed", err.Error())
+			return
+		}
+		s.setStatus("idle", "")
+		if newSource.Name() == "simulator" {
+			s.startSimulatorRefreshLoop()
+		}
+	}()
+	return nil
+}
+
+// reseedAll calls SeedAll and wraps it so it returns an error.
+// SeedAll itself logs errors internally and never returns one, so this
+// always returns nil — but having the error signature lets us slot it into
+// the orchestration flow uniformly.
+func (s *SecuritySyncService) reseedAll(ctx context.Context, futuresSeedPath string) error {
+	s.SeedAll(ctx, futuresSeedPath)
+	return nil
+}
+
+func (s *SecuritySyncService) setStatus(status, errMsg string) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	s.status = status
+	s.lastErr = errMsg
+}
+
+// GetStatus returns the current switch status, last error (if any),
+// when the current switch was started, and the active source name.
+func (s *SecuritySyncService) GetStatus() (status, lastErr string, startedAt time.Time, sourceName string) {
+	s.statusMu.RLock()
+	defer s.statusMu.RUnlock()
+	status = s.status
+	lastErr = s.lastErr
+	startedAt = s.startedAt
+	sourceName = s.Source().Name()
+	return
+}
+
+// startSimulatorRefreshLoop launches a 3s ticker that re-fetches prices from
+// the simulator and updates the DB. Runs until ctx is cancelled by the next
+// SwitchSource call.
+func (s *SecuritySyncService) startSimulatorRefreshLoop() {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.refreshCtx = cancel
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.refreshSimulatorPrices(ctx)
+			}
+		}
+	}()
+}
+
+// refreshSimulatorPrices re-fetches the current Source and updates the
+// denormalized price columns on listings/stocks/futures/forex. Metadata
+// rows are untouched. Called from the simulator refresh loop only.
+func (s *SecuritySyncService) refreshSimulatorPrices(ctx context.Context) {
+	src := s.Source()
+
+	if stocks, err := src.FetchStocks(ctx); err == nil {
+		for _, sw := range stocks {
+			if err := s.listingSvc.UpdatePriceByTicker("stock", sw.Stock.Ticker, sw.Price, sw.High, sw.Low); err != nil {
+				log.Printf("WARN: refresh listing stock %s: %v", sw.Stock.Ticker, err)
+			}
+			if err := s.stockRepo.UpdatePriceByTicker(sw.Stock.Ticker, sw.Price); err != nil {
+				log.Printf("WARN: refresh stock %s: %v", sw.Stock.Ticker, err)
+			}
+		}
+	} else {
+		log.Printf("WARN: simulator refresh FetchStocks: %v", err)
+	}
+
+	if futures, err := src.FetchFutures(ctx); err == nil {
+		for _, fw := range futures {
+			if err := s.listingSvc.UpdatePriceByTicker("futures", fw.Futures.Ticker, fw.Price, fw.High, fw.Low); err != nil {
+				log.Printf("WARN: refresh listing futures %s: %v", fw.Futures.Ticker, err)
+			}
+			if err := s.futuresRepo.UpdatePriceByTicker(fw.Futures.Ticker, fw.Price); err != nil {
+				log.Printf("WARN: refresh futures %s: %v", fw.Futures.Ticker, err)
+			}
+		}
+	} else {
+		log.Printf("WARN: simulator refresh FetchFutures: %v", err)
+	}
+
+	if forex, err := src.FetchForex(ctx); err == nil {
+		for _, fx := range forex {
+			if err := s.listingSvc.UpdatePriceByTicker("forex", fx.Forex.Ticker, fx.Price, fx.High, fx.Low); err != nil {
+				log.Printf("WARN: refresh listing forex %s: %v", fx.Forex.Ticker, err)
+			}
+			if err := s.forexRepo.UpdatePriceByTicker(fx.Forex.Ticker, fx.Price); err != nil {
+				log.Printf("WARN: refresh forex %s: %v", fx.Forex.Ticker, err)
+			}
+		}
+	} else {
+		log.Printf("WARN: simulator refresh FetchForex: %v", err)
+	}
 }
