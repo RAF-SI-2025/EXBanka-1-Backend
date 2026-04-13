@@ -129,6 +129,10 @@ type HoldingRepo interface {
 	GetByUserAndSecurity(userID uint64, securityType string, securityID uint64, accountID uint64) (*model.Holding, error)
 	ListByUser(userID uint64, filter HoldingFilter) ([]model.Holding, int64, error)
 	ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error)
+	// FindOldestLongOptionHolding returns the oldest (by created_at) holding with
+	// security_type="option", security_id=optionID, user_id=userID, quantity>0.
+	// Returns (nil, nil) when no such holding exists.
+	FindOldestLongOptionHolding(userID, optionID uint64) (*model.Holding, error)
 }
 
 // --- Tax ---

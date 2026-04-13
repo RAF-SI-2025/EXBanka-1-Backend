@@ -138,6 +138,21 @@ func (m *mockHoldingRepo) ListPublicOffers(filter repository.OTCFilter) ([]model
 	return result, int64(len(result)), nil
 }
 
+// FindOldestLongOptionHolding returns the oldest holding (lowest CreatedAt) for
+// the given user and option that has quantity > 0. Returns (nil, nil) if none.
+func (m *mockHoldingRepo) FindOldestLongOptionHolding(userID, optionID uint64) (*model.Holding, error) {
+	var oldest *model.Holding
+	for _, h := range m.holdings {
+		if h.UserID == userID && h.SecurityType == "option" && h.SecurityID == optionID && h.Quantity > 0 {
+			if oldest == nil || h.CreatedAt.Before(oldest.CreatedAt) {
+				cp := *h
+				oldest = &cp
+			}
+		}
+	}
+	return oldest, nil
+}
+
 // addHolding inserts a holding directly for test setup.
 func (m *mockHoldingRepo) addHolding(h *model.Holding) {
 	if h.ID == 0 {
@@ -1873,5 +1888,160 @@ func TestPortfolio_ExerciseOption_Put_CompensatesOnCapitalGainFailure(t *testing
 	expectedCompensation := decimal.NewFromFloat(-10000.00)
 	if !compensateAmount.Equal(expectedCompensation) {
 		t.Errorf("expected compensation debit %s, got %s", expectedCompensation, compensateAmount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: ExerciseOptionByOptionID
+// ---------------------------------------------------------------------------
+
+func TestExerciseOptionByOptionID_WithExplicitHolding(t *testing.T) {
+	svc, mocks := buildPortfolioService()
+
+	// Stock listing: current price $150
+	stkListing := stockListing(10, 500, 150.00)
+	stkListing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(stkListing)
+	mocks.stockRepo.addStock(&model.Stock{ID: 500, Ticker: "AAPL", Name: "Apple Inc."})
+
+	// Option: call, strike $100, future settlement
+	mocks.optionRepo.addOption(&model.Option{
+		ID:             7,
+		Ticker:         "AAPL240101C00100",
+		OptionType:     "call",
+		StockID:        500,
+		StrikePrice:    decimal.NewFromFloat(100.00),
+		SettlementDate: time.Now().Add(30 * 24 * time.Hour),
+	})
+
+	// User holds 1 option contract
+	h := &model.Holding{
+		UserID:        42,
+		SystemType:    "employee",
+		UserFirstName: "John",
+		UserLastName:  "Doe",
+		SecurityType:  "option",
+		SecurityID:    7,
+		ListingID:     10,
+		Ticker:        "AAPL240101C00100",
+		Quantity:      1,
+		AveragePrice:  decimal.NewFromFloat(5.00),
+		AccountID:     1,
+		CreatedAt:     time.Now(),
+	}
+	mocks.holdingRepo.addHolding(h)
+
+	// Call with explicit holding_id — must exercise via the existing ExerciseOption path
+	result, err := svc.ExerciseOptionByOptionID(context.Background(), 7, 42, h.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.ExercisedQuantity != 1 {
+		t.Errorf("expected exercised quantity 1, got %d", result.ExercisedQuantity)
+	}
+	// 1 contract × 100 shares = 100; profit = (150-100)*100 = 5000
+	expectedProfit := decimal.NewFromFloat(5000.00)
+	if !result.Profit.Equal(expectedProfit) {
+		t.Errorf("expected profit %s, got %s", expectedProfit, result.Profit)
+	}
+
+	// Option holding should be deleted
+	_, err = mocks.holdingRepo.GetByID(h.ID)
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Error("expected option holding to be deleted after exercise")
+	}
+}
+
+func TestExerciseOptionByOptionID_AutoResolvesOldestHolding(t *testing.T) {
+	svc, mocks := buildPortfolioService()
+
+	// Stock listing: current price $150
+	stkListing := stockListing(10, 500, 150.00)
+	stkListing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(stkListing)
+	mocks.stockRepo.addStock(&model.Stock{ID: 500, Ticker: "AAPL", Name: "Apple Inc."})
+
+	// Option: call, strike $100, future settlement
+	mocks.optionRepo.addOption(&model.Option{
+		ID:             7,
+		Ticker:         "AAPL240101C00100",
+		OptionType:     "call",
+		StockID:        500,
+		StrikePrice:    decimal.NewFromFloat(100.00),
+		SettlementDate: time.Now().Add(30 * 24 * time.Hour),
+	})
+
+	now := time.Now()
+
+	// Older holding (should be auto-resolved by FindOldestLongOptionHolding)
+	older := &model.Holding{
+		UserID:        42,
+		SystemType:    "employee",
+		UserFirstName: "John",
+		UserLastName:  "Doe",
+		SecurityType:  "option",
+		SecurityID:    7,
+		ListingID:     10,
+		Ticker:        "AAPL240101C00100",
+		Quantity:      1,
+		AveragePrice:  decimal.NewFromFloat(3.00),
+		AccountID:     1,
+		CreatedAt:     now.Add(-2 * time.Hour),
+	}
+	mocks.holdingRepo.addHolding(older)
+
+	// Newer holding (should NOT be exercised)
+	newer := &model.Holding{
+		UserID:        42,
+		SystemType:    "employee",
+		UserFirstName: "John",
+		UserLastName:  "Doe",
+		SecurityType:  "option",
+		SecurityID:    7,
+		ListingID:     10,
+		Ticker:        "AAPL240101C00100",
+		Quantity:      2,
+		AveragePrice:  decimal.NewFromFloat(4.00),
+		AccountID:     1,
+		CreatedAt:     now.Add(-1 * time.Hour),
+	}
+	mocks.holdingRepo.addHolding(newer)
+
+	// Call with holding_id=0 → auto-resolve to the oldest holding
+	result, err := svc.ExerciseOptionByOptionID(context.Background(), 7, 42, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Older holding had quantity=1
+	if result.ExercisedQuantity != 1 {
+		t.Errorf("expected exercised quantity 1 (older holding), got %d", result.ExercisedQuantity)
+	}
+
+	// Older holding should be deleted; newer holding should remain intact
+	_, err = mocks.holdingRepo.GetByID(older.ID)
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Error("expected older holding to be deleted")
+	}
+	newerHolding, err := mocks.holdingRepo.GetByID(newer.ID)
+	if err != nil {
+		t.Fatalf("newer holding should still exist: %v", err)
+	}
+	if newerHolding.Quantity != 2 {
+		t.Errorf("expected newer holding quantity to remain 2, got %d", newerHolding.Quantity)
+	}
+}
+
+func TestExerciseOptionByOptionID_NotFound(t *testing.T) {
+	svc, _ := buildPortfolioService()
+
+	// No holdings in repo; holding_id=0 triggers auto-resolve which finds nothing
+	_, err := svc.ExerciseOptionByOptionID(context.Background(), 99, 42, 0)
+	if err == nil {
+		t.Fatal("expected error when no holding exists for option")
+	}
+	if err.Error() != "option holding not found" {
+		t.Errorf("expected 'option holding not found' error, got: %v", err)
 	}
 }

@@ -382,6 +382,26 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseRe
 	}, nil
 }
 
+// ExerciseOptionByOptionID exercises an option identified by its option_id.
+// When holdingID > 0, the specified holding is exercised directly (delegates
+// to ExerciseOption). When holdingID == 0, the user's oldest long holding for
+// the given optionID is auto-resolved and exercised.
+func (s *PortfolioService) ExerciseOptionByOptionID(ctx context.Context, optionID, userID, holdingID uint64) (*ExerciseResult, error) {
+	if holdingID > 0 {
+		return s.ExerciseOption(holdingID, userID)
+	}
+
+	// Auto-resolve: find the user's oldest long holding on this option.
+	holding, err := s.holdingRepo.FindOldestLongOptionHolding(userID, optionID)
+	if err != nil {
+		return nil, err
+	}
+	if holding == nil {
+		return nil, errors.New("option holding not found")
+	}
+	return s.ExerciseOption(holding.ID, userID)
+}
+
 // --- Account helpers ---
 
 func (s *PortfolioService) debitAccount(accountID uint64, amount decimal.Decimal) error {

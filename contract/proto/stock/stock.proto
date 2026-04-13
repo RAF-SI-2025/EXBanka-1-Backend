@@ -458,6 +458,7 @@ service PortfolioGRPCService {
   rpc GetPortfolioSummary(GetPortfolioSummaryRequest) returns (PortfolioSummary);
   rpc MakePublic(MakePublicRequest) returns (Holding);
   rpc ExerciseOption(ExerciseOptionRequest) returns (ExerciseResult);
+  rpc ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult);
 }
 
 message Holding {
@@ -506,6 +507,12 @@ message MakePublicRequest {
 message ExerciseOptionRequest {
   uint64 holding_id = 1;
   uint64 user_id = 2;
+}
+
+message ExerciseOptionByOptionIDRequest {
+  uint64 option_id  = 1;
+  uint64 user_id    = 2;
+  uint64 holding_id = 3; // optional; 0 means auto-resolve
 }
 
 message ExerciseResult {
