@@ -422,7 +422,7 @@ func toOptionItem(o *model.Option) *pb.OptionItem {
 	if o.Stock.ID > 0 {
 		stockPrice = o.Stock.Price
 	}
-	return &pb.OptionItem{
+	item := &pb.OptionItem{
 		Id:                o.ID,
 		Ticker:            o.Ticker,
 		Name:              o.Name,
@@ -437,6 +437,11 @@ func toOptionItem(o *model.Option) *pb.OptionItem {
 		ContractSize:      o.ContractSizeValue(),
 		InitialMarginCost: o.InitialMarginCost(stockPrice).StringFixed(2),
 	}
+	if o.ListingID != nil {
+		lid := *o.ListingID
+		item.ListingId = &lid
+	}
+	return item
 }
 
 func toPriceHistoryResponse(history []model.ListingDailyPriceInfo, total int64) *pb.PriceHistoryResponse {
@@ -459,7 +464,7 @@ func toOptionDetail(o *model.Option) *pb.OptionDetail {
 	if o.Stock.ID > 0 {
 		stockPrice = o.Stock.Price
 	}
-	return &pb.OptionDetail{
+	detail := &pb.OptionDetail{
 		Id:                o.ID,
 		Ticker:            o.Ticker,
 		Name:              o.Name,
@@ -475,4 +480,9 @@ func toOptionDetail(o *model.Option) *pb.OptionDetail {
 		MaintenanceMargin: o.MaintenanceMargin(stockPrice).StringFixed(2),
 		InitialMarginCost: o.InitialMarginCost(stockPrice).StringFixed(2),
 	}
+	if o.ListingID != nil {
+		lid := *o.ListingID
+		detail.ListingId = &lid
+	}
+	return detail
 }

@@ -7077,6 +7077,105 @@
                 }
             }
         },
+        "/api/v1/admin/stock-source": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the currently active stock data source, seeding status, and any error details.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get the current stock data source and status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Wipes all stock-service securities and trading state, then reseeds from the new source. Admin-only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Switch active stock data source (DESTRUCTIVE)",
+                "parameters": [
+                    {
+                        "description": "target source: external | generated | simulator",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.switchSourceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/resend-activation": {
             "post": {
                 "description": "Resend the activation email for a pending account. No-op if the account is already activated.",
@@ -7980,6 +8079,127 @@
                 }
             }
         },
+        "/api/v2/options/{option_id}/exercise": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "v2 takes option_id directly. If holding_id is omitted, the backend auto-resolves the user's oldest long option holding.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Options V2"
+                ],
+                "summary": "Exercise an option by option ID (v2)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Option ID",
+                        "name": "option_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Optional holding_id",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/handler.exerciseOptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v2/options/{option_id}/orders": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "v2 accepts the option_id directly; internally resolves to listing_id and delegates to the standard order flow.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Options V2"
+                ],
+                "summary": "Create an order for an option contract (v2)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Option ID",
+                        "name": "option_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Order details",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createOptionOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/verifications": {
             "post": {
                 "security": [
@@ -8632,6 +8852,38 @@
                 }
             }
         },
+        "handler.createOptionOrderRequest": {
+            "type": "object",
+            "properties": {
+                "account_id": {
+                    "type": "integer"
+                },
+                "all_or_none": {
+                    "type": "boolean"
+                },
+                "direction": {
+                    "type": "string"
+                },
+                "holding_id": {
+                    "type": "integer"
+                },
+                "limit_value": {
+                    "type": "string"
+                },
+                "margin": {
+                    "type": "boolean"
+                },
+                "order_type": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "integer"
+                },
+                "stop_value": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.createPaymentRecipientRequest": {
             "type": "object",
             "required": [
@@ -8799,6 +9051,14 @@
                 },
                 "verification_code": {
                     "type": "string"
+                }
+            }
+        },
+        "handler.exerciseOptionRequest": {
+            "type": "object",
+            "properties": {
+                "holding_id": {
+                    "type": "integer"
                 }
             }
         },
@@ -9068,6 +9328,14 @@
             ],
             "properties": {
                 "response": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.switchSourceRequest": {
+            "type": "object",
+            "properties": {
+                "source": {
                     "type": "string"
                 }
             }

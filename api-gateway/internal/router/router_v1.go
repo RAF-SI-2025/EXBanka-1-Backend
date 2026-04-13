@@ -132,6 +132,7 @@ func SetupV1Routes(
 	blueprintClient userpb.BlueprintServiceClient,
 	verificationClient verificationpb.VerificationGRPCServiceClient,
 	notificationClient notificationpb.NotificationServiceClient,
+	sourceAdminClient stockpb.SourceAdminServiceClient,
 ) {
 	// ── Create handlers ─────────────────────────────────────────────────
 	authHandler := handler.NewAuthHandler(authClient)
@@ -153,6 +154,7 @@ func SetupV1Routes(
 	actuaryHandler := handler.NewActuaryHandler(actuaryClient)
 	blueprintHandler := handler.NewBlueprintHandler(blueprintClient)
 	taxHandler := handler.NewTaxHandler(taxClient)
+	stockSourceHandler := handler.NewStockSourceHandler(sourceAdminClient)
 
 	// ── /api/v1 root group ──────────────────────────────────────────────
 	v1 := r.Group("/api/v1")
@@ -572,6 +574,14 @@ func SetupV1Routes(
 			{
 				stockExchangeAdmin.POST("/testing-mode", stockExchangeHandler.SetTestingMode)
 				stockExchangeAdmin.GET("/testing-mode", stockExchangeHandler.GetTestingMode)
+			}
+
+			// Admin stock-source management (securities.manage)
+			adminStockSource := protected.Group("/admin/stock-source")
+			adminStockSource.Use(middleware.RequirePermission("securities.manage"))
+			{
+				adminStockSource.POST("", stockSourceHandler.SwitchSource)
+				adminStockSource.GET("", stockSourceHandler.GetSourceStatus)
 			}
 
 			// Order management (supervisor)

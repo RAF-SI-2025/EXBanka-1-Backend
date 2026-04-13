@@ -4,6 +4,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/exbanka/stock-service/internal/model"
 )
 
@@ -69,6 +71,11 @@ func (r *StockRepository) UpsertByTicker(stock *model.Stock) error {
 		existing.LastRefresh = stock.LastRefresh
 		return tx.Save(&existing).Error
 	})
+}
+
+// UpdatePriceByTicker updates only the price column for the stock with the given ticker.
+func (r *StockRepository) UpdatePriceByTicker(ticker string, price decimal.Decimal) error {
+	return r.db.Model(&model.Stock{}).Where("ticker = ?", ticker).Update("price", price).Error
 }
 
 func (r *StockRepository) List(filter StockFilter) ([]model.Stock, int64, error) {

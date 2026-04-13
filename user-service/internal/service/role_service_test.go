@@ -310,3 +310,25 @@ func TestRoleService_GetPermissionsByCodes(t *testing.T) {
 	assert.True(t, codes["clients.read"])
 	assert.True(t, codes["accounts.read"])
 }
+
+func TestSeedRoles_EmployeeAdminHasSecuritiesManage(t *testing.T) {
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	svc := NewRoleService(roleRepo, permRepo)
+
+	err := svc.SeedRolesAndPermissions()
+	assert.NoError(t, err)
+
+	adminCodes, err := svc.GetPermissionsForRoles([]string{"EmployeeAdmin"})
+	assert.NoError(t, err)
+	assert.Contains(t, adminCodes, "securities.manage",
+		"EmployeeAdmin should have the securities.manage permission")
+
+	// Also verify other roles do NOT have this permission
+	for _, roleName := range []string{"EmployeeBasic", "EmployeeAgent", "EmployeeSupervisor"} {
+		codes, err2 := svc.GetPermissionsForRoles([]string{roleName})
+		assert.NoError(t, err2)
+		assert.NotContains(t, codes, "securities.manage",
+			"%s should NOT have the securities.manage permission", roleName)
+	}
+}

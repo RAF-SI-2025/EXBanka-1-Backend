@@ -54,3 +54,11 @@ func NewTaxClient(addr string) (stockpb.TaxGRPCServiceClient, *grpc.ClientConn, 
 	}
 	return stockpb.NewTaxGRPCServiceClient(conn), conn, nil
 }
+
+func NewSourceAdminClient(addr string) (stockpb.SourceAdminServiceClient, *grpc.ClientConn, error) {
+	conn, err := shared.DialGRPC(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewSourceAdminServiceClient(conn), conn, nil
+}

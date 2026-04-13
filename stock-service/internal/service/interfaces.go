@@ -1,13 +1,23 @@
 package service
 
 import (
+	"context"
 	"time"
 
 	"github.com/shopspring/decimal"
 
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
+	"github.com/exbanka/stock-service/internal/source"
 )
+
+// SwitchableSyncService is the subset of SecuritySyncService that the admin
+// handler depends on. Exposing it as an interface lets tests mock the
+// orchestration without spinning up a real sync service.
+type SwitchableSyncService interface {
+	SwitchSource(ctx context.Context, newSource source.Source) error
+	GetStatus() (status, lastErr string, startedAt time.Time, sourceName string)
+}
 
 type StockRepo interface {
 	Create(stock *model.Stock) error
@@ -16,6 +26,7 @@ type StockRepo interface {
 	Update(stock *model.Stock) error
 	UpsertByTicker(stock *model.Stock) error
 	List(filter repository.StockFilter) ([]model.Stock, int64, error)
+	UpdatePriceByTicker(ticker string, price decimal.Decimal) error
 }
 
 type FuturesRepo interface {
@@ -25,6 +36,7 @@ type FuturesRepo interface {
 	Update(f *model.FuturesContract) error
 	UpsertByTicker(f *model.FuturesContract) error
 	List(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error)
+	UpdatePriceByTicker(ticker string, price decimal.Decimal) error
 }
 
 type ForexPairRepo interface {
@@ -34,6 +46,7 @@ type ForexPairRepo interface {
 	Update(fp *model.ForexPair) error
 	UpsertByTicker(fp *model.ForexPair) error
 	List(filter repository.ForexFilter) ([]model.ForexPair, int64, error)
+	UpdatePriceByTicker(ticker string, rate decimal.Decimal) error
 }
 
 type OptionRepo interface {
@@ -44,6 +57,7 @@ type OptionRepo interface {
 	UpsertByTicker(o *model.Option) error
 	List(filter repository.OptionFilter) ([]model.Option, int64, error)
 	DeleteExpiredBefore(cutoff time.Time) (int64, error)
+	SetListingID(optionID, listingID uint64) error
 }
 
 // ExchangeRepo is the exchange repository from Plan 2 (already defined).
@@ -66,8 +80,16 @@ type ListingRepo interface {
 	GetBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error)
 	Update(listing *model.Listing) error
 	UpsertBySecurity(listing *model.Listing) error
+	UpsertForOption(listing *model.Listing) (*model.Listing, error)
 	ListAll() ([]model.Listing, error)
 	ListBySecurityType(securityType string) ([]model.Listing, error)
+	UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error
+}
+
+// Wiper is the interface for wiping all stock-service tables.
+// A single-method interface so the sync service doesn't depend on the concrete WipeRepository.
+type Wiper interface {
+	WipeAll() error
 }
 
 type DailyPriceRepo interface {
@@ -107,6 +129,10 @@ type HoldingRepo interface {
 	GetByUserAndSecurity(userID uint64, securityType string, securityID uint64, accountID uint64) (*model.Holding, error)
 	ListByUser(userID uint64, filter HoldingFilter) ([]model.Holding, int64, error)
 	ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error)
+	// FindOldestLongOptionHolding returns the oldest (by created_at) holding with
+	// security_type="option", security_id=optionID, user_id=userID, quantity>0.
+	// Returns (nil, nil) when no such holding exists.
+	FindOldestLongOptionHolding(userID, optionID uint64) (*model.Holding, error)
 }
 
 // --- Tax ---
