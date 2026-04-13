@@ -2848,6 +2848,7 @@ type Order struct {
 	CreatedAt         string                 `protobuf:"bytes,23,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	LimitValue        *string                `protobuf:"bytes,24,opt,name=limit_value,json=limitValue,proto3,oneof" json:"limit_value,omitempty"`
 	StopValue         *string                `protobuf:"bytes,25,opt,name=stop_value,json=stopValue,proto3,oneof" json:"stop_value,omitempty"`
+	ActingEmployeeId  uint64                 `protobuf:"varint,26,opt,name=acting_employee_id,json=actingEmployeeId,proto3" json:"acting_employee_id,omitempty"` // non-zero when the order was placed by an employee on behalf
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -3057,6 +3058,13 @@ func (x *Order) GetStopValue() string {
 	return ""
 }
 
+func (x *Order) GetActingEmployeeId() uint64 {
+	if x != nil {
+		return x.ActingEmployeeId
+	}
+	return 0
+}
+
 type OrderTransaction struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -3186,21 +3194,23 @@ func (x *OrderDetail) GetTransactions() []*OrderTransaction {
 }
 
 type CreateOrderRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	SystemType    string                 `protobuf:"bytes,2,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
-	ListingId     uint64                 `protobuf:"varint,3,opt,name=listing_id,json=listingId,proto3" json:"listing_id,omitempty"`
-	HoldingId     uint64                 `protobuf:"varint,4,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"`
-	Direction     string                 `protobuf:"bytes,5,opt,name=direction,proto3" json:"direction,omitempty"`
-	OrderType     string                 `protobuf:"bytes,6,opt,name=order_type,json=orderType,proto3" json:"order_type,omitempty"`
-	Quantity      int64                  `protobuf:"varint,7,opt,name=quantity,proto3" json:"quantity,omitempty"`
-	LimitValue    *string                `protobuf:"bytes,8,opt,name=limit_value,json=limitValue,proto3,oneof" json:"limit_value,omitempty"`
-	StopValue     *string                `protobuf:"bytes,9,opt,name=stop_value,json=stopValue,proto3,oneof" json:"stop_value,omitempty"`
-	AllOrNone     bool                   `protobuf:"varint,10,opt,name=all_or_none,json=allOrNone,proto3" json:"all_or_none,omitempty"`
-	Margin        bool                   `protobuf:"varint,11,opt,name=margin,proto3" json:"margin,omitempty"`
-	AccountId     uint64                 `protobuf:"varint,12,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	UserId             uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	SystemType         string                 `protobuf:"bytes,2,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
+	ListingId          uint64                 `protobuf:"varint,3,opt,name=listing_id,json=listingId,proto3" json:"listing_id,omitempty"`
+	HoldingId          uint64                 `protobuf:"varint,4,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"`
+	Direction          string                 `protobuf:"bytes,5,opt,name=direction,proto3" json:"direction,omitempty"`
+	OrderType          string                 `protobuf:"bytes,6,opt,name=order_type,json=orderType,proto3" json:"order_type,omitempty"`
+	Quantity           int64                  `protobuf:"varint,7,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	LimitValue         *string                `protobuf:"bytes,8,opt,name=limit_value,json=limitValue,proto3,oneof" json:"limit_value,omitempty"`
+	StopValue          *string                `protobuf:"bytes,9,opt,name=stop_value,json=stopValue,proto3,oneof" json:"stop_value,omitempty"`
+	AllOrNone          bool                   `protobuf:"varint,10,opt,name=all_or_none,json=allOrNone,proto3" json:"all_or_none,omitempty"`
+	Margin             bool                   `protobuf:"varint,11,opt,name=margin,proto3" json:"margin,omitempty"`
+	AccountId          uint64                 `protobuf:"varint,12,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	ActingEmployeeId   uint64                 `protobuf:"varint,13,opt,name=acting_employee_id,json=actingEmployeeId,proto3" json:"acting_employee_id,omitempty"`           // set when an employee places on behalf of a client
+	OnBehalfOfClientId uint64                 `protobuf:"varint,14,opt,name=on_behalf_of_client_id,json=onBehalfOfClientId,proto3" json:"on_behalf_of_client_id,omitempty"` // required when acting_employee_id is set; target client
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *CreateOrderRequest) Reset() {
@@ -3313,6 +3323,20 @@ func (x *CreateOrderRequest) GetMargin() bool {
 func (x *CreateOrderRequest) GetAccountId() uint64 {
 	if x != nil {
 		return x.AccountId
+	}
+	return 0
+}
+
+func (x *CreateOrderRequest) GetActingEmployeeId() uint64 {
+	if x != nil {
+		return x.ActingEmployeeId
+	}
+	return 0
+}
+
+func (x *CreateOrderRequest) GetOnBehalfOfClientId() uint64 {
+	if x != nil {
+		return x.OnBehalfOfClientId
 	}
 	return 0
 }
@@ -4578,14 +4602,16 @@ func (x *ListOTCOffersResponse) GetTotalCount() int64 {
 }
 
 type BuyOTCOfferRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OfferId       uint64                 `protobuf:"varint,1,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
-	BuyerId       uint64                 `protobuf:"varint,2,opt,name=buyer_id,json=buyerId,proto3" json:"buyer_id,omitempty"`
-	SystemType    string                 `protobuf:"bytes,3,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
-	Quantity      int64                  `protobuf:"varint,4,opt,name=quantity,proto3" json:"quantity,omitempty"`
-	AccountId     uint64                 `protobuf:"varint,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	OfferId            uint64                 `protobuf:"varint,1,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
+	BuyerId            uint64                 `protobuf:"varint,2,opt,name=buyer_id,json=buyerId,proto3" json:"buyer_id,omitempty"`
+	SystemType         string                 `protobuf:"bytes,3,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
+	Quantity           int64                  `protobuf:"varint,4,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	AccountId          uint64                 `protobuf:"varint,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	ActingEmployeeId   uint64                 `protobuf:"varint,6,opt,name=acting_employee_id,json=actingEmployeeId,proto3" json:"acting_employee_id,omitempty"`
+	OnBehalfOfClientId uint64                 `protobuf:"varint,7,opt,name=on_behalf_of_client_id,json=onBehalfOfClientId,proto3" json:"on_behalf_of_client_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *BuyOTCOfferRequest) Reset() {
@@ -4649,6 +4675,20 @@ func (x *BuyOTCOfferRequest) GetQuantity() int64 {
 func (x *BuyOTCOfferRequest) GetAccountId() uint64 {
 	if x != nil {
 		return x.AccountId
+	}
+	return 0
+}
+
+func (x *BuyOTCOfferRequest) GetActingEmployeeId() uint64 {
+	if x != nil {
+		return x.ActingEmployeeId
+	}
+	return 0
+}
+
+func (x *BuyOTCOfferRequest) GetOnBehalfOfClientId() uint64 {
+	if x != nil {
+		return x.OnBehalfOfClientId
 	}
 	return 0
 }
@@ -5745,7 +5785,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x06volume\x18\x06 \x01(\x03R\x06volume\"X\n" +
 	"\x12GetCandlesResponse\x12,\n" +
 	"\acandles\x18\x01 \x03(\v2\x12.stock.CandlePointR\acandles\x12\x14\n" +
-	"\x05count\x18\x02 \x01(\x03R\x05count\"\xca\x06\n" +
+	"\x05count\x18\x02 \x01(\x03R\x05count\"\xf8\x06\n" +
 	"\x05Order\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1d\n" +
@@ -5783,7 +5823,8 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\vlimit_value\x18\x18 \x01(\tH\x00R\n" +
 	"limitValue\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"stop_value\x18\x19 \x01(\tH\x01R\tstopValue\x88\x01\x01B\x0e\n" +
+	"stop_value\x18\x19 \x01(\tH\x01R\tstopValue\x88\x01\x01\x12,\n" +
+	"\x12acting_employee_id\x18\x1a \x01(\x04R\x10actingEmployeeIdB\x0e\n" +
 	"\f_limit_valueB\r\n" +
 	"\v_stop_value\"\xa6\x01\n" +
 	"\x10OrderTransaction\x12\x0e\n" +
@@ -5796,7 +5837,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"executedAt\"n\n" +
 	"\vOrderDetail\x12\"\n" +
 	"\x05order\x18\x01 \x01(\v2\f.stock.OrderR\x05order\x12;\n" +
-	"\ftransactions\x18\x02 \x03(\v2\x17.stock.OrderTransactionR\ftransactions\"\xa5\x03\n" +
+	"\ftransactions\x18\x02 \x03(\v2\x17.stock.OrderTransactionR\ftransactions\"\x87\x04\n" +
 	"\x12CreateOrderRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1f\n" +
 	"\vsystem_type\x18\x02 \x01(\tR\n" +
@@ -5817,7 +5858,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	" \x01(\bR\tallOrNone\x12\x16\n" +
 	"\x06margin\x18\v \x01(\bR\x06margin\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\f \x01(\x04R\taccountIdB\x0e\n" +
+	"account_id\x18\f \x01(\x04R\taccountId\x12,\n" +
+	"\x12acting_employee_id\x18\r \x01(\x04R\x10actingEmployeeId\x122\n" +
+	"\x16on_behalf_of_client_id\x18\x0e \x01(\x04R\x12onBehalfOfClientIdB\x0e\n" +
 	"\f_limit_valueB\r\n" +
 	"\v_stop_value\":\n" +
 	"\x0fGetOrderRequest\x12\x0e\n" +
@@ -5923,7 +5966,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x15ListOTCOffersResponse\x12'\n" +
 	"\x06offers\x18\x01 \x03(\v2\x0f.stock.OTCOfferR\x06offers\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
-	"totalCount\"\xa6\x01\n" +
+	"totalCount\"\x88\x02\n" +
 	"\x12BuyOTCOfferRequest\x12\x19\n" +
 	"\boffer_id\x18\x01 \x01(\x04R\aofferId\x12\x19\n" +
 	"\bbuyer_id\x18\x02 \x01(\x04R\abuyerId\x12\x1f\n" +
@@ -5931,7 +5974,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	"systemType\x12\x1a\n" +
 	"\bquantity\x18\x04 \x01(\x03R\bquantity\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x05 \x01(\x04R\taccountId\"\xbe\x01\n" +
+	"account_id\x18\x05 \x01(\x04R\taccountId\x12,\n" +
+	"\x12acting_employee_id\x18\x06 \x01(\x04R\x10actingEmployeeId\x122\n" +
+	"\x16on_behalf_of_client_id\x18\a \x01(\x04R\x12onBehalfOfClientId\"\xbe\x01\n" +
 	"\x0eOTCTransaction\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x19\n" +
 	"\boffer_id\x18\x02 \x01(\x04R\aofferId\x12\x1a\n" +

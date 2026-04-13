@@ -11,8 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// newTestDB returns an in-memory sqlite GORM handle with the minimal set of
-// tables needed by repository tests.
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	dbName := strings.ReplaceAll(t.Name(), "/", "_")

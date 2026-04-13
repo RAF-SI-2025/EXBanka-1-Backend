@@ -36,7 +36,7 @@ func TestDebitBankAccount_Success(t *testing.T) {
 	repo := NewBankAccountRepository(db)
 	seedBankSentinelAccount(t, db, "RSD", "1000000")
 
-	resp, err := repo.DebitBank(context.Background(), "RSD", decimal.RequireFromString("50000"), "loan-disbursement:1", "loan 1 disbursement")
+	resp, err := repo.DebitBank(context.Background(), "RSD", decimal.RequireFromString("50000"), "loan-disbursement:1", "loan 1")
 	require.NoError(t, err)
 	require.False(t, resp.Replayed)
 	require.Equal(t, "950000.0000", resp.NewBalance)
@@ -56,7 +56,7 @@ func TestDebitBankAccount_InsufficientBalance(t *testing.T) {
 
 	var acct model.Account
 	require.NoError(t, db.Where("account_number = ?", "BANK-RSD-0001").First(&acct).Error)
-	require.Equal(t, "100.0000", acct.Balance.StringFixed(4), "balance must be unchanged on failed debit")
+	require.Equal(t, "100.0000", acct.Balance.StringFixed(4))
 }
 
 func TestDebitBankAccount_IdempotentReplay(t *testing.T) {
@@ -75,7 +75,7 @@ func TestDebitBankAccount_IdempotentReplay(t *testing.T) {
 
 	var acct model.Account
 	require.NoError(t, db.Where("account_number = ?", "BANK-RSD-0001").First(&acct).Error)
-	require.Equal(t, "950000.0000", acct.Balance.StringFixed(4), "replay must not double-debit")
+	require.Equal(t, "950000.0000", acct.Balance.StringFixed(4))
 }
 
 func TestCreditBankAccount_Success(t *testing.T) {
@@ -103,14 +103,12 @@ func TestCreditBankAccount_IdempotentReplay(t *testing.T) {
 
 	var acct model.Account
 	require.NoError(t, db.Where("account_number = ?", "BANK-RSD-0001").First(&acct).Error)
-	require.Equal(t, "1000250.0000", acct.Balance.StringFixed(4), "replay must not double-credit")
+	require.Equal(t, "1000250.0000", acct.Balance.StringFixed(4))
 }
 
 func TestDebitBankAccount_CurrencyNotFound(t *testing.T) {
 	db := newTestDB(t)
 	repo := NewBankAccountRepository(db)
-	// No seed — no bank account for EUR.
-
 	_, err := repo.DebitBank(context.Background(), "EUR", decimal.RequireFromString("100"), "loan-disbursement:99", "loan 99")
 	require.ErrorIs(t, err, ErrBankAccountNotFound)
 }

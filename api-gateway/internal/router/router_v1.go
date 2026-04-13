@@ -141,7 +141,7 @@ func SetupV1Routes(
 	limitHandler := handler.NewLimitHandler(empLimitClient, clientLimitClient)
 	clientHandler := handler.NewClientHandler(clientClient, authClient)
 	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient, txClient)
-	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient)
+	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient, accountClient)
 	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient, exchangeClient)
 	exchangeHandler := handler.NewExchangeHandler(exchangeClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
@@ -149,8 +149,8 @@ func SetupV1Routes(
 	sessionHandler := handler.NewSessionHandler(authClient)
 	stockExchangeHandler := handler.NewStockExchangeHandler(stockExchangeClient)
 	securitiesHandler := handler.NewSecuritiesHandler(securityClient)
-	stockOrderHandler := handler.NewStockOrderHandler(orderClient)
-	portfolioHandler := handler.NewPortfolioHandler(portfolioClient, otcClient)
+	stockOrderHandler := handler.NewStockOrderHandler(orderClient, accountClient)
+	portfolioHandler := handler.NewPortfolioHandler(portfolioClient, otcClient, accountClient)
 	actuaryHandler := handler.NewActuaryHandler(actuaryClient)
 	blueprintHandler := handler.NewBlueprintHandler(blueprintClient)
 	taxHandler := handler.NewTaxHandler(taxClient)
@@ -582,6 +582,23 @@ func SetupV1Routes(
 			{
 				adminStockSource.POST("", stockSourceHandler.SwitchSource)
 				adminStockSource.GET("", stockSourceHandler.GetSourceStatus)
+			}
+
+			// Orders (employee on-behalf trading — securities.manage)
+			ordersOnBehalf := protected.Group("/orders")
+			ordersOnBehalf.Use(middleware.RequirePermission("securities.manage"))
+			{
+				ordersOnBehalf.POST("", stockOrderHandler.CreateOrderOnBehalf)
+			}
+
+			// OTC (employee on-behalf buying — securities.manage)
+			// Uses /otc/admin/offers/:id/buy to avoid a routing conflict with the
+			// client-facing /otc/offers/:id/buy route (different middleware chain but
+			// same URL pattern confuses Gin's router).
+			otcOnBehalf := protected.Group("/otc/admin/offers")
+			otcOnBehalf.Use(middleware.RequirePermission("securities.manage"))
+			{
+				otcOnBehalf.POST("/:id/buy", portfolioHandler.BuyOTCOfferOnBehalf)
 			}
 
 			// Order management (supervisor)

@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
@@ -75,6 +77,38 @@ func (m *mockAccountClientForLoan) GetLedgerEntries(_ context.Context, _ *accoun
 	return nil, nil
 }
 
+// ---- mockBankAccountClientForLoan -------------------------------------------
+
+type mockBankAccountClientForLoan struct {
+	debitErr    error
+	creditErr   error
+	debitCalls  []string // references passed to DebitBankAccount
+	debitAmounts []string // amounts passed to DebitBankAccount
+	creditCalls  []string // references passed to CreditBankAccount (compensation tracking)
+}
+
+func (m *mockBankAccountClientForLoan) DebitBankAccount(_ context.Context, req *accountpb.BankAccountOpRequest, _ ...grpc.CallOption) (*accountpb.BankAccountOpResponse, error) {
+	m.debitCalls = append(m.debitCalls, req.Reference)
+	m.debitAmounts = append(m.debitAmounts, req.Amount)
+	return &accountpb.BankAccountOpResponse{}, m.debitErr
+}
+func (m *mockBankAccountClientForLoan) CreditBankAccount(_ context.Context, req *accountpb.BankAccountOpRequest, _ ...grpc.CallOption) (*accountpb.BankAccountOpResponse, error) {
+	m.creditCalls = append(m.creditCalls, req.Reference)
+	return &accountpb.BankAccountOpResponse{}, m.creditErr
+}
+func (m *mockBankAccountClientForLoan) CreateBankAccount(_ context.Context, _ *accountpb.CreateBankAccountRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
+	return nil, nil
+}
+func (m *mockBankAccountClientForLoan) ListBankAccounts(_ context.Context, _ *accountpb.ListBankAccountsRequest, _ ...grpc.CallOption) (*accountpb.ListBankAccountsResponse, error) {
+	return nil, nil
+}
+func (m *mockBankAccountClientForLoan) DeleteBankAccount(_ context.Context, _ *accountpb.DeleteBankAccountRequest, _ ...grpc.CallOption) (*accountpb.DeleteBankAccountResponse, error) {
+	return nil, nil
+}
+func (m *mockBankAccountClientForLoan) GetBankRSDAccount(_ context.Context, _ *accountpb.GetBankRSDAccountRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
+	return nil, nil
+}
+
 // ---- test DB & helpers -------------------------------------------------------
 
 func newDisbursementTestDB(t *testing.T) *gorm.DB {
@@ -107,6 +141,15 @@ func buildDisbursementSvc(t *testing.T, accountClient accountpb.AccountServiceCl
 	return svc, db
 }
 
+func buildDisbursementSvcWithBank(t *testing.T, accountClient accountpb.AccountServiceClient, bankClient accountpb.BankAccountServiceClient) (*LoanRequestService, *gorm.DB) {
+	t.Helper()
+	svc, db := buildDisbursementSvc(t, accountClient)
+	if bankClient != nil {
+		svc.SetBankAccountClient(bankClient)
+	}
+	return svc, db
+}
+
 func seedPendingRequest(t *testing.T, db *gorm.DB) *model.LoanRequest {
 	t.Helper()
 	req := &model.LoanRequest{
@@ -126,38 +169,79 @@ func seedPendingRequest(t *testing.T, db *gorm.DB) *model.LoanRequest {
 // ---- tests ------------------------------------------------------------------
 
 func TestApproveLoan_DisbursesOnSuccess(t *testing.T) {
-	client := &mockAccountClientForLoan{updateBalanceErr: nil}
-	svc, db := buildDisbursementSvc(t, client)
+	accountClient := &mockAccountClientForLoan{updateBalanceErr: nil}
+	bankClient := &mockBankAccountClientForLoan{}
+	svc, db := buildDisbursementSvcWithBank(t, accountClient, bankClient)
 	req := seedPendingRequest(t, db)
 
 	loan, err := svc.ApproveLoanRequest(context.Background(), req.ID, 0)
 	require.NoError(t, err)
-	assert.Equal(t, "active", loan.Status, "loan status must be active when disbursement succeeds")
+	assert.Equal(t, "active", loan.Status)
 
-	// Verify persisted status in DB.
 	var dbLoan model.Loan
 	require.NoError(t, db.First(&dbLoan, loan.ID).Error)
 	assert.Equal(t, "active", dbLoan.Status)
 
-	require.Len(t, client.calls, 1, "UpdateBalance must be called exactly once")
-	assert.Equal(t, "ACC-TEST-001", client.calls[0])
+	// Bank must be debited first with a deterministic reference.
+	require.Len(t, bankClient.debitCalls, 1, "DebitBankAccount must be called exactly once")
+	expectedRef := fmt.Sprintf("loan-disbursement:%d", loan.ID)
+	assert.Equal(t, expectedRef, bankClient.debitCalls[0])
+	require.Len(t, bankClient.debitAmounts, 1)
+	assert.Equal(t, "10000.0000", bankClient.debitAmounts[0])
 
-	require.Len(t, client.amounts, 1)
-	assert.Equal(t, "10000.0000", client.amounts[0], "disbursement amount must match loan amount in StringFixed(4) format")
+	// Borrower credited next.
+	require.Len(t, accountClient.calls, 1, "UpdateBalance must be called exactly once on success")
+	assert.Equal(t, "ACC-TEST-001", accountClient.calls[0])
+
+	// No compensation.
+	assert.Empty(t, bankClient.creditCalls, "no compensation on happy path")
 }
 
-func TestApproveLoan_SoftFailOnDisbursementError(t *testing.T) {
-	client := &mockAccountClientForLoan{updateBalanceErr: errors.New("account service unavailable")}
-	svc, db := buildDisbursementSvc(t, client)
+func TestApproveLoan_InsufficientBankLiquidity_PropagatesAndMarksFailed(t *testing.T) {
+	accountClient := &mockAccountClientForLoan{}
+	bankClient := &mockBankAccountClientForLoan{
+		debitErr: status.Error(codes.FailedPrecondition, "bank has insufficient liquidity in RSD"),
+	}
+	svc, db := buildDisbursementSvcWithBank(t, accountClient, bankClient)
 	req := seedPendingRequest(t, db)
 
 	loan, err := svc.ApproveLoanRequest(context.Background(), req.ID, 0)
-	require.NoError(t, err, "soft failure must not propagate as an error to the caller")
-	assert.Equal(t, "disbursement_failed", loan.Status)
+	require.Error(t, err, "insufficient liquidity must propagate")
+	assert.Nil(t, loan, "loan return value is unused when disbursement fails")
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 
-	// Verify persisted status in DB.
+	// Borrower must NOT be credited.
+	assert.Empty(t, accountClient.calls, "UpdateBalance must not be called when bank debit fails")
+
+	// Loan must exist in DB with disbursement_failed status.
 	var dbLoan model.Loan
-	require.NoError(t, db.First(&dbLoan, loan.ID).Error)
+	require.NoError(t, db.Where("client_id = ?", 1).First(&dbLoan).Error)
+	assert.Equal(t, "disbursement_failed", dbLoan.Status)
+
+	// No compensation — nothing was debited.
+	assert.Empty(t, bankClient.creditCalls, "no compensation needed when bank debit failed")
+}
+
+func TestApproveLoan_BorrowerCreditFails_CompensatesAndMarksFailed(t *testing.T) {
+	accountClient := &mockAccountClientForLoan{updateBalanceErr: errors.New("downstream failure")}
+	bankClient := &mockBankAccountClientForLoan{}
+	svc, db := buildDisbursementSvcWithBank(t, accountClient, bankClient)
+	req := seedPendingRequest(t, db)
+
+	loan, err := svc.ApproveLoanRequest(context.Background(), req.ID, 0)
+	require.Error(t, err, "borrower credit failure must propagate")
+	assert.Nil(t, loan)
+
+	// Bank was debited once.
+	require.Len(t, bankClient.debitCalls, 1)
+
+	// Compensation was invoked — bank was credited back with the SAME reference (idempotency key).
+	require.Len(t, bankClient.creditCalls, 1, "compensation must call CreditBankAccount once")
+	assert.Equal(t, bankClient.debitCalls[0], bankClient.creditCalls[0], "compensation must reuse same reference")
+
+	// Loan flagged disbursement_failed.
+	var dbLoan model.Loan
+	require.NoError(t, db.Where("client_id = ?", 1).First(&dbLoan).Error)
 	assert.Equal(t, "disbursement_failed", dbLoan.Status)
 }
 

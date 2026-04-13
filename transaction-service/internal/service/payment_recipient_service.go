@@ -21,6 +21,10 @@ func (s *PaymentRecipientService) ListByClient(clientID uint64) ([]model.Payment
 	return s.repo.ListByClient(clientID)
 }
 
+func (s *PaymentRecipientService) GetByID(id uint64) (*model.PaymentRecipient, error) {
+	return s.repo.GetByID(id)
+}
+
 func (s *PaymentRecipientService) Update(id uint64, recipientName, accountNumber *string) (*model.PaymentRecipient, error) {
 	pr, err := s.repo.GetByID(id)
 	if err != nil {

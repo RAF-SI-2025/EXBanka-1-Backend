@@ -44,6 +44,10 @@ func (p *Producer) PublishLoanRejected(ctx context.Context, msg kafkamsg.LoanSta
 	return p.publish(ctx, kafkamsg.TopicLoanRejected, msg)
 }
 
+func (p *Producer) PublishLoanDisbursed(ctx context.Context, msg kafkamsg.LoanDisbursedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicLoanDisbursed, msg)
+}
+
 func (p *Producer) PublishInstallmentCollected(ctx context.Context, msg kafkamsg.InstallmentResultMessage) error {
 	return p.publish(ctx, kafkamsg.TopicInstallmentCollected, msg)
 }

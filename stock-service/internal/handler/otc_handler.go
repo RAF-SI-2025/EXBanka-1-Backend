@@ -54,9 +54,19 @@ func (h *OTCHandler) ListOffers(ctx context.Context, req *pb.ListOTCOffersReques
 }
 
 func (h *OTCHandler) BuyOffer(ctx context.Context, req *pb.BuyOTCOfferRequest) (*pb.OTCTransaction, error) {
+	// Resolve effective buyer ID: when an employee acts on behalf of a client,
+	// the resulting holding belongs to the client.
+	effectiveBuyerID := req.BuyerId
+	if req.ActingEmployeeId != 0 {
+		if req.OnBehalfOfClientId == 0 {
+			return nil, status.Error(codes.InvalidArgument, "on_behalf_of_client_id required when acting_employee_id is set")
+		}
+		effectiveBuyerID = req.OnBehalfOfClientId
+	}
+
 	result, err := h.otcSvc.BuyOffer(
 		req.OfferId,
-		req.BuyerId,
+		effectiveBuyerID,
 		req.SystemType,
 		req.Quantity,
 		req.AccountId,

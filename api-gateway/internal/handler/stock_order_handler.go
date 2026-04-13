@@ -4,16 +4,18 @@ import (
 	"net/http"
 	"strconv"
 
+	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/gin-gonic/gin"
 )
 
 type StockOrderHandler struct {
-	client stockpb.OrderGRPCServiceClient
+	client        stockpb.OrderGRPCServiceClient
+	accountClient accountpb.AccountServiceClient
 }
 
-func NewStockOrderHandler(client stockpb.OrderGRPCServiceClient) *StockOrderHandler {
-	return &StockOrderHandler{client: client}
+func NewStockOrderHandler(client stockpb.OrderGRPCServiceClient, accountClient accountpb.AccountServiceClient) *StockOrderHandler {
+	return &StockOrderHandler{client: client, accountClient: accountClient}
 }
 
 func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
@@ -55,6 +57,16 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	if direction == "buy" && req.AccountID == 0 {
 		apiError(c, 400, ErrValidation, "account_id is required for buy orders")
 		return
+	}
+	if direction == "buy" {
+		acctResp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		if ownErr := enforceOwnership(c, acctResp.OwnerId); ownErr != nil {
+			return
+		}
 	}
 	if direction == "sell" && req.HoldingID == 0 {
 		apiError(c, 400, ErrValidation, "holding_id is required for sell orders")
@@ -153,6 +165,122 @@ func (h *StockOrderHandler) CancelOrder(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// CreateOrderOnBehalf godoc
+// @Summary      Place stock/futures/forex/option order on behalf of a client
+// @Description  Employee-only. Gateway verifies the account belongs to the named client; stock-service records acting_employee_id for audit.
+// @Tags         orders
+// @Accept       json
+// @Produce      json
+// @Param        body body object true "Order"
+// @Security     BearerAuth
+// @Success      201 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{}
+// @Router       /api/v1/orders [post]
+func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
+	var req struct {
+		ClientID   uint64  `json:"client_id"`
+		AccountID  uint64  `json:"account_id"`
+		ListingID  uint64  `json:"listing_id"`
+		HoldingID  uint64  `json:"holding_id"`
+		Direction  string  `json:"direction"`
+		OrderType  string  `json:"order_type"`
+		Quantity   int64   `json:"quantity"`
+		LimitValue *string `json:"limit_value"`
+		StopValue  *string `json:"stop_value"`
+		AllOrNone  bool    `json:"all_or_none"`
+		Margin     bool    `json:"margin"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, 400, ErrValidation, "invalid request body")
+		return
+	}
+	if req.ClientID == 0 {
+		apiError(c, 400, ErrValidation, "client_id is required")
+		return
+	}
+	direction, err := oneOf("direction", req.Direction, "buy", "sell")
+	if err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+	orderType, err := oneOf("order_type", req.OrderType, "market", "limit", "stop", "stop_limit")
+	if err != nil {
+		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+	if req.Quantity <= 0 {
+		apiError(c, 400, ErrValidation, "quantity must be positive")
+		return
+	}
+	if direction == "buy" {
+		if req.ListingID == 0 {
+			apiError(c, 400, ErrValidation, "listing_id is required for buy orders")
+			return
+		}
+		if req.AccountID == 0 {
+			apiError(c, 400, ErrValidation, "account_id is required for buy orders")
+			return
+		}
+	}
+	if direction == "sell" && req.HoldingID == 0 {
+		apiError(c, 400, ErrValidation, "holding_id is required for sell orders")
+		return
+	}
+	if (orderType == "limit" || orderType == "stop_limit") && req.LimitValue == nil {
+		apiError(c, 400, ErrValidation, "limit_value is required for limit/stop_limit orders")
+		return
+	}
+	if (orderType == "stop" || orderType == "stop_limit") && req.StopValue == nil {
+		apiError(c, 400, ErrValidation, "stop_value is required for stop/stop_limit orders")
+		return
+	}
+
+	// Verify the account belongs to the named client (buy path only; sell uses holding).
+	if direction == "buy" {
+		acctResp, acctErr := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
+		if acctErr != nil {
+			handleGRPCError(c, acctErr)
+			return
+		}
+		if acctResp.OwnerId != req.ClientID {
+			apiError(c, 403, ErrForbidden, "account does not belong to client")
+			return
+		}
+	}
+
+	employeeID := uint64(c.GetInt64("user_id"))
+	grpcReq := &stockpb.CreateOrderRequest{
+		UserId:             req.ClientID,
+		SystemType:         "employee",
+		ListingId:          req.ListingID,
+		HoldingId:          req.HoldingID,
+		Direction:          direction,
+		OrderType:          orderType,
+		Quantity:           req.Quantity,
+		AllOrNone:          req.AllOrNone,
+		Margin:             req.Margin,
+		AccountId:          req.AccountID,
+		ActingEmployeeId:   employeeID,
+		OnBehalfOfClientId: req.ClientID,
+	}
+	if req.LimitValue != nil {
+		grpcReq.LimitValue = req.LimitValue
+	}
+	if req.StopValue != nil {
+		grpcReq.StopValue = req.StopValue
+	}
+
+	resp, err := h.client.CreateOrder(c.Request.Context(), grpcReq)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, resp)
 }
 
 func (h *StockOrderHandler) ListOrders(c *gin.Context) {
