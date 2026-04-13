@@ -181,7 +181,7 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 
 **Auth token system type** (auth-service):
 - JWT claims include a `system_type` field: `employee` for employee logins, `client` for client logins.
-- Middleware uses `system_type` to route to `AuthMiddleware` (employee) or `ClientAuthMiddleware` (client).
+- Middleware uses `system_type` to route to `AuthMiddleware` (employee) or `AnyAuthMiddleware` (client + employee).
 
 **Token types** (auth-service):
 - Access token: short-lived JWT (15 min), stateless validation. Claims include `user_id`, `roles []string`, `permissions []string`, and `system_type` (`employee` or `client`).
@@ -193,7 +193,7 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 
 **Employee creation flow:** API Gateway → User service (create employee) → Auth service (create activation token) → Kafka → Notification service (send activation email).
 
-**Client login flow:** API Gateway (`POST /api/auth/client-login`) → Auth service (`ClientLogin` RPC) → Client service (`ValidateCredentials` RPC) → Auth service generates JWT with `role="client"` and issues refresh token. The client JWT is then validated by `ClientAuthMiddleware` in the API Gateway for client-protected routes.
+**Client login flow:** API Gateway (`POST /api/auth/client-login`) → Auth service (`ClientLogin` RPC) → Client service (`ValidateCredentials` RPC) → Auth service generates JWT with `role="client"` and issues refresh token. The client JWT is validated by `AnyAuthMiddleware` in the API Gateway for `/api/me/*` routes.
 
 **JMBG (Jedinstveni Matični Broj Građana):**
 - Unique 13-digit national identification number required for all employees
@@ -250,14 +250,14 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 **Middleware assignment:**
 - `AnyAuthMiddleware` for `/api/me/*` routes (accepts both client and employee tokens).
 - `AuthMiddleware` + `RequirePermission("...")` for employee/admin routes.
-- `ClientAuthMiddleware` is no longer routed but kept in codebase (may be useful for future client-only restrictions).
+- Client routes use `AnyAuthMiddleware` which accepts both client and employee tokens.
 - Public routes (auth, exchange rates) need no middleware.
 
 **When adding a new endpoint:**
 - If it's "user accesses their own resource" → add under `/api/me/*` with `AnyAuthMiddleware`.
 - If it's an employee/admin operation or general data → add under `/api/<resource>` with `AuthMiddleware`.
 - Use `apiError()` for all error responses, `handleGRPCError()` for gRPC errors.
-- Update swagger annotations, `docs/api/REST_API.md`, and `test-app` integration tests.
+- Update swagger annotations, `docs/api/REST_API_v1.md`, and `test-app` integration tests.
 - For `/api/me` handlers: create a `ListMy<Resource>` wrapper that extracts `user_id` from JWT context.
 
 ## Swagger Documentation Requirement
@@ -271,12 +271,12 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 
 ## REST API Documentation Requirement
 
-**Every route added, changed, or removed in `api-gateway` must be reflected in `docs/api/REST_API.md`.** This is a hard requirement — not optional.
+**Every route added, changed, or removed in `api-gateway` must be reflected in `docs/api/REST_API_v1.md`.** This is a hard requirement — not optional.
 
 - Add a new section or subsection for every new endpoint, following the existing format (authentication, path/query parameters, request body, example request, and all response codes).
 - Update existing sections when request/response shapes, authentication requirements, or behavior changes.
 - Remove sections for any deleted routes.
-- `docs/api/REST_API.md` must be committed alongside handler and router changes.
+- `docs/api/REST_API_v1.md` must be committed alongside handler and router changes.
 
 ## Testing Requirement
 
@@ -383,6 +383,17 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 - If a service depends on another service at runtime (DB, Kafka, Redis, or another gRPC service), add a `depends_on:` entry for it.
 - When adding a new service, add its DB, its service definition, the volume, and wire it into the `api-gateway` environment and `depends_on`.
 - `docker-compose.yml` must be committed alongside service changes.
+- **`docker-compose-remote.yml` must be kept in sync with `docker-compose.yml`.** When adding/changing environment variables, ports, volumes, or services in `docker-compose.yml`, apply the same changes to `docker-compose-remote.yml` (which uses pre-built images from ghcr.io instead of building from source). The only difference between the two files is the `build:` vs `image:` directives — environment, ports, volumes, depends_on, and healthchecks must match.
+
+## API Versioning Compatibility Requirement
+
+**Newer versions of the API must never break older versions unless the user has explicitly permitted it.** This is a hard requirement — not optional.
+
+- When introducing `/api/v{N+1}/...` routes, existing `/api/v{N}/...` routes must remain functional with their exact current request and response shapes.
+- Adding new *optional* fields to v{N} response bodies is allowed and does not count as a breaking change, provided existing clients that ignore unknown fields continue to work.
+- Removing fields, renaming fields, changing field types, changing HTTP methods, changing status codes, changing authentication requirements, or tightening validation on existing v{N} routes are breaking changes and require explicit user authorization before merging.
+- The v2 router in api-gateway transparently falls back to v1 for any route not explicitly redefined at v2, so v2 clients can reach any v1 endpoint using a v2 URL.
+- When in doubt, ask the user before changing any existing route.
 
 ## Implementation Plans
 

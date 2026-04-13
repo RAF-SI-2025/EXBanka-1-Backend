@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -31,7 +32,9 @@ import (
 func main() {
 	cfg := config.Load()
 
-	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
+		NowFunc: func() time.Time { return time.Now().UTC() },
+	})
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
@@ -48,6 +51,7 @@ func main() {
 		"credit.loan-requested",
 		"credit.loan-approved",
 		"credit.loan-rejected",
+		"credit.loan-disbursed",
 		"credit.installment-collected",
 		"credit.installment-failed",
 		"credit.variable-rate-adjusted",
@@ -105,6 +109,7 @@ func main() {
 
 	changelogRepo := repository.NewChangelogRepository(db)
 	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc, db, changelogRepo)
+	loanRequestSvc.SetBankAccountClient(bankAccountClient)
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
 	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount, db)

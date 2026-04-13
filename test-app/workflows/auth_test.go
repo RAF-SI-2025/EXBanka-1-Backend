@@ -61,7 +61,7 @@ func TestAuth_LoginWithValidCredentials(t *testing.T) {
 
 func TestAuth_LoginWithInvalidPassword(t *testing.T) {
 	c := newClient()
-	resp, err := c.POST("/api/auth/login", map[string]string{
+	resp, err := c.POST("/api/v1/auth/login", map[string]string{
 		"email":    cfg.AdminEmail,
 		"password": "wrongpassword",
 	})
@@ -75,7 +75,7 @@ func TestAuth_LoginWithInvalidPassword(t *testing.T) {
 
 func TestAuth_LoginWithNonexistentEmail(t *testing.T) {
 	c := newClient()
-	resp, err := c.POST("/api/auth/login", map[string]string{
+	resp, err := c.POST("/api/v1/auth/login", map[string]string{
 		"email":    "nonexistent@exbanka.com",
 		"password": "SomePass12",
 	})
@@ -91,7 +91,7 @@ func TestAuth_LoginWithEmptyFields(t *testing.T) {
 	c := newClient()
 
 	// Empty email
-	resp, err := c.POST("/api/auth/login", map[string]string{
+	resp, err := c.POST("/api/v1/auth/login", map[string]string{
 		"email":    "",
 		"password": "SomePass12",
 	})
@@ -103,7 +103,7 @@ func TestAuth_LoginWithEmptyFields(t *testing.T) {
 	}
 
 	// Empty password
-	resp, err = c.POST("/api/auth/login", map[string]string{
+	resp, err = c.POST("/api/v1/auth/login", map[string]string{
 		"email":    cfg.AdminEmail,
 		"password": "",
 	})
@@ -162,7 +162,7 @@ func TestAuth_Logout(t *testing.T) {
 
 	refreshToken := helpers.GetStringField(t, loginResp, "refresh_token")
 
-	resp, err := c.POST("/api/auth/logout", map[string]string{
+	resp, err := c.POST("/api/v1/auth/logout", map[string]string{
 		"refresh_token": refreshToken,
 	})
 	if err != nil {
@@ -184,7 +184,7 @@ func TestAuth_PasswordResetRequest(t *testing.T) {
 	c := newClient()
 
 	// Request for existing email (should succeed silently)
-	resp, err := c.POST("/api/auth/password/reset-request", map[string]string{
+	resp, err := c.POST("/api/v1/auth/password/reset-request", map[string]string{
 		"email": cfg.AdminEmail,
 	})
 	if err != nil {
@@ -193,7 +193,7 @@ func TestAuth_PasswordResetRequest(t *testing.T) {
 	helpers.RequireStatus(t, resp, 200)
 
 	// Request for non-existent email (should also succeed — no info leak)
-	resp, err = c.POST("/api/auth/password/reset-request", map[string]string{
+	resp, err = c.POST("/api/v1/auth/password/reset-request", map[string]string{
 		"email": "nonexistent@exbanka.com",
 	})
 	if err != nil {
@@ -215,7 +215,7 @@ func TestAuth_ActivateAccountInvalidToken(t *testing.T) {
 
 func TestAuth_AccessProtectedRouteWithoutToken(t *testing.T) {
 	c := newClient() // no token set
-	resp, err := c.GET("/api/employees")
+	resp, err := c.GET("/api/v1/employees")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestAuth_AccessProtectedRouteWithoutToken(t *testing.T) {
 func TestAuth_AccessProtectedRouteWithInvalidToken(t *testing.T) {
 	c := newClient()
 	c.SetToken("invalid-jwt-token")
-	resp, err := c.GET("/api/employees")
+	resp, err := c.GET("/api/v1/employees")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

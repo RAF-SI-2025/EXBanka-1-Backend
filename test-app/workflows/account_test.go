@@ -17,7 +17,7 @@ import (
 // createTestClient creates a client and returns its ID for use in account tests.
 func createTestClient(t *testing.T, c *client.APIClient) int {
 	t.Helper()
-	resp, err := c.POST("/api/clients", map[string]interface{}{
+	resp, err := c.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("Acct"),
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -41,7 +41,7 @@ func TestAccount_CreateCurrentAccount(t *testing.T) {
 	el.Start()
 	defer el.Stop()
 
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "current",
 		"account_type":  "personal",
@@ -62,10 +62,11 @@ func TestAccount_CreateCurrentAccount(t *testing.T) {
 }
 
 func TestAccount_CreateForeignAccount(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "foreign",
 		"account_type":  "personal",
@@ -78,10 +79,11 @@ func TestAccount_CreateForeignAccount(t *testing.T) {
 }
 
 func TestAccount_CreateWithInvalidKind(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "savings", // invalid
 		"account_type":  "personal",
@@ -98,7 +100,7 @@ func TestAccount_CreateWithInvalidKind(t *testing.T) {
 func TestAccount_ListAllAccounts(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/accounts")
+	resp, err := c.GET("/api/v1/accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -106,10 +108,11 @@ func TestAccount_ListAllAccounts(t *testing.T) {
 }
 
 func TestAccount_GetAccountByID(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
-	createResp, err := c.POST("/api/accounts", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "current",
 		"account_type":  "personal",
@@ -121,7 +124,7 @@ func TestAccount_GetAccountByID(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	acctID := helpers.GetNumberField(t, createResp, "id")
 
-	resp, err := c.GET(fmt.Sprintf("/api/accounts/%d", int(acctID)))
+	resp, err := c.GET(fmt.Sprintf("/api/v1/accounts/%d", int(acctID)))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -129,10 +132,11 @@ func TestAccount_GetAccountByID(t *testing.T) {
 }
 
 func TestAccount_UpdateStatus(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
-	createResp, err := c.POST("/api/accounts", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "current",
 		"account_type":  "personal",
@@ -145,7 +149,7 @@ func TestAccount_UpdateStatus(t *testing.T) {
 	acctID := helpers.GetNumberField(t, createResp, "id")
 
 	// Deactivate
-	resp, err := c.PUT(fmt.Sprintf("/api/accounts/%d/status", int(acctID)), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v1/accounts/%d/status", int(acctID)), map[string]interface{}{
 		"status": "inactive",
 	})
 	if err != nil {
@@ -154,7 +158,7 @@ func TestAccount_UpdateStatus(t *testing.T) {
 	helpers.RequireStatus(t, resp, 200)
 
 	// Reactivate
-	resp, err = c.PUT(fmt.Sprintf("/api/accounts/%d/status", int(acctID)), map[string]interface{}{
+	resp, err = c.PUT(fmt.Sprintf("/api/v1/accounts/%d/status", int(acctID)), map[string]interface{}{
 		"status": "active",
 	})
 	if err != nil {
@@ -166,7 +170,7 @@ func TestAccount_UpdateStatus(t *testing.T) {
 func TestAccount_ListCurrencies(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/currencies")
+	resp, err := c.GET("/api/v1/currencies")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -177,14 +181,14 @@ func TestAccount_BankAccountCRUD(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// List bank accounts
-	resp, err := c.GET("/api/bank-accounts")
+	resp, err := c.GET("/api/v1/bank-accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 200)
 
 	// Create bank account
-	resp, err = c.POST("/api/bank-accounts", map[string]interface{}{
+	resp, err = c.POST("/api/v1/bank-accounts", map[string]interface{}{
 		"currency_code": "USD",
 		"account_kind":  "current",
 	})
@@ -200,7 +204,7 @@ func TestAccount_BankAccountCRUD(t *testing.T) {
 func TestAccount_GetNonExistent(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/accounts/999999")
+	resp, err := c.GET("/api/v1/accounts/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -210,9 +214,10 @@ func TestAccount_GetNonExistent(t *testing.T) {
 }
 
 func TestAccount_CreateCurrentPersonalEUR(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "foreign",
 		"account_type":  "personal",
@@ -226,9 +231,10 @@ func TestAccount_CreateCurrentPersonalEUR(t *testing.T) {
 }
 
 func TestAccount_CreateCurrentPersonalUSD(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "foreign",
 		"account_type":  "personal",
@@ -241,9 +247,10 @@ func TestAccount_CreateCurrentPersonalUSD(t *testing.T) {
 }
 
 func TestAccount_CreateForeignPersonalUSD(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "foreign",
 		"account_type":  "personal",
@@ -256,9 +263,10 @@ func TestAccount_CreateForeignPersonalUSD(t *testing.T) {
 }
 
 func TestAccount_CreateWithInitialBalance(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":        clientID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -279,9 +287,10 @@ func TestAccount_CreateWithInitialBalance(t *testing.T) {
 }
 
 func TestAccount_GetByAccountNumber(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	createResp, err := c.POST("/api/accounts", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "current",
 		"account_type":  "personal",
@@ -293,7 +302,7 @@ func TestAccount_GetByAccountNumber(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	acctNum := helpers.GetStringField(t, createResp, "account_number")
 
-	resp, err := c.GET("/api/accounts/by-number/" + acctNum)
+	resp, err := c.GET("/api/v1/accounts/by-number/" + acctNum)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -302,9 +311,10 @@ func TestAccount_GetByAccountNumber(t *testing.T) {
 }
 
 func TestAccount_MissingRequiredFields(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	// Missing account_kind
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      1,
 		"account_type":  "personal",
 		"currency_code": "RSD",
@@ -318,9 +328,10 @@ func TestAccount_MissingRequiredFields(t *testing.T) {
 }
 
 func TestAccount_InvalidCurrencyCode(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "current",
 		"account_type":  "personal",
@@ -335,8 +346,9 @@ func TestAccount_InvalidCurrencyCode(t *testing.T) {
 }
 
 func TestAccount_UpdateStatusInvalidValue(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.PUT("/api/accounts/1/status", map[string]interface{}{
+	resp, err := c.PUT("/api/v1/accounts/1/status", map[string]interface{}{
 		"status": "suspended", // invalid
 	})
 	if err != nil {
@@ -350,7 +362,7 @@ func TestAccount_UpdateStatusInvalidValue(t *testing.T) {
 func TestAccount_ListWithPagination(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/accounts?page=1&page_size=5")
+	resp, err := c.GET("/api/v1/accounts?page=1&page_size=5")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -359,7 +371,7 @@ func TestAccount_ListWithPagination(t *testing.T) {
 
 func TestAccount_BankAccountCreateForeignEUR(t *testing.T) {
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/bank-accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/bank-accounts", map[string]interface{}{
 		"currency_code": "EUR",
 		"account_kind":  "foreign",
 	})
@@ -374,7 +386,7 @@ func TestAccount_BankAccountCreateForeignEUR(t *testing.T) {
 func TestAccount_UnauthenticatedCannotCreate(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/accounts", map[string]interface{}{
+	resp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      1,
 		"account_kind":  "current",
 		"account_type":  "personal",
@@ -389,10 +401,11 @@ func TestAccount_UnauthenticatedCannotCreate(t *testing.T) {
 }
 
 func TestAccount_UpdateName(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
-	createResp, err := c.POST("/api/accounts", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "current",
 		"account_type":  "personal",
@@ -404,7 +417,7 @@ func TestAccount_UpdateName(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	acctID := int(helpers.GetNumberField(t, createResp, "id"))
 
-	resp, err := c.PUT(fmt.Sprintf("/api/accounts/%d/name", acctID), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v1/accounts/%d/name", acctID), map[string]interface{}{
 		"new_name":  "My Savings Account",
 		"client_id": clientID,
 	})
@@ -415,10 +428,11 @@ func TestAccount_UpdateName(t *testing.T) {
 }
 
 func TestAccount_UpdateLimits(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
-	createResp, err := c.POST("/api/accounts", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/accounts", map[string]interface{}{
 		"owner_id":      clientID,
 		"account_kind":  "current",
 		"account_type":  "personal",
@@ -430,7 +444,7 @@ func TestAccount_UpdateLimits(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	acctID := int(helpers.GetNumberField(t, createResp, "id"))
 
-	resp, err := c.PUT(fmt.Sprintf("/api/accounts/%d/limits", acctID), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v1/accounts/%d/limits", acctID), map[string]interface{}{
 		"daily_limit":   50000.0,
 		"monthly_limit": 500000.0,
 	})
@@ -441,8 +455,9 @@ func TestAccount_UpdateLimits(t *testing.T) {
 }
 
 func TestAccount_UpdateLimitsNegativeRejected(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.PUT("/api/accounts/1/limits", map[string]interface{}{
+	resp, err := c.PUT("/api/v1/accounts/1/limits", map[string]interface{}{
 		"daily_limit": -100.0,
 	})
 	if err != nil {
@@ -457,7 +472,7 @@ func TestAccount_DeleteBankAccount(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// Create a bank account to delete (use a less common currency)
-	createResp, err := c.POST("/api/bank-accounts", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/bank-accounts", map[string]interface{}{
 		"currency_code": "CHF",
 		"account_kind":  "foreign",
 	})
@@ -470,7 +485,7 @@ func TestAccount_DeleteBankAccount(t *testing.T) {
 	bankAcctID := int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Delete it
-	resp, err := c.DELETE(fmt.Sprintf("/api/bank-accounts/%d", bankAcctID))
+	resp, err := c.DELETE(fmt.Sprintf("/api/v1/bank-accounts/%d", bankAcctID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -478,10 +493,11 @@ func TestAccount_DeleteBankAccount(t *testing.T) {
 }
 
 func TestAccount_CreateCompany(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
 
-	resp, err := c.POST("/api/companies", map[string]interface{}{
+	resp, err := c.POST("/api/v1/companies", map[string]interface{}{
 		"company_name":        fmt.Sprintf("TestCo_%d", helpers.DateOfBirthUnix()),
 		"registration_number": fmt.Sprintf("%08d", time.Now().UnixNano()%100000000),
 		"tax_number":          fmt.Sprintf("%09d", time.Now().UnixNano()%1000000000),

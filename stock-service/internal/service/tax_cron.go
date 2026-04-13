@@ -21,13 +21,13 @@ func (s *TaxCronService) StartMonthlyCron(ctx context.Context) {
 		for {
 			now := time.Now()
 			// Calculate next month boundary
-			nextMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
+			nextMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC)
 			// Trigger 1 minute before month ends
 			triggerTime := nextMonth.Add(-1 * time.Minute)
 
 			if triggerTime.Before(now) {
 				// Already past trigger time this month, wait for next month
-				triggerTime = time.Date(now.Year(), now.Month()+2, 1, 0, 0, 0, 0, now.Location()).Add(-1 * time.Minute)
+				triggerTime = time.Date(now.Year(), now.Month()+2, 1, 0, 0, 0, 0, time.UTC).Add(-1 * time.Minute)
 			}
 
 			waitDuration := triggerTime.Sub(now)

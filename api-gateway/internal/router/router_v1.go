@@ -4,9 +4,13 @@ package router
 import (
 	"net/http"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/exbanka/api-gateway/internal/handler"
+	apimetrics "github.com/exbanka/api-gateway/internal/metrics"
 	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	authpb "github.com/exbanka/contract/authpb"
@@ -85,6 +89,23 @@ func v1GetLoanChangelog(c *gin.Context) { notImplemented(c) }
 //
 // IMPORTANT: This function must be called AFTER Setup() has already configured
 // the engine (CORS, swagger, etc.) and registered /api/ routes.
+// NewRouter creates the Gin engine with CORS, metrics, and Swagger.
+// Version-specific route functions (SetupV1Routes, future SetupV2Routes, etc.)
+// attach their routes to this engine.
+func NewRouter() *gin.Engine {
+	r := gin.Default()
+	r.Use(apimetrics.GinMiddleware())
+	r.Use(cors.New(cors.Config{
+		AllowAllOrigins:  true,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: false,
+	}))
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	return r
+}
+
 func SetupV1Routes(
 	r *gin.Engine,
 	authClient authpb.AuthServiceClient,
@@ -111,16 +132,16 @@ func SetupV1Routes(
 	blueprintClient userpb.BlueprintServiceClient,
 	verificationClient verificationpb.VerificationGRPCServiceClient,
 	notificationClient notificationpb.NotificationServiceClient,
-	wsHandler *handler.WebSocketHandler,
+	sourceAdminClient stockpb.SourceAdminServiceClient,
 ) {
-	// ── Create handlers (same as Setup, stateless wrappers) ──────────────
+	// ── Create handlers ─────────────────────────────────────────────────
 	authHandler := handler.NewAuthHandler(authClient)
 	empHandler := handler.NewEmployeeHandler(userClient, authClient)
 	roleHandler := handler.NewRoleHandler(userClient)
 	limitHandler := handler.NewLimitHandler(empLimitClient, clientLimitClient)
 	clientHandler := handler.NewClientHandler(clientClient, authClient)
 	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient, txClient)
-	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient)
+	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient, accountClient)
 	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient, exchangeClient)
 	exchangeHandler := handler.NewExchangeHandler(exchangeClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
@@ -128,11 +149,12 @@ func SetupV1Routes(
 	sessionHandler := handler.NewSessionHandler(authClient)
 	stockExchangeHandler := handler.NewStockExchangeHandler(stockExchangeClient)
 	securitiesHandler := handler.NewSecuritiesHandler(securityClient)
-	stockOrderHandler := handler.NewStockOrderHandler(orderClient)
-	portfolioHandler := handler.NewPortfolioHandler(portfolioClient, otcClient)
+	stockOrderHandler := handler.NewStockOrderHandler(orderClient, accountClient)
+	portfolioHandler := handler.NewPortfolioHandler(portfolioClient, otcClient, accountClient)
 	actuaryHandler := handler.NewActuaryHandler(actuaryClient)
 	blueprintHandler := handler.NewBlueprintHandler(blueprintClient)
 	taxHandler := handler.NewTaxHandler(taxClient)
+	stockSourceHandler := handler.NewStockSourceHandler(sourceAdminClient)
 
 	// ── /api/v1 root group ──────────────────────────────────────────────
 	v1 := r.Group("/api/v1")
@@ -229,7 +251,7 @@ func SetupV1Routes(
 			me.POST("/notifications/:id/read", notifHandler.MarkRead)
 		}
 
-		// ── Stock exchanges (AnyAuthMiddleware) ─────────────────────
+		// ── Stock exchanges (AnyAuth — market data is browsable) ────
 		stockExchanges := v1.Group("/stock-exchanges")
 		stockExchanges.Use(middleware.AnyAuthMiddleware(authClient))
 		{
@@ -237,7 +259,7 @@ func SetupV1Routes(
 			stockExchanges.GET("/:id", stockExchangeHandler.GetExchange)
 		}
 
-		// ── Securities (AnyAuthMiddleware) ──────────────────────────
+		// ── Securities (AnyAuth — market data is browsable) ─────────
 		securities := v1.Group("/securities")
 		securities.Use(middleware.AnyAuthMiddleware(authClient))
 		{
@@ -256,12 +278,17 @@ func SetupV1Routes(
 			securities.GET("/candles", securitiesHandler.GetCandles)
 		}
 
-		// ── OTC (AnyAuthMiddleware) ─────────────────────────────────
+		// ── OTC (AnyAuth for browsing, securities.trade for buying) ─
 		otc := v1.Group("/otc/offers")
 		otc.Use(middleware.AnyAuthMiddleware(authClient))
 		{
 			otc.GET("", portfolioHandler.ListOTCOffers)
-			otc.POST("/:id/buy", portfolioHandler.BuyOTCOffer)
+		}
+		otcTrade := v1.Group("/otc/offers")
+		otcTrade.Use(middleware.AuthMiddleware(authClient))
+		otcTrade.Use(middleware.RequirePermission("securities.trade"))
+		{
+			otcTrade.POST("/:id/buy", portfolioHandler.BuyOTCOffer)
 		}
 
 		// ── Mobile auth (public) ────────────────────────────────────
@@ -313,9 +340,6 @@ func SetupV1Routes(
 			verifyHandler := handler.NewVerificationHandler(verificationClient, notificationClient)
 			qrVerify.POST("/:challenge_id", verifyHandler.VerifyQR)
 		}
-
-		// ── WebSocket ───────────────────────────────────────────────
-		v1.GET("/ws/mobile", wsHandler.HandleConnect)
 
 		// ── Browser-facing verifications (AnyAuthMiddleware) ────────
 		verifications := v1.Group("/verifications")
@@ -550,6 +574,31 @@ func SetupV1Routes(
 			{
 				stockExchangeAdmin.POST("/testing-mode", stockExchangeHandler.SetTestingMode)
 				stockExchangeAdmin.GET("/testing-mode", stockExchangeHandler.GetTestingMode)
+			}
+
+			// Admin stock-source management (securities.manage)
+			adminStockSource := protected.Group("/admin/stock-source")
+			adminStockSource.Use(middleware.RequirePermission("securities.manage"))
+			{
+				adminStockSource.POST("", stockSourceHandler.SwitchSource)
+				adminStockSource.GET("", stockSourceHandler.GetSourceStatus)
+			}
+
+			// Orders (employee on-behalf trading — securities.manage)
+			ordersOnBehalf := protected.Group("/orders")
+			ordersOnBehalf.Use(middleware.RequirePermission("securities.manage"))
+			{
+				ordersOnBehalf.POST("", stockOrderHandler.CreateOrderOnBehalf)
+			}
+
+			// OTC (employee on-behalf buying — securities.manage)
+			// Uses /otc/admin/offers/:id/buy to avoid a routing conflict with the
+			// client-facing /otc/offers/:id/buy route (different middleware chain but
+			// same URL pattern confuses Gin's router).
+			otcOnBehalf := protected.Group("/otc/admin/offers")
+			otcOnBehalf.Use(middleware.RequirePermission("securities.manage"))
+			{
+				otcOnBehalf.POST("/:id/buy", portfolioHandler.BuyOTCOfferOnBehalf)
 			}
 
 			// Order management (supervisor)

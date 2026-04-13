@@ -162,6 +162,12 @@ func (m *mockBankAccountClient) DeleteBankAccount(_ context.Context, _ *accountp
 func (m *mockBankAccountClient) GetBankRSDAccount(_ context.Context, _ *accountpb.GetBankRSDAccountRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
 	return nil, nil
 }
+func (m *mockBankAccountClient) DebitBankAccount(_ context.Context, _ *accountpb.BankAccountOpRequest, _ ...grpc.CallOption) (*accountpb.BankAccountOpResponse, error) {
+	return nil, nil
+}
+func (m *mockBankAccountClient) CreditBankAccount(_ context.Context, _ *accountpb.BankAccountOpRequest, _ ...grpc.CallOption) (*accountpb.BankAccountOpResponse, error) {
+	return nil, nil
+}
 
 // ---- helpers ----------------------------------------------------------------
 

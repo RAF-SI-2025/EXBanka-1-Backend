@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"errors"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -112,6 +114,24 @@ func (r *HoldingRepository) ListByUser(userID uint64, filter HoldingFilter) ([]m
 		return nil, 0, err
 	}
 	return holdings, total, nil
+}
+
+// FindOldestLongOptionHolding returns the oldest (by created_at) holding for
+// a given user and option (security_id) with quantity > 0.
+// Returns (nil, nil) when no such holding exists.
+func (r *HoldingRepository) FindOldestLongOptionHolding(userID, optionID uint64) (*model.Holding, error) {
+	var h model.Holding
+	err := r.db.
+		Where("user_id = ? AND security_type = ? AND security_id = ? AND quantity > 0", userID, "option", optionID).
+		Order("created_at ASC").
+		First(&h).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &h, nil
 }
 
 // ListPublicOffers returns holdings with public_quantity > 0 (for OTC).

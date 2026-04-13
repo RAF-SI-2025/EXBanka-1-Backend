@@ -24,7 +24,7 @@ func (s *ActuaryCronService) Start(ctx context.Context) {
 func (s *ActuaryCronService) runDailyReset(ctx context.Context) {
 	for {
 		now := time.Now()
-		next := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, now.Location())
+		next := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, time.UTC)
 		if !now.Before(next) {
 			next = next.Add(24 * time.Hour)
 		}

@@ -21,6 +21,7 @@ type Option struct {
 	Premium           decimal.Decimal `gorm:"type:numeric(18,4);not null" json:"premium"`
 	OpenInterest      int64           `gorm:"not null;default:0" json:"open_interest"`
 	SettlementDate    time.Time       `gorm:"not null;index" json:"settlement_date"`
+	ListingID         *uint64         `gorm:"index" json:"listing_id,omitempty"`
 	Version           int64           `gorm:"not null;default:1" json:"-"`
 	CreatedAt         time.Time       `json:"created_at"`
 	UpdatedAt         time.Time       `json:"updated_at"`

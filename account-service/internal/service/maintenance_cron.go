@@ -27,7 +27,7 @@ func (s *MaintenanceCronService) runMonthlyCharge(ctx context.Context) {
 	for {
 		now := time.Now()
 		// Next 1st of month at 00:01
-		nextMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 1, 0, 0, now.Location())
+		nextMonth := time.Date(now.Year(), now.Month()+1, 1, 0, 1, 0, 0, time.UTC)
 		timer := time.NewTimer(time.Until(nextMonth))
 		select {
 		case <-ctx.Done():

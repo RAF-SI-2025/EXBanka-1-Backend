@@ -15,6 +15,7 @@ service TransactionService {
   rpc ListTransfersByClient(ListTransfersByClientRequest) returns (ListTransfersResponse);
 
   rpc CreatePaymentRecipient(CreatePaymentRecipientRequest) returns (PaymentRecipientResponse);
+  rpc GetPaymentRecipient(GetPaymentRecipientRequest) returns (PaymentRecipientResponse);
   rpc ListPaymentRecipients(ListPaymentRecipientsRequest) returns (ListPaymentRecipientsResponse);
   rpc UpdatePaymentRecipient(UpdatePaymentRecipientRequest) returns (PaymentRecipientResponse);
   rpc DeletePaymentRecipient(DeletePaymentRecipientRequest) returns (DeletePaymentRecipientResponse);
@@ -72,6 +73,7 @@ message PaymentResponse {
   string status = 11;
   string timestamp = 12;
   int64 verification_code_expires_at = 13;
+  uint64 client_id = 14; // owner of the payment, used for /api/me ownership checks
 }
 
 message CreateTransferRequest {
@@ -109,6 +111,7 @@ message TransferResponse {
   string timestamp = 8;
   string status = 9;
   int64 verification_code_expires_at = 10;
+  uint64 client_id = 11; // owner of the transfer, used for /api/me ownership checks
 }
 
 message CreatePaymentRecipientRequest {
@@ -116,6 +119,8 @@ message CreatePaymentRecipientRequest {
   string recipient_name = 2;
   string account_number = 3;
 }
+
+message GetPaymentRecipientRequest { uint64 id = 1; }
 
 message ListPaymentRecipientsRequest { uint64 client_id = 1; }
 

@@ -59,5 +59,6 @@ func (c *Config) DSN() string {
 		" user=" + c.DBUser +
 		" password=" + c.DBPassword +
 		" dbname=" + c.DBName +
-		" sslmode=" + sslmode
+		" sslmode=" + sslmode +
+		" TimeZone=UTC"
 }

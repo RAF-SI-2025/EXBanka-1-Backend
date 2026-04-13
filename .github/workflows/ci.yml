@@ -26,6 +26,7 @@ jobs:
           - exchange-service
           - stock-service
           - verification-service
+          - seeder
     steps:
       - uses: actions/checkout@v4
 
@@ -58,6 +59,7 @@ jobs:
           - exchange-service
           - stock-service
           - verification-service
+          - seeder
     steps:
       - uses: actions/checkout@v4
 
@@ -94,6 +96,7 @@ jobs:
           - exchange-service
           - stock-service
           - verification-service
+          - seeder
     steps:
       - uses: actions/checkout@v4
 
@@ -107,7 +110,7 @@ jobs:
         run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
       - name: Run golangci-lint on ${{ matrix.service }}
-        run: cd ${{ matrix.service }} && golangci-lint run ./...
+        run: cd ${{ matrix.service }} && golangci-lint run --timeout=90s ./...
 
   gofmt:
     name: Format Check
@@ -158,6 +161,7 @@ jobs:
             exchange-service
             stock-service
             verification-service
+            seeder
           )
           for svc in "${services[@]}"; do
             echo "Checking $svc..."
@@ -183,7 +187,11 @@ jobs:
 
       - name: Install protoc
         run: |
-          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+          PB_REL="https://github.com/protocolbuffers/protobuf/releases"
+          curl -LO $PB_REL/download/v34.0/protoc-34.0-linux-x86_64.zip
+          sudo unzip -o protoc-34.0-linux-x86_64.zip -d /usr/local bin/protoc 'include/*'
+          sudo chmod +x /usr/local/bin/protoc
+          rm protoc-34.0-linux-x86_64.zip
           go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
@@ -204,3 +212,43 @@ jobs:
             git status
             exit 1
           fi
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [build, unit-tests]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: true
+
+      - name: Start all services
+        run: docker compose up --build -d --wait
+        timeout-minutes: 15
+
+      - name: Wait for seeder to complete
+        run: |
+          echo "Waiting for seeder to finish bootstrapping..."
+          timeout 180 bash -c 'while ! docker compose logs seeder 2>&1 | grep -q "all bootstrapping complete"; do sleep 5; done'
+          echo "Seeder completed successfully"
+        timeout-minutes: 5
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Run integration tests
+        working-directory: test-app
+        env:
+          TEST_GATEWAY_URL: http://localhost:8080
+          TEST_KAFKA_BROKERS: localhost:9094
+        run: go test -tags integration ./workflows/ -v -count=1 -timeout=30m
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v

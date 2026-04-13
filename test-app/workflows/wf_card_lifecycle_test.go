@@ -24,7 +24,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: account=%s", accountNum)
 
 	// Step 2: Client requests a card
-	cardReqResp, err := clientC.POST("/api/me/cards/requests", map[string]interface{}{
+	cardReqResp, err := clientC.POST("/api/v1/me/cards/requests", map[string]interface{}{
 		"account_number": accountNum,
 		"card_brand":     "visa",
 	})
@@ -36,7 +36,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card request id=%d", cardReqID)
 
 	// Step 3: Admin approves the card request
-	approveResp, err := adminC.POST(fmt.Sprintf("/api/cards/requests/%d/approve", cardReqID), nil)
+	approveResp, err := adminC.POST(fmt.Sprintf("/api/v1/cards/requests/%d/approve", cardReqID), nil)
 	if err != nil {
 		t.Fatalf("WF-3: approve card request: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card request approved")
 
 	// Step 4: List client's cards to get the card ID
-	cardsResp, err := adminC.GET(fmt.Sprintf("/api/cards?account_number=%s", accountNum))
+	cardsResp, err := adminC.GET(fmt.Sprintf("/api/v1/cards?account_number=%s", accountNum))
 	if err != nil {
 		t.Fatalf("WF-3: list cards: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card id=%d", cardID)
 
 	// Step 5: Client sets PIN
-	setPinResp, err := clientC.POST(fmt.Sprintf("/api/me/cards/%d/pin", cardID), map[string]interface{}{
+	setPinResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/pin", cardID), map[string]interface{}{
 		"pin": "1234",
 	})
 	if err != nil {
@@ -77,7 +77,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	helpers.RequireStatus(t, setPinResp, 200)
 
 	// Client verifies PIN
-	verifyPinResp, err := clientC.POST(fmt.Sprintf("/api/me/cards/%d/verify-pin", cardID), map[string]interface{}{
+	verifyPinResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/verify-pin", cardID), map[string]interface{}{
 		"pin": "1234",
 	})
 	if err != nil {
@@ -87,7 +87,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: PIN set and verified")
 
 	// Step 6: Client applies temporary block (client can only do temporary-block, not permanent block)
-	blockResp, err := clientC.POST(fmt.Sprintf("/api/me/cards/%d/temporary-block", cardID), map[string]interface{}{
+	blockResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/temporary-block", cardID), map[string]interface{}{
 		"duration_hours": 1,
 	})
 	if err != nil {
@@ -97,7 +97,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card temporarily blocked")
 
 	// Step 7: Admin unblocks the card
-	unblockResp, err := adminC.POST(fmt.Sprintf("/api/cards/%d/unblock", cardID), nil)
+	unblockResp, err := adminC.POST(fmt.Sprintf("/api/v1/cards/%d/unblock", cardID), nil)
 	if err != nil {
 		t.Fatalf("WF-3: admin unblock: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card unblocked by admin")
 
 	// Step 8: Admin deactivates the card
-	deactivateResp, err := adminC.POST(fmt.Sprintf("/api/cards/%d/deactivate", cardID), nil)
+	deactivateResp, err := adminC.POST(fmt.Sprintf("/api/v1/cards/%d/deactivate", cardID), nil)
 	if err != nil {
 		t.Fatalf("WF-3: deactivate: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: card deactivated")
 
 	// Step 9: Try to unblock after deactivation — should fail (non-200)
-	unblockAfterDeactivate, err := adminC.POST(fmt.Sprintf("/api/cards/%d/unblock", cardID), nil)
+	unblockAfterDeactivate, err := adminC.POST(fmt.Sprintf("/api/v1/cards/%d/unblock", cardID), nil)
 	if err != nil {
 		t.Fatalf("WF-3: unblock after deactivate request: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	t.Logf("WF-3: unblock after deactivate correctly rejected (status=%d)", unblockAfterDeactivate.StatusCode)
 
 	// Step 10: Client requests a new card — should succeed
-	newCardReqResp, err := clientC.POST("/api/me/cards/requests", map[string]interface{}{
+	newCardReqResp, err := clientC.POST("/api/v1/me/cards/requests", map[string]interface{}{
 		"account_number": accountNum,
 		"card_brand":     "mastercard",
 	})

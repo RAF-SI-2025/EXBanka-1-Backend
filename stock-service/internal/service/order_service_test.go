@@ -143,9 +143,15 @@ func (m *mockListingRepo) GetBySecurityIDAndType(securityID uint64, securityType
 
 func (m *mockListingRepo) Update(listing *model.Listing) error     { return nil }
 func (m *mockListingRepo) UpsertBySecurity(l *model.Listing) error { return nil }
-func (m *mockListingRepo) ListAll() ([]model.Listing, error)       { return nil, nil }
+func (m *mockListingRepo) UpsertForOption(l *model.Listing) (*model.Listing, error) {
+	return l, nil
+}
+func (m *mockListingRepo) ListAll() ([]model.Listing, error) { return nil, nil }
 func (m *mockListingRepo) ListBySecurityType(t string) ([]model.Listing, error) {
 	return nil, nil
+}
+func (m *mockListingRepo) UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error {
+	return nil
 }
 
 // mockSettingRepo returns configurable key-value pairs.
@@ -266,6 +272,7 @@ func createDefaultOrder(t *testing.T, svc *OrderService, listingRepo *mockListin
 		false,      // allOrNone
 		false,      // margin
 		1,          // accountID
+		0,          // actingEmployeeID
 	)
 	if err != nil {
 		t.Fatalf("createDefaultOrder failed: %v", err)
@@ -282,7 +289,7 @@ func TestCreateOrder_MarketBuy_EmployeePending(t *testing.T) {
 	listing := defaultListing(1)
 	listingRepo.addListing(listing)
 
-	order, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "market", 10, nil, nil, false, false, 1)
+	order, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "market", 10, nil, nil, false, false, 1, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -308,7 +315,7 @@ func TestCreateOrder_ClientAutoApproved(t *testing.T) {
 	listing := defaultListing(1)
 	listingRepo.addListing(listing)
 
-	order, err := svc.CreateOrder(99, "client", 1, nil, "buy", "market", 5, nil, nil, false, false, 1)
+	order, err := svc.CreateOrder(99, "client", 1, nil, "buy", "market", 5, nil, nil, false, false, 1, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -323,7 +330,7 @@ func TestCreateOrder_ClientAutoApproved(t *testing.T) {
 func TestCreateOrder_ListingNotFound(t *testing.T) {
 	svc, _, _, _, _, _ := buildService()
 
-	_, err := svc.CreateOrder(42, "employee", 999, nil, "buy", "market", 10, nil, nil, false, false, 1)
+	_, err := svc.CreateOrder(42, "employee", 999, nil, "buy", "market", 10, nil, nil, false, false, 1, 0)
 	if err == nil {
 		t.Fatal("expected error for missing listing")
 	}
@@ -336,7 +343,7 @@ func TestCreateOrder_LimitOrderRequiresLimitValue(t *testing.T) {
 	svc, _, listingRepo, _, _, _ := buildService()
 	listingRepo.addListing(defaultListing(1))
 
-	_, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "limit", 10, nil, nil, false, false, 1)
+	_, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "limit", 10, nil, nil, false, false, 1, 0)
 	if err == nil {
 		t.Fatal("expected error for limit order without limit_value")
 	}
@@ -349,7 +356,7 @@ func TestCreateOrder_StopOrderRequiresStopValue(t *testing.T) {
 	svc, _, listingRepo, _, _, _ := buildService()
 	listingRepo.addListing(defaultListing(1))
 
-	_, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "stop", 10, nil, nil, false, false, 1)
+	_, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "stop", 10, nil, nil, false, false, 1, 0)
 	if err == nil {
 		t.Fatal("expected error for stop order without stop_value")
 	}
@@ -363,19 +370,19 @@ func TestCreateOrder_StopLimitRequiresBothValues(t *testing.T) {
 	listingRepo.addListing(defaultListing(1))
 
 	// Missing limit_value
-	_, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "stop_limit", 10, nil, ptrDec(50), false, false, 1)
+	_, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "stop_limit", 10, nil, ptrDec(50), false, false, 1, 0)
 	if err == nil {
 		t.Fatal("expected error for stop_limit without limit_value")
 	}
 
 	// Missing stop_value
-	_, err = svc.CreateOrder(42, "employee", 1, nil, "buy", "stop_limit", 10, ptrDec(100), nil, false, false, 1)
+	_, err = svc.CreateOrder(42, "employee", 1, nil, "buy", "stop_limit", 10, ptrDec(100), nil, false, false, 1, 0)
 	if err == nil {
 		t.Fatal("expected error for stop_limit without stop_value")
 	}
 
 	// Both present should succeed
-	order, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "stop_limit", 10, ptrDec(100), ptrDec(50), false, false, 1)
+	order, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "stop_limit", 10, ptrDec(100), ptrDec(50), false, false, 1, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -392,7 +399,7 @@ func TestCreateOrder_LimitPriceUsedForApproxPrice(t *testing.T) {
 	listingRepo.addListing(defaultListing(1)) // market price = 100
 
 	limitVal := decimal.NewFromInt(50)
-	order, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "limit", 5, &limitVal, nil, false, false, 1)
+	order, err := svc.CreateOrder(42, "employee", 1, nil, "buy", "limit", 5, &limitVal, nil, false, false, 1, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -422,7 +429,7 @@ func TestCreateOrder_ForexContractSize(t *testing.T) {
 	}
 	listingRepo.addListing(forexListing)
 
-	order, err := svc.CreateOrder(42, "employee", 2, nil, "buy", "market", 3, nil, nil, false, false, 1)
+	order, err := svc.CreateOrder(42, "employee", 2, nil, "buy", "market", 3, nil, nil, false, false, 1, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -511,7 +518,7 @@ func TestApproveOrder_SettlementExpired(t *testing.T) {
 	}
 	listingRepo.addListing(futuresListing)
 
-	order, err := svc.CreateOrder(42, "employee", 3, nil, "buy", "market", 2, nil, nil, false, false, 1)
+	order, err := svc.CreateOrder(42, "employee", 3, nil, "buy", "market", 2, nil, nil, false, false, 1, 0)
 	if err != nil {
 		t.Fatalf("create failed: %v", err)
 	}

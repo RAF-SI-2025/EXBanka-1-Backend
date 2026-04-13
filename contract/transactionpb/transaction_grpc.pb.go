@@ -29,6 +29,7 @@ const (
 	TransactionService_GetTransfer_FullMethodName            = "/transaction.TransactionService/GetTransfer"
 	TransactionService_ListTransfersByClient_FullMethodName  = "/transaction.TransactionService/ListTransfersByClient"
 	TransactionService_CreatePaymentRecipient_FullMethodName = "/transaction.TransactionService/CreatePaymentRecipient"
+	TransactionService_GetPaymentRecipient_FullMethodName    = "/transaction.TransactionService/GetPaymentRecipient"
 	TransactionService_ListPaymentRecipients_FullMethodName  = "/transaction.TransactionService/ListPaymentRecipients"
 	TransactionService_UpdatePaymentRecipient_FullMethodName = "/transaction.TransactionService/UpdatePaymentRecipient"
 	TransactionService_DeletePaymentRecipient_FullMethodName = "/transaction.TransactionService/DeletePaymentRecipient"
@@ -48,6 +49,7 @@ type TransactionServiceClient interface {
 	GetTransfer(ctx context.Context, in *GetTransferRequest, opts ...grpc.CallOption) (*TransferResponse, error)
 	ListTransfersByClient(ctx context.Context, in *ListTransfersByClientRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error)
 	CreatePaymentRecipient(ctx context.Context, in *CreatePaymentRecipientRequest, opts ...grpc.CallOption) (*PaymentRecipientResponse, error)
+	GetPaymentRecipient(ctx context.Context, in *GetPaymentRecipientRequest, opts ...grpc.CallOption) (*PaymentRecipientResponse, error)
 	ListPaymentRecipients(ctx context.Context, in *ListPaymentRecipientsRequest, opts ...grpc.CallOption) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(ctx context.Context, in *UpdatePaymentRecipientRequest, opts ...grpc.CallOption) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(ctx context.Context, in *DeletePaymentRecipientRequest, opts ...grpc.CallOption) (*DeletePaymentRecipientResponse, error)
@@ -161,6 +163,16 @@ func (c *transactionServiceClient) CreatePaymentRecipient(ctx context.Context, i
 	return out, nil
 }
 
+func (c *transactionServiceClient) GetPaymentRecipient(ctx context.Context, in *GetPaymentRecipientRequest, opts ...grpc.CallOption) (*PaymentRecipientResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaymentRecipientResponse)
+	err := c.cc.Invoke(ctx, TransactionService_GetPaymentRecipient_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *transactionServiceClient) ListPaymentRecipients(ctx context.Context, in *ListPaymentRecipientsRequest, opts ...grpc.CallOption) (*ListPaymentRecipientsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListPaymentRecipientsResponse)
@@ -205,6 +217,7 @@ type TransactionServiceServer interface {
 	GetTransfer(context.Context, *GetTransferRequest) (*TransferResponse, error)
 	ListTransfersByClient(context.Context, *ListTransfersByClientRequest) (*ListTransfersResponse, error)
 	CreatePaymentRecipient(context.Context, *CreatePaymentRecipientRequest) (*PaymentRecipientResponse, error)
+	GetPaymentRecipient(context.Context, *GetPaymentRecipientRequest) (*PaymentRecipientResponse, error)
 	ListPaymentRecipients(context.Context, *ListPaymentRecipientsRequest) (*ListPaymentRecipientsResponse, error)
 	UpdatePaymentRecipient(context.Context, *UpdatePaymentRecipientRequest) (*PaymentRecipientResponse, error)
 	DeletePaymentRecipient(context.Context, *DeletePaymentRecipientRequest) (*DeletePaymentRecipientResponse, error)
@@ -247,6 +260,9 @@ func (UnimplementedTransactionServiceServer) ListTransfersByClient(context.Conte
 }
 func (UnimplementedTransactionServiceServer) CreatePaymentRecipient(context.Context, *CreatePaymentRecipientRequest) (*PaymentRecipientResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreatePaymentRecipient not implemented")
+}
+func (UnimplementedTransactionServiceServer) GetPaymentRecipient(context.Context, *GetPaymentRecipientRequest) (*PaymentRecipientResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPaymentRecipient not implemented")
 }
 func (UnimplementedTransactionServiceServer) ListPaymentRecipients(context.Context, *ListPaymentRecipientsRequest) (*ListPaymentRecipientsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListPaymentRecipients not implemented")
@@ -458,6 +474,24 @@ func _TransactionService_CreatePaymentRecipient_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TransactionService_GetPaymentRecipient_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPaymentRecipientRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TransactionServiceServer).GetPaymentRecipient(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TransactionService_GetPaymentRecipient_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TransactionServiceServer).GetPaymentRecipient(ctx, req.(*GetPaymentRecipientRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TransactionService_ListPaymentRecipients_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListPaymentRecipientsRequest)
 	if err := dec(in); err != nil {
@@ -558,6 +592,10 @@ var TransactionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreatePaymentRecipient",
 			Handler:    _TransactionService_CreatePaymentRecipient_Handler,
+		},
+		{
+			MethodName: "GetPaymentRecipient",
+			Handler:    _TransactionService_GetPaymentRecipient_Handler,
 		},
 		{
 			MethodName: "ListPaymentRecipients",

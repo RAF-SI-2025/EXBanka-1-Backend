@@ -1861,6 +1861,134 @@ func (*GetBankRSDAccountRequest) Descriptor() ([]byte, []int) {
 	return file_account_account_proto_rawDescGZIP(), []int{27}
 }
 
+type BankAccountOpRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Currency      string                 `protobuf:"bytes,1,opt,name=currency,proto3" json:"currency,omitempty"`
+	Amount        string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	Reference     string                 `protobuf:"bytes,3,opt,name=reference,proto3" json:"reference,omitempty"`
+	Reason        string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BankAccountOpRequest) Reset() {
+	*x = BankAccountOpRequest{}
+	mi := &file_account_account_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BankAccountOpRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BankAccountOpRequest) ProtoMessage() {}
+
+func (x *BankAccountOpRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BankAccountOpRequest.ProtoReflect.Descriptor instead.
+func (*BankAccountOpRequest) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *BankAccountOpRequest) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *BankAccountOpRequest) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *BankAccountOpRequest) GetReference() string {
+	if x != nil {
+		return x.Reference
+	}
+	return ""
+}
+
+func (x *BankAccountOpRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type BankAccountOpResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountNumber string                 `protobuf:"bytes,1,opt,name=account_number,json=accountNumber,proto3" json:"account_number,omitempty"`
+	NewBalance    string                 `protobuf:"bytes,2,opt,name=new_balance,json=newBalance,proto3" json:"new_balance,omitempty"`
+	Replayed      bool                   `protobuf:"varint,3,opt,name=replayed,proto3" json:"replayed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BankAccountOpResponse) Reset() {
+	*x = BankAccountOpResponse{}
+	mi := &file_account_account_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BankAccountOpResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BankAccountOpResponse) ProtoMessage() {}
+
+func (x *BankAccountOpResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BankAccountOpResponse.ProtoReflect.Descriptor instead.
+func (*BankAccountOpResponse) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *BankAccountOpResponse) GetAccountNumber() string {
+	if x != nil {
+		return x.AccountNumber
+	}
+	return ""
+}
+
+func (x *BankAccountOpResponse) GetNewBalance() string {
+	if x != nil {
+		return x.NewBalance
+	}
+	return ""
+}
+
+func (x *BankAccountOpResponse) GetReplayed() bool {
+	if x != nil {
+		return x.Replayed
+	}
+	return false
+}
+
 var File_account_account_proto protoreflect.FileDescriptor
 
 const file_account_account_proto_rawDesc = "" +
@@ -2028,7 +2156,17 @@ const file_account_account_proto_rawDesc = "" +
 	"\x19DeleteBankAccountResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x1a\n" +
-	"\x18GetBankRSDAccountRequest2\xb5\t\n" +
+	"\x18GetBankRSDAccountRequest\"\x80\x01\n" +
+	"\x14BankAccountOpRequest\x12\x1a\n" +
+	"\bcurrency\x18\x01 \x01(\tR\bcurrency\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x1c\n" +
+	"\treference\x18\x03 \x01(\tR\treference\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"{\n" +
+	"\x15BankAccountOpResponse\x12%\n" +
+	"\x0eaccount_number\x18\x01 \x01(\tR\raccountNumber\x12\x1f\n" +
+	"\vnew_balance\x18\x02 \x01(\tR\n" +
+	"newBalance\x12\x1a\n" +
+	"\breplayed\x18\x03 \x01(\bR\breplayed2\xb5\t\n" +
 	"\x0eAccountService\x12H\n" +
 	"\rCreateAccount\x12\x1d.account.CreateAccountRequest\x1a\x18.account.AccountResponse\x12B\n" +
 	"\n" +
@@ -2046,12 +2184,14 @@ const file_account_account_proto_rawDesc = "" +
 	"\rUpdateCompany\x12\x1d.account.UpdateCompanyRequest\x1a\x18.account.CompanyResponse\x12Q\n" +
 	"\x0eListCurrencies\x12\x1e.account.ListCurrenciesRequest\x1a\x1f.account.ListCurrenciesResponse\x12E\n" +
 	"\vGetCurrency\x12\x1b.account.GetCurrencyRequest\x1a\x19.account.CurrencyResponse\x12W\n" +
-	"\x10GetLedgerEntries\x12 .account.GetLedgerEntriesRequest\x1a!.account.GetLedgerEntriesResponse2\xed\x02\n" +
+	"\x10GetLedgerEntries\x12 .account.GetLedgerEntriesRequest\x1a!.account.GetLedgerEntriesResponse2\x94\x04\n" +
 	"\x12BankAccountService\x12P\n" +
 	"\x11CreateBankAccount\x12!.account.CreateBankAccountRequest\x1a\x18.account.AccountResponse\x12W\n" +
 	"\x10ListBankAccounts\x12 .account.ListBankAccountsRequest\x1a!.account.ListBankAccountsResponse\x12Z\n" +
 	"\x11DeleteBankAccount\x12!.account.DeleteBankAccountRequest\x1a\".account.DeleteBankAccountResponse\x12P\n" +
-	"\x11GetBankRSDAccount\x12!.account.GetBankRSDAccountRequest\x1a\x18.account.AccountResponseB1Z/github.com/exbanka/contract/accountpb;accountpbb\x06proto3"
+	"\x11GetBankRSDAccount\x12!.account.GetBankRSDAccountRequest\x1a\x18.account.AccountResponse\x12Q\n" +
+	"\x10DebitBankAccount\x12\x1d.account.BankAccountOpRequest\x1a\x1e.account.BankAccountOpResponse\x12R\n" +
+	"\x11CreditBankAccount\x12\x1d.account.BankAccountOpRequest\x1a\x1e.account.BankAccountOpResponseB1Z/github.com/exbanka/contract/accountpb;accountpbb\x06proto3"
 
 var (
 	file_account_account_proto_rawDescOnce sync.Once
@@ -2065,7 +2205,7 @@ func file_account_account_proto_rawDescGZIP() []byte {
 	return file_account_account_proto_rawDescData
 }
 
-var file_account_account_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_account_account_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_account_account_proto_goTypes = []any{
 	(*CreateAccountRequest)(nil),        // 0: account.CreateAccountRequest
 	(*GetAccountRequest)(nil),           // 1: account.GetAccountRequest
@@ -2095,6 +2235,8 @@ var file_account_account_proto_goTypes = []any{
 	(*DeleteBankAccountRequest)(nil),    // 25: account.DeleteBankAccountRequest
 	(*DeleteBankAccountResponse)(nil),   // 26: account.DeleteBankAccountResponse
 	(*GetBankRSDAccountRequest)(nil),    // 27: account.GetBankRSDAccountRequest
+	(*BankAccountOpRequest)(nil),        // 28: account.BankAccountOpRequest
+	(*BankAccountOpResponse)(nil),       // 29: account.BankAccountOpResponse
 }
 var file_account_account_proto_depIdxs = []int32{
 	10, // 0: account.ListAccountsResponse.accounts:type_name -> account.AccountResponse
@@ -2120,27 +2262,31 @@ var file_account_account_proto_depIdxs = []int32{
 	23, // 20: account.BankAccountService.ListBankAccounts:input_type -> account.ListBankAccountsRequest
 	25, // 21: account.BankAccountService.DeleteBankAccount:input_type -> account.DeleteBankAccountRequest
 	27, // 22: account.BankAccountService.GetBankRSDAccount:input_type -> account.GetBankRSDAccountRequest
-	10, // 23: account.AccountService.CreateAccount:output_type -> account.AccountResponse
-	10, // 24: account.AccountService.GetAccount:output_type -> account.AccountResponse
-	10, // 25: account.AccountService.GetAccountByNumber:output_type -> account.AccountResponse
-	5,  // 26: account.AccountService.ListAccountsByClient:output_type -> account.ListAccountsResponse
-	5,  // 27: account.AccountService.ListAllAccounts:output_type -> account.ListAccountsResponse
-	10, // 28: account.AccountService.UpdateAccountName:output_type -> account.AccountResponse
-	10, // 29: account.AccountService.UpdateAccountLimits:output_type -> account.AccountResponse
-	10, // 30: account.AccountService.UpdateAccountStatus:output_type -> account.AccountResponse
-	10, // 31: account.AccountService.UpdateBalance:output_type -> account.AccountResponse
-	14, // 32: account.AccountService.CreateCompany:output_type -> account.CompanyResponse
-	14, // 33: account.AccountService.GetCompany:output_type -> account.CompanyResponse
-	14, // 34: account.AccountService.UpdateCompany:output_type -> account.CompanyResponse
-	16, // 35: account.AccountService.ListCurrencies:output_type -> account.ListCurrenciesResponse
-	18, // 36: account.AccountService.GetCurrency:output_type -> account.CurrencyResponse
-	21, // 37: account.AccountService.GetLedgerEntries:output_type -> account.GetLedgerEntriesResponse
-	10, // 38: account.BankAccountService.CreateBankAccount:output_type -> account.AccountResponse
-	24, // 39: account.BankAccountService.ListBankAccounts:output_type -> account.ListBankAccountsResponse
-	26, // 40: account.BankAccountService.DeleteBankAccount:output_type -> account.DeleteBankAccountResponse
-	10, // 41: account.BankAccountService.GetBankRSDAccount:output_type -> account.AccountResponse
-	23, // [23:42] is the sub-list for method output_type
-	4,  // [4:23] is the sub-list for method input_type
+	28, // 23: account.BankAccountService.DebitBankAccount:input_type -> account.BankAccountOpRequest
+	28, // 24: account.BankAccountService.CreditBankAccount:input_type -> account.BankAccountOpRequest
+	10, // 25: account.AccountService.CreateAccount:output_type -> account.AccountResponse
+	10, // 26: account.AccountService.GetAccount:output_type -> account.AccountResponse
+	10, // 27: account.AccountService.GetAccountByNumber:output_type -> account.AccountResponse
+	5,  // 28: account.AccountService.ListAccountsByClient:output_type -> account.ListAccountsResponse
+	5,  // 29: account.AccountService.ListAllAccounts:output_type -> account.ListAccountsResponse
+	10, // 30: account.AccountService.UpdateAccountName:output_type -> account.AccountResponse
+	10, // 31: account.AccountService.UpdateAccountLimits:output_type -> account.AccountResponse
+	10, // 32: account.AccountService.UpdateAccountStatus:output_type -> account.AccountResponse
+	10, // 33: account.AccountService.UpdateBalance:output_type -> account.AccountResponse
+	14, // 34: account.AccountService.CreateCompany:output_type -> account.CompanyResponse
+	14, // 35: account.AccountService.GetCompany:output_type -> account.CompanyResponse
+	14, // 36: account.AccountService.UpdateCompany:output_type -> account.CompanyResponse
+	16, // 37: account.AccountService.ListCurrencies:output_type -> account.ListCurrenciesResponse
+	18, // 38: account.AccountService.GetCurrency:output_type -> account.CurrencyResponse
+	21, // 39: account.AccountService.GetLedgerEntries:output_type -> account.GetLedgerEntriesResponse
+	10, // 40: account.BankAccountService.CreateBankAccount:output_type -> account.AccountResponse
+	24, // 41: account.BankAccountService.ListBankAccounts:output_type -> account.ListBankAccountsResponse
+	26, // 42: account.BankAccountService.DeleteBankAccount:output_type -> account.DeleteBankAccountResponse
+	10, // 43: account.BankAccountService.GetBankRSDAccount:output_type -> account.AccountResponse
+	29, // 44: account.BankAccountService.DebitBankAccount:output_type -> account.BankAccountOpResponse
+	29, // 45: account.BankAccountService.CreditBankAccount:output_type -> account.BankAccountOpResponse
+	25, // [25:46] is the sub-list for method output_type
+	4,  // [4:25] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name
@@ -2161,7 +2307,7 @@ func file_account_account_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_account_account_proto_rawDesc), len(file_account_account_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -1096,10 +1096,11 @@ var OrderGRPCService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	PortfolioGRPCService_ListHoldings_FullMethodName        = "/stock.PortfolioGRPCService/ListHoldings"
-	PortfolioGRPCService_GetPortfolioSummary_FullMethodName = "/stock.PortfolioGRPCService/GetPortfolioSummary"
-	PortfolioGRPCService_MakePublic_FullMethodName          = "/stock.PortfolioGRPCService/MakePublic"
-	PortfolioGRPCService_ExerciseOption_FullMethodName      = "/stock.PortfolioGRPCService/ExerciseOption"
+	PortfolioGRPCService_ListHoldings_FullMethodName             = "/stock.PortfolioGRPCService/ListHoldings"
+	PortfolioGRPCService_GetPortfolioSummary_FullMethodName      = "/stock.PortfolioGRPCService/GetPortfolioSummary"
+	PortfolioGRPCService_MakePublic_FullMethodName               = "/stock.PortfolioGRPCService/MakePublic"
+	PortfolioGRPCService_ExerciseOption_FullMethodName           = "/stock.PortfolioGRPCService/ExerciseOption"
+	PortfolioGRPCService_ExerciseOptionByOptionID_FullMethodName = "/stock.PortfolioGRPCService/ExerciseOptionByOptionID"
 )
 
 // PortfolioGRPCServiceClient is the client API for PortfolioGRPCService service.
@@ -1110,6 +1111,7 @@ type PortfolioGRPCServiceClient interface {
 	GetPortfolioSummary(ctx context.Context, in *GetPortfolioSummaryRequest, opts ...grpc.CallOption) (*PortfolioSummary, error)
 	MakePublic(ctx context.Context, in *MakePublicRequest, opts ...grpc.CallOption) (*Holding, error)
 	ExerciseOption(ctx context.Context, in *ExerciseOptionRequest, opts ...grpc.CallOption) (*ExerciseResult, error)
+	ExerciseOptionByOptionID(ctx context.Context, in *ExerciseOptionByOptionIDRequest, opts ...grpc.CallOption) (*ExerciseResult, error)
 }
 
 type portfolioGRPCServiceClient struct {
@@ -1160,6 +1162,16 @@ func (c *portfolioGRPCServiceClient) ExerciseOption(ctx context.Context, in *Exe
 	return out, nil
 }
 
+func (c *portfolioGRPCServiceClient) ExerciseOptionByOptionID(ctx context.Context, in *ExerciseOptionByOptionIDRequest, opts ...grpc.CallOption) (*ExerciseResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExerciseResult)
+	err := c.cc.Invoke(ctx, PortfolioGRPCService_ExerciseOptionByOptionID_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PortfolioGRPCServiceServer is the server API for PortfolioGRPCService service.
 // All implementations must embed UnimplementedPortfolioGRPCServiceServer
 // for forward compatibility.
@@ -1168,6 +1180,7 @@ type PortfolioGRPCServiceServer interface {
 	GetPortfolioSummary(context.Context, *GetPortfolioSummaryRequest) (*PortfolioSummary, error)
 	MakePublic(context.Context, *MakePublicRequest) (*Holding, error)
 	ExerciseOption(context.Context, *ExerciseOptionRequest) (*ExerciseResult, error)
+	ExerciseOptionByOptionID(context.Context, *ExerciseOptionByOptionIDRequest) (*ExerciseResult, error)
 	mustEmbedUnimplementedPortfolioGRPCServiceServer()
 }
 
@@ -1189,6 +1202,9 @@ func (UnimplementedPortfolioGRPCServiceServer) MakePublic(context.Context, *Make
 }
 func (UnimplementedPortfolioGRPCServiceServer) ExerciseOption(context.Context, *ExerciseOptionRequest) (*ExerciseResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExerciseOption not implemented")
+}
+func (UnimplementedPortfolioGRPCServiceServer) ExerciseOptionByOptionID(context.Context, *ExerciseOptionByOptionIDRequest) (*ExerciseResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExerciseOptionByOptionID not implemented")
 }
 func (UnimplementedPortfolioGRPCServiceServer) mustEmbedUnimplementedPortfolioGRPCServiceServer() {}
 func (UnimplementedPortfolioGRPCServiceServer) testEmbeddedByValue()                              {}
@@ -1283,6 +1299,24 @@ func _PortfolioGRPCService_ExerciseOption_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PortfolioGRPCService_ExerciseOptionByOptionID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExerciseOptionByOptionIDRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PortfolioGRPCServiceServer).ExerciseOptionByOptionID(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PortfolioGRPCService_ExerciseOptionByOptionID_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PortfolioGRPCServiceServer).ExerciseOptionByOptionID(ctx, req.(*ExerciseOptionByOptionIDRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PortfolioGRPCService_ServiceDesc is the grpc.ServiceDesc for PortfolioGRPCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1305,6 +1339,10 @@ var PortfolioGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExerciseOption",
 			Handler:    _PortfolioGRPCService_ExerciseOption_Handler,
+		},
+		{
+			MethodName: "ExerciseOptionByOptionID",
+			Handler:    _PortfolioGRPCService_ExerciseOptionByOptionID_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -1623,6 +1661,146 @@ var TaxGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListUserTaxRecords",
 			Handler:    _TaxGRPCService_ListUserTaxRecords_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}
+
+const (
+	SourceAdminService_SwitchSource_FullMethodName    = "/stock.SourceAdminService/SwitchSource"
+	SourceAdminService_GetSourceStatus_FullMethodName = "/stock.SourceAdminService/GetSourceStatus"
+)
+
+// SourceAdminServiceClient is the client API for SourceAdminService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type SourceAdminServiceClient interface {
+	SwitchSource(ctx context.Context, in *SwitchSourceRequest, opts ...grpc.CallOption) (*SwitchSourceResponse, error)
+	GetSourceStatus(ctx context.Context, in *GetSourceStatusRequest, opts ...grpc.CallOption) (*SourceStatus, error)
+}
+
+type sourceAdminServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewSourceAdminServiceClient(cc grpc.ClientConnInterface) SourceAdminServiceClient {
+	return &sourceAdminServiceClient{cc}
+}
+
+func (c *sourceAdminServiceClient) SwitchSource(ctx context.Context, in *SwitchSourceRequest, opts ...grpc.CallOption) (*SwitchSourceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SwitchSourceResponse)
+	err := c.cc.Invoke(ctx, SourceAdminService_SwitchSource_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sourceAdminServiceClient) GetSourceStatus(ctx context.Context, in *GetSourceStatusRequest, opts ...grpc.CallOption) (*SourceStatus, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SourceStatus)
+	err := c.cc.Invoke(ctx, SourceAdminService_GetSourceStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SourceAdminServiceServer is the server API for SourceAdminService service.
+// All implementations must embed UnimplementedSourceAdminServiceServer
+// for forward compatibility.
+type SourceAdminServiceServer interface {
+	SwitchSource(context.Context, *SwitchSourceRequest) (*SwitchSourceResponse, error)
+	GetSourceStatus(context.Context, *GetSourceStatusRequest) (*SourceStatus, error)
+	mustEmbedUnimplementedSourceAdminServiceServer()
+}
+
+// UnimplementedSourceAdminServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedSourceAdminServiceServer struct{}
+
+func (UnimplementedSourceAdminServiceServer) SwitchSource(context.Context, *SwitchSourceRequest) (*SwitchSourceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SwitchSource not implemented")
+}
+func (UnimplementedSourceAdminServiceServer) GetSourceStatus(context.Context, *GetSourceStatusRequest) (*SourceStatus, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSourceStatus not implemented")
+}
+func (UnimplementedSourceAdminServiceServer) mustEmbedUnimplementedSourceAdminServiceServer() {}
+func (UnimplementedSourceAdminServiceServer) testEmbeddedByValue()                            {}
+
+// UnsafeSourceAdminServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to SourceAdminServiceServer will
+// result in compilation errors.
+type UnsafeSourceAdminServiceServer interface {
+	mustEmbedUnimplementedSourceAdminServiceServer()
+}
+
+func RegisterSourceAdminServiceServer(s grpc.ServiceRegistrar, srv SourceAdminServiceServer) {
+	// If the following call panics, it indicates UnimplementedSourceAdminServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&SourceAdminService_ServiceDesc, srv)
+}
+
+func _SourceAdminService_SwitchSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SwitchSourceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SourceAdminServiceServer).SwitchSource(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SourceAdminService_SwitchSource_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SourceAdminServiceServer).SwitchSource(ctx, req.(*SwitchSourceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SourceAdminService_GetSourceStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSourceStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SourceAdminServiceServer).GetSourceStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SourceAdminService_GetSourceStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SourceAdminServiceServer).GetSourceStatus(ctx, req.(*GetSourceStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// SourceAdminService_ServiceDesc is the grpc.ServiceDesc for SourceAdminService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var SourceAdminService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.SourceAdminService",
+	HandlerType: (*SourceAdminServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SwitchSource",
+			Handler:    _SourceAdminService_SwitchSource_Handler,
+		},
+		{
+			MethodName: "GetSourceStatus",
+			Handler:    _SourceAdminService_GetSourceStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

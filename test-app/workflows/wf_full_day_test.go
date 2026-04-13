@@ -31,7 +31,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	_, acctB, _, _ := setupActivatedClient(t, adminC)
 	t.Logf("WF-14: Client B onboarded, acct=%s", acctB)
 
-	_, acctC, clientCC, _ := setupActivatedClient(t, adminC)
+	clientCID, acctC, clientCC, _ := setupActivatedClient(t, adminC)
 	t.Logf("WF-14: Client C onboarded, acct=%s", acctC)
 
 	_, agentC, _ := setupAgentEmployee(t, adminC)
@@ -48,7 +48,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	balBBefore := getAccountBalance(t, adminC, acctB)
 
 	const paymentAmount = 5000.0
-	paymentID := createAndExecutePayment(t, clientAC, acctB, paymentAmount)
+	paymentID := createAndExecutePayment(t, clientAC, acctA, acctB, paymentAmount)
 	t.Logf("WF-14: Payment A->B executed id=%d amount=%.2f", paymentID, paymentAmount)
 
 	balAAfter := getAccountBalance(t, adminC, acctA)
@@ -78,7 +78,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 
 	const loanAmount = 1000000.0
 	const loanMonths = 60
-	loanID := createLoanAndApprove(t, adminC, clientCC, "housing", loanAmount, acctC, loanMonths)
+	loanID := createLoanAndApprove(t, adminC, clientCC, "housing", loanAmount, acctC, loanMonths, clientCID)
 	t.Logf("WF-14: Housing loan approved id=%d amount=%.2f months=%d", loanID, loanAmount, loanMonths)
 
 	balCAfter := getAccountBalance(t, adminC, acctC)
@@ -92,7 +92,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	t.Logf("WF-14: Loan disbursed — C: %.2f -> %.2f (gain=%.2f)", balCBefore, balCAfter, cGain)
 
 	// Verify installments were created
-	installmentsResp, err := adminC.GET(fmt.Sprintf("/api/loans/%d/installments", loanID))
+	installmentsResp, err := adminC.GET(fmt.Sprintf("/api/v1/loans/%d/installments", loanID))
 	if err != nil {
 		t.Fatalf("WF-14: get installments: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	t.Logf("WF-14: Using listing_id=%d", listingID)
 
 	// Agent buys 2 shares
-	buyResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	buyResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -125,7 +125,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	t.Log("WF-14: Agent buy order filled")
 
 	// Verify holding exists
-	portfolioResp, err := agentC.GET("/api/me/portfolio?security_type=stock")
+	portfolioResp, err := agentC.GET("/api/v1/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-14: list portfolio: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	t.Logf("WF-14: Agent has %d holding(s)", len(holdings))
 
 	// Agent sells 2 shares
-	sellResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	sellResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "sell",
 		"order_type":  "market",
@@ -169,7 +169,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	}
 
 	// Verify all payments completed — admin can read the payment
-	adminPayResp, err := adminC.GET(fmt.Sprintf("/api/payments/%d", paymentID))
+	adminPayResp, err := adminC.GET(fmt.Sprintf("/api/v1/payments/%d", paymentID))
 	if err != nil {
 		t.Fatalf("WF-14: admin get payment: %v", err)
 	}

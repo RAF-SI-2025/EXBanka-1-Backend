@@ -49,10 +49,22 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 		holdingID = &v
 	}
 
+	// Resolve effective user ID: when an employee places on behalf of a client,
+	// the order belongs to the client and the employee is recorded for audit.
+	targetUserID := req.UserId
+	actingEmployeeID := req.ActingEmployeeId
+	if req.ActingEmployeeId != 0 {
+		if req.OnBehalfOfClientId == 0 {
+			return nil, status.Error(codes.InvalidArgument, "on_behalf_of_client_id required when acting_employee_id is set")
+		}
+		targetUserID = req.OnBehalfOfClientId
+	}
+
 	order, err := h.orderSvc.CreateOrder(
-		req.UserId, req.SystemType, req.ListingId, holdingID,
+		targetUserID, req.SystemType, req.ListingId, holdingID,
 		req.Direction, req.OrderType, req.Quantity,
 		limitVal, stopVal, req.AllOrNone, req.Margin, req.AccountId,
+		actingEmployeeID,
 	)
 	if err != nil {
 		return nil, mapOrderError(err)
@@ -174,6 +186,7 @@ func toOrderProto(o *model.Order) *pb.Order {
 		AllOrNone:         o.AllOrNone,
 		Margin:            o.Margin,
 		AccountId:         o.AccountID,
+		ActingEmployeeId:  o.ActingEmployeeID,
 		LastModification:  o.LastModification.Format("2006-01-02T15:04:05Z"),
 		CreatedAt:         o.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}

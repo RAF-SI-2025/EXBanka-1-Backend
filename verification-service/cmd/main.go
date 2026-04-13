@@ -31,7 +31,9 @@ func main() {
 	cfg := config.Load()
 
 	// 1. Connect to PostgreSQL
-	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
+		NowFunc: func() time.Time { return time.Now().UTC() },
+	})
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}

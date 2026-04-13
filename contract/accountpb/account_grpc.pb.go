@@ -657,6 +657,8 @@ const (
 	BankAccountService_ListBankAccounts_FullMethodName  = "/account.BankAccountService/ListBankAccounts"
 	BankAccountService_DeleteBankAccount_FullMethodName = "/account.BankAccountService/DeleteBankAccount"
 	BankAccountService_GetBankRSDAccount_FullMethodName = "/account.BankAccountService/GetBankRSDAccount"
+	BankAccountService_DebitBankAccount_FullMethodName  = "/account.BankAccountService/DebitBankAccount"
+	BankAccountService_CreditBankAccount_FullMethodName = "/account.BankAccountService/CreditBankAccount"
 )
 
 // BankAccountServiceClient is the client API for BankAccountService service.
@@ -667,6 +669,8 @@ type BankAccountServiceClient interface {
 	ListBankAccounts(ctx context.Context, in *ListBankAccountsRequest, opts ...grpc.CallOption) (*ListBankAccountsResponse, error)
 	DeleteBankAccount(ctx context.Context, in *DeleteBankAccountRequest, opts ...grpc.CallOption) (*DeleteBankAccountResponse, error)
 	GetBankRSDAccount(ctx context.Context, in *GetBankRSDAccountRequest, opts ...grpc.CallOption) (*AccountResponse, error)
+	DebitBankAccount(ctx context.Context, in *BankAccountOpRequest, opts ...grpc.CallOption) (*BankAccountOpResponse, error)
+	CreditBankAccount(ctx context.Context, in *BankAccountOpRequest, opts ...grpc.CallOption) (*BankAccountOpResponse, error)
 }
 
 type bankAccountServiceClient struct {
@@ -717,6 +721,26 @@ func (c *bankAccountServiceClient) GetBankRSDAccount(ctx context.Context, in *Ge
 	return out, nil
 }
 
+func (c *bankAccountServiceClient) DebitBankAccount(ctx context.Context, in *BankAccountOpRequest, opts ...grpc.CallOption) (*BankAccountOpResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BankAccountOpResponse)
+	err := c.cc.Invoke(ctx, BankAccountService_DebitBankAccount_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *bankAccountServiceClient) CreditBankAccount(ctx context.Context, in *BankAccountOpRequest, opts ...grpc.CallOption) (*BankAccountOpResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BankAccountOpResponse)
+	err := c.cc.Invoke(ctx, BankAccountService_CreditBankAccount_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BankAccountServiceServer is the server API for BankAccountService service.
 // All implementations must embed UnimplementedBankAccountServiceServer
 // for forward compatibility.
@@ -725,6 +749,8 @@ type BankAccountServiceServer interface {
 	ListBankAccounts(context.Context, *ListBankAccountsRequest) (*ListBankAccountsResponse, error)
 	DeleteBankAccount(context.Context, *DeleteBankAccountRequest) (*DeleteBankAccountResponse, error)
 	GetBankRSDAccount(context.Context, *GetBankRSDAccountRequest) (*AccountResponse, error)
+	DebitBankAccount(context.Context, *BankAccountOpRequest) (*BankAccountOpResponse, error)
+	CreditBankAccount(context.Context, *BankAccountOpRequest) (*BankAccountOpResponse, error)
 	mustEmbedUnimplementedBankAccountServiceServer()
 }
 
@@ -746,6 +772,12 @@ func (UnimplementedBankAccountServiceServer) DeleteBankAccount(context.Context, 
 }
 func (UnimplementedBankAccountServiceServer) GetBankRSDAccount(context.Context, *GetBankRSDAccountRequest) (*AccountResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBankRSDAccount not implemented")
+}
+func (UnimplementedBankAccountServiceServer) DebitBankAccount(context.Context, *BankAccountOpRequest) (*BankAccountOpResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DebitBankAccount not implemented")
+}
+func (UnimplementedBankAccountServiceServer) CreditBankAccount(context.Context, *BankAccountOpRequest) (*BankAccountOpResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreditBankAccount not implemented")
 }
 func (UnimplementedBankAccountServiceServer) mustEmbedUnimplementedBankAccountServiceServer() {}
 func (UnimplementedBankAccountServiceServer) testEmbeddedByValue()                            {}
@@ -840,6 +872,42 @@ func _BankAccountService_GetBankRSDAccount_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BankAccountService_DebitBankAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BankAccountOpRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BankAccountServiceServer).DebitBankAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BankAccountService_DebitBankAccount_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BankAccountServiceServer).DebitBankAccount(ctx, req.(*BankAccountOpRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _BankAccountService_CreditBankAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BankAccountOpRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BankAccountServiceServer).CreditBankAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: BankAccountService_CreditBankAccount_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BankAccountServiceServer).CreditBankAccount(ctx, req.(*BankAccountOpRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BankAccountService_ServiceDesc is the grpc.ServiceDesc for BankAccountService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -862,6 +930,14 @@ var BankAccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBankRSDAccount",
 			Handler:    _BankAccountService_GetBankRSDAccount_Handler,
+		},
+		{
+			MethodName: "DebitBankAccount",
+			Handler:    _BankAccountService_DebitBankAccount_Handler,
+		},
+		{
+			MethodName: "CreditBankAccount",
+			Handler:    _BankAccountService_CreditBankAccount_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
