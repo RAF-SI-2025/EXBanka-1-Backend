@@ -20,7 +20,9 @@ func NewCreditHandler(creditClient creditpb.CreditServiceClient) *CreditHandler 
 }
 
 type createLoanRequestBody struct {
-	ClientID         uint64  `json:"client_id" binding:"required"`
+	// ClientID is accepted from the body for backwards compatibility but silently
+	// ignored — the gateway always derives the client identity from the JWT user_id.
+	ClientID         uint64  `json:"client_id"`
 	LoanType         string  `json:"loan_type" binding:"required"`
 	InterestType     string  `json:"interest_type" binding:"required"`
 	Amount           float64 `json:"amount" binding:"required"`
@@ -86,8 +88,10 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 			return
 		}
 	}
+	// Always derive ClientId from the JWT — never trust the request body.
+	uid := c.GetInt64("user_id")
 	resp, err := h.creditClient.CreateLoanRequest(c.Request.Context(), &creditpb.CreateLoanRequestReq{
-		ClientId:         req.ClientID,
+		ClientId:         uint64(uid),
 		LoanType:         loanType,
 		InterestType:     interestType,
 		Amount:           fmt.Sprintf("%.4f", req.Amount),
