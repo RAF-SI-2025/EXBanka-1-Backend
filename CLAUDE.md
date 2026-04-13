@@ -385,6 +385,16 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
 - `docker-compose.yml` must be committed alongside service changes.
 - **`docker-compose-remote.yml` must be kept in sync with `docker-compose.yml`.** When adding/changing environment variables, ports, volumes, or services in `docker-compose.yml`, apply the same changes to `docker-compose-remote.yml` (which uses pre-built images from ghcr.io instead of building from source). The only difference between the two files is the `build:` vs `image:` directives — environment, ports, volumes, depends_on, and healthchecks must match.
 
+## API Versioning Compatibility Requirement
+
+**Newer versions of the API must never break older versions unless the user has explicitly permitted it.** This is a hard requirement — not optional.
+
+- When introducing `/api/v{N+1}/...` routes, existing `/api/v{N}/...` routes must remain functional with their exact current request and response shapes.
+- Adding new *optional* fields to v{N} response bodies is allowed and does not count as a breaking change, provided existing clients that ignore unknown fields continue to work.
+- Removing fields, renaming fields, changing field types, changing HTTP methods, changing status codes, changing authentication requirements, or tightening validation on existing v{N} routes are breaking changes and require explicit user authorization before merging.
+- The v2 router in api-gateway transparently falls back to v1 for any route not explicitly redefined at v2, so v2 clients can reach any v1 endpoint using a v2 URL.
+- When in doubt, ask the user before changing any existing route.
+
 ## Implementation Plans
 
 Before starting any feature or bug fix, read the existing implementation plans in `docs/superpowers/plans/`. These plans contain context, decisions, and scope that must inform your work. Plans are Markdown files named by date and feature (e.g., `2026-03-12-feature-name.md`).

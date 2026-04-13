@@ -342,6 +342,27 @@ definitions:
     - loan_type
     - repayment_period
     type: object
+  handler.createOptionOrderRequest:
+    properties:
+      account_id:
+        type: integer
+      all_or_none:
+        type: boolean
+      direction:
+        type: string
+      holding_id:
+        type: integer
+      limit_value:
+        type: string
+      margin:
+        type: boolean
+      order_type:
+        type: string
+      quantity:
+        type: integer
+      stop_value:
+        type: string
+    type: object
   handler.createPaymentRecipientRequest:
     properties:
       account_number:
@@ -458,6 +479,11 @@ definitions:
         type: integer
       verification_code:
         type: string
+    type: object
+  handler.exerciseOptionRequest:
+    properties:
+      holding_id:
+        type: integer
     type: object
   handler.loginRequest:
     properties:
@@ -637,6 +663,11 @@ definitions:
         type: string
     required:
     - response
+    type: object
+  handler.switchSourceRequest:
+    properties:
+      source:
+        type: string
     type: object
   handler.temporaryBlockCardBody:
     properties:
@@ -5397,6 +5428,73 @@ paths:
       summary: Get account changelog (not yet implemented)
       tags:
       - Changelog
+  /api/v1/admin/stock-source:
+    get:
+      description: Returns the currently active stock data source, seeding status,
+        and any error details.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the current stock data source and status
+      tags:
+      - Admin
+    post:
+      consumes:
+      - application/json
+      description: Wipes all stock-service securities and trading state, then reseeds
+        from the new source. Admin-only.
+      parameters:
+      - description: 'target source: external | generated | simulator'
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.switchSourceRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Switch active stock data source (DESTRUCTIVE)
+      tags:
+      - Admin
   /api/v1/auth/resend-activation:
     post:
       consumes:
@@ -5989,6 +6087,87 @@ paths:
       summary: Verify challenge using device biometrics
       tags:
       - mobile-verifications
+  /api/v2/options/{option_id}/exercise:
+    post:
+      consumes:
+      - application/json
+      description: v2 takes option_id directly. If holding_id is omitted, the backend
+        auto-resolves the user's oldest long option holding.
+      parameters:
+      - description: Option ID
+        in: path
+        name: option_id
+        required: true
+        type: integer
+      - description: Optional holding_id
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/handler.exerciseOptionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Exercise an option by option ID (v2)
+      tags:
+      - Options V2
+  /api/v2/options/{option_id}/orders:
+    post:
+      consumes:
+      - application/json
+      description: v2 accepts the option_id directly; internally resolves to listing_id
+        and delegates to the standard order flow.
+      parameters:
+      - description: Option ID
+        in: path
+        name: option_id
+        required: true
+        type: integer
+      - description: Order details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createOptionOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create an order for an option contract (v2)
+      tags:
+      - Options V2
   /api/verifications:
     post:
       consumes:

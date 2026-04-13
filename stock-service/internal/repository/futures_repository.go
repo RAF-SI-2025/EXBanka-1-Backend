@@ -4,6 +4,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/exbanka/stock-service/internal/model"
 )
 
@@ -70,6 +72,11 @@ func (r *FuturesRepository) UpsertByTicker(f *model.FuturesContract) error {
 		existing.LastRefresh = f.LastRefresh
 		return tx.Save(&existing).Error
 	})
+}
+
+// UpdatePriceByTicker updates only the price column for the futures contract with the given ticker.
+func (r *FuturesRepository) UpdatePriceByTicker(ticker string, price decimal.Decimal) error {
+	return r.db.Model(&model.FuturesContract{}).Where("ticker = ?", ticker).Update("price", price).Error
 }
 
 func (r *FuturesRepository) List(filter FuturesFilter) ([]model.FuturesContract, int64, error) {

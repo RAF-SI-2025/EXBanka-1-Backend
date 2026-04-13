@@ -53,6 +53,8 @@ var AllPermissions = []struct {
 	// Verification
 	{"verification.skip", "Skip mobile verification for transactions", "verification"},
 	{"verification.manage", "Manage verification settings per role", "verification"},
+	// Securities administration
+	{"securities.manage", "Manage securities data sources and market simulator settings", "securities"},
 }
 
 // DefaultRolePermissions defines seed data for roles inserted on first startup.
@@ -97,6 +99,7 @@ var DefaultRolePermissions = map[string][]string{
 		"limits.manage",
 		"bank-accounts.manage", "fees.manage", "interest-rates.manage",
 		"verification.skip", "verification.manage",
+		"securities.manage",
 	},
 }
 

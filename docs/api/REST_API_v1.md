@@ -5741,6 +5741,66 @@ Mark all unread notifications as read for the authenticated user.
 
 ---
 
+## 36. Admin — Stock Data Source
+
+**v1-only section.** Admin-only endpoints for managing the stock-service data source. Switching sources is **destructive** — it wipes every securities row, listing, option, order, holding, capital gain, tax collection, and order transaction, then reseeds from the new source. Use with care.
+
+**Authentication:** `AuthMiddleware` + permission `securities.manage` (seeded on `EmployeeAdmin` only)
+
+---
+
+### POST /api/v1/admin/stock-source
+
+Switch the active stock data source and reseed the database. For `generated`, the reseed runs synchronously (response returns after the DB is ready). For `external` and `simulator`, the reseed runs in a background goroutine and the response returns immediately with `status: "reseeding"`; poll `GET /api/v1/admin/stock-source` to watch for `status: "idle"`.
+
+**Request Body:**
+
+```json
+{ "source": "external" | "generated" | "simulator" }
+```
+
+**Response 202 Accepted:**
+
+```json
+{
+  "source": "generated",
+  "status": "idle",
+  "started_at": "2026-04-13T12:34:56Z",
+  "last_error": ""
+}
+```
+
+**Possible statuses:** `idle` | `reseeding` | `failed`.
+
+**Error Responses:**
+
+- `400 validation_error` — unknown `source` value
+- `403 forbidden` — missing `securities.manage` permission
+- `409 conflict` — another switch is already in progress
+- `500 internal_error` — wipe or reseed failed; check `last_error` via GET
+- `503 unavailable` — simulator unreachable (when `source=simulator`)
+
+---
+
+### GET /api/v1/admin/stock-source
+
+Return the current active source and the most recent switch status.
+
+**Response 200:**
+
+```json
+{
+  "source": "simulator",
+  "status": "reseeding",
+  "started_at": "2026-04-13T12:34:56Z",
+  "last_error": ""
+}
+```
+
+When `status=failed`, `last_error` contains the failure reason. The admin can retry by issuing a new POST.
+
+---
+
 ## Error Response Format
 
 All error responses follow this format:
