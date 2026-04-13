@@ -215,14 +215,37 @@ func main() {
 		return ex.ID, nil
 	})
 
+	// Restore the last-active data source so a restart preserves the admin's choice.
+	var initialSource source.Source = extSource // default fallback
+	if settingRepo != nil {
+		if active, err := settingRepo.Get("active_stock_source"); err == nil && active != "" {
+			switch active {
+			case "external":
+				initialSource = extSource
+			case "generated":
+				initialSource = source.NewGeneratedSource()
+				log.Println("restored active stock source: generated")
+			case "simulator":
+				client := source.NewSimulatorClient(cfg.MarketSimulatorURL, cfg.BankName, settingRepo)
+				if err := client.EnsureRegistered(); err != nil {
+					log.Printf("WARN: simulator registration failed on boot, falling back to external: %v", err)
+				} else {
+					initialSource = source.NewSimulatorSource(client)
+					log.Println("restored active stock source: simulator")
+				}
+			}
+		}
+	}
+
 	syncSvc := service.NewSecuritySyncService(
 		stockRepo, futuresRepo, forexRepo, optionRepo,
 		exchangeRepo, settingRepo,
 		listingSvc, redisCache, influxClient,
 		avClient, finnhubClient,
-		extSource,
+		initialSource,
 		wipeRepo,
 	)
+	syncSvc.StartSimulatorRefreshLoopIfActive()
 
 	// Portfolio, OTC, and tax services
 	portfolioSvc := service.NewPortfolioService(

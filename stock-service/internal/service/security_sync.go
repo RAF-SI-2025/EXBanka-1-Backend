@@ -493,6 +493,15 @@ func (s *SecuritySyncService) GetStatus() (status, lastErr string, startedAt tim
 	return
 }
 
+// StartSimulatorRefreshLoopIfActive starts the simulator price refresh
+// goroutine if the currently active source is the simulator. Safe to call
+// from cmd/main.go on boot.
+func (s *SecuritySyncService) StartSimulatorRefreshLoopIfActive() {
+	if s.Source().Name() == "simulator" {
+		s.startSimulatorRefreshLoop()
+	}
+}
+
 // startSimulatorRefreshLoop launches a 3s ticker that re-fetches prices from
 // the simulator and updates the DB. Runs until ctx is cancelled by the next
 // SwitchSource call.
