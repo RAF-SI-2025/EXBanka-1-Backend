@@ -277,6 +277,7 @@ message OptionItem {
   string settlement_date = 11;
   int64 contract_size = 12;
   string initial_margin_cost = 13;
+  optional uint64 listing_id = 14;
 }
 
 message OptionDetail {
@@ -294,6 +295,7 @@ message OptionDetail {
   int64 contract_size = 12;
   string maintenance_margin = 13;
   string initial_margin_cost = 14;
+  optional uint64 listing_id = 15;
 }
 
 message ListOptionsRequest {

@@ -2140,6 +2140,7 @@ type OptionItem struct {
 	SettlementDate    string                 `protobuf:"bytes,11,opt,name=settlement_date,json=settlementDate,proto3" json:"settlement_date,omitempty"`
 	ContractSize      int64                  `protobuf:"varint,12,opt,name=contract_size,json=contractSize,proto3" json:"contract_size,omitempty"`
 	InitialMarginCost string                 `protobuf:"bytes,13,opt,name=initial_margin_cost,json=initialMarginCost,proto3" json:"initial_margin_cost,omitempty"`
+	ListingId         *uint64                `protobuf:"varint,14,opt,name=listing_id,json=listingId,proto3,oneof" json:"listing_id,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2265,6 +2266,13 @@ func (x *OptionItem) GetInitialMarginCost() string {
 	return ""
 }
 
+func (x *OptionItem) GetListingId() uint64 {
+	if x != nil && x.ListingId != nil {
+		return *x.ListingId
+	}
+	return 0
+}
+
 type OptionDetail struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Id                uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -2281,6 +2289,7 @@ type OptionDetail struct {
 	ContractSize      int64                  `protobuf:"varint,12,opt,name=contract_size,json=contractSize,proto3" json:"contract_size,omitempty"`
 	MaintenanceMargin string                 `protobuf:"bytes,13,opt,name=maintenance_margin,json=maintenanceMargin,proto3" json:"maintenance_margin,omitempty"`
 	InitialMarginCost string                 `protobuf:"bytes,14,opt,name=initial_margin_cost,json=initialMarginCost,proto3" json:"initial_margin_cost,omitempty"`
+	ListingId         *uint64                `protobuf:"varint,15,opt,name=listing_id,json=listingId,proto3,oneof" json:"listing_id,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2411,6 +2420,13 @@ func (x *OptionDetail) GetInitialMarginCost() string {
 		return x.InitialMarginCost
 	}
 	return ""
+}
+
+func (x *OptionDetail) GetListingId() uint64 {
+	if x != nil && x.ListingId != nil {
+		return *x.ListingId
+	}
+	return 0
 }
 
 type ListOptionsRequest struct {
@@ -5404,7 +5420,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
 	"totalCount\"%\n" +
 	"\x13GetForexPairRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x04R\x02id\"\xc5\x03\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\"\xf8\x03\n" +
 	"\n" +
 	"OptionItem\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x16\n" +
@@ -5421,7 +5437,10 @@ const file_stock_stock_proto_rawDesc = "" +
 	" \x01(\x03R\fopenInterest\x12'\n" +
 	"\x0fsettlement_date\x18\v \x01(\tR\x0esettlementDate\x12#\n" +
 	"\rcontract_size\x18\f \x01(\x03R\fcontractSize\x12.\n" +
-	"\x13initial_margin_cost\x18\r \x01(\tR\x11initialMarginCost\"\xf6\x03\n" +
+	"\x13initial_margin_cost\x18\r \x01(\tR\x11initialMarginCost\x12\"\n" +
+	"\n" +
+	"listing_id\x18\x0e \x01(\x04H\x00R\tlistingId\x88\x01\x01B\r\n" +
+	"\v_listing_id\"\xa9\x04\n" +
 	"\fOptionDetail\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x16\n" +
 	"\x06ticker\x18\x02 \x01(\tR\x06ticker\x12\x12\n" +
@@ -5438,7 +5457,10 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x0fsettlement_date\x18\v \x01(\tR\x0esettlementDate\x12#\n" +
 	"\rcontract_size\x18\f \x01(\x03R\fcontractSize\x12-\n" +
 	"\x12maintenance_margin\x18\r \x01(\tR\x11maintenanceMargin\x12.\n" +
-	"\x13initial_margin_cost\x18\x0e \x01(\tR\x11initialMarginCost\"\xe8\x01\n" +
+	"\x13initial_margin_cost\x18\x0e \x01(\tR\x11initialMarginCost\x12\"\n" +
+	"\n" +
+	"listing_id\x18\x0f \x01(\x04H\x00R\tlistingId\x88\x01\x01B\r\n" +
+	"\v_listing_id\"\xe8\x01\n" +
 	"\x12ListOptionsRequest\x12\x19\n" +
 	"\bstock_id\x18\x01 \x01(\x04R\astockId\x12\x1f\n" +
 	"\voption_type\x18\x02 \x01(\tR\n" +
@@ -5938,6 +5960,8 @@ func file_stock_stock_proto_init() {
 	if File_stock_stock_proto != nil {
 		return
 	}
+	file_stock_stock_proto_msgTypes[28].OneofWrappers = []any{}
+	file_stock_stock_proto_msgTypes[29].OneofWrappers = []any{}
 	file_stock_stock_proto_msgTypes[36].OneofWrappers = []any{}
 	file_stock_stock_proto_msgTypes[39].OneofWrappers = []any{}
 	type x struct{}
