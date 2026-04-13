@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/exbanka/api-gateway/internal/middleware"
+	accountpb "github.com/exbanka/contract/accountpb"
 	cardpb "github.com/exbanka/contract/cardpb"
 )
 
@@ -14,16 +15,17 @@ type CardHandler struct {
 	cardClient        cardpb.CardServiceClient
 	virtualCardClient cardpb.VirtualCardServiceClient
 	cardRequestClient cardpb.CardRequestServiceClient
+	accountClient     accountpb.AccountServiceClient
 }
 
-func NewCardHandler(cardClient cardpb.CardServiceClient, virtualCardClient cardpb.VirtualCardServiceClient, cardRequestClient cardpb.CardRequestServiceClient) *CardHandler {
-	return &CardHandler{cardClient: cardClient, virtualCardClient: virtualCardClient, cardRequestClient: cardRequestClient}
+func NewCardHandler(cardClient cardpb.CardServiceClient, virtualCardClient cardpb.VirtualCardServiceClient, cardRequestClient cardpb.CardRequestServiceClient, accountClient accountpb.AccountServiceClient) *CardHandler {
+	return &CardHandler{cardClient: cardClient, virtualCardClient: virtualCardClient, cardRequestClient: cardRequestClient, accountClient: accountClient}
 }
 
 // createVirtualCardBody is the swagger body for creating a virtual card.
 type createVirtualCardBody struct {
 	AccountNumber string `json:"account_number" binding:"required" example:"265-0000000001-00"`
-	OwnerId       uint64 `json:"owner_id" binding:"required" example:"1"`
+	OwnerId       uint64 `json:"owner_id" example:"1"` // ignored by gateway; owner is derived from JWT
 	CardBrand     string `json:"card_brand" binding:"required" example:"visa"`
 	UsageType     string `json:"usage_type" binding:"required" example:"single_use"`
 	MaxUses       int32  `json:"max_uses" example:"1"`
@@ -354,8 +356,8 @@ func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {
 }
 
 // CreateVirtualCard godoc
-// @Summary      Create virtual card
-// @Description  Creates a virtual card for a client (single_use or multi_use, 1-3 month expiry)
+// @Summary      Create virtual card for authenticated client
+// @Description  Creates a virtual card owned by the authenticated client (single_use or multi_use, 1-3 month expiry). owner_id in the body is ignored — the gateway derives the owner from the JWT.
 // @Tags         cards
 // @Accept       json
 // @Produce      json
@@ -364,8 +366,9 @@ func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {
 // @Success      201  {object}  map[string]interface{}  "created virtual card"
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
+// @Failure      404  {object}  map[string]string       "account does not belong to caller"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/virtual [post]
+// @Router       /api/me/cards/virtual [post]
 func (h *CardHandler) CreateVirtualCard(c *gin.Context) {
 	var body createVirtualCardBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -390,9 +393,21 @@ func (h *CardHandler) CreateVirtualCard(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "multi_use cards must have max_uses >= 2")
 		return
 	}
+
+	// Verify the account_number belongs to the caller. Body-supplied owner_id is ignored.
+	acctResp, acctErr := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{AccountNumber: body.AccountNumber})
+	if acctErr != nil {
+		handleGRPCError(c, acctErr)
+		return
+	}
+	if ownErr := enforceOwnership(c, acctResp.OwnerId); ownErr != nil {
+		return
+	}
+
+	userID := uint64(c.GetInt64("user_id"))
 	resp, err := h.virtualCardClient.CreateVirtualCard(c.Request.Context(), &cardpb.CreateVirtualCardRequest{
 		AccountNumber: body.AccountNumber,
-		OwnerId:       body.OwnerId,
+		OwnerId:       userID, // forced from JWT — body value ignored
 		CardBrand:     vcBrand,
 		UsageType:     usageType,
 		MaxUses:       body.MaxUses,

@@ -140,7 +140,7 @@ func SetupV1Routes(
 	limitHandler := handler.NewLimitHandler(empLimitClient, clientLimitClient)
 	clientHandler := handler.NewClientHandler(clientClient, authClient)
 	accountHandler := handler.NewAccountHandler(accountClient, bankAccountClient, cardClient, txClient)
-	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient)
+	cardHandler := handler.NewCardHandler(cardClient, virtualCardClient, cardRequestClient, accountClient)
 	txHandler := handler.NewTransactionHandler(txClient, feeClient, accountClient, exchangeClient)
 	exchangeHandler := handler.NewExchangeHandler(exchangeClient)
 	creditHandler := handler.NewCreditHandler(creditClient)
