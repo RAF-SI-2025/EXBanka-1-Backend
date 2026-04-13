@@ -94,7 +94,9 @@ func (s *stubOrderClient) DeclineOrder(ctx context.Context, in *stockpb.DeclineO
 
 // --- stub PortfolioGRPCServiceClient ---
 
-type stubPortfolioClient struct{}
+type stubPortfolioClient struct {
+	exerciseByOptionIDFn func(req *stockpb.ExerciseOptionByOptionIDRequest) *stockpb.ExerciseResult
+}
 
 func (s *stubPortfolioClient) ListHoldings(ctx context.Context, in *stockpb.ListHoldingsRequest, opts ...grpc.CallOption) (*stockpb.ListHoldingsResponse, error) {
 	return nil, nil
@@ -106,6 +108,12 @@ func (s *stubPortfolioClient) MakePublic(ctx context.Context, in *stockpb.MakePu
 	return nil, nil
 }
 func (s *stubPortfolioClient) ExerciseOption(ctx context.Context, in *stockpb.ExerciseOptionRequest, opts ...grpc.CallOption) (*stockpb.ExerciseResult, error) {
+	return nil, nil
+}
+func (s *stubPortfolioClient) ExerciseOptionByOptionID(ctx context.Context, in *stockpb.ExerciseOptionByOptionIDRequest, opts ...grpc.CallOption) (*stockpb.ExerciseResult, error) {
+	if s.exerciseByOptionIDFn != nil {
+		return s.exerciseByOptionIDFn(in), nil
+	}
 	return nil, nil
 }
 
@@ -180,5 +188,52 @@ func TestOptionsV2_CreateOrder_RejectsInvalidDirection(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestOptionsV2_Exercise_HappyPath(t *testing.T) {
+	port := &stubPortfolioClient{
+		exerciseByOptionIDFn: func(req *stockpb.ExerciseOptionByOptionIDRequest) *stockpb.ExerciseResult {
+			require.Equal(t, uint64(5), req.OptionId)
+			require.Equal(t, uint64(1), req.UserId)
+			return &stockpb.ExerciseResult{
+				Id:                1,
+				OptionTicker:      "AAPL260116C00200000",
+				ExercisedQuantity: 1,
+				SharesAffected:    100,
+				Profit:            "42.00",
+			}
+		},
+	}
+
+	h := handler.NewOptionsV2Handler(&stubSecurityClient{}, &stubOrderClient{}, port)
+
+	router := gin.New()
+	router.POST("/api/v2/options/:option_id/exercise", func(c *gin.Context) {
+		c.Set("user_id", int64(1))
+		c.Set("system_type", "client")
+		h.Exercise(c)
+	})
+
+	body := `{"holding_id":0}`
+	req := httptest.NewRequest("POST", "/api/v2/options/5/exercise", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestOptionsV2_Exercise_InvalidOptionID(t *testing.T) {
+	h := handler.NewOptionsV2Handler(&stubSecurityClient{}, &stubOrderClient{}, &stubPortfolioClient{})
+	router := gin.New()
+	router.POST("/api/v2/options/:option_id/exercise", func(c *gin.Context) {
+		c.Set("user_id", int64(1))
+		c.Set("system_type", "client")
+		h.Exercise(c)
+	})
+	req := httptest.NewRequest("POST", "/api/v2/options/0/exercise", strings.NewReader(`{}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }

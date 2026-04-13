@@ -8092,14 +8092,17 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Phase 7 stub — returns 501 Not Implemented.",
+                "description": "v2 takes option_id directly. If holding_id is omitted, the backend auto-resolves the user's oldest long option holding.",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "Options V2"
                 ],
-                "summary": "Exercise an option contract (v2, not yet implemented)",
+                "summary": "Exercise an option by option ID (v2)",
                 "parameters": [
                     {
                         "type": "integer",
@@ -8107,11 +8110,33 @@ const docTemplate = `{
                         "name": "option_id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Optional holding_id",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/handler.exerciseOptionRequest"
+                        }
                     }
                 ],
                 "responses": {
-                    "501": {
-                        "description": "Not Implemented",
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -9032,6 +9057,14 @@ const docTemplate = `{
                 },
                 "verification_code": {
                     "type": "string"
+                }
+            }
+        },
+        "handler.exerciseOptionRequest": {
+            "type": "object",
+            "properties": {
+                "holding_id": {
+                    "type": "integer"
                 }
             }
         },

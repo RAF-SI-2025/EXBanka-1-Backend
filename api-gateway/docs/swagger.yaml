@@ -480,6 +480,11 @@ definitions:
       verification_code:
         type: string
     type: object
+  handler.exerciseOptionRequest:
+    properties:
+      holding_id:
+        type: integer
+    type: object
   handler.loginRequest:
     properties:
       email:
@@ -6084,24 +6089,42 @@ paths:
       - mobile-verifications
   /api/v2/options/{option_id}/exercise:
     post:
-      description: Phase 7 stub — returns 501 Not Implemented.
+      consumes:
+      - application/json
+      description: v2 takes option_id directly. If holding_id is omitted, the backend
+        auto-resolves the user's oldest long option holding.
       parameters:
       - description: Option ID
         in: path
         name: option_id
         required: true
         type: integer
+      - description: Optional holding_id
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/handler.exerciseOptionRequest'
       produces:
       - application/json
       responses:
-        "501":
-          description: Not Implemented
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
           schema:
             additionalProperties: true
             type: object
       security:
       - BearerAuth: []
-      summary: Exercise an option contract (v2, not yet implemented)
+      summary: Exercise an option by option ID (v2)
       tags:
       - Options V2
   /api/v2/options/{option_id}/orders:

@@ -130,17 +130,47 @@ func (h *OptionsV2Handler) CreateOrder(c *gin.Context) {
 	c.JSON(http.StatusCreated, order)
 }
 
+type exerciseOptionRequest struct {
+	HoldingID uint64 `json:"holding_id,omitempty"`
+}
+
 // Exercise godoc
-// @Summary      Exercise an option contract (v2, not yet implemented)
-// @Description  Phase 7 stub — returns 501 Not Implemented.
+// @Summary      Exercise an option by option ID (v2)
+// @Description  v2 takes option_id directly. If holding_id is omitted, the backend auto-resolves the user's oldest long option holding.
 // @Tags         Options V2
 // @Security     BearerAuth
+// @Accept       json
 // @Produce      json
-// @Param        option_id  path  int  true  "Option ID"
-// @Success      501  {object}  map[string]interface{}
+// @Param        option_id  path   int                    true   "Option ID"
+// @Param        body       body   exerciseOptionRequest  false  "Optional holding_id"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}
 // @Router       /api/v2/options/{option_id}/exercise [post]
 func (h *OptionsV2Handler) Exercise(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": gin.H{"code": "not_implemented", "message": "v2 exercise route lands in Phase 7"},
+	optionID, err := strconv.ParseUint(c.Param("option_id"), 10, 64)
+	if err != nil || optionID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid option_id")
+		return
+	}
+
+	var req exerciseOptionRequest
+	_ = c.ShouldBindJSON(&req) // body is optional
+
+	userID := uint64(c.GetInt64("user_id"))
+	if userID == 0 {
+		apiError(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+		return
+	}
+
+	result, err := h.portClient.ExerciseOptionByOptionID(c.Request.Context(), &stockpb.ExerciseOptionByOptionIDRequest{
+		OptionId:  optionID,
+		UserId:    userID,
+		HoldingId: req.HoldingID,
 	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
