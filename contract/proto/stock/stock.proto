@@ -627,3 +627,27 @@ message ListUserTaxRecordsResponse {
   string tax_paid_this_year = 3;
   string tax_unpaid_this_month = 4;
 }
+
+// ==================== Source Admin ====================
+
+service SourceAdminService {
+  rpc SwitchSource(SwitchSourceRequest) returns (SwitchSourceResponse);
+  rpc GetSourceStatus(GetSourceStatusRequest) returns (SourceStatus);
+}
+
+message SwitchSourceRequest {
+  string source = 1; // "external" | "generated" | "simulator"
+}
+
+message SwitchSourceResponse {
+  SourceStatus status = 1;
+}
+
+message GetSourceStatusRequest {}
+
+message SourceStatus {
+  string source     = 1; // currently active source
+  string status     = 2; // "idle" | "reseeding" | "failed"
+  string started_at = 3; // RFC3339 timestamp of the last switch
+  string last_error = 4; // populated when status=failed
+}
