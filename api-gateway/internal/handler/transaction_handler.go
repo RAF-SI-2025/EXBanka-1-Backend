@@ -574,6 +574,10 @@ func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 		return
 	}
 
+	if rec := h.loadRecipientAndEnforceOwnership(c, id); rec == nil {
+		return
+	}
+
 	pbReq := &transactionpb.UpdatePaymentRecipientRequest{Id: id}
 	pbReq.RecipientName = req.RecipientName
 	pbReq.AccountNumber = req.AccountNumber
@@ -599,6 +603,10 @@ func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+
+	if rec := h.loadRecipientAndEnforceOwnership(c, id); rec == nil {
 		return
 	}
 
@@ -920,6 +928,21 @@ func recipientToJSON(r *transactionpb.PaymentRecipientResponse) gin.H {
 		"account_number": r.AccountNumber,
 		"created_at":     r.CreatedAt,
 	}
+}
+
+// loadRecipientAndEnforceOwnership fetches the recipient by ID and verifies that the
+// authenticated client owns it. Returns nil and writes the HTTP error response when the
+// check fails, so callers can simply `return` on a nil result.
+func (h *TransactionHandler) loadRecipientAndEnforceOwnership(c *gin.Context, id uint64) *transactionpb.PaymentRecipientResponse {
+	resp, err := h.txClient.GetPaymentRecipient(c.Request.Context(), &transactionpb.GetPaymentRecipientRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return nil
+	}
+	if ownErr := enforceOwnership(c, resp.ClientId); ownErr != nil {
+		return nil
+	}
+	return resp
 }
 
 // createFeeBody is the swagger body for creating a fee rule.

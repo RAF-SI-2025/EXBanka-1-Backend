@@ -329,6 +329,14 @@ func (h *TransactionGRPCHandler) CreatePaymentRecipient(ctx context.Context, req
 	return recipientToProto(pr), nil
 }
 
+func (h *TransactionGRPCHandler) GetPaymentRecipient(ctx context.Context, req *pb.GetPaymentRecipientRequest) (*pb.PaymentRecipientResponse, error) {
+	pr, err := h.recipientSvc.GetByID(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(mapServiceError(err), "get recipient: %v", err)
+	}
+	return recipientToProto(pr), nil
+}
+
 func (h *TransactionGRPCHandler) ListPaymentRecipients(ctx context.Context, req *pb.ListPaymentRecipientsRequest) (*pb.ListPaymentRecipientsResponse, error) {
 	recipients, err := h.recipientSvc.ListByClient(req.GetClientId())
 	if err != nil {
