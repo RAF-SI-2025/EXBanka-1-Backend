@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/gin-gonic/gin"
 )
@@ -11,13 +12,15 @@ import (
 type PortfolioHandler struct {
 	portfolioClient stockpb.PortfolioGRPCServiceClient
 	otcClient       stockpb.OTCGRPCServiceClient
+	accountClient   accountpb.AccountServiceClient
 }
 
 func NewPortfolioHandler(
 	portfolioClient stockpb.PortfolioGRPCServiceClient,
 	otcClient stockpb.OTCGRPCServiceClient,
+	accountClient accountpb.AccountServiceClient,
 ) *PortfolioHandler {
-	return &PortfolioHandler{portfolioClient: portfolioClient, otcClient: otcClient}
+	return &PortfolioHandler{portfolioClient: portfolioClient, otcClient: otcClient, accountClient: accountClient}
 }
 
 func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
@@ -146,6 +149,15 @@ func (h *PortfolioHandler) BuyOTCOffer(c *gin.Context) {
 	}
 	if req.AccountID == 0 {
 		apiError(c, 400, ErrValidation, "account_id is required")
+		return
+	}
+
+	acctResp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if ownErr := enforceOwnership(c, acctResp.OwnerId); ownErr != nil {
 		return
 	}
 
