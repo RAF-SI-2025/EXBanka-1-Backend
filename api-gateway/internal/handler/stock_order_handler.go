@@ -4,16 +4,18 @@ import (
 	"net/http"
 	"strconv"
 
+	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/gin-gonic/gin"
 )
 
 type StockOrderHandler struct {
-	client stockpb.OrderGRPCServiceClient
+	client        stockpb.OrderGRPCServiceClient
+	accountClient accountpb.AccountServiceClient
 }
 
-func NewStockOrderHandler(client stockpb.OrderGRPCServiceClient) *StockOrderHandler {
-	return &StockOrderHandler{client: client}
+func NewStockOrderHandler(client stockpb.OrderGRPCServiceClient, accountClient accountpb.AccountServiceClient) *StockOrderHandler {
+	return &StockOrderHandler{client: client, accountClient: accountClient}
 }
 
 func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
@@ -55,6 +57,16 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	if direction == "buy" && req.AccountID == 0 {
 		apiError(c, 400, ErrValidation, "account_id is required for buy orders")
 		return
+	}
+	if direction == "buy" {
+		acctResp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		if ownErr := enforceOwnership(c, acctResp.OwnerId); ownErr != nil {
+			return
+		}
 	}
 	if direction == "sell" && req.HoldingID == 0 {
 		apiError(c, 400, ErrValidation, "holding_id is required for sell orders")

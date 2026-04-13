@@ -148,7 +148,7 @@ func SetupV1Routes(
 	sessionHandler := handler.NewSessionHandler(authClient)
 	stockExchangeHandler := handler.NewStockExchangeHandler(stockExchangeClient)
 	securitiesHandler := handler.NewSecuritiesHandler(securityClient)
-	stockOrderHandler := handler.NewStockOrderHandler(orderClient)
+	stockOrderHandler := handler.NewStockOrderHandler(orderClient, accountClient)
 	portfolioHandler := handler.NewPortfolioHandler(portfolioClient, otcClient)
 	actuaryHandler := handler.NewActuaryHandler(actuaryClient)
 	blueprintHandler := handler.NewBlueprintHandler(blueprintClient)
