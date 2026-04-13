@@ -66,6 +66,7 @@ func (s *OrderService) CreateOrder(
 	allOrNone bool,
 	margin bool,
 	accountID uint64,
+	actingEmployeeID uint64,
 ) (*model.Order, error) {
 	// Validate listing exists
 	listing, err := s.listingRepo.GetByID(listingID)
@@ -151,6 +152,7 @@ func (s *OrderService) CreateOrder(
 		AllOrNone:         allOrNone,
 		Margin:            margin,
 		AccountID:         accountID,
+		ActingEmployeeID:  actingEmployeeID,
 		LastModification:  time.Now(),
 	}
 

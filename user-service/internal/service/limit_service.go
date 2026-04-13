@@ -36,9 +36,58 @@ func NewLimitService(limitRepo EmployeeLimitRepo, templateRepo LimitTemplateRepo
 	return svc
 }
 
-// GetEmployeeLimits returns the limits for an employee. Returns a zero-value limit if none configured.
+// GetEmployeeLimits returns the limits for an employee.
+// If no explicit limit record exists, role-based defaults are applied:
+//   - EmployeeAdmin    → unlimited (999,999,999)
+//   - EmployeeSupervisor → Supervisor-tier defaults
+//   - EmployeeAgent    → SeniorAgent-tier defaults
+//   - EmployeeBasic    → BasicTeller-tier defaults
 func (s *LimitService) GetEmployeeLimits(employeeID int64) (*model.EmployeeLimit, error) {
-	return s.limitRepo.GetByEmployeeID(employeeID)
+	limit, err := s.limitRepo.GetByEmployeeID(employeeID)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the limit is zero-value (no record in DB), apply role-based defaults.
+	if limit.ID == 0 && s.empRepo != nil {
+		emp, empErr := s.empRepo.GetByIDWithRoles(employeeID)
+		if empErr == nil {
+			applyDefaultLimits(limit, maxRoleRank(emp.Roles))
+		}
+	}
+
+	return limit, nil
+}
+
+// applyDefaultLimits fills a zero-value EmployeeLimit with role-appropriate defaults.
+func applyDefaultLimits(limit *model.EmployeeLimit, rank int) {
+	switch {
+	case rank >= roleRanks["EmployeeAdmin"]:
+		unlimited := decimal.NewFromInt(999_999_999)
+		limit.MaxLoanApprovalAmount = unlimited
+		limit.MaxSingleTransaction = unlimited
+		limit.MaxDailyTransaction = unlimited
+		limit.MaxClientDailyLimit = unlimited
+		limit.MaxClientMonthlyLimit = unlimited
+	case rank >= roleRanks["EmployeeSupervisor"]:
+		limit.MaxLoanApprovalAmount = decimal.NewFromInt(5_000_000)
+		limit.MaxSingleTransaction = decimal.NewFromInt(10_000_000)
+		limit.MaxDailyTransaction = decimal.NewFromInt(50_000_000)
+		limit.MaxClientDailyLimit = decimal.NewFromInt(5_000_000)
+		limit.MaxClientMonthlyLimit = decimal.NewFromInt(50_000_000)
+	case rank >= roleRanks["EmployeeAgent"]:
+		limit.MaxLoanApprovalAmount = decimal.NewFromInt(500_000)
+		limit.MaxSingleTransaction = decimal.NewFromInt(1_000_000)
+		limit.MaxDailyTransaction = decimal.NewFromInt(5_000_000)
+		limit.MaxClientDailyLimit = decimal.NewFromInt(1_000_000)
+		limit.MaxClientMonthlyLimit = decimal.NewFromInt(10_000_000)
+	default: // EmployeeBasic
+		limit.MaxLoanApprovalAmount = decimal.NewFromInt(50_000)
+		limit.MaxSingleTransaction = decimal.NewFromInt(100_000)
+		limit.MaxDailyTransaction = decimal.NewFromInt(500_000)
+		limit.MaxClientDailyLimit = decimal.NewFromInt(250_000)
+		limit.MaxClientMonthlyLimit = decimal.NewFromInt(2_500_000)
+	}
 }
 
 // SetEmployeeLimits creates or updates the limits for an employee.

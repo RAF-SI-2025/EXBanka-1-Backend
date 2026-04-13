@@ -15,7 +15,7 @@ import (
 func TestLoan_ListLoanRequests(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/loan-requests")
+	resp, err := c.GET("/api/v1/loan-requests")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestLoan_ListLoanRequests(t *testing.T) {
 func TestLoan_ListAllLoans(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/loans")
+	resp, err := c.GET("/api/v1/loans")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestLoan_ListAllLoans(t *testing.T) {
 func TestLoan_GetNonExistentLoan(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/loans/999999")
+	resp, err := c.GET("/api/v1/loans/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestLoan_GetNonExistentLoan(t *testing.T) {
 func TestLoan_UnauthenticatedCannotCreateLoanRequest(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/me/loan-requests", map[string]interface{}{
+	resp, err := c.POST("/api/v1/me/loan-requests", map[string]interface{}{
 		"loan_type":        "cash",
 		"amount":           "50000.00",
 		"repayment_period": 24,
@@ -63,7 +63,7 @@ func TestLoan_UnauthenticatedCannotCreateLoanRequest(t *testing.T) {
 func TestLoan_ApproveNonExistentRequest(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/loan-requests/999999/approve", nil)
+	resp, err := c.POST("/api/v1/loan-requests/999999/approve", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestLoan_ApproveNonExistentRequest(t *testing.T) {
 func TestLoan_RejectNonExistentRequest(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/loan-requests/999999/reject", nil)
+	resp, err := c.POST("/api/v1/loan-requests/999999/reject", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -85,9 +85,10 @@ func TestLoan_RejectNonExistentRequest(t *testing.T) {
 }
 
 func TestLoan_ListLoanRequestsByClient(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.GET(fmt.Sprintf("/api/loan-requests?client_id=%d", clientID))
+	resp, err := c.GET(fmt.Sprintf("/api/v1/loan-requests?client_id=%d", clientID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -95,9 +96,10 @@ func TestLoan_ListLoanRequestsByClient(t *testing.T) {
 }
 
 func TestLoan_ListLoansByClient(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.GET(fmt.Sprintf("/api/loans?client_id=%d", clientID))
+	resp, err := c.GET(fmt.Sprintf("/api/v1/loans?client_id=%d", clientID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -105,13 +107,14 @@ func TestLoan_ListLoansByClient(t *testing.T) {
 }
 
 func TestLoan_FullLifecycle(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 
 	// Create client and activate them with a funded account
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
 	// Get client's own ID (may differ from clientID if setupActivatedClient uses separate client)
-	meResp, err := clientC.GET("/api/me")
+	meResp, err := clientC.GET("/api/v1/me")
 	if err != nil {
 		t.Fatalf("get /api/me error: %v", err)
 	}
@@ -120,7 +123,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
 
 	// Client submits a loan request (cash, fixed, 10000 RSD, 12 months)
-	loanReqResp, err := clientC.POST("/api/me/loan-requests", map[string]interface{}{
+	loanReqResp, err := clientC.POST("/api/v1/me/loan-requests", map[string]interface{}{
 		"client_id":        meClientID,
 		"loan_type":        "cash",
 		"interest_type":    "fixed",
@@ -137,7 +140,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	t.Logf("loan request id: %d", loanReqID)
 
 	// Employee lists loan requests and finds the new one
-	listResp, err := adminClient.GET("/api/loan-requests")
+	listResp, err := adminClient.GET("/api/v1/loan-requests")
 	if err != nil {
 		t.Fatalf("list loan requests error: %v", err)
 	}
@@ -158,7 +161,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 		}
 	}
 	// Also try via client-specific endpoint
-	clientReqResp, err := adminClient.GET(fmt.Sprintf("/api/loan-requests?client_id=%d", meClientID))
+	clientReqResp, err := adminClient.GET(fmt.Sprintf("/api/v1/loan-requests?client_id=%d", meClientID))
 	if err != nil {
 		t.Fatalf("list client loan requests error: %v", err)
 	}
@@ -168,7 +171,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	}
 
 	// Employee approves the loan request
-	approveResp, err := adminClient.POST(fmt.Sprintf("/api/loan-requests/%d/approve", loanReqID), nil)
+	approveResp, err := adminClient.POST(fmt.Sprintf("/api/v1/loan-requests/%d/approve", loanReqID), nil)
 	if err != nil {
 		t.Fatalf("approve loan request error: %v", err)
 	}
@@ -183,7 +186,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	t.Logf("loan id: %d, status: %s", loanID, status)
 
 	// Get installments for the loan — verify 12 installments
-	installmentsResp, err := adminClient.GET(fmt.Sprintf("/api/loans/%d/installments", loanID))
+	installmentsResp, err := adminClient.GET(fmt.Sprintf("/api/v1/loans/%d/installments", loanID))
 	if err != nil {
 		t.Fatalf("get installments error: %v", err)
 	}
@@ -203,13 +206,13 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	}
 
 	// Client lists their loan requests — verify it appears
-	clientLoanReqResp, err := clientC.GET("/api/me/loan-requests")
+	clientLoanReqResp, err := clientC.GET("/api/v1/me/loan-requests")
 	if err != nil {
 		t.Fatalf("client list loan requests error: %v", err)
 	}
 	// If /me/loan-requests is not available, fall back to client-scoped admin endpoint
 	if clientLoanReqResp.StatusCode == 404 || clientLoanReqResp.StatusCode == 405 || clientLoanReqResp.StatusCode == 403 || clientLoanReqResp.StatusCode == 400 {
-		clientLoanReqResp, err = adminClient.GET(fmt.Sprintf("/api/loan-requests?client_id=%d", meClientID))
+		clientLoanReqResp, err = adminClient.GET(fmt.Sprintf("/api/v1/loan-requests?client_id=%d", meClientID))
 		if err != nil {
 			t.Fatalf("list client loan requests error: %v", err)
 		}
@@ -217,13 +220,13 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	helpers.RequireStatus(t, clientLoanReqResp, 200)
 
 	// Client lists their loans — verify approved loan appears
-	clientLoansResp, err := clientC.GET("/api/me/loans")
+	clientLoansResp, err := clientC.GET("/api/v1/me/loans")
 	if err != nil {
 		t.Fatalf("client list loans error: %v", err)
 	}
 	// Fall back to admin endpoint if /me/loans is not available
 	if clientLoansResp.StatusCode == 404 || clientLoansResp.StatusCode == 405 || clientLoansResp.StatusCode == 403 || clientLoansResp.StatusCode == 400 {
-		clientLoansResp, err = adminClient.GET(fmt.Sprintf("/api/loans?client_id=%d", meClientID))
+		clientLoansResp, err = adminClient.GET(fmt.Sprintf("/api/v1/loans?client_id=%d", meClientID))
 		if err != nil {
 			t.Fatalf("list client loans error: %v", err)
 		}
@@ -234,10 +237,11 @@ func TestLoan_FullLifecycle(t *testing.T) {
 
 // TestLoan_AllLoanTypes verifies that loan requests can be created for all supported loan types.
 func TestLoan_AllLoanTypes(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	_, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
-	meResp, err := clientC.GET("/api/me")
+	meResp, err := clientC.GET("/api/v1/me")
 	if err != nil {
 		t.Fatalf("get /api/me error: %v", err)
 	}
@@ -258,7 +262,7 @@ func TestLoan_AllLoanTypes(t *testing.T) {
 
 	for _, lt := range loanTypes {
 		t.Run("loan_type_"+lt.loanType, func(t *testing.T) {
-			resp, err := clientC.POST("/api/me/loan-requests", map[string]interface{}{
+			resp, err := clientC.POST("/api/v1/me/loan-requests", map[string]interface{}{
 				"client_id":        meClientID,
 				"loan_type":        lt.loanType,
 				"interest_type":    lt.interestType,
@@ -278,10 +282,11 @@ func TestLoan_AllLoanTypes(t *testing.T) {
 
 // TestLoan_RejectLoanRequest verifies the reject flow: create → reject → status = rejected.
 func TestLoan_RejectLoanRequest(t *testing.T) {
+	t.Parallel()
 	adminClient := loginAsAdmin(t)
 	_, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
-	meResp, err := clientC.GET("/api/me")
+	meResp, err := clientC.GET("/api/v1/me")
 	if err != nil {
 		t.Fatalf("get /api/me error: %v", err)
 	}
@@ -289,7 +294,7 @@ func TestLoan_RejectLoanRequest(t *testing.T) {
 	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
 
 	// Client submits a cash loan request
-	loanReqResp, err := clientC.POST("/api/me/loan-requests", map[string]interface{}{
+	loanReqResp, err := clientC.POST("/api/v1/me/loan-requests", map[string]interface{}{
 		"client_id":        meClientID,
 		"loan_type":        "cash",
 		"interest_type":    "fixed",
@@ -305,7 +310,7 @@ func TestLoan_RejectLoanRequest(t *testing.T) {
 	loanReqID := int(helpers.GetNumberField(t, loanReqResp, "id"))
 
 	// Employee rejects the request
-	rejectResp, err := adminClient.POST(fmt.Sprintf("/api/loan-requests/%d/reject", loanReqID), nil)
+	rejectResp, err := adminClient.POST(fmt.Sprintf("/api/v1/loan-requests/%d/reject", loanReqID), nil)
 	if err != nil {
 		t.Fatalf("reject loan request error: %v", err)
 	}

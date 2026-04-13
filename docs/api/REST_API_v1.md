@@ -1211,7 +1211,7 @@ Create an authorized person who can also hold a card linked to an existing accou
 
 ### POST /api/v1/me/cards/virtual
 
-Create a virtual card for a client account. Virtual cards can be single-use or multi-use and expire after 1-3 months.
+Create a virtual card for a client account. Virtual cards can be single-use or multi-use and expire after 1-3 months. The card owner is derived from the JWT — the `owner_id` field in the request body is ignored; the JWT `user_id` is used as the owner.
 
 **Authentication:** Any JWT (AnyAuthMiddleware -- identity scoped to the token principal)
 
@@ -1269,7 +1269,7 @@ Create a virtual card for a client account. Virtual cards can be single-use or m
 
 ### POST /api/v1/me/cards/:id/pin
 
-Set the 4-digit PIN for a card.
+Set the 4-digit PIN for a card. Ownership is derived from the JWT — if the card does not belong to the caller, responds with `404 not_found`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1311,7 +1311,7 @@ Set the 4-digit PIN for a card.
 
 ### POST /api/v1/me/cards/:id/verify-pin
 
-Verify the 4-digit PIN for a card. The card is permanently blocked after 3 consecutive failed attempts.
+Verify the 4-digit PIN for a card. The card is permanently blocked after 3 consecutive failed attempts. Ownership is derived from the JWT — if the card does not belong to the caller, responds with `404 not_found`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1353,7 +1353,7 @@ Verify the 4-digit PIN for a card. The card is permanently blocked after 3 conse
 
 ### POST /api/v1/me/cards/:id/temporary-block
 
-Temporarily block a card for a specified duration in hours. The card is automatically unblocked by a background job when the duration expires.
+Temporarily block a card for a specified duration in hours. The card is automatically unblocked by a background job when the duration expires. Ownership is derived from the JWT — if the card does not belong to the caller, responds with `404 not_found`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1811,7 +1811,7 @@ List all saved recipients for the authenticated principal.
 
 ### PUT /api/v1/me/payment-recipients/:id
 
-Update a saved recipient.
+Update a saved recipient. Ownership is derived from the JWT — if the recipient does not belong to the caller, responds with `404 not_found`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1834,7 +1834,7 @@ Update a saved recipient.
 
 ### DELETE /api/v1/me/payment-recipients/:id
 
-Delete a saved recipient.
+Delete a saved recipient. Ownership is derived from the JWT — if the recipient does not belong to the caller, responds with `404 not_found`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1959,7 +1959,7 @@ Loan management endpoints. Employees can view all loans and approve/reject loan 
 
 ### POST /api/v1/me/loan-requests
 
-Submit a new loan application.
+Submit a new loan application. The `client_id` field in the request body is ignored; the JWT `user_id` is used as the applicant. Ownership is enforced at the gateway.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -1967,7 +1967,7 @@ Submit a new loan application.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `client_id` | uint64 | Yes | Client ID making the request |
+| `client_id` | uint64 | No | Ignored — JWT `user_id` is used as the applicant |
 | `loan_type` | string | Yes | `"PERSONAL"`, `"MORTGAGE"`, `"AUTO"`, `"STUDENT"`, `"BUSINESS"` |
 | `interest_type` | string | Yes | `"FIXED"` or `"VARIABLE"` |
 | `amount` | float64 | Yes | Requested loan amount |
@@ -2050,9 +2050,9 @@ List loans (employee view). Pass `client_id` to filter loans for a specific clie
 
 ### GET /api/v1/loans/:id
 
-Get a single loan by ID.
+Get a single loan by ID (employee view). Clients should use `GET /api/v1/me/loans/:id` instead.
 
-**Authentication:** Any JWT (Employee or Client)
+**Authentication:** Employee JWT + `credits.read` permission
 
 **Path Parameters:**
 
@@ -3374,7 +3374,7 @@ List payments for the authenticated principal.
 
 ### GET /api/v1/me/payments/:id
 
-Get a single payment by ID, scoped to the authenticated principal.
+Get a single payment by ID, scoped to the authenticated principal. Ownership is derived from the JWT — if the payment does not belong to the caller, responds with `404 not_found`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -3385,6 +3385,7 @@ Get a single payment by ID, scoped to the authenticated principal.
 | `id` | int | Payment ID |
 
 **Response 200:** Payment object
+**Response 404:** `{"error": {"code": "not_found", "message": "payment not found"}}` (also returned when the payment exists but belongs to another user)
 
 ---
 
@@ -3447,7 +3448,7 @@ List transfers for the authenticated principal.
 
 ### GET /api/v1/me/transfers/:id
 
-Get a single transfer by ID.
+Get a single transfer by ID, scoped to the authenticated principal. Ownership is derived from the JWT — if the transfer does not belong to the caller, responds with `404 not_found`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -3458,6 +3459,7 @@ Get a single transfer by ID.
 | `id` | int | Transfer ID |
 
 **Response 200:** Transfer object
+**Response 404:** `{"error": {"code": "not_found", "message": "transfer not found"}}` (also returned when the transfer exists but belongs to another user)
 
 ---
 
@@ -3570,7 +3572,7 @@ List all loans belonging to the authenticated principal.
 
 ### GET /api/v1/me/loans/:id
 
-Get a single loan by ID, scoped to the authenticated principal.
+Get a single loan by ID, scoped to the authenticated principal. Ownership is derived from the JWT — if the loan does not belong to the caller, responds with `404 not_found`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -3581,7 +3583,7 @@ Get a single loan by ID, scoped to the authenticated principal.
 | `id` | int | Loan ID |
 
 **Response 200:** Loan object
-**Response 404:** `{"error": {"code": "not_found", "message": "loan not found"}}`
+**Response 404:** `{"error": {"code": "not_found", "message": "loan not found"}}` (also returned when the loan exists but belongs to another user)
 
 ---
 
@@ -4598,7 +4600,7 @@ GET /api/v1/securities/candles?listing_id=42&interval=1h&from=2026-04-01T00:00:0
 
 ### POST /api/v1/me/orders
 
-Create a new stock order.
+Create a new stock order. Ownership is derived from the JWT — the `account_id` must belong to the JWT caller. Mismatches return `403 forbidden`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -4615,7 +4617,7 @@ Create a new stock order.
 | `stop_value` | string | Conditional | Required for `stop` or `stop_limit` orders |
 | `all_or_none` | boolean | No | Default: false |
 | `margin` | boolean | No | Default: false |
-| `account_id` | uint64 | Yes (buy) | Account to debit (required for buy orders) |
+| `account_id` | uint64 | Yes (buy) | Account to debit; must belong to the JWT caller |
 
 **Example Request (buy market order):**
 ```json
@@ -4752,6 +4754,51 @@ Decline a pending order.
 
 ---
 
+### POST /api/v1/orders
+
+Place a stock/futures/forex/option order on behalf of a named client. The gateway verifies that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. The order is recorded with `acting_employee_id` set to the caller's employee ID.
+
+**Authentication:** Employee JWT + `securities.manage` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `client_id` | uint64 | Yes | Client for whom the order is placed |
+| `account_id` | uint64 | Yes | Account to debit; must belong to `client_id` |
+| `listing_id` | uint64 | Yes (buy) | Listing ID (required for buy orders) |
+| `holding_id` | uint64 | Yes (sell) | Holding ID (required for sell orders) |
+| `direction` | string | Yes | `buy` or `sell` |
+| `order_type` | string | Yes | `market`, `limit`, `stop`, or `stop_limit` |
+| `quantity` | int64 | Yes | Must be positive |
+| `limit_value` | string | Conditional | Required for `limit` or `stop_limit` orders |
+| `stop_value` | string | Conditional | Required for `stop` or `stop_limit` orders |
+| `all_or_none` | boolean | No | Default: false |
+| `margin` | boolean | No | Default: false |
+
+**Example Request:**
+```json
+{
+  "client_id": 5,
+  "account_id": 12,
+  "listing_id": 42,
+  "direction": "buy",
+  "order_type": "market",
+  "quantity": 10
+}
+```
+
+**Response 201:** Order object.
+
+| Status | Description |
+|---|---|
+| 201 | Order created |
+| 400 | Validation error |
+| 403 | Account does not belong to the specified client |
+| 403 | Missing `securities.manage` permission |
+
+---
+
 ## 28. Portfolio
 
 ### GET /api/v1/me/portfolio
@@ -4885,7 +4932,7 @@ List OTC trading offers.
 
 ### POST /api/v1/otc/offers/:id/buy
 
-Purchase an OTC offer.
+Purchase an OTC offer. Ownership is derived from the JWT — the account must belong to the JWT caller.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -4900,9 +4947,50 @@ Purchase an OTC offer.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `quantity` | int64 | Yes | Number of units to buy (must be positive) |
-| `account_id` | uint64 | Yes | Account to debit |
+| `account_id` | uint64 | Yes | Account to debit; must belong to the JWT caller |
 
 **Response 200:** Transaction object.
+
+---
+
+### POST /api/v1/otc/admin/offers/:id/buy
+
+Purchase an OTC offer on behalf of a named client. The gateway verifies that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. The resulting order is recorded with `acting_employee_id` set to the caller's employee ID.
+
+**Authentication:** Employee JWT + `securities.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Offer ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `client_id` | uint64 | Yes | Client for whom the offer is purchased |
+| `account_id` | uint64 | Yes | Account to debit; must belong to `client_id` |
+| `quantity` | int64 | Yes | Number of units to buy (must be positive) |
+
+**Example Request:**
+```json
+{
+  "client_id": 5,
+  "account_id": 12,
+  "quantity": 3
+}
+```
+
+**Response 200:** Transaction object.
+
+| Status | Description |
+|---|---|
+| 200 | OTC offer purchased |
+| 400 | Validation error |
+| 403 | Account does not belong to the specified client |
+| 403 | Missing `securities.manage` permission |
+| 404 | Offer not found |
 
 ---
 
@@ -5738,6 +5826,66 @@ Mark all unread notifications as read for the authenticated user.
 |---|---|
 | 200 | All marked as read |
 | 401 | Unauthorized |
+
+---
+
+## 36. Admin — Stock Data Source
+
+**v1-only section.** Admin-only endpoints for managing the stock-service data source. Switching sources is **destructive** — it wipes every securities row, listing, option, order, holding, capital gain, tax collection, and order transaction, then reseeds from the new source. Use with care.
+
+**Authentication:** `AuthMiddleware` + permission `securities.manage` (seeded on `EmployeeAdmin` only)
+
+---
+
+### POST /api/v1/admin/stock-source
+
+Switch the active stock data source and reseed the database. For `generated`, the reseed runs synchronously (response returns after the DB is ready). For `external` and `simulator`, the reseed runs in a background goroutine and the response returns immediately with `status: "reseeding"`; poll `GET /api/v1/admin/stock-source` to watch for `status: "idle"`.
+
+**Request Body:**
+
+```json
+{ "source": "external" | "generated" | "simulator" }
+```
+
+**Response 202 Accepted:**
+
+```json
+{
+  "source": "generated",
+  "status": "idle",
+  "started_at": "2026-04-13T12:34:56Z",
+  "last_error": ""
+}
+```
+
+**Possible statuses:** `idle` | `reseeding` | `failed`.
+
+**Error Responses:**
+
+- `400 validation_error` — unknown `source` value
+- `403 forbidden` — missing `securities.manage` permission
+- `409 conflict` — another switch is already in progress
+- `500 internal_error` — wipe or reseed failed; check `last_error` via GET
+- `503 unavailable` — simulator unreachable (when `source=simulator`)
+
+---
+
+### GET /api/v1/admin/stock-source
+
+Return the current active source and the most recent switch status.
+
+**Response 200:**
+
+```json
+{
+  "source": "simulator",
+  "status": "reseeding",
+  "started_at": "2026-04-13T12:34:56Z",
+  "last_error": ""
+}
+```
+
+When `status=failed`, `last_error` contains the failure reason. The admin can retry by issuing a new POST.
 
 ---
 

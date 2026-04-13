@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -30,13 +31,16 @@ import (
 	"github.com/exbanka/stock-service/internal/provider"
 	"github.com/exbanka/stock-service/internal/repository"
 	"github.com/exbanka/stock-service/internal/service"
+	"github.com/exbanka/stock-service/internal/source"
 )
 
 func main() {
 	cfg := config.Load()
 
 	// --- Database ---
-	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
+		NowFunc: func() time.Time { return time.Now().UTC() },
+	})
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
@@ -146,6 +150,7 @@ func main() {
 	dailyPriceRepo := repository.NewListingDailyPriceRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
 	orderTxRepo := repository.NewOrderTransactionRepository(db)
+	wipeRepo := repository.NewWipeRepository(db)
 
 	holdingRepo := repository.NewHoldingRepository(db)
 	capitalGainRepo := repository.NewCapitalGainRepository(db)
@@ -197,12 +202,56 @@ func main() {
 		finnhubClient = provider.NewFinnhubClient(cfg.FinnhubAPIKey)
 	}
 
+	// Build the external source and wire in the exchange resolver so it can map
+	// acronyms (e.g. "NYSE", "FOREX") to DB IDs during seeding.
+	extSource := source.NewExternalSource(
+		alpacaClient, finnhubClient, eodhClient, avClient,
+		cfg.ExchangeCSVPath, "data/futures_seed.json",
+	).WithExchangeResolver(func(acronym string) (uint64, error) {
+		ex, err := exchangeRepo.GetByAcronym(acronym)
+		if err != nil {
+			return 0, err
+		}
+		return ex.ID, nil
+	})
+
+	// Restore the last-active data source so a restart preserves the admin's choice.
+	var initialSource source.Source = extSource // default fallback
+	if settingRepo != nil {
+		if active, err := settingRepo.Get("active_stock_source"); err == nil && active != "" {
+			switch active {
+			case "external":
+				initialSource = extSource
+			case "generated":
+				initialSource = source.NewGeneratedSource().WithExchangeResolver(func(acronym string) (uint64, error) {
+					ex, err := exchangeRepo.GetByAcronym(acronym)
+					if err != nil {
+						return 0, err
+					}
+					return ex.ID, nil
+				})
+				log.Println("restored active stock source: generated")
+			case "simulator":
+				client := source.NewSimulatorClient(cfg.MarketSimulatorURL, cfg.BankName, settingRepo)
+				if err := client.EnsureRegistered(); err != nil {
+					log.Printf("WARN: simulator registration failed on boot, falling back to external: %v", err)
+				} else {
+					initialSource = source.NewSimulatorSource(client)
+					log.Println("restored active stock source: simulator")
+				}
+			}
+		}
+	}
+
 	syncSvc := service.NewSecuritySyncService(
 		stockRepo, futuresRepo, forexRepo, optionRepo,
-		exchangeRepo, settingRepo, avClient,
-		eodhClient, alpacaClient, finnhubClient,
-		listingSvc, cfg.ExchangeCSVPath, redisCache, influxClient,
+		exchangeRepo, settingRepo,
+		listingSvc, redisCache, influxClient,
+		avClient, finnhubClient,
+		initialSource,
+		wipeRepo,
 	)
+	syncSvc.StartSimulatorRefreshLoopIfActive()
 
 	// Portfolio, OTC, and tax services
 	portfolioSvc := service.NewPortfolioService(
@@ -288,6 +337,31 @@ func main() {
 	// Tax handler
 	taxHandler := handler.NewTaxHandler(taxSvc)
 	pb.RegisterTaxGRPCServiceServer(grpcServer, taxHandler)
+
+	// Source admin handler
+	sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
+		switch name {
+		case "external":
+			return extSource, nil
+		case "generated":
+			return source.NewGeneratedSource().WithExchangeResolver(func(acronym string) (uint64, error) {
+				ex, err := exchangeRepo.GetByAcronym(acronym)
+				if err != nil {
+					return 0, err
+				}
+				return ex.ID, nil
+			}), nil
+		case "simulator":
+			simClient := source.NewSimulatorClient(cfg.MarketSimulatorURL, cfg.BankName, settingRepo)
+			if err := simClient.EnsureRegistered(); err != nil {
+				return nil, fmt.Errorf("simulator registration: %w", err)
+			}
+			return source.NewSimulatorSource(simClient), nil
+		default:
+			return nil, fmt.Errorf("unknown source %q", name)
+		}
+	})
+	pb.RegisterSourceAdminServiceServer(grpcServer, sourceAdminHandler)
 
 	shared.RegisterHealthCheck(grpcServer, "stock-service")
 	metrics.InitializeGRPCMetrics(grpcServer)

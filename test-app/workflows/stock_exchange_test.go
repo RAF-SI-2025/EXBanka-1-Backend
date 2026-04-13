@@ -9,8 +9,9 @@ import (
 )
 
 func TestStockExchange_ListExchanges(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
-	resp, err := adminC.GET("/api/stock-exchanges")
+	resp, err := adminC.GET("/api/v1/stock-exchanges")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -20,8 +21,9 @@ func TestStockExchange_ListExchanges(t *testing.T) {
 }
 
 func TestStockExchange_ListExchanges_Unauthenticated(t *testing.T) {
+	t.Parallel()
 	c := newClient()
-	resp, err := c.GET("/api/stock-exchanges")
+	resp, err := c.GET("/api/v1/stock-exchanges")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -29,8 +31,9 @@ func TestStockExchange_ListExchanges_Unauthenticated(t *testing.T) {
 }
 
 func TestStockExchange_ListExchanges_SearchFilter(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
-	resp, err := adminC.GET("/api/stock-exchanges?search=NYSE")
+	resp, err := adminC.GET("/api/v1/stock-exchanges?search=NYSE")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -38,8 +41,9 @@ func TestStockExchange_ListExchanges_SearchFilter(t *testing.T) {
 }
 
 func TestStockExchange_GetExchange(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
-	listResp, err := adminC.GET("/api/stock-exchanges?page_size=1")
+	listResp, err := adminC.GET("/api/v1/stock-exchanges?page_size=1")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -51,7 +55,7 @@ func TestStockExchange_GetExchange(t *testing.T) {
 	exchanges := exchangesRaw
 	id := exchanges[0].(map[string]interface{})["id"].(float64)
 
-	resp, err := adminC.GET("/api/stock-exchanges/" + helpers.FormatID(int(id)))
+	resp, err := adminC.GET("/api/v1/stock-exchanges/" + helpers.FormatID(int(id)))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -61,8 +65,9 @@ func TestStockExchange_GetExchange(t *testing.T) {
 }
 
 func TestStockExchange_GetExchange_NotFound(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
-	resp, err := adminC.GET("/api/stock-exchanges/999999")
+	resp, err := adminC.GET("/api/v1/stock-exchanges/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -72,7 +77,7 @@ func TestStockExchange_GetExchange_NotFound(t *testing.T) {
 func TestStockExchange_TestingMode_SetAndGet(t *testing.T) {
 	adminC := loginAsAdmin(t)
 
-	setResp, err := adminC.POST("/api/stock-exchanges/testing-mode", map[string]interface{}{
+	setResp, err := adminC.POST("/api/v1/stock-exchanges/testing-mode", map[string]interface{}{
 		"enabled": true,
 	})
 	if err != nil {
@@ -81,7 +86,7 @@ func TestStockExchange_TestingMode_SetAndGet(t *testing.T) {
 	helpers.RequireStatus(t, setResp, 200)
 	helpers.RequireFieldEquals(t, setResp, "testing_mode", true)
 
-	getResp, err := adminC.GET("/api/stock-exchanges/testing-mode")
+	getResp, err := adminC.GET("/api/v1/stock-exchanges/testing-mode")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -89,14 +94,15 @@ func TestStockExchange_TestingMode_SetAndGet(t *testing.T) {
 	helpers.RequireFieldEquals(t, getResp, "testing_mode", true)
 
 	// Disable testing mode (cleanup)
-	_, _ = adminC.POST("/api/stock-exchanges/testing-mode", map[string]interface{}{
+	_, _ = adminC.POST("/api/v1/stock-exchanges/testing-mode", map[string]interface{}{
 		"enabled": false,
 	})
 }
 
 func TestStockExchange_TestingMode_RequiresSupervisor(t *testing.T) {
+	t.Parallel()
 	_, agentC, _ := setupAgentEmployee(t, loginAsAdmin(t))
-	resp, err := agentC.POST("/api/stock-exchanges/testing-mode", map[string]interface{}{
+	resp, err := agentC.POST("/api/v1/stock-exchanges/testing-mode", map[string]interface{}{
 		"enabled": true,
 	})
 	if err != nil {

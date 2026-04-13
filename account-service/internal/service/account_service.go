@@ -28,6 +28,7 @@ const StateOwnerID uint64 = 2_000_000_000
 type AccountService struct {
 	repo          *repository.AccountRepository
 	changelogRepo *repository.ChangelogRepository
+	bankRepo      *repository.BankAccountRepository
 	db            *gorm.DB
 	cache         *cache.RedisCache
 }
@@ -38,6 +39,12 @@ func NewAccountService(repo *repository.AccountRepository, db *gorm.DB, redisCac
 		svc.changelogRepo = changelogRepo[0]
 	}
 	return svc
+}
+
+// SetBankRepo wires the BankAccountRepository after construction. Used by
+// cmd/main.go to avoid changing the variadic NewAccountService signature.
+func (s *AccountService) SetBankRepo(bankRepo *repository.BankAccountRepository) {
+	s.bankRepo = bankRepo
 }
 
 func maintenanceFeeByType(accountType string) decimal.Decimal {
@@ -400,4 +407,27 @@ func (s *AccountService) invalidateAccountCache(id uint64, accountNumber string)
 	if accountNumber != "" {
 		_ = s.cache.Delete(ctx, fmt.Sprintf("account:num:%s", accountNumber))
 	}
+}
+
+// DebitBankAccount atomically debits the bank sentinel account for the given
+// currency. Returns FailedPrecondition via the repository layer when liquidity
+// is insufficient, or NotFound when no sentinel exists for the currency.
+// Idempotent by reference.
+func (s *AccountService) DebitBankAccount(ctx context.Context, currency, amountStr, reference, reason string) (*repository.BankOpResult, error) {
+	amount, err := decimal.NewFromString(amountStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid amount %q: %w", amountStr, err)
+	}
+	return s.bankRepo.DebitBank(ctx, currency, amount, reference, reason)
+}
+
+// CreditBankAccount atomically credits the bank sentinel account. Used by
+// credit-service saga compensation when loan disbursement step B (borrower
+// credit) fails after step A (bank debit) succeeded.
+func (s *AccountService) CreditBankAccount(ctx context.Context, currency, amountStr, reference, reason string) (*repository.BankOpResult, error) {
+	amount, err := decimal.NewFromString(amountStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid amount %q: %w", amountStr, err)
+	}
+	return s.bankRepo.CreditBank(ctx, currency, amount, reference, reason)
 }

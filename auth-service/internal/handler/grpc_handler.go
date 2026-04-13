@@ -72,15 +72,19 @@ func (h *AuthGRPCHandler) ValidateToken(ctx context.Context, req *pb.ValidateTok
 		legacyRole = claims.Roles[0]
 	}
 	return &pb.ValidateTokenResponse{
-		Valid:       true,
-		UserId:      claims.UserID,
-		Email:       claims.Email,
-		Role:        legacyRole,
-		Roles:       claims.Roles,
-		Permissions: claims.Permissions,
-		SystemType:  claims.SystemType,
-		DeviceType:  claims.DeviceType,
-		DeviceId:    claims.DeviceID,
+		Valid:             true,
+		UserId:            claims.UserID,
+		Email:             claims.Email,
+		Role:              legacyRole,
+		Roles:             claims.Roles,
+		Permissions:       claims.Permissions,
+		SystemType:        claims.SystemType,
+		DeviceType:        claims.DeviceType,
+		DeviceId:          claims.DeviceID,
+		FirstName:         claims.FirstName,
+		LastName:          claims.LastName,
+		AccountActive:     claims.AccountActive,
+		BiometricsEnabled: claims.BiometricsEnabled,
 	}, nil
 }
 

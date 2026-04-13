@@ -191,13 +191,19 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 		if len(loginRoles) == 0 && userResp.Role != "" {
 			loginRoles = []string{userResp.Role}
 		}
-		accessToken, err = s.jwtService.GenerateAccessToken(account.PrincipalID, account.Email, loginRoles, userResp.Permissions, "employee")
+		accessToken, err = s.jwtService.GenerateAccessToken(account.PrincipalID, account.Email, loginRoles, userResp.Permissions, "employee", TokenProfile{
+			FirstName:     userResp.FirstName,
+			LastName:      userResp.LastName,
+			AccountActive: account.Status == model.AccountStatusActive,
+		})
 		if err != nil {
 			return "", "", err
 		}
 	default: // client
 		loginRoles = []string{"client"}
-		accessToken, err = s.jwtService.GenerateAccessToken(account.PrincipalID, account.Email, []string{"client"}, nil, "client")
+		accessToken, err = s.jwtService.GenerateAccessToken(account.PrincipalID, account.Email, []string{"client"}, nil, "client", TokenProfile{
+			AccountActive: account.Status == model.AccountStatusActive,
+		})
 		if err != nil {
 			return "", "", err
 		}
@@ -353,7 +359,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr, ipAddre
 	var accessToken string
 
 	if systemType == "client" {
-		accessToken, err = s.jwtService.GenerateAccessToken(acct.PrincipalID, acct.Email, []string{"client"}, nil, "client")
+		accessToken, err = s.jwtService.GenerateAccessToken(acct.PrincipalID, acct.Email, []string{"client"}, nil, "client", TokenProfile{
+			AccountActive: acct.Status == model.AccountStatusActive,
+		})
 		if err != nil {
 			return "", "", err
 		}
@@ -367,7 +375,11 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr, ipAddre
 			refreshRoles = []string{userResp.Role}
 		}
 		accessToken, err = s.jwtService.GenerateAccessToken(
-			userResp.Id, userResp.Email, refreshRoles, userResp.Permissions, "employee",
+			userResp.Id, userResp.Email, refreshRoles, userResp.Permissions, "employee", TokenProfile{
+				FirstName:     userResp.FirstName,
+				LastName:      userResp.LastName,
+				AccountActive: acct.Status == model.AccountStatusActive,
+			},
 		)
 		if err != nil {
 			return "", "", err
@@ -455,11 +467,14 @@ func (s *AuthService) RefreshTokenForMobile(ctx context.Context, oldRefreshToken
 		systemType = "employee"
 	}
 
+	var firstName, lastName string
 	if systemType == "employee" {
 		emp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: acct.PrincipalID})
 		if err == nil {
 			roles = emp.Roles
 			permissions = emp.Permissions
+			firstName = emp.FirstName
+			lastName = emp.LastName
 		}
 	} else {
 		roles = []string{"client"}
@@ -468,7 +483,16 @@ func (s *AuthService) RefreshTokenForMobile(ctx context.Context, oldRefreshToken
 	// Generate new access token with device claims
 	access, err := s.jwtService.GenerateMobileAccessToken(
 		acct.PrincipalID, acct.Email, roles, permissions,
-		systemType, "mobile", deviceID,
+		systemType, MobileProfile{
+			TokenProfile: TokenProfile{
+				FirstName:     firstName,
+				LastName:      lastName,
+				AccountActive: acct.Status == model.AccountStatusActive,
+			},
+			DeviceType:        "mobile",
+			DeviceID:          deviceID,
+			BiometricsEnabled: device.BiometricsEnabled,
+		},
 	)
 	if err != nil {
 		return "", "", err

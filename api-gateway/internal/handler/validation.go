@@ -101,6 +101,30 @@ func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
 	return true
 }
 
+// enforceOwnership verifies that a fetched resource belongs to the caller.
+// Used inside /api/me/* handlers AFTER fetching a resource by an ID provided
+// in the URL or body. If the caller is a client (system_type == "client") and
+// the resource owner does not match their JWT user_id, a 404 not_found
+// response is written and a non-nil error is returned — callers must return
+// immediately. Employees bypass the check because their permissions gate
+// access at the middleware layer.
+//
+// We return 404 (not 403) because confirming existence of another client's
+// resource is itself a data leak.
+func enforceOwnership(c *gin.Context, ownerID uint64) error {
+	sysType, _ := c.Get("system_type")
+	if sysType != "client" {
+		return nil
+	}
+	uid, _ := c.Get("user_id")
+	userID, ok := uid.(int64)
+	if !ok || uint64(userID) != ownerID {
+		apiError(c, 404, ErrNotFound, "resource not found")
+		return fmt.Errorf("ownership mismatch: resource owner %d does not match caller %d", ownerID, userID)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Standardized error response helpers
 // ---------------------------------------------------------------------------

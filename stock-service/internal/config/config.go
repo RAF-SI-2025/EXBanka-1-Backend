@@ -33,6 +33,9 @@ type Config struct {
 	FinnhubAPIKey   string
 	RedisAddr       string
 	MetricsPort     string
+	// Market simulator
+	MarketSimulatorURL string
+	BankName           string
 	// InfluxDB (time-series)
 	InfluxURL    string
 	InfluxToken  string
@@ -70,6 +73,8 @@ func Load() *Config {
 		FinnhubAPIKey:            getEnv("FINNHUB_API_KEY", ""),
 		RedisAddr:                getEnv("REDIS_ADDR", "localhost:6379"),
 		MetricsPort:              getEnv("METRICS_PORT", "9110"),
+		MarketSimulatorURL:       getEnv("MARKET_SIMULATOR_URL", "http://localhost:8090"),
+		BankName:                 getEnv("BANK_NAME", "ExBanka"),
 		InfluxURL:                getEnv("INFLUX_URL", ""),
 		InfluxToken:              getEnv("INFLUX_TOKEN", ""),
 		InfluxOrg:                getEnv("INFLUX_ORG", "exbanka"),
@@ -78,7 +83,7 @@ func Load() *Config {
 }
 
 func (c *Config) DSN() string {
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s TimeZone=UTC",
 		c.DBHost, c.DBPort, c.DBUser, c.DBPassword, c.DBName, c.DBSslmode)
 }
 

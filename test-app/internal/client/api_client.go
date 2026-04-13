@@ -109,7 +109,7 @@ func (c *APIClient) do(method, path string, body interface{}) (*Response, error)
 
 // Login authenticates and stores the access token.
 func (c *APIClient) Login(email, password string) (*Response, error) {
-	resp, err := c.POST("/api/auth/login", map[string]string{
+	resp, err := c.POST("/api/v1/auth/login", map[string]string{
 		"email":    email,
 		"password": password,
 	})
@@ -126,7 +126,7 @@ func (c *APIClient) Login(email, password string) (*Response, error) {
 
 // ActivateAccount activates a pending account with the given token and password.
 func (c *APIClient) ActivateAccount(activationToken, password string) (*Response, error) {
-	return c.POST("/api/auth/activate", map[string]string{
+	return c.POST("/api/v1/auth/activate", map[string]string{
 		"token":            activationToken,
 		"password":         password,
 		"confirm_password": password,
@@ -135,7 +135,7 @@ func (c *APIClient) ActivateAccount(activationToken, password string) (*Response
 
 // RefreshToken exchanges a refresh token for new token pair.
 func (c *APIClient) RefreshToken(refreshToken string) (*Response, error) {
-	return c.POST("/api/auth/refresh", map[string]string{
+	return c.POST("/api/v1/auth/refresh", map[string]string{
 		"refresh_token": refreshToken,
 	})
 }

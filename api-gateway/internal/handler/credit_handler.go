@@ -20,7 +20,9 @@ func NewCreditHandler(creditClient creditpb.CreditServiceClient) *CreditHandler 
 }
 
 type createLoanRequestBody struct {
-	ClientID         uint64  `json:"client_id" binding:"required"`
+	// ClientID is accepted from the body for backwards compatibility but silently
+	// ignored — the gateway always derives the client identity from the JWT user_id.
+	ClientID         uint64  `json:"client_id"`
 	LoanType         string  `json:"loan_type" binding:"required"`
 	InterestType     string  `json:"interest_type" binding:"required"`
 	Amount           float64 `json:"amount" binding:"required"`
@@ -86,8 +88,10 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 			return
 		}
 	}
+	// Always derive ClientId from the JWT — never trust the request body.
+	uid := c.GetInt64("user_id")
 	resp, err := h.creditClient.CreateLoanRequest(c.Request.Context(), &creditpb.CreateLoanRequestReq{
-		ClientId:         req.ClientID,
+		ClientId:         uint64(uid),
 		LoanType:         loanType,
 		InterestType:     interestType,
 		Amount:           fmt.Sprintf("%.4f", req.Amount),
@@ -240,15 +244,16 @@ func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, loanRequestToJSON(resp))
 }
 
-// @Summary      Get loan by ID
+// @Summary      Get loan by ID (employee)
 // @Tags         loans
 // @Produce      json
 // @Param        id   path  int  true  "Loan ID"
 // @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/loans/{id} [get]
+// @Router       /api/v1/loans/{id} [get]
 func (h *CreditHandler) GetLoan(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -808,6 +813,9 @@ func (h *CreditHandler) GetMyLoan(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	if ownErr := enforceOwnership(c, resp.ClientId); ownErr != nil {
+		return
+	}
 	c.JSON(http.StatusOK, loanToJSON(resp))
 }
 
@@ -884,5 +892,6 @@ func loanToJSON(l *creditpb.LoanResponse) gin.H {
 		"status":                  l.Status,
 		"interest_type":           l.InterestType,
 		"created_at":              l.CreatedAt,
+		"client_id":               l.ClientId,
 	}
 }

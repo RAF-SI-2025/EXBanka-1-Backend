@@ -55,6 +55,7 @@ const (
 	TopicLoanRequested        = "credit.loan-requested"
 	TopicLoanApproved         = "credit.loan-approved"
 	TopicLoanRejected         = "credit.loan-rejected"
+	TopicLoanDisbursed        = "credit.loan-disbursed"
 	TopicInstallmentCollected = "credit.installment-collected"
 	TopicInstallmentFailed    = "credit.installment-failed"
 )
@@ -170,6 +171,16 @@ type LoanStatusMessage struct {
 	LoanType      string `json:"loan_type"`
 	Amount        string `json:"amount"`
 	Status        string `json:"status"`
+}
+
+type LoanDisbursedMessage struct {
+	LoanID        uint64 `json:"loan_id"`
+	LoanNumber    string `json:"loan_number"`
+	BorrowerID    uint64 `json:"borrower_id"`
+	AccountNumber string `json:"account_number"`
+	Amount        string `json:"amount"`
+	CurrencyCode  string `json:"currency_code"`
+	DisbursedAt   string `json:"disbursed_at"`
 }
 
 type InstallmentResultMessage struct {

@@ -1,8 +1,12 @@
 package repository
 
 import (
+	"fmt"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/shopspring/decimal"
 
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -69,6 +73,61 @@ func (r *ListingRepository) UpsertBySecurity(listing *model.Listing) error {
 		existing.LastRefresh = listing.LastRefresh
 		return tx.Save(&existing).Error
 	})
+}
+
+// UpsertForOption upserts a listing for an option and returns the final row (with ID populated).
+func (r *ListingRepository) UpsertForOption(listing *model.Listing) (*model.Listing, error) {
+	var result model.Listing
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var existing model.Listing
+		dbErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("security_id = ? AND security_type = ?", listing.SecurityID, listing.SecurityType).
+			First(&existing).Error
+		if dbErr != nil {
+			if dbErr == gorm.ErrRecordNotFound {
+				if createErr := tx.Create(listing).Error; createErr != nil {
+					return createErr
+				}
+				result = *listing
+				return nil
+			}
+			return dbErr
+		}
+		existing.ExchangeID = listing.ExchangeID
+		existing.Price = listing.Price
+		existing.LastRefresh = listing.LastRefresh
+		if saveErr := tx.Save(&existing).Error; saveErr != nil {
+			return saveErr
+		}
+		result = existing
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdatePriceByTicker updates a listing's denormalized price columns by joining
+// on the underlying security table via ticker. The securityType must be one of
+// "stock", "futures", or "forex".
+func (r *ListingRepository) UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error {
+	var table string
+	switch securityType {
+	case "stock":
+		table = "stocks"
+	case "futures":
+		table = "futures_contracts"
+	case "forex":
+		table = "forex_pairs"
+	default:
+		return fmt.Errorf("unsupported security_type %q", securityType)
+	}
+	return r.db.Exec(
+		"UPDATE listings SET price = ?, high = ?, low = ?, last_refresh = NOW() "+
+			"FROM "+table+" s WHERE listings.security_id = s.id AND listings.security_type = ? AND s.ticker = ?", //nolint:gosec // table names are hardcoded
+		price, high, low, securityType, ticker,
+	).Error
 }
 
 func (r *ListingRepository) ListAll() ([]model.Listing, error) {

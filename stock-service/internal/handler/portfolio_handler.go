@@ -118,18 +118,31 @@ func (h *PortfolioHandler) ExerciseOption(ctx context.Context, req *pb.ExerciseO
 		return nil, mapPortfolioError(err)
 	}
 
+	return toExerciseResultPB(result), nil
+}
+
+func (h *PortfolioHandler) ExerciseOptionByOptionID(ctx context.Context, req *pb.ExerciseOptionByOptionIDRequest) (*pb.ExerciseResult, error) {
+	result, err := h.portfolioSvc.ExerciseOptionByOptionID(ctx, req.OptionId, req.UserId, req.HoldingId)
+	if err != nil {
+		return nil, mapPortfolioError(err)
+	}
+
+	return toExerciseResultPB(result), nil
+}
+
+func toExerciseResultPB(result *service.ExerciseResult) *pb.ExerciseResult {
 	return &pb.ExerciseResult{
 		Id:                result.ID,
 		OptionTicker:      result.OptionTicker,
 		ExercisedQuantity: result.ExercisedQuantity,
 		SharesAffected:    result.SharesAffected,
 		Profit:            result.Profit.StringFixed(2),
-	}, nil
+	}
 }
 
 func mapPortfolioError(err error) error {
 	switch err.Error() {
-	case "holding not found", "option not found", "stock listing not found for option's underlying":
+	case "holding not found", "option not found", "stock listing not found for option's underlying", "option holding not found":
 		return status.Error(codes.NotFound, err.Error())
 	case "holding does not belong to user":
 		return status.Error(codes.PermissionDenied, err.Error())

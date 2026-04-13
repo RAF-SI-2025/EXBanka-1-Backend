@@ -18,6 +18,7 @@ func (p *Payment) BeforeUpdate(tx *gorm.DB) error {
 type Payment struct {
 	ID                uint64          `gorm:"primaryKey;autoIncrement"`
 	IdempotencyKey    string          `gorm:"uniqueIndex;size:36;not null"`
+	ClientID          uint64          `gorm:"not null;default:0;index:idx_payment_client"`
 	FromAccountNumber string          `gorm:"not null;index:idx_payment_from"`
 	ToAccountNumber   string          `gorm:"not null;index:idx_payment_to"`
 	InitialAmount     decimal.Decimal `gorm:"type:numeric(18,4);not null"`

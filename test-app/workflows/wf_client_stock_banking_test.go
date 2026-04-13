@@ -31,7 +31,7 @@ func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
 	_, listingID := getFirstStockListingID(t, senderC)
 	t.Logf("WF-11: using listing_id=%d", listingID)
 
-	buyResp, err := senderC.POST("/api/me/orders", map[string]interface{}{
+	buyResp, err := senderC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -52,11 +52,11 @@ func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
 
 	// Step 4: Client makes a regular payment to the receiver
 	const paymentAmount = 5000.0
-	paymentID := createAndExecutePayment(t, senderC, receiverAcct, paymentAmount)
+	paymentID := createAndExecutePayment(t, senderC, senderAcct, receiverAcct, paymentAmount)
 	t.Logf("WF-11: payment executed id=%d amount=%.2f", paymentID, paymentAmount)
 
 	// Step 5: Assert portfolio has a stock holding
-	portfolioResp, err := senderC.GET("/api/me/portfolio?security_type=stock")
+	portfolioResp, err := senderC.GET("/api/v1/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-11: list portfolio: %v", err)
 	}

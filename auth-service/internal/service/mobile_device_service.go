@@ -171,7 +171,14 @@ func (s *MobileDeviceService) ActivateDevice(ctx context.Context, email, code, d
 
 	accessToken, err = s.jwtService.GenerateMobileAccessToken(
 		account.PrincipalID, email, roles, permissions,
-		account.PrincipalType, "mobile", deviceID,
+		account.PrincipalType, MobileProfile{
+			TokenProfile: TokenProfile{
+				AccountActive: account.Status == model.AccountStatusActive,
+			},
+			DeviceType:        "mobile",
+			DeviceID:          deviceID,
+			BiometricsEnabled: false, // newly activated devices start with biometrics disabled
+		},
 	)
 	if err != nil {
 		return "", "", "", "", fmt.Errorf("failed to generate access token: %w", err)

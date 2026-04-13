@@ -63,6 +63,10 @@ message ValidateTokenResponse {
   repeated string roles = 7;
   string device_type = 8;   // "mobile" or empty for browser
   string device_id = 9;     // UUID of mobile device or empty
+  string first_name = 10;
+  string last_name = 11;
+  bool account_active = 12;
+  bool biometrics_enabled = 13; // only set when device_type == "mobile"
 }
 
 message RefreshTokenRequest {

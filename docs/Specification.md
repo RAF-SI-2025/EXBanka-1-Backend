@@ -497,12 +497,15 @@ Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>
 | cards | `cards.create`, `cards.read`, `cards.update`, `cards.approve` |
 | payments | `payments.read` |
 | credits | `credits.read`, `credits.approve` |
-| securities | `securities.trade`, `securities.read` |
+| securities | `securities.trade`, `securities.read`, `securities.manage` |
 | employees | `employees.create`, `employees.update`, `employees.read`, `employees.permissions` |
 | limits | `limits.manage` |
 | admin | `bank-accounts.manage`, `fees.manage`, `interest-rates.manage` |
 | agent/otc | `agents.manage`, `otc.manage`, `funds.manage` |
 | verification | `verification.skip`, `verification.manage` |
+
+**Permission notes:**
+- `securities.manage` — manage stock-service data sources and perform destructive source switches. Assigned to `EmployeeAdmin` only.
 
 ### Role Definitions
 
@@ -511,7 +514,7 @@ Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>
 | EmployeeBasic | clients.*, accounts.*, cards.*, payments.read, credits.read |
 | EmployeeAgent | EmployeeBasic + securities.* |
 | EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, verification.skip, verification.manage |
-| EmployeeAdmin | All permissions |
+| EmployeeAdmin | All permissions (including `securities.manage`) |
 
 ### Context Values Set by Middleware
 
@@ -798,7 +801,7 @@ make proto
 # Generates: contract/{service}pb/*.pb.go and *_grpc.pb.go
 ```
 
-### Existing gRPC Service Definitions (15 services across 9 proto files)
+### Existing gRPC Service Definitions (17 services across 10 proto files)
 
 An agent extending an existing service needs to know which gRPC services already exist:
 
@@ -807,12 +810,30 @@ An agent extending an existing service needs to know which gRPC services already
 | `auth/auth.proto` | `AuthService` | 11 |
 | `user/user.proto` | `UserService`, `EmployeeLimitService` | 11 + 5 |
 | `client/client.proto` | `ClientService`, `ClientLimitService` | 5 + 2 |
-| `account/account.proto` | `AccountService`, `BankAccountService` | 14 + 4 |
+| `account/account.proto` | `AccountService`, `BankAccountService` | 14 + 6 |
 | `card/card.proto` | `CardService`, `VirtualCardService`, `CardRequestService` | 9 + 5 + 6 |
 | `transaction/transaction.proto` | `TransactionService`, `FeeService` | 13 + 5 |
 | `credit/credit.proto` | `CreditService` | 16 |
 | `exchange/exchange.proto` | `ExchangeService` | 4 |
 | `notification/notification.proto` | `NotificationService` | 2 |
+| `stock/stock.proto` | `SecurityGRPCService`, `OrderGRPCService`, `PortfolioGRPCService`, `OTCGRPCService`, `SourceAdminService` | (see below) |
+
+**account-service BankAccountService additions:**
+
+`BankAccountService` — two new RPCs for loan disbursement saga:
+- `DebitBankAccount(BankAccountOpRequest) returns (BankAccountOpResponse)` — atomically debits the bank sentinel account for a given currency, with idempotency keyed on `reference + direction`.
+- `CreditBankAccount(BankAccountOpRequest) returns (BankAccountOpResponse)` — atomically credits the bank sentinel account for a given currency, with idempotency keyed on `reference + direction`.
+
+**stock-service gRPC additions:**
+
+`PortfolioGRPCService` — portfolio operations including option exercise:
+- `ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult)` — exercises an option by option ID instead of holding ID. Fields: `option_id uint64` (required), `user_id uint64` (required), `holding_id uint64` (optional; 0 means auto-resolve to the user's most recent unexpired holding for that option).
+
+`OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v1/orders` or `POST /api/v1/otc/admin/offers/:id/buy` endpoints.
+
+`SourceAdminService` — destructive data-source management:
+- `SwitchSource(SwitchSourceRequest) returns (SwitchSourceResponse)` — switches the active stock data source. Request field: `source string` (one of `external`, `generated`, `simulator`). Response wraps a `SourceStatus` message.
+- `GetSourceStatus(GetSourceStatusRequest) returns (SourceStatus)` — returns the current source name and switch status. `SourceStatus` fields: `source string`, `status string` (`idle` | `reseeding` | `failed`), `started_at string` (RFC3339), `last_error string`.
 
 **Key pattern:** When a proto file has multiple services (e.g., `CardService` + `VirtualCardService` + `CardRequestService`), they all run in the same microservice process on the same port but are registered as separate gRPC services. The API Gateway creates separate client instances that share the same connection address.
 
@@ -1143,6 +1164,8 @@ api-gateway:
 
 ### User's Own Resources (/api/me/* — AnyAuthMiddleware)
 
+> **Ownership lockdown (as of 2026-04-13):** The following `/api/me/*` routes enforce that the requested resource belongs to the JWT caller. Mismatches return `404 not_found` to avoid leaking existence: `GET /api/me/loans/:id`, `GET /api/me/payments/:id`, `GET /api/me/transfers/:id`, `POST /api/me/cards/:id/pin`, `POST /api/me/cards/:id/verify-pin`, `POST /api/me/cards/:id/temporary-block`, `PUT /api/me/payment-recipients/:id`, `DELETE /api/me/payment-recipients/:id`, `POST /api/me/loan-requests` (body `client_id` is ignored; JWT `user_id` is used), `POST /api/me/cards/virtual` (owner derived from JWT), `POST /api/me/orders`, `POST /api/me/otc/offers/:id/buy` (account ownership verified against JWT caller).
+
 | Method | Path | Middleware Extra | Handler | Description |
 |---|---|---|---|---|
 | GET | `/api/me` | RequireClientToken | meHandler.GetMe | Get own profile |
@@ -1251,6 +1274,10 @@ api-gateway:
 | POST | `/api/interest-rate-tiers/:id/apply` | interest-rates.manage | creditHandler.ApplyVariableRateUpdate | Apply rate update |
 | GET | `/api/bank-margins` | interest-rates.manage | creditHandler.ListBankMargins | List margins |
 | PUT | `/api/bank-margins/:id` | interest-rates.manage | creditHandler.UpdateBankMargin | Update margin |
+| POST | `/api/v1/admin/stock-source` | securities.manage | stockSourceHandler.SwitchSource | Switch active stock data source (destructive) |
+| GET | `/api/v1/admin/stock-source` | securities.manage | stockSourceHandler.GetSourceStatus | Get current stock data source and status |
+| POST | `/api/v1/orders` | securities.manage | stockHandler.CreateOrderOnBehalf | Employee places stock order on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| POST | `/api/v1/otc/admin/offers/:id/buy` | securities.manage | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
 
 ### Browser Verification (/api/verifications — AnyAuthMiddleware)
 
@@ -1426,6 +1453,13 @@ BalanceBefore(numeric18,4), BalanceAfter(numeric18,4), Description,
 ReferenceID(indexed), ReferenceType(payment|transfer|fee|interest), CreatedAt(indexed)
 ```
 
+**BankOperation** — idempotency log for bank sentinel debit/credit operations used by loan disbursement saga
+```
+ID(uint64), Reference(string,indexed), Direction(debit|credit), Currency(3),
+Amount(numeric18,4), AccountNumber, NewBalance(numeric18,4), Reason, CreatedAt
+UniqueIndex: (reference, direction)
+```
+
 ### Card Service (card_db)
 
 **Card**
@@ -1474,6 +1508,8 @@ InitialAmount(numeric18,4), FinalAmount(numeric18,4), ExchangeRate(numeric18,8,d
 Commission(numeric18,4), FromCurrency(3,default:RSD), ToCurrency(3,default:RSD),
 Status(pending|completed|failed), FailureReason, Version(int64), Timestamp, CompletedAt(nullable)
 ```
+
+> **Proto additions (ownership lockdown):** `LoanResponse`, `PaymentResponse`, and `TransferResponse` proto messages each gained a new `client_id` (uint64) field, used by the gateway to verify resource ownership for `/api/me/*` routes.
 
 **TransferFee**
 ```
@@ -1564,6 +1600,76 @@ Method(code_pull; qr_scan and number_match planned), DisplayData(JSONB),
 Status(pending|delivered|expired), ExpiresAt, DeliveredAt(nullable), CreatedAt
 ```
 
+### Stock Service (stock_db)
+
+**StockExchange** — A stock exchange (e.g. NYSE, NASDAQ)
+```
+ID(uint64), Name, Acronym(unique), MicCode(unique), Country, Currency, TimeZone,
+OpenTime, CloseTime, CreatedAt, UpdatedAt
+```
+
+**Stock** — An individual stock security
+```
+ID(uint64), Ticker(unique), Name, ExchangeID(→StockExchange), Price(numeric 18,8),
+High, Low, Change, Volume, OutstandingShares, DividendYield, LastRefresh,
+Version(int64), CreatedAt, UpdatedAt
+```
+
+**Option** — A stock option contract (call or put). Contract size = 100 shares.
+```
+ID(uint64), Ticker(unique), Name, StockID(→Stock, indexed), OptionType(call|put),
+StrikePrice(numeric 18,4), ImpliedVolatility(numeric 10,6), Premium(numeric 18,4),
+OpenInterest(int64), SettlementDate(indexed), ListingID(*uint64, nullable, indexed),
+Version(int64), CreatedAt, UpdatedAt
+```
+`ListingID` is nullable. When set, the option has a corresponding `Listing` row with
+`security_type='option'` on the same exchange as the underlying stock, allowing orders to
+reference the option via the unified listings table.
+
+**Listing** — Bridge between a security and the exchange it trades on. Orders reference ListingID.
+```
+ID(uint64), SecurityID(indexed), SecurityType(stock|futures|forex|option, indexed),
+ExchangeID(→StockExchange, indexed), Price(numeric 18,8), High, Low, Change,
+Volume(int64), LastRefresh, Version(int64), CreatedAt, UpdatedAt
+```
+`SecurityType` values: `stock`, `futures`, `forex`, `option` (option added for v2 option orders).
+
+**ForexPair** — A currency pair traded on an exchange
+```
+ID(uint64), BaseCurrency, QuoteCurrency, ExchangeID, Price, High, Low, Change,
+Volume, LastRefresh, Version(int64), CreatedAt, UpdatedAt
+```
+
+**FuturesContract** — A futures contract
+```
+ID(uint64), Ticker(unique), Name, ExchangeID, Price(numeric 18,8), High, Low, Change,
+Volume, SettlementDate, ContractSize(int64), MaintenanceMarginRate(numeric 10,6),
+LastRefresh, Version(int64), CreatedAt, UpdatedAt
+```
+
+**Holding** — A user's current position in a security
+```
+ID(uint64), UserID(indexed), SecurityType(stock|futures|forex|option),
+SecurityID(indexed), Quantity(int64), AveragePrice(numeric 18,8),
+PublicQuantity(int64), AccountID(uint64), Version(int64), CreatedAt, UpdatedAt
+```
+
+**Order** — A buy/sell order placed by a user
+```
+ID(uint64), UserID, ListingID(→Listing), Direction(buy|sell), OrderType(market|limit|stop|stop_limit),
+Quantity(int64), FilledQuantity(int64), Price(nullable), StopPrice(nullable),
+Status(pending|executed|cancelled|rejected), AccountID, ActingEmployeeID(uint64,nullable),
+Version(int64), CreatedAt, UpdatedAt
+```
+`ActingEmployeeID` — nullable audit column set when an employee places a trade on behalf of a client via `POST /api/v1/orders` or `POST /api/v1/otc/admin/offers/:id/buy`.
+
+**SystemSetting** — Global key-value configuration (key = primary key)
+```
+Key(string, PK, size:64), Value(string)
+```
+`system_settings.active_stock_source` — persists the currently active stock data source
+(`external`, `generated`, or `simulator`) across service restarts.
+
 ---
 
 ## 19. Complete Kafka Topic Reference
@@ -1609,6 +1715,7 @@ Status(pending|delivered|expired), ExpiresAt, DeliveredAt(nullable), CreatedAt
 | `credit.loan-requested` | credit-service | (consumers) | LoanStatusMessage |
 | `credit.loan-approved` | credit-service | notification-service | LoanStatusMessage |
 | `credit.loan-rejected` | credit-service | notification-service | LoanStatusMessage |
+| `credit.loan-disbursed` | credit-service | (consumers) | LoanDisbursedMessage |
 | `credit.installment-collected` | credit-service | (consumers) | InstallmentResultMessage |
 | `credit.installment-failed` | credit-service | (consumers) | InstallmentResultMessage |
 | `credit.variable-rate-adjusted` | credit-service | (consumers) | VariableRateAdjustedMessage |
@@ -1666,6 +1773,19 @@ type PaymentCompletedMessage struct {
 }
 ```
 
+**LoanDisbursedMessage** — published to `credit.loan-disbursed` after successful loan disbursement saga:
+```go
+type LoanDisbursedMessage struct {
+    LoanID       uint64 `json:"loan_id"`
+    LoanNumber   string `json:"loan_number"`
+    BorrowerID   uint64 `json:"borrower_id"`
+    AccountNumber string `json:"account_number"`
+    Amount       string `json:"amount"`
+    CurrencyCode string `json:"currency_code"`
+    DisbursedAt  string `json:"disbursed_at"` // RFC3339
+}
+```
+
 When adding a new message type: define the struct in `contract/kafka/messages.go`, add a topic constant string, and follow the existing naming pattern (`{Entity}{Action}Message`).
 
 ---
@@ -1688,7 +1808,7 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 | `transaction_type` (fees) | `payment`, `transfer`, `all` |
 | `loan_type` | `cash`, `housing`, `auto`, `refinancing`, `student` |
 | `interest_type` | `fixed`, `variable` |
-| `loan_status` | `approved`, `defaulted` |
+| `loan_status` | `pending`, `approved`, `active`, `disbursement_failed`, `defaulted` |
 | `loan_request_status` | `pending`, `approved`, `rejected` |
 | `installment_status` | `unpaid`, `paid`, `overdue` |
 | `payment_status` | `pending`, `completed`, `failed` |
@@ -1700,6 +1820,8 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 | `reference_type` (ledger) | `payment`, `transfer`, `fee`, `interest` |
 | `card_request_status` | `pending`, `approved`, `rejected` |
 | `currency_code` | `RSD`, `EUR`, `CHF`, `USD`, `GBP`, `JPY`, `CAD`, `AUD` |
+| `listing_security_type` | `stock`, `futures`, `forex`, `option` |
+| `stock_source` | `external`, `generated`, `simulator` |
 | `verification_method` | `code_pull` (default), `email` — active; `qr_scan`, `number_match` — planned but not yet active |
 | `verification_status` | `pending`, `verified`, `expired`, `failed` |
 | `mobile_device_status` | `pending`, `active`, `deactivated` |
@@ -1747,6 +1869,9 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - Interest calculated from `InterestRateTier` + `BankMargin`
 - Variable-rate loans recalculate when tiers change
 - Loan currency must match account currency
+- Bank must have sufficient liquidity in the loan currency for approval to succeed; insufficient liquidity returns 409 `business_rule_violation`.
+- Loan approval is atomic: bank sentinel is debited and borrower is credited, or neither — the saga compensates on partial failure.
+- On saga compensation failure the loan is marked `disbursement_failed` and the `BankOperation` idempotency log prevents double-debits on retry.
 
 **Auth:**
 - 5 failed login attempts → 30-min lockout
@@ -1768,6 +1893,17 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - Redis unavailable → log warning, continue without cache
 - Kafka publish failure → log warning, don't fail main operation
 - Exchange rate sync failure → log warning, keep seed rates
+
+**Ownership & On-Behalf Trading:**
+- All `/api/me/*` routes derive resource ownership from the JWT. Any resource ID from URL, query, or body is verified against the caller's `user_id` before any read or write. Mismatches return `404 not_found` to avoid leaking existence.
+- Employee on-behalf trading routes (`POST /api/v1/orders`, `POST /api/v1/otc/admin/offers/:id/buy`) verify that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. Mismatch returns 403.
+
+**Stock Data Sources:**
+- Three sources supported: `external` (live API), `generated` (deterministic synthetic data), `simulator` (simulated market prices backed by the Market Simulator Service).
+- A source switch is **destructive**: it wipes all stock-service tables AND all associated trading state (orders, holdings, capital gains, tax collections, order transactions). User history is lost across switches. Intended for demo/dev environments, not production.
+- On startup, stock-service reads `system_settings.active_stock_source` and restores that source automatically. Default source when no setting exists is `external`.
+- When the active source is `simulator`, a background goroutine refreshes prices every 3 seconds. Switching away from `simulator` cancels this goroutine via `context.Context` cancellation.
+- The `SourceAdminService.SwitchSource` RPC rejects unknown source names with `codes.InvalidArgument`.
 
 ## 22. Concurrency & Transaction Safety
 
@@ -1879,12 +2015,18 @@ The API gateway supports versioned routes alongside the original unversioned rou
 |---|---|
 | `/api/` | Original unversioned routes (frozen, backward-compatible) |
 | `/api/v1/` | Version 1 routes (mirrors `/api/` plus new endpoints) |
+| `/api/v2/` | Version 2 routes (v2-only endpoints + transparent fallback to v1 for everything else) |
 | `/api/latest/` | Alias that rewrites to the highest version (`/api/v1/`) |
 
 **Implementation files:**
 - `api-gateway/internal/router/router.go` — frozen, unversioned `/api/` routes
 - `api-gateway/internal/router/router_v1.go` — `/api/v1/` routes (mirrors router.go + new endpoints)
+- `api-gateway/internal/router/router_v2.go` — `/api/v2/` routes + NoRoute fallback that rewrites unknown v2 paths to v1 via `HandleContext`
 - `api-gateway/internal/router/router_latest.go` — `/api/latest/*` rewrite alias
+
+**v2 fallback rule:** Any `/api/v2/...` path not explicitly registered under v2 is transparently rewritten to `/api/v1/...` and re-dispatched internally via `r.HandleContext`. v2 clients can use any v1 route without change.
+
+**API versioning contract:** v2 routes must not break v1 contracts. Adding optional fields to v1 responses (e.g., `Option.listing_id`) is allowed. Breaking changes require a new version.
 
 ### v1-only endpoints
 
@@ -1897,3 +2039,16 @@ These endpoints exist only under `/api/v1/` and are not available on the unversi
 | GET | /api/v1/clients/:id/changelog | 501 placeholder | Plan 2 |
 | GET | /api/v1/cards/:id/changelog | 501 placeholder | Plan 2 |
 | GET | /api/v1/loans/:id/changelog | 501 placeholder | Plan 2 |
+| POST | /api/v1/admin/stock-source | live | stock source abstraction |
+| GET | /api/v1/admin/stock-source | live | stock source abstraction |
+| POST | /api/v1/orders | live | ownership lockdown + employee on-behalf trading |
+| POST | /api/v1/otc/admin/offers/:id/buy | live | ownership lockdown + employee on-behalf trading |
+
+### v2-only endpoints
+
+These endpoints exist only under `/api/v2/` and are not available on v1 or unversioned:
+
+| Method | Path | Middleware | Handler | Description |
+|---|---|---|---|---|
+| POST | `/api/v2/options/:option_id/orders` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.CreateOrder | Place an order on an option by option ID |
+| POST | `/api/v2/options/:option_id/exercise` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.Exercise | Exercise an option by option ID (optional `holding_id` in body; auto-resolved when omitted) |

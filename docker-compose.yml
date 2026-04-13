@@ -5,6 +5,7 @@ services:
   kafka:
     image: apache/kafka:3.8.1
     environment:
+      TZ: UTC
       KAFKA_NODE_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:9094
@@ -39,6 +40,7 @@ services:
   influxdb:
     image: influxdb:2.7-alpine
     environment:
+      TZ: UTC
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
       DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
@@ -61,6 +63,7 @@ services:
   user-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: user_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -77,6 +80,7 @@ services:
   auth-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: auth_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -93,6 +97,7 @@ services:
   client-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: clientdb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -109,6 +114,7 @@ services:
   account-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: accountdb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -125,6 +131,7 @@ services:
   card-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: carddb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -141,6 +148,7 @@ services:
   transaction-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: transactiondb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -157,6 +165,7 @@ services:
   credit-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: creditdb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -173,6 +182,7 @@ services:
   exchange-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: exchangedb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -189,6 +199,7 @@ services:
   stock-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: stockdb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -205,6 +216,7 @@ services:
   verification-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: verificationdb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -221,6 +233,7 @@ services:
   notification-db:
     image: postgres:17-alpine
     environment:
+      TZ: UTC
       POSTGRES_DB: notification_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -253,6 +266,7 @@ services:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
+      TZ: UTC
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
     ports:
@@ -267,6 +281,7 @@ services:
       context: .
       dockerfile: user-service/Dockerfile
     environment:
+      TZ: UTC
       USER_DB_HOST: user-db
       USER_DB_PORT: "5432"
       USER_DB_USER: postgres
@@ -296,6 +311,7 @@ services:
       context: .
       dockerfile: auth-service/Dockerfile
     environment:
+      TZ: UTC
       AUTH_DB_HOST: auth-db
       AUTH_DB_PORT: "5432"
       AUTH_DB_USER: postgres
@@ -332,6 +348,7 @@ services:
       context: .
       dockerfile: notification-service/Dockerfile
     environment:
+      TZ: UTC
       NOTIFICATION_GRPC_ADDR: ":50053"
       KAFKA_BROKERS: kafka:9092
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
@@ -360,6 +377,7 @@ services:
       context: .
       dockerfile: client-service/Dockerfile
     environment:
+      TZ: UTC
       CLIENT_DB_HOST: client-db
       CLIENT_DB_PORT: "5432"
       CLIENT_DB_USER: postgres
@@ -388,6 +406,7 @@ services:
       context: .
       dockerfile: account-service/Dockerfile
     environment:
+      TZ: UTC
       ACCOUNT_DB_HOST: account-db
       ACCOUNT_DB_PORT: "5432"
       ACCOUNT_DB_USER: postgres
@@ -416,6 +435,7 @@ services:
       context: .
       dockerfile: card-service/Dockerfile
     environment:
+      TZ: UTC
       CARD_DB_HOST: card-db
       CARD_DB_PORT: "5432"
       CARD_DB_USER: postgres
@@ -444,6 +464,7 @@ services:
       context: .
       dockerfile: transaction-service/Dockerfile
     environment:
+      TZ: UTC
       TRANSACTION_DB_HOST: transaction-db
       TRANSACTION_DB_PORT: "5432"
       TRANSACTION_DB_USER: postgres
@@ -475,6 +496,7 @@ services:
       context: .
       dockerfile: credit-service/Dockerfile
     environment:
+      TZ: UTC
       CREDIT_DB_HOST: credit-db
       CREDIT_DB_PORT: "5432"
       CREDIT_DB_USER: postgres
@@ -506,6 +528,7 @@ services:
       context: .
       dockerfile: exchange-service/Dockerfile
     environment:
+      TZ: UTC
       EXCHANGE_DB_HOST: exchange-db
       EXCHANGE_DB_PORT: "5432"
       EXCHANGE_DB_USER: postgres
@@ -540,6 +563,7 @@ services:
       context: .
       dockerfile: stock-service/Dockerfile
     environment:
+      TZ: UTC
       STOCK_DB_HOST: stock-db
       STOCK_DB_PORT: "5432"
       STOCK_DB_USER: postgres
@@ -591,6 +615,7 @@ services:
       context: .
       dockerfile: verification-service/Dockerfile
     environment:
+      TZ: UTC
       VERIFICATION_DB_HOST: verification-db
       VERIFICATION_DB_PORT: "5432"
       VERIFICATION_DB_USER: postgres
@@ -621,6 +646,7 @@ services:
       context: .
       dockerfile: api-gateway/Dockerfile
     environment:
+      TZ: UTC
       GATEWAY_HTTP_ADDR: ":8080"
       AUTH_GRPC_ADDR: "auth-service:50051"
       USER_GRPC_ADDR: "user-service:50052"
@@ -672,6 +698,7 @@ services:
       context: .
       dockerfile: seeder/Dockerfile
     environment:
+      TZ: UTC
       USER_GRPC_ADDR: "user-service:50052"
       AUTH_GRPC_ADDR: "auth-service:50051"
       CLIENT_GRPC_ADDR: "client-service:50054"

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -151,6 +152,21 @@ func (h *CreditGRPCHandler) ApproveLoanRequest(ctx context.Context, req *pb.Appr
 		Status:        loan.Status,
 	})
 
+	// Only publish LoanDisbursed when the saga actually disbursed the money.
+	// Saga success → loan.Status == "active". Nil-client fallback or partial
+	// failure leaves the loan in "approved" or "disbursement_failed".
+	if loan.Status == "active" {
+		_ = h.producer.PublishLoanDisbursed(ctx, kafkamsg.LoanDisbursedMessage{
+			LoanID:        loan.ID,
+			LoanNumber:    loan.LoanNumber,
+			BorrowerID:    loan.ClientID,
+			AccountNumber: loan.AccountNumber,
+			Amount:        loan.Amount.StringFixed(4),
+			CurrencyCode:  loan.CurrencyCode,
+			DisbursedAt:   time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
 	if loanReq, lrErr := h.loanRequestService.GetLoanRequest(req.RequestId); lrErr == nil {
 		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
 			UserID:  loanReq.ClientID,
@@ -289,6 +305,7 @@ func toLoanResponse(l *model.Loan) *pb.LoanResponse {
 		Status:                l.Status,
 		InterestType:          l.InterestType,
 		CreatedAt:             l.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		ClientId:              l.ClientID,
 	}
 }
 

@@ -109,3 +109,9 @@ func (r *OptionRepository) DeleteExpiredBefore(cutoff time.Time) (int64, error) 
 	result := r.db.Where("settlement_date < ?", cutoff).Delete(&model.Option{})
 	return result.RowsAffected, result.Error
 }
+
+func (r *OptionRepository) SetListingID(optionID, listingID uint64) error {
+	return r.db.Model(&model.Option{}).
+		Where("id = ?", optionID).
+		Update("listing_id", listingID).Error
+}

@@ -42,15 +42,24 @@ func AuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", resp.UserId)
-		c.Set("email", resp.Email)
-		c.Set("role", resp.Role)
-		c.Set("roles", resp.Roles)
-		c.Set("system_type", resp.SystemType)
-		c.Set("permissions", resp.Permissions)
-		c.Set("device_id", resp.DeviceId)
+		setTokenContext(c, resp)
 		c.Next()
 	}
+}
+
+// setTokenContext populates the gin context with all JWT claim fields.
+func setTokenContext(c *gin.Context, resp *authpb.ValidateTokenResponse) {
+	c.Set("user_id", resp.UserId)
+	c.Set("email", resp.Email)
+	c.Set("role", resp.Role)
+	c.Set("roles", resp.Roles)
+	c.Set("system_type", resp.SystemType)
+	c.Set("permissions", resp.Permissions)
+	c.Set("device_id", resp.DeviceId)
+	c.Set("first_name", resp.FirstName)
+	c.Set("last_name", resp.LastName)
+	c.Set("account_active", resp.AccountActive)
+	c.Set("biometrics_enabled", resp.BiometricsEnabled)
 }
 
 // AnyAuthMiddleware accepts either an employee JWT or a client JWT.
@@ -77,13 +86,7 @@ func AnyAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", resp.UserId)
-		c.Set("email", resp.Email)
-		c.Set("role", resp.Role)
-		c.Set("roles", resp.Roles)
-		c.Set("system_type", resp.SystemType)
-		c.Set("permissions", resp.Permissions)
-		c.Set("device_id", resp.DeviceId)
+		setTokenContext(c, resp)
 		c.Next()
 	}
 }

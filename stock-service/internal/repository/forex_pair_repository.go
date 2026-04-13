@@ -4,6 +4,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/exbanka/stock-service/internal/model"
 )
 
@@ -70,6 +72,11 @@ func (r *ForexPairRepository) UpsertByTicker(fp *model.ForexPair) error {
 		existing.LastRefresh = fp.LastRefresh
 		return tx.Save(&existing).Error
 	})
+}
+
+// UpdatePriceByTicker updates only the exchange_rate column for the forex pair with the given ticker.
+func (r *ForexPairRepository) UpdatePriceByTicker(ticker string, rate decimal.Decimal) error {
+	return r.db.Model(&model.ForexPair{}).Where("ticker = ?", ticker).Update("exchange_rate", rate).Error
 }
 
 func (r *ForexPairRepository) List(filter ForexFilter) ([]model.ForexPair, int64, error) {

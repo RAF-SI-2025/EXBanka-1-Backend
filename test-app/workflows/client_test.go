@@ -22,7 +22,7 @@ func TestClient_CreateMultipleClients(t *testing.T) {
 	genders := []string{"male", "female", "other"}
 	for _, gender := range genders {
 		t.Run("gender_"+gender, func(t *testing.T) {
-			resp, err := c.POST("/api/clients", map[string]interface{}{
+			resp, err := c.POST("/api/v1/clients", map[string]interface{}{
 				"first_name":    helpers.RandomName("Client"),
 				"last_name":     helpers.RandomName(gender),
 				"date_of_birth": helpers.DateOfBirthUnix(),
@@ -48,8 +48,9 @@ func TestClient_CreateMultipleClients(t *testing.T) {
 }
 
 func TestClient_CreateWithInvalidJMBG(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/clients", map[string]interface{}{
+	resp, err := c.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    "Bad",
 		"last_name":     "Client",
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -65,10 +66,11 @@ func TestClient_CreateWithInvalidJMBG(t *testing.T) {
 }
 
 func TestClient_CreateWithMissingRequiredFields(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Missing email
-	resp, err := c.POST("/api/clients", map[string]interface{}{
+	resp, err := c.POST("/api/v1/clients", map[string]interface{}{
 		"first_name": "No",
 		"last_name":  "Email",
 		"jmbg":       helpers.RandomJMBG(),
@@ -82,11 +84,12 @@ func TestClient_CreateWithMissingRequiredFields(t *testing.T) {
 }
 
 func TestClient_ListAndGet(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
 	// Create a client first
 	email := helpers.RandomEmail()
-	createResp, err := c.POST("/api/clients", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    "List",
 		"last_name":     "Test",
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -100,14 +103,14 @@ func TestClient_ListAndGet(t *testing.T) {
 	clientID := helpers.GetNumberField(t, createResp, "id")
 
 	// List
-	resp, err := c.GET("/api/clients")
+	resp, err := c.GET("/api/v1/clients")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 200)
 
 	// Get by ID
-	resp, err = c.GET(fmt.Sprintf("/api/clients/%d", int(clientID)))
+	resp, err = c.GET(fmt.Sprintf("/api/v1/clients/%d", int(clientID)))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -116,9 +119,10 @@ func TestClient_ListAndGet(t *testing.T) {
 }
 
 func TestClient_Update(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
 
-	createResp, err := c.POST("/api/clients", map[string]interface{}{
+	createResp, err := c.POST("/api/v1/clients", map[string]interface{}{
 		"first_name":    "Update",
 		"last_name":     "Client",
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -131,7 +135,7 @@ func TestClient_Update(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	clientID := helpers.GetNumberField(t, createResp, "id")
 
-	resp, err := c.PUT(fmt.Sprintf("/api/clients/%d", int(clientID)), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v1/clients/%d", int(clientID)), map[string]interface{}{
 		"last_name": "UpdatedClient",
 		"phone":     helpers.RandomPhone(),
 		"address":   "New Address 123",
@@ -143,8 +147,9 @@ func TestClient_Update(t *testing.T) {
 }
 
 func TestClient_GetNonExistent(t *testing.T) {
+	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/clients/999999")
+	resp, err := c.GET("/api/v1/clients/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

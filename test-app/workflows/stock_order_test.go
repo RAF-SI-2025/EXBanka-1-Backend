@@ -10,11 +10,12 @@ import (
 )
 
 func TestOrder_CreateMarketBuyOrder(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
 
-	bankAcctResp, err := adminC.GET("/api/bank-accounts")
+	bankAcctResp, err := adminC.GET("/api/v1/bank-accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -22,7 +23,7 @@ func TestOrder_CreateMarketBuyOrder(t *testing.T) {
 	accts := bankAcctResp.Body["accounts"].([]interface{})
 	acctID := uint64(accts[0].(map[string]interface{})["id"].(float64))
 
-	resp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	resp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -41,8 +42,9 @@ func TestOrder_CreateMarketBuyOrder(t *testing.T) {
 }
 
 func TestOrder_CreateOrder_Unauthenticated(t *testing.T) {
+	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/me/orders", map[string]interface{}{
+	resp, err := c.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id": 1,
 		"direction":  "buy",
 		"order_type": "market",
@@ -56,10 +58,11 @@ func TestOrder_CreateOrder_Unauthenticated(t *testing.T) {
 }
 
 func TestOrder_CreateOrder_InvalidDirection(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	resp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id": 1,
 		"direction":  "invalid",
 		"order_type": "market",
@@ -73,10 +76,11 @@ func TestOrder_CreateOrder_InvalidDirection(t *testing.T) {
 }
 
 func TestOrder_CreateOrder_InvalidOrderType(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	resp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id": 1,
 		"direction":  "buy",
 		"order_type": "invalid",
@@ -90,10 +94,11 @@ func TestOrder_CreateOrder_InvalidOrderType(t *testing.T) {
 }
 
 func TestOrder_CreateOrder_ZeroQuantity(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	resp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id": 1,
 		"direction":  "buy",
 		"order_type": "market",
@@ -107,10 +112,11 @@ func TestOrder_CreateOrder_ZeroQuantity(t *testing.T) {
 }
 
 func TestOrder_CreateLimitOrder_RequiresLimitValue(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	resp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id": 1,
 		"direction":  "buy",
 		"order_type": "limit",
@@ -124,10 +130,11 @@ func TestOrder_CreateLimitOrder_RequiresLimitValue(t *testing.T) {
 }
 
 func TestOrder_CreateBuyOrder_RequiresAccountID(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	resp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id": 1,
 		"direction":  "buy",
 		"order_type": "market",
@@ -140,10 +147,11 @@ func TestOrder_CreateBuyOrder_RequiresAccountID(t *testing.T) {
 }
 
 func TestOrder_ListMyOrders(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/me/orders")
+	resp, err := agentC.GET("/api/v1/me/orders")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -153,11 +161,12 @@ func TestOrder_ListMyOrders(t *testing.T) {
 }
 
 func TestOrder_GetMyOrder(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
 
-	bankAcctResp, err := adminC.GET("/api/bank-accounts")
+	bankAcctResp, err := adminC.GET("/api/v1/bank-accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -165,7 +174,7 @@ func TestOrder_GetMyOrder(t *testing.T) {
 	accts := bankAcctResp.Body["accounts"].([]interface{})
 	acctID := uint64(accts[0].(map[string]interface{})["id"].(float64))
 
-	createResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	createResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -180,7 +189,7 @@ func TestOrder_GetMyOrder(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	orderID := int(helpers.GetNumberField(t, createResp, "id"))
 
-	resp, err := agentC.GET("/api/me/orders/" + helpers.FormatID(orderID))
+	resp, err := agentC.GET("/api/v1/me/orders/" + helpers.FormatID(orderID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -191,10 +200,11 @@ func TestOrder_GetMyOrder(t *testing.T) {
 }
 
 func TestOrder_GetMyOrder_NotFound(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/me/orders/999999")
+	resp, err := agentC.GET("/api/v1/me/orders/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -202,11 +212,12 @@ func TestOrder_GetMyOrder_NotFound(t *testing.T) {
 }
 
 func TestOrder_CancelOrder(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
 
-	bankAcctResp, err := adminC.GET("/api/bank-accounts")
+	bankAcctResp, err := adminC.GET("/api/v1/bank-accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -214,7 +225,7 @@ func TestOrder_CancelOrder(t *testing.T) {
 	accts := bankAcctResp.Body["accounts"].([]interface{})
 	acctID := uint64(accts[0].(map[string]interface{})["id"].(float64))
 
-	createResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	createResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "limit",
@@ -230,7 +241,7 @@ func TestOrder_CancelOrder(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	orderID := int(helpers.GetNumberField(t, createResp, "id"))
 
-	resp, err := agentC.POST("/api/me/orders/"+helpers.FormatID(orderID)+"/cancel", nil)
+	resp, err := agentC.POST("/api/v1/me/orders/"+helpers.FormatID(orderID)+"/cancel", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -241,10 +252,11 @@ func TestOrder_CancelOrder(t *testing.T) {
 }
 
 func TestOrder_CancelOrder_NotFound(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/me/orders/999999/cancel", nil)
+	resp, err := agentC.POST("/api/v1/me/orders/999999/cancel", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -252,10 +264,11 @@ func TestOrder_CancelOrder_NotFound(t *testing.T) {
 }
 
 func TestOrder_ListOrders_RequiresSupervisor(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/orders")
+	resp, err := agentC.GET("/api/v1/orders")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -263,10 +276,11 @@ func TestOrder_ListOrders_RequiresSupervisor(t *testing.T) {
 }
 
 func TestOrder_ListOrders_Supervisor(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
-	resp, err := supervisorC.GET("/api/orders")
+	resp, err := supervisorC.GET("/api/v1/orders")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -275,10 +289,11 @@ func TestOrder_ListOrders_Supervisor(t *testing.T) {
 }
 
 func TestOrder_ApproveOrder_RequiresSupervisor(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/orders/1/approve", nil)
+	resp, err := agentC.POST("/api/v1/orders/1/approve", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -286,10 +301,11 @@ func TestOrder_ApproveOrder_RequiresSupervisor(t *testing.T) {
 }
 
 func TestOrder_DeclineOrder_RequiresSupervisor(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/orders/1/decline", nil)
+	resp, err := agentC.POST("/api/v1/orders/1/decline", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -297,11 +313,12 @@ func TestOrder_DeclineOrder_RequiresSupervisor(t *testing.T) {
 }
 
 func TestOrder_ClientOrderAutoApproved(t *testing.T) {
+	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 	_, listingID := getFirstStockListingID(t, clientC)
 
-	resp, err := clientC.POST("/api/me/orders", map[string]interface{}{
+	resp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",

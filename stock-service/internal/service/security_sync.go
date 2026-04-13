@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -14,26 +14,40 @@ import (
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/provider"
 	"github.com/exbanka/stock-service/internal/repository"
+	"github.com/exbanka/stock-service/internal/source"
 )
 
 // SupportedCurrencies matches the 8 currencies supported by exchange-service.
 var SupportedCurrencies = []string{"RSD", "EUR", "CHF", "USD", "GBP", "JPY", "CAD", "AUD"}
 
 type SecuritySyncService struct {
-	stockRepo     StockRepo
-	futuresRepo   FuturesRepo
-	forexRepo     ForexPairRepo
-	optionRepo    OptionRepo
-	exchangeRepo  *repository.ExchangeRepository
-	settingRepo   SettingRepo
+	stockRepo    StockRepo
+	futuresRepo  FuturesRepo
+	forexRepo    ForexPairRepo
+	optionRepo   OptionRepo
+	exchangeRepo *repository.ExchangeRepository
+	settingRepo  SettingRepo
+	listingSvc   *ListingService
+	cache        *cache.RedisCache
+	influxClient *influx.Client
+
+	// Provider clients are kept for the periodic refresh loop only.
+	// syncStockPrices and refreshForexRates call the external APIs directly
+	// because Source.RefreshPrices is a no-op on ExternalSource.
 	avClient      *provider.AlphaVantageClient
-	eodhClient    *provider.EODHDClient
-	alpacaClient  *provider.AlpacaClient
 	finnhubClient *provider.FinnhubClient
-	listingSvc    *ListingService
-	csvPath       string
-	cache         *cache.RedisCache
-	influxClient  *influx.Client
+
+	srcMu sync.RWMutex
+	src   source.Source
+
+	// Switch orchestration state.
+	wipe       Wiper
+	switchMu   sync.Mutex
+	statusMu   sync.RWMutex
+	status     string // "idle" | "reseeding" | "failed"
+	lastErr    string
+	startedAt  time.Time
+	refreshCtx context.CancelFunc // non-nil while the simulator refresh loop is running
 }
 
 func NewSecuritySyncService(
@@ -43,14 +57,13 @@ func NewSecuritySyncService(
 	optionRepo OptionRepo,
 	exchangeRepo *repository.ExchangeRepository,
 	settingRepo SettingRepo,
-	avClient *provider.AlphaVantageClient,
-	eodhClient *provider.EODHDClient,
-	alpacaClient *provider.AlpacaClient,
-	finnhubClient *provider.FinnhubClient,
 	listingSvc *ListingService,
-	csvPath string,
 	redisCache *cache.RedisCache,
 	influxClient *influx.Client,
+	avClient *provider.AlphaVantageClient,
+	finnhubClient *provider.FinnhubClient,
+	initialSource source.Source,
+	wipe Wiper,
 ) *SecuritySyncService {
 	return &SecuritySyncService{
 		stockRepo:     stockRepo,
@@ -59,15 +72,29 @@ func NewSecuritySyncService(
 		optionRepo:    optionRepo,
 		exchangeRepo:  exchangeRepo,
 		settingRepo:   settingRepo,
-		avClient:      avClient,
-		eodhClient:    eodhClient,
-		alpacaClient:  alpacaClient,
-		finnhubClient: finnhubClient,
 		listingSvc:    listingSvc,
-		csvPath:       csvPath,
 		cache:         redisCache,
 		influxClient:  influxClient,
+		avClient:      avClient,
+		finnhubClient: finnhubClient,
+		src:           initialSource,
+		wipe:          wipe,
+		status:        "idle",
 	}
+}
+
+// Source returns the currently active data source (concurrency-safe).
+func (s *SecuritySyncService) Source() source.Source {
+	s.srcMu.RLock()
+	defer s.srcMu.RUnlock()
+	return s.src
+}
+
+// SetSource replaces the active data source (concurrency-safe).
+func (s *SecuritySyncService) SetSource(newSrc source.Source) {
+	s.srcMu.Lock()
+	defer s.srcMu.Unlock()
+	s.src = newSrc
 }
 
 // SeedAll runs the full initial data seed.
@@ -140,150 +167,44 @@ func (s *SecuritySyncService) isTestingMode() bool {
 
 // --- Exchanges ---
 
-// syncExchanges fetches the exchange list from EODHD (free tier — names, MIC codes,
-// country, currency) and enriches each exchange with trading hours from the CSV file.
-// The exchange-details endpoint requires a paid EODHD plan, so we use CSV for hours/timezone.
+// syncExchanges delegates to the active Source to fetch exchanges, then upserts
+// each returned exchange into the DB via the exchange repository.
 func (s *SecuritySyncService) syncExchanges() {
-	// Always load CSV data — used either as fallback or for trading hours enrichment
-	csvExchanges, csvErr := provider.LoadExchangesFromCSVFile(s.csvPath)
-	csvByMIC := make(map[string]*model.StockExchange)
-	if csvErr == nil {
-		for i := range csvExchanges {
-			csvByMIC[csvExchanges[i].MICCode] = &csvExchanges[i]
+	src := s.Source()
+	exchanges, err := src.FetchExchanges(context.Background())
+	if err != nil {
+		log.Printf("WARN: failed to fetch exchanges from %s: %v", src.Name(), err)
+		return
+	}
+	for i := range exchanges {
+		ex := exchanges[i]
+		if err := s.exchangeRepo.UpsertByMICCode(&ex); err != nil {
+			log.Printf("WARN: failed to upsert exchange %s: %v", ex.MICCode, err)
 		}
 	}
-
-	// Always seed CSV exchanges first — they have known acronyms (NYSE, NASDAQ,
-	// NYMEX, FOREX, etc.) that futures, forex, and stock seeding depend on.
-	if csvErr == nil {
-		for _, ex := range csvExchanges {
-			ex := ex
-			if err := s.exchangeRepo.UpsertByMICCode(&ex); err != nil {
-				log.Printf("WARN: failed to upsert CSV exchange %s: %v", ex.MICCode, err)
-			}
-		}
-		log.Printf("seeded %d exchanges from CSV", len(csvExchanges))
-	} else {
-		log.Printf("WARN: failed to load exchanges from CSV: %v", csvErr)
-	}
-
-	// Then add any additional exchanges from EODHD (more coverage, different codes)
-	if s.eodhClient != nil {
-		exchanges, err := s.eodhClient.FetchExchanges()
-		if err != nil {
-			log.Printf("WARN: EODHD FetchExchanges failed: %v", err)
-		} else {
-			added := 0
-			for _, ex := range exchanges {
-				added += s.upsertExchangeFromEODHD(ex, csvByMIC)
-			}
-			log.Printf("synced %d additional exchange MICs from EODHD API", added)
-		}
-	} else {
-		log.Println("WARN: no EODHD API key — using CSV exchanges only")
-	}
-}
-
-// upsertExchangeFromEODHD converts EODHD exchange list data into StockExchange records.
-// Skips MICs already present from CSV (those have correct acronyms and trading hours).
-// Returns the number of new MICs added.
-func (s *SecuritySyncService) upsertExchangeFromEODHD(ex provider.EODHDExchange, csvByMIC map[string]*model.StockExchange) int {
-	mics := strings.Split(ex.OperatingMIC, ",")
-	added := 0
-
-	for _, mic := range mics {
-		mic = strings.TrimSpace(mic)
-		if mic == "" {
-			continue
-		}
-
-		// Skip MICs already seeded from CSV — those have correct acronyms
-		// (NYSE, NASDAQ, NYMEX, etc.) that other seeding depends on.
-		if _, ok := csvByMIC[mic]; ok {
-			continue
-		}
-
-		exchange := &model.StockExchange{
-			Name:     ex.Name,
-			Acronym:  ex.Code,
-			MICCode:  mic,
-			Polity:   ex.Country,
-			Currency: ex.Currency,
-		}
-
-		if err := s.exchangeRepo.UpsertByMICCode(exchange); err != nil {
-			log.Printf("WARN: failed to upsert exchange MIC %s: %v", mic, err)
-		}
-		added++
-	}
-	return added
+	log.Printf("synced %d exchanges from source %s", len(exchanges), src.Name())
 }
 
 // --- Stocks ---
 
+// syncStocks delegates to the active Source to fetch stocks, then upserts each
+// into the DB. Listing rows are created later by SeedAll via
+// listingSvc.SyncListingsFromSecurities() — matching the pre-refactor behaviour.
 func (s *SecuritySyncService) syncStocks(ctx context.Context) {
-	tickers := s.getStockTickers()
-
-	if s.avClient == nil {
-		log.Println("WARN: no AlphaVantage API key — seeding default stocks")
-		s.seedDefaultStocks()
+	src := s.Source()
+	stocks, err := src.FetchStocks(ctx)
+	if err != nil {
+		log.Printf("WARN: failed to fetch stocks from %s: %v", src.Name(), err)
 		return
 	}
-
-	for _, ticker := range tickers {
-		select {
-		case <-ctx.Done():
-			return
-		default:
+	for i := range stocks {
+		sw := stocks[i]
+		stock := sw.Stock
+		if err := s.stockRepo.UpsertByTicker(&stock); err != nil {
+			log.Printf("WARN: failed to upsert stock %s: %v", stock.Ticker, err)
 		}
-
-		stockData, err := s.avClient.FetchStockData(ticker)
-		if err != nil {
-			log.Printf("WARN: failed to fetch stock %s: %v", ticker, err)
-			continue
-		}
-
-		// Resolve exchange — FetchStockData already called FetchOverview internally,
-		// so we use the exchange name from overview. Try to look it up.
-		exchangeAcronym := "NYSE"
-		overview, err := s.avClient.FetchOverview(ticker)
-		if err == nil && overview.Exchange != "" {
-			exchangeAcronym = overview.Exchange
-		}
-		exchange, err := s.exchangeRepo.GetByAcronym(exchangeAcronym)
-		if err != nil {
-			log.Printf("WARN: exchange %s not found for stock %s, skipping", exchangeAcronym, ticker)
-			continue
-		}
-		stockData.ExchangeID = exchange.ID
-
-		if err := s.stockRepo.UpsertByTicker(stockData); err != nil {
-			log.Printf("WARN: failed to upsert stock %s: %v", ticker, err)
-		}
-
-		// Rate limit: AlphaVantage free tier allows 5 calls/min
-		time.Sleep(12 * time.Second)
 	}
-	log.Printf("synced %d stock tickers", len(tickers))
-}
-
-func (s *SecuritySyncService) getStockTickers() []string {
-	if s.alpacaClient != nil {
-		assets, err := s.alpacaClient.FetchAssets()
-		if err != nil {
-			log.Printf("WARN: Alpaca FetchAssets failed: %v — using default tickers", err)
-		} else if len(assets) > 0 {
-			tickers := make([]string, len(assets))
-			for i, a := range assets {
-				tickers[i] = a.Symbol
-			}
-			log.Printf("fetched %d stock tickers from Alpaca", len(tickers))
-			return tickers
-		}
-	} else {
-		log.Println("WARN: no Alpaca API key — using default stock tickers")
-	}
-	return provider.DefaultStockTickers
+	log.Printf("synced %d stocks from source %s", len(stocks), src.Name())
 }
 
 func (s *SecuritySyncService) syncStockPrices(ctx context.Context) {
@@ -338,187 +259,46 @@ func (s *SecuritySyncService) syncStockPrices(ctx context.Context) {
 	}
 }
 
-// seedDefaultStocks creates placeholder stocks when no API key is configured.
-func (s *SecuritySyncService) seedDefaultStocks() {
-	nyse, _ := s.exchangeRepo.GetByAcronym("NYSE")
-	nasdaq, _ := s.exchangeRepo.GetByAcronym("NASDAQ")
-
-	defaults := []model.Stock{
-		{Ticker: "AAPL", Name: "Apple Inc.", OutstandingShares: 15000000000, DividendYield: decimal.NewFromFloat(0.005), Price: decimal.NewFromFloat(165.00), High: decimal.NewFromFloat(167.50), Low: decimal.NewFromFloat(163.20), Change: decimal.NewFromFloat(-2.30), Volume: 50000},
-		{Ticker: "MSFT", Name: "Microsoft Corporation", OutstandingShares: 7400000000, DividendYield: decimal.NewFromFloat(0.008), Price: decimal.NewFromFloat(420.00), High: decimal.NewFromFloat(425.00), Low: decimal.NewFromFloat(418.00), Change: decimal.NewFromFloat(2.00), Volume: 35000},
-		{Ticker: "GOOGL", Name: "Alphabet Inc.", OutstandingShares: 5900000000, DividendYield: decimal.Zero, Price: decimal.NewFromFloat(175.00), High: decimal.NewFromFloat(177.00), Low: decimal.NewFromFloat(173.50), Change: decimal.NewFromFloat(1.50), Volume: 28000},
-		{Ticker: "AMZN", Name: "Amazon.com Inc.", OutstandingShares: 10300000000, DividendYield: decimal.Zero, Price: decimal.NewFromFloat(185.00), High: decimal.NewFromFloat(187.00), Low: decimal.NewFromFloat(183.00), Change: decimal.NewFromFloat(-1.00), Volume: 40000},
-		{Ticker: "TSLA", Name: "Tesla Inc.", OutstandingShares: 3200000000, DividendYield: decimal.Zero, Price: decimal.NewFromFloat(175.00), High: decimal.NewFromFloat(180.00), Low: decimal.NewFromFloat(170.00), Change: decimal.NewFromFloat(5.00), Volume: 60000},
-		{Ticker: "META", Name: "Meta Platforms Inc.", OutstandingShares: 2570000000, DividendYield: decimal.NewFromFloat(0.004), Price: decimal.NewFromFloat(500.00), High: decimal.NewFromFloat(505.00), Low: decimal.NewFromFloat(495.00), Change: decimal.NewFromFloat(3.00), Volume: 25000},
-		{Ticker: "NVDA", Name: "NVIDIA Corporation", OutstandingShares: 24500000000, DividendYield: decimal.NewFromFloat(0.0003), Price: decimal.NewFromFloat(950.00), High: decimal.NewFromFloat(960.00), Low: decimal.NewFromFloat(940.00), Change: decimal.NewFromFloat(10.00), Volume: 45000},
-		{Ticker: "JPM", Name: "JPMorgan Chase & Co.", OutstandingShares: 2870000000, DividendYield: decimal.NewFromFloat(0.022), Price: decimal.NewFromFloat(200.00), High: decimal.NewFromFloat(202.00), Low: decimal.NewFromFloat(198.00), Change: decimal.NewFromFloat(1.00), Volume: 15000},
-	}
-
-	for i := range defaults {
-		defaults[i].LastRefresh = time.Now()
-		// Assign to NYSE for most, NASDAQ for tech names
-		if nyse != nil {
-			defaults[i].ExchangeID = nyse.ID
-		}
-		if nasdaq != nil && (defaults[i].Ticker == "AAPL" || defaults[i].Ticker == "MSFT" ||
-			defaults[i].Ticker == "GOOGL" || defaults[i].Ticker == "AMZN" ||
-			defaults[i].Ticker == "TSLA" || defaults[i].Ticker == "META" || defaults[i].Ticker == "NVDA") {
-			defaults[i].ExchangeID = nasdaq.ID
-		}
-		if err := s.stockRepo.UpsertByTicker(&defaults[i]); err != nil {
-			log.Printf("WARN: failed to seed stock %s: %v", defaults[i].Ticker, err)
-		}
-	}
-	log.Printf("seeded %d default stocks", len(defaults))
-}
-
 // --- Futures ---
 
-func (s *SecuritySyncService) seedFutures(seedPath string) {
-	rows, err := provider.LoadFuturesFromJSON(seedPath)
+// seedFutures delegates to the active Source to fetch futures contracts, then
+// upserts each into the DB. The futuresSeedPath is kept as parameter for
+// compatibility with SeedAll's call site; ExternalSource reads it internally.
+func (s *SecuritySyncService) seedFutures(_ string) {
+	src := s.Source()
+	futures, err := src.FetchFutures(context.Background())
 	if err != nil {
-		log.Printf("WARN: failed to load futures seed data: %v", err)
+		log.Printf("WARN: failed to fetch futures from %s: %v", src.Name(), err)
 		return
 	}
-
-	for _, row := range rows {
-		exchange, err := s.exchangeRepo.GetByAcronym(row.ExchangeAcronym)
-		if err != nil {
-			log.Printf("WARN: exchange %s not found for futures %s, skipping",
-				row.ExchangeAcronym, row.Contract.Ticker)
-			continue
-		}
-		row.Contract.ExchangeID = exchange.ID
-		if err := s.futuresRepo.UpsertByTicker(&row.Contract); err != nil {
-			log.Printf("WARN: failed to upsert futures %s: %v", row.Contract.Ticker, err)
+	for i := range futures {
+		fw := futures[i]
+		fc := fw.Futures
+		if err := s.futuresRepo.UpsertByTicker(&fc); err != nil {
+			log.Printf("WARN: failed to upsert futures %s: %v", fc.Ticker, err)
 		}
 	}
-	log.Printf("seeded %d futures contracts from JSON", len(rows))
+	log.Printf("seeded %d futures contracts from source %s", len(futures), src.Name())
 }
 
 // --- Forex Pairs ---
 
+// seedForexPairs delegates to the active Source to fetch forex pairs, then
+// upserts each into the DB.
 func (s *SecuritySyncService) seedForexPairs() {
-	forexExchange, err := s.exchangeRepo.GetByAcronym("FOREX")
+	src := s.Source()
+	pairs, err := src.FetchForex(context.Background())
 	if err != nil {
-		log.Println("WARN: no FOREX exchange found — forex pairs will not have exchange association")
+		log.Printf("WARN: failed to fetch forex pairs from %s: %v", src.Name(), err)
 		return
 	}
-
-	if s.finnhubClient != nil {
-		if s.seedForexFromFinnhub(forexExchange.ID) {
-			return
-		}
-	} else {
-		log.Println("WARN: no Finnhub API key — seeding hardcoded forex pairs")
-	}
-
-	s.seedHardcodedForexPairs(forexExchange.ID)
-}
-
-func (s *SecuritySyncService) seedForexFromFinnhub(forexExchangeID uint64) bool {
-	symbols, err := s.finnhubClient.FetchForexSymbols()
-	if err != nil {
-		log.Printf("WARN: Finnhub FetchForexSymbols failed: %v — falling back to hardcoded", err)
-		return false
-	}
-
-	rates := make(map[string]map[string]float64)
-	for _, base := range SupportedCurrencies {
-		r, err := s.finnhubClient.FetchForexRates(base)
-		if err != nil {
-			log.Printf("WARN: Finnhub FetchForexRates(%s) failed: %v", base, err)
-			continue
-		}
-		rates[base] = r
-	}
-
-	count := 0
-	supported := make(map[string]bool)
-	for _, c := range SupportedCurrencies {
-		supported[c] = true
-	}
-
-	for _, sym := range symbols {
-		parts := strings.SplitN(sym.DisplaySymbol, "/", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		base, quote := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
-		if !supported[base] || !supported[quote] {
-			continue
-		}
-
-		rate := float64(0)
-		if baseRates, ok := rates[base]; ok {
-			if r, ok := baseRates[quote]; ok {
-				rate = r
-			}
-		}
-
-		liquidity := "medium"
-		if isMajorPair(base, quote) {
-			liquidity = "high"
-		} else if isExoticPair(base, quote) {
-			liquidity = "low"
-		}
-
-		fp := &model.ForexPair{
-			Ticker:        fmt.Sprintf("%s/%s", base, quote),
-			Name:          fmt.Sprintf("%s to %s", currencyName(base), currencyName(quote)),
-			BaseCurrency:  base,
-			QuoteCurrency: quote,
-			ExchangeRate:  decimal.NewFromFloat(rate),
-			Liquidity:     liquidity,
-			ExchangeID:    forexExchangeID,
-			LastRefresh:   time.Now(),
-		}
-		if err := s.forexRepo.UpsertByTicker(fp); err != nil {
+	for i := range pairs {
+		fp := pairs[i].Forex
+		if err := s.forexRepo.UpsertByTicker(&fp); err != nil {
 			log.Printf("WARN: failed to upsert forex pair %s: %v", fp.Ticker, err)
 		}
-		count++
 	}
-
-	if count == 0 {
-		log.Println("WARN: no supported forex pairs found from Finnhub — falling back")
-		return false
-	}
-	log.Printf("seeded %d forex pairs from Finnhub", count)
-	return true
-}
-
-func (s *SecuritySyncService) seedHardcodedForexPairs(forexExchangeID uint64) {
-	count := 0
-	for _, base := range SupportedCurrencies {
-		for _, quote := range SupportedCurrencies {
-			if base == quote {
-				continue
-			}
-			ticker := fmt.Sprintf("%s/%s", base, quote)
-			name := fmt.Sprintf("%s to %s", currencyName(base), currencyName(quote))
-			liquidity := "medium"
-			if isMajorPair(base, quote) {
-				liquidity = "high"
-			} else if isExoticPair(base, quote) {
-				liquidity = "low"
-			}
-			fp := &model.ForexPair{
-				Ticker:        ticker,
-				Name:          name,
-				BaseCurrency:  base,
-				QuoteCurrency: quote,
-				ExchangeRate:  decimal.Zero,
-				Liquidity:     liquidity,
-				ExchangeID:    forexExchangeID,
-				LastRefresh:   time.Now(),
-			}
-			if err := s.forexRepo.UpsertByTicker(fp); err != nil {
-				log.Printf("WARN: failed to seed forex pair %s: %v", ticker, err)
-			}
-			count++
-		}
-	}
-	log.Printf("seeded %d hardcoded forex pairs", count)
+	log.Printf("seeded %d forex pairs from source %s", len(pairs), src.Name())
 }
 
 func (s *SecuritySyncService) refreshForexRates() {
@@ -555,28 +335,6 @@ func (s *SecuritySyncService) refreshForexRates() {
 	}
 }
 
-func currencyName(code string) string {
-	names := map[string]string{
-		"RSD": "Serbian Dinar", "EUR": "Euro", "CHF": "Swiss Franc",
-		"USD": "US Dollar", "GBP": "British Pound", "JPY": "Japanese Yen",
-		"CAD": "Canadian Dollar", "AUD": "Australian Dollar",
-	}
-	if n, ok := names[code]; ok {
-		return n
-	}
-	return code
-}
-
-func isMajorPair(base, quote string) bool {
-	majors := map[string]bool{"EUR": true, "USD": true, "GBP": true, "JPY": true}
-	return majors[base] && majors[quote]
-}
-
-func isExoticPair(base, quote string) bool {
-	exotic := map[string]bool{"RSD": true}
-	return exotic[base] || exotic[quote]
-}
-
 // --- Options ---
 
 func (s *SecuritySyncService) generateAllOptions() {
@@ -589,11 +347,40 @@ func (s *SecuritySyncService) generateAllOptions() {
 	totalGenerated := 0
 	for _, stock := range stocks {
 		stock := stock
+
+		// Resolve the stock's exchange via its listing row.
+		stockListing, err := s.listingSvc.FindByStock(stock.ID)
+		if err != nil {
+			log.Printf("WARN: failed to look up listing for stock %s: %v; skipping option generation", stock.Ticker, err)
+			continue
+		}
+		if stockListing == nil {
+			log.Printf("WARN: no listing for stock %s; skipping option generation", stock.Ticker)
+			continue
+		}
+
 		options := GenerateOptionsForStock(&stock)
-		for _, opt := range options {
-			opt := opt
-			if err := s.optionRepo.UpsertByTicker(&opt); err != nil {
+		for i := range options {
+			opt := &options[i]
+			if err := s.optionRepo.UpsertByTicker(opt); err != nil {
 				log.Printf("WARN: failed to upsert option %s: %v", opt.Ticker, err)
+				continue
+			}
+			optListing := &model.Listing{
+				SecurityID:   opt.ID,
+				SecurityType: "option",
+				ExchangeID:   stockListing.ExchangeID,
+				Price:        opt.Premium,
+				LastRefresh:  time.Now(),
+			}
+			savedListing, err := s.listingSvc.UpsertForOption(optListing)
+			if err != nil {
+				log.Printf("WARN: failed to upsert option listing for %s: %v", opt.Ticker, err)
+				continue
+			}
+			if err := s.optionRepo.SetListingID(opt.ID, savedListing.ID); err != nil {
+				log.Printf("WARN: failed to set listing_id on option %s: %v", opt.Ticker, err)
+				continue
 			}
 		}
 		totalGenerated += len(options)
@@ -606,4 +393,177 @@ func (s *SecuritySyncService) generateAllOptions() {
 	}
 
 	log.Printf("generated %d options for %d stocks, cleaned %d expired", totalGenerated, len(stocks), deleted)
+}
+
+// GenerateAllOptionsForTest is a test-only exported wrapper for generateAllOptions.
+func (s *SecuritySyncService) GenerateAllOptionsForTest() {
+	s.generateAllOptions()
+}
+
+// --- Switch orchestration ---
+
+// SwitchSource atomically switches the active data source. Wipes all
+// stock-service tables and reseeds from the new source. Concurrent calls
+// fail fast with an error.
+func (s *SecuritySyncService) SwitchSource(ctx context.Context, newSource source.Source) error {
+	if !s.switchMu.TryLock() {
+		return fmt.Errorf("another source switch is in progress")
+	}
+	defer s.switchMu.Unlock()
+
+	s.setStatus("reseeding", "")
+	s.statusMu.Lock()
+	s.startedAt = time.Now()
+	s.statusMu.Unlock()
+
+	// Stop the current simulator refresh loop if any.
+	if s.refreshCtx != nil {
+		s.refreshCtx()
+		s.refreshCtx = nil
+	}
+
+	// Persist the new source choice so restarts pick it up.
+	if err := s.settingRepo.Set("active_stock_source", newSource.Name()); err != nil {
+		s.setStatus("failed", err.Error())
+		return err
+	}
+
+	// Wipe.
+	if s.wipe != nil {
+		if err := s.wipe.WipeAll(); err != nil {
+			s.setStatus("failed", "wipe: "+err.Error())
+			return err
+		}
+	}
+
+	// Swap the source pointer.
+	s.SetSource(newSource)
+
+	// Reseed synchronously for generated (local, instant); async for others.
+	if newSource.Name() == "generated" {
+		if err := s.reseedAll(ctx, ""); err != nil {
+			s.setStatus("failed", err.Error())
+			return err
+		}
+		s.setStatus("idle", "")
+		return nil
+	}
+
+	// Async reseed for external / simulator sources.
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		if err := s.reseedAll(bgCtx, ""); err != nil {
+			s.setStatus("failed", err.Error())
+			return
+		}
+		s.setStatus("idle", "")
+		if newSource.Name() == "simulator" {
+			s.startSimulatorRefreshLoop()
+		}
+	}()
+	return nil
+}
+
+// reseedAll calls SeedAll and wraps it so it returns an error.
+// SeedAll itself logs errors internally and never returns one, so this
+// always returns nil — but having the error signature lets us slot it into
+// the orchestration flow uniformly.
+func (s *SecuritySyncService) reseedAll(ctx context.Context, futuresSeedPath string) error {
+	s.SeedAll(ctx, futuresSeedPath)
+	return nil
+}
+
+func (s *SecuritySyncService) setStatus(status, errMsg string) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	s.status = status
+	s.lastErr = errMsg
+}
+
+// GetStatus returns the current switch status, last error (if any),
+// when the current switch was started, and the active source name.
+func (s *SecuritySyncService) GetStatus() (status, lastErr string, startedAt time.Time, sourceName string) {
+	s.statusMu.RLock()
+	defer s.statusMu.RUnlock()
+	status = s.status
+	lastErr = s.lastErr
+	startedAt = s.startedAt
+	sourceName = s.Source().Name()
+	return
+}
+
+// StartSimulatorRefreshLoopIfActive starts the simulator price refresh
+// goroutine if the currently active source is the simulator. Safe to call
+// from cmd/main.go on boot.
+func (s *SecuritySyncService) StartSimulatorRefreshLoopIfActive() {
+	if s.Source().Name() == "simulator" {
+		s.startSimulatorRefreshLoop()
+	}
+}
+
+// startSimulatorRefreshLoop launches a 3s ticker that re-fetches prices from
+// the simulator and updates the DB. Runs until ctx is cancelled by the next
+// SwitchSource call.
+func (s *SecuritySyncService) startSimulatorRefreshLoop() {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.refreshCtx = cancel
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.refreshSimulatorPrices(ctx)
+			}
+		}
+	}()
+}
+
+// refreshSimulatorPrices re-fetches the current Source and updates the
+// denormalized price columns on listings/stocks/futures/forex. Metadata
+// rows are untouched. Called from the simulator refresh loop only.
+func (s *SecuritySyncService) refreshSimulatorPrices(ctx context.Context) {
+	src := s.Source()
+
+	if stocks, err := src.FetchStocks(ctx); err == nil {
+		for _, sw := range stocks {
+			if err := s.listingSvc.UpdatePriceByTicker("stock", sw.Stock.Ticker, sw.Price, sw.High, sw.Low); err != nil {
+				log.Printf("WARN: refresh listing stock %s: %v", sw.Stock.Ticker, err)
+			}
+			if err := s.stockRepo.UpdatePriceByTicker(sw.Stock.Ticker, sw.Price); err != nil {
+				log.Printf("WARN: refresh stock %s: %v", sw.Stock.Ticker, err)
+			}
+		}
+	} else {
+		log.Printf("WARN: simulator refresh FetchStocks: %v", err)
+	}
+
+	if futures, err := src.FetchFutures(ctx); err == nil {
+		for _, fw := range futures {
+			if err := s.listingSvc.UpdatePriceByTicker("futures", fw.Futures.Ticker, fw.Price, fw.High, fw.Low); err != nil {
+				log.Printf("WARN: refresh listing futures %s: %v", fw.Futures.Ticker, err)
+			}
+			if err := s.futuresRepo.UpdatePriceByTicker(fw.Futures.Ticker, fw.Price); err != nil {
+				log.Printf("WARN: refresh futures %s: %v", fw.Futures.Ticker, err)
+			}
+		}
+	} else {
+		log.Printf("WARN: simulator refresh FetchFutures: %v", err)
+	}
+
+	if forex, err := src.FetchForex(ctx); err == nil {
+		for _, fx := range forex {
+			if err := s.listingSvc.UpdatePriceByTicker("forex", fx.Forex.Ticker, fx.Price, fx.High, fx.Low); err != nil {
+				log.Printf("WARN: refresh listing forex %s: %v", fx.Forex.Ticker, err)
+			}
+			if err := s.forexRepo.UpdatePriceByTicker(fx.Forex.Ticker, fx.Price); err != nil {
+				log.Printf("WARN: refresh forex %s: %v", fx.Forex.Ticker, err)
+			}
+		}
+	} else {
+		log.Printf("WARN: simulator refresh FetchForex: %v", err)
+	}
 }
