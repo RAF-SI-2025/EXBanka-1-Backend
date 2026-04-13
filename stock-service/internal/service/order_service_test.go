@@ -143,7 +143,10 @@ func (m *mockListingRepo) GetBySecurityIDAndType(securityID uint64, securityType
 
 func (m *mockListingRepo) Update(listing *model.Listing) error     { return nil }
 func (m *mockListingRepo) UpsertBySecurity(l *model.Listing) error { return nil }
-func (m *mockListingRepo) ListAll() ([]model.Listing, error)       { return nil, nil }
+func (m *mockListingRepo) UpsertForOption(l *model.Listing) (*model.Listing, error) {
+	return l, nil
+}
+func (m *mockListingRepo) ListAll() ([]model.Listing, error) { return nil, nil }
 func (m *mockListingRepo) ListBySecurityType(t string) ([]model.Listing, error) {
 	return nil, nil
 }

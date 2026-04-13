@@ -589,11 +589,40 @@ func (s *SecuritySyncService) generateAllOptions() {
 	totalGenerated := 0
 	for _, stock := range stocks {
 		stock := stock
+
+		// Resolve the stock's exchange via its listing row.
+		stockListing, err := s.listingSvc.FindByStock(stock.ID)
+		if err != nil {
+			log.Printf("WARN: failed to look up listing for stock %s: %v; skipping option generation", stock.Ticker, err)
+			continue
+		}
+		if stockListing == nil {
+			log.Printf("WARN: no listing for stock %s; skipping option generation", stock.Ticker)
+			continue
+		}
+
 		options := GenerateOptionsForStock(&stock)
-		for _, opt := range options {
-			opt := opt
-			if err := s.optionRepo.UpsertByTicker(&opt); err != nil {
+		for i := range options {
+			opt := &options[i]
+			if err := s.optionRepo.UpsertByTicker(opt); err != nil {
 				log.Printf("WARN: failed to upsert option %s: %v", opt.Ticker, err)
+				continue
+			}
+			optListing := &model.Listing{
+				SecurityID:   opt.ID,
+				SecurityType: "option",
+				ExchangeID:   stockListing.ExchangeID,
+				Price:        opt.Premium,
+				LastRefresh:  time.Now(),
+			}
+			savedListing, err := s.listingSvc.UpsertForOption(optListing)
+			if err != nil {
+				log.Printf("WARN: failed to upsert option listing for %s: %v", opt.Ticker, err)
+				continue
+			}
+			if err := s.optionRepo.SetListingID(opt.ID, savedListing.ID); err != nil {
+				log.Printf("WARN: failed to set listing_id on option %s: %v", opt.Ticker, err)
+				continue
 			}
 		}
 		totalGenerated += len(options)
@@ -606,4 +635,9 @@ func (s *SecuritySyncService) generateAllOptions() {
 	}
 
 	log.Printf("generated %d options for %d stocks, cleaned %d expired", totalGenerated, len(stocks), deleted)
+}
+
+// GenerateAllOptionsForTest is a test-only exported wrapper for generateAllOptions.
+func (s *SecuritySyncService) GenerateAllOptionsForTest() {
+	s.generateAllOptions()
 }

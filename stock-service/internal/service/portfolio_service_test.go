@@ -240,6 +240,7 @@ func (m *mockOptionRepo) List(filter repository.OptionFilter) ([]model.Option, i
 	return nil, 0, nil
 }
 func (m *mockOptionRepo) DeleteExpiredBefore(cutoff time.Time) (int64, error) { return 0, nil }
+func (m *mockOptionRepo) SetListingID(optionID, listingID uint64) error        { return nil }
 
 func (m *mockOptionRepo) GetByID(id uint64) (*model.Option, error) {
 	o, ok := m.options[id]

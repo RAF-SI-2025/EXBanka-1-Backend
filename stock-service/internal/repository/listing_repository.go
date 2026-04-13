@@ -71,6 +71,39 @@ func (r *ListingRepository) UpsertBySecurity(listing *model.Listing) error {
 	})
 }
 
+// UpsertForOption upserts a listing for an option and returns the final row (with ID populated).
+func (r *ListingRepository) UpsertForOption(listing *model.Listing) (*model.Listing, error) {
+	var result model.Listing
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var existing model.Listing
+		dbErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("security_id = ? AND security_type = ?", listing.SecurityID, listing.SecurityType).
+			First(&existing).Error
+		if dbErr != nil {
+			if dbErr == gorm.ErrRecordNotFound {
+				if createErr := tx.Create(listing).Error; createErr != nil {
+					return createErr
+				}
+				result = *listing
+				return nil
+			}
+			return dbErr
+		}
+		existing.ExchangeID = listing.ExchangeID
+		existing.Price = listing.Price
+		existing.LastRefresh = listing.LastRefresh
+		if saveErr := tx.Save(&existing).Error; saveErr != nil {
+			return saveErr
+		}
+		result = existing
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (r *ListingRepository) ListAll() ([]model.Listing, error) {
 	var listings []model.Listing
 	if err := r.db.Preload("Exchange").Find(&listings).Error; err != nil {

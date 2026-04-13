@@ -44,6 +44,7 @@ type OptionRepo interface {
 	UpsertByTicker(o *model.Option) error
 	List(filter repository.OptionFilter) ([]model.Option, int64, error)
 	DeleteExpiredBefore(cutoff time.Time) (int64, error)
+	SetListingID(optionID, listingID uint64) error
 }
 
 // ExchangeRepo is the exchange repository from Plan 2 (already defined).
@@ -66,6 +67,7 @@ type ListingRepo interface {
 	GetBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error)
 	Update(listing *model.Listing) error
 	UpsertBySecurity(listing *model.Listing) error
+	UpsertForOption(listing *model.Listing) (*model.Listing, error)
 	ListAll() ([]model.Listing, error)
 	ListBySecurityType(securityType string) ([]model.Listing, error)
 }

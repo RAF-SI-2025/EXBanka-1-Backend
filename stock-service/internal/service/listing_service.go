@@ -128,6 +128,23 @@ func (s *ListingService) syncForexListings() {
 	log.Printf("synced %d forex listings", count)
 }
 
+// FindByStock returns the "stock" listing for the given stock ID.
+func (s *ListingService) FindByStock(stockID uint64) (*model.Listing, error) {
+	listing, err := s.listingRepo.GetBySecurityIDAndType(stockID, "stock")
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return listing, nil
+}
+
+// UpsertForOption upserts a listing with security_type="option" and returns the persisted listing (with ID).
+func (s *ListingService) UpsertForOption(listing *model.Listing) (*model.Listing, error) {
+	return s.listingRepo.UpsertForOption(listing)
+}
+
 // GetListing retrieves a listing by ID.
 func (s *ListingService) GetListing(id uint64) (*model.Listing, error) {
 	listing, err := s.listingRepo.GetByID(id)
