@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -307,6 +308,25 @@ func main() {
 	// Tax handler
 	taxHandler := handler.NewTaxHandler(taxSvc)
 	pb.RegisterTaxGRPCServiceServer(grpcServer, taxHandler)
+
+	// Source admin handler
+	sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
+		switch name {
+		case "external":
+			return extSource, nil
+		case "generated":
+			return source.NewGeneratedSource(), nil
+		case "simulator":
+			simClient := source.NewSimulatorClient(cfg.MarketSimulatorURL, cfg.BankName, settingRepo)
+			if err := simClient.EnsureRegistered(); err != nil {
+				return nil, fmt.Errorf("simulator registration: %w", err)
+			}
+			return source.NewSimulatorSource(simClient), nil
+		default:
+			return nil, fmt.Errorf("unknown source %q", name)
+		}
+	})
+	pb.RegisterSourceAdminServiceServer(grpcServer, sourceAdminHandler)
 
 	shared.RegisterHealthCheck(grpcServer, "stock-service")
 	metrics.InitializeGRPCMetrics(grpcServer)

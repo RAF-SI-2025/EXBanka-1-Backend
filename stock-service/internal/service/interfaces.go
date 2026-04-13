@@ -1,13 +1,23 @@
 package service
 
 import (
+	"context"
 	"time"
 
 	"github.com/shopspring/decimal"
 
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
+	"github.com/exbanka/stock-service/internal/source"
 )
+
+// SwitchableSyncService is the subset of SecuritySyncService that the admin
+// handler depends on. Exposing it as an interface lets tests mock the
+// orchestration without spinning up a real sync service.
+type SwitchableSyncService interface {
+	SwitchSource(ctx context.Context, newSource source.Source) error
+	GetStatus() (status, lastErr string, startedAt time.Time, sourceName string)
+}
 
 type StockRepo interface {
 	Create(stock *model.Stock) error
