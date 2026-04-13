@@ -24,7 +24,7 @@ func TestWF_PaymentVerificationFailureAndRetry(t *testing.T) {
 
 	// Step 2: Sender creates a payment
 	const paymentAmount = 3000.0
-	createResp, err := senderC.POST("/api/me/payments", map[string]interface{}{
+	createResp, err := senderC.POST("/api/v1/me/payments", map[string]interface{}{
 		"from_account_number": senderAcct,
 		"to_account_number":   receiverAcct,
 		"amount":              paymentAmount,

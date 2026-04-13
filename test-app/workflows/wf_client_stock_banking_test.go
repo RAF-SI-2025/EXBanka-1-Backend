@@ -16,7 +16,6 @@ import (
 //	client places stock buy via market order -> client also pays another client ->
 //	both activities coexist on the same account -> balance reflects both deductions.
 func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create two clients — one for trading+paying, one as payment receiver
@@ -32,7 +31,7 @@ func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
 	_, listingID := getFirstStockListingID(t, senderC)
 	t.Logf("WF-11: using listing_id=%d", listingID)
 
-	buyResp, err := senderC.POST("/api/me/orders", map[string]interface{}{
+	buyResp, err := senderC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -57,7 +56,7 @@ func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
 	t.Logf("WF-11: payment executed id=%d amount=%.2f", paymentID, paymentAmount)
 
 	// Step 5: Assert portfolio has a stock holding
-	portfolioResp, err := senderC.GET("/api/me/portfolio?security_type=stock")
+	portfolioResp, err := senderC.GET("/api/v1/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-11: list portfolio: %v", err)
 	}

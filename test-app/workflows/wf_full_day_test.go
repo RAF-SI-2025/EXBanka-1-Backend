@@ -20,7 +20,6 @@ import (
 //	agent buys stock -> sells -> capital gain ->
 //	bank gained fees from all operations.
 func TestWF_FullBankingDaySimulation(t *testing.T) {
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 
 	// ---- Phase 1: Onboard all participants ----
@@ -107,7 +106,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	t.Logf("WF-14: Using listing_id=%d", listingID)
 
 	// Agent buys 2 shares
-	buyResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	buyResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -126,7 +125,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	t.Log("WF-14: Agent buy order filled")
 
 	// Verify holding exists
-	portfolioResp, err := agentC.GET("/api/me/portfolio?security_type=stock")
+	portfolioResp, err := agentC.GET("/api/v1/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-14: list portfolio: %v", err)
 	}
@@ -139,7 +138,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	t.Logf("WF-14: Agent has %d holding(s)", len(holdings))
 
 	// Agent sells 2 shares
-	sellResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	sellResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "sell",
 		"order_type":  "market",

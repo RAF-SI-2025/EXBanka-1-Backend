@@ -35,7 +35,7 @@ func TestPayment_EmployeeCanReadPayments(t *testing.T) {
 func TestPayment_UnauthenticatedCannotCreatePayment(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/me/payments", map[string]interface{}{
+	resp, err := c.POST("/api/v1/me/payments", map[string]interface{}{
 		"from_account_number": "123",
 		"to_account_number":   "456",
 		"amount":              "100.00",
@@ -145,7 +145,7 @@ func TestPayment_EndToEnd(t *testing.T) {
 	defer el.Stop()
 
 	// Client A creates payment (500 RSD — below 1000 fee threshold)
-	payResp, err := clientA.POST("/api/me/payments", map[string]interface{}{
+	payResp, err := clientA.POST("/api/v1/me/payments", map[string]interface{}{
 		"from_account_number": srcAccountNumber,
 		"to_account_number":   dstAccountNumber,
 		"amount":              500,
@@ -161,7 +161,7 @@ func TestPayment_EndToEnd(t *testing.T) {
 	challengeID := createVerificationAndGetChallengeID(t, clientA, "payment", paymentID)
 
 	// Execute payment with challenge_id
-	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
+	execResp, err := clientA.POST(fmt.Sprintf("/api/v1/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": "111111",
 		"challenge_id":      challengeID,
 	})
@@ -252,7 +252,7 @@ func TestPayment_WithFee(t *testing.T) {
 	clientA := loginAsClient(t, emailA, passwordA)
 
 	// Create payment of 5000 RSD (above 1000 fee threshold)
-	payResp, err := clientA.POST("/api/me/payments", map[string]interface{}{
+	payResp, err := clientA.POST("/api/v1/me/payments", map[string]interface{}{
 		"from_account_number": srcAccountNumber,
 		"to_account_number":   dstAccountNumber,
 		"amount":              5000,
@@ -268,7 +268,7 @@ func TestPayment_WithFee(t *testing.T) {
 	challengeID := createVerificationAndGetChallengeID(t, clientA, "payment", paymentID)
 
 	// Execute payment with challenge_id
-	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
+	execResp, err := clientA.POST(fmt.Sprintf("/api/v1/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": "111111",
 		"challenge_id":      challengeID,
 	})
@@ -337,7 +337,7 @@ func TestPayment_ExternalPayment(t *testing.T) {
 	// External account number — not belonging to any client in the system
 	externalAccountNumber := "908-9999999999-99"
 
-	payResp, err := clientA.POST("/api/me/payments", map[string]interface{}{
+	payResp, err := clientA.POST("/api/v1/me/payments", map[string]interface{}{
 		"from_account_number": srcAccountNumber,
 		"to_account_number":   externalAccountNumber,
 		"amount":              1000,
@@ -359,7 +359,7 @@ func TestPayment_ExternalPayment(t *testing.T) {
 
 	challengeID := createVerificationAndGetChallengeID(t, clientA, "payment", paymentID)
 
-	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
+	execResp, err := clientA.POST(fmt.Sprintf("/api/v1/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": "111111",
 		"challenge_id":      challengeID,
 	})
@@ -432,7 +432,7 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 
 	clientA := loginAsClient(t, emailA, passwordA)
 
-	payResp, err := clientA.POST("/api/me/payments", map[string]interface{}{
+	payResp, err := clientA.POST("/api/v1/me/payments", map[string]interface{}{
 		"from_account_number": srcAccountNumber,
 		"to_account_number":   dstAccountNumber,
 		"amount":              500,
@@ -465,7 +465,7 @@ func TestPayment_WrongOTPCodeRejected(t *testing.T) {
 	helpers.RequireStatus(t, submitResp, 200)
 
 	// Execute with unverified challenge — should fail
-	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
+	execResp, err := clientA.POST(fmt.Sprintf("/api/v1/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": "999999",
 		"challenge_id":      challengeID,
 	})
@@ -499,7 +499,7 @@ func TestPayment_InsufficientBalance(t *testing.T) {
 	dstAccountNumber := helpers.GetStringField(t, dstAcctResp, "account_number")
 
 	// Try to pay more than the balance
-	payResp, err := clientC.POST("/api/me/payments", map[string]interface{}{
+	payResp, err := clientC.POST("/api/v1/me/payments", map[string]interface{}{
 		"from_account_number": accountNumber,
 		"to_account_number":   dstAccountNumber,
 		"amount":              9999999, // way more than 100000
@@ -515,7 +515,7 @@ func TestPayment_InsufficientBalance(t *testing.T) {
 		paymentID := int(helpers.GetNumberField(t, payResp, "id"))
 		challengeID := createVerificationAndGetChallengeID(t, clientC, "payment", paymentID)
 
-		execResp, err := clientC.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
+		execResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/payments/%d/execute", paymentID), map[string]interface{}{
 			"verification_code": "111111",
 			"challenge_id":      challengeID,
 		})

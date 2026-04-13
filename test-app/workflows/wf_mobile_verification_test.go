@@ -119,7 +119,7 @@ func TestMobileVerification_VerifyFromMobile(t *testing.T) {
 
 	// Mobile: submit the verification code
 	submitResp, err := mobileC.SignedPOST(
-		fmt.Sprintf("/api/mobile/verifications/%d/submit", challengeID),
+		fmt.Sprintf("/api/v1/mobile/verifications/%d/submit", challengeID),
 		map[string]interface{}{"response": code},
 	)
 	if err != nil {
@@ -164,7 +164,7 @@ func TestMobileVerification_MobileCreatedChallengeVisible(t *testing.T) {
 	dstAccount := helpers.GetStringField(t, dstResp, "account_number")
 
 	// Mobile: create transfer (mobile token works with AnyAuth endpoints)
-	tfrResp, err := mobileC.POST("/api/me/transfers", map[string]interface{}{
+	tfrResp, err := mobileC.POST("/api/v1/me/transfers", map[string]interface{}{
 		"from_account_number": acctNum,
 		"to_account_number":   dstAccount,
 		"amount":              50,
@@ -193,7 +193,7 @@ func TestMobileVerification_MobileCreatedChallengeVisible(t *testing.T) {
 
 	// Mobile: submit verification
 	submitResp, err := mobileC.SignedPOST(
-		fmt.Sprintf("/api/mobile/verifications/%d/submit", challengeID),
+		fmt.Sprintf("/api/v1/mobile/verifications/%d/submit", challengeID),
 		map[string]interface{}{"response": code},
 	)
 	if err != nil {
@@ -233,7 +233,7 @@ func TestMobileVerification_MultipleChallengesVisible(t *testing.T) {
 	}
 
 	// Browser: transfer 1 + challenge 1
-	tfr1Resp, err := browserC.POST("/api/me/transfers", map[string]interface{}{
+	tfr1Resp, err := browserC.POST("/api/v1/me/transfers", map[string]interface{}{
 		"from_account_number": acctNum,
 		"to_account_number":   dstAccounts[0],
 		"amount":              10,
@@ -255,7 +255,7 @@ func TestMobileVerification_MultipleChallengesVisible(t *testing.T) {
 	challenge1ID := int(helpers.GetNumberField(t, ch1Resp, "challenge_id"))
 
 	// Mobile: transfer 2 + challenge 2
-	tfr2Resp, err := mobileC.POST("/api/me/transfers", map[string]interface{}{
+	tfr2Resp, err := mobileC.POST("/api/v1/me/transfers", map[string]interface{}{
 		"from_account_number": acctNum,
 		"to_account_number":   dstAccounts[1],
 		"amount":              10,
@@ -293,7 +293,7 @@ func TestMobileVerification_MultipleChallengesVisible(t *testing.T) {
 		{challenge2ID, code2},
 	} {
 		submitResp, err := mobileC.SignedPOST(
-			fmt.Sprintf("/api/mobile/verifications/%d/submit", tc.challengeID),
+			fmt.Sprintf("/api/v1/mobile/verifications/%d/submit", tc.challengeID),
 			map[string]interface{}{"response": tc.code},
 		)
 		if err != nil {
@@ -344,7 +344,7 @@ func TestMobileVerification_AckRemovesChallengeFromPending(t *testing.T) {
 
 	// Mobile: submit verification
 	submitResp, err := mobileC.SignedPOST(
-		fmt.Sprintf("/api/mobile/verifications/%d/submit", challengeID),
+		fmt.Sprintf("/api/v1/mobile/verifications/%d/submit", challengeID),
 		map[string]interface{}{"response": code},
 	)
 	if err != nil {
@@ -354,7 +354,7 @@ func TestMobileVerification_AckRemovesChallengeFromPending(t *testing.T) {
 
 	// Mobile: ACK the inbox item
 	ackResp, err := mobileC.SignedPOST(
-		fmt.Sprintf("/api/mobile/verifications/%d/ack", inboxID),
+		fmt.Sprintf("/api/v1/mobile/verifications/%d/ack", inboxID),
 		nil,
 	)
 	if err != nil {
@@ -364,7 +364,7 @@ func TestMobileVerification_AckRemovesChallengeFromPending(t *testing.T) {
 	t.Logf("ACK'd inbox item %d for challenge %d", inboxID, challengeID)
 
 	// Mobile: poll again — challenge should be gone
-	finalResp, err := mobileC.SignedGET("/api/mobile/verifications/pending")
+	finalResp, err := mobileC.SignedGET("/api/v1/mobile/verifications/pending")
 	if err != nil {
 		t.Fatalf("final poll: %v", err)
 	}

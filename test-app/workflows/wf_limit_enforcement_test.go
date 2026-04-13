@@ -21,7 +21,6 @@ import (
 // If the system does not enforce actuary limits at order time, the test still
 // verifies the full limit CRUD + order lifecycle.
 func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create agent employee
@@ -61,7 +60,7 @@ func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
 
 	// Step 5: Agent tries a stock order with the low limit
 	// Depending on enforcement, this may be rejected (403/400) or accepted
-	lowLimitOrderResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	lowLimitOrderResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -108,7 +107,7 @@ func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
 	t.Logf("WF-12: employee limits increased to high values")
 
 	// Step 7: Agent retries with higher limit — should succeed
-	retryOrderResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	retryOrderResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",

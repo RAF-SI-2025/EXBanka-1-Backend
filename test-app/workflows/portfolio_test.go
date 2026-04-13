@@ -10,11 +10,10 @@ import (
 
 func TestPortfolio_ListHoldings(t *testing.T) {
 	t.Parallel()
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/me/portfolio")
+	resp, err := agentC.GET("/api/v1/me/portfolio")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -25,9 +24,8 @@ func TestPortfolio_ListHoldings(t *testing.T) {
 
 func TestPortfolio_ListHoldings_Unauthenticated(t *testing.T) {
 	t.Parallel()
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	c := newClient()
-	resp, err := c.GET("/api/me/portfolio")
+	resp, err := c.GET("/api/v1/me/portfolio")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -36,11 +34,10 @@ func TestPortfolio_ListHoldings_Unauthenticated(t *testing.T) {
 
 func TestPortfolio_ListHoldings_FilterByType(t *testing.T) {
 	t.Parallel()
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/me/portfolio?security_type=stock")
+	resp, err := agentC.GET("/api/v1/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -49,11 +46,10 @@ func TestPortfolio_ListHoldings_FilterByType(t *testing.T) {
 
 func TestPortfolio_ListHoldings_InvalidSecurityType(t *testing.T) {
 	t.Parallel()
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/me/portfolio?security_type=invalid")
+	resp, err := agentC.GET("/api/v1/me/portfolio?security_type=invalid")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -62,11 +58,10 @@ func TestPortfolio_ListHoldings_InvalidSecurityType(t *testing.T) {
 
 func TestPortfolio_GetSummary(t *testing.T) {
 	t.Parallel()
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/me/portfolio/summary")
+	resp, err := agentC.GET("/api/v1/me/portfolio/summary")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -77,11 +72,10 @@ func TestPortfolio_GetSummary(t *testing.T) {
 
 func TestPortfolio_MakePublic_InvalidQuantity(t *testing.T) {
 	t.Parallel()
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/me/portfolio/1/make-public", map[string]interface{}{
+	resp, err := agentC.POST("/api/v1/me/portfolio/1/make-public", map[string]interface{}{
 		"quantity": 0,
 	})
 	if err != nil {
@@ -92,11 +86,10 @@ func TestPortfolio_MakePublic_InvalidQuantity(t *testing.T) {
 
 func TestPortfolio_ExerciseOption_NotFound(t *testing.T) {
 	t.Parallel()
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/me/portfolio/999999/exercise", nil)
+	resp, err := agentC.POST("/api/v1/me/portfolio/999999/exercise", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -105,9 +98,8 @@ func TestPortfolio_ExerciseOption_NotFound(t *testing.T) {
 
 func TestPortfolio_ExerciseOption_Unauthenticated(t *testing.T) {
 	t.Parallel()
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	c := newClient()
-	resp, err := c.POST("/api/me/portfolio/1/exercise", nil)
+	resp, err := c.POST("/api/v1/me/portfolio/1/exercise", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

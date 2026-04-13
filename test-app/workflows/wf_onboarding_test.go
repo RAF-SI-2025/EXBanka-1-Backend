@@ -30,7 +30,7 @@ func TestWF_FullClientOnboardingToFirstTransaction(t *testing.T) {
 	_, bankBalBefore := getBankRSDAccount(t, adminC)
 
 	// Step 3: Sender adds receiver as a payment recipient
-	recipientResp, err := senderC.POST("/api/me/payment-recipients", map[string]interface{}{
+	recipientResp, err := senderC.POST("/api/v1/me/payment-recipients", map[string]interface{}{
 		"client_id":      senderID,
 		"account_number": receiverAcct,
 		"recipient_name": "Test Receiver",

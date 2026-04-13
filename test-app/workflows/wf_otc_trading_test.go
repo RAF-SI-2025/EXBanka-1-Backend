@@ -15,7 +15,6 @@ import (
 //	agent A buys stock → makes holding public → agent B finds OTC offer → B buys from A →
 //	verify A's quantity decreased, B has a new holding.
 func TestWF_OTCTradingBetweenUsers(t *testing.T) {
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create two agent employees
@@ -27,7 +26,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 
 	// Step 2: Agent A buys stock
 	buyQuantity := 5
-	buyResp, err := agentA.POST("/api/me/orders", map[string]interface{}{
+	buyResp, err := agentA.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -46,7 +45,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 	t.Logf("WF-9: agent A buy order filled")
 
 	// Step 3: Get A's holding ID from portfolio
-	portfolioResp, err := agentA.GET("/api/me/portfolio?security_type=stock")
+	portfolioResp, err := agentA.GET("/api/v1/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-9: agent A list portfolio: %v", err)
 	}
@@ -72,7 +71,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 
 	// Step 4: Agent A makes holding public
 	publicQuantity := 2
-	makePublicResp, err := agentA.POST(fmt.Sprintf("/api/me/portfolio/%d/make-public", holdingID), map[string]interface{}{
+	makePublicResp, err := agentA.POST(fmt.Sprintf("/api/v1/me/portfolio/%d/make-public", holdingID), map[string]interface{}{
 		"quantity": publicQuantity,
 	})
 	if err != nil {
@@ -115,7 +114,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 	t.Logf("WF-9: agent B OTC buy response status=%d", otcBuyResp.StatusCode)
 
 	// Step 7: Verify B has a holding
-	portfolioBResp, err := agentB.GET("/api/me/portfolio?security_type=stock")
+	portfolioBResp, err := agentB.GET("/api/v1/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-9: agent B list portfolio: %v", err)
 	}

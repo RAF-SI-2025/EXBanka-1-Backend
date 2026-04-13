@@ -27,7 +27,7 @@ func setupTransferForVerification(t *testing.T, adminC *client.APIClient, client
 	helpers.RequireStatus(t, dstResp, 201)
 	dstAccount := helpers.GetStringField(t, dstResp, "account_number")
 
-	tfrResp, err := clientC.POST("/api/me/transfers", map[string]interface{}{
+	tfrResp, err := clientC.POST("/api/v1/me/transfers", map[string]interface{}{
 		"from_account_number": fromAccount,
 		"to_account_number":   dstAccount,
 		"amount":              100,
@@ -179,7 +179,7 @@ func TestVerification_AckEndpointRequiresMobileAuth(t *testing.T) {
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
 	// Client tokens are not mobile tokens — should get 403
-	resp, err := clientC.POST("/api/mobile/verifications/1/ack", nil)
+	resp, err := clientC.POST("/api/v1/mobile/verifications/1/ack", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

@@ -17,7 +17,7 @@ import (
 func TestCardRequest_UnauthenticatedCannotCreateRequest(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/me/cards/requests", map[string]interface{}{
+	resp, err := c.POST("/api/v1/me/cards/requests", map[string]interface{}{
 		"account_number": "265-0000000001-00",
 		"card_brand":     "visa",
 	})
@@ -34,7 +34,7 @@ func TestCardRequest_UnauthenticatedCannotCreateRequest(t *testing.T) {
 func TestCardRequest_EmployeeCannotCreateRequest(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/me/cards/requests", map[string]interface{}{
+	resp, err := c.POST("/api/v1/me/cards/requests", map[string]interface{}{
 		"account_number": "265-0000000001-00",
 		"card_brand":     "visa",
 	})
@@ -180,7 +180,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	_, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
 	// Client lists their requests before — should be empty or have prior requests
-	listBefore, err := clientC.GET("/api/me/cards/requests")
+	listBefore, err := clientC.GET("/api/v1/me/cards/requests")
 	if err != nil {
 		t.Fatalf("list card requests before error: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	}
 
 	// Client submits a card request for their account (visa brand)
-	cardReqResp, err := clientC.POST("/api/me/cards/requests", map[string]interface{}{
+	cardReqResp, err := clientC.POST("/api/v1/me/cards/requests", map[string]interface{}{
 		"account_number": accountNumber,
 		"card_brand":     "visa",
 	})
@@ -208,7 +208,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	t.Logf("card request id: %d", cardReqID)
 
 	// Client lists their requests — verify pending request appears
-	listAfter, err := clientC.GET("/api/me/cards/requests")
+	listAfter, err := clientC.GET("/api/v1/me/cards/requests")
 	if err != nil {
 		t.Fatalf("list card requests after error: %v", err)
 	}

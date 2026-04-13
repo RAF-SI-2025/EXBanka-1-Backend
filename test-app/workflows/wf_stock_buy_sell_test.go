@@ -15,7 +15,6 @@ import (
 //	agent buys stock via market order → waits for fill → verifies holding in portfolio →
 //	sells stock via market order → waits for fill → verifies order is done.
 func TestWF_StockBuySellCycle(t *testing.T) {
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create agent employee
@@ -26,7 +25,7 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 	t.Logf("WF-6: using listing_id=%d", listingID)
 
 	// Step 3: Place market buy order
-	buyResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	buyResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -46,7 +45,7 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 	t.Logf("WF-6: buy order filled")
 
 	// Step 5: Assert holding exists in portfolio
-	portfolioResp, err := agentC.GET("/api/me/portfolio?security_type=stock")
+	portfolioResp, err := agentC.GET("/api/v1/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-6: list portfolio: %v", err)
 	}
@@ -59,7 +58,7 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 	t.Logf("WF-6: portfolio has %d stock holding(s)", len(holdings))
 
 	// Step 6: Place market sell order for the same listing
-	sellResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	sellResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "sell",
 		"order_type":  "market",
@@ -79,7 +78,7 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 	t.Logf("WF-6: sell order filled")
 
 	// Step 8: Verify the sell order is done
-	orderResp, err := agentC.GET(fmt.Sprintf("/api/me/orders/%d", sellOrderID))
+	orderResp, err := agentC.GET(fmt.Sprintf("/api/v1/me/orders/%d", sellOrderID))
 	if err != nil {
 		t.Fatalf("WF-6: get sell order: %v", err)
 	}

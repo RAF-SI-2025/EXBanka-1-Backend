@@ -47,7 +47,7 @@ func TestLoan_GetNonExistentLoan(t *testing.T) {
 func TestLoan_UnauthenticatedCannotCreateLoanRequest(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/me/loan-requests", map[string]interface{}{
+	resp, err := c.POST("/api/v1/me/loan-requests", map[string]interface{}{
 		"loan_type":        "cash",
 		"amount":           "50000.00",
 		"repayment_period": 24,
@@ -123,7 +123,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
 
 	// Client submits a loan request (cash, fixed, 10000 RSD, 12 months)
-	loanReqResp, err := clientC.POST("/api/me/loan-requests", map[string]interface{}{
+	loanReqResp, err := clientC.POST("/api/v1/me/loan-requests", map[string]interface{}{
 		"client_id":        meClientID,
 		"loan_type":        "cash",
 		"interest_type":    "fixed",
@@ -206,7 +206,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	}
 
 	// Client lists their loan requests — verify it appears
-	clientLoanReqResp, err := clientC.GET("/api/me/loan-requests")
+	clientLoanReqResp, err := clientC.GET("/api/v1/me/loan-requests")
 	if err != nil {
 		t.Fatalf("client list loan requests error: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	helpers.RequireStatus(t, clientLoanReqResp, 200)
 
 	// Client lists their loans — verify approved loan appears
-	clientLoansResp, err := clientC.GET("/api/me/loans")
+	clientLoansResp, err := clientC.GET("/api/v1/me/loans")
 	if err != nil {
 		t.Fatalf("client list loans error: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestLoan_AllLoanTypes(t *testing.T) {
 
 	for _, lt := range loanTypes {
 		t.Run("loan_type_"+lt.loanType, func(t *testing.T) {
-			resp, err := clientC.POST("/api/me/loan-requests", map[string]interface{}{
+			resp, err := clientC.POST("/api/v1/me/loan-requests", map[string]interface{}{
 				"client_id":        meClientID,
 				"loan_type":        lt.loanType,
 				"interest_type":    lt.interestType,
@@ -294,7 +294,7 @@ func TestLoan_RejectLoanRequest(t *testing.T) {
 	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
 
 	// Client submits a cash loan request
-	loanReqResp, err := clientC.POST("/api/me/loan-requests", map[string]interface{}{
+	loanReqResp, err := clientC.POST("/api/v1/me/loan-requests", map[string]interface{}{
 		"client_id":        meClientID,
 		"loan_type":        "cash",
 		"interest_type":    "fixed",

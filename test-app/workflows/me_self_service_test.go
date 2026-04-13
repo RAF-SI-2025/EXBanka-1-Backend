@@ -29,7 +29,7 @@ func TestMe_ListMyAccounts(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/accounts")
+	resp, err := clientC.GET("/api/v1/me/accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestMe_GetMyAccountByID(t *testing.T) {
 
 	// List accounts to get an ID
 	_ = clientID
-	listResp, err := clientC.GET("/api/me/accounts")
+	listResp, err := clientC.GET("/api/v1/me/accounts")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestMe_GetMyAccountByID(t *testing.T) {
 	first := accounts[0].(map[string]interface{})
 	acctID := int(first["id"].(float64))
 
-	resp, err := clientC.GET("/api/me/accounts/" + helpers.FormatID(acctID))
+	resp, err := clientC.GET("/api/v1/me/accounts/" + helpers.FormatID(acctID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestMe_ListMyCards(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/cards")
+	resp, err := clientC.GET("/api/v1/me/cards")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestMe_ListMyPayments(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/payments")
+	resp, err := clientC.GET("/api/v1/me/payments")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestMe_ListMyTransfers(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/transfers")
+	resp, err := clientC.GET("/api/v1/me/transfers")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestMe_ListMyPaymentRecipients(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/payment-recipients")
+	resp, err := clientC.GET("/api/v1/me/payment-recipients")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestMe_ListMyLoanRequests(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/loan-requests")
+	resp, err := clientC.GET("/api/v1/me/loan-requests")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestMe_ListMyLoans(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/loans")
+	resp, err := clientC.GET("/api/v1/me/loans")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestMe_ListMyOrders(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/orders")
+	resp, err := clientC.GET("/api/v1/me/orders")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestMe_GetPortfolio(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/portfolio")
+	resp, err := clientC.GET("/api/v1/me/portfolio")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestMe_GetPortfolioSummary(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := clientC.GET("/api/me/portfolio/summary")
+	resp, err := clientC.GET("/api/v1/me/portfolio/summary")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -177,15 +177,15 @@ func TestMe_UnauthenticatedRejected(t *testing.T) {
 
 	endpoints := []string{
 		"/api/v1/me",
-		"/api/me/accounts",
-		"/api/me/cards",
-		"/api/me/payments",
-		"/api/me/transfers",
-		"/api/me/loan-requests",
-		"/api/me/loans",
-		"/api/me/orders",
-		"/api/me/portfolio",
-		"/api/me/tax",
+		"/api/v1/me/accounts",
+		"/api/v1/me/cards",
+		"/api/v1/me/payments",
+		"/api/v1/me/transfers",
+		"/api/v1/me/loan-requests",
+		"/api/v1/me/loans",
+		"/api/v1/me/orders",
+		"/api/v1/me/portfolio",
+		"/api/v1/me/tax",
 	}
 
 	for _, ep := range endpoints {

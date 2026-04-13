@@ -128,7 +128,7 @@ func TestCard_VirtualCardSingleUse(t *testing.T) {
 	// Virtual card creation is a client-only route, needs client auth.
 	// Test that unauthenticated access fails.
 	c := newClient()
-	resp, err := c.POST("/api/me/cards/virtual", map[string]interface{}{
+	resp, err := c.POST("/api/v1/me/cards/virtual", map[string]interface{}{
 		"account_number": "test",
 		"usage_type":     "single_use",
 	})
@@ -145,7 +145,7 @@ func TestCard_PINManagement(t *testing.T) {
 	// PIN operations are client-only routes.
 	// Test that employee tokens can't access these routes.
 	c := loginAsAdmin(t) // employee token
-	resp, err := c.POST("/api/me/cards/1/pin", map[string]interface{}{
+	resp, err := c.POST("/api/v1/me/cards/1/pin", map[string]interface{}{
 		"pin": "1234",
 	})
 	if err != nil {
@@ -209,7 +209,7 @@ func TestCard_VirtualSingleUseWithClientAuth(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
-	resp, err := clientC.POST("/api/me/cards/virtual", map[string]interface{}{
+	resp, err := clientC.POST("/api/v1/me/cards/virtual", map[string]interface{}{
 		"account_number": accountNumber,
 		"owner_id":       clientID,
 		"card_brand":     "visa",
@@ -230,7 +230,7 @@ func TestCard_VirtualMultiUseWithClientAuth(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
-	resp, err := clientC.POST("/api/me/cards/virtual", map[string]interface{}{
+	resp, err := clientC.POST("/api/v1/me/cards/virtual", map[string]interface{}{
 		"account_number": accountNumber,
 		"owner_id":       clientID,
 		"card_brand":     "mastercard",
@@ -254,7 +254,7 @@ func TestCard_VirtualUnlimitedWithClientAuth(t *testing.T) {
 
 	// The API does not support "unlimited" usage_type.
 	// Use multi_use with a high max_uses to approximate unlimited usage.
-	resp, err := clientC.POST("/api/me/cards/virtual", map[string]interface{}{
+	resp, err := clientC.POST("/api/v1/me/cards/virtual", map[string]interface{}{
 		"account_number": accountNumber,
 		"owner_id":       clientID,
 		"card_brand":     "dinacard",
@@ -275,7 +275,7 @@ func TestCard_VirtualInvalidUsageType(t *testing.T) {
 	adminClient := loginAsAdmin(t)
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
-	resp, err := clientC.POST("/api/me/cards/virtual", map[string]interface{}{
+	resp, err := clientC.POST("/api/v1/me/cards/virtual", map[string]interface{}{
 		"account_number": accountNumber,
 		"owner_id":       clientID,
 		"card_brand":     "visa",
@@ -311,7 +311,7 @@ func TestCard_PINSetAndVerify(t *testing.T) {
 	cardID := int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Client sets PIN
-	setResp, err := clientC.POST(fmt.Sprintf("/api/me/cards/%d/pin", cardID), map[string]interface{}{
+	setResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/pin", cardID), map[string]interface{}{
 		"pin": "4321",
 	})
 	if err != nil {
@@ -320,7 +320,7 @@ func TestCard_PINSetAndVerify(t *testing.T) {
 	helpers.RequireStatus(t, setResp, 200)
 
 	// Client verifies correct PIN
-	verifyResp, err := clientC.POST(fmt.Sprintf("/api/me/cards/%d/verify-pin", cardID), map[string]interface{}{
+	verifyResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/verify-pin", cardID), map[string]interface{}{
 		"pin": "4321",
 	})
 	if err != nil {
@@ -348,7 +348,7 @@ func TestCard_PINWrongThreeTimes_LocksCard(t *testing.T) {
 	cardID := int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Set PIN
-	setResp, err := clientC.POST(fmt.Sprintf("/api/me/cards/%d/pin", cardID), map[string]interface{}{
+	setResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/pin", cardID), map[string]interface{}{
 		"pin": "1111",
 	})
 	if err != nil {
@@ -358,7 +358,7 @@ func TestCard_PINWrongThreeTimes_LocksCard(t *testing.T) {
 
 	// Attempt wrong PIN 3 times
 	for i := 0; i < 3; i++ {
-		_, err := clientC.POST(fmt.Sprintf("/api/me/cards/%d/verify-pin", cardID), map[string]interface{}{
+		_, err := clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/verify-pin", cardID), map[string]interface{}{
 			"pin": "9999",
 		})
 		if err != nil {
@@ -367,7 +367,7 @@ func TestCard_PINWrongThreeTimes_LocksCard(t *testing.T) {
 	}
 
 	// 4th verify should fail with 403 (card locked) or 400
-	lockResp, err := clientC.POST(fmt.Sprintf("/api/me/cards/%d/verify-pin", cardID), map[string]interface{}{
+	lockResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/verify-pin", cardID), map[string]interface{}{
 		"pin": "1111", // correct but card should be locked
 	})
 	if err != nil {
@@ -398,7 +398,7 @@ func TestCard_ChangePin(t *testing.T) {
 	cardID := int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Set initial PIN
-	_, err = clientC.POST(fmt.Sprintf("/api/me/cards/%d/pin", cardID), map[string]interface{}{
+	_, err = clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/pin", cardID), map[string]interface{}{
 		"pin": "2222",
 	})
 	if err != nil {
@@ -406,7 +406,7 @@ func TestCard_ChangePin(t *testing.T) {
 	}
 
 	// Change PIN — endpoint may be PUT /api/me/cards/{id}/pin or POST with old_pin field
-	changeResp, err := clientC.PUT(fmt.Sprintf("/api/me/cards/%d/pin", cardID), map[string]interface{}{
+	changeResp, err := clientC.PUT(fmt.Sprintf("/api/v1/me/cards/%d/pin", cardID), map[string]interface{}{
 		"old_pin": "2222",
 		"new_pin": "3333",
 	})
@@ -439,7 +439,7 @@ func TestCard_TemporaryBlockWithExpiry(t *testing.T) {
 	cardID := int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Client applies a temporary block for 1 hour
-	blockResp, err := clientC.POST(fmt.Sprintf("/api/me/cards/%d/temporary-block", cardID), map[string]interface{}{
+	blockResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/cards/%d/temporary-block", cardID), map[string]interface{}{
 		"duration_hours": 1, // handler expects duration_hours (int32)
 	})
 	if err != nil {

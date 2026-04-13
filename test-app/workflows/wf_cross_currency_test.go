@@ -15,7 +15,6 @@ import (
 //	client with RSD + EUR accounts -> buys stock (RSD) -> wait fill ->
 //	transfers RSD to EUR -> assert: stock holding exists, EUR increased, RSD decreased.
 func TestWF_CrossCurrencyTradingAndTransfer(t *testing.T) {
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create client with RSD (100k) + EUR (10k) accounts
@@ -31,7 +30,7 @@ func TestWF_CrossCurrencyTradingAndTransfer(t *testing.T) {
 	_, listingID := getFirstStockListingID(t, clientC)
 	t.Logf("WF-13: using listing_id=%d", listingID)
 
-	buyResp, err := clientC.POST("/api/me/orders", map[string]interface{}{
+	buyResp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -60,7 +59,7 @@ func TestWF_CrossCurrencyTradingAndTransfer(t *testing.T) {
 	t.Logf("WF-13: transfer executed id=%d amount=%.2f RSD->EUR", transferID, transferAmount)
 
 	// Step 6: Assert stock holding exists
-	portfolioResp, err := clientC.GET("/api/me/portfolio?security_type=stock")
+	portfolioResp, err := clientC.GET("/api/v1/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-13: list portfolio: %v", err)
 	}

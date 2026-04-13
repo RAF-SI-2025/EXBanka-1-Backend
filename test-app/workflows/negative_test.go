@@ -99,14 +99,14 @@ func TestNeg_EmployeeCannotAccessClientOnlyRoutes(t *testing.T) {
 		path   string
 	}{
 		{"GET", "/api/v1/me"},
-		{"POST", "/api/me/payments"},
-		{"POST", "/api/me/transfers"},
-		{"POST", "/api/me/loan-requests"},
-		{"POST", "/api/me/cards/virtual"},
-		{"POST", "/api/me/cards/1/pin"},
-		{"POST", "/api/me/cards/1/verify-pin"},
-		{"POST", "/api/me/cards/1/temporary-block"},
-		{"POST", "/api/me/payment-recipients"},
+		{"POST", "/api/v1/me/payments"},
+		{"POST", "/api/v1/me/transfers"},
+		{"POST", "/api/v1/me/loan-requests"},
+		{"POST", "/api/v1/me/cards/virtual"},
+		{"POST", "/api/v1/me/cards/1/pin"},
+		{"POST", "/api/v1/me/cards/1/verify-pin"},
+		{"POST", "/api/v1/me/cards/1/temporary-block"},
+		{"POST", "/api/v1/me/payment-recipients"},
 	}
 
 	for _, r := range clientOnlyRoutes {

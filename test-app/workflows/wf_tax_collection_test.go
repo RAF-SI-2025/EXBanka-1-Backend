@@ -14,7 +14,6 @@ import (
 //	agent buys stock → sells stock (generates capital gain) → checks own tax records →
 //	supervisor triggers tax collection → verifies collection response.
 func TestWF_TaxCollectionCycle(t *testing.T) {
-	t.Skip("stock-service API not yet reliable -- temporarily disabled")
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create agent and buy stock
@@ -23,7 +22,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 	t.Logf("WF-10: using listing_id=%d", listingID)
 
 	// Place market buy
-	buyResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	buyResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -42,7 +41,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 	t.Logf("WF-10: buy order filled")
 
 	// Sell stock to generate capital gain/loss
-	sellResp, err := agentC.POST("/api/me/orders", map[string]interface{}{
+	sellResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "sell",
 		"order_type":  "market",
@@ -61,7 +60,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 	t.Logf("WF-10: sell order filled — capital gain/loss generated")
 
 	// Step 2: Check agent's own tax records
-	taxResp, err := agentC.GET("/api/me/tax")
+	taxResp, err := agentC.GET("/api/v1/me/tax")
 	if err != nil {
 		t.Fatalf("WF-10: get my tax records: %v", err)
 	}

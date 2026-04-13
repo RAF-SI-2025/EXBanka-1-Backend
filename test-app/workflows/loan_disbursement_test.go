@@ -4,7 +4,6 @@ package workflows
 
 import (
 	"fmt"
-	"strconv"
 	"testing"
 
 	"github.com/exbanka/test-app/internal/client"
@@ -69,10 +68,10 @@ func TestLoanDisbursement_BankInsufficientLiquidity_Returns409(t *testing.T) {
 // Uses /api/me/loan-requests — the client_id is extracted from the JWT by the gateway.
 func submitLoanRequest(t *testing.T, c *client.APIClient, accountNumber string, amount float64, months int) int {
 	t.Helper()
-	resp, err := c.POST("/api/me/loan-requests", map[string]interface{}{
+	resp, err := c.POST("/api/v1/me/loan-requests", map[string]interface{}{
 		"loan_type":        "cash",
 		"interest_type":    "fixed",
-		"amount":           strconv.FormatFloat(amount, 'f', 2, 64),
+		"amount":           amount,
 		"currency_code":    "RSD",
 		"repayment_period": months,
 		"account_number":   accountNumber,

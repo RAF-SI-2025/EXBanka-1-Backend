@@ -78,7 +78,7 @@ func TestWorkflow_FullBankingOnboarding(t *testing.T) {
 	t.Logf("WF-Onboard: client logged in")
 
 	// Step 5: Client submits a card request for their account
-	cardReqResp, err := clientC.POST("/api/me/cards/requests", map[string]interface{}{
+	cardReqResp, err := clientC.POST("/api/v1/me/cards/requests", map[string]interface{}{
 		"account_number": accountNumber,
 		"card_brand":     "visa",
 	})
@@ -182,7 +182,7 @@ func TestWorkflow_FullPaymentWithFee(t *testing.T) {
 	defer el.Stop()
 
 	// Client A pays 5000 RSD to client B (above 1000 RSD fee threshold)
-	payResp, err := clientA.POST("/api/me/payments", map[string]interface{}{
+	payResp, err := clientA.POST("/api/v1/me/payments", map[string]interface{}{
 		"from_account_number": acctNumA,
 		"to_account_number":   acctNumB,
 		"amount":              5000,
@@ -198,7 +198,7 @@ func TestWorkflow_FullPaymentWithFee(t *testing.T) {
 	challengeID := createVerificationAndGetChallengeID(t, clientA, "payment", paymentID)
 
 	// Execute payment with challenge_id
-	execResp, err := clientA.POST(fmt.Sprintf("/api/me/payments/%d/execute", paymentID), map[string]interface{}{
+	execResp, err := clientA.POST(fmt.Sprintf("/api/v1/me/payments/%d/execute", paymentID), map[string]interface{}{
 		"verification_code": "111111",
 		"challenge_id":      challengeID,
 	})
@@ -340,7 +340,7 @@ func TestWorkflow_FullCrossCurrencyTransfer(t *testing.T) {
 
 	// Transfer 50 EUR to RSD account
 	const transferAmount = 50.0
-	tfrResp, err := clientC.POST("/api/me/transfers", map[string]interface{}{
+	tfrResp, err := clientC.POST("/api/v1/me/transfers", map[string]interface{}{
 		"from_account_number": eurAccountNumber,
 		"to_account_number":   rsdAccountNumber,
 		"amount":              transferAmount,
@@ -353,7 +353,7 @@ func TestWorkflow_FullCrossCurrencyTransfer(t *testing.T) {
 
 	challengeID := createVerificationAndGetChallengeID(t, clientC, "transfer", transferID)
 
-	execResp, err := clientC.POST(fmt.Sprintf("/api/me/transfers/%d/execute", transferID), map[string]interface{}{
+	execResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/transfers/%d/execute", transferID), map[string]interface{}{
 		"verification_code": "111111",
 		"challenge_id":      challengeID,
 	})
@@ -405,7 +405,7 @@ func TestWorkflow_FullLoanLifecycle(t *testing.T) {
 
 	// Client submits a housing loan request (60-month, variable rate)
 	// Housing loans require repayment_period ∈ {60,120,180,240,300,360}
-	loanReqResp, err := clientC.POST("/api/me/loan-requests", map[string]interface{}{
+	loanReqResp, err := clientC.POST("/api/v1/me/loan-requests", map[string]interface{}{
 		"client_id":        meClientID,
 		"loan_type":        "housing",
 		"interest_type":    "variable",
@@ -463,7 +463,7 @@ func TestWorkflow_FullLoanLifecycle(t *testing.T) {
 	t.Logf("WF-Loan: %d installments created", installmentCount)
 
 	// Client lists their loan requests — using /api/me/loan-requests or admin fallback
-	clientReqResp, err := clientC.GET("/api/me/loan-requests")
+	clientReqResp, err := clientC.GET("/api/v1/me/loan-requests")
 	if err != nil {
 		t.Fatalf("WF-Loan: client list loan requests: %v", err)
 	}
@@ -476,7 +476,7 @@ func TestWorkflow_FullLoanLifecycle(t *testing.T) {
 	helpers.RequireStatus(t, clientReqResp, 200)
 
 	// Client lists their approved loans — using /api/me/loans or admin fallback
-	clientLoansResp, err := clientC.GET("/api/me/loans")
+	clientLoansResp, err := clientC.GET("/api/v1/me/loans")
 	if err != nil {
 		t.Fatalf("WF-Loan: client list loans: %v", err)
 	}
