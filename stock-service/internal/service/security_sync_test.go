@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
+	"github.com/exbanka/stock-service/internal/source"
 )
 
 // ---------------------------------------------------------------------------
@@ -231,8 +233,112 @@ func (m *syncMockListingRepo) ListBySecurityType(securityType string) ([]model.L
 }
 
 // ---------------------------------------------------------------------------
-// Test
+// stubSource — a test double for source.Source
 // ---------------------------------------------------------------------------
+
+type stubSource struct {
+	name            string
+	exchangesCalled int
+	stocksCalled    int
+	futuresCalled   int
+	forexCalled     int
+	exchanges       []model.StockExchange
+	stocks          []source.StockWithListing
+	futures         []source.FuturesWithListing
+	forex           []source.ForexWithListing
+}
+
+func (s *stubSource) Name() string { return s.name }
+func (s *stubSource) FetchExchanges(_ context.Context) ([]model.StockExchange, error) {
+	s.exchangesCalled++
+	return s.exchanges, nil
+}
+func (s *stubSource) FetchStocks(_ context.Context) ([]source.StockWithListing, error) {
+	s.stocksCalled++
+	return s.stocks, nil
+}
+func (s *stubSource) FetchFutures(_ context.Context) ([]source.FuturesWithListing, error) {
+	s.futuresCalled++
+	return s.futures, nil
+}
+func (s *stubSource) FetchForex(_ context.Context) ([]source.ForexWithListing, error) {
+	s.forexCalled++
+	return s.forex, nil
+}
+func (s *stubSource) FetchOptions(_ context.Context, _ *model.Stock) ([]model.Option, error) {
+	return nil, nil
+}
+func (s *stubSource) RefreshPrices(_ context.Context) error { return nil }
+
+// syncMockFuturesRepo is a minimal in-memory stub for FuturesRepo.
+type syncMockFuturesRepo struct{}
+
+func (m *syncMockFuturesRepo) Create(fc *model.FuturesContract) error           { return nil }
+func (m *syncMockFuturesRepo) GetByID(id uint64) (*model.FuturesContract, error) {
+	return nil, gorm.ErrRecordNotFound
+}
+func (m *syncMockFuturesRepo) GetByTicker(ticker string) (*model.FuturesContract, error) {
+	return nil, gorm.ErrRecordNotFound
+}
+func (m *syncMockFuturesRepo) Update(fc *model.FuturesContract) error { return nil }
+func (m *syncMockFuturesRepo) UpsertByTicker(fc *model.FuturesContract) error { return nil }
+func (m *syncMockFuturesRepo) List(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error) {
+	return nil, 0, nil
+}
+
+// syncMockForexRepo is a minimal in-memory stub for ForexPairRepo.
+type syncMockForexRepo struct{}
+
+func (m *syncMockForexRepo) Create(fp *model.ForexPair) error           { return nil }
+func (m *syncMockForexRepo) GetByID(id uint64) (*model.ForexPair, error) {
+	return nil, gorm.ErrRecordNotFound
+}
+func (m *syncMockForexRepo) GetByTicker(ticker string) (*model.ForexPair, error) {
+	return nil, gorm.ErrRecordNotFound
+}
+func (m *syncMockForexRepo) Update(fp *model.ForexPair) error       { return nil }
+func (m *syncMockForexRepo) UpsertByTicker(fp *model.ForexPair) error { return nil }
+func (m *syncMockForexRepo) List(filter repository.ForexFilter) ([]model.ForexPair, int64, error) {
+	return nil, 0, nil
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+func TestSecuritySyncService_DelegatesToSource(t *testing.T) {
+	stub := &stubSource{name: "stub"}
+
+	stockRepo := &syncMockStockRepo{}
+	futuresRepo := &syncMockFuturesRepo{}
+	forexRepo := &syncMockForexRepo{}
+	listingRepo := newSyncMockListingRepo()
+	listingSvc := NewListingService(listingRepo, nil, stockRepo, futuresRepo, forexRepo)
+
+	svc := NewSecuritySyncService(
+		stockRepo,
+		futuresRepo,
+		forexRepo,
+		newSyncMockOptionRepo(),
+		nil, // exchangeRepo — syncExchanges calls exchangeRepo.UpsertByMICCode; nil is safe when stub returns empty
+		&syncMockSettingRepo{},
+		listingSvc,
+		nil, // redisCache
+		nil, // influxClient
+		nil, // avClient
+		nil, // finnhubClient
+		stub,
+	)
+
+	// SeedAll calls syncExchanges, syncStocks, seedForexPairs, seedFutures
+	// (generateAllOptions is also called but stock list is empty so it's a no-op).
+	svc.SeedAll(context.Background(), "")
+
+	require.Equal(t, 1, stub.exchangesCalled, "FetchExchanges should be called exactly once")
+	require.Equal(t, 1, stub.stocksCalled, "FetchStocks should be called exactly once")
+	require.Equal(t, 1, stub.forexCalled, "FetchForex should be called exactly once")
+	require.Equal(t, 1, stub.futuresCalled, "FetchFutures should be called exactly once")
+}
 
 func TestGenerateAllOptions_AttachesListingToEveryOption(t *testing.T) {
 	// Seed one stock with a price so GenerateOptionsForStock produces options.
@@ -269,14 +375,12 @@ func TestGenerateAllOptions_AttachesListingToEveryOption(t *testing.T) {
 		optionRepo,
 		nil, // exchangeRepo — not used by generateAllOptions
 		&syncMockSettingRepo{},
-		nil, // avClient
-		nil, // eodhClient
-		nil, // alpacaClient
-		nil, // finnhubClient
 		listingSvc,
-		"",  // csvPath
 		nil, // redisCache
 		nil, // influxClient
+		nil, // avClient
+		nil, // finnhubClient
+		source.NewExternalSource(nil, nil, nil, nil, "", ""),
 	)
 
 	// Act: generate options (test-exported wrapper).

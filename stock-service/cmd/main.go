@@ -30,6 +30,7 @@ import (
 	"github.com/exbanka/stock-service/internal/provider"
 	"github.com/exbanka/stock-service/internal/repository"
 	"github.com/exbanka/stock-service/internal/service"
+	"github.com/exbanka/stock-service/internal/source"
 )
 
 func main() {
@@ -199,11 +200,25 @@ func main() {
 		finnhubClient = provider.NewFinnhubClient(cfg.FinnhubAPIKey)
 	}
 
+	// Build the external source and wire in the exchange resolver so it can map
+	// acronyms (e.g. "NYSE", "FOREX") to DB IDs during seeding.
+	extSource := source.NewExternalSource(
+		alpacaClient, finnhubClient, eodhClient, avClient,
+		cfg.ExchangeCSVPath, "data/futures_seed.json",
+	).WithExchangeResolver(func(acronym string) (uint64, error) {
+		ex, err := exchangeRepo.GetByAcronym(acronym)
+		if err != nil {
+			return 0, err
+		}
+		return ex.ID, nil
+	})
+
 	syncSvc := service.NewSecuritySyncService(
 		stockRepo, futuresRepo, forexRepo, optionRepo,
-		exchangeRepo, settingRepo, avClient,
-		eodhClient, alpacaClient, finnhubClient,
-		listingSvc, cfg.ExchangeCSVPath, redisCache, influxClient,
+		exchangeRepo, settingRepo,
+		listingSvc, redisCache, influxClient,
+		avClient, finnhubClient,
+		extSource,
 	)
 
 	// Portfolio, OTC, and tax services
