@@ -314,6 +314,9 @@ definitions:
       amount:
         type: number
       client_id:
+        description: |-
+          ClientID is accepted from the body for backwards compatibility but silently
+          ignored — the gateway always derives the client identity from the JWT user_id.
         type: integer
       currency_code:
         type: string
@@ -336,7 +339,6 @@ definitions:
     required:
     - account_number
     - amount
-    - client_id
     - currency_code
     - interest_type
     - loan_type
@@ -453,6 +455,7 @@ definitions:
         example: 1
         type: integer
       owner_id:
+        description: ignored by gateway; owner is derived from JWT
         example: 1
         type: integer
       usage_type:
@@ -463,7 +466,6 @@ definitions:
     - card_brand
     - card_limit
     - expiry_months
-    - owner_id
     - usage_type
     type: object
   handler.executePaymentRequest:
@@ -2331,50 +2333,6 @@ paths:
       summary: List my card requests
       tags:
       - card-requests
-  /api/cards/virtual:
-    post:
-      consumes:
-      - application/json
-      description: Creates a virtual card for a client (single_use or multi_use, 1-3
-        month expiry)
-      parameters:
-      - description: Virtual card details
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.createVirtualCardBody'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: created virtual card
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: invalid input
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - ClientBearerAuth: []
-      summary: Create virtual card
-      tags:
-      - cards
   /api/clients:
     get:
       parameters:
@@ -3753,39 +3711,6 @@ paths:
       summary: List all loans
       tags:
       - loans
-  /api/loans/{id}:
-    get:
-      parameters:
-      - description: Loan ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get loan by ID
-      tags:
-      - loans
   /api/loans/{id}/installments:
     get:
       parameters:
@@ -4150,6 +4075,57 @@ paths:
       summary: Get current user profile
       tags:
       - me
+  /api/me/cards/virtual:
+    post:
+      consumes:
+      - application/json
+      description: Creates a virtual card owned by the authenticated client (single_use
+        or multi_use, 1-3 month expiry). owner_id in the body is ignored — the gateway
+        derives the owner from the JWT.
+      parameters:
+      - description: Virtual card details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createVirtualCardBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: created virtual card
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: invalid input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: account does not belong to caller
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ClientBearerAuth: []
+      summary: Create virtual card for authenticated client
+      tags:
+      - cards
   /api/me/login-history:
     get:
       description: Returns recent login attempts for the authenticated user
@@ -5849,6 +5825,45 @@ paths:
       summary: Get employee changelog (not yet implemented)
       tags:
       - Changelog
+  /api/v1/loans/{id}:
+    get:
+      parameters:
+      - description: Loan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get loan by ID (employee)
+      tags:
+      - loans
   /api/v1/loans/{id}/changelog:
     get:
       parameters:
@@ -6087,6 +6102,98 @@ paths:
       summary: Verify challenge using device biometrics
       tags:
       - mobile-verifications
+  /api/v1/orders:
+    post:
+      consumes:
+      - application/json
+      description: Employee-only. Gateway verifies the account belongs to the named
+        client; stock-service records acting_employee_id for audit.
+      parameters:
+      - description: Order
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Place stock/futures/forex/option order on behalf of a client
+      tags:
+      - orders
+  /api/v1/otc/admin/offers/{id}/buy:
+    post:
+      consumes:
+      - application/json
+      description: Employee-only. Gateway verifies the account belongs to the named
+        client.
+      parameters:
+      - description: Offer ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Purchase
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Buy an OTC offer on behalf of a client
+      tags:
+      - otc
   /api/v2/options/{option_id}/exercise:
     post:
       consumes:
