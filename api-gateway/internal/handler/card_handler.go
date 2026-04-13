@@ -435,6 +435,9 @@ func (h *CardHandler) SetCardPin(c *gin.Context) {
 		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
+	if card := h.loadCardAndEnforceOwnership(c, id); card == nil {
+		return
+	}
 	resp, err := h.virtualCardClient.SetCardPin(c.Request.Context(), &cardpb.SetCardPinRequest{
 		Id:  id,
 		Pin: body.Pin,
@@ -473,6 +476,9 @@ func (h *CardHandler) VerifyCardPin(c *gin.Context) {
 	}
 	if err := validatePin(body.Pin); err != nil {
 		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+	if card := h.loadCardAndEnforceOwnership(c, id); card == nil {
 		return
 	}
 	resp, err := h.virtualCardClient.VerifyCardPin(c.Request.Context(), &cardpb.VerifyCardPinRequest{
@@ -514,6 +520,9 @@ func (h *CardHandler) TemporaryBlockCard(c *gin.Context) {
 	}
 	if err := inRange("duration_hours", body.DurationHours, 1, 720); err != nil {
 		apiError(c, 400, ErrValidation, err.Error())
+		return
+	}
+	if card := h.loadCardAndEnforceOwnership(c, id); card == nil {
 		return
 	}
 	resp, err := h.virtualCardClient.TemporaryBlockCard(middleware.GRPCContextWithChangedBy(c), &cardpb.TemporaryBlockCardRequest{
@@ -929,4 +938,19 @@ func cardRequestToJSON(r *cardpb.CardRequestResponse) gin.H {
 		"created_at":     r.CreatedAt,
 		"updated_at":     r.UpdatedAt,
 	}
+}
+
+// loadCardAndEnforceOwnership fetches the card by ID and verifies the caller
+// owns it. Returns the loaded card on success. On any failure it writes the
+// error response and returns nil — callers must return on nil.
+func (h *CardHandler) loadCardAndEnforceOwnership(c *gin.Context, id uint64) *cardpb.CardResponse {
+	resp, err := h.cardClient.GetCard(c.Request.Context(), &cardpb.GetCardRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return nil
+	}
+	if ownErr := enforceOwnership(c, resp.OwnerId); ownErr != nil {
+		return nil
+	}
+	return resp
 }
