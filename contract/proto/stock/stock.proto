@@ -378,6 +378,7 @@ message Order {
   string created_at = 23;
   optional string limit_value = 24;
   optional string stop_value = 25;
+  uint64 acting_employee_id = 26;  // non-zero when the order was placed by an employee on behalf
 }
 
 message OrderTransaction {
@@ -406,6 +407,8 @@ message CreateOrderRequest {
   bool all_or_none = 10;
   bool margin = 11;
   uint64 account_id = 12;
+  uint64 acting_employee_id    = 13;  // set when an employee places on behalf of a client
+  uint64 on_behalf_of_client_id = 14;  // required when acting_employee_id is set; target client
 }
 
 message GetOrderRequest {
@@ -560,6 +563,8 @@ message BuyOTCOfferRequest {
   string system_type = 3;
   int64 quantity = 4;
   uint64 account_id = 5;
+  uint64 acting_employee_id    = 6;
+  uint64 on_behalf_of_client_id = 7;
 }
 
 message OTCTransaction {

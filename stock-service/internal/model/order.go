@@ -34,6 +34,7 @@ type Order struct {
 	AllOrNone         bool             `gorm:"not null;default:false" json:"all_or_none"`
 	Margin            bool             `gorm:"not null;default:false" json:"margin"`
 	AccountID         uint64           `gorm:"not null" json:"account_id"`
+	ActingEmployeeID  uint64           `gorm:"default:0" json:"acting_employee_id"`
 	Version           int64            `gorm:"not null;default:1" json:"-"`
 	LastModification  time.Time        `json:"last_modification"`
 	CreatedAt         time.Time        `json:"created_at"`
