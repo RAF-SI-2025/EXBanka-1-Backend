@@ -144,16 +144,3 @@ func futuresSettlementDate(now time.Time, daysOut int) time.Time {
 	return now.AddDate(0, 0, daysOut)
 }
 
-// Keep helpers, types, and tables alive until Task 3.2 consumes them.
-var _ = dec
-var _ = futuresSettlementDate
-var _ = supportedCurrencies
-var _ = generatedExchanges
-var _ = generatedStocks
-var _ = generatedFutures
-var _ = forexSeedPrices
-var _ stockSeed
-var _ futuresSeed
-
-// Ensure the model import is used even if call sites are added later.
-var _ = model.ForexPair{}
