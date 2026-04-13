@@ -244,15 +244,16 @@ func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, loanRequestToJSON(resp))
 }
 
-// @Summary      Get loan by ID
+// @Summary      Get loan by ID (employee)
 // @Tags         loans
 // @Produce      json
 // @Param        id   path  int  true  "Loan ID"
 // @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
+// @Failure      403  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/loans/{id} [get]
+// @Router       /api/v1/loans/{id} [get]
 func (h *CreditHandler) GetLoan(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
