@@ -231,22 +231,67 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 		_ = s.changelogRepo.Create(entry)
 	}
 
-	// Disbursement: credit the loan amount to the borrower's account (outside TX — gRPC cannot be held inside a DB TX).
-	if s.accountClient == nil {
+	// Disbursement saga: bank debit → borrower credit. If either step fails the
+	// loan becomes disbursement_failed and the error propagates to the caller.
+	// When bank debit succeeds but borrower credit fails, the bank debit is
+	// compensated via CreditBankAccount with the same idempotency reference.
+
+	// Nil-client fallback (used by tests that don't exercise disbursement and
+	// by any legacy wiring that hasn't set up the clients): leave the loan in
+	// the "approved" state with no disbursement and no error.
+	if s.accountClient == nil || s.bankAccountClient == nil {
+		CreditLoanRequestTotal.WithLabelValues("approved").Inc()
 		return loan, nil
 	}
-	_, disburseErr := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+
+	reference := fmt.Sprintf("loan-disbursement:%d", loan.ID)
+	reason := fmt.Sprintf("loan %d disbursement to account %s", loan.ID, loan.AccountNumber)
+	amountStr := loan.Amount.StringFixed(4)
+
+	// Step A: debit the bank sentinel for the loan currency.
+	_, debitErr := s.bankAccountClient.DebitBankAccount(ctx, &accountpb.BankAccountOpRequest{
+		Currency:  loan.CurrencyCode,
+		Amount:    amountStr,
+		Reference: reference,
+		Reason:    reason,
+	})
+	if debitErr != nil {
+		loan.Status = "disbursement_failed"
+		if updateErr := s.loanRepo.Update(loan); updateErr != nil {
+			log.Printf("ApproveLoanRequest: failed to flag loan %d disbursement_failed after bank debit error: %v", loan.ID, updateErr)
+		}
+		CreditLoanRequestTotal.WithLabelValues("disbursement_failed").Inc()
+		return nil, debitErr
+	}
+
+	// Step B: credit the borrower's account.
+	_, creditErr := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 		AccountNumber:   loan.AccountNumber,
-		Amount:          loan.Amount.StringFixed(4),
+		Amount:          amountStr,
 		UpdateAvailable: true,
 	})
-	if disburseErr != nil {
+	if creditErr != nil {
+		// Compensate: return the money to the bank (idempotent by reference).
+		if _, compErr := s.bankAccountClient.CreditBankAccount(ctx, &accountpb.BankAccountOpRequest{
+			Currency:  loan.CurrencyCode,
+			Amount:    amountStr,
+			Reference: reference,
+			Reason:    "compensation for " + reason,
+		}); compErr != nil {
+			log.Printf("ApproveLoanRequest: COMPENSATION FAILED for loan %d reference %s: %v — bank is short by %s %s",
+				loan.ID, reference, compErr, amountStr, loan.CurrencyCode)
+		}
 		loan.Status = "disbursement_failed"
-	} else {
-		loan.Status = "active"
+		if updateErr := s.loanRepo.Update(loan); updateErr != nil {
+			log.Printf("ApproveLoanRequest: failed to flag loan %d disbursement_failed after borrower credit error: %v", loan.ID, updateErr)
+		}
+		CreditLoanRequestTotal.WithLabelValues("disbursement_failed").Inc()
+		return nil, creditErr
 	}
+
+	loan.Status = "active"
 	if updateErr := s.loanRepo.Update(loan); updateErr != nil {
-		log.Printf("ApproveLoanRequest: failed to update loan %d status to %s after disbursement: %v", loan.ID, loan.Status, updateErr)
+		log.Printf("ApproveLoanRequest: failed to update loan %d status to active: %v", loan.ID, updateErr)
 	}
 	CreditLoanRequestTotal.WithLabelValues("approved").Inc()
 	return loan, nil
