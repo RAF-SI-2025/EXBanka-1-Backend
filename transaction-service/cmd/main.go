@@ -1,7 +1,6 @@
 package main
 
 import (
-	"time"
 	"context"
 	"fmt"
 	"log"
@@ -9,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"

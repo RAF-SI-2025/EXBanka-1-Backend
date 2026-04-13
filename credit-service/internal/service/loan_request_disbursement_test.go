@@ -80,9 +80,9 @@ func (m *mockAccountClientForLoan) GetLedgerEntries(_ context.Context, _ *accoun
 // ---- mockBankAccountClientForLoan -------------------------------------------
 
 type mockBankAccountClientForLoan struct {
-	debitErr    error
-	creditErr   error
-	debitCalls  []string // references passed to DebitBankAccount
+	debitErr     error
+	creditErr    error
+	debitCalls   []string // references passed to DebitBankAccount
 	debitAmounts []string // amounts passed to DebitBankAccount
 	creditCalls  []string // references passed to CreditBankAccount (compensation tracking)
 }

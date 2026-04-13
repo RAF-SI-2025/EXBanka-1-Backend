@@ -263,9 +263,9 @@ func TestMobileAccessToken_ContainsDeviceClaims(t *testing.T) {
 	token, err := jwtSvc.GenerateMobileAccessToken(
 		10, "mobile@test.com", []string{"client"}, nil,
 		"client", MobileProfile{
-			TokenProfile:  TokenProfile{AccountActive: true},
-			DeviceType:    "mobile",
-			DeviceID:      deviceID,
+			TokenProfile: TokenProfile{AccountActive: true},
+			DeviceType:   "mobile",
+			DeviceID:     deviceID,
 		},
 	)
 	require.NoError(t, err)

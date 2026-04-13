@@ -30,6 +30,10 @@ type GeneratedSource struct {
 	stockPx   map[string]decimal.Decimal
 	futuresPx map[string]decimal.Decimal
 	forexPx   map[string]decimal.Decimal
+	// exchangeByAcronym resolves exchange acronyms to the IDs currently in
+	// the database. When nil (unit tests without a DB), the fallback hash
+	// `exchangeForTicker` is used, which assumes fresh-DB IDs 1..20.
+	exchangeByAcronym ExchangeByAcronym
 }
 
 // NewGeneratedSource constructs a GeneratedSource with a deterministic seed.
@@ -54,14 +58,61 @@ func NewGeneratedSource() *GeneratedSource {
 	return g
 }
 
+// WithExchangeResolver attaches the exchange-lookup function used to translate
+// acronyms (e.g. "NYSE") into the DB IDs the caller needs for foreign-key
+// references. Must be called before the source is first used for seeding if
+// the underlying DB may not have sequential 1..20 exchange IDs — in practice,
+// always after a wipe+reseed.
+func (g *GeneratedSource) WithExchangeResolver(fn ExchangeByAcronym) *GeneratedSource {
+	g.exchangeByAcronym = fn
+	return g
+}
+
 func (g *GeneratedSource) Name() string { return "generated" }
 
 // exchangeForTicker picks an exchange index 1..20 deterministically from the
-// ticker using FNV-32a hash. Stable across runs.
+// ticker using FNV-32a hash. This returns a positional index, not a DB ID —
+// after a wipe+reseed the sequence advances and those two diverge. Use
+// resolveExchangeID, which goes through the injected resolver, for anything
+// that needs a valid foreign key.
 func exchangeForTicker(ticker string) uint64 {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(ticker))
 	return uint64(h.Sum32()%20) + 1
+}
+
+// generatedExchangeAcronyms lists the 20 generated exchanges in the same order
+// as generatedExchanges so exchangeForTicker can map its hash result to a
+// stable acronym, which the resolver translates to a real DB ID.
+var generatedExchangeAcronyms = func() []string {
+	out := make([]string, len(generatedExchanges))
+	for i, ex := range generatedExchanges {
+		out[i] = ex.Acronym
+	}
+	return out
+}()
+
+// acronymForTicker returns the generated exchange acronym for a given ticker.
+func acronymForTicker(ticker string) string {
+	idx := (exchangeForTicker(ticker) - 1) % uint64(len(generatedExchangeAcronyms))
+	return generatedExchangeAcronyms[idx]
+}
+
+// resolveExchangeID returns the real DB exchange ID for a ticker. When a
+// resolver is wired (production path), it looks up by acronym. Without one
+// (unit tests), it falls back to the positional hash, which only works on a
+// fresh DB where IDs happen to equal positions.
+func (g *GeneratedSource) resolveExchangeID(ticker string) uint64 {
+	if g.exchangeByAcronym == nil {
+		return exchangeForTicker(ticker)
+	}
+	id, err := g.exchangeByAcronym(acronymForTicker(ticker))
+	if err != nil {
+		// Fallback keeps the seed path forward-progressing; syncStocks logs
+		// the subsequent FK failure if the ID is stale.
+		return exchangeForTicker(ticker)
+	}
+	return id
 }
 
 // exchangeDefaults maps an exchange acronym to its region metadata.
@@ -150,13 +201,15 @@ func (g *GeneratedSource) FetchStocks(_ context.Context) ([]StockWithListing, er
 	out := make([]StockWithListing, 0, len(generatedStocks))
 	for _, s := range generatedStocks {
 		price := g.stockPx[s.Ticker]
+		exchangeID := g.resolveExchangeID(s.Ticker)
 		out = append(out, StockWithListing{
 			Stock: model.Stock{
-				Ticker: s.Ticker,
-				Name:   s.Name,
-				Price:  price,
+				Ticker:     s.Ticker,
+				Name:       s.Name,
+				Price:      price,
+				ExchangeID: exchangeID,
 			},
-			ExchangeID:  exchangeForTicker(s.Ticker),
+			ExchangeID:  exchangeID,
 			Price:       price,
 			High:        price,
 			Low:         price,
@@ -177,6 +230,7 @@ func (g *GeneratedSource) FetchFutures(_ context.Context) ([]FuturesWithListing,
 		if !ok {
 			unit = "contract"
 		}
+		exchangeID := g.resolveExchangeID(f.Ticker)
 		out = append(out, FuturesWithListing{
 			Futures: model.FuturesContract{
 				Ticker:         f.Ticker,
@@ -185,8 +239,9 @@ func (g *GeneratedSource) FetchFutures(_ context.Context) ([]FuturesWithListing,
 				ContractUnit:   unit,
 				Price:          price,
 				SettlementDate: futuresSettlementDate(g.now, f.DaysToExpiry),
+				ExchangeID:     exchangeID,
 			},
-			ExchangeID:  exchangeForTicker(f.Ticker),
+			ExchangeID:  exchangeID,
 			Price:       price,
 			High:        price,
 			Low:         price,
@@ -218,6 +273,7 @@ func (g *GeneratedSource) FetchForex(_ context.Context) ([]ForexWithListing, err
 			} else if isExoticPair(base, quote) {
 				liquidity = "low"
 			}
+			exchangeID := g.resolveExchangeID(pair)
 			out = append(out, ForexWithListing{
 				Forex: model.ForexPair{
 					Ticker:        pair,
@@ -226,10 +282,10 @@ func (g *GeneratedSource) FetchForex(_ context.Context) ([]ForexWithListing, err
 					QuoteCurrency: quote,
 					ExchangeRate:  price, // ForexPair uses ExchangeRate, not Price
 					Liquidity:     liquidity,
-					ExchangeID:    exchangeForTicker(pair),
+					ExchangeID:    exchangeID,
 					LastRefresh:   g.now,
 				},
-				ExchangeID:  exchangeForTicker(pair),
+				ExchangeID:  exchangeID,
 				Price:       price,
 				High:        price,
 				Low:         price,

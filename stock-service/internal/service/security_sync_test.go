@@ -63,8 +63,8 @@ func (m *syncMockStockRepo) UpdatePriceByTicker(ticker string, price decimal.Dec
 
 // syncMockOptionRepo stores upserted options in memory and tracks SetListingID calls.
 type syncMockOptionRepo struct {
-	options  map[string]*model.Option
-	nextID   uint64
+	options    map[string]*model.Option
+	nextID     uint64
 	listingIDs map[uint64]uint64 // optionID -> listingID
 }
 
@@ -297,14 +297,14 @@ func (s *stubSource) RefreshPrices(_ context.Context) error { return nil }
 // syncMockFuturesRepo is a minimal in-memory stub for FuturesRepo.
 type syncMockFuturesRepo struct{}
 
-func (m *syncMockFuturesRepo) Create(fc *model.FuturesContract) error           { return nil }
+func (m *syncMockFuturesRepo) Create(fc *model.FuturesContract) error { return nil }
 func (m *syncMockFuturesRepo) GetByID(id uint64) (*model.FuturesContract, error) {
 	return nil, gorm.ErrRecordNotFound
 }
 func (m *syncMockFuturesRepo) GetByTicker(ticker string) (*model.FuturesContract, error) {
 	return nil, gorm.ErrRecordNotFound
 }
-func (m *syncMockFuturesRepo) Update(fc *model.FuturesContract) error { return nil }
+func (m *syncMockFuturesRepo) Update(fc *model.FuturesContract) error         { return nil }
 func (m *syncMockFuturesRepo) UpsertByTicker(fc *model.FuturesContract) error { return nil }
 func (m *syncMockFuturesRepo) List(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error) {
 	return nil, 0, nil
@@ -316,7 +316,7 @@ func (m *syncMockFuturesRepo) UpdatePriceByTicker(ticker string, price decimal.D
 // syncMockForexRepo is a minimal in-memory stub for ForexPairRepo.
 type syncMockForexRepo struct{}
 
-func (m *syncMockForexRepo) Create(fp *model.ForexPair) error           { return nil }
+func (m *syncMockForexRepo) Create(fp *model.ForexPair) error { return nil }
 func (m *syncMockForexRepo) GetByID(id uint64) (*model.ForexPair, error) {
 	return nil, gorm.ErrRecordNotFound
 }

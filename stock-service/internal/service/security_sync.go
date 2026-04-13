@@ -44,7 +44,7 @@ type SecuritySyncService struct {
 	wipe       Wiper
 	switchMu   sync.Mutex
 	statusMu   sync.RWMutex
-	status     string             // "idle" | "reseeding" | "failed"
+	status     string // "idle" | "reseeding" | "failed"
 	lastErr    string
 	startedAt  time.Time
 	refreshCtx context.CancelFunc // non-nil while the simulator refresh loop is running

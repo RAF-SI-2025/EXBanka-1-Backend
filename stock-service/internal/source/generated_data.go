@@ -143,4 +143,3 @@ func dec(f float64) decimal.Decimal { return decimal.NewFromFloat(f) }
 func futuresSettlementDate(now time.Time, daysOut int) time.Time {
 	return now.AddDate(0, 0, daysOut)
 }
-

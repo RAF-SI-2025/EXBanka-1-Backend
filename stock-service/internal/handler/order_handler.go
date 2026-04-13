@@ -185,10 +185,10 @@ func toOrderProto(o *model.Order) *pb.Order {
 		AfterHours:        o.AfterHours,
 		AllOrNone:         o.AllOrNone,
 		Margin:            o.Margin,
-		AccountId:        o.AccountID,
-		ActingEmployeeId: o.ActingEmployeeID,
-		LastModification: o.LastModification.Format("2006-01-02T15:04:05Z"),
-		CreatedAt:        o.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		AccountId:         o.AccountID,
+		ActingEmployeeId:  o.ActingEmployeeID,
+		LastModification:  o.LastModification.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:         o.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 	if o.HoldingID != nil {
 		order.HoldingId = *o.HoldingID

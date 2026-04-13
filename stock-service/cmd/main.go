@@ -223,7 +223,13 @@ func main() {
 			case "external":
 				initialSource = extSource
 			case "generated":
-				initialSource = source.NewGeneratedSource()
+				initialSource = source.NewGeneratedSource().WithExchangeResolver(func(acronym string) (uint64, error) {
+					ex, err := exchangeRepo.GetByAcronym(acronym)
+					if err != nil {
+						return 0, err
+					}
+					return ex.ID, nil
+				})
 				log.Println("restored active stock source: generated")
 			case "simulator":
 				client := source.NewSimulatorClient(cfg.MarketSimulatorURL, cfg.BankName, settingRepo)
@@ -338,7 +344,13 @@ func main() {
 		case "external":
 			return extSource, nil
 		case "generated":
-			return source.NewGeneratedSource(), nil
+			return source.NewGeneratedSource().WithExchangeResolver(func(acronym string) (uint64, error) {
+				ex, err := exchangeRepo.GetByAcronym(acronym)
+				if err != nil {
+					return 0, err
+				}
+				return ex.ID, nil
+			}), nil
 		case "simulator":
 			simClient := source.NewSimulatorClient(cfg.MarketSimulatorURL, cfg.BankName, settingRepo)
 			if err := simClient.EnsureRegistered(); err != nil {

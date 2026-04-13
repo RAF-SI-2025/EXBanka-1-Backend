@@ -45,15 +45,15 @@ func validateRepaymentPeriod(loanType string, period int) error {
 }
 
 type LoanRequestService struct {
-	repo             *repository.LoanRequestRepository
-	loanRepo         *repository.LoanRepository
-	installRepo      *repository.InstallmentRepository
-	limitClient      userpb.EmployeeLimitServiceClient
-	accountClient    accountpb.AccountServiceClient
+	repo              *repository.LoanRequestRepository
+	loanRepo          *repository.LoanRepository
+	installRepo       *repository.InstallmentRepository
+	limitClient       userpb.EmployeeLimitServiceClient
+	accountClient     accountpb.AccountServiceClient
 	bankAccountClient accountpb.BankAccountServiceClient
-	rateConfigSvc    *RateConfigService
-	changelogRepo    *repository.ChangelogRepository
-	db               *gorm.DB
+	rateConfigSvc     *RateConfigService
+	changelogRepo     *repository.ChangelogRepository
+	db                *gorm.DB
 }
 
 func NewLoanRequestService(

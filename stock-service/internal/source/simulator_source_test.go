@@ -67,8 +67,8 @@ func TestSimulatorSource_FetchStocks_PicksLowestExchangeID(t *testing.T) {
 
 func TestSimulatorSource_FetchExchanges(t *testing.T) {
 	server := newSimulatorTestServer(t, map[string]string{
-		"/api/banks/me":                       `{"data":{"id":1}}`,
-		"/api/market/exchanges?per_page=200":  `{"data":[{"id":1,"acronym":"NYSE","mic_code":"XNYS","name":"New York Stock Exchange"},{"id":2,"acronym":"NASDAQ","mic_code":"XNAS","name":"Nasdaq"}]}`,
+		"/api/banks/me":                      `{"data":{"id":1}}`,
+		"/api/market/exchanges?per_page=200": `{"data":[{"id":1,"acronym":"NYSE","mic_code":"XNYS","name":"New York Stock Exchange"},{"id":2,"acronym":"NASDAQ","mic_code":"XNAS","name":"Nasdaq"}]}`,
 	})
 	defer server.Close()
 
@@ -82,10 +82,10 @@ func TestSimulatorSource_FetchExchanges(t *testing.T) {
 
 func TestSimulatorSource_FetchOptions_UsesSimulatorStockID(t *testing.T) {
 	server := newSimulatorTestServer(t, map[string]string{
-		"/api/banks/me":                                            `{"data":{"id":1}}`,
-		"/api/market/stocks?per_page=200":                         `{"data":[{"id":42,"ticker":"AAPL","name":"Apple"}],"pagination":{"page":1,"per_page":20,"total":1}}`,
-		"/api/market/stocks/AAPL/listings":                        `{"data":[{"id":10,"exchange_id":2,"price":"180.00"}]}`,
-		"/api/market/options?stock_id=42&per_page=200":            `{"data":[{"id":1,"ticker":"AAPL260116C00200000","name":"AAPL Call","stock_id":42,"option_type":"call","strike_price":"200.00","implied_volatility":"0.32","premium":"5.75","settlement_date":"2026-01-16T00:00:00Z"}]}`,
+		"/api/banks/me":                                `{"data":{"id":1}}`,
+		"/api/market/stocks?per_page=200":              `{"data":[{"id":42,"ticker":"AAPL","name":"Apple"}],"pagination":{"page":1,"per_page":20,"total":1}}`,
+		"/api/market/stocks/AAPL/listings":             `{"data":[{"id":10,"exchange_id":2,"price":"180.00"}]}`,
+		"/api/market/options?stock_id=42&per_page=200": `{"data":[{"id":1,"ticker":"AAPL260116C00200000","name":"AAPL Call","stock_id":42,"option_type":"call","strike_price":"200.00","implied_volatility":"0.32","premium":"5.75","settlement_date":"2026-01-16T00:00:00Z"}]}`,
 	})
 	defer server.Close()
 
