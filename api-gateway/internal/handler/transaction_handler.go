@@ -654,6 +654,9 @@ func (h *TransactionHandler) GetMyPayment(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	if ownErr := enforceOwnership(c, resp.ClientId); ownErr != nil {
+		return
+	}
 	c.JSON(http.StatusOK, paymentToJSON(resp))
 }
 
@@ -699,6 +702,9 @@ func (h *TransactionHandler) GetMyTransfer(c *gin.Context) {
 	resp, err := h.txClient.GetTransfer(c.Request.Context(), &transactionpb.GetTransferRequest{Id: id})
 	if err != nil {
 		handleGRPCError(c, err)
+		return
+	}
+	if ownErr := enforceOwnership(c, resp.ClientId); ownErr != nil {
 		return
 	}
 	c.JSON(http.StatusOK, transferToJSON(resp))
@@ -868,6 +874,7 @@ func (h *TransactionHandler) ListTransfers(c *gin.Context) {
 func paymentToJSON(p *transactionpb.PaymentResponse) gin.H {
 	h := gin.H{
 		"id":                  p.Id,
+		"client_id":           p.ClientId,
 		"from_account_number": p.FromAccountNumber,
 		"to_account_number":   p.ToAccountNumber,
 		"initial_amount":      p.InitialAmount,
@@ -889,6 +896,7 @@ func paymentToJSON(p *transactionpb.PaymentResponse) gin.H {
 func transferToJSON(t *transactionpb.TransferResponse) gin.H {
 	h := gin.H{
 		"id":                  t.Id,
+		"client_id":           t.ClientId,
 		"from_account_number": t.FromAccountNumber,
 		"to_account_number":   t.ToAccountNumber,
 		"initial_amount":      t.InitialAmount,

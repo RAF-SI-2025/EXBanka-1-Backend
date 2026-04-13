@@ -85,6 +85,7 @@ func (h *TransactionGRPCHandler) CreatePayment(ctx context.Context, req *pb.Crea
 	paymentAmount, _ := decimal.NewFromString(req.GetAmount())
 	payment := &model.Payment{
 		IdempotencyKey:    idempotencyKey,
+		ClientID:          req.GetClientId(),
 		FromAccountNumber: req.GetFromAccountNumber(),
 		ToAccountNumber:   req.GetToAccountNumber(),
 		InitialAmount:     paymentAmount,
@@ -214,6 +215,7 @@ func (h *TransactionGRPCHandler) CreateTransfer(ctx context.Context, req *pb.Cre
 	transferAmount, _ := decimal.NewFromString(req.GetAmount())
 	transfer := &model.Transfer{
 		IdempotencyKey:    idempotencyKey,
+		ClientID:          req.GetClientId(),
 		FromAccountNumber: req.GetFromAccountNumber(),
 		ToAccountNumber:   req.GetToAccountNumber(),
 		InitialAmount:     transferAmount,
@@ -360,6 +362,7 @@ func (h *TransactionGRPCHandler) DeletePaymentRecipient(ctx context.Context, req
 func paymentToProto(p *model.Payment) *pb.PaymentResponse {
 	return &pb.PaymentResponse{
 		Id:                p.ID,
+		ClientId:          p.ClientID,
 		FromAccountNumber: p.FromAccountNumber,
 		ToAccountNumber:   p.ToAccountNumber,
 		InitialAmount:     p.InitialAmount.StringFixed(4),
@@ -377,6 +380,7 @@ func paymentToProto(p *model.Payment) *pb.PaymentResponse {
 func transferToProto(t *model.Transfer) *pb.TransferResponse {
 	return &pb.TransferResponse{
 		Id:                t.ID,
+		ClientId:          t.ClientID,
 		FromAccountNumber: t.FromAccountNumber,
 		ToAccountNumber:   t.ToAccountNumber,
 		InitialAmount:     t.InitialAmount.StringFixed(4),

@@ -72,6 +72,7 @@ message PaymentResponse {
   string status = 11;
   string timestamp = 12;
   int64 verification_code_expires_at = 13;
+  uint64 client_id = 14; // owner of the payment, used for /api/me ownership checks
 }
 
 message CreateTransferRequest {
@@ -109,6 +110,7 @@ message TransferResponse {
   string timestamp = 8;
   string status = 9;
   int64 verification_code_expires_at = 10;
+  uint64 client_id = 11; // owner of the transfer, used for /api/me ownership checks
 }
 
 message CreatePaymentRecipientRequest {

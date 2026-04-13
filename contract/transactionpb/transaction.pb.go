@@ -408,6 +408,7 @@ type PaymentResponse struct {
 	Status                    string                 `protobuf:"bytes,11,opt,name=status,proto3" json:"status,omitempty"`
 	Timestamp                 string                 `protobuf:"bytes,12,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	VerificationCodeExpiresAt int64                  `protobuf:"varint,13,opt,name=verification_code_expires_at,json=verificationCodeExpiresAt,proto3" json:"verification_code_expires_at,omitempty"`
+	ClientId                  uint64                 `protobuf:"varint,14,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"` // owner of the payment, used for /api/me ownership checks
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -529,6 +530,13 @@ func (x *PaymentResponse) GetTimestamp() string {
 func (x *PaymentResponse) GetVerificationCodeExpiresAt() int64 {
 	if x != nil {
 		return x.VerificationCodeExpiresAt
+	}
+	return 0
+}
+
+func (x *PaymentResponse) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
 	}
 	return 0
 }
@@ -801,6 +809,7 @@ type TransferResponse struct {
 	Timestamp                 string                 `protobuf:"bytes,8,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	Status                    string                 `protobuf:"bytes,9,opt,name=status,proto3" json:"status,omitempty"`
 	VerificationCodeExpiresAt int64                  `protobuf:"varint,10,opt,name=verification_code_expires_at,json=verificationCodeExpiresAt,proto3" json:"verification_code_expires_at,omitempty"`
+	ClientId                  uint64                 `protobuf:"varint,11,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"` // owner of the transfer, used for /api/me ownership checks
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -901,6 +910,13 @@ func (x *TransferResponse) GetStatus() string {
 func (x *TransferResponse) GetVerificationCodeExpiresAt() int64 {
 	if x != nil {
 		return x.VerificationCodeExpiresAt
+	}
+	return 0
+}
+
+func (x *TransferResponse) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
 	}
 	return 0
 }
@@ -2112,7 +2128,7 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12\x12\n" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12'\n" +
-	"\x0faccount_numbers\x18\x04 \x03(\tR\x0eaccountNumbers\"\xfc\x03\n" +
+	"\x0faccount_numbers\x18\x04 \x03(\tR\x0eaccountNumbers\"\x99\x04\n" +
 	"\x0fPaymentResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12.\n" +
 	"\x13from_account_number\x18\x02 \x01(\tR\x11fromAccountNumber\x12*\n" +
@@ -2129,7 +2145,8 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	" \x01(\tR\x0epaymentPurpose\x12\x16\n" +
 	"\x06status\x18\v \x01(\tR\x06status\x12\x1c\n" +
 	"\ttimestamp\x18\f \x01(\tR\ttimestamp\x12?\n" +
-	"\x1cverification_code_expires_at\x18\r \x01(\x03R\x19verificationCodeExpiresAt\"\x91\x02\n" +
+	"\x1cverification_code_expires_at\x18\r \x01(\x03R\x19verificationCodeExpiresAt\x12\x1b\n" +
+	"\tclient_id\x18\x0e \x01(\x04R\bclientId\"\x91\x02\n" +
 	"\x15CreateTransferRequest\x12.\n" +
 	"\x13from_account_number\x18\x01 \x01(\tR\x11fromAccountNumber\x12*\n" +
 	"\x11to_account_number\x18\x02 \x01(\tR\x0ftoAccountNumber\x12\x16\n" +
@@ -2148,7 +2165,7 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x0faccount_numbers\x18\x04 \x03(\tR\x0eaccountNumbers\"j\n" +
 	"\x15ListTransfersResponse\x12;\n" +
 	"\ttransfers\x18\x01 \x03(\v2\x1d.transaction.TransferResponseR\ttransfers\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\x84\x03\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xa1\x03\n" +
 	"\x10TransferResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12.\n" +
 	"\x13from_account_number\x18\x02 \x01(\tR\x11fromAccountNumber\x12*\n" +
@@ -2162,7 +2179,8 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\ttimestamp\x18\b \x01(\tR\ttimestamp\x12\x16\n" +
 	"\x06status\x18\t \x01(\tR\x06status\x12?\n" +
 	"\x1cverification_code_expires_at\x18\n" +
-	" \x01(\x03R\x19verificationCodeExpiresAt\"\x8a\x01\n" +
+	" \x01(\x03R\x19verificationCodeExpiresAt\x12\x1b\n" +
+	"\tclient_id\x18\v \x01(\x04R\bclientId\"\x8a\x01\n" +
 	"\x1dCreatePaymentRecipientRequest\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12%\n" +
 	"\x0erecipient_name\x18\x02 \x01(\tR\rrecipientName\x12%\n" +
