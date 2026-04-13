@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	kafkaprod "github.com/exbanka/account-service/internal/kafka"
+	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
@@ -68,4 +69,37 @@ func (h *BankAccountGRPCHandler) GetBankRSDAccount(ctx context.Context, req *pb.
 		return nil, status.Errorf(codes.NotFound, "no bank RSD account found: %v", err)
 	}
 	return toAccountResponse(account), nil
+}
+
+func (h *BankAccountGRPCHandler) DebitBankAccount(ctx context.Context, req *pb.BankAccountOpRequest) (*pb.BankAccountOpResponse, error) {
+	res, err := h.accountSvc.DebitBankAccount(ctx, req.Currency, req.Amount, req.Reference, req.Reason)
+	if err != nil {
+		if errors.Is(err, repository.ErrInsufficientBankLiquidity) {
+			return nil, status.Errorf(codes.FailedPrecondition, "bank has insufficient liquidity in %s", req.Currency)
+		}
+		if errors.Is(err, repository.ErrBankAccountNotFound) {
+			return nil, status.Errorf(codes.NotFound, "no bank sentinel account for currency %s", req.Currency)
+		}
+		return nil, status.Errorf(codes.Internal, "debit bank: %v", err)
+	}
+	return &pb.BankAccountOpResponse{
+		AccountNumber: res.AccountNumber,
+		NewBalance:    res.NewBalance,
+		Replayed:      res.Replayed,
+	}, nil
+}
+
+func (h *BankAccountGRPCHandler) CreditBankAccount(ctx context.Context, req *pb.BankAccountOpRequest) (*pb.BankAccountOpResponse, error) {
+	res, err := h.accountSvc.CreditBankAccount(ctx, req.Currency, req.Amount, req.Reference, req.Reason)
+	if err != nil {
+		if errors.Is(err, repository.ErrBankAccountNotFound) {
+			return nil, status.Errorf(codes.NotFound, "no bank sentinel account for currency %s", req.Currency)
+		}
+		return nil, status.Errorf(codes.Internal, "credit bank: %v", err)
+	}
+	return &pb.BankAccountOpResponse{
+		AccountNumber: res.AccountNumber,
+		NewBalance:    res.NewBalance,
+		Replayed:      res.Replayed,
+	}, nil
 }
