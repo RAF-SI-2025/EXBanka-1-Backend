@@ -108,6 +108,7 @@ func main() {
 
 	changelogRepo := repository.NewChangelogRepository(db)
 	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc, db, changelogRepo)
+	loanRequestSvc.SetBankAccountClient(bankAccountClient)
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
 	cronSvc := service.NewCronService(installmentSvc, loanSvc, accountClient, bankAccountClient, clientClient, producer, bankRSDAccount, db)

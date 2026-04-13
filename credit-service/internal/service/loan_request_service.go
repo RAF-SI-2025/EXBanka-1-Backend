@@ -45,14 +45,15 @@ func validateRepaymentPeriod(loanType string, period int) error {
 }
 
 type LoanRequestService struct {
-	repo          *repository.LoanRequestRepository
-	loanRepo      *repository.LoanRepository
-	installRepo   *repository.InstallmentRepository
-	limitClient   userpb.EmployeeLimitServiceClient
-	accountClient accountpb.AccountServiceClient
-	rateConfigSvc *RateConfigService
-	changelogRepo *repository.ChangelogRepository
-	db            *gorm.DB
+	repo             *repository.LoanRequestRepository
+	loanRepo         *repository.LoanRepository
+	installRepo      *repository.InstallmentRepository
+	limitClient      userpb.EmployeeLimitServiceClient
+	accountClient    accountpb.AccountServiceClient
+	bankAccountClient accountpb.BankAccountServiceClient
+	rateConfigSvc    *RateConfigService
+	changelogRepo    *repository.ChangelogRepository
+	db               *gorm.DB
 }
 
 func NewLoanRequestService(
@@ -70,6 +71,15 @@ func NewLoanRequestService(
 		svc.changelogRepo = changelogRepo[0]
 	}
 	return svc
+}
+
+// SetBankAccountClient injects the BankAccountService gRPC client used by
+// the loan disbursement saga to debit the bank sentinel account and to
+// compensate on partial failure. Optional; if nil, disbursement falls back
+// to the legacy UpdateBalance-only path (used in tests that don't exercise
+// the saga).
+func (s *LoanRequestService) SetBankAccountClient(client accountpb.BankAccountServiceClient) {
+	s.bankAccountClient = client
 }
 
 func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
