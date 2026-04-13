@@ -2,8 +2,10 @@
 package handler
 
 import (
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -118,4 +120,55 @@ func TestValidatePin_RejectsNonDigits(t *testing.T) {
 func TestValidatePin_RejectsEmpty(t *testing.T) {
 	err := validatePin("")
 	require.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// enforceOwnership
+// ---------------------------------------------------------------------------
+
+func TestEnforceOwnership_Match_ReturnsNil(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set("system_type", "client")
+	c.Set("user_id", int64(42))
+
+	err := enforceOwnership(c, 42)
+	require.NoError(t, err)
+	require.Equal(t, 200, w.Code, "no response should be written on match")
+}
+
+func TestEnforceOwnership_Mismatch_Writes404(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set("system_type", "client")
+	c.Set("user_id", int64(42))
+
+	err := enforceOwnership(c, 99)
+	require.Error(t, err)
+	require.Equal(t, 404, w.Code)
+	require.Contains(t, w.Body.String(), "not_found")
+}
+
+func TestEnforceOwnership_EmployeeBypass_ReturnsNil(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set("system_type", "employee")
+	c.Set("user_id", int64(1))
+
+	err := enforceOwnership(c, 9999)
+	require.NoError(t, err, "employees must bypass ownership check")
+	require.Equal(t, 200, w.Code)
+}
+
+func TestEnforceOwnership_MissingSystemType_ReturnsNil(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	// No system_type set — treat as employee (bypass).
+	err := enforceOwnership(c, 9999)
+	require.NoError(t, err)
+	require.Equal(t, 200, w.Code)
 }
