@@ -123,6 +123,7 @@ message LoanResponse {
   string status = 15;
   string interest_type = 16;
   string created_at = 17;
+  uint64 client_id = 18; // owner of the loan, used for /api/me ownership checks
 }
 
 message GetInstallmentsByLoanReq { uint64 loan_id = 1; }

@@ -836,6 +836,7 @@ type LoanResponse struct {
 	Status                string                 `protobuf:"bytes,15,opt,name=status,proto3" json:"status,omitempty"`
 	InterestType          string                 `protobuf:"bytes,16,opt,name=interest_type,json=interestType,proto3" json:"interest_type,omitempty"`
 	CreatedAt             string                 `protobuf:"bytes,17,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ClientId              uint64                 `protobuf:"varint,18,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"` // owner of the loan, used for /api/me ownership checks
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -987,6 +988,13 @@ func (x *LoanResponse) GetCreatedAt() string {
 		return x.CreatedAt
 	}
 	return ""
+}
+
+func (x *LoanResponse) GetClientId() uint64 {
+	if x != nil {
+		return x.ClientId
+	}
+	return 0
 }
 
 type GetInstallmentsByLoanReq struct {
@@ -1965,7 +1973,7 @@ const file_credit_credit_proto_rawDesc = "" +
 	"\tpage_size\x18\x05 \x01(\x05R\bpageSize\"U\n" +
 	"\x11ListLoansResponse\x12*\n" +
 	"\x05loans\x18\x01 \x03(\v2\x14.credit.LoanResponseR\x05loans\x12\x14\n" +
-	"\x05total\x18\x02 \x01(\x03R\x05total\"\x90\x05\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xad\x05\n" +
 	"\fLoanResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1f\n" +
 	"\vloan_number\x18\x02 \x01(\tR\n" +
@@ -1986,7 +1994,8 @@ const file_credit_credit_proto_rawDesc = "" +
 	"\x06status\x18\x0f \x01(\tR\x06status\x12#\n" +
 	"\rinterest_type\x18\x10 \x01(\tR\finterestType\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x11 \x01(\tR\tcreatedAt\"3\n" +
+	"created_at\x18\x11 \x01(\tR\tcreatedAt\x12\x1b\n" +
+	"\tclient_id\x18\x12 \x01(\x04R\bclientId\"3\n" +
 	"\x18GetInstallmentsByLoanReq\x12\x17\n" +
 	"\aloan_id\x18\x01 \x01(\x04R\x06loanId\"[\n" +
 	"\x18ListInstallmentsResponse\x12?\n" +

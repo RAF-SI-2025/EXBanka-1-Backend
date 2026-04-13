@@ -808,6 +808,9 @@ func (h *CreditHandler) GetMyLoan(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
+	if ownErr := enforceOwnership(c, resp.ClientId); ownErr != nil {
+		return
+	}
 	c.JSON(http.StatusOK, loanToJSON(resp))
 }
 
@@ -884,5 +887,6 @@ func loanToJSON(l *creditpb.LoanResponse) gin.H {
 		"status":                  l.Status,
 		"interest_type":           l.InterestType,
 		"created_at":              l.CreatedAt,
+		"client_id":               l.ClientId,
 	}
 }

@@ -305,6 +305,7 @@ func toLoanResponse(l *model.Loan) *pb.LoanResponse {
 		Status:                l.Status,
 		InterestType:          l.InterestType,
 		CreatedAt:             l.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		ClientId:              l.ClientID,
 	}
 }
 
