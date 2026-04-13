@@ -8085,6 +8085,102 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v2/options/{option_id}/exercise": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Phase 7 stub — returns 501 Not Implemented.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Options V2"
+                ],
+                "summary": "Exercise an option contract (v2, not yet implemented)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Option ID",
+                        "name": "option_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v2/options/{option_id}/orders": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "v2 accepts the option_id directly; internally resolves to listing_id and delegates to the standard order flow.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Options V2"
+                ],
+                "summary": "Create an order for an option contract (v2)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Option ID",
+                        "name": "option_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Order details",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createOptionOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/verifications": {
             "post": {
                 "security": [
@@ -8734,6 +8830,38 @@ const docTemplate = `{
                 },
                 "repayment_period": {
                     "type": "integer"
+                }
+            }
+        },
+        "handler.createOptionOrderRequest": {
+            "type": "object",
+            "properties": {
+                "account_id": {
+                    "type": "integer"
+                },
+                "all_or_none": {
+                    "type": "boolean"
+                },
+                "direction": {
+                    "type": "string"
+                },
+                "holding_id": {
+                    "type": "integer"
+                },
+                "limit_value": {
+                    "type": "string"
+                },
+                "margin": {
+                    "type": "boolean"
+                },
+                "order_type": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "integer"
+                },
+                "stop_value": {
+                    "type": "string"
                 }
             }
         },

@@ -342,6 +342,27 @@ definitions:
     - loan_type
     - repayment_period
     type: object
+  handler.createOptionOrderRequest:
+    properties:
+      account_id:
+        type: integer
+      all_or_none:
+        type: boolean
+      direction:
+        type: string
+      holding_id:
+        type: integer
+      limit_value:
+        type: string
+      margin:
+        type: boolean
+      order_type:
+        type: string
+      quantity:
+        type: integer
+      stop_value:
+        type: string
+    type: object
   handler.createPaymentRecipientRequest:
     properties:
       account_number:
@@ -6061,6 +6082,69 @@ paths:
       summary: Verify challenge using device biometrics
       tags:
       - mobile-verifications
+  /api/v2/options/{option_id}/exercise:
+    post:
+      description: Phase 7 stub — returns 501 Not Implemented.
+      parameters:
+      - description: Option ID
+        in: path
+        name: option_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Exercise an option contract (v2, not yet implemented)
+      tags:
+      - Options V2
+  /api/v2/options/{option_id}/orders:
+    post:
+      consumes:
+      - application/json
+      description: v2 accepts the option_id directly; internally resolves to listing_id
+        and delegates to the standard order flow.
+      parameters:
+      - description: Option ID
+        in: path
+        name: option_id
+        required: true
+        type: integer
+      - description: Order details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createOptionOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create an order for an option contract (v2)
+      tags:
+      - Options V2
   /api/verifications:
     post:
       consumes:
