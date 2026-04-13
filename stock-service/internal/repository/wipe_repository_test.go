@@ -30,6 +30,7 @@ func setupWipeTestDB(t *testing.T) *gorm.DB {
 		&model.FuturesContract{},
 		&model.ForexPair{},
 		&model.Listing{},
+		&model.ListingDailyPriceInfo{},
 		&model.Option{},
 		&model.Order{},
 		&model.Holding{},
@@ -96,6 +97,20 @@ func TestWipeAll_DeletesAllStockAndTradingState(t *testing.T) {
 		Price:        decimal.NewFromFloat(100),
 	}
 	require.NoError(t, db.Create(&listing).Error)
+
+	// 5b. ListingDailyPriceInfo (child of Listing) — regression: this table
+	// was missing from the wipe list and its FK to listings caused the
+	// switch-source flow to fail with SQLSTATE 23503.
+	priceInfo := model.ListingDailyPriceInfo{
+		ListingID: listing.ID,
+		Date:      time.Now(),
+		Price:     decimal.NewFromFloat(100),
+		High:      decimal.NewFromFloat(101),
+		Low:       decimal.NewFromFloat(99),
+		Change:    decimal.NewFromFloat(1),
+		Volume:    1000,
+	}
+	require.NoError(t, db.Create(&priceInfo).Error)
 
 	// 6. Option (child of Stock)
 	opt := model.Option{
@@ -197,6 +212,7 @@ func TestWipeAll_DeletesAllStockAndTradingState(t *testing.T) {
 		"stock_exchanges",
 		"stocks",
 		"listings",
+		"listing_daily_price_infos",
 		"options",
 		"futures_contracts",
 		"forex_pairs",

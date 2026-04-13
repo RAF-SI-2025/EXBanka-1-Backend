@@ -25,6 +25,7 @@ func (r *WipeRepository) WipeAll() error {
 			"orders",
 			"holdings",
 			"options",
+			"listing_daily_price_infos",
 			"listings",
 			"forex_pairs",
 			"futures_contracts",
