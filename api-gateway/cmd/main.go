@@ -156,6 +156,12 @@ func main() {
 	}
 	defer taxConn.Close()
 
+	sourceAdminClient, sourceAdminConn, err := grpcclients.NewSourceAdminClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to source admin service: %v", err)
+	}
+	defer sourceAdminConn.Close()
+
 	// Blueprint service reuses the user-service connection
 	blueprintClient, blueprintConn, err := grpcclients.NewBlueprintClient(cfg.UserGRPCAddr)
 	if err != nil {
@@ -191,7 +197,7 @@ func main() {
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
 	r := router.NewRouter()
-	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient)
+	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,
