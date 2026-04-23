@@ -252,6 +252,22 @@ func (m *syncMockListingRepo) ListBySecurityType(securityType string) ([]model.L
 	}
 	return result, nil
 }
+func (m *syncMockListingRepo) ListBySecurityIDsAndType(securityIDs []uint64, securityType string) ([]model.Listing, error) {
+	idSet := make(map[uint64]struct{}, len(securityIDs))
+	for _, id := range securityIDs {
+		idSet[id] = struct{}{}
+	}
+	var result []model.Listing
+	for _, l := range m.listings {
+		if l.SecurityType != securityType {
+			continue
+		}
+		if _, ok := idSet[l.SecurityID]; ok {
+			result = append(result, *l)
+		}
+	}
+	return result, nil
+}
 func (m *syncMockListingRepo) UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error {
 	return nil
 }

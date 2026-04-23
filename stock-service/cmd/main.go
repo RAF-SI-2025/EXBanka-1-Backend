@@ -320,7 +320,7 @@ func main() {
 	exchangeHandler := handler.NewExchangeGRPCHandler(exchangeSvc)
 	pb.RegisterStockExchangeGRPCServiceServer(grpcServer, exchangeHandler)
 
-	securityHandler := handler.NewSecurityHandler(secSvc, listingSvc, candleSvc)
+	securityHandler := handler.NewSecurityHandler(secSvc, listingSvc, candleSvc, listingRepo)
 	pb.RegisterSecurityGRPCServiceServer(grpcServer, securityHandler)
 
 	orderHandler := handler.NewOrderHandler(orderSvc, execEngine)

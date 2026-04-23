@@ -40,6 +40,20 @@ func (r *ListingRepository) GetBySecurityIDAndType(securityID uint64, securityTy
 	return &listing, nil
 }
 
+// ListBySecurityIDsAndType returns all listings for the given security IDs of the given type.
+// Used for batch resolution in list handlers.
+func (r *ListingRepository) ListBySecurityIDsAndType(securityIDs []uint64, securityType string) ([]model.Listing, error) {
+	if len(securityIDs) == 0 {
+		return nil, nil
+	}
+	var listings []model.Listing
+	if err := r.db.Where("security_type = ? AND security_id IN ?", securityType, securityIDs).
+		Find(&listings).Error; err != nil {
+		return nil, err
+	}
+	return listings, nil
+}
+
 func (r *ListingRepository) Update(listing *model.Listing) error {
 	result := r.db.Save(listing)
 	if result.Error != nil {

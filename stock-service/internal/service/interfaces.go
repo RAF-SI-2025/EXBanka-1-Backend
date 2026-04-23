@@ -78,6 +78,7 @@ type ListingRepo interface {
 	Create(listing *model.Listing) error
 	GetByID(id uint64) (*model.Listing, error)
 	GetBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error)
+	ListBySecurityIDsAndType(securityIDs []uint64, securityType string) ([]model.Listing, error)
 	Update(listing *model.Listing) error
 	UpsertBySecurity(listing *model.Listing) error
 	UpsertForOption(listing *model.Listing) (*model.Listing, error)

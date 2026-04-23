@@ -141,6 +141,23 @@ func (m *mockListingRepo) GetBySecurityIDAndType(securityID uint64, securityType
 	return nil, gorm.ErrRecordNotFound
 }
 
+func (m *mockListingRepo) ListBySecurityIDsAndType(securityIDs []uint64, securityType string) ([]model.Listing, error) {
+	idSet := make(map[uint64]struct{}, len(securityIDs))
+	for _, id := range securityIDs {
+		idSet[id] = struct{}{}
+	}
+	var out []model.Listing
+	for _, l := range m.listings {
+		if l.SecurityType != securityType {
+			continue
+		}
+		if _, ok := idSet[l.SecurityID]; ok {
+			out = append(out, *l)
+		}
+	}
+	return out, nil
+}
+
 func (m *mockListingRepo) Update(listing *model.Listing) error     { return nil }
 func (m *mockListingRepo) UpsertBySecurity(l *model.Listing) error { return nil }
 func (m *mockListingRepo) UpsertForOption(l *model.Listing) (*model.Listing, error) {
