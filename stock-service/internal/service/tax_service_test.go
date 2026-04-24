@@ -161,16 +161,32 @@ func (m *mockTaxCapitalGainRepo) SumByUserYear(userID uint64, year int) ([]repos
 type mockExchangeClient struct {
 	convertRate map[string]decimal.Decimal
 	convertErr  error
+	// convertCalls records every Convert call for assertions in fill-saga tests.
+	convertCalls []struct {
+		From   string
+		To     string
+		Amount string
+	}
 }
 
 func newMockExchangeClient() *mockExchangeClient {
 	return &mockExchangeClient{convertRate: make(map[string]decimal.Decimal)}
 }
 
+// setRate is used by the fill-saga tests to configure a USD→RSD (or similar) rate.
+func (m *mockExchangeClient) setRate(from, to string, rate decimal.Decimal) {
+	m.convertRate[from+"/"+to] = rate
+}
+
 func (m *mockExchangeClient) Convert(_ context.Context, req *exchangepb.ConvertRequest, _ ...grpc.CallOption) (*exchangepb.ConvertResponse, error) {
 	if m.convertErr != nil {
 		return nil, m.convertErr
 	}
+	m.convertCalls = append(m.convertCalls, struct {
+		From   string
+		To     string
+		Amount string
+	}{req.FromCurrency, req.ToCurrency, req.Amount})
 	key := req.FromCurrency + "/" + req.ToCurrency
 	rate, ok := m.convertRate[key]
 	if !ok {
@@ -180,6 +196,7 @@ func (m *mockExchangeClient) Convert(_ context.Context, req *exchangepb.ConvertR
 	converted := amount.Mul(rate)
 	return &exchangepb.ConvertResponse{
 		ConvertedAmount: converted.StringFixed(4),
+		EffectiveRate:   rate.String(),
 	}, nil
 }
 

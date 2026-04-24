@@ -3,14 +3,40 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/stock-service/internal/model"
 )
+
+// FillAccountClient is the subset of grpc.AccountClient the fill saga needs.
+// Expressed as an interface so tests can stub it without the real wrapper.
+// The fill saga calls PartialSettleReservation to commit the held funds,
+// CreditAccount to reverse-compensate on holding failures (and to credit the
+// bank's commission account), and Stub() for direct GetAccount/UpdateBalance
+// access on paths that predate Phase 2 (stateAccountNo-based commission, the
+// existing ProcessSellFill path, and exercise-option helpers).
+type FillAccountClient interface {
+	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error)
+	CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo string) (*accountpb.AccountResponse, error)
+	Stub() accountpb.AccountServiceClient
+}
+
+// FillSagaLogRepo extends SagaLogRepo with the lookup the fill saga needs
+// for linking a compensation step to its forward (settle_reservation) step.
+// The broader SagaLogRepo keeps a minimal surface to avoid ripple-updates to
+// every service that uses it; this interface is only consumed here.
+type FillSagaLogRepo interface {
+	SagaLogRepo
+	GetByStepName(orderID uint64, stepName string) (*model.SagaLog, error)
+}
 
 type PortfolioService struct {
 	holdingRepo     HoldingRepo
@@ -21,8 +47,20 @@ type PortfolioService struct {
 	accountClient   accountpb.AccountServiceClient
 	nameResolver    UserNameResolver
 	stateAccountNo  string
+	// Phase-2 fill-saga dependencies (Task 13). All optional: when nil the
+	// service falls back to the legacy (pre-saga) behaviour so tests that
+	// target ProcessSellFill / ExerciseOption don't need to thread them.
+	sagaRepo       FillSagaLogRepo
+	txRepo         OrderTransactionRepo
+	exchangeClient exchangepb.ExchangeServiceClient
+	fillClient     FillAccountClient
+	settings       OrderSettings
 }
 
+// NewPortfolioService is the legacy constructor retained for existing call
+// sites. It wires the pre-Phase-2 fields only; ProcessBuyFill will run in
+// legacy mode (direct debit, no saga, no cross-currency conversion) unless
+// the caller upgrades to NewPortfolioServiceWithFillSaga.
 func NewPortfolioService(
 	holdingRepo HoldingRepo,
 	capitalGainRepo CapitalGainRepo,
@@ -45,8 +83,258 @@ func NewPortfolioService(
 	}
 }
 
-// ProcessBuyFill handles a buy order fill: creates/updates holding, debits account.
+// WithFillSaga returns a shallow copy of the receiver with the fill-saga
+// dependencies populated. Call sites in cmd/main.go that have the saga
+// repository, exchange client, fill client, and settings available use this
+// to upgrade the service to the Phase-2 ProcessBuyFill path.
+func (s *PortfolioService) WithFillSaga(
+	sagaRepo FillSagaLogRepo,
+	txRepo OrderTransactionRepo,
+	exchangeClient exchangepb.ExchangeServiceClient,
+	fillClient FillAccountClient,
+	settings OrderSettings,
+) *PortfolioService {
+	cp := *s
+	cp.sagaRepo = sagaRepo
+	cp.txRepo = txRepo
+	cp.exchangeClient = exchangeClient
+	cp.fillClient = fillClient
+	cp.settings = settings
+	return &cp
+}
+
+// ProcessBuyFill handles a buy order fill for stocks / futures / options.
+//
+// Phase-2 path (when fill-saga deps are wired): runs a five-step saga —
+// record_transaction → convert_amount → settle_reservation → update_holding →
+// credit_commission. On update_holding failure the settle is reverse-credited
+// via CreditAccount. Commission failure is logged and left for recovery so
+// the trade remains valid.
+//
+// Forex buys short-circuit here until Task 15 lands the ForexFillService —
+// the trade is a no-op with a warning log. This keeps Task 13 scoped.
+//
+// Legacy path (when sagaRepo is nil): falls back to the original direct-debit
+// behaviour so tests and call sites that haven't upgraded to the saga path
+// keep working.
 func (s *PortfolioService) ProcessBuyFill(order *model.Order, txn *model.OrderTransaction) error {
+	if order.SecurityType == "forex" {
+		// Task 15 implements ForexFillService; until then the fill is a no-op.
+		// Task 18's integration tests will exercise the completed flow.
+		log.Printf("WARN: forex buy fill for order %d — forex_fill_service not yet wired", order.ID)
+		return nil
+	}
+
+	if s.sagaRepo == nil || s.fillClient == nil || s.txRepo == nil {
+		return s.processBuyFillLegacy(order, txn)
+	}
+	return s.processBuyFillSaga(order, txn)
+}
+
+// processBuyFillSaga is the Phase-2 fill-saga implementation.
+func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.OrderTransaction) error {
+	ctx := context.Background()
+
+	sagaID := order.SagaID
+	if sagaID == "" {
+		sagaID = uuid.New().String()
+	}
+	txnID := txn.ID
+	exec := NewSagaExecutor(s.sagaRepo, sagaID, order.ID, &txnID)
+
+	// --- Step 1: record_transaction (no-op; caller already persisted the txn) ---
+	// The saga row gives recovery/reconciliation visibility over fills that
+	// crash between commit and saga rows landing.
+	if err := exec.RunStep(ctx, "record_transaction", txn.TotalPrice, order.ReservationCurrency, nil, func() error {
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// --- Step 2: convert_amount ---
+	var convertedAmount decimal.Decimal
+	var accountCurrency string
+	var listingCurrency string
+	if err := exec.RunStep(ctx, "convert_amount", txn.TotalPrice, "", nil, func() error {
+		listing, err := s.listingRepo.GetByID(order.ListingID)
+		if err != nil {
+			return fmt.Errorf("listing lookup: %w", err)
+		}
+		listingCurrency = listing.Exchange.Currency
+
+		acctCcy, err := s.accountCurrency(ctx, order.AccountID)
+		if err != nil {
+			return err
+		}
+		accountCurrency = acctCcy
+
+		native := txn.TotalPrice
+		txn.NativeAmount = &native
+		txn.NativeCurrency = listingCurrency
+		txn.AccountCurrency = accountCurrency
+
+		if listingCurrency == accountCurrency || accountCurrency == "" {
+			// Same currency (or legacy account with no currency code)
+			// — no conversion required.
+			convertedAmount = txn.TotalPrice
+			c := convertedAmount
+			txn.ConvertedAmount = &c
+			return s.txRepo.Update(txn)
+		}
+
+		// Cross-currency: route through exchange-service.
+		resp, cerr := s.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
+			FromCurrency: listingCurrency,
+			ToCurrency:   accountCurrency,
+			Amount:       txn.TotalPrice.String(),
+		})
+		if cerr != nil {
+			return fmt.Errorf("exchange convert: %w", cerr)
+		}
+		conv, perr := decimal.NewFromString(resp.ConvertedAmount)
+		if perr != nil {
+			return fmt.Errorf("parse converted amount: %w", perr)
+		}
+		convertedAmount = conv
+		c := conv
+		txn.ConvertedAmount = &c
+		if rate, rerr := decimal.NewFromString(resp.EffectiveRate); rerr == nil {
+			r := rate
+			txn.FxRate = &r
+		}
+		return s.txRepo.Update(txn)
+	}); err != nil {
+		return err
+	}
+
+	// --- Step 3: settle_reservation (idempotent on txn ID) ---
+	memo := fmt.Sprintf("Order #%d partial fill (txn #%d)", order.ID, txn.ID)
+	if err := exec.RunStep(ctx, "settle_reservation", convertedAmount, accountCurrency,
+		map[string]any{"account_id": order.AccountID, "txn_id": txn.ID}, func() error {
+			_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, convertedAmount, memo)
+			return serr
+		}); err != nil {
+		return err
+	}
+
+	// --- Step 4: update_holding (idempotent on PK; weighted-average upsert) ---
+	if err := exec.RunStep(ctx, "update_holding", decimal.Zero, "",
+		map[string]any{"security_type": order.SecurityType, "ticker": order.Ticker}, func() error {
+			return s.upsertHoldingForBuy(order, txn)
+		}); err != nil {
+		// Compensation: reverse-credit the settle amount to the user's account.
+		var forwardID uint64
+		if step, lerr := s.sagaRepo.GetByStepName(order.ID, "settle_reservation"); lerr == nil && step != nil {
+			forwardID = step.ID
+		}
+		_ = exec.RunCompensation(ctx, forwardID, "compensate_settle_via_credit", func() error {
+			reverseMemo := fmt.Sprintf("Compensating order #%d fill #%d", order.ID, txn.ID)
+			acct, gerr := s.fillClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: order.AccountID})
+			if gerr != nil {
+				return gerr
+			}
+			_, cerr := s.fillClient.CreditAccount(ctx, acct.AccountNumber, convertedAmount, reverseMemo)
+			return cerr
+		})
+		return err
+	}
+
+	// --- Step 5: credit_commission (best-effort; do NOT fail the trade on error) ---
+	commissionAmount := s.computeCommission(convertedAmount)
+	if commissionAmount.Sign() > 0 {
+		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, accountCurrency,
+			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
+				// Route commission through the fill-saga AccountClient wrapper so
+				// it shares the Phase-2 credit path (memo-aware, positive-only).
+				// No ledger-entry audit is available at this layer — commission
+				// reconciliation is future work.
+				memo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
+				_, ferr := s.fillClient.CreditAccount(ctx, s.stateAccountNo, commissionAmount, memo)
+				return ferr
+			}); cerr != nil {
+			log.Printf("WARN: commission credit failed for order %d fill %d: %v (recovery will retry)",
+				order.ID, txn.ID, cerr)
+			// Deliberately do not return — the trade is valid.
+		}
+	}
+
+	return nil
+}
+
+// upsertHoldingForBuy materialises the Holding row for a buy fill. Called
+// inside the update_holding saga step. Mirrors the legacy path (resolves
+// first/last name via nameResolver, stock name via stockRepo when possible).
+func (s *PortfolioService) upsertHoldingForBuy(order *model.Order, txn *model.OrderTransaction) error {
+	firstName, lastName := "", ""
+	if s.nameResolver != nil {
+		if fn, ln, err := s.nameResolver(order.UserID, order.SystemType); err == nil {
+			firstName, lastName = fn, ln
+		}
+	}
+
+	listing, err := s.listingRepo.GetByID(order.ListingID)
+	if err != nil {
+		return err
+	}
+
+	securityName := order.Ticker
+	if order.SecurityType == "stock" && s.stockRepo != nil {
+		if stock, serr := s.stockRepo.GetByID(listing.SecurityID); serr == nil {
+			securityName = stock.Name
+		}
+	}
+
+	holding := &model.Holding{
+		UserID:        order.UserID,
+		SystemType:    order.SystemType,
+		UserFirstName: firstName,
+		UserLastName:  lastName,
+		SecurityType:  order.SecurityType,
+		SecurityID:    listing.SecurityID,
+		ListingID:     order.ListingID,
+		Ticker:        order.Ticker,
+		Name:          securityName,
+		Quantity:      txn.Quantity,
+		AveragePrice:  txn.PricePerUnit,
+		AccountID:     order.AccountID,
+	}
+	return s.holdingRepo.Upsert(holding)
+}
+
+// computeCommission returns the commission amount for a trade value, using
+// the injected OrderSettings. Falls back to 0.25% when settings is nil
+// (mirrors defaultOrderSettings) so the fill saga still collects commission
+// even if the caller didn't wire settings through.
+func (s *PortfolioService) computeCommission(tradeValue decimal.Decimal) decimal.Decimal {
+	rate := decimal.NewFromFloat(defaultCommissionRate)
+	if s.settings != nil && s.settings.CommissionRate().Sign() > 0 {
+		rate = s.settings.CommissionRate()
+	}
+	return tradeValue.Mul(rate)
+}
+
+// accountCurrency resolves an account's currency_code via account-service.
+// Empty string (not an error) when the stub isn't configured — the caller
+// treats that as "same currency as listing" for graceful degradation.
+func (s *PortfolioService) accountCurrency(ctx context.Context, accountID uint64) (string, error) {
+	if s.fillClient == nil {
+		return "", nil
+	}
+	stub := s.fillClient.Stub()
+	if stub == nil {
+		return "", nil
+	}
+	resp, err := stub.GetAccount(ctx, &accountpb.GetAccountRequest{Id: accountID})
+	if err != nil {
+		return "", fmt.Errorf("account lookup: %w", err)
+	}
+	return resp.GetCurrencyCode(), nil
+}
+
+// processBuyFillLegacy is the pre-Phase-2 direct-debit path retained for
+// unit tests and call sites that haven't upgraded to the saga constructor.
+// It mirrors the original ProcessBuyFill behaviour exactly.
+func (s *PortfolioService) processBuyFillLegacy(order *model.Order, txn *model.OrderTransaction) error {
 	// Look up user name for new holdings
 	firstName, lastName := "", ""
 	if s.nameResolver != nil {

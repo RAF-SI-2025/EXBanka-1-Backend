@@ -257,7 +257,11 @@ func main() {
 	)
 	syncSvc.StartSimulatorRefreshLoopIfActive()
 
-	// Portfolio, OTC, and tax services
+	// Portfolio, OTC, and tax services.
+	// Placement-saga deps (sagaLogRepo, stockAccountClient) are wired below
+	// so we defer the WithFillSaga upgrade until after they exist. The base
+	// constructor is called first so OTC/tax services can share the same
+	// instance without pulling in saga dependencies they don't need.
 	portfolioSvc := service.NewPortfolioService(
 		holdingRepo, capitalGainRepo, listingRepo,
 		stockRepo, optionRepo,
@@ -295,6 +299,15 @@ func main() {
 		orderRepo, orderTxRepo, listingRepo, settingRepo, securityLookup, producer,
 		sagaLogRepo, stockAccountClient, exchangeClient, holdingReservationSvc,
 		forexRepo, nil, // nil settings → uses defaults (5% slippage, 0.25% commission)
+	)
+
+	// Upgrade portfolioSvc with Phase-2 fill-saga deps so ProcessBuyFill runs
+	// the saga path (record_transaction → convert_amount → settle_reservation
+	// → update_holding → credit_commission). The legacy constructor path is
+	// retained in-struct and falls back if any dep is nil. Using defaults for
+	// commission (0.25%) via the shared OrderSettings default implementation.
+	portfolioSvc = portfolioSvc.WithFillSaga(
+		sagaLogRepo, orderTxRepo, exchangeClient, stockAccountClient, nil,
 	)
 	execEngine := service.NewOrderExecutionEngine(ctx, orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
 

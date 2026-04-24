@@ -113,6 +113,20 @@ func (m *mockOrderTxRepo) Create(tx *model.OrderTransaction) error {
 	return nil
 }
 
+// Update persists a modified OrderTransaction back to the in-memory store.
+// Used by the fill saga's convert_amount step to record native/converted
+// amounts and FX rate.
+func (m *mockOrderTxRepo) Update(tx *model.OrderTransaction) error {
+	for i, existing := range m.txns {
+		if existing.ID == tx.ID {
+			m.txns[i] = *tx
+			return nil
+		}
+	}
+	m.txns = append(m.txns, *tx)
+	return nil
+}
+
 func (m *mockOrderTxRepo) ListByOrderID(orderID uint64) ([]model.OrderTransaction, error) {
 	var result []model.OrderTransaction
 	for _, t := range m.txns {
@@ -276,6 +290,24 @@ func (r *mockSagaRepo) UpdateStatus(id uint64, version int64, newStatus, errMsg 
 		}
 	}
 	return errors.New("not found")
+}
+
+// GetByStepName returns the most recent saga row matching (orderID, stepName).
+// Satisfies the FillSagaLogRepo interface the fill saga's compensation path
+// uses to link its compensation row to the forward settle_reservation step.
+func (r *mockSagaRepo) GetByStepName(orderID uint64, stepName string) (*model.SagaLog, error) {
+	var match *model.SagaLog
+	for _, row := range r.rows {
+		if row.OrderID == orderID && row.StepName == stepName {
+			if match == nil || row.StepNumber > match.StepNumber {
+				match = row
+			}
+		}
+	}
+	if match == nil {
+		return nil, errors.New("not found")
+	}
+	return match, nil
 }
 
 // mockStubAccountClient implements the accountpb.AccountServiceClient interface
