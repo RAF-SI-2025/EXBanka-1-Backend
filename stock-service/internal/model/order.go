@@ -50,6 +50,14 @@ type Order struct {
 	PlacementRate *decimal.Decimal `gorm:"type:numeric(18,8)" json:"placement_rate,omitempty"`
 	// SagaID links this order to its placement-saga rows in saga_logs.
 	SagaID           string `gorm:"size:36;index" json:"saga_id,omitempty"`
+	// LimitAmountRSD is the RSD-equivalent of the reservation at placement
+	// time, used for actuary limit tracking (UpdateUsedLimit on approve /
+	// pro-rata refund on cancel). Nil for client orders and for employee
+	// orders whose employee has no actuary limit row.
+	LimitAmountRSD   *decimal.Decimal `gorm:"type:numeric(18,4)" json:"limit_amount_rsd,omitempty"`
+	// LimitActuaryID is the actuary_limits.id to UpdateUsedLimit against on
+	// approve/cancel. Nil when LimitAmountRSD is nil.
+	LimitActuaryID   *uint64 `json:"limit_actuary_id,omitempty"`
 	Version          int64  `gorm:"not null;default:1" json:"-"`
 	LastModification  time.Time        `json:"last_modification"`
 	CreatedAt         time.Time        `json:"created_at"`

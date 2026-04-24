@@ -92,17 +92,25 @@ func (s *ActuaryService) SetNeedApproval(ctx context.Context, employeeID int64, 
 	return limit, nil
 }
 
-// UpdateUsedLimit atomically adds the given RSD amount to the actuary's used limit.
-// Called by stock-service after an order is placed.
+// UpdateUsedLimit atomically adjusts the actuary's used_limit by the signed
+// RSD amount. Positive values increment (e.g., on successful order placement
+// or supervisor approval); negative values decrement (e.g., on order
+// cancellation). The floor is clamped at zero to guard against double-refunds.
+// Called by stock-service as part of the actuary limit enforcement flow.
 func (s *ActuaryService) UpdateUsedLimit(ctx context.Context, id int64, amountRSD decimal.Decimal) (*model.ActuaryLimit, error) {
 	limit, err := s.actuaryRepo.GetByID(id)
 	if err != nil {
 		return nil, err
 	}
-	limit.UsedLimit = limit.UsedLimit.Add(amountRSD)
+	next := limit.UsedLimit.Add(amountRSD)
+	if next.IsNegative() {
+		next = decimal.NewFromInt(0)
+	}
+	limit.UsedLimit = next
 	if err := s.actuaryRepo.Save(limit); err != nil {
 		return nil, err
 	}
+	s.publishActuaryEvent(ctx, limit.EmployeeID, "used_limit_updated")
 	return limit, nil
 }
 

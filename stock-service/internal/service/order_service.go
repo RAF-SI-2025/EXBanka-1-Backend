@@ -14,6 +14,7 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -71,6 +72,15 @@ type HoldingReservationAPI interface {
 	Release(ctx context.Context, orderID uint64) (*ReleaseHoldingResult, error)
 }
 
+// ActuaryClientAPI is the narrow interface OrderService uses to enforce
+// per-actuary limits at placement/approve/cancel time. Tests stub this
+// without a real gRPC stub.
+type ActuaryClientAPI interface {
+	GetActuaryLimit(ctx context.Context, employeeID uint64) (*stockgrpc.ActuaryLimitInfo, error)
+	IncrementUsedLimit(ctx context.Context, actuaryID uint64, amountRSD decimal.Decimal) error
+	DecrementUsedLimit(ctx context.Context, actuaryID uint64, amountRSD decimal.Decimal) error
+}
+
 type OrderService struct {
 	orderRepo            OrderRepo
 	txRepo               OrderTransactionRepo
@@ -84,6 +94,11 @@ type OrderService struct {
 	holdingReservationSvc HoldingReservationAPI
 	forexRepo            ForexPairLookup
 	settings             OrderSettings
+	// actuaryClient enforces per-actuary limits for employee-placed orders.
+	// When nil (e.g., in older tests) limit enforcement is skipped — employee
+	// orders behave like pre-fix (always auto-approved). Production wiring in
+	// cmd/main.go always provides a real client.
+	actuaryClient ActuaryClientAPI
 }
 
 // OrderEventPublisher abstracts Kafka event publishing for orders.
@@ -135,6 +150,15 @@ func NewOrderService(
 		forexRepo:            forexRepo,
 		settings:             settings,
 	}
+}
+
+// WithActuaryClient attaches the user-service actuary client so employee
+// orders are subject to per-actuary limit enforcement. Returning the
+// receiver keeps the builder chainable; calling sites that don't need the
+// actuary check (older tests, tools) can simply omit this step.
+func (s *OrderService) WithActuaryClient(client ActuaryClientAPI) *OrderService {
+	s.actuaryClient = client
+	return s
 }
 
 // CreateOrderRequest is the input shape for the placement saga. Bundling
@@ -418,6 +442,108 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		}
 	}
 
+	// --- actuary limit gate (employee orders only) ---
+	// For employee-placed orders: look up the actuary's configured limit /
+	// used_limit / need_approval. If need_approval=true AND the RSD-equivalent
+	// of the reservation exceeds the remaining budget, leave the order in
+	// status="pending" for supervisor review (skip the approve_order step
+	// below; supervisor approval via POST /orders/:id/approve will flip it
+	// later). Otherwise auto-approve AND bump used_limit so subsequent
+	// placements count against the same budget window.
+	//
+	// Client-placed orders are NEVER subject to this gate (clients aren't
+	// actuaries). Non-actuary employees (no actuary_limits row) also
+	// pass through unchanged — GetActuaryLimit returns ErrActuaryNotFound.
+	needsApproval := false
+	var limitAmountRSD decimal.Decimal
+	var actuaryLimitID uint64
+	if req.SystemType == "employee" && s.actuaryClient != nil && req.Direction == "buy" {
+		info, aerr := s.actuaryClient.GetActuaryLimit(ctx, req.UserID)
+		switch {
+		case aerr == nil:
+			// Convert reservation amount to RSD for limit accounting.
+			// Same-currency RSD orders skip the Convert call.
+			rsdAmt, cerr := s.convertToRSD(ctx, reserveAmount, reserveCurrency)
+			if cerr != nil {
+				// Compensation: release funds + delete pending order.
+				if req.Direction == "buy" {
+					_ = exec.RunCompensation(ctx, 0, "release_funds", func() error {
+						_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID)
+						return rerr
+					})
+				}
+				_ = exec.RunCompensation(ctx, 0, "delete_pending_order", func() error {
+					return s.orderRepo.Delete(order.ID)
+				})
+				return nil, cerr
+			}
+			limitAmountRSD = rsdAmt
+			actuaryLimitID = info.ID
+			if info.NeedApproval && rsdAmt.GreaterThan(info.Remaining()) {
+				needsApproval = true
+			}
+		case errors.Is(aerr, stockgrpc.ErrActuaryNotFound):
+			// Non-actuary employee (shouldn't be placing orders, but don't
+			// hard-fail here — keep legacy auto-approve semantics).
+		default:
+			// Transient gRPC error: unwind the saga and surface it.
+			if req.Direction == "buy" {
+				_ = exec.RunCompensation(ctx, 0, "release_funds", func() error {
+					_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID)
+					return rerr
+				})
+			}
+			_ = exec.RunCompensation(ctx, 0, "delete_pending_order", func() error {
+				return s.orderRepo.Delete(order.ID)
+			})
+			return nil, status.Errorf(codes.Internal, "actuary limit lookup failed: %v", aerr)
+		}
+	}
+
+	// Persist limit-tracking fields on the order so approve/cancel paths can
+	// increment/decrement the actuary's used_limit without re-doing FX.
+	if actuaryLimitID != 0 {
+		amt := limitAmountRSD
+		order.LimitAmountRSD = &amt
+		aid := actuaryLimitID
+		order.LimitActuaryID = &aid
+	}
+
+	if needsApproval {
+		// Persist the pending status + limit-tracking fields and stop. The
+		// order sits in "pending" until a supervisor calls ApproveOrder. Funds
+		// are already reserved; they'll be released if the supervisor declines
+		// / the user cancels.
+		order.LastModification = time.Now()
+		if err := exec.RunStep(ctx, "persist_limit_metadata", decimal.Zero, "", nil, func() error {
+			return s.orderRepo.Update(order)
+		}); err != nil {
+			if req.Direction == "buy" {
+				_ = exec.RunCompensation(ctx, 0, "release_funds", func() error {
+					_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID)
+					return rerr
+				})
+			}
+			if req.Direction == "sell" && listing.SecurityType != "forex" && s.holdingReservationSvc != nil {
+				_ = exec.RunCompensation(ctx, 0, "release_holding", func() error {
+					_, rerr := s.holdingReservationSvc.Release(ctx, order.ID)
+					return rerr
+				})
+			}
+			_ = exec.RunCompensation(ctx, 0, "delete_pending_order", func() error {
+				return s.orderRepo.Delete(order.ID)
+			})
+			return nil, err
+		}
+		// Publish the order-created event with status=pending so consumers
+		// see the correct state.
+		if s.producer != nil {
+			evt := buildOrderEvent(order)
+			go func() { _ = s.producer.PublishOrderCreated(context.Background(), evt) }()
+		}
+		return order, nil
+	}
+
 	// --- approve_order ---
 	order.Status = "approved"
 	order.ApprovedBy = approvalActor(req.SystemType)
@@ -445,6 +571,16 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 	}
 	StockOrderTotal.WithLabelValues(req.OrderType, "approved").Inc()
 
+	// Bump the actuary's used_limit for auto-approved employee orders. This
+	// is best-effort: a failure here doesn't unwind the saga — the order is
+	// already approved and funds are already reserved. The order stamps the
+	// amount/actuary-id so a human can reconcile if the call failed.
+	if actuaryLimitID != 0 && limitAmountRSD.Sign() > 0 {
+		if err := s.actuaryClient.IncrementUsedLimit(ctx, actuaryLimitID, limitAmountRSD); err != nil {
+			log.Printf("WARN: IncrementUsedLimit on order %d failed: %v", order.ID, err)
+		}
+	}
+
 	// Publish Kafka event after the saga commits (Phase-2 invariant: no Kafka
 	// inside the saga transaction).
 	if s.producer != nil {
@@ -453,6 +589,38 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 	}
 
 	return order, nil
+}
+
+// convertToRSD returns the RSD-equivalent of `amount` denominated in
+// `currency`. Same-currency (RSD) returns the input verbatim without an
+// exchange-service call. Used by the actuary limit gate to compare reservation
+// cost against the RSD-denominated limit/used_limit.
+func (s *OrderService) convertToRSD(ctx context.Context, amount decimal.Decimal, currency string) (decimal.Decimal, error) {
+	if amount.Sign() == 0 {
+		return decimal.Zero, nil
+	}
+	if currency == "" || currency == "RSD" {
+		return amount, nil
+	}
+	if s.exchangeClient == nil {
+		// No client wired — fall back to the native amount (conservative:
+		// under-reports for foreign currencies, but prevents false rejects
+		// in bare-bones tests that don't configure exchange).
+		return amount, nil
+	}
+	resp, err := s.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
+		FromCurrency: currency,
+		ToCurrency:   "RSD",
+		Amount:       amount.StringFixed(8),
+	})
+	if err != nil {
+		return decimal.Zero, status.Errorf(codes.Internal, "convert to RSD failed: %v", err)
+	}
+	rsd, err := decimal.NewFromString(resp.ConvertedAmount)
+	if err != nil {
+		return decimal.Zero, status.Errorf(codes.Internal, "invalid converted amount: %v", err)
+	}
+	return rsd, nil
 }
 
 // ApproveOrder sets an order to "approved" status.
@@ -481,6 +649,15 @@ func (s *OrderService) ApproveOrder(orderID uint64, supervisorID uint64, supervi
 		return nil, err
 	}
 	StockOrderTotal.WithLabelValues(order.OrderType, "approved").Inc()
+
+	// Bump the actuary's used_limit now that the pending order is approved.
+	// Best-effort (warn on error) — the order is already persisted as
+	// approved so execution can start regardless.
+	if s.actuaryClient != nil && order.LimitActuaryID != nil && order.LimitAmountRSD != nil && order.LimitAmountRSD.Sign() > 0 {
+		if err := s.actuaryClient.IncrementUsedLimit(context.Background(), *order.LimitActuaryID, *order.LimitAmountRSD); err != nil {
+			log.Printf("WARN: IncrementUsedLimit on approve(order=%d) failed: %v", order.ID, err)
+		}
+	}
 
 	if s.producer != nil {
 		go func() { _ = s.producer.PublishOrderApproved(context.Background(), buildOrderEvent(order)) }()
@@ -536,6 +713,13 @@ func (s *OrderService) CancelOrder(orderID, userID uint64, systemType string) (*
 		return nil, errors.New("order is already declined/cancelled")
 	}
 
+	// Capture whether this order ever counted against the actuary's
+	// used_limit. Pending orders never incremented (they were stopped at the
+	// limit gate); approved orders did (either at placement or supervisor
+	// approve). Only approved-and-not-yet-fully-filled orders deserve a
+	// partial refund.
+	wasApproved := order.Status == "approved"
+
 	order.Status = "cancelled"
 	order.IsDone = true
 	order.LastModification = time.Now()
@@ -556,6 +740,24 @@ func (s *OrderService) CancelOrder(orderID, userID uint64, systemType string) (*
 	if order.Direction == "sell" && s.holdingReservationSvc != nil {
 		if _, relErr := s.holdingReservationSvc.Release(cancelCtx, order.ID); relErr != nil {
 			log.Printf("WARN: cancel order %d: holding Release failed: %v", order.ID, relErr)
+		}
+	}
+
+	// Refund the unfilled portion of the actuary's used_limit when an
+	// approved order is cancelled. Prorata = remaining / total.
+	// Pending-order cancellations never entered the used_limit so nothing to
+	// refund there. Best-effort — a gRPC failure here doesn't roll back the
+	// cancel because the order is already cancelled and funds already
+	// released.
+	if wasApproved && s.actuaryClient != nil && order.LimitActuaryID != nil &&
+		order.LimitAmountRSD != nil && order.LimitAmountRSD.Sign() > 0 &&
+		order.Quantity > 0 {
+		unfilledRatio := decimal.NewFromInt(order.RemainingPortions).Div(decimal.NewFromInt(order.Quantity))
+		refund := order.LimitAmountRSD.Mul(unfilledRatio)
+		if refund.Sign() > 0 {
+			if err := s.actuaryClient.DecrementUsedLimit(cancelCtx, *order.LimitActuaryID, refund); err != nil {
+				log.Printf("WARN: DecrementUsedLimit on cancel(order=%d) failed: %v", order.ID, err)
+			}
 		}
 	}
 

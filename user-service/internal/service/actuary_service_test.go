@@ -287,6 +287,51 @@ func TestUpdateUsedLimit_Accumulates(t *testing.T) {
 	assert.True(t, result.UsedLimit.Equal(decimal.NewFromInt(1500)), "UsedLimit should be 1000+500=1500")
 }
 
+// TestUpdateUsedLimit_NegativeDecrements verifies that a negative amount
+// decrements UsedLimit. Used by stock-service on cancel of an approved but
+// partially-filled order.
+func TestUpdateUsedLimit_NegativeDecrements(t *testing.T) {
+	actuaryRepo := newMockActuaryRepo()
+	empRepo := newMockActuaryEmpRepo()
+	empRepo.employees[71] = agentEmployee(71)
+
+	_ = actuaryRepo.Create(&model.ActuaryLimit{
+		EmployeeID: 71,
+		Limit:      decimal.NewFromInt(10000),
+		UsedLimit:  decimal.NewFromInt(2000),
+	})
+	existing, err := actuaryRepo.GetByEmployeeID(71)
+	assert.NoError(t, err)
+
+	svc := NewActuaryService(actuaryRepo, empRepo, nil)
+
+	result, err := svc.UpdateUsedLimit(context.Background(), existing.ID, decimal.NewFromInt(-500))
+	assert.NoError(t, err)
+	assert.True(t, result.UsedLimit.Equal(decimal.NewFromInt(1500)), "UsedLimit should be 2000-500=1500")
+}
+
+// TestUpdateUsedLimit_NegativeClampsAtZero verifies double-refund safety:
+// decrementing below zero clamps at zero instead of going negative.
+func TestUpdateUsedLimit_NegativeClampsAtZero(t *testing.T) {
+	actuaryRepo := newMockActuaryRepo()
+	empRepo := newMockActuaryEmpRepo()
+	empRepo.employees[72] = agentEmployee(72)
+
+	_ = actuaryRepo.Create(&model.ActuaryLimit{
+		EmployeeID: 72,
+		Limit:      decimal.NewFromInt(10000),
+		UsedLimit:  decimal.NewFromInt(100),
+	})
+	existing, err := actuaryRepo.GetByEmployeeID(72)
+	assert.NoError(t, err)
+
+	svc := NewActuaryService(actuaryRepo, empRepo, nil)
+
+	result, err := svc.UpdateUsedLimit(context.Background(), existing.ID, decimal.NewFromInt(-500))
+	assert.NoError(t, err)
+	assert.True(t, result.UsedLimit.IsZero(), "UsedLimit must clamp at 0, got %s", result.UsedLimit.String())
+}
+
 // TestSetNeedApproval verifies that NeedApproval can be toggled.
 func TestSetNeedApproval(t *testing.T) {
 	actuaryRepo := newMockActuaryRepo()

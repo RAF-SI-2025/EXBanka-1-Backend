@@ -14,6 +14,7 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -546,6 +547,80 @@ func (f *fakeForexRepo) GetByID(id uint64) (*model.ForexPair, error) {
 	return p, nil
 }
 
+// fakeActuaryClient implements ActuaryClientAPI for placement-saga tests.
+// Stores a per-employee ActuaryLimitInfo and records increment/decrement
+// calls so tests can assert used_limit accounting.
+type fakeActuaryClient struct {
+	infos             map[uint64]*stockgrpc.ActuaryLimitInfo
+	getErr            error
+	incrementCalls    []limitCall
+	decrementCalls    []limitCall
+	incrementErr      error
+	decrementErr      error
+}
+
+type limitCall struct {
+	ActuaryID uint64
+	Amount    decimal.Decimal
+}
+
+func newFakeActuaryClient() *fakeActuaryClient {
+	return &fakeActuaryClient{infos: make(map[uint64]*stockgrpc.ActuaryLimitInfo)}
+}
+
+func (f *fakeActuaryClient) setInfo(employeeID uint64, actuaryID uint64, limit, used decimal.Decimal, needApproval bool) {
+	f.infos[employeeID] = &stockgrpc.ActuaryLimitInfo{
+		ID:           actuaryID,
+		EmployeeID:   employeeID,
+		Limit:        limit,
+		UsedLimit:    used,
+		NeedApproval: needApproval,
+	}
+}
+
+func (f *fakeActuaryClient) GetActuaryLimit(_ context.Context, employeeID uint64) (*stockgrpc.ActuaryLimitInfo, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	info, ok := f.infos[employeeID]
+	if !ok {
+		return nil, stockgrpc.ErrActuaryNotFound
+	}
+	copy := *info
+	return &copy, nil
+}
+
+func (f *fakeActuaryClient) IncrementUsedLimit(_ context.Context, actuaryID uint64, amountRSD decimal.Decimal) error {
+	if f.incrementErr != nil {
+		return f.incrementErr
+	}
+	f.incrementCalls = append(f.incrementCalls, limitCall{ActuaryID: actuaryID, Amount: amountRSD})
+	// Apply the delta to every tracked info whose ID matches so subsequent
+	// GetActuaryLimit calls see the new used_limit.
+	for _, info := range f.infos {
+		if info.ID == actuaryID {
+			info.UsedLimit = info.UsedLimit.Add(amountRSD)
+		}
+	}
+	return nil
+}
+
+func (f *fakeActuaryClient) DecrementUsedLimit(_ context.Context, actuaryID uint64, amountRSD decimal.Decimal) error {
+	if f.decrementErr != nil {
+		return f.decrementErr
+	}
+	f.decrementCalls = append(f.decrementCalls, limitCall{ActuaryID: actuaryID, Amount: amountRSD})
+	for _, info := range f.infos {
+		if info.ID == actuaryID {
+			info.UsedLimit = info.UsedLimit.Sub(amountRSD)
+			if info.UsedLimit.IsNegative() {
+				info.UsedLimit = decimal.Zero
+			}
+		}
+	}
+	return nil
+}
+
 // fakeOrderSettings returns deterministic values for commission/slippage so the
 // tests can assert exact reserved amounts.
 type fakeOrderSettings struct {
@@ -566,6 +641,30 @@ func (f *fakeOrderSettings) MarketSlippagePct() decimal.Decimal { return f.slipp
 // ---------------------------------------------------------------------------
 // Fixture builders
 // ---------------------------------------------------------------------------
+
+// rsdListing creates a stock listing at price 100 with an RSD-denominated
+// exchange so actuary-limit tests don't need an exchange-service rate
+// configured.
+func rsdListing(id uint64) *model.Listing {
+	return &model.Listing{
+		ID:           id,
+		SecurityID:   100,
+		SecurityType: "stock",
+		ExchangeID:   1,
+		Exchange: model.StockExchange{
+			ID:        1,
+			Name:      "BELEX",
+			Acronym:   "BELEX",
+			Currency:  "RSD",
+			TimeZone:  "+1",
+			OpenTime:  "09:30",
+			CloseTime: "16:00",
+		},
+		Price: decimal.NewFromInt(100),
+		High:  decimal.NewFromInt(100),
+		Low:   decimal.NewFromInt(100),
+	}
+}
 
 // defaultListing creates a stock listing at price 100 with a USD exchange.
 func defaultListing(id uint64) *model.Listing {
@@ -1230,6 +1329,293 @@ func TestGetOrder_WrongUser(t *testing.T) {
 	_, _, err := svc.GetOrder(order.ID, 999, "employee")
 	if err == nil {
 		t.Fatal("expected error for wrong user")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: Actuary limit enforcement (P0 authz gate)
+// ---------------------------------------------------------------------------
+
+func TestCreateOrder_Employee_OverLimit_RemainsPending(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(rsdListing(1))
+	// Account is denominated in RSD so reservation → RSD path is same-currency
+	// and no exchange call is needed.
+	fx.accountClient.stub.accountCcy[77] = "RSD"
+	// Attach an actuary client with a tiny 1000 RSD budget.
+	actuary := newFakeActuaryClient()
+	actuary.setInfo(21 /*employeeID*/, 99 /*actuaryLimitID*/, decimal.NewFromInt(1000), decimal.Zero, true)
+	fx.svc.WithActuaryClient(actuary)
+
+	// Limit buy of 100 shares @ 100 RSD = 10_000 RSD × (1+0.0025 commission) = 10025 RSD
+	// — far above the 1000 RSD limit.
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 21, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 100, LimitValue: ptrDec(100), AccountID: 77,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if order.Status != "pending" {
+		t.Errorf("expected status=pending (over-limit), got %s", order.Status)
+	}
+	if order.ApprovedBy != "" {
+		t.Errorf("expected empty approved_by on pending order, got %q", order.ApprovedBy)
+	}
+	// Funds reservation still happens so the supervisor approval step has the
+	// money locked.
+	if len(fx.accountClient.reserveCalls) != 1 {
+		t.Errorf("expected 1 reserve call, got %d", len(fx.accountClient.reserveCalls))
+	}
+	// used_limit MUST NOT have been incremented for a pending order.
+	if len(actuary.incrementCalls) != 0 {
+		t.Errorf("over-limit order must not increment used_limit, got %d calls", len(actuary.incrementCalls))
+	}
+	// Order stores the limit metadata so supervisor approve can bump it later.
+	if order.LimitActuaryID == nil || *order.LimitActuaryID != 99 {
+		t.Errorf("LimitActuaryID: got %v want 99", order.LimitActuaryID)
+	}
+	if order.LimitAmountRSD == nil {
+		t.Fatal("LimitAmountRSD not persisted on pending order")
+	}
+}
+
+func TestCreateOrder_Employee_UnderLimit_AutoApproves(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(rsdListing(1))
+	fx.accountClient.stub.accountCcy[77] = "RSD"
+	actuary := newFakeActuaryClient()
+	actuary.setInfo(21, 99, decimal.NewFromInt(1_000_000), decimal.Zero, true)
+	fx.svc.WithActuaryClient(actuary)
+
+	// Small 5-share order: 5 * 100 * (1+0.0025) = 501.25 RSD — well under 1_000_000.
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 21, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), AccountID: 77,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if order.Status != "approved" {
+		t.Errorf("expected status=approved (under-limit), got %s", order.Status)
+	}
+	// used_limit incremented by the RSD-equivalent of the reservation.
+	if len(actuary.incrementCalls) != 1 {
+		t.Fatalf("expected 1 IncrementUsedLimit call, got %d", len(actuary.incrementCalls))
+	}
+	call := actuary.incrementCalls[0]
+	if call.ActuaryID != 99 {
+		t.Errorf("increment ActuaryID: got %d want 99", call.ActuaryID)
+	}
+	expected := decimal.NewFromInt(500).Mul(decimal.NewFromFloat(1.0025))
+	if !call.Amount.Equal(expected) {
+		t.Errorf("increment amount: got %s want %s", call.Amount.String(), expected.String())
+	}
+}
+
+func TestCreateOrder_Employee_NeedApprovalFalse_AutoApproves(t *testing.T) {
+	// Even if the order would exceed the budget, need_approval=false bypasses
+	// the gate (e.g., for supervisors).
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(rsdListing(1))
+	fx.accountClient.stub.accountCcy[77] = "RSD"
+	actuary := newFakeActuaryClient()
+	actuary.setInfo(21, 99, decimal.NewFromInt(1000), decimal.Zero, false /* NO approval required */)
+	fx.svc.WithActuaryClient(actuary)
+
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 21, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 100, LimitValue: ptrDec(100), AccountID: 77,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if order.Status != "approved" {
+		t.Errorf("expected auto-approved with need_approval=false, got %s", order.Status)
+	}
+	// used_limit still bumped (for visibility / daily rollup).
+	if len(actuary.incrementCalls) != 1 {
+		t.Errorf("expected 1 increment call, got %d", len(actuary.incrementCalls))
+	}
+}
+
+func TestCreateOrder_Client_NoLimitCheck(t *testing.T) {
+	// Clients aren't actuaries; they never have limits even if the client
+	// wrapper is wired.
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	fx.accountClient.stub.accountCcy[77] = "USD"
+	actuary := newFakeActuaryClient()
+	// Intentionally configure NO info for the client's "userID" (it is not an
+	// actuary); even if we did, the SystemType check would skip it.
+	fx.svc.WithActuaryClient(actuary)
+
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 99, SystemType: "client", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 1000, LimitValue: ptrDec(100), AccountID: 77,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if order.Status != "approved" {
+		t.Errorf("client order: expected approved, got %s", order.Status)
+	}
+	// No actuary RPC calls for clients.
+	if len(actuary.incrementCalls) != 0 {
+		t.Errorf("client order must not hit actuary RPC, got %d increment calls", len(actuary.incrementCalls))
+	}
+	if order.LimitActuaryID != nil {
+		t.Errorf("client order must not carry LimitActuaryID, got %v", order.LimitActuaryID)
+	}
+}
+
+func TestCreateOrder_Employee_NotAnActuary_PassesThrough(t *testing.T) {
+	// Non-actuary employee (GetActuaryInfo returns ErrActuaryNotFound). The
+	// order should auto-approve with no limit RPC side effects.
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	fx.accountClient.stub.accountCcy[77] = "USD"
+	actuary := newFakeActuaryClient()
+	// No info registered for userID=21 → ErrActuaryNotFound.
+	fx.svc.WithActuaryClient(actuary)
+
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 21, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 10, LimitValue: ptrDec(100), AccountID: 77,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if order.Status != "approved" {
+		t.Errorf("non-actuary employee: expected approved, got %s", order.Status)
+	}
+	if len(actuary.incrementCalls) != 0 {
+		t.Errorf("non-actuary employee: expected 0 increment calls, got %d", len(actuary.incrementCalls))
+	}
+}
+
+func TestApproveOrder_IncrementsUsedLimit(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(rsdListing(1))
+	fx.accountClient.stub.accountCcy[77] = "RSD"
+	actuary := newFakeActuaryClient()
+	actuary.setInfo(21, 99, decimal.NewFromInt(1000), decimal.Zero, true)
+	fx.svc.WithActuaryClient(actuary)
+
+	// Place an over-limit order (pending).
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 21, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 100, LimitValue: ptrDec(100), AccountID: 77,
+	})
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if order.Status != "pending" {
+		t.Fatalf("precondition: expected pending, got %s", order.Status)
+	}
+	if len(actuary.incrementCalls) != 0 {
+		t.Fatalf("precondition: no increment on pending placement, got %d", len(actuary.incrementCalls))
+	}
+
+	// Supervisor approves.
+	approved, err := fx.svc.ApproveOrder(order.ID, 5, "Supervisor Smith")
+	if err != nil {
+		t.Fatalf("approve failed: %v", err)
+	}
+	if approved.Status != "approved" {
+		t.Errorf("expected approved, got %s", approved.Status)
+	}
+	// Now used_limit should be bumped.
+	if len(actuary.incrementCalls) != 1 {
+		t.Fatalf("expected 1 increment after approve, got %d", len(actuary.incrementCalls))
+	}
+	call := actuary.incrementCalls[0]
+	if call.ActuaryID != 99 {
+		t.Errorf("increment ActuaryID: got %d want 99", call.ActuaryID)
+	}
+	// Expected amount = 100 * 100 * (1+0.0025) = 10025
+	expected := decimal.NewFromInt(10000).Mul(decimal.NewFromFloat(1.0025))
+	if !call.Amount.Equal(expected) {
+		t.Errorf("increment amount: got %s want %s", call.Amount.String(), expected.String())
+	}
+}
+
+func TestCancelOrder_Approved_DecrementsUnfilledPortion(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(rsdListing(1))
+	fx.accountClient.stub.accountCcy[77] = "RSD"
+	actuary := newFakeActuaryClient()
+	actuary.setInfo(21, 99, decimal.NewFromInt(1_000_000), decimal.Zero, true)
+	fx.svc.WithActuaryClient(actuary)
+
+	// Place an under-limit order → auto-approved, used_limit bumped.
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 21, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 10, LimitValue: ptrDec(100), AccountID: 77,
+	})
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if order.Status != "approved" {
+		t.Fatalf("precondition: expected approved, got %s", order.Status)
+	}
+
+	// Simulate a 50% fill: set RemainingPortions to 5 of the 10 original qty.
+	stored, _ := fx.orderRepo.GetByID(order.ID)
+	stored.RemainingPortions = 5
+	_ = fx.orderRepo.Update(stored)
+
+	// Cancel the order (still approved, not done).
+	_, err = fx.svc.CancelOrder(order.ID, 21, "employee")
+	if err != nil {
+		t.Fatalf("cancel failed: %v", err)
+	}
+
+	// Expect exactly 1 decrement call with 50% of the original RSD amount.
+	if len(actuary.decrementCalls) != 1 {
+		t.Fatalf("expected 1 decrement call, got %d", len(actuary.decrementCalls))
+	}
+	call := actuary.decrementCalls[0]
+	// Original amount: 10*100*(1+0.0025) = 1002.5. Half = 501.25.
+	expected := decimal.NewFromInt(1000).Mul(decimal.NewFromFloat(1.0025)).Mul(decimal.NewFromFloat(0.5))
+	if !call.Amount.Equal(expected) {
+		t.Errorf("decrement amount: got %s want %s", call.Amount.String(), expected.String())
+	}
+	if call.ActuaryID != 99 {
+		t.Errorf("decrement ActuaryID: got %d want 99", call.ActuaryID)
+	}
+}
+
+func TestCancelOrder_Pending_NoDecrement(t *testing.T) {
+	// Cancelling a pending order (i.e., never approved → never counted against
+	// used_limit) must NOT decrement.
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(rsdListing(1))
+	fx.accountClient.stub.accountCcy[77] = "RSD"
+	actuary := newFakeActuaryClient()
+	actuary.setInfo(21, 99, decimal.NewFromInt(1000), decimal.Zero, true)
+	fx.svc.WithActuaryClient(actuary)
+
+	// Place an over-limit order (pending).
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 21, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 100, LimitValue: ptrDec(100), AccountID: 77,
+	})
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+	if order.Status != "pending" {
+		t.Fatalf("precondition: expected pending, got %s", order.Status)
+	}
+
+	// Cancel the pending order.
+	_, err = fx.svc.CancelOrder(order.ID, 21, "employee")
+	if err != nil {
+		t.Fatalf("cancel failed: %v", err)
+	}
+
+	if len(actuary.decrementCalls) != 0 {
+		t.Errorf("pending-order cancel must not decrement, got %d calls", len(actuary.decrementCalls))
 	}
 }
 

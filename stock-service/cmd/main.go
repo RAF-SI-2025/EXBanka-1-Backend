@@ -116,13 +116,15 @@ func main() {
 	defer exchangeConn.Close()
 	exchangeClient := exchangepb.NewExchangeServiceClient(exchangeConn)
 
-	// User service client (for name resolution)
+	// User service client (for name resolution + actuary limit enforcement)
 	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("failed to connect to user-service: %v", err)
 	}
 	defer userConn.Close()
 	userClient := userpb.NewUserServiceClient(userConn)
+	actuaryStub := userpb.NewActuaryServiceClient(userConn)
+	stockActuaryClient := stockgrpc.NewActuaryClient(actuaryStub)
 
 	// Client service client (for name resolution)
 	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -299,7 +301,7 @@ func main() {
 		orderRepo, orderTxRepo, listingRepo, settingRepo, securityLookup, producer,
 		sagaLogRepo, stockAccountClient, exchangeClient, holdingReservationSvc,
 		forexRepo, nil, // nil settings → uses defaults (5% slippage, 0.25% commission)
-	)
+	).WithActuaryClient(stockActuaryClient)
 
 	// Upgrade portfolioSvc with Phase-2 fill-saga deps so ProcessBuyFill and
 	// ProcessSellFill run the saga paths. Buy saga:
