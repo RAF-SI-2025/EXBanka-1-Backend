@@ -30,7 +30,12 @@ func newTestDB(t *testing.T) *gorm.DB {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&model.Account{}, &model.LedgerEntry{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.Account{},
+		&model.LedgerEntry{},
+		&model.AccountReservation{},
+		&model.AccountReservationSettlement{},
+	))
 	return db
 }
 
