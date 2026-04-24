@@ -46,7 +46,7 @@ type createLoanRequestBody struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/loans/requests [post]
+// @Router       /api/v2/loans/requests [post]
 func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 	var req createLoanRequestBody
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -120,7 +120,7 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/loans/requests/{id} [get]
+// @Router       /api/v2/loans/requests/{id} [get]
 func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -149,7 +149,7 @@ func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/requests [get]
+// @Router       /api/v2/loans/requests [get]
 func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -196,7 +196,7 @@ func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/requests/{id}/approve [put]
+// @Router       /api/v2/loans/requests/{id}/approve [put]
 func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -228,7 +228,7 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/requests/{id}/reject [put]
+// @Router       /api/v2/loans/requests/{id}/reject [put]
 func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -253,7 +253,7 @@ func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 // @Failure      401  {object}  map[string]string
 // @Failure      403  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/v1/loans/{id} [get]
+// @Router       /api/v2/loans/{id} [get]
 func (h *CreditHandler) GetLoan(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -280,7 +280,7 @@ func (h *CreditHandler) GetLoan(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/client/{client_id} [get]
+// @Router       /api/v2/loans/client/{client_id} [get]
 func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -325,7 +325,7 @@ func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans [get]
+// @Router       /api/v2/loans [get]
 func (h *CreditHandler) ListAllLoans(c *gin.Context) {
 	// Query-param filtering: ?client_id=X
 	if clientIDStr := c.Query("client_id"); clientIDStr != "" {
@@ -387,7 +387,7 @@ func (h *CreditHandler) ListAllLoans(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/{id}/installments [get]
+// @Router       /api/v2/loans/{id}/installments [get]
 func (h *CreditHandler) GetInstallmentsByLoan(c *gin.Context) {
 	loanID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -429,7 +429,7 @@ func (h *CreditHandler) GetInstallmentsByLoan(c *gin.Context) {
 // @Failure      401  {object}  map[string]string
 // @Failure      403  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/requests/client/{client_id} [get]
+// @Router       /api/v2/loans/requests/client/{client_id} [get]
 func (h *CreditHandler) ListLoanRequestsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -492,7 +492,7 @@ func loanRequestToJSON(r *creditpb.LoanRequestResponse) gin.H {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers [get]
+// @Router       /api/v2/interest-rate-tiers [get]
 func (h *CreditHandler) ListInterestRateTiers(c *gin.Context) {
 	resp, err := h.creditClient.ListInterestRateTiers(c.Request.Context(), &creditpb.ListInterestRateTiersRequest{})
 	if err != nil {
@@ -525,7 +525,7 @@ type createInterestRateTierBody struct {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers [post]
+// @Router       /api/v2/interest-rate-tiers [post]
 func (h *CreditHandler) CreateInterestRateTier(c *gin.Context) {
 	var req createInterestRateTierBody
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -582,7 +582,7 @@ type updateInterestRateTierBody struct {
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers/{id} [put]
+// @Router       /api/v2/interest-rate-tiers/{id} [put]
 func (h *CreditHandler) UpdateInterestRateTier(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -637,7 +637,7 @@ func (h *CreditHandler) UpdateInterestRateTier(c *gin.Context) {
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers/{id} [delete]
+// @Router       /api/v2/interest-rate-tiers/{id} [delete]
 func (h *CreditHandler) DeleteInterestRateTier(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -663,7 +663,7 @@ func (h *CreditHandler) DeleteInterestRateTier(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/bank-margins [get]
+// @Router       /api/v2/bank-margins [get]
 func (h *CreditHandler) ListBankMargins(c *gin.Context) {
 	resp, err := h.creditClient.ListBankMargins(c.Request.Context(), &creditpb.ListBankMarginsRequest{})
 	if err != nil {
@@ -695,7 +695,7 @@ type updateBankMarginBody struct {
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/bank-margins/{id} [put]
+// @Router       /api/v2/bank-margins/{id} [put]
 func (h *CreditHandler) UpdateBankMargin(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -735,7 +735,7 @@ func (h *CreditHandler) UpdateBankMargin(c *gin.Context) {
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers/{id}/apply [post]
+// @Router       /api/v2/interest-rate-tiers/{id}/apply [post]
 func (h *CreditHandler) ApplyVariableRateUpdate(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

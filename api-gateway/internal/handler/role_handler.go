@@ -28,7 +28,7 @@ func NewRoleHandler(userClient userpb.UserServiceClient) *RoleHandler {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      500  {object}  map[string]string       "error message"
-// @Router       /api/roles [get]
+// @Router       /api/v2/roles [get]
 func (h *RoleHandler) ListRoles(c *gin.Context) {
 	resp, err := h.userClient.ListRoles(c.Request.Context(), &userpb.ListRolesRequest{})
 	if err != nil {
@@ -54,7 +54,7 @@ func (h *RoleHandler) ListRoles(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      404  {object}  map[string]string       "not found"
-// @Router       /api/roles/{id} [get]
+// @Router       /api/v2/roles/{id} [get]
 func (h *RoleHandler) GetRole(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -88,7 +88,7 @@ type createRoleRequest struct {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      500  {object}  map[string]string       "error message"
-// @Router       /api/roles [post]
+// @Router       /api/v2/roles [post]
 func (h *RoleHandler) CreateRole(c *gin.Context) {
 	var req createRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -125,7 +125,7 @@ type updateRolePermissionsRequest struct {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      500  {object}  map[string]string       "error message"
-// @Router       /api/roles/{id}/permissions [put]
+// @Router       /api/v2/roles/{id}/permissions [put]
 func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -158,7 +158,7 @@ func (h *RoleHandler) UpdateRolePermissions(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      500  {object}  map[string]string       "error message"
-// @Router       /api/permissions [get]
+// @Router       /api/v2/permissions [get]
 func (h *RoleHandler) ListPermissions(c *gin.Context) {
 	resp, err := h.userClient.ListPermissions(c.Request.Context(), &userpb.ListPermissionsRequest{})
 	if err != nil {
@@ -196,7 +196,7 @@ type setEmployeeRolesRequest struct {
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      500  {object}  map[string]string       "error message"
-// @Router       /api/employees/{id}/roles [put]
+// @Router       /api/v2/employees/{id}/roles [put]
 func (h *RoleHandler) SetEmployeeRoles(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -238,7 +238,7 @@ type setEmployeePermissionsRequest struct {
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      500  {object}  map[string]string       "error message"
-// @Router       /api/employees/{id}/permissions [put]
+// @Router       /api/v2/employees/{id}/permissions [put]
 func (h *RoleHandler) SetEmployeeAdditionalPermissions(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

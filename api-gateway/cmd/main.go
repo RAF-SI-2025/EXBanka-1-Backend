@@ -19,8 +19,8 @@ import (
 )
 
 // @title           EXBanka API
-// @version         1.0
-// @description     EXBanka Banking Microservices API Gateway
+// @version         2.0
+// @description     EXBanka Banking Microservices API Gateway. All endpoints below are served under /api/v2. A v1 surface remains available at /api/v1 with identical semantics.
 // @host            localhost:8080
 // @BasePath        /
 // @securityDefinitions.apikey  BearerAuth

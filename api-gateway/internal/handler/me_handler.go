@@ -41,7 +41,7 @@ func NewMeHandler(
 // @Failure      401  {object}  map[string]interface{}
 // @Failure      403  {object}  map[string]interface{}
 // @Failure      500  {object}  map[string]interface{}
-// @Router       /api/me [get]
+// @Router       /api/v2/me [get]
 func (h *MeHandler) GetMe(c *gin.Context) {
 	sysType, _ := c.Get("system_type")
 	userID, _ := c.Get("user_id")

@@ -25,7 +25,7 @@ func NewSessionHandler(authClient authpb.AuthServiceClient) *SessionHandler {
 // @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}  "sessions array"
 // @Failure      401  {object}  map[string]string  "unauthorized"
-// @Router       /api/me/sessions [get]
+// @Router       /api/v2/me/sessions [get]
 func (h *SessionHandler) ListMySessions(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	uid, ok := userID.(int64)
@@ -75,7 +75,7 @@ type revokeSessionRequest struct {
 // @Failure      400  {object}  map[string]string  "validation error"
 // @Failure      401  {object}  map[string]string  "unauthorized"
 // @Failure      404  {object}  map[string]string  "session not found"
-// @Router       /api/me/sessions/revoke [post]
+// @Router       /api/v2/me/sessions/revoke [post]
 func (h *SessionHandler) RevokeSession(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	uid, ok := userID.(int64)
@@ -116,7 +116,7 @@ type revokeAllSessionsRequest struct {
 // @Success      200  {object}  map[string]string  "success message"
 // @Failure      400  {object}  map[string]string  "validation error"
 // @Failure      401  {object}  map[string]string  "unauthorized"
-// @Router       /api/me/sessions/revoke-others [post]
+// @Router       /api/v2/me/sessions/revoke-others [post]
 func (h *SessionHandler) RevokeAllSessions(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	uid, ok := userID.(int64)
@@ -151,7 +151,7 @@ func (h *SessionHandler) RevokeAllSessions(c *gin.Context) {
 // @Param        limit  query  int  false  "Max entries (default 50, max 100)"
 // @Success      200  {object}  map[string]interface{}  "entries array"
 // @Failure      401  {object}  map[string]string  "unauthorized"
-// @Router       /api/me/login-history [get]
+// @Router       /api/v2/me/login-history [get]
 func (h *SessionHandler) GetMyLoginHistory(c *gin.Context) {
 	email, _ := c.Get("email")
 	emailStr, ok := email.(string)

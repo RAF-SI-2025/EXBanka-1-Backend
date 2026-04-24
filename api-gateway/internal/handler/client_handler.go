@@ -43,7 +43,7 @@ type createClientRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/clients [post]
+// @Router       /api/v2/clients [post]
 func (h *ClientHandler) CreateClient(c *gin.Context) {
 	var req createClientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -79,7 +79,7 @@ func (h *ClientHandler) CreateClient(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/clients [get]
+// @Router       /api/v2/clients [get]
 func (h *ClientHandler) ListClients(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -131,7 +131,7 @@ func (h *ClientHandler) ListClients(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/clients/{id} [get]
+// @Router       /api/v2/clients/{id} [get]
 func (h *ClientHandler) GetClient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -180,7 +180,7 @@ type updateClientRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/clients/{id} [put]
+// @Router       /api/v2/clients/{id} [put]
 func (h *ClientHandler) UpdateClient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -241,7 +241,7 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/clients/me [get]
+// @Router       /api/v2/clients/me [get]
 func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {

@@ -32,7 +32,7 @@ func NewStockOrderHandler(client stockpb.OrderGRPCServiceClient, accountClient a
 // @Failure      403 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      409 {object} map[string]interface{} "business_rule_violation — insufficient available balance"
-// @Router       /api/v1/me/orders [post]
+// @Router       /api/v2/me/orders [post]
 func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	var req struct {
 		SecurityType  string  `json:"security_type"`
@@ -253,7 +253,7 @@ func (h *StockOrderHandler) CancelOrder(c *gin.Context) {
 // @Failure      403 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
 // @Failure      409 {object} map[string]interface{}
-// @Router       /api/v1/orders [post]
+// @Router       /api/v2/orders [post]
 func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 	var req struct {
 		ClientID      uint64  `json:"client_id"`

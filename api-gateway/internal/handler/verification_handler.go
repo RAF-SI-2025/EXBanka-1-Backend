@@ -34,7 +34,7 @@ type createVerificationReq struct {
 // @Security BearerAuth
 // @Param body body createVerificationReq true "Challenge data"
 // @Success 200 {object} map[string]interface{}
-// @Router /api/verifications [post]
+// @Router /api/v2/verifications [post]
 func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 	var req createVerificationReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -79,7 +79,7 @@ func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 // @Security BearerAuth
 // @Param id path int true "Challenge ID"
 // @Success 200 {object} map[string]interface{}
-// @Router /api/verifications/{id}/status [get]
+// @Router /api/v2/verifications/{id}/status [get]
 func (h *VerificationHandler) GetVerificationStatus(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -115,7 +115,7 @@ type submitCodeReq struct {
 // @Param id path int true "Challenge ID"
 // @Param body body submitCodeReq true "Verification code"
 // @Success 200 {object} map[string]interface{}
-// @Router /api/verifications/{id}/code [post]
+// @Router /api/v2/verifications/{id}/code [post]
 func (h *VerificationHandler) SubmitVerificationCode(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -149,7 +149,7 @@ func (h *VerificationHandler) SubmitVerificationCode(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
-// @Router /api/mobile/verifications/pending [get]
+// @Router /api/v2/mobile/verifications/pending [get]
 func (h *VerificationHandler) GetPendingVerifications(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -186,7 +186,7 @@ type submitMobileVerificationReq struct {
 // @Param id path int true "Challenge ID"
 // @Param body body submitMobileVerificationReq true "Verification response"
 // @Success 200 {object} map[string]interface{}
-// @Router /api/mobile/verifications/{id}/submit [post]
+// @Router /api/v2/mobile/verifications/{id}/submit [post]
 func (h *VerificationHandler) SubmitMobileVerification(c *gin.Context) {
 	challengeID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -224,7 +224,7 @@ func (h *VerificationHandler) SubmitMobileVerification(c *gin.Context) {
 // @Param challenge_id path int true "Challenge ID"
 // @Param token query string true "QR verification token"
 // @Success 200 {object} map[string]interface{}
-// @Router /api/verify/{challenge_id} [post]
+// @Router /api/v2/verify/{challenge_id} [post]
 func (h *VerificationHandler) VerifyQR(c *gin.Context) {
 	challengeID, err := strconv.ParseUint(c.Param("challenge_id"), 10, 64)
 	if err != nil {
@@ -261,7 +261,7 @@ func (h *VerificationHandler) VerifyQR(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]interface{} "Invalid item id"
 // @Failure 404 {object} map[string]interface{} "Item not found or already delivered"
-// @Router /api/mobile/verifications/{id}/ack [post]
+// @Router /api/v2/mobile/verifications/{id}/ack [post]
 func (h *VerificationHandler) AckVerification(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -292,7 +292,7 @@ func (h *VerificationHandler) AckVerification(c *gin.Context) {
 // @Failure 400 {object} map[string]interface{}
 // @Failure 403 {object} map[string]interface{} "Biometrics not enabled"
 // @Failure 409 {object} map[string]interface{} "Challenge expired or already verified"
-// @Router /api/v1/mobile/verifications/{id}/biometric [post]
+// @Router /api/v2/mobile/verifications/{id}/biometric [post]
 func (h *VerificationHandler) BiometricVerify(c *gin.Context) {
 	challengeID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

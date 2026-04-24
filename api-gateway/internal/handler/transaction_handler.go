@@ -61,7 +61,7 @@ type createPaymentRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/me/payments [post]
+// @Router       /api/v2/me/payments [post]
 func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 	var req createPaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -114,7 +114,7 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/payments/{id} [get]
+// @Router       /api/v2/payments/{id} [get]
 func (h *TransactionHandler) GetPayment(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -145,7 +145,7 @@ func (h *TransactionHandler) GetPayment(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/payments/account/{account_number} [get]
+// @Router       /api/v2/payments/account/{account_number} [get]
 func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
 	accountNumber := c.Param("account_number")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -188,7 +188,7 @@ func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/payments/client/{client_id} [get]
+// @Router       /api/v2/payments/client/{client_id} [get]
 func (h *TransactionHandler) ListPaymentsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -246,7 +246,7 @@ type executePaymentRequest struct {
 // @Failure      401   {object}  map[string]string
 // @Failure      422   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/payments/{id}/execute [post]
+// @Router       /api/v2/payments/{id}/execute [post]
 func (h *TransactionHandler) ExecutePayment(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -297,7 +297,7 @@ type createTransferRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/me/transfers [post]
+// @Router       /api/v2/me/transfers [post]
 func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	var req createTransferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -366,7 +366,7 @@ type executeTransferRequest struct {
 // @Failure      401   {object}  map[string]string
 // @Failure      422   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/transfers/{id}/execute [post]
+// @Router       /api/v2/transfers/{id}/execute [post]
 func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -408,7 +408,7 @@ func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/transfers/{id} [get]
+// @Router       /api/v2/transfers/{id} [get]
 func (h *TransactionHandler) GetTransfer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -435,7 +435,7 @@ func (h *TransactionHandler) GetTransfer(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/transfers/client/{client_id} [get]
+// @Router       /api/v2/transfers/client/{client_id} [get]
 func (h *TransactionHandler) ListTransfersByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -492,7 +492,7 @@ type createPaymentRecipientRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/payment-recipients [post]
+// @Router       /api/v2/payment-recipients [post]
 func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 	var req createPaymentRecipientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -521,7 +521,7 @@ func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/payment-recipients/{client_id} [get]
+// @Router       /api/v2/payment-recipients/{client_id} [get]
 func (h *TransactionHandler) ListPaymentRecipients(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -560,7 +560,7 @@ type updatePaymentRecipientRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/payment-recipients/{id} [put]
+// @Router       /api/v2/payment-recipients/{id} [put]
 func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -598,7 +598,7 @@ func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/payment-recipients/{id} [delete]
+// @Router       /api/v2/payment-recipients/{id} [delete]
 func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -977,7 +977,7 @@ type updateFeeBody struct {
 // @Success      200  {object}  map[string]interface{}  "fee rules"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/fees [get]
+// @Router       /api/v2/fees [get]
 func (h *TransactionHandler) ListFees(c *gin.Context) {
 	resp, err := h.feeClient.ListFees(c.Request.Context(), &transactionpb.ListFeesRequest{})
 	if err != nil {
@@ -999,7 +999,7 @@ func (h *TransactionHandler) ListFees(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/fees [post]
+// @Router       /api/v2/fees [post]
 func (h *TransactionHandler) CreateFee(c *gin.Context) {
 	var body createFeeBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -1046,7 +1046,7 @@ func (h *TransactionHandler) CreateFee(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/fees/{id} [put]
+// @Router       /api/v2/fees/{id} [put]
 func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -1103,7 +1103,7 @@ func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/fees/{id} [delete]
+// @Router       /api/v2/fees/{id} [delete]
 func (h *TransactionHandler) DeleteFee(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -1135,7 +1135,7 @@ type previewTransferRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/v1/me/transfers/preview [post]
+// @Router       /api/v2/me/transfers/preview [post]
 func (h *TransactionHandler) PreviewTransfer(c *gin.Context) {
 	var req previewTransferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

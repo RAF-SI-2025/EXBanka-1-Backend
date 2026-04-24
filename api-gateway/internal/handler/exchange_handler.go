@@ -24,7 +24,7 @@ func NewExchangeHandler(exchangeClient exchangepb.ExchangeServiceClient) *Exchan
 // @Produce      json
 // @Success      200  {object}  map[string]interface{}
 // @Failure      500  {object}  map[string]string
-// @Router       /api/exchange/rates [get]
+// @Router       /api/v2/exchange/rates [get]
 func (h *ExchangeHandler) ListExchangeRates(c *gin.Context) {
 	resp, err := h.exchangeClient.ListRates(c.Request.Context(), &exchangepb.ListRatesRequest{})
 	if err != nil {
@@ -46,7 +46,7 @@ func (h *ExchangeHandler) ListExchangeRates(c *gin.Context) {
 // @Param        to    path  string  true  "Target currency (e.g. RSD)"
 // @Success      200   {object}  map[string]interface{}
 // @Failure      404   {object}  map[string]string
-// @Router       /api/exchange/rates/{from}/{to} [get]
+// @Router       /api/v2/exchange/rates/{from}/{to} [get]
 func (h *ExchangeHandler) GetExchangeRate(c *gin.Context) {
 	from := strings.ToUpper(c.Param("from"))
 	to := strings.ToUpper(c.Param("to"))
@@ -79,7 +79,7 @@ type CalculateExchangeRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      404   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/exchange/calculate [post]
+// @Router       /api/v2/exchange/calculate [post]
 func (h *ExchangeHandler) CalculateExchange(c *gin.Context) {
 	var req CalculateExchangeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

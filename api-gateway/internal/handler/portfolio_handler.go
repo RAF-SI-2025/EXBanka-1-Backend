@@ -155,7 +155,7 @@ func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 // @Failure      400 {object} map[string]interface{}
 // @Failure      403 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
-// @Router       /api/v1/otc/admin/offers/{id}/buy [post]
+// @Router       /api/v2/otc/admin/offers/{id}/buy [post]
 func (h *PortfolioHandler) BuyOTCOfferOnBehalf(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

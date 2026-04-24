@@ -67,7 +67,7 @@ type createCardRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/cards [post]
+// @Router       /api/v2/cards [post]
 func (h *CardHandler) CreateCard(c *gin.Context) {
 	var req createCardRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -109,7 +109,7 @@ func (h *CardHandler) CreateCard(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/cards/{id} [get]
+// @Router       /api/v2/cards/{id} [get]
 func (h *CardHandler) GetCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -133,7 +133,7 @@ func (h *CardHandler) GetCard(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/cards/account/{account_number} [get]
+// @Router       /api/v2/cards/account/{account_number} [get]
 func (h *CardHandler) ListCardsByAccount(c *gin.Context) {
 	accountNumber := c.Param("account_number")
 	resp, err := h.cardClient.ListCardsByAccount(c.Request.Context(), &cardpb.ListCardsByAccountRequest{
@@ -160,7 +160,7 @@ func (h *CardHandler) ListCardsByAccount(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/cards/client/{client_id} [get]
+// @Router       /api/v2/cards/client/{client_id} [get]
 func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -199,7 +199,7 @@ func (h *CardHandler) ListCardsByClient(c *gin.Context) {
 // @Failure      403  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/cards/{id}/block [put]
+// @Router       /api/v2/cards/{id}/block [put]
 func (h *CardHandler) BlockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -258,7 +258,7 @@ func (h *CardHandler) ClientBlockCard(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/cards/{id}/unblock [put]
+// @Router       /api/v2/cards/{id}/unblock [put]
 func (h *CardHandler) UnblockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -283,7 +283,7 @@ func (h *CardHandler) UnblockCard(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/cards/{id}/deactivate [put]
+// @Router       /api/v2/cards/{id}/deactivate [put]
 func (h *CardHandler) DeactivateCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -320,7 +320,7 @@ type createAuthorizedPersonRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/cards/authorized-person [post]
+// @Router       /api/v2/cards/authorized-person [post]
 func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {
 	var req createAuthorizedPersonRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -368,7 +368,7 @@ func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      404  {object}  map[string]string       "account does not belong to caller"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/me/cards/virtual [post]
+// @Router       /api/v2/me/cards/virtual [post]
 func (h *CardHandler) CreateVirtualCard(c *gin.Context) {
 	var body createVirtualCardBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -434,7 +434,7 @@ func (h *CardHandler) CreateVirtualCard(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/{id}/pin [post]
+// @Router       /api/v2/cards/{id}/pin [post]
 func (h *CardHandler) SetCardPin(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -477,7 +477,7 @@ func (h *CardHandler) SetCardPin(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/{id}/verify-pin [post]
+// @Router       /api/v2/cards/{id}/verify-pin [post]
 func (h *CardHandler) VerifyCardPin(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -521,7 +521,7 @@ func (h *CardHandler) VerifyCardPin(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      404  {object}  map[string]string       "card not found"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/{id}/temporary-block [post]
+// @Router       /api/v2/cards/{id}/temporary-block [post]
 func (h *CardHandler) TemporaryBlockCard(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -577,7 +577,7 @@ type rejectCardRequestBody struct {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/requests [post]
+// @Router       /api/v2/cards/requests [post]
 func (h *CardHandler) CreateCardRequest(c *gin.Context) {
 	var body createCardRequestBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -623,7 +623,7 @@ func (h *CardHandler) CreateCardRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}  "list of card requests"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/requests/me [get]
+// @Router       /api/v2/cards/requests/me [get]
 func (h *CardHandler) ListMyCardRequests(c *gin.Context) {
 	uid, _ := c.Get("user_id")
 	userID, ok := uid.(int64)
@@ -671,7 +671,7 @@ func (h *CardHandler) ListMyCardRequests(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/requests [get]
+// @Router       /api/v2/cards/requests [get]
 func (h *CardHandler) ListCardRequests(c *gin.Context) {
 	statusFilter := c.Query("status")
 	if statusFilter != "" {
@@ -721,7 +721,7 @@ func (h *CardHandler) ListCardRequests(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/requests/{id} [get]
+// @Router       /api/v2/cards/requests/{id} [get]
 func (h *CardHandler) GetCardRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -751,7 +751,7 @@ func (h *CardHandler) GetCardRequest(c *gin.Context) {
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      422  {object}  map[string]string       "already processed"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/requests/{id}/approve [put]
+// @Router       /api/v2/cards/requests/{id}/approve [put]
 func (h *CardHandler) ApproveCardRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -796,7 +796,7 @@ func (h *CardHandler) ApproveCardRequest(c *gin.Context) {
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      422  {object}  map[string]string       "already processed"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/cards/requests/{id}/reject [put]
+// @Router       /api/v2/cards/requests/{id}/reject [put]
 func (h *CardHandler) RejectCardRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

@@ -25,7 +25,7 @@ func NewNotificationHandler(nc notificationpb.NotificationServiceClient) *Notifi
 // @Param page_size query int false "Items per page (default 20, max 100)"
 // @Param read query string false "Filter by read status: 'read', 'unread', or omit for all"
 // @Success 200 {object} map[string]interface{}
-// @Router /api/v1/me/notifications [get]
+// @Router /api/v2/me/notifications [get]
 func (h *NotificationHandler) ListNotifications(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -68,7 +68,7 @@ func (h *NotificationHandler) ListNotifications(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
-// @Router /api/v1/me/notifications/unread-count [get]
+// @Router /api/v2/me/notifications/unread-count [get]
 func (h *NotificationHandler) GetUnreadCount(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 
@@ -90,7 +90,7 @@ func (h *NotificationHandler) GetUnreadCount(c *gin.Context) {
 // @Param id path int true "Notification ID"
 // @Success 200 {object} map[string]interface{}
 // @Failure 404 {object} map[string]interface{} "Notification not found"
-// @Router /api/v1/me/notifications/{id}/read [post]
+// @Router /api/v2/me/notifications/{id}/read [post]
 func (h *NotificationHandler) MarkRead(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -116,7 +116,7 @@ func (h *NotificationHandler) MarkRead(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
-// @Router /api/v1/me/notifications/read-all [post]
+// @Router /api/v2/me/notifications/read-all [post]
 func (h *NotificationHandler) MarkAllRead(c *gin.Context) {
 	userID := c.GetInt64("user_id")
 

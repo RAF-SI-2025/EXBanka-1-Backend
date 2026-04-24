@@ -55,7 +55,7 @@ type createAccountRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/accounts [post]
+// @Router       /api/v2/accounts [post]
 func (h *AccountHandler) CreateAccount(c *gin.Context) {
 	var req createAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -141,7 +141,7 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/accounts [get]
+// @Router       /api/v2/accounts [get]
 func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 	// Query-param filtering: ?client_id=X
 	if clientIDStr := c.Query("client_id"); clientIDStr != "" {
@@ -202,7 +202,7 @@ func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/accounts/{id} [get]
+// @Router       /api/v2/accounts/{id} [get]
 func (h *AccountHandler) GetAccount(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -226,7 +226,7 @@ func (h *AccountHandler) GetAccount(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/accounts/by-number/{account_number} [get]
+// @Router       /api/v2/accounts/by-number/{account_number} [get]
 func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
 	accountNumber := c.Param("account_number")
 	resp, err := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{
@@ -250,7 +250,7 @@ func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/accounts/client/{client_id} [get]
+// @Router       /api/v2/accounts/client/{client_id} [get]
 func (h *AccountHandler) ListAccountsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -300,7 +300,7 @@ type updateAccountNameRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/accounts/{id}/name [put]
+// @Router       /api/v2/accounts/{id}/name [put]
 func (h *AccountHandler) UpdateAccountName(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -343,7 +343,7 @@ type updateAccountLimitsRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/accounts/{id}/limits [put]
+// @Router       /api/v2/accounts/{id}/limits [put]
 func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -403,7 +403,7 @@ type updateAccountStatusRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/accounts/{id}/status [put]
+// @Router       /api/v2/accounts/{id}/status [put]
 func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -440,7 +440,7 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/currencies [get]
+// @Router       /api/v2/currencies [get]
 func (h *AccountHandler) ListCurrencies(c *gin.Context) {
 	resp, err := h.accountClient.ListCurrencies(c.Request.Context(), &accountpb.ListCurrenciesRequest{})
 	if err != nil {
@@ -478,7 +478,7 @@ type createCompanyRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/companies [post]
+// @Router       /api/v2/companies [post]
 func (h *AccountHandler) CreateCompany(c *gin.Context) {
 	var req createCompanyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -525,7 +525,7 @@ func (h *AccountHandler) CreateCompany(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}  "bank accounts"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/bank-accounts [get]
+// @Router       /api/v2/bank-accounts [get]
 func (h *AccountHandler) ListBankAccounts(c *gin.Context) {
 	resp, err := h.bankAccountClient.ListBankAccounts(c.Request.Context(), &accountpb.ListBankAccountsRequest{})
 	if err != nil {
@@ -547,7 +547,7 @@ func (h *AccountHandler) ListBankAccounts(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/bank-accounts [post]
+// @Router       /api/v2/bank-accounts [post]
 func (h *AccountHandler) CreateBankAccount(c *gin.Context) {
 	var body createBankAccountBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -583,7 +583,7 @@ func (h *AccountHandler) CreateBankAccount(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/bank-accounts/{id} [delete]
+// @Router       /api/v2/bank-accounts/{id} [delete]
 func (h *AccountHandler) DeleteBankAccount(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

@@ -32,7 +32,7 @@ type loginRequest struct {
 // @Success      200  {object}  map[string]string  "access_token, refresh_token"
 // @Failure      400  {object}  map[string]string  "error message"
 // @Failure      401  {object}  map[string]string  "invalid credentials"
-// @Router       /api/auth/login [post]
+// @Router       /api/v2/auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -75,7 +75,7 @@ type refreshRequest struct {
 // @Success      200  {object}  map[string]string  "access_token, refresh_token"
 // @Failure      400  {object}  map[string]string  "error message"
 // @Failure      401  {object}  map[string]string  "invalid refresh token"
-// @Router       /api/auth/refresh [post]
+// @Router       /api/v2/auth/refresh [post]
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req refreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -116,7 +116,7 @@ type passwordResetRequest struct {
 // @Param        body  body  passwordResetRequest  true  "Email address"
 // @Success      200  {object}  map[string]string  "confirmation message"
 // @Failure      400  {object}  map[string]string  "error message"
-// @Router       /api/auth/password/reset-request [post]
+// @Router       /api/v2/auth/password/reset-request [post]
 func (h *AuthHandler) RequestPasswordReset(c *gin.Context) {
 	var req passwordResetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -145,7 +145,7 @@ type resetPasswordRequest struct {
 // @Param        body  body  resetPasswordRequest  true  "Reset token and new password"
 // @Success      200  {object}  map[string]string  "success message"
 // @Failure      400  {object}  map[string]string  "error message"
-// @Router       /api/auth/password/reset [post]
+// @Router       /api/v2/auth/password/reset [post]
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req resetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -180,7 +180,7 @@ type activateRequest struct {
 // @Param        body  body  activateRequest  true  "Activation token and password"
 // @Success      200  {object}  map[string]string  "success message"
 // @Failure      400  {object}  map[string]string  "error message"
-// @Router       /api/auth/activate [post]
+// @Router       /api/v2/auth/activate [post]
 func (h *AuthHandler) ActivateAccount(c *gin.Context) {
 	var req activateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -213,7 +213,7 @@ type resendActivationRequest struct {
 // @Param        body  body  resendActivationRequest  true  "Email address"
 // @Success      200  {object}  map[string]string  "confirmation message"
 // @Failure      400  {object}  map[string]string  "error message"
-// @Router       /api/v1/auth/resend-activation [post]
+// @Router       /api/v2/auth/resend-activation [post]
 func (h *AuthHandler) ResendActivationEmail(c *gin.Context) {
 	var req resendActivationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -239,7 +239,7 @@ type logoutRequest struct {
 // @Produce      json
 // @Param        body  body  logoutRequest  true  "Refresh token to revoke"
 // @Success      200  {object}  map[string]string  "success message"
-// @Router       /api/auth/logout [post]
+// @Router       /api/v2/auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
 	var req logoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
