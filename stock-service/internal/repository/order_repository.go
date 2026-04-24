@@ -107,9 +107,21 @@ func (r *OrderRepository) ListActiveApproved() ([]model.Order, error) {
 
 func applyOrderFilters(q *gorm.DB, filter OrderFilter) *gorm.DB {
 	if filter.Status != "" {
-		if filter.Status == "done" {
+		switch filter.Status {
+		case "done":
+			// Alias: all orders that reached a terminal state (filled, cancelled,
+			// or declined). is_done flips true on any terminal transition.
 			q = q.Where("is_done = ?", true)
-		} else {
+		case "filling":
+			// Alias: approved orders that are still being worked by the
+			// execution engine (not yet fully filled and not terminated).
+			q = q.Where("status = ? AND is_done = ?", "approved", false)
+		case "filled":
+			// Alias: orders that were fully filled on the happy path — approved
+			// AND done. Distinguishes "filled" from "cancelled/declined but
+			// terminal" that `done` includes.
+			q = q.Where("status = ? AND is_done = ?", "approved", true)
+		default:
 			q = q.Where("status = ?", filter.Status)
 		}
 	}
