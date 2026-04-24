@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -33,6 +34,23 @@ type ForexPair struct {
 func (fp *ForexPair) BeforeUpdate(tx *gorm.DB) error {
 	tx.Statement.Where("version = ?", fp.Version)
 	fp.Version++
+	return nil
+}
+
+// BeforeSave rejects any forex pair whose base or quote currency is not in the
+// 8-currency set exchange-service supports. Unlike StockExchange (where we
+// coerce to USD), a forex pair with base==quote or an unsupported leg is
+// semantically meaningless, so we fail the write instead of quietly rewriting.
+func (fp *ForexPair) BeforeSave(tx *gorm.DB) error {
+	if !IsSupportedCurrency(fp.BaseCurrency) {
+		return fmt.Errorf("forex pair %s: base currency %q not supported (must be one of %v)", fp.Ticker, fp.BaseCurrency, SupportedCurrencies)
+	}
+	if !IsSupportedCurrency(fp.QuoteCurrency) {
+		return fmt.Errorf("forex pair %s: quote currency %q not supported (must be one of %v)", fp.Ticker, fp.QuoteCurrency, SupportedCurrencies)
+	}
+	if fp.BaseCurrency == fp.QuoteCurrency {
+		return fmt.Errorf("forex pair %s: base and quote currency must differ", fp.Ticker)
+	}
 	return nil
 }
 

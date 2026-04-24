@@ -19,8 +19,8 @@ import (
 type ExchangeByAcronym func(acronym string) (uint64, error)
 
 // SupportedCurrencies matches the 8 currencies supported by exchange-service.
-// Kept in sync with service.SupportedCurrencies.
-var SupportedCurrencies = []string{"RSD", "EUR", "CHF", "USD", "GBP", "JPY", "CAD", "AUD"}
+// Delegates to model.SupportedCurrencies for a single source of truth.
+var SupportedCurrencies = model.SupportedCurrencies
 
 // ExternalSource wraps the existing external provider clients. It produces
 // the same data as the pre-refactor sync path — this implementation is a

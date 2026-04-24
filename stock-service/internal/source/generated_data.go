@@ -100,7 +100,8 @@ var generatedFutures = []futuresSeed{
 }
 
 // supportedCurrencies is the fixed set of 8 currencies used by exchange-service.
-var supportedCurrencies = []string{"RSD", "EUR", "CHF", "USD", "GBP", "JPY", "CAD", "AUD"}
+// Delegates to model.SupportedCurrencies so the list has a single source of truth.
+var supportedCurrencies = model.SupportedCurrencies
 
 // forexSeedPrices maps "BASE/QUOTE" → realistic mid price. 56 ordered pairs
 // (8 currencies × 7 counterparties).

@@ -2,6 +2,8 @@ package model
 
 import (
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // StockExchange represents a stock exchange (e.g., NYSE, NASDAQ).
@@ -19,4 +21,13 @@ type StockExchange struct {
 	PostMarketClose string    `gorm:"size:5" json:"post_market_close"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// BeforeSave guarantees no exchange row can be persisted with a currency that
+// exchange-service cannot convert. Anything outside the 8-currency set is
+// coerced to USD so buy/sell orders on listings attached to this exchange do
+// not trip validateCurrency at fill time.
+func (e *StockExchange) BeforeSave(tx *gorm.DB) error {
+	e.Currency = NormalizeCurrency(e.Currency)
+	return nil
 }

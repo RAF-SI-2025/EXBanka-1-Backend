@@ -87,14 +87,29 @@ func main() {
 	// stock_exchanges is seeded from a CSV containing 40+ unsupported codes
 	// (PLN, KRW, HKD, CNY, …). Rewrite every non-supported code to USD at
 	// startup so the table is always in a state exchange-service can accept.
-	// The source layer's NormalizeExchangeCurrency handles new rows; this
-	// handles pre-existing rows + any that slip through via the CSV seed.
+	// The source layer's NormalizeExchangeCurrency + the StockExchange.BeforeSave
+	// hook handle new rows; this handles pre-existing rows + anything that slips
+	// through a raw SQL insert or CSV seed path.
 	if res := db.Exec(
 		"UPDATE stock_exchanges SET currency = 'USD' WHERE currency NOT IN ('RSD','EUR','CHF','USD','GBP','JPY','CAD','AUD')",
 	); res.Error != nil {
 		log.Printf("WARN: exchange-currency normalization failed: %v", res.Error)
 	} else if res.RowsAffected > 0 {
 		log.Printf("normalized %d stock_exchanges rows to USD (was unsupported)", res.RowsAffected)
+	}
+
+	// Defense-in-depth: flag any forex_pairs row whose base or quote currency
+	// is outside the supported-8 set. The source layer + ForexPair.BeforeSave
+	// hook should already prevent this, so any positive count indicates either
+	// historical bad data or a write path bypassing hooks. We log (not delete)
+	// because forex pairs have listings referencing them by FK.
+	var badForexCount int64
+	if res := db.Raw(
+		"SELECT COUNT(*) FROM forex_pairs WHERE base_currency NOT IN ('RSD','EUR','CHF','USD','GBP','JPY','CAD','AUD') OR quote_currency NOT IN ('RSD','EUR','CHF','USD','GBP','JPY','CAD','AUD') OR base_currency = quote_currency",
+	).Scan(&badForexCount); res.Error != nil {
+		log.Printf("WARN: forex-currency audit failed: %v", res.Error)
+	} else if badForexCount > 0 {
+		log.Printf("WARN: %d forex_pairs rows have unsupported or same base/quote currencies — investigate", badForexCount)
 	}
 
 	// --- Kafka ---
