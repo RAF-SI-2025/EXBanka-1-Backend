@@ -256,3 +256,47 @@ Fix (plan, in order of priority):
      - cross-currency buy/sell (correct converted debit/credit)
      - commission failure (bank fee still recorded via retry)
      - refund on stop-limit order that never triggered
+
+
+5. Client can see/cancel employee's orders (and vice versa) — same user_id collision  [FIXED 2026-04-24]
+------------------------------------------------------------------------------------
+Severity: HIGH — data privacy / authorization bug.
+
+Root cause:
+  Employees live in user_db.employees; clients live in client_db.clients.
+  Both tables have their own auto-increment PKs, so employee.id=5 and
+  client.id=5 routinely coexist. stock-service's Order/Holding/CapitalGain
+  rows all carry `user_id` AND `system_type` columns, but /me/* queries
+  in order_repository.ListByUser, GetByID ownership check, CancelOrder
+  ownership check, holding_repository.ListByUser, and
+  holding_repository.GetByUserAndSecurity filtered by user_id alone.
+  Result: a client with user_id=5 calling GET /api/v1/me/orders saw
+  every order in the system placed by any employee with user_id=5.
+
+  Holding_repository.Upsert also keyed aggregation on user_id alone,
+  silently merging client and employee portfolio holdings that happened
+  to share a user_id (discovered during this fix).
+
+  Tax collection's ListUsersWithGains subquery was similarly keyed on
+  user_id alone in the LEFT JOIN to holdings and the "last collected"
+  lookup; this would have let employee/client tax bookkeeping contaminate
+  each other when user_ids collided (also discovered + fixed).
+
+Fix:
+  - Added system_type string field to every user-scoped RPC request in
+    contract/proto/stock/stock.proto (9 messages updated).
+  - Gateway reads system_type from JWT context (auth middleware already
+    populates it) and forwards it into each /me/* RPC via a new
+    meIdentity(c) helper that returns 401 if either identity field is
+    missing.
+  - Service-layer methods accept systemType and forward to the repo.
+  - Repositories added AND system_type = ? to every user-scoped WHERE
+    (order.ListByUser + new GetByIDWithOwner; holding.ListByUser,
+    GetByUserAndSecurity, Upsert, FindOldestLongOptionHolding;
+    capital_gain.ListByUser, SumByUserMonth, SumByUserYear;
+    tax_collection.SumByUserMonth, SumByUserYear, GetLastCollection,
+    ListUsersWithGains).
+  - Cross-system GETs return 404 not 403 (don't leak row existence).
+
+Status: FIXED 2026-04-24. Regression test at
+test-app/workflows/wf_systemtype_isolation_test.go.
