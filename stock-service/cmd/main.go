@@ -301,7 +301,7 @@ func main() {
 	taxSvc := service.NewTaxService(
 		capitalGainRepo, taxCollectionRepo, holdingRepo,
 		accountClient, exchangeClient, cfg.StateAccountNo,
-	)
+	).WithDB(db)
 
 	taxCronSvc := service.NewTaxCronService(taxSvc)
 

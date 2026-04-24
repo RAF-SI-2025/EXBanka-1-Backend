@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
@@ -20,6 +21,11 @@ type TaxService struct {
 	accountClient     accountpb.AccountServiceClient
 	exchangeClient    exchangepb.ExchangeServiceClient
 	stateAccountNo    string
+	// db is optional — when wired, CollectTax uses it to acquire a
+	// pg_advisory_xact_lock so two concurrent admin invocations for the
+	// same (year, month) serialize instead of racing. Nil in tests that
+	// don't exercise the lock path (e.g., unit tests using mocks).
+	db *gorm.DB
 }
 
 func NewTaxService(
@@ -38,6 +44,15 @@ func NewTaxService(
 		exchangeClient:    exchangeClient,
 		stateAccountNo:    stateAccountNo,
 	}
+}
+
+// WithDB wires the gorm handle used by CollectTax's advisory-lock path so
+// concurrent admin calls for the same (year, month) serialize. Kept as a
+// builder method to avoid perturbing existing NewTaxService call sites.
+func (s *TaxService) WithDB(db *gorm.DB) *TaxService {
+	cp := *s
+	cp.db = db
+	return &cp
 }
 
 // ListTaxRecords returns users with their tax debt for supervisor portal.
@@ -110,7 +125,43 @@ func (s *TaxService) ListUserTaxCollections(userID uint64, systemType string) ([
 
 // CollectTax collects tax from all users for the given month.
 // Returns the number of users collected, total RSD, and failures.
+//
+// F.1 idempotency guard: for every (user_id, system_type, account_id,
+// currency) tuple within the target month, the service first asks the
+// repository if any tax was already collected — if so the tuple is skipped
+// with a WARN log so retries don't double-charge.
+//
+// F.2 advisory lock: when db is wired (production), CollectTax runs inside a
+// transaction that acquires pg_advisory_xact_lock(year*100 + month) as its
+// first statement. Two concurrent admin invocations for the same month
+// therefore serialize — the second blocks until the first commits, at which
+// point the idempotency guard returns its "already collected" skip.
 func (s *TaxService) CollectTax(year, month int) (collectedCount int64, totalRSD decimal.Decimal, failedCount int64, err error) {
+	if s.db == nil {
+		// No DB handle wired (unit tests). Run without the advisory lock;
+		// the idempotency guard below still prevents double-collection
+		// within a single invocation.
+		return s.collectTaxInner(year, month)
+	}
+	lockKey := int64(year)*100 + int64(month)
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// Advisory lock is Postgres-specific; skip on other dialects
+		// (SQLite in tests) so the path still exercises the inner logic.
+		if tx.Dialector.Name() == "postgres" {
+			if lerr := tx.Exec("SELECT pg_advisory_xact_lock(?)", lockKey).Error; lerr != nil {
+				return lerr
+			}
+		}
+		var innerErr error
+		collectedCount, totalRSD, failedCount, innerErr = s.collectTaxInner(year, month)
+		return innerErr
+	})
+	return collectedCount, totalRSD, failedCount, err
+}
+
+// collectTaxInner is the bulk of CollectTax, extracted so the advisory-lock
+// wrapper can call it inside a TX. Keeps the two paths in sync.
+func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, totalRSD decimal.Decimal, failedCount int64, err error) {
 	StockTaxCollectedTotal.Inc()
 	// Get all users with gains this month (broad filter, all pages)
 	summaries, _, err := s.taxCollectionRepo.ListUsersWithGains(year, month, TaxFilter{
@@ -125,6 +176,16 @@ func (s *TaxService) CollectTax(year, month int) (collectedCount int64, totalRSD
 
 	for _, summary := range summaries {
 		if summary.TotalDebtRSD.IsZero() || summary.TotalDebtRSD.IsNegative() {
+			continue
+		}
+
+		// F.1 idempotency guard: if any tax was already collected for this
+		// user this month, skip. The per-account/per-currency inner loop
+		// still runs a finer-grained guard below for mixed-currency users
+		// where one ledger collected but another raced and didn't.
+		if already, ierr := s.taxCollectionRepo.SumByUserMonth(summary.UserID, summary.SystemType, year, month); ierr == nil && already.IsPositive() {
+			log.Printf("WARN: tax: skipping user %d (%s) for %04d-%02d — already collected RSD %s",
+				summary.UserID, summary.SystemType, year, month, already.StringFixed(2))
 			continue
 		}
 
