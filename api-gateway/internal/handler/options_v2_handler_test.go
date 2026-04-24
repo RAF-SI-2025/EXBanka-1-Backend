@@ -64,7 +64,13 @@ func (s *stubSecurityClient) GetCandles(ctx context.Context, in *stockpb.GetCand
 // --- stub OrderGRPCServiceClient ---
 
 type stubOrderClient struct {
-	createFn func(req *stockpb.CreateOrderRequest) *stockpb.Order
+	createFn      func(req *stockpb.CreateOrderRequest) *stockpb.Order
+	getOrderFn    func(req *stockpb.GetOrderRequest) *stockpb.OrderDetail
+	listMyFn      func(req *stockpb.ListMyOrdersRequest) *stockpb.ListOrdersResponse
+	cancelFn      func(req *stockpb.CancelOrderRequest) *stockpb.Order
+	lastGetReq    *stockpb.GetOrderRequest
+	lastListReq   *stockpb.ListMyOrdersRequest
+	lastCancelReq *stockpb.CancelOrderRequest
 }
 
 func (s *stubOrderClient) CreateOrder(ctx context.Context, in *stockpb.CreateOrderRequest, opts ...grpc.CallOption) (*stockpb.Order, error) {
@@ -74,13 +80,25 @@ func (s *stubOrderClient) CreateOrder(ctx context.Context, in *stockpb.CreateOrd
 	return nil, nil
 }
 func (s *stubOrderClient) GetOrder(ctx context.Context, in *stockpb.GetOrderRequest, opts ...grpc.CallOption) (*stockpb.OrderDetail, error) {
-	return nil, nil
+	s.lastGetReq = in
+	if s.getOrderFn != nil {
+		return s.getOrderFn(in), nil
+	}
+	return &stockpb.OrderDetail{Order: &stockpb.Order{Id: in.Id}}, nil
 }
 func (s *stubOrderClient) ListMyOrders(ctx context.Context, in *stockpb.ListMyOrdersRequest, opts ...grpc.CallOption) (*stockpb.ListOrdersResponse, error) {
-	return nil, nil
+	s.lastListReq = in
+	if s.listMyFn != nil {
+		return s.listMyFn(in), nil
+	}
+	return &stockpb.ListOrdersResponse{}, nil
 }
 func (s *stubOrderClient) CancelOrder(ctx context.Context, in *stockpb.CancelOrderRequest, opts ...grpc.CallOption) (*stockpb.Order, error) {
-	return nil, nil
+	s.lastCancelReq = in
+	if s.cancelFn != nil {
+		return s.cancelFn(in), nil
+	}
+	return &stockpb.Order{Id: in.Id}, nil
 }
 func (s *stubOrderClient) ListOrders(ctx context.Context, in *stockpb.ListOrdersRequest, opts ...grpc.CallOption) (*stockpb.ListOrdersResponse, error) {
 	return nil, nil

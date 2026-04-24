@@ -24,7 +24,10 @@ func NewPortfolioHandler(
 }
 
 func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
 
@@ -37,7 +40,7 @@ func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
 	}
 
 	resp, err := h.portfolioClient.ListHoldings(c.Request.Context(), &stockpb.ListHoldingsRequest{
-		UserId: uint64(userID), SecurityType: secType, Page: int32(page), PageSize: int32(pageSize),
+		UserId: userID, SystemType: systemType, SecurityType: secType, Page: int32(page), PageSize: int32(pageSize),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -47,9 +50,13 @@ func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
 }
 
 func (h *PortfolioHandler) GetPortfolioSummary(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 	resp, err := h.portfolioClient.GetPortfolioSummary(c.Request.Context(), &stockpb.GetPortfolioSummaryRequest{
-		UserId: uint64(userID),
+		UserId:     userID,
+		SystemType: systemType,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -75,10 +82,13 @@ func (h *PortfolioHandler) MakePublic(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "quantity must be positive")
 		return
 	}
-	userID := c.GetInt64("user_id")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 
 	resp, err := h.portfolioClient.MakePublic(c.Request.Context(), &stockpb.MakePublicRequest{
-		HoldingId: id, UserId: uint64(userID), Quantity: req.Quantity,
+		HoldingId: id, UserId: userID, SystemType: systemType, Quantity: req.Quantity,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -93,10 +103,13 @@ func (h *PortfolioHandler) ExerciseOption(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid holding id")
 		return
 	}
-	userID := c.GetInt64("user_id")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 
 	resp, err := h.portfolioClient.ExerciseOption(c.Request.Context(), &stockpb.ExerciseOptionRequest{
-		HoldingId: id, UserId: uint64(userID),
+		HoldingId: id, UserId: userID, SystemType: systemType,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -226,11 +239,13 @@ func (h *PortfolioHandler) BuyOTCOffer(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt64("user_id")
-	systemType := c.GetString("system_type")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 
 	resp, err := h.otcClient.BuyOffer(c.Request.Context(), &stockpb.BuyOTCOfferRequest{
-		OfferId: id, BuyerId: uint64(userID), SystemType: systemType,
+		OfferId: id, BuyerId: userID, SystemType: systemType,
 		Quantity: req.Quantity, AccountId: req.AccountID,
 	})
 	if err != nil {

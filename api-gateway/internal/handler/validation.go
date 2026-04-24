@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
@@ -123,6 +124,32 @@ func enforceOwnership(c *gin.Context, ownerID uint64) error {
 		return fmt.Errorf("ownership mismatch: resource owner %d does not match caller %d", ownerID, userID)
 	}
 	return nil
+}
+
+// meIdentity returns the JWT-authenticated user's (userID, systemType) pair
+// extracted from the gin context populated by the auth middleware.
+//
+// Used by /me/* handlers before calling any user-scoped RPC — without
+// system_type, stock-service (and any other service that filters by
+// (user_id, system_type)) would match across both client and employee
+// namespaces, leaking data between users that happen to share the same
+// numeric user_id.
+//
+// Writes a 401 response and returns ok=false if either value is missing
+// or has an unexpected type; callers must return immediately.
+func meIdentity(c *gin.Context) (userID uint64, systemType string, ok bool) {
+	uid := c.GetInt64("user_id")
+	if uid <= 0 {
+		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing user_id in JWT context")
+		return 0, "", false
+	}
+	raw, _ := c.Get("system_type")
+	st, _ := raw.(string)
+	if st == "" {
+		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing system_type in JWT context")
+		return 0, "", false
+	}
+	return uint64(uid), st, true
 }
 
 // ---------------------------------------------------------------------------

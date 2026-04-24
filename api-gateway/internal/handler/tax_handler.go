@@ -67,12 +67,15 @@ func (h *TaxHandler) ListTaxRecords(c *gin.Context) {
 // @Failure      500  {object}  map[string]string       "internal error"
 // @Router       /api/me/tax [get]
 func (h *TaxHandler) ListMyTaxRecords(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
 
 	resp, err := h.client.ListUserTaxRecords(c.Request.Context(), &stockpb.ListUserTaxRecordsRequest{
-		UserId: uint64(userID), Page: int32(page), PageSize: int32(pageSize),
+		UserId: userID, SystemType: systemType, Page: int32(page), PageSize: int32(pageSize),
 	})
 	if err != nil {
 		handleGRPCError(c, err)

@@ -100,11 +100,13 @@ func (h *OptionsV2Handler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt64("user_id")
-	systemType := c.GetString("system_type")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 
 	createReq := &stockpb.CreateOrderRequest{
-		UserId:     uint64(userID),
+		UserId:     userID,
 		SystemType: systemType,
 		ListingId:  *opt.ListingId,
 		HoldingId:  req.HoldingID,
@@ -157,16 +159,16 @@ func (h *OptionsV2Handler) Exercise(c *gin.Context) {
 	var req exerciseOptionRequest
 	_ = c.ShouldBindJSON(&req) // body is optional
 
-	userID := uint64(c.GetInt64("user_id"))
-	if userID == 0 {
-		apiError(c, http.StatusUnauthorized, "unauthorized", "missing user context")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
 		return
 	}
 
 	result, err := h.portClient.ExerciseOptionByOptionID(c.Request.Context(), &stockpb.ExerciseOptionByOptionIDRequest{
-		OptionId:  optionID,
-		UserId:    userID,
-		HoldingId: req.HoldingID,
+		OptionId:   optionID,
+		UserId:     userID,
+		SystemType: systemType,
+		HoldingId:  req.HoldingID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)

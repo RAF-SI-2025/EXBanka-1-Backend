@@ -150,3 +150,98 @@ func TestCreateOrder_BaseAccountEqualsAccount_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), "base_account_id must differ from account_id")
 }
+
+// --- /me/* system_type forwarding (Task 5) ---
+
+func TestGetMyOrder_ForwardsSystemType(t *testing.T) {
+	ord := &stubOrderClient{}
+	acct := &stubAccountClient{}
+	h := handler.NewStockOrderHandler(ord, acct)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/me/orders/:id", func(c *gin.Context) {
+		c.Set("user_id", int64(7))
+		c.Set("system_type", "client")
+		h.GetMyOrder(c)
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/me/orders/42", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, ord.lastGetReq)
+	require.Equal(t, uint64(42), ord.lastGetReq.Id)
+	require.Equal(t, uint64(7), ord.lastGetReq.UserId)
+	require.Equal(t, "client", ord.lastGetReq.SystemType)
+}
+
+func TestGetMyOrder_MissingSystemType_Returns401(t *testing.T) {
+	ord := &stubOrderClient{}
+	acct := &stubAccountClient{}
+	h := handler.NewStockOrderHandler(ord, acct)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/me/orders/:id", func(c *gin.Context) {
+		c.Set("user_id", int64(7))
+		// deliberately omit system_type
+		h.GetMyOrder(c)
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/me/orders/42", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	require.Nil(t, ord.lastGetReq, "RPC must not be called when system_type is missing")
+	require.Contains(t, rec.Body.String(), "missing system_type")
+}
+
+func TestCancelOrder_ForwardsSystemType(t *testing.T) {
+	ord := &stubOrderClient{}
+	acct := &stubAccountClient{}
+	h := handler.NewStockOrderHandler(ord, acct)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/me/orders/:id/cancel", func(c *gin.Context) {
+		c.Set("user_id", int64(11))
+		c.Set("system_type", "employee")
+		h.CancelOrder(c)
+	})
+
+	req := httptest.NewRequest("POST", "/api/v1/me/orders/9/cancel", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, ord.lastCancelReq)
+	require.Equal(t, uint64(9), ord.lastCancelReq.Id)
+	require.Equal(t, uint64(11), ord.lastCancelReq.UserId)
+	require.Equal(t, "employee", ord.lastCancelReq.SystemType)
+}
+
+func TestListMyOrders_ForwardsSystemType(t *testing.T) {
+	ord := &stubOrderClient{}
+	acct := &stubAccountClient{}
+	h := handler.NewStockOrderHandler(ord, acct)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/me/orders", func(c *gin.Context) {
+		c.Set("user_id", int64(7))
+		c.Set("system_type", "client")
+		h.ListMyOrders(c)
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/me/orders", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, ord.lastListReq)
+	require.Equal(t, uint64(7), ord.lastListReq.UserId)
+	require.Equal(t, "client", ord.lastListReq.SystemType)
+}

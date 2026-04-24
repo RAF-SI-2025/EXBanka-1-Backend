@@ -139,11 +139,13 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		}
 	}
 
-	userID := c.GetInt64("user_id")
-	systemType := c.GetString("system_type")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 
 	grpcReq := &stockpb.CreateOrderRequest{
-		UserId:     uint64(userID),
+		UserId:     userID,
 		SystemType: systemType,
 		ListingId:  req.ListingID,
 		HoldingId:  req.HoldingID,
@@ -173,17 +175,21 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 }
 
 func (h *StockOrderHandler) ListMyOrders(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
 
 	resp, err := h.client.ListMyOrders(c.Request.Context(), &stockpb.ListMyOrdersRequest{
-		UserId:    uint64(userID),
-		Status:    c.Query("status"),
-		Direction: c.Query("direction"),
-		OrderType: c.Query("order_type"),
-		Page:      int32(page),
-		PageSize:  int32(pageSize),
+		UserId:     userID,
+		SystemType: systemType,
+		Status:     c.Query("status"),
+		Direction:  c.Query("direction"),
+		OrderType:  c.Query("order_type"),
+		Page:       int32(page),
+		PageSize:   int32(pageSize),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -198,10 +204,13 @@ func (h *StockOrderHandler) GetMyOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	userID := c.GetInt64("user_id")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 
 	resp, err := h.client.GetOrder(c.Request.Context(), &stockpb.GetOrderRequest{
-		Id: id, UserId: uint64(userID),
+		Id: id, UserId: userID, SystemType: systemType,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -216,10 +225,13 @@ func (h *StockOrderHandler) CancelOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	userID := c.GetInt64("user_id")
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
 
 	resp, err := h.client.CancelOrder(c.Request.Context(), &stockpb.CancelOrderRequest{
-		Id: id, UserId: uint64(userID),
+		Id: id, UserId: userID, SystemType: systemType,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
