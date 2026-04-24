@@ -93,3 +93,21 @@ func (r *SagaLogRepository) ListStuckSagas(olderThan time.Duration) ([]model.Sag
 		Order("id ASC").Find(&out).Error
 	return out, err
 }
+
+// IncrementRetryCount bumps retry_count + updated_at on a saga row without
+// changing status or version. Used by the recovery reconciler after each
+// failed retry attempt so repeated failures can be detected and the row left
+// alone once a threshold is exceeded.
+//
+// Does NOT use the BeforeUpdate version hook (UpdateColumns bypasses hooks),
+// which is deliberate here: retry bookkeeping is a side-channel on the row
+// and must not compete with the forward/compensation path's optimistic
+// locking.
+func (r *SagaLogRepository) IncrementRetryCount(id uint64) error {
+	return r.db.Model(&model.SagaLog{}).
+		Where("id = ?", id).
+		UpdateColumns(map[string]any{
+			"retry_count": gorm.Expr("retry_count + 1"),
+			"updated_at":  time.Now(),
+		}).Error
+}

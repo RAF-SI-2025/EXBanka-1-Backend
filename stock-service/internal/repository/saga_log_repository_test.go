@@ -113,6 +113,37 @@ func TestSagaLogRepo_ListStuckSagas(t *testing.T) {
 	}
 }
 
+func TestSagaLogRepo_IncrementRetryCount(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewSagaLogRepository(db)
+
+	log := &model.SagaLog{
+		SagaID: "r1", OrderID: 77, StepNumber: 1, StepName: "settle_reservation",
+		Status: model.SagaStatusPending,
+	}
+	if err := repo.RecordStep(log); err != nil {
+		t.Fatal(err)
+	}
+	// RetryCount starts at 0 (column default).
+	if err := repo.IncrementRetryCount(log.ID); err != nil {
+		t.Fatalf("IncrementRetryCount: %v", err)
+	}
+	if err := repo.IncrementRetryCount(log.ID); err != nil {
+		t.Fatalf("IncrementRetryCount(2): %v", err)
+	}
+	got, err := repo.GetByID(log.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RetryCount != 2 {
+		t.Errorf("retry_count: got %d want 2", got.RetryCount)
+	}
+	// Status must remain unchanged.
+	if got.Status != model.SagaStatusPending {
+		t.Errorf("status mutated by IncrementRetryCount: got %s", got.Status)
+	}
+}
+
 func TestSagaLogRepo_GetByStepName(t *testing.T) {
 	db := newTestDB(t)
 	repo := NewSagaLogRepository(db)
