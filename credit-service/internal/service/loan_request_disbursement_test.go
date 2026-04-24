@@ -76,6 +76,18 @@ func (m *mockAccountClientForLoan) GetCurrency(_ context.Context, _ *accountpb.G
 func (m *mockAccountClientForLoan) GetLedgerEntries(_ context.Context, _ *accountpb.GetLedgerEntriesRequest, _ ...grpc.CallOption) (*accountpb.GetLedgerEntriesResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClientForLoan) ReserveFunds(_ context.Context, _ *accountpb.ReserveFundsRequest, _ ...grpc.CallOption) (*accountpb.ReserveFundsResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForLoan) ReleaseReservation(_ context.Context, _ *accountpb.ReleaseReservationRequest, _ ...grpc.CallOption) (*accountpb.ReleaseReservationResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForLoan) PartialSettleReservation(_ context.Context, _ *accountpb.PartialSettleReservationRequest, _ ...grpc.CallOption) (*accountpb.PartialSettleReservationResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForLoan) GetReservation(_ context.Context, _ *accountpb.GetReservationRequest, _ ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
+	return nil, nil
+}
 
 // ---- mockBankAccountClientForLoan -------------------------------------------
 

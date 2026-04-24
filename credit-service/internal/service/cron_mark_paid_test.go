@@ -70,6 +70,18 @@ func (m *mockCronAccountClient) GetCurrency(_ context.Context, _ *accountpb.GetC
 func (m *mockCronAccountClient) GetLedgerEntries(_ context.Context, _ *accountpb.GetLedgerEntriesRequest, _ ...grpc.CallOption) (*accountpb.GetLedgerEntriesResponse, error) {
 	return nil, nil
 }
+func (m *mockCronAccountClient) ReserveFunds(_ context.Context, _ *accountpb.ReserveFundsRequest, _ ...grpc.CallOption) (*accountpb.ReserveFundsResponse, error) {
+	return nil, nil
+}
+func (m *mockCronAccountClient) ReleaseReservation(_ context.Context, _ *accountpb.ReleaseReservationRequest, _ ...grpc.CallOption) (*accountpb.ReleaseReservationResponse, error) {
+	return nil, nil
+}
+func (m *mockCronAccountClient) PartialSettleReservation(_ context.Context, _ *accountpb.PartialSettleReservationRequest, _ ...grpc.CallOption) (*accountpb.PartialSettleReservationResponse, error) {
+	return nil, nil
+}
+func (m *mockCronAccountClient) GetReservation(_ context.Context, _ *accountpb.GetReservationRequest, _ ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
+	return nil, nil
+}
 
 func newCronTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
