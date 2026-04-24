@@ -28,12 +28,23 @@ func applySorting(q *gorm.DB, table, sortBy, sortOrder string) *gorm.DB {
 	return q.Order(fmt.Sprintf("%s.%s %s", table, col, dir))
 }
 
+// MaxPageSize is the hard ceiling for a single paginated repository call.
+// Internal callers (seed/sync loops) may request up to this value; user-facing
+// gRPC handlers are already expected to bound requests before reaching the
+// repository. This used to be 100 with a silent reset to 10 for larger
+// requests, which caused internal seeding code to quietly process only 10
+// rows. See `listing_service.syncListings` and `security_sync.generateAllOptions`.
+const MaxPageSize = 10000
+
 func applyPagination(q *gorm.DB, page, pageSize int) *gorm.DB {
 	if page < 1 {
 		page = 1
 	}
-	if pageSize < 1 || pageSize > 100 {
+	switch {
+	case pageSize < 1:
 		pageSize = 10
+	case pageSize > MaxPageSize:
+		pageSize = MaxPageSize
 	}
 	return q.Offset((page - 1) * pageSize).Limit(pageSize)
 }

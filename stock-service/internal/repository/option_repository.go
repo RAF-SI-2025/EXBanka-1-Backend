@@ -66,7 +66,20 @@ func (r *OptionRepository) UpsertByTicker(o *model.Option) error {
 		existing.Premium = o.Premium
 		existing.OpenInterest = o.OpenInterest
 		existing.SettlementDate = o.SettlementDate
-		return tx.Save(&existing).Error
+		if saveErr := tx.Save(&existing).Error; saveErr != nil {
+			return saveErr
+		}
+		// Reflect the persisted identity back onto the caller's struct so
+		// downstream code (option-listing linking in particular) can reference
+		// opt.ID. Without this, upsert callers see opt.ID == 0 for every
+		// already-existing row, which silently breaks SetListingID and leaves
+		// options orphaned from their listing rows.
+		o.ID = existing.ID
+		o.ListingID = existing.ListingID
+		o.Version = existing.Version
+		o.CreatedAt = existing.CreatedAt
+		o.UpdatedAt = existing.UpdatedAt
+		return nil
 	})
 }
 
@@ -110,8 +123,16 @@ func (r *OptionRepository) DeleteExpiredBefore(cutoff time.Time) (int64, error) 
 	return result.RowsAffected, result.Error
 }
 
+// SetListingID sets the option.listing_id for a single row. Uses SkipHooks
+// because (a) the Option.BeforeUpdate optimistic-lock hook would add a
+// version-zero WHERE clause to this plain Updates() call (see CLAUDE.md
+// "NEVER use db.Model(&MyModel{}).Updates(map...) on a versioned model"),
+// silently updating zero rows, and (b) this is an authoritative one-way
+// link attachment invoked from the seed/option-generation path where
+// version-race conflicts are not meaningful.
 func (r *OptionRepository) SetListingID(optionID, listingID uint64) error {
-	return r.db.Model(&model.Option{}).
+	return r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.Option{}).
 		Where("id = ?", optionID).
 		Update("listing_id", listingID).Error
 }
