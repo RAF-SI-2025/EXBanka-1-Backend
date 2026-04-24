@@ -1602,6 +1602,15 @@ Status(pending|delivered|expired), ExpiresAt, DeliveredAt(nullable), CreatedAt
 
 ### Stock Service (stock_db)
 
+> ⚠ **Phase-1 note (2026-04-22):** The securities order pipeline runs end-to-end
+> as of Phase 1 (`docs/superpowers/plans/2026-04-22-unblock-order-flow.md`),
+> but the fill path is **best-effort, not bank-safe**. Funds are not reserved at
+> placement; cross-currency debits use raw listing-currency amounts; holding
+> mutations can diverge from account state on partial failure; Kafka events
+> publish before the fill saga commits. These are all fixed in Phase 2
+> (`docs/superpowers/plans/2026-04-22-bank-safe-settlement.md`). Do not rely on
+> the securities pipeline for real settlement until Phase 2 ships.
+
 **StockExchange** — A stock exchange (e.g. NYSE, NASDAQ)
 ```
 ID(uint64), Name, Acronym(unique), MicCode(unique), Country, Currency, TimeZone,
