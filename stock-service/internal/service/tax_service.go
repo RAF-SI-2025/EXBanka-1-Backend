@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -99,6 +100,14 @@ func (s *TaxService) ListUserTaxRecords(userID uint64, systemType string, page, 
 	return s.capitalGainRepo.ListByUser(userID, systemType, page, pageSize)
 }
 
+// ListUserTaxCollections returns the full collection history for a single
+// (user_id, system_type) owner so they can see when tax was actually taken.
+// Capped to 200 most recent rows — that covers 16+ years of monthly collections.
+func (s *TaxService) ListUserTaxCollections(userID uint64, systemType string) ([]model.TaxCollection, error) {
+	rows, _, err := s.taxCollectionRepo.ListByUser(userID, systemType, 1, 200)
+	return rows, err
+}
+
 // CollectTax collects tax from all users for the given month.
 // Returns the number of users collected, total RSD, and failures.
 func (s *TaxService) CollectTax(year, month int) (collectedCount int64, totalRSD decimal.Decimal, failedCount int64, err error) {
@@ -156,10 +165,14 @@ func (s *TaxService) CollectTax(year, month int) (collectedCount int64, totalRSD
 				continue
 			}
 
+			debitMemo := fmt.Sprintf("Capital-gains tax collection %04d-%02d", year, month)
+			debitKey := fmt.Sprintf("tax-debit-%s-%d-%04d-%02d-%d", summary.SystemType, summary.UserID, year, month, gs.AccountID)
 			_, debitErr := s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 				AccountNumber:   acctResp.AccountNumber,
 				Amount:          taxInCurrency.Neg().StringFixed(4),
 				UpdateAvailable: true,
+				Memo:            debitMemo,
+				IdempotencyKey:  debitKey,
 			})
 			if debitErr != nil {
 				log.Printf("WARN: tax: debit failed for user %d account %s: %v", summary.UserID, acctResp.AccountNumber, debitErr)
@@ -168,10 +181,14 @@ func (s *TaxService) CollectTax(year, month int) (collectedCount int64, totalRSD
 			}
 
 			// Credit state's RSD account
+			creditMemo := fmt.Sprintf("Capital-gains tax from %s #%d (%s %s)", summary.SystemType, summary.UserID, gs.Currency, taxInCurrency.StringFixed(2))
+			creditKey := fmt.Sprintf("tax-credit-%s-%d-%04d-%02d-%d", summary.SystemType, summary.UserID, year, month, gs.AccountID)
 			_, creditErr := s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 				AccountNumber:   s.stateAccountNo,
 				Amount:          taxInRSD.StringFixed(4),
 				UpdateAvailable: true,
+				Memo:            creditMemo,
+				IdempotencyKey:  creditKey,
 			})
 			if creditErr != nil {
 				log.Printf("WARN: tax: credit state account failed for user %d: %v", summary.UserID, creditErr)

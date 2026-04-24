@@ -94,11 +94,32 @@ func (h *TaxHandler) ListUserTaxRecords(ctx context.Context, req *pb.ListUserTax
 		return nil, status.Error(codes.Internal, balErr.Error())
 	}
 
+	// Fetch collection history so the owner can see when tax was actually taken.
+	collections, collErr := h.taxSvc.ListUserTaxCollections(req.UserId, req.SystemType)
+	if collErr != nil {
+		return nil, status.Error(codes.Internal, collErr.Error())
+	}
+	pbCollections := make([]*pb.TaxCollectionRecord, len(collections))
+	for i, c := range collections {
+		pbCollections[i] = &pb.TaxCollectionRecord{
+			Id:           c.ID,
+			Year:         int32(c.Year),
+			Month:        int32(c.Month),
+			AccountId:    c.AccountID,
+			Currency:     c.Currency,
+			TotalGain:    c.TotalGain.StringFixed(4),
+			TaxAmount:    c.TaxAmount.StringFixed(4),
+			TaxAmountRsd: c.TaxAmountRSD.StringFixed(4),
+			CollectedAt:  c.CollectedAt.Format("2006-01-02T15:04:05Z"),
+		}
+	}
+
 	return &pb.ListUserTaxRecordsResponse{
 		Records:            records,
 		TotalCount:         total,
 		TaxPaidThisYear:    taxPaid.StringFixed(2),
 		TaxUnpaidThisMonth: taxUnpaid.StringFixed(2),
+		Collections:        pbCollections,
 	}, nil
 }
 

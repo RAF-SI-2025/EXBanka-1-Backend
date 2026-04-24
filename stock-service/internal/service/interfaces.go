@@ -153,6 +153,7 @@ type TaxCollectionRepo interface {
 	SumByUserYear(userID uint64, systemType string, year int) (decimal.Decimal, error) // total RSD collected
 	SumByUserMonth(userID uint64, systemType string, year, month int) (decimal.Decimal, error)
 	GetLastCollection(userID uint64, systemType string) (*model.TaxCollection, error)
+	ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.TaxCollection, int64, error)
 	ListUsersWithGains(year, month int, filter TaxFilter) ([]TaxUserSummary, int64, error)
 }
 

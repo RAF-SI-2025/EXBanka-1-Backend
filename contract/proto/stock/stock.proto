@@ -678,6 +678,24 @@ message ListUserTaxRecordsResponse {
   int64 total_count = 2;
   string tax_paid_this_year = 3;
   string tax_unpaid_this_month = 4;
+  // collections lists when capital-gains tax was actually taken from this
+  // user's accounts (one row per per-account-currency-month collection).
+  repeated TaxCollectionRecord collections = 5;
+}
+
+// TaxCollectionRecord surfaces one row from the tax_collections table so the
+// owner can see exactly when tax was collected, from which account, and how
+// much was converted into RSD.
+message TaxCollectionRecord {
+  uint64 id = 1;
+  int32 year = 2;
+  int32 month = 3;
+  uint64 account_id = 4;
+  string currency = 5;
+  string total_gain = 6;
+  string tax_amount = 7;
+  string tax_amount_rsd = 8;
+  string collected_at = 9;
 }
 
 // ==================== Source Admin ====================

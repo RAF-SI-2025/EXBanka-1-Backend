@@ -86,6 +86,7 @@ func (h *TaxHandler) ListMyTaxRecords(c *gin.Context) {
 		"total_count":           resp.TotalCount,
 		"tax_paid_this_year":    resp.TaxPaidThisYear,
 		"tax_unpaid_this_month": resp.TaxUnpaidThisMonth,
+		"collections":           emptyIfNil(resp.Collections),
 	})
 }
 

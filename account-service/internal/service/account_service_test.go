@@ -620,10 +620,10 @@ func TestUpdateBalance_Memo_PersistsToLedger(t *testing.T) {
 	assert.True(t, entries[0].Amount.Equal(decimal.NewFromInt(250)))
 }
 
-// Without memo/key neither a ledger entry is written (the historical no-
-// ledger UpdateBalance behaviour) — this is what keeps transaction-service
-// / payment-service, which write their own ledger entries, unaffected.
-func TestUpdateBalance_NoOpts_NoLedgerEntry(t *testing.T) {
+// Every balance change writes a ledger entry — the ledger is the authoritative
+// audit + recovery log. Callers that don't supply a memo get a neutral default
+// description so the entry is still meaningful.
+func TestUpdateBalance_NoOpts_StillWritesLedgerEntry(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
 	svc := NewAccountService(repo, db, nil)
@@ -635,7 +635,10 @@ func TestUpdateBalance_NoOpts_NoLedgerEntry(t *testing.T) {
 	ledgerRepo := repository.NewLedgerRepository(db)
 	entries, _, err := ledgerRepo.GetEntriesByAccount(acct.AccountNumber, 1, 10)
 	require.NoError(t, err)
-	assert.Len(t, entries, 0, "no ledger entry should be written when memo and key are empty")
+	assert.Len(t, entries, 1, "every balance change must produce a ledger entry")
+	assert.Equal(t, "Balance update", entries[0].Description, "neutral default description when no memo provided")
+	assert.Equal(t, "credit", entries[0].EntryType)
+	assert.True(t, entries[0].Amount.Equal(decimal.NewFromInt(100)))
 }
 
 // ---------------------------------------------------------------------------

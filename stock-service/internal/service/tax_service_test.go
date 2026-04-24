@@ -65,6 +65,16 @@ func (m *mockTaxCollectionRepo) GetLastCollection(userID uint64, systemType stri
 	return last, nil
 }
 
+func (m *mockTaxCollectionRepo) ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.TaxCollection, int64, error) {
+	out := []model.TaxCollection{}
+	for i := range m.collections {
+		if m.collections[i].UserID == userID && m.collections[i].SystemType == systemType {
+			out = append(out, m.collections[i])
+		}
+	}
+	return out, int64(len(out)), nil
+}
+
 func (m *mockTaxCollectionRepo) ListUsersWithGains(year, month int, filter repository.TaxFilter) ([]repository.TaxUserSummary, int64, error) {
 	return m.usersWithGains, int64(len(m.usersWithGains)), nil
 }

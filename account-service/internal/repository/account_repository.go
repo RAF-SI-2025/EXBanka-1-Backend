@@ -267,32 +267,35 @@ func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.D
 			return gorm.ErrRecordNotFound
 		}
 
-		// Write a ledger entry only when the caller opted in via memo or
-		// idempotency_key. Unlabelled balance changes preserve the original
-		// no-ledger behaviour so existing transaction-service / payment-service
-		// flows — which write their own ledger entries elsewhere — are not
-		// disturbed.
-		if opts.IdempotencyKey != "" || opts.Memo != "" {
-			entryType := "credit"
-			amt := amount
-			if isDebit {
-				entryType = "debit"
-				amt = amount.Abs()
-			}
-			le := &model.LedgerEntry{
-				AccountNumber:  accountNumber,
-				EntryType:      entryType,
-				Amount:         amt,
-				BalanceBefore:  balanceBefore,
-				BalanceAfter:   balanceAfter,
-				Description:    opts.Memo,
-				IdempotencyKey: opts.IdempotencyKey,
-			}
-			if err := tx.Create(le).Error; err != nil {
-				return fmt.Errorf("ledger entry: %w", err)
-			}
-			entry = le
+		// Every balance change produces a ledger entry. The ledger is the
+		// authoritative audit + recovery log — services rely on it to reconstruct
+		// state after a crash. Callers that already write their own ledger
+		// entries (e.g., transaction-service) can still do so alongside this
+		// one; the RPC-level entry records the account-service side of the
+		// change with whatever memo the caller supplied (or a neutral default).
+		entryType := "credit"
+		amt := amount
+		if isDebit {
+			entryType = "debit"
+			amt = amount.Abs()
 		}
+		description := opts.Memo
+		if description == "" {
+			description = "Balance update"
+		}
+		le := &model.LedgerEntry{
+			AccountNumber:  accountNumber,
+			EntryType:      entryType,
+			Amount:         amt,
+			BalanceBefore:  balanceBefore,
+			BalanceAfter:   balanceAfter,
+			Description:    description,
+			IdempotencyKey: opts.IdempotencyKey,
+		}
+		if err := tx.Create(le).Error; err != nil {
+			return fmt.Errorf("ledger entry: %w", err)
+		}
+		entry = le
 		return nil
 	})
 	return entry, err

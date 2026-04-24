@@ -56,6 +56,33 @@ func (r *TaxCollectionRepository) GetLastCollection(userID uint64, systemType st
 	return &tc, nil
 }
 
+// ListByUser returns the tax collection history for one (user_id, system_type)
+// in reverse-chronological order. Used by GET /api/v1/me/tax so a user can see
+// exactly when each month's capital-gains tax was taken.
+func (r *TaxCollectionRepository) ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.TaxCollection, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 500 {
+		pageSize = 50
+	}
+	var total int64
+	q := r.db.Model(&model.TaxCollection{}).
+		Where("user_id = ? AND system_type = ?", userID, systemType)
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var out []model.TaxCollection
+	err := q.Order("collected_at DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&out).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
+}
+
 // ListUsersWithGains returns users who have capital gains in the given month,
 // along with their uncollected tax debt in RSD.
 func (r *TaxCollectionRepository) ListUsersWithGains(year, month int, filter TaxFilter) ([]TaxUserSummary, int64, error) {
