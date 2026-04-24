@@ -272,14 +272,18 @@ func main() {
 
 	taxCronSvc := service.NewTaxCronService(taxSvc)
 
+	// Long-lived ctx for background goroutines (seed, sync, crons, order execution).
+	// Must be created BEFORE NewOrderExecutionEngine so the engine's baseCtx is
+	// decoupled from any gRPC request ctx. See bug #3 in docs/Bugs.txt.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Order services
 	securityLookup := service.NewSecurityLookupAdapter(futuresRepo)
 	orderSvc := service.NewOrderService(orderRepo, orderTxRepo, listingRepo, settingRepo, securityLookup, producer)
-	execEngine := service.NewOrderExecutionEngine(orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
+	execEngine := service.NewOrderExecutionEngine(ctx, orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
 
 	// --- Seed securities ---
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	go func() {
 		syncSvc.SeedAll(ctx, "data/futures_seed.json")

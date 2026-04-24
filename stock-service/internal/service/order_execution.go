@@ -18,6 +18,7 @@ type OrderFilledPublisher interface {
 }
 
 type OrderExecutionEngine struct {
+	baseCtx     context.Context
 	orderRepo   OrderRepo
 	txRepo      OrderTransactionRepo
 	listingRepo ListingRepo
@@ -28,7 +29,13 @@ type OrderExecutionEngine struct {
 	activeJobs  map[uint64]context.CancelFunc // orderID -> cancel
 }
 
+// NewOrderExecutionEngine constructs the engine. baseCtx MUST be a long-lived
+// context (typically the one created in cmd/main.go from context.Background()).
+// It is used as the parent of every order-execution goroutine, decoupling fill
+// execution from the lifetime of the gRPC request that triggered it. Fixes
+// bug #3 in docs/Bugs.txt.
 func NewOrderExecutionEngine(
+	baseCtx context.Context,
 	orderRepo OrderRepo,
 	txRepo OrderTransactionRepo,
 	listingRepo ListingRepo,
@@ -37,6 +44,7 @@ func NewOrderExecutionEngine(
 	fillHandler FillHandler,
 ) *OrderExecutionEngine {
 	return &OrderExecutionEngine{
+		baseCtx:     baseCtx,
 		orderRepo:   orderRepo,
 		txRepo:      txRepo,
 		listingRepo: listingRepo,
@@ -49,7 +57,9 @@ func NewOrderExecutionEngine(
 
 // Start begins processing all active approved orders.
 // Should be called once at startup and whenever an order is approved.
-func (e *OrderExecutionEngine) Start(ctx context.Context) {
+// The ctx passed in is ignored for goroutine lifetime; the engine uses its
+// own baseCtx. The ctx parameter is kept for signature stability.
+func (e *OrderExecutionEngine) Start(_ context.Context) {
 	orders, err := e.orderRepo.ListActiveApproved()
 	if err != nil {
 		log.Printf("WARN: order engine: failed to list active orders: %v", err)
@@ -57,20 +67,23 @@ func (e *OrderExecutionEngine) Start(ctx context.Context) {
 	}
 
 	for _, order := range orders {
-		e.StartOrderExecution(ctx, order.ID)
+		e.StartOrderExecution(e.baseCtx, order.ID)
 	}
 	log.Printf("order engine: started execution for %d active orders", len(orders))
 }
 
 // StartOrderExecution launches a background goroutine for a single order.
-func (e *OrderExecutionEngine) StartOrderExecution(ctx context.Context, orderID uint64) {
+// The ctx parameter is ignored for the goroutine's lifetime; the goroutine
+// always uses a context derived from the engine's baseCtx so it is not
+// cancelled when the calling gRPC request ends. Fixes bug #3 in docs/Bugs.txt.
+func (e *OrderExecutionEngine) StartOrderExecution(_ context.Context, orderID uint64) {
 	e.mu.Lock()
 	if _, exists := e.activeJobs[orderID]; exists {
 		e.mu.Unlock()
 		return // already running
 	}
 
-	orderCtx, cancel := context.WithCancel(ctx)
+	orderCtx, cancel := context.WithCancel(e.baseCtx)
 	e.activeJobs[orderID] = cancel
 	e.mu.Unlock()
 
