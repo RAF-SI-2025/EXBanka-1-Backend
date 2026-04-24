@@ -1989,6 +1989,486 @@ func (x *BankAccountOpResponse) GetReplayed() bool {
 	return false
 }
 
+type ReserveFundsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     uint64                 `protobuf:"varint,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	OrderId       uint64                 `protobuf:"varint,2,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	Amount        string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`                                 // decimal string
+	CurrencyCode  string                 `protobuf:"bytes,4,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"` // must equal account currency
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReserveFundsRequest) Reset() {
+	*x = ReserveFundsRequest{}
+	mi := &file_account_account_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReserveFundsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReserveFundsRequest) ProtoMessage() {}
+
+func (x *ReserveFundsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReserveFundsRequest.ProtoReflect.Descriptor instead.
+func (*ReserveFundsRequest) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ReserveFundsRequest) GetAccountId() uint64 {
+	if x != nil {
+		return x.AccountId
+	}
+	return 0
+}
+
+func (x *ReserveFundsRequest) GetOrderId() uint64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *ReserveFundsRequest) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *ReserveFundsRequest) GetCurrencyCode() string {
+	if x != nil {
+		return x.CurrencyCode
+	}
+	return ""
+}
+
+type ReserveFundsResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	ReservationId    uint64                 `protobuf:"varint,1,opt,name=reservation_id,json=reservationId,proto3" json:"reservation_id,omitempty"`
+	ReservedBalance  string                 `protobuf:"bytes,2,opt,name=reserved_balance,json=reservedBalance,proto3" json:"reserved_balance,omitempty"`
+	AvailableBalance string                 `protobuf:"bytes,3,opt,name=available_balance,json=availableBalance,proto3" json:"available_balance,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ReserveFundsResponse) Reset() {
+	*x = ReserveFundsResponse{}
+	mi := &file_account_account_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReserveFundsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReserveFundsResponse) ProtoMessage() {}
+
+func (x *ReserveFundsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReserveFundsResponse.ProtoReflect.Descriptor instead.
+func (*ReserveFundsResponse) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ReserveFundsResponse) GetReservationId() uint64 {
+	if x != nil {
+		return x.ReservationId
+	}
+	return 0
+}
+
+func (x *ReserveFundsResponse) GetReservedBalance() string {
+	if x != nil {
+		return x.ReservedBalance
+	}
+	return ""
+}
+
+func (x *ReserveFundsResponse) GetAvailableBalance() string {
+	if x != nil {
+		return x.AvailableBalance
+	}
+	return ""
+}
+
+type ReleaseReservationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrderId       uint64                 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReleaseReservationRequest) Reset() {
+	*x = ReleaseReservationRequest{}
+	mi := &file_account_account_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseReservationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseReservationRequest) ProtoMessage() {}
+
+func (x *ReleaseReservationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseReservationRequest.ProtoReflect.Descriptor instead.
+func (*ReleaseReservationRequest) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ReleaseReservationRequest) GetOrderId() uint64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+type ReleaseReservationResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ReleasedAmount  string                 `protobuf:"bytes,1,opt,name=released_amount,json=releasedAmount,proto3" json:"released_amount,omitempty"`
+	ReservedBalance string                 `protobuf:"bytes,2,opt,name=reserved_balance,json=reservedBalance,proto3" json:"reserved_balance,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ReleaseReservationResponse) Reset() {
+	*x = ReleaseReservationResponse{}
+	mi := &file_account_account_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReleaseReservationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReleaseReservationResponse) ProtoMessage() {}
+
+func (x *ReleaseReservationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReleaseReservationResponse.ProtoReflect.Descriptor instead.
+func (*ReleaseReservationResponse) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ReleaseReservationResponse) GetReleasedAmount() string {
+	if x != nil {
+		return x.ReleasedAmount
+	}
+	return ""
+}
+
+func (x *ReleaseReservationResponse) GetReservedBalance() string {
+	if x != nil {
+		return x.ReservedBalance
+	}
+	return ""
+}
+
+type PartialSettleReservationRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	OrderId            uint64                 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	OrderTransactionId uint64                 `protobuf:"varint,2,opt,name=order_transaction_id,json=orderTransactionId,proto3" json:"order_transaction_id,omitempty"` // idempotency key
+	Amount             string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`
+	Memo               string                 `protobuf:"bytes,4,opt,name=memo,proto3" json:"memo,omitempty"` // written to ledger_entries
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *PartialSettleReservationRequest) Reset() {
+	*x = PartialSettleReservationRequest{}
+	mi := &file_account_account_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PartialSettleReservationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PartialSettleReservationRequest) ProtoMessage() {}
+
+func (x *PartialSettleReservationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PartialSettleReservationRequest.ProtoReflect.Descriptor instead.
+func (*PartialSettleReservationRequest) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *PartialSettleReservationRequest) GetOrderId() uint64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+func (x *PartialSettleReservationRequest) GetOrderTransactionId() uint64 {
+	if x != nil {
+		return x.OrderTransactionId
+	}
+	return 0
+}
+
+func (x *PartialSettleReservationRequest) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *PartialSettleReservationRequest) GetMemo() string {
+	if x != nil {
+		return x.Memo
+	}
+	return ""
+}
+
+type PartialSettleReservationResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	SettledAmount     string                 `protobuf:"bytes,1,opt,name=settled_amount,json=settledAmount,proto3" json:"settled_amount,omitempty"`
+	RemainingReserved string                 `protobuf:"bytes,2,opt,name=remaining_reserved,json=remainingReserved,proto3" json:"remaining_reserved,omitempty"`
+	BalanceAfter      string                 `protobuf:"bytes,3,opt,name=balance_after,json=balanceAfter,proto3" json:"balance_after,omitempty"`
+	LedgerEntryId     uint64                 `protobuf:"varint,4,opt,name=ledger_entry_id,json=ledgerEntryId,proto3" json:"ledger_entry_id,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PartialSettleReservationResponse) Reset() {
+	*x = PartialSettleReservationResponse{}
+	mi := &file_account_account_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PartialSettleReservationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PartialSettleReservationResponse) ProtoMessage() {}
+
+func (x *PartialSettleReservationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PartialSettleReservationResponse.ProtoReflect.Descriptor instead.
+func (*PartialSettleReservationResponse) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *PartialSettleReservationResponse) GetSettledAmount() string {
+	if x != nil {
+		return x.SettledAmount
+	}
+	return ""
+}
+
+func (x *PartialSettleReservationResponse) GetRemainingReserved() string {
+	if x != nil {
+		return x.RemainingReserved
+	}
+	return ""
+}
+
+func (x *PartialSettleReservationResponse) GetBalanceAfter() string {
+	if x != nil {
+		return x.BalanceAfter
+	}
+	return ""
+}
+
+func (x *PartialSettleReservationResponse) GetLedgerEntryId() uint64 {
+	if x != nil {
+		return x.LedgerEntryId
+	}
+	return 0
+}
+
+type GetReservationRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OrderId       uint64                 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetReservationRequest) Reset() {
+	*x = GetReservationRequest{}
+	mi := &file_account_account_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetReservationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetReservationRequest) ProtoMessage() {}
+
+func (x *GetReservationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetReservationRequest.ProtoReflect.Descriptor instead.
+func (*GetReservationRequest) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *GetReservationRequest) GetOrderId() uint64 {
+	if x != nil {
+		return x.OrderId
+	}
+	return 0
+}
+
+type GetReservationResponse struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Exists                bool                   `protobuf:"varint,1,opt,name=exists,proto3" json:"exists,omitempty"`
+	Status                string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"` // active|released|settled
+	Amount                string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`
+	SettledTotal          string                 `protobuf:"bytes,4,opt,name=settled_total,json=settledTotal,proto3" json:"settled_total,omitempty"`
+	SettledTransactionIds []uint64               `protobuf:"varint,5,rep,packed,name=settled_transaction_ids,json=settledTransactionIds,proto3" json:"settled_transaction_ids,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *GetReservationResponse) Reset() {
+	*x = GetReservationResponse{}
+	mi := &file_account_account_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetReservationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetReservationResponse) ProtoMessage() {}
+
+func (x *GetReservationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_account_account_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetReservationResponse.ProtoReflect.Descriptor instead.
+func (*GetReservationResponse) Descriptor() ([]byte, []int) {
+	return file_account_account_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *GetReservationResponse) GetExists() bool {
+	if x != nil {
+		return x.Exists
+	}
+	return false
+}
+
+func (x *GetReservationResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *GetReservationResponse) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *GetReservationResponse) GetSettledTotal() string {
+	if x != nil {
+		return x.SettledTotal
+	}
+	return ""
+}
+
+func (x *GetReservationResponse) GetSettledTransactionIds() []uint64 {
+	if x != nil {
+		return x.SettledTransactionIds
+	}
+	return nil
+}
+
 var File_account_account_proto protoreflect.FileDescriptor
 
 const file_account_account_proto_rawDesc = "" +
@@ -2166,7 +2646,40 @@ const file_account_account_proto_rawDesc = "" +
 	"\x0eaccount_number\x18\x01 \x01(\tR\raccountNumber\x12\x1f\n" +
 	"\vnew_balance\x18\x02 \x01(\tR\n" +
 	"newBalance\x12\x1a\n" +
-	"\breplayed\x18\x03 \x01(\bR\breplayed2\xb5\t\n" +
+	"\breplayed\x18\x03 \x01(\bR\breplayed\"\x8c\x01\n" +
+	"\x13ReserveFundsRequest\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\x04R\taccountId\x12\x19\n" +
+	"\border_id\x18\x02 \x01(\x04R\aorderId\x12\x16\n" +
+	"\x06amount\x18\x03 \x01(\tR\x06amount\x12#\n" +
+	"\rcurrency_code\x18\x04 \x01(\tR\fcurrencyCode\"\x95\x01\n" +
+	"\x14ReserveFundsResponse\x12%\n" +
+	"\x0ereservation_id\x18\x01 \x01(\x04R\rreservationId\x12)\n" +
+	"\x10reserved_balance\x18\x02 \x01(\tR\x0freservedBalance\x12+\n" +
+	"\x11available_balance\x18\x03 \x01(\tR\x10availableBalance\"6\n" +
+	"\x19ReleaseReservationRequest\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x04R\aorderId\"p\n" +
+	"\x1aReleaseReservationResponse\x12'\n" +
+	"\x0freleased_amount\x18\x01 \x01(\tR\x0ereleasedAmount\x12)\n" +
+	"\x10reserved_balance\x18\x02 \x01(\tR\x0freservedBalance\"\x9a\x01\n" +
+	"\x1fPartialSettleReservationRequest\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x04R\aorderId\x120\n" +
+	"\x14order_transaction_id\x18\x02 \x01(\x04R\x12orderTransactionId\x12\x16\n" +
+	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x12\n" +
+	"\x04memo\x18\x04 \x01(\tR\x04memo\"\xc5\x01\n" +
+	" PartialSettleReservationResponse\x12%\n" +
+	"\x0esettled_amount\x18\x01 \x01(\tR\rsettledAmount\x12-\n" +
+	"\x12remaining_reserved\x18\x02 \x01(\tR\x11remainingReserved\x12#\n" +
+	"\rbalance_after\x18\x03 \x01(\tR\fbalanceAfter\x12&\n" +
+	"\x0fledger_entry_id\x18\x04 \x01(\x04R\rledgerEntryId\"2\n" +
+	"\x15GetReservationRequest\x12\x19\n" +
+	"\border_id\x18\x01 \x01(\x04R\aorderId\"\xbd\x01\n" +
+	"\x16GetReservationResponse\x12\x16\n" +
+	"\x06exists\x18\x01 \x01(\bR\x06exists\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
+	"\x06amount\x18\x03 \x01(\tR\x06amount\x12#\n" +
+	"\rsettled_total\x18\x04 \x01(\tR\fsettledTotal\x126\n" +
+	"\x17settled_transaction_ids\x18\x05 \x03(\x04R\x15settledTransactionIds2\xa5\f\n" +
 	"\x0eAccountService\x12H\n" +
 	"\rCreateAccount\x12\x1d.account.CreateAccountRequest\x1a\x18.account.AccountResponse\x12B\n" +
 	"\n" +
@@ -2184,7 +2697,11 @@ const file_account_account_proto_rawDesc = "" +
 	"\rUpdateCompany\x12\x1d.account.UpdateCompanyRequest\x1a\x18.account.CompanyResponse\x12Q\n" +
 	"\x0eListCurrencies\x12\x1e.account.ListCurrenciesRequest\x1a\x1f.account.ListCurrenciesResponse\x12E\n" +
 	"\vGetCurrency\x12\x1b.account.GetCurrencyRequest\x1a\x19.account.CurrencyResponse\x12W\n" +
-	"\x10GetLedgerEntries\x12 .account.GetLedgerEntriesRequest\x1a!.account.GetLedgerEntriesResponse2\x94\x04\n" +
+	"\x10GetLedgerEntries\x12 .account.GetLedgerEntriesRequest\x1a!.account.GetLedgerEntriesResponse\x12K\n" +
+	"\fReserveFunds\x12\x1c.account.ReserveFundsRequest\x1a\x1d.account.ReserveFundsResponse\x12]\n" +
+	"\x12ReleaseReservation\x12\".account.ReleaseReservationRequest\x1a#.account.ReleaseReservationResponse\x12o\n" +
+	"\x18PartialSettleReservation\x12(.account.PartialSettleReservationRequest\x1a).account.PartialSettleReservationResponse\x12Q\n" +
+	"\x0eGetReservation\x12\x1e.account.GetReservationRequest\x1a\x1f.account.GetReservationResponse2\x94\x04\n" +
 	"\x12BankAccountService\x12P\n" +
 	"\x11CreateBankAccount\x12!.account.CreateBankAccountRequest\x1a\x18.account.AccountResponse\x12W\n" +
 	"\x10ListBankAccounts\x12 .account.ListBankAccountsRequest\x1a!.account.ListBankAccountsResponse\x12Z\n" +
@@ -2205,38 +2722,46 @@ func file_account_account_proto_rawDescGZIP() []byte {
 	return file_account_account_proto_rawDescData
 }
 
-var file_account_account_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_account_account_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_account_account_proto_goTypes = []any{
-	(*CreateAccountRequest)(nil),        // 0: account.CreateAccountRequest
-	(*GetAccountRequest)(nil),           // 1: account.GetAccountRequest
-	(*GetAccountByNumberRequest)(nil),   // 2: account.GetAccountByNumberRequest
-	(*ListAccountsByClientRequest)(nil), // 3: account.ListAccountsByClientRequest
-	(*ListAllAccountsRequest)(nil),      // 4: account.ListAllAccountsRequest
-	(*ListAccountsResponse)(nil),        // 5: account.ListAccountsResponse
-	(*UpdateAccountNameRequest)(nil),    // 6: account.UpdateAccountNameRequest
-	(*UpdateAccountLimitsRequest)(nil),  // 7: account.UpdateAccountLimitsRequest
-	(*UpdateAccountStatusRequest)(nil),  // 8: account.UpdateAccountStatusRequest
-	(*UpdateBalanceRequest)(nil),        // 9: account.UpdateBalanceRequest
-	(*AccountResponse)(nil),             // 10: account.AccountResponse
-	(*CreateCompanyRequest)(nil),        // 11: account.CreateCompanyRequest
-	(*GetCompanyRequest)(nil),           // 12: account.GetCompanyRequest
-	(*UpdateCompanyRequest)(nil),        // 13: account.UpdateCompanyRequest
-	(*CompanyResponse)(nil),             // 14: account.CompanyResponse
-	(*ListCurrenciesRequest)(nil),       // 15: account.ListCurrenciesRequest
-	(*ListCurrenciesResponse)(nil),      // 16: account.ListCurrenciesResponse
-	(*GetCurrencyRequest)(nil),          // 17: account.GetCurrencyRequest
-	(*CurrencyResponse)(nil),            // 18: account.CurrencyResponse
-	(*GetLedgerEntriesRequest)(nil),     // 19: account.GetLedgerEntriesRequest
-	(*LedgerEntryResponse)(nil),         // 20: account.LedgerEntryResponse
-	(*GetLedgerEntriesResponse)(nil),    // 21: account.GetLedgerEntriesResponse
-	(*CreateBankAccountRequest)(nil),    // 22: account.CreateBankAccountRequest
-	(*ListBankAccountsRequest)(nil),     // 23: account.ListBankAccountsRequest
-	(*ListBankAccountsResponse)(nil),    // 24: account.ListBankAccountsResponse
-	(*DeleteBankAccountRequest)(nil),    // 25: account.DeleteBankAccountRequest
-	(*DeleteBankAccountResponse)(nil),   // 26: account.DeleteBankAccountResponse
-	(*GetBankRSDAccountRequest)(nil),    // 27: account.GetBankRSDAccountRequest
-	(*BankAccountOpRequest)(nil),        // 28: account.BankAccountOpRequest
-	(*BankAccountOpResponse)(nil),       // 29: account.BankAccountOpResponse
+	(*CreateAccountRequest)(nil),             // 0: account.CreateAccountRequest
+	(*GetAccountRequest)(nil),                // 1: account.GetAccountRequest
+	(*GetAccountByNumberRequest)(nil),        // 2: account.GetAccountByNumberRequest
+	(*ListAccountsByClientRequest)(nil),      // 3: account.ListAccountsByClientRequest
+	(*ListAllAccountsRequest)(nil),           // 4: account.ListAllAccountsRequest
+	(*ListAccountsResponse)(nil),             // 5: account.ListAccountsResponse
+	(*UpdateAccountNameRequest)(nil),         // 6: account.UpdateAccountNameRequest
+	(*UpdateAccountLimitsRequest)(nil),       // 7: account.UpdateAccountLimitsRequest
+	(*UpdateAccountStatusRequest)(nil),       // 8: account.UpdateAccountStatusRequest
+	(*UpdateBalanceRequest)(nil),             // 9: account.UpdateBalanceRequest
+	(*AccountResponse)(nil),                  // 10: account.AccountResponse
+	(*CreateCompanyRequest)(nil),             // 11: account.CreateCompanyRequest
+	(*GetCompanyRequest)(nil),                // 12: account.GetCompanyRequest
+	(*UpdateCompanyRequest)(nil),             // 13: account.UpdateCompanyRequest
+	(*CompanyResponse)(nil),                  // 14: account.CompanyResponse
+	(*ListCurrenciesRequest)(nil),            // 15: account.ListCurrenciesRequest
+	(*ListCurrenciesResponse)(nil),           // 16: account.ListCurrenciesResponse
+	(*GetCurrencyRequest)(nil),               // 17: account.GetCurrencyRequest
+	(*CurrencyResponse)(nil),                 // 18: account.CurrencyResponse
+	(*GetLedgerEntriesRequest)(nil),          // 19: account.GetLedgerEntriesRequest
+	(*LedgerEntryResponse)(nil),              // 20: account.LedgerEntryResponse
+	(*GetLedgerEntriesResponse)(nil),         // 21: account.GetLedgerEntriesResponse
+	(*CreateBankAccountRequest)(nil),         // 22: account.CreateBankAccountRequest
+	(*ListBankAccountsRequest)(nil),          // 23: account.ListBankAccountsRequest
+	(*ListBankAccountsResponse)(nil),         // 24: account.ListBankAccountsResponse
+	(*DeleteBankAccountRequest)(nil),         // 25: account.DeleteBankAccountRequest
+	(*DeleteBankAccountResponse)(nil),        // 26: account.DeleteBankAccountResponse
+	(*GetBankRSDAccountRequest)(nil),         // 27: account.GetBankRSDAccountRequest
+	(*BankAccountOpRequest)(nil),             // 28: account.BankAccountOpRequest
+	(*BankAccountOpResponse)(nil),            // 29: account.BankAccountOpResponse
+	(*ReserveFundsRequest)(nil),              // 30: account.ReserveFundsRequest
+	(*ReserveFundsResponse)(nil),             // 31: account.ReserveFundsResponse
+	(*ReleaseReservationRequest)(nil),        // 32: account.ReleaseReservationRequest
+	(*ReleaseReservationResponse)(nil),       // 33: account.ReleaseReservationResponse
+	(*PartialSettleReservationRequest)(nil),  // 34: account.PartialSettleReservationRequest
+	(*PartialSettleReservationResponse)(nil), // 35: account.PartialSettleReservationResponse
+	(*GetReservationRequest)(nil),            // 36: account.GetReservationRequest
+	(*GetReservationResponse)(nil),           // 37: account.GetReservationResponse
 }
 var file_account_account_proto_depIdxs = []int32{
 	10, // 0: account.ListAccountsResponse.accounts:type_name -> account.AccountResponse
@@ -2258,35 +2783,43 @@ var file_account_account_proto_depIdxs = []int32{
 	15, // 16: account.AccountService.ListCurrencies:input_type -> account.ListCurrenciesRequest
 	17, // 17: account.AccountService.GetCurrency:input_type -> account.GetCurrencyRequest
 	19, // 18: account.AccountService.GetLedgerEntries:input_type -> account.GetLedgerEntriesRequest
-	22, // 19: account.BankAccountService.CreateBankAccount:input_type -> account.CreateBankAccountRequest
-	23, // 20: account.BankAccountService.ListBankAccounts:input_type -> account.ListBankAccountsRequest
-	25, // 21: account.BankAccountService.DeleteBankAccount:input_type -> account.DeleteBankAccountRequest
-	27, // 22: account.BankAccountService.GetBankRSDAccount:input_type -> account.GetBankRSDAccountRequest
-	28, // 23: account.BankAccountService.DebitBankAccount:input_type -> account.BankAccountOpRequest
-	28, // 24: account.BankAccountService.CreditBankAccount:input_type -> account.BankAccountOpRequest
-	10, // 25: account.AccountService.CreateAccount:output_type -> account.AccountResponse
-	10, // 26: account.AccountService.GetAccount:output_type -> account.AccountResponse
-	10, // 27: account.AccountService.GetAccountByNumber:output_type -> account.AccountResponse
-	5,  // 28: account.AccountService.ListAccountsByClient:output_type -> account.ListAccountsResponse
-	5,  // 29: account.AccountService.ListAllAccounts:output_type -> account.ListAccountsResponse
-	10, // 30: account.AccountService.UpdateAccountName:output_type -> account.AccountResponse
-	10, // 31: account.AccountService.UpdateAccountLimits:output_type -> account.AccountResponse
-	10, // 32: account.AccountService.UpdateAccountStatus:output_type -> account.AccountResponse
-	10, // 33: account.AccountService.UpdateBalance:output_type -> account.AccountResponse
-	14, // 34: account.AccountService.CreateCompany:output_type -> account.CompanyResponse
-	14, // 35: account.AccountService.GetCompany:output_type -> account.CompanyResponse
-	14, // 36: account.AccountService.UpdateCompany:output_type -> account.CompanyResponse
-	16, // 37: account.AccountService.ListCurrencies:output_type -> account.ListCurrenciesResponse
-	18, // 38: account.AccountService.GetCurrency:output_type -> account.CurrencyResponse
-	21, // 39: account.AccountService.GetLedgerEntries:output_type -> account.GetLedgerEntriesResponse
-	10, // 40: account.BankAccountService.CreateBankAccount:output_type -> account.AccountResponse
-	24, // 41: account.BankAccountService.ListBankAccounts:output_type -> account.ListBankAccountsResponse
-	26, // 42: account.BankAccountService.DeleteBankAccount:output_type -> account.DeleteBankAccountResponse
-	10, // 43: account.BankAccountService.GetBankRSDAccount:output_type -> account.AccountResponse
-	29, // 44: account.BankAccountService.DebitBankAccount:output_type -> account.BankAccountOpResponse
-	29, // 45: account.BankAccountService.CreditBankAccount:output_type -> account.BankAccountOpResponse
-	25, // [25:46] is the sub-list for method output_type
-	4,  // [4:25] is the sub-list for method input_type
+	30, // 19: account.AccountService.ReserveFunds:input_type -> account.ReserveFundsRequest
+	32, // 20: account.AccountService.ReleaseReservation:input_type -> account.ReleaseReservationRequest
+	34, // 21: account.AccountService.PartialSettleReservation:input_type -> account.PartialSettleReservationRequest
+	36, // 22: account.AccountService.GetReservation:input_type -> account.GetReservationRequest
+	22, // 23: account.BankAccountService.CreateBankAccount:input_type -> account.CreateBankAccountRequest
+	23, // 24: account.BankAccountService.ListBankAccounts:input_type -> account.ListBankAccountsRequest
+	25, // 25: account.BankAccountService.DeleteBankAccount:input_type -> account.DeleteBankAccountRequest
+	27, // 26: account.BankAccountService.GetBankRSDAccount:input_type -> account.GetBankRSDAccountRequest
+	28, // 27: account.BankAccountService.DebitBankAccount:input_type -> account.BankAccountOpRequest
+	28, // 28: account.BankAccountService.CreditBankAccount:input_type -> account.BankAccountOpRequest
+	10, // 29: account.AccountService.CreateAccount:output_type -> account.AccountResponse
+	10, // 30: account.AccountService.GetAccount:output_type -> account.AccountResponse
+	10, // 31: account.AccountService.GetAccountByNumber:output_type -> account.AccountResponse
+	5,  // 32: account.AccountService.ListAccountsByClient:output_type -> account.ListAccountsResponse
+	5,  // 33: account.AccountService.ListAllAccounts:output_type -> account.ListAccountsResponse
+	10, // 34: account.AccountService.UpdateAccountName:output_type -> account.AccountResponse
+	10, // 35: account.AccountService.UpdateAccountLimits:output_type -> account.AccountResponse
+	10, // 36: account.AccountService.UpdateAccountStatus:output_type -> account.AccountResponse
+	10, // 37: account.AccountService.UpdateBalance:output_type -> account.AccountResponse
+	14, // 38: account.AccountService.CreateCompany:output_type -> account.CompanyResponse
+	14, // 39: account.AccountService.GetCompany:output_type -> account.CompanyResponse
+	14, // 40: account.AccountService.UpdateCompany:output_type -> account.CompanyResponse
+	16, // 41: account.AccountService.ListCurrencies:output_type -> account.ListCurrenciesResponse
+	18, // 42: account.AccountService.GetCurrency:output_type -> account.CurrencyResponse
+	21, // 43: account.AccountService.GetLedgerEntries:output_type -> account.GetLedgerEntriesResponse
+	31, // 44: account.AccountService.ReserveFunds:output_type -> account.ReserveFundsResponse
+	33, // 45: account.AccountService.ReleaseReservation:output_type -> account.ReleaseReservationResponse
+	35, // 46: account.AccountService.PartialSettleReservation:output_type -> account.PartialSettleReservationResponse
+	37, // 47: account.AccountService.GetReservation:output_type -> account.GetReservationResponse
+	10, // 48: account.BankAccountService.CreateBankAccount:output_type -> account.AccountResponse
+	24, // 49: account.BankAccountService.ListBankAccounts:output_type -> account.ListBankAccountsResponse
+	26, // 50: account.BankAccountService.DeleteBankAccount:output_type -> account.DeleteBankAccountResponse
+	10, // 51: account.BankAccountService.GetBankRSDAccount:output_type -> account.AccountResponse
+	29, // 52: account.BankAccountService.DebitBankAccount:output_type -> account.BankAccountOpResponse
+	29, // 53: account.BankAccountService.CreditBankAccount:output_type -> account.BankAccountOpResponse
+	29, // [29:54] is the sub-list for method output_type
+	4,  // [4:29] is the sub-list for method input_type
 	4,  // [4:4] is the sub-list for extension type_name
 	4,  // [4:4] is the sub-list for extension extendee
 	0,  // [0:4] is the sub-list for field type_name
@@ -2307,7 +2840,7 @@ func file_account_account_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_account_account_proto_rawDesc), len(file_account_account_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   30,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

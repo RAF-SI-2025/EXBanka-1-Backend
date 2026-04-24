@@ -21,6 +21,12 @@ service AccountService {
   rpc GetCurrency(GetCurrencyRequest) returns (CurrencyResponse);
 
   rpc GetLedgerEntries(GetLedgerEntriesRequest) returns (GetLedgerEntriesResponse);
+
+  // Reservation lifecycle for order placement → fill → release flow (bank-safe settlement).
+  rpc ReserveFunds(ReserveFundsRequest) returns (ReserveFundsResponse);
+  rpc ReleaseReservation(ReleaseReservationRequest) returns (ReleaseReservationResponse);
+  rpc PartialSettleReservation(PartialSettleReservationRequest) returns (PartialSettleReservationResponse);
+  rpc GetReservation(GetReservationRequest) returns (GetReservationResponse);
 }
 
 message CreateAccountRequest {
@@ -213,4 +219,48 @@ message BankAccountOpResponse {
   string account_number = 1;
   string new_balance    = 2;
   bool   replayed       = 3;
+}
+
+message ReserveFundsRequest {
+    uint64 account_id = 1;
+    uint64 order_id = 2;
+    string amount = 3;         // decimal string
+    string currency_code = 4;  // must equal account currency
+}
+message ReserveFundsResponse {
+    uint64 reservation_id = 1;
+    string reserved_balance = 2;
+    string available_balance = 3;
+}
+
+message ReleaseReservationRequest {
+    uint64 order_id = 1;
+}
+message ReleaseReservationResponse {
+    string released_amount = 1;
+    string reserved_balance = 2;
+}
+
+message PartialSettleReservationRequest {
+    uint64 order_id = 1;
+    uint64 order_transaction_id = 2;   // idempotency key
+    string amount = 3;
+    string memo = 4;                    // written to ledger_entries
+}
+message PartialSettleReservationResponse {
+    string settled_amount = 1;
+    string remaining_reserved = 2;
+    string balance_after = 3;
+    uint64 ledger_entry_id = 4;
+}
+
+message GetReservationRequest {
+    uint64 order_id = 1;
+}
+message GetReservationResponse {
+    bool exists = 1;
+    string status = 2;           // active|released|settled
+    string amount = 3;
+    string settled_total = 4;
+    repeated uint64 settled_transaction_ids = 5;
 }
