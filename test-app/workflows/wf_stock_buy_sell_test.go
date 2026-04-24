@@ -40,8 +40,31 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 	buyOrderID := int(helpers.GetNumberField(t, buyResp, "id"))
 	t.Logf("WF-6: buy order created id=%d", buyOrderID)
 
-	// Step 4: Wait for fill
-	waitForOrderFill(t, agentC, buyOrderID, 30*time.Second)
+	// Step 4: Wait for fill.
+	//
+	// Bug #3 regression guard: before the baseCtx fix, the execution goroutine
+	// died on the gRPC request ctx and the order stayed at status=approved
+	// forever. With the fix in place, a non-AON market buy should reach
+	// is_done=true (or at least produce one OrderTransaction row) well within
+	// calculateWaitTime's 60s cap plus slack. If this loop times out at 120s,
+	// bug #3 has regressed.
+	fillDeadline := time.Now().Add(120 * time.Second)
+	filled := false
+	for time.Now().Before(fillDeadline) {
+		pollResp, err := agentC.GET(fmt.Sprintf("/api/v1/me/orders/%d", buyOrderID))
+		if err != nil {
+			t.Fatalf("WF-6: poll buy order: %v", err)
+		}
+		helpers.RequireStatus(t, pollResp, 200)
+		if orderFilledOrHasTxn(pollResp.Body) {
+			filled = true
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if !filled {
+		t.Fatalf("WF-6: order %d did not fill within 120s — bug #3 regression", buyOrderID)
+	}
 	t.Logf("WF-6: buy order filled")
 
 	// Step 5: Assert holding exists in portfolio
@@ -87,4 +110,29 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 		t.Errorf("WF-6: sell order %d expected is_done=true, got %v", sellOrderID, orderResp.Body["is_done"])
 	}
 	t.Logf("WF-6: stock buy/sell cycle complete")
+}
+
+// orderFilledOrHasTxn reports whether a GET /api/v1/me/orders/{id} response
+// body signals that the order has progressed past the "approved, nothing
+// happened yet" state. It returns true when either:
+//
+//   - is_done is true (order fully settled), OR
+//   - at least one OrderTransaction row has been recorded (partial fill).
+//
+// The check inspects both the flat response shape and the nested
+// {"order": {...}, "transactions": [...]} shape so it stays robust to the
+// gateway's serialization choice.
+func orderFilledOrHasTxn(body map[string]interface{}) bool {
+	if done, ok := body["is_done"].(bool); ok && done {
+		return true
+	}
+	if txns, ok := body["transactions"].([]interface{}); ok && len(txns) > 0 {
+		return true
+	}
+	if inner, ok := body["order"].(map[string]interface{}); ok {
+		if done, ok := inner["is_done"].(bool); ok && done {
+			return true
+		}
+	}
+	return false
 }
