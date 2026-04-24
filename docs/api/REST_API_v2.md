@@ -1401,3 +1401,1405 @@ Submit a code (pull method) from the browser.
 **Error responses:** 400, 401, 404, 409.
 
 ---
+
+## 11. Employees
+
+Employee management is protected by role-based permissions. Admin employees (`EmployeeAdmin`) cannot be modified via `PUT /employees/:id` — the handler returns 403 when targeting an admin.
+
+### GET /api/v2/employees
+
+List employees.
+
+**Auth:** JWT + `employees.read`
+
+**Query:** `page` (default 1), `page_size` (default 20), `email_filter`, `name_filter`.
+
+**200 response:** `{"employees": [...], "total": N}`. Each employee has `id, first_name, last_name, email, username, position, department, role, roles, permissions, active, jmbg, ...`.
+
+**Error responses:** 401, 403, 500.
+
+### GET /api/v2/employees/{id}
+
+Get one employee.
+
+**Auth:** JWT + `employees.read`
+
+**200 response:** employee object.
+
+**Error responses:** 400, 401, 403, 404.
+
+### POST /api/v2/employees
+
+Create an employee. Triggers an activation email via Kafka; the account is created in "pending" status and requires activation before first login.
+
+**Auth:** JWT + `employees.create`
+
+**Request body:**
+
+| Field          | Type   | Required | Constraints                                     |
+|----------------|--------|----------|-------------------------------------------------|
+| first_name     | string | yes      |                                                 |
+| last_name      | string | yes      |                                                 |
+| date_of_birth  | int64  | yes      | Unix seconds                                    |
+| gender         | string | no       |                                                 |
+| email          | string | yes      | valid, unique                                   |
+| phone          | string | no       |                                                 |
+| address        | string | no       |                                                 |
+| jmbg           | string | yes      | exactly 13 digits, unique                       |
+| username       | string | yes      | unique                                          |
+| position       | string | no       |                                                 |
+| department     | string | no       |                                                 |
+| role           | string | yes      | one of `EmployeeBasic, EmployeeAgent, EmployeeSupervisor, EmployeeAdmin` |
+
+**201 response:** employee object (`active: false`).
+
+**Error responses:** 400, 401, 403, 409 conflict (email/jmbg/username duplicate), 500.
+
+### PUT /api/v2/employees/{id}
+
+Partial update of an employee (non-admin targets only).
+
+**Auth:** JWT + `employees.update`
+
+**Request body (all optional):**
+
+| Field      | Type   | Required | Constraints                      |
+|------------|--------|----------|----------------------------------|
+| last_name  | string | no       |                                  |
+| gender     | string | no       |                                  |
+| phone      | string | no       |                                  |
+| address    | string | no       |                                  |
+| jmbg       | string | no       | 13 digits, unique                |
+| position   | string | no       |                                  |
+| department | string | no       |                                  |
+| role       | string | no       | one of the role names above      |
+| active     | bool   | no       | toggles auth-service account status |
+
+**200 response:** updated employee.
+
+**Error responses:** 400, 401, 403 (cannot edit admin), 404, 500.
+
+### GET /api/v2/employees/{id}/limits
+
+Read an employee's transaction/approval limits.
+
+**Auth:** JWT + `limits.manage`
+
+**200 response:**
+
+| Field                      | Type   | Always present | Notes                                  |
+|----------------------------|--------|----------------|----------------------------------------|
+| employee_id                | int64  | yes            |                                        |
+| max_loan_approval_amount   | string | yes            | decimal                                |
+| max_single_transaction     | string | yes            | decimal                                |
+| max_daily_transaction      | string | yes            | decimal                                |
+| max_client_daily_limit     | string | yes            | decimal                                |
+| max_client_monthly_limit   | string | yes            | decimal                                |
+
+**Error responses:** 400, 401, 403, 500.
+
+### PUT /api/v2/employees/{id}/limits
+
+Set an employee's limits.
+
+**Auth:** JWT + `limits.manage`
+
+**Request body (all decimal strings, all optional):**
+
+| Field                      | Type   | Required | Constraints   |
+|----------------------------|--------|----------|---------------|
+| max_loan_approval_amount   | string | no       | decimal       |
+| max_single_transaction     | string | no       | decimal       |
+| max_daily_transaction      | string | no       | decimal       |
+| max_client_daily_limit     | string | no       | decimal       |
+| max_client_monthly_limit   | string | no       | decimal       |
+
+**200 response:** updated limits.
+
+**Error responses:** 400, 401, 403, 500.
+
+### POST /api/v2/employees/{id}/limits/template
+
+Apply a named limit template to an employee.
+
+**Auth:** JWT + `limits.manage`
+
+**Request body:**
+
+| Field         | Type   | Required | Constraints        |
+|---------------|--------|----------|--------------------|
+| template_name | string | yes      | e.g., `BasicTeller`|
+
+**200 response:** updated limits.
+
+**Error responses:** 400, 401, 403, 404 (template not found).
+
+---
+
+## 12. Roles & Permissions
+
+All routes require `employees.permissions`.
+
+### GET /api/v2/roles
+
+List all roles.
+
+**Auth:** JWT + `employees.permissions`
+
+**200 response:** `{"roles": [{id, name, description, permissions: [<code>, ...]}, ...]}`.
+
+### GET /api/v2/roles/{id}
+
+Get one role.
+
+**200 response:** role object.
+
+**Error responses:** 400, 401, 403, 404.
+
+### POST /api/v2/roles
+
+Create a role.
+
+**Request body:**
+
+| Field            | Type     | Required | Constraints       |
+|------------------|----------|----------|-------------------|
+| name             | string   | yes      | unique            |
+| description      | string   | no       |                   |
+| permission_codes | []string | no       | each must exist   |
+
+**201 response:** role object.
+
+**Error responses:** 400, 401, 403, 409, 500.
+
+### PUT /api/v2/roles/{id}/permissions
+
+Replace the permission set for a role.
+
+**Request body:**
+
+| Field            | Type     | Required | Constraints     |
+|------------------|----------|----------|-----------------|
+| permission_codes | []string | yes      | each must exist |
+
+**200 response:** updated role.
+
+**Error responses:** 400, 401, 403, 404, 500.
+
+### GET /api/v2/permissions
+
+List all known permissions.
+
+**200 response:** `{"permissions": [{id, code, description, category}, ...]}`.
+
+### PUT /api/v2/employees/{id}/roles
+
+Replace the roles assigned to an employee.
+
+**Request body:**
+
+| Field      | Type     | Required | Constraints                 |
+|------------|----------|----------|-----------------------------|
+| role_names | []string | yes      | each must be an existing role |
+
+**200 response:** updated employee.
+
+**Error responses:** 400, 401, 403, 404.
+
+### PUT /api/v2/employees/{id}/permissions
+
+Replace the per-employee additional permissions.
+
+**Request body:**
+
+| Field            | Type     | Required | Constraints       |
+|------------------|----------|----------|-------------------|
+| permission_codes | []string | yes      | each must exist   |
+
+**200 response:** updated employee.
+
+**Error responses:** 400, 401, 403, 404.
+
+---
+
+## 13. Limits
+
+Endpoints live under `/employees/:id/limits`, `/limits/templates`, and `/clients/:id/limits`. All require `limits.manage`.
+
+### GET /api/v2/limits/templates
+
+List limit templates.
+
+**Auth:** JWT + `limits.manage`
+
+**200 response:** `{"templates": [...]}`.
+
+### POST /api/v2/limits/templates
+
+Create a limit template.
+
+**Request body:**
+
+| Field                      | Type   | Required | Constraints     |
+|----------------------------|--------|----------|-----------------|
+| name                       | string | yes      | unique          |
+| description                | string | no       |                 |
+| max_loan_approval_amount   | string | no       | decimal         |
+| max_single_transaction     | string | no       | decimal         |
+| max_daily_transaction      | string | no       | decimal         |
+| max_client_daily_limit     | string | no       | decimal         |
+| max_client_monthly_limit   | string | no       | decimal         |
+
+**201 response:** created template.
+
+### GET /api/v2/clients/{id}/limits
+
+Read a client's transaction limits.
+
+**Auth:** JWT + `limits.manage`
+
+**200 response:** `{client_id, daily_limit, monthly_limit, transfer_limit, ...}`.
+
+**Error responses:** 400, 401, 403, 500.
+
+### PUT /api/v2/clients/{id}/limits
+
+Set a client's limits. Server constrains the values to the setting employee's own `max_client_daily_limit` and `max_client_monthly_limit`.
+
+**Auth:** JWT + `limits.manage`
+
+**Request body:**
+
+| Field          | Type   | Required | Constraints |
+|----------------|--------|----------|-------------|
+| daily_limit    | string | yes      | decimal     |
+| monthly_limit  | string | yes      | decimal     |
+| transfer_limit | string | yes      | decimal     |
+
+**200 response:** updated client limits.
+
+**Error responses:** 400 (exceeds setting employee's cap), 401, 403, 500.
+
+---
+
+## 14. Blueprints
+
+Limit-blueprint CRUD. Blueprints are named parameter bundles that can be applied to employees, actuaries, or clients. All routes require `limits.manage`.
+
+### GET /api/v2/blueprints
+
+List blueprints.
+
+**Auth:** JWT + `limits.manage`
+
+**Query:** `type` (optional; one of `employee, actuary, client`).
+
+**200 response:** `{"blueprints": [...]}`.
+
+**Error responses:** 400 (bad type), 401, 403.
+
+### POST /api/v2/blueprints
+
+Create a blueprint.
+
+**Request body:**
+
+| Field       | Type         | Required | Constraints                                 |
+|-------------|--------------|----------|---------------------------------------------|
+| name        | string       | yes      |                                             |
+| description | string       | no       |                                             |
+| type        | string       | yes      | one of `employee, actuary, client`          |
+| values      | JSON object  | yes      | type-specific payload                       |
+
+**201 response:** blueprint object.
+
+**Error responses:** 400, 401, 403, 409 (duplicate name+type), 500.
+
+### GET /api/v2/blueprints/{id}
+
+Get one blueprint.
+
+**200 response:** blueprint object.
+
+**Error responses:** 400, 401, 403, 404, 500.
+
+### PUT /api/v2/blueprints/{id}
+
+Update a blueprint.
+
+**Request body (all optional):**
+
+| Field       | Type         | Required | Constraints |
+|-------------|--------------|----------|-------------|
+| name        | string       | no       |             |
+| description | string       | no       |             |
+| values      | JSON object  | no       |             |
+
+**200 response:** updated blueprint.
+
+### DELETE /api/v2/blueprints/{id}
+
+Delete a blueprint (does not affect already-applied limits).
+
+**204 response:** empty.
+
+**Error responses:** 400, 401, 403, 404, 500.
+
+### POST /api/v2/blueprints/{id}/apply
+
+Copy blueprint values onto a target entity (the target type is determined by the blueprint's own `type`).
+
+**Request body:**
+
+| Field     | Type  | Required | Constraints      |
+|-----------|-------|----------|------------------|
+| target_id | int64 | yes      | > 0              |
+
+**200 response:** `{"message": "blueprint applied successfully"}`.
+
+**Error responses:** 400, 401, 403, 404, 500.
+
+---
+
+## 15. Clients
+
+Client CRUD. Ownership for `/me/*` is derived from JWT; these routes are employee-facing.
+
+### GET /api/v2/clients
+
+List clients.
+
+**Auth:** JWT + `clients.read`
+
+**Query:** `page` (default 1), `page_size` (default 20), `email_filter`, `name_filter`.
+
+**200 response:** `{"clients": [...], "total": N}`. Each client has `id, first_name, last_name, email, date_of_birth, gender, phone, address, jmbg, active, created_at`.
+
+### GET /api/v2/clients/{id}
+
+Get one client.
+
+**Auth:** JWT + `clients.read`
+
+**200 response:** client object.
+
+**Error responses:** 400, 401, 403, 404.
+
+### POST /api/v2/clients
+
+Create a client.
+
+**Auth:** JWT + `clients.create`
+
+**Request body:**
+
+| Field          | Type   | Required | Constraints                           |
+|----------------|--------|----------|---------------------------------------|
+| first_name     | string | yes      |                                       |
+| last_name      | string | yes      |                                       |
+| date_of_birth  | int64  | yes      | Unix seconds                          |
+| gender         | string | no       |                                       |
+| email          | string | yes      | valid, unique                         |
+| phone          | string | no       |                                       |
+| address        | string | no       |                                       |
+| jmbg           | string | yes      | 13 digits, unique                     |
+
+**201 response:** client object (`active: false`).
+
+**Error responses:** 400, 401, 403, 409, 500.
+
+### PUT /api/v2/clients/{id}
+
+Partial update of a client.
+
+**Auth:** JWT + `clients.update`
+
+**Request body (all optional):**
+
+| Field         | Type   | Required | Constraints        |
+|---------------|--------|----------|--------------------|
+| first_name    | string | no       |                    |
+| last_name     | string | no       |                    |
+| date_of_birth | int64  | no       | Unix seconds       |
+| gender        | string | no       |                    |
+| email         | string | no       | valid              |
+| phone         | string | no       |                    |
+| address       | string | no       |                    |
+| active        | bool   | no       | toggles auth status|
+
+**200 response:** updated client.
+
+**Error responses:** 400, 401, 403, 404, 500.
+
+---
+
+## 16. Accounts & Currencies & Companies
+
+### GET /api/v2/currencies
+
+List supported currencies.
+
+**Auth:** JWT (any authenticated employee; no specific permission)
+
+**200 response:** `{"currencies": [{code, name, symbol}, ...]}`.
+
+### GET /api/v2/accounts
+
+List accounts. Supports `?client_id=X` filter.
+
+**Auth:** JWT + `accounts.read`
+
+**Query:** `page` (default 1), `page_size` (default 20), `client_id`, `name_filter`, `account_number_filter`, `type_filter`.
+
+**200 response:** `{"accounts": [...], "total": N}`. Account object fields: `id, owner_id, account_number, account_name, account_kind (current|foreign), account_type, account_category, currency_code, balance, available_balance, daily_limit, monthly_limit, transfer_limit, status (active|inactive), is_bank_account, company_id, created_at`.
+
+### GET /api/v2/accounts/{id}
+
+Get one account by ID.
+
+**Auth:** JWT + `accounts.read`
+
+**Error responses:** 400, 401, 403, 404.
+
+### GET /api/v2/accounts/by-number/{account_number}
+
+Get one account by its account number.
+
+**Auth:** JWT + `accounts.read`
+
+**200 response:** account object.
+
+**Error responses:** 400, 401, 403, 404.
+
+### POST /api/v2/accounts
+
+Create a new account for a client. Optionally auto-creates a card.
+
+**Auth:** JWT + `accounts.create`
+
+**Request body:**
+
+| Field            | Type    | Required | Constraints                                          |
+|------------------|---------|----------|------------------------------------------------------|
+| owner_id         | uint64  | yes      | client id                                            |
+| account_kind     | string  | yes      | one of `current, foreign`                            |
+| account_type     | string  | yes      | free text / service-specific                         |
+| account_category | string  | no       | one of `personal, business`                          |
+| currency_code    | string  | yes      | 3-letter ISO                                         |
+| employee_id      | uint64  | no       | acting employee                                      |
+| initial_balance  | float64 | no       | >= 0                                                 |
+| create_card      | bool    | no       | also create a card                                   |
+| card_brand       | string  | no       | one of `visa, mastercard, dinacard, amex`            |
+| company_id       | uint64  | no       | link to company                                      |
+
+**201 response:** account object (plus `card` when `create_card`, or `card_error` on card-creation failure).
+
+**Error responses:** 400, 401, 403, 500.
+
+### PUT /api/v2/accounts/{id}/name
+
+Change the display name of an account.
+
+**Auth:** JWT + `accounts.update`
+
+**Request body:**
+
+| Field     | Type   | Required | Constraints |
+|-----------|--------|----------|-------------|
+| new_name  | string | yes      |             |
+| client_id | uint64 | no       |             |
+
+**200 response:** updated account.
+
+### PUT /api/v2/accounts/{id}/limits
+
+Update daily/monthly limits on an account.
+
+**Auth:** JWT + `accounts.update`
+
+**Request body (all optional):**
+
+| Field         | Type    | Required | Constraints |
+|---------------|---------|----------|-------------|
+| daily_limit   | float64 | no       | >= 0        |
+| monthly_limit | float64 | no       | >= 0        |
+
+**200 response:** updated account.
+
+### PUT /api/v2/accounts/{id}/status
+
+Activate/deactivate an account.
+
+**Auth:** JWT + `accounts.update`
+
+**Request body:**
+
+| Field  | Type   | Required | Constraints               |
+|--------|--------|----------|---------------------------|
+| status | string | yes      | one of `active, inactive` |
+
+**200 response:** updated account.
+
+### POST /api/v2/companies
+
+Create a company record.
+
+**Auth:** JWT + `accounts.create`
+
+**Request body:**
+
+| Field               | Type   | Required | Constraints                 |
+|---------------------|--------|----------|-----------------------------|
+| company_name        | string | yes      |                             |
+| registration_number | string | yes      | unique                      |
+| tax_number          | string | no       |                             |
+| activity_code       | string | no       | validated format            |
+| address             | string | no       |                             |
+| owner_id            | uint64 | yes      | client id                   |
+
+**201 response:** company object.
+
+**Error responses:** 400, 401, 403, 409, 500.
+
+---
+
+## 17. Bank Accounts
+
+Admin-only management of bank-owned accounts. The bank must retain at least one RSD and one foreign-currency account at all times.
+
+### GET /api/v2/bank-accounts
+
+List bank-owned accounts.
+
+**Auth:** JWT + `bank-accounts.manage`
+
+**200 response:** bank-accounts list (each with the same shape as a normal account but `is_bank_account=true` and `owner_id=1000000000`).
+
+### POST /api/v2/bank-accounts
+
+Create a bank-owned account.
+
+**Auth:** JWT + `bank-accounts.manage`
+
+**Request body:**
+
+| Field         | Type   | Required | Constraints                   |
+|---------------|--------|----------|-------------------------------|
+| currency_code | string | yes      | 3-letter ISO                  |
+| account_kind  | string | yes      | one of `current, foreign`     |
+| account_name  | string | no       | display name                  |
+
+**201 response:** new bank account.
+
+**Error responses:** 400, 401, 403, 500.
+
+### DELETE /api/v2/bank-accounts/{id}
+
+Delete a bank-owned account.
+
+**Auth:** JWT + `bank-accounts.manage`
+
+**200 response:** `{"success": true}`.
+
+**Error responses:** 400 (last RSD or last foreign), 401, 403, 404, 500.
+
+---
+
+## 18. Cards
+
+Employee-facing card management. Client-side card routes live under `/api/v2/me/cards/*` (Section 3).
+
+### GET /api/v2/cards
+
+List cards.
+
+**Auth:** JWT + `cards.read`
+
+**Query:** `page`, `page_size`, `client_id`, `account_number`, `status`.
+
+**200 response:** `{"cards": [...], "total": N}`.
+
+### GET /api/v2/cards/{id}
+
+Get one card.
+
+**Auth:** JWT + `cards.read`
+
+**Error responses:** 400, 401, 403, 404.
+
+### POST /api/v2/cards
+
+Issue a new physical card for a client or authorized person.
+
+**Auth:** JWT + `cards.create`
+
+**Request body:**
+
+| Field          | Type   | Required | Constraints                               |
+|----------------|--------|----------|-------------------------------------------|
+| account_number | string | yes      |                                           |
+| owner_id       | uint64 | yes      |                                           |
+| owner_type     | string | yes      | one of `client, authorized_person`        |
+| card_brand     | string | no       | one of `visa, mastercard, dinacard, amex` |
+
+**201 response:** card object — includes full `card_number` and `cvv` (only returned here, then masked afterwards).
+
+**Error responses:** 400, 401, 403, 500.
+
+### POST /api/v2/cards/authorized-person
+
+Create an authorized-person record (later attachable to a card).
+
+**Auth:** JWT + `cards.create`
+
+**Request body:**
+
+| Field         | Type   | Required | Constraints   |
+|---------------|--------|----------|---------------|
+| first_name    | string | yes      |               |
+| last_name     | string | yes      |               |
+| date_of_birth | int64  | no       | Unix seconds  |
+| gender        | string | no       |               |
+| email         | string | no       |               |
+| phone         | string | no       |               |
+| address       | string | no       |               |
+| account_id    | uint64 | yes      |               |
+
+**201 response:** authorized-person object.
+
+### POST /api/v2/cards/{id}/block
+
+Block a card.
+
+**Auth:** JWT + `cards.update`
+
+**200 response:** updated card.
+
+**Error responses:** 400, 401, 403, 404, 500.
+
+### POST /api/v2/cards/{id}/unblock
+
+Unblock a card.
+
+**Auth:** JWT + `cards.update`
+
+**200 response:** updated card.
+
+### POST /api/v2/cards/{id}/deactivate
+
+Permanently deactivate a card.
+
+**Auth:** JWT + `cards.update`
+
+**200 response:** updated card.
+
+---
+
+## 19. Card Requests (employee)
+
+Approve/reject card-issuance requests filed by clients via `POST /api/v2/me/cards/requests`.
+
+### GET /api/v2/cards/requests
+
+List card requests.
+
+**Auth:** JWT + `cards.approve`
+
+**Query:** `page`, `page_size`, `status` (`pending|approved|rejected`).
+
+**200 response:** `{"requests": [...], "total": N}`.
+
+### GET /api/v2/cards/requests/{id}
+
+Get one card request.
+
+**Auth:** JWT + `cards.approve`
+
+**Error responses:** 400, 401, 403, 404.
+
+### POST /api/v2/cards/requests/{id}/approve
+
+Approve a pending card request; creates the card.
+
+**Auth:** JWT + `cards.approve`
+
+**200 response:** `{"request": <request>, "card": <card>}` — the card includes the newly-issued `card_number` and `cvv`.
+
+**Error responses:** 400, 401, 403, 404, 409 (already processed).
+
+### POST /api/v2/cards/requests/{id}/reject
+
+Reject a pending card request.
+
+**Auth:** JWT + `cards.approve`
+
+**Request body:**
+
+| Field  | Type   | Required | Constraints |
+|--------|--------|----------|-------------|
+| reason | string | yes      |             |
+
+**200 response:** updated request (`status: "rejected"`, `rejection_reason`).
+
+**Error responses:** 400, 401, 403, 404, 409.
+
+---
+
+## 20. Payments (employee)
+
+### GET /api/v2/payments
+
+List payments. Supports exactly one of `?client_id=X` or `?account_number=X` (both → 400).
+
+**Auth:** JWT + `payments.read`
+
+**Query:** `page` (default 1), `page_size` (default 20), `client_id`, `account_number`.
+
+**200 response:** `{"payments": [...], "total": N}`.
+
+**Error responses:** 400 (both filters present / invalid id), 401, 403, 500.
+
+### GET /api/v2/payments/{id}
+
+Get one payment.
+
+**Auth:** JWT + `payments.read`
+
+**200 response:** payment object.
+
+---
+
+## 21. Transfers (employee)
+
+### GET /api/v2/transfers
+
+List transfers. Same filtering convention as payments.
+
+**Auth:** JWT + `payments.read`
+
+**Query:** `page`, `page_size`, `client_id`, `account_number`.
+
+**200 response:** `{"transfers": [...], "total": N}`.
+
+### GET /api/v2/transfers/{id}
+
+Get one transfer.
+
+**Auth:** JWT + `payments.read`
+
+---
+
+## 22. Transfer Fees
+
+Configurable fee rules. Multiple matching rules are cumulative (stack).
+
+### GET /api/v2/fees
+
+List fee rules.
+
+**Auth:** JWT + `fees.manage`
+
+**200 response:** `{"fees": [...]}`.
+
+### POST /api/v2/fees
+
+Create a fee rule.
+
+**Auth:** JWT + `fees.manage`
+
+**Request body:**
+
+| Field            | Type   | Required | Constraints                                   |
+|------------------|--------|----------|-----------------------------------------------|
+| name             | string | yes      |                                               |
+| fee_type         | string | yes      | one of `percentage, fixed`                    |
+| fee_value        | string | yes      | decimal (rate or flat amount)                 |
+| min_amount       | string | no       | decimal threshold                             |
+| max_fee          | string | no       | decimal cap                                   |
+| transaction_type | string | yes      | one of `payment, transfer, all`               |
+| currency_code    | string | no       | applies only for this currency; empty = any   |
+
+**201 response:** fee object.
+
+**Error responses:** 400, 401, 403, 500.
+
+### PUT /api/v2/fees/{id}
+
+Update a fee rule.
+
+**Auth:** JWT + `fees.manage`
+
+**Request body (all optional):**
+
+| Field            | Type   | Required | Constraints         |
+|------------------|--------|----------|---------------------|
+| name             | string | no       |                     |
+| fee_type         | string | no       | `percentage, fixed` |
+| fee_value        | string | no       | decimal             |
+| min_amount       | string | no       | decimal             |
+| max_fee          | string | no       | decimal             |
+| transaction_type | string | no       | `payment, transfer, all` |
+| currency_code    | string | no       |                     |
+| active           | bool   | no       |                     |
+
+**200 response:** updated fee.
+
+### DELETE /api/v2/fees/{id}
+
+Deactivate (soft-delete) a fee rule.
+
+**Auth:** JWT + `fees.manage`
+
+**200 response:** `{"success": true}`.
+
+**Error responses:** 400, 401, 403, 404, 500.
+
+---
+
+## 23. Loans (employee)
+
+### GET /api/v2/loans
+
+List loans. Supports `?client_id=X`.
+
+**Auth:** JWT + `credits.read`
+
+**Query:** `page`, `page_size`, `client_id`, `loan_type_filter`, `account_number_filter`, `status_filter`.
+
+**200 response:** `{"loans": [...], "total": N}`.
+
+### GET /api/v2/loans/{id}
+
+Get one loan.
+
+**Auth:** JWT + `credits.read`
+
+**Error responses:** 400, 401, 403, 404.
+
+### GET /api/v2/loans/{id}/installments
+
+List installments for a loan.
+
+**Auth:** JWT + `credits.read`
+
+**200 response:** `{"installments": [...]}`.
+
+---
+
+## 24. Loan Requests (employee)
+
+### GET /api/v2/loan-requests
+
+List loan requests. Supports `?client_id=X`.
+
+**Auth:** JWT + `credits.read`
+
+**Query:** `page`, `page_size`, `client_id`, `loan_type_filter`, `account_number_filter`, `status_filter`.
+
+**200 response:** `{"requests": [...], "total": N}`.
+
+### GET /api/v2/loan-requests/{id}
+
+Get one loan request.
+
+**Auth:** JWT + `credits.read`
+
+### POST /api/v2/loan-requests/{id}/approve
+
+Approve a pending loan request. Creates the loan; approving employee's `max_loan_approval_amount` is enforced downstream.
+
+**Auth:** JWT + `credits.approve`
+
+**200 response:** updated loan request (status `approved`) + linked loan id.
+
+**Error responses:** 400, 401, 403 (exceeds employee's approval limit), 404, 409, 500.
+
+### POST /api/v2/loan-requests/{id}/reject
+
+Reject a pending loan request.
+
+**Auth:** JWT + `credits.approve`
+
+**200 response:** updated loan request (status `rejected`).
+
+---
+
+## 25. Interest Rate Tiers & Bank Margins
+
+Admin-only configuration for variable-rate loan calculation.
+
+### GET /api/v2/interest-rate-tiers
+
+List interest rate tiers.
+
+**Auth:** JWT + `interest-rates.manage`
+
+**200 response:** `{"tiers": [...]}`.
+
+### POST /api/v2/interest-rate-tiers
+
+Create an interest rate tier.
+
+**Auth:** JWT + `interest-rates.manage`
+
+**Request body:**
+
+| Field         | Type    | Required | Constraints |
+|---------------|---------|----------|-------------|
+| amount_from   | float64 | no       | >= 0        |
+| amount_to     | float64 | no       | >= 0        |
+| fixed_rate    | float64 | yes      | >= 0        |
+| variable_base | float64 | yes      | >= 0        |
+
+**201 response:** tier object.
+
+### PUT /api/v2/interest-rate-tiers/{id}
+
+Update a tier.
+
+**Auth:** JWT + `interest-rates.manage`
+
+**Request body:** same shape as create.
+
+**200 response:** updated tier.
+
+### DELETE /api/v2/interest-rate-tiers/{id}
+
+Delete a tier.
+
+**Auth:** JWT + `interest-rates.manage`
+
+**200 response:** `{"success": true}`.
+
+### POST /api/v2/interest-rate-tiers/{id}/apply
+
+Recompute all variable-rate loans against the current tier+margin configuration.
+
+**Auth:** JWT + `interest-rates.manage`
+
+**200 response:** `{"updated_loans": N}`.
+
+### GET /api/v2/bank-margins
+
+List bank margin configurations.
+
+**Auth:** JWT + `interest-rates.manage`
+
+**200 response:** `{"margins": [...]}`.
+
+### PUT /api/v2/bank-margins/{id}
+
+Update a bank margin.
+
+**Auth:** JWT + `interest-rates.manage`
+
+**Request body:**
+
+| Field  | Type    | Required | Constraints |
+|--------|---------|----------|-------------|
+| margin | float64 | yes      |             |
+
+**200 response:** updated margin.
+
+---
+
+## 26. Stock Exchange Admin
+
+Supervisor-only testing-mode toggles. Enabling testing mode forces exchanges "open" regardless of schedule.
+
+### POST /api/v2/stock-exchanges/testing-mode
+
+Enable or disable testing mode globally.
+
+**Auth:** JWT + `exchanges.manage`
+
+**Request body:**
+
+| Field   | Type | Required | Constraints |
+|---------|------|----------|-------------|
+| enabled | bool | yes      |             |
+
+**200 response:** `{"testing_mode": bool}`.
+
+### GET /api/v2/stock-exchanges/testing-mode
+
+Read the current testing-mode flag.
+
+**Auth:** JWT + `exchanges.manage`
+
+**200 response:** `{"testing_mode": bool}`.
+
+---
+
+## 27. Admin Stock Source
+
+**DESTRUCTIVE.** Switching the source wipes all stock-service securities, listings, holdings, orders, and daily price history, then reseeds from the new source.
+
+### POST /api/v2/admin/stock-source
+
+Switch the active stock data source.
+
+**Auth:** JWT + `securities.manage`
+
+**Request body:**
+
+| Field  | Type   | Required | Constraints                                  |
+|--------|--------|----------|----------------------------------------------|
+| source | string | yes      | one of `external, generated, simulator`      |
+
+**202 response:** `{source, status, started_at, last_error}`.
+
+**Error responses:** 400, 401, 403, 500.
+
+### GET /api/v2/admin/stock-source
+
+Read the current source and seeding status.
+
+**Auth:** JWT + `securities.manage`
+
+**200 response:** `{source, status, started_at, last_error}`.
+
+---
+
+## 28. Orders (employee)
+
+### POST /api/v2/orders
+
+Create an order on behalf of a client.
+
+**Auth:** JWT + `securities.manage`
+
+**Request body:**
+
+| Field            | Type    | Required | Constraints                                                           |
+|------------------|---------|----------|-----------------------------------------------------------------------|
+| client_id        | uint64  | yes      | non-zero                                                              |
+| account_id       | uint64  | cond.    | required for buy/sell (proceeds or debit account, must belong to client) |
+| security_type    | string  | no       | one of `stock, futures, forex, option`                                |
+| listing_id       | uint64  | cond.    | required for buy orders                                               |
+| holding_id       | uint64  | no       | optional for sell (post-rollup)                                       |
+| direction        | string  | yes      | one of `buy, sell`                                                    |
+| order_type       | string  | yes      | one of `market, limit, stop, stop_limit`                              |
+| quantity         | int64   | yes      | > 0                                                                   |
+| limit_value      | string  | cond.    | required for limit/stop_limit                                         |
+| stop_value       | string  | cond.    | required for stop/stop_limit                                          |
+| all_or_none      | bool    | no       |                                                                       |
+| margin           | bool    | no       |                                                                       |
+| base_account_id  | uint64  | cond.    | required when `security_type == forex`; must differ from `account_id` and belong to client |
+
+**201 response:** order object.
+
+**Error responses:** 400, 401, 403 (account does not belong to client), 404, 409, 500.
+
+### GET /api/v2/orders
+
+List orders (supervisor view).
+
+**Auth:** JWT + `orders.approve`
+
+**Query:** `page` (default 1), `page_size` (default 10), `status`, `agent_email`, `direction`, `order_type`.
+
+**200 response:** `{"orders": [...], "total_count": N}`.
+
+### POST /api/v2/orders/{id}/approve
+
+Approve an order that needs supervisor approval.
+
+**Auth:** JWT + `orders.approve`
+
+**200 response:** updated order.
+
+**Error responses:** 400, 401, 403, 404, 409.
+
+### POST /api/v2/orders/{id}/decline
+
+Decline an order that needs supervisor approval.
+
+**Auth:** JWT + `orders.approve`
+
+**200 response:** updated order.
+
+---
+
+## 29. OTC On-Behalf (employee)
+
+### POST /api/v2/otc/admin/offers/{id}/buy
+
+Buy an OTC offer on behalf of a named client. The gateway verifies the named account belongs to the named client before forwarding to stock-service.
+
+**Auth:** JWT + `securities.manage`
+
+**Request body:**
+
+| Field      | Type   | Required | Constraints |
+|------------|--------|----------|-------------|
+| client_id  | uint64 | yes      | non-zero    |
+| account_id | uint64 | yes      | must belong to `client_id` |
+| quantity   | int64  | yes      | > 0         |
+
+**200 response:** OTC purchase result.
+
+**Error responses:** 400, 401, 403 (account not owned by named client), 404, 409.
+
+---
+
+## 30. Actuaries
+
+Supervisor-only management of actuary accounts. All routes require `agents.manage`.
+
+### GET /api/v2/actuaries
+
+List actuaries.
+
+**Auth:** JWT + `agents.manage`
+
+**Query:** `page`, `page_size`, `search`, `position`.
+
+**200 response:** `{"actuaries": [...], "total_count": N}`.
+
+### PUT /api/v2/actuaries/{id}/limit
+
+Set an actuary's trading limit.
+
+**Auth:** JWT + `agents.manage`
+
+**Request body:**
+
+| Field | Type   | Required | Constraints |
+|-------|--------|----------|-------------|
+| limit | string | yes      | decimal, non-empty |
+
+**200 response:** updated actuary.
+
+**Error responses:** 400, 401, 403, 404, 500.
+
+### POST /api/v2/actuaries/{id}/reset-limit
+
+Reset the actuary's used (consumed) limit counter.
+
+**Auth:** JWT + `agents.manage`
+
+**200 response:** updated actuary (`used_limit: 0`).
+
+### PUT /api/v2/actuaries/{id}/approval
+
+Set whether this actuary's orders require supervisor approval.
+
+**Auth:** JWT + `agents.manage`
+
+**Request body:**
+
+| Field         | Type | Required | Constraints |
+|---------------|------|----------|-------------|
+| need_approval | bool | yes      |             |
+
+**200 response:** updated actuary.
+
+---
+
+## 31. Tax (employee)
+
+All routes require `tax.manage`.
+
+### GET /api/v2/tax
+
+List per-user capital gains tax debt for the current month.
+
+**Auth:** JWT + `tax.manage`
+
+**Query:** `page` (default 1), `page_size` (default 10), `user_type` (`client|actuary`), `search`.
+
+**200 response:** `{"tax_records": [...], "total_count": N}`.
+
+**Error responses:** 400, 401, 403, 500.
+
+### POST /api/v2/tax/collect
+
+Collect tax from all users for the current month.
+
+**Auth:** JWT + `tax.manage`
+
+**200 response:**
+
+| Field               | Type   | Always present | Notes                      |
+|---------------------|--------|----------------|----------------------------|
+| collected_count     | int64  | yes            | number of users paid       |
+| total_collected_rsd | string | yes            | decimal total in RSD       |
+| failed_count        | int64  | yes            | users with failed collection |
+
+**Error responses:** 401, 403, 500.
+
+---
+
+## 32. Changelogs
+
+All five changelog endpoints are registered but currently return **501 `not_implemented`** (a placeholder pending the changelog-service implementation). The permission gates below are already wired.
+
+### GET /api/v2/accounts/{id}/changelog
+
+**Auth:** JWT + `accounts.read` · **Status:** 501 not_implemented
+
+### GET /api/v2/employees/{id}/changelog
+
+**Auth:** JWT + `employees.read` · **Status:** 501 not_implemented
+
+### GET /api/v2/clients/{id}/changelog
+
+**Auth:** JWT + `clients.read` · **Status:** 501 not_implemented
+
+### GET /api/v2/cards/{id}/changelog
+
+**Auth:** JWT + `cards.read` · **Status:** 501 not_implemented
+
+### GET /api/v2/loans/{id}/changelog
+
+**Auth:** JWT + `credits.read` · **Status:** 501 not_implemented
+
+**Response body (all five):**
+
+```json
+{ "error": { "code": "not_implemented", "message": "this endpoint is coming in a future release" } }
+```
+
+---
+
+## 33. v2-only: Options
+
+The v2 options surface addresses option contracts by their option ID directly, rather than by listing ID or holding ID. This aligns with how UIs naturally browse the options chain. Both routes require `securities.trade`.
+
+### POST /api/v2/options/{option_id}/orders
+
+Create an order for an option contract, addressing it by its option ID. Internally resolves `option_id → listing_id` via `GetOption(option_id)` and delegates to the standard `CreateOrder` RPC. Returns 409 if the option has no listing (e.g., legacy data).
+
+**Auth:** JWT + `securities.trade`
+
+**Path parameters:**
+
+| Field     | Type | Required | Constraints |
+|-----------|------|----------|-------------|
+| option_id | uint | yes      | non-zero    |
+
+**Request body:**
+
+| Field        | Type   | Required | Constraints                                                    |
+|--------------|--------|----------|----------------------------------------------------------------|
+| direction    | string | yes      | one of `buy, sell`                                             |
+| order_type   | string | yes      | one of `market, limit, stop, stop_limit`                       |
+| quantity     | int64  | yes      | > 0                                                            |
+| limit_value  | string | cond.    | required for `limit, stop_limit`; decimal string               |
+| stop_value   | string | cond.    | required for `stop, stop_limit`; decimal string                |
+| all_or_none  | bool   | no       | default false                                                  |
+| margin       | bool   | no       | options typically use margin; default false                    |
+| account_id   | uint64 | yes      | non-zero; caller-owned collateral/settlement account           |
+| holding_id   | uint64 | no       | for closing an existing long position; omit or `0` to open new |
+
+**201 response (Order object):**
+
+| Field         | Type    | Always present | Notes                                                 |
+|---------------|---------|----------------|-------------------------------------------------------|
+| id            | uint64  | yes            | server-assigned                                       |
+| user_id       | uint64  | yes            | owner of the order                                    |
+| listing_id    | uint64  | yes            | resolved from option                                  |
+| security_type | string  | yes            | `"option"` for this endpoint                          |
+| ticker        | string  | yes            | OCC-style option ticker (e.g., `AAPL260116C00200000`) |
+| direction     | string  | yes            | echoes request                                        |
+| order_type    | string  | yes            | echoes request                                        |
+| quantity      | int64   | yes            | echoes request                                        |
+| status        | string  | yes            | typically `pending` or `approved`                     |
+| all_or_none   | bool    | yes            | echoes request                                        |
+| margin        | bool    | yes            | echoes request                                        |
+| limit_value   | string  | when applicable | for limit / stop_limit orders                        |
+| stop_value    | string  | when applicable | for stop / stop_limit orders                         |
+| created_at    | string  | yes            | RFC 3339 timestamp                                    |
+
+**Error responses:**
+
+| Status | Code                    | When                                                                       |
+|--------|-------------------------|----------------------------------------------------------------------------|
+| 400    | validation_error        | bad direction / order_type / quantity / missing limit or stop / invalid option_id |
+| 401    | unauthorized            | missing or invalid JWT                                                     |
+| 403    | forbidden               | missing `securities.trade` permission                                      |
+| 404    | not_found               | option_id does not exist                                                   |
+| 409    | business_rule_violation | option has no listing_id (not tradeable) or stock-service rejected         |
+| 500    | internal_error          | unexpected downstream failure                                              |
+
+**Example:**
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v2/options/123/orders \
+  -H "Authorization: Bearer $T" -H "Content-Type: application/json" \
+  -d '{"direction":"buy","order_type":"market","quantity":1,"margin":true,"account_id":42}'
+```
+
+### POST /api/v2/options/{option_id}/exercise
+
+Exercise an option contract. Takes the option ID (not the holding ID); the server resolves the caller's oldest long option holding for that option when `holding_id` is `0` or omitted.
+
+**Auth:** JWT + `securities.trade`
+
+**Path parameters:**
+
+| Field     | Type | Required | Constraints |
+|-----------|------|----------|-------------|
+| option_id | uint | yes      | non-zero    |
+
+**Request body (optional):**
+
+| Field      | Type   | Required | Constraints                                             |
+|------------|--------|----------|---------------------------------------------------------|
+| holding_id | uint64 | no       | specific holding; omit or `0` to auto-resolve           |
+
+**200 response:**
+
+| Field              | Type   | Always present | Notes                                          |
+|--------------------|--------|----------------|------------------------------------------------|
+| id                 | uint64 | yes            | exercise event id                              |
+| option_ticker      | string | yes            | OCC-style option ticker                        |
+| exercised_quantity | int64  | yes            | number of contracts exercised                  |
+| shares_affected    | int64  | yes            | resulting share delta (contracts × 100 typical)|
+| profit             | string | yes            | realised P/L in RSD (decimal string)           |
+
+**Error responses:**
+
+| Status | Code                    | When                                                                 |
+|--------|-------------------------|----------------------------------------------------------------------|
+| 400    | validation_error        | invalid option_id                                                    |
+| 401    | unauthorized            | missing or invalid JWT                                               |
+| 403    | forbidden               | missing `securities.trade` permission                                |
+| 404    | not_found               | no long option holding found for this user + option                  |
+| 409    | business_rule_violation | option expired / compensation triggered / other business-rule fail   |
+| 500    | internal_error          | unexpected downstream failure                                        |
+
+**Example:**
+
+```bash
+curl -sS -X POST http://localhost:8080/api/v2/options/123/exercise \
+  -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"holding_id":0}'
+```
+
+---
+
+## Appendix: Password Requirements
+
+Passwords for both employees and clients must satisfy:
+
+- 8 to 32 characters
+- At least 2 digits
+- At least 1 uppercase letter
+- At least 1 lowercase letter
+
+## Appendix: Notes for Frontend Developers
+
+1. **v1 remains supported.** v2 is additive. A client that targets `/api/v1/*` today will keep working indefinitely; switching to `/api/v2/*` changes nothing for the shared routes.
+2. **Token expiry:** access tokens expire after 15 minutes. Implement automatic refresh using the refresh token before expiry.
+3. **Client vs. employee routes:** employee routes require an employee JWT with specific permissions. Client self-service routes are under `/api/v2/me/*` and accept any valid JWT (employee or client). Do not use a client token to call employee-only endpoints.
+4. **Error format:** all error responses are structured objects — `{"error": {"code": "...", "message": "..."}}`. Parse `error.code` for programmatic handling and `error.message` for display.
+5. **Pagination:** list endpoints that paginate use `page` (1-based) and `page_size`. Default `page_size` varies (typically 10 or 20; sometimes 50 — see per-route docs).
+6. **Date fields:** `date_of_birth` is a Unix timestamp in seconds. Other timestamps are RFC 3339 / ISO-8601 strings.
+7. **Account numbers:** format `265-XXXXXXXXXXX-YY`.
+8. **Card numbers:** the full card number and CVV are returned only in the create-card response. Subsequent reads return a masked number.
+9. **JMBG:** 13-digit Serbian national ID; validated for length and uniqueness server-side.
+10. **CORS:** the API Gateway allows all origins with `GET, POST, PUT, PATCH, DELETE, OPTIONS` methods and `Authorization, Content-Type` headers.
+11. **Mobile auth flow:** `POST /api/v2/mobile/auth/request-activation` → `POST /api/v2/mobile/auth/activate` → receive `device_id, device_secret`. Mobile JWTs include `system_type: "mobile"` and require `X-Device-ID` on all authenticated requests.
+12. **Verification flow:** payments and transfers require two-factor verification. Create the transaction → create a verification challenge (or rely on the auto-generated code from the transaction) → wait for mobile approval or submit code → execute. Users with `verification.skip` permission bypass this flow.
+13. **v2 options routes:** prefer `/api/v2/options/:option_id/orders` and `/api/v2/options/:option_id/exercise` over the legacy listing-id / holding-id routes; the v2 URLs match how UIs naturally browse the options chain.
