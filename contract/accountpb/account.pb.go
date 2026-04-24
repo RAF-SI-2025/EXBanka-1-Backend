@@ -686,8 +686,12 @@ type AccountResponse struct {
 	DailySpending    string                 `protobuf:"bytes,19,opt,name=daily_spending,json=dailySpending,proto3" json:"daily_spending,omitempty"`
 	MonthlySpending  string                 `protobuf:"bytes,20,opt,name=monthly_spending,json=monthlySpending,proto3" json:"monthly_spending,omitempty"`
 	CompanyId        *uint64                `protobuf:"varint,21,opt,name=company_id,json=companyId,proto3,oneof" json:"company_id,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// reserved_balance is the running total of active holds on this account.
+	// AvailableBalance = Balance - ReservedBalance (both are stored columns
+	// kept in sync by the reservation service in account-service).
+	ReservedBalance string `protobuf:"bytes,22,opt,name=reserved_balance,json=reservedBalance,proto3" json:"reserved_balance,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AccountResponse) Reset() {
@@ -865,6 +869,13 @@ func (x *AccountResponse) GetCompanyId() uint64 {
 		return *x.CompanyId
 	}
 	return 0
+}
+
+func (x *AccountResponse) GetReservedBalance() string {
+	if x != nil {
+		return x.ReservedBalance
+	}
+	return ""
 }
 
 type CreateCompanyRequest struct {
@@ -2552,7 +2563,7 @@ const file_account_account_proto_rawDesc = "" +
 	"\x06amount\x18\x02 \x01(\tR\x06amount\x12)\n" +
 	"\x10update_available\x18\x03 \x01(\bR\x0fupdateAvailable\x12\x12\n" +
 	"\x04memo\x18\x04 \x01(\tR\x04memo\x12'\n" +
-	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\"\xed\x05\n" +
+	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\"\x98\x06\n" +
 	"\x0fAccountResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12%\n" +
 	"\x0eaccount_number\x18\x02 \x01(\tR\raccountNumber\x12!\n" +
@@ -2581,7 +2592,8 @@ const file_account_account_proto_rawDesc = "" +
 	"\x0edaily_spending\x18\x13 \x01(\tR\rdailySpending\x12)\n" +
 	"\x10monthly_spending\x18\x14 \x01(\tR\x0fmonthlySpending\x12\"\n" +
 	"\n" +
-	"company_id\x18\x15 \x01(\x04H\x00R\tcompanyId\x88\x01\x01B\r\n" +
+	"company_id\x18\x15 \x01(\x04H\x00R\tcompanyId\x88\x01\x01\x12)\n" +
+	"\x10reserved_balance\x18\x16 \x01(\tR\x0freservedBalanceB\r\n" +
 	"\v_company_id\"\xe3\x01\n" +
 	"\x14CreateCompanyRequest\x12!\n" +
 	"\fcompany_name\x18\x01 \x01(\tR\vcompanyName\x12/\n" +

@@ -423,6 +423,7 @@ func toAccountResponse(a *model.Account) *pb.AccountResponse {
 		DailySpending:    a.DailySpending.StringFixed(4),
 		MonthlySpending:  a.MonthlySpending.StringFixed(4),
 		CompanyId:        a.CompanyID,
+		ReservedBalance:  a.ReservedBalance.StringFixed(4),
 	}
 	return resp
 }

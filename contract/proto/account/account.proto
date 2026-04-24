@@ -120,6 +120,10 @@ message AccountResponse {
   string daily_spending = 19;
   string monthly_spending = 20;
   optional uint64 company_id = 21;
+  // reserved_balance is the running total of active holds on this account.
+  // AvailableBalance = Balance - ReservedBalance (both are stored columns
+  // kept in sync by the reservation service in account-service).
+  string reserved_balance = 22;
 }
 
 message CreateCompanyRequest {

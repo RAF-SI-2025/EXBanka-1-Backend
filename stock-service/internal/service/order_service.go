@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -541,6 +542,21 @@ func (s *OrderService) CancelOrder(orderID, userID uint64, systemType string) (*
 
 	if err := s.orderRepo.Update(order); err != nil {
 		return nil, err
+	}
+
+	// Release any outstanding funds reservation (buy orders) and holding
+	// reservation (sell orders). Both calls are safe no-ops if the
+	// reservation was already released or fully settled.
+	cancelCtx := context.Background()
+	if order.Direction == "buy" && s.accountClient != nil {
+		if _, relErr := s.accountClient.ReleaseReservation(cancelCtx, order.ID); relErr != nil {
+			log.Printf("WARN: cancel order %d: ReleaseReservation failed: %v", order.ID, relErr)
+		}
+	}
+	if order.Direction == "sell" && s.holdingReservationSvc != nil {
+		if _, relErr := s.holdingReservationSvc.Release(cancelCtx, order.ID); relErr != nil {
+			log.Printf("WARN: cancel order %d: holding Release failed: %v", order.ID, relErr)
+		}
 	}
 
 	if s.producer != nil {

@@ -659,6 +659,7 @@ func accountToJSON(acc *accountpb.AccountResponse) gin.H {
 		"owner_name":        acc.OwnerName,
 		"balance":           acc.Balance,
 		"available_balance": acc.AvailableBalance,
+		"reserved_balance":  acc.ReservedBalance,
 		"employee_id":       acc.EmployeeId,
 		"created_at":        acc.CreatedAt,
 		"expires_at":        acc.ExpiresAt,
