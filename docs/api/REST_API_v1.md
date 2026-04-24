@@ -3292,7 +3292,14 @@ Get a single account by ID, scoped to the authenticated principal.
 |---|---|---|
 | `id` | int | Account ID |
 
-**Response 200:** Account object
+**Response 200:** Account object. Key balance fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `balance` | string (decimal) | Total on-account balance |
+| `reserved_balance` | string (decimal) | Amount held by active securities-order reservations (Phase 2) |
+| `available_balance` | string (decimal) | Stored field; equals `balance - reserved_balance` after every reservation mutation |
+
 **Response 404:** `{"error": {"code": "not_found", "message": "account not found"}}`
 
 ---
@@ -4693,6 +4700,21 @@ Get a specific order.
 | Parameter | Type | Description |
 |---|---|---|
 | `id` | int | Order ID |
+
+**Response 200:** Order object. Phase 2 reservation/audit fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `reservation_amount` | string (decimal, nullable) | Amount reserved on `reservation_account_id` at placement (buy orders only) |
+| `reservation_currency` | string (3, nullable) | Currency of the reservation |
+| `reservation_account_id` | uint64 (nullable) | Account whose funds are reserved |
+| `base_account_id` | uint64 (nullable) | Forex only: base-currency account credited on fill |
+| `placement_rate` | string (decimal, nullable) | FX rate snapshot at placement for cross-currency orders |
+| `saga_id` | string (UUID) | Links the order to its saga_logs rows |
+
+Nested `order_transactions` (when returned) include cross-currency audit fields: `native_amount`, `native_currency`, `converted_amount`, `account_currency`, `fx_rate` (all nullable; populated for cross-currency fills).
+
+**Response 404:** `{"error": {"code": "not_found", "message": "order not found"}}`
 
 ---
 

@@ -824,6 +824,15 @@ An agent extending an existing service needs to know which gRPC services already
 - `DebitBankAccount(BankAccountOpRequest) returns (BankAccountOpResponse)` — atomically debits the bank sentinel account for a given currency, with idempotency keyed on `reference + direction`.
 - `CreditBankAccount(BankAccountOpRequest) returns (BankAccountOpResponse)` — atomically credits the bank sentinel account for a given currency, with idempotency keyed on `reference + direction`.
 
+**account-service AccountService reservation RPCs (Phase 2 securities settlement):**
+
+Four new RPCs on `AccountService` back the securities-order reservation system. All run inside `SELECT FOR UPDATE` transactions on the target account.
+
+- `ReserveFunds(account_id, order_id, amount, currency_code) returns (reservation_id, reserved_balance, available_balance)` — creates an `AccountReservation`, increments `Account.ReservedBalance`, decrements `Account.AvailableBalance`. Idempotent on `order_id`: a retry with the same `order_id` returns the existing reservation. Returns `FailedPrecondition` on currency mismatch or insufficient available balance.
+- `ReleaseReservation(order_id) returns (released_amount, reserved_balance)` — transitions the reservation to `released`, rolls `ReservedBalance` back, restores `AvailableBalance`. No-op (with empty response) if the reservation is missing, already released, or already settled.
+- `PartialSettleReservation(order_id, order_transaction_id, amount, memo) returns (settled_amount, remaining_reserved, balance_after, ledger_entry_id)` — settles part (or all) of a reservation against a specific fill. Writes a `LedgerEntry` so the fill appears in transaction history, debits `Balance`, decrements `ReservedBalance`, and when the reservation is fully consumed transitions status to `settled`. Idempotent on `order_transaction_id` via a unique index on `AccountReservationSettlement.order_transaction_id`.
+- `GetReservation(order_id) returns (exists, status, amount, settled_total, settled_transaction_ids)` — read-only; used by stock-service saga recovery to determine which fill saga steps already committed on account-service.
+
 **stock-service gRPC additions:**
 
 `PortfolioGRPCService` — portfolio operations including option exercise:
@@ -1166,6 +1175,12 @@ api-gateway:
 
 > **Ownership lockdown (as of 2026-04-13):** The following `/api/me/*` routes enforce that the requested resource belongs to the JWT caller. Mismatches return `404 not_found` to avoid leaking existence: `GET /api/me/loans/:id`, `GET /api/me/payments/:id`, `GET /api/me/transfers/:id`, `POST /api/me/cards/:id/pin`, `POST /api/me/cards/:id/verify-pin`, `POST /api/me/cards/:id/temporary-block`, `PUT /api/me/payment-recipients/:id`, `DELETE /api/me/payment-recipients/:id`, `POST /api/me/loan-requests` (body `client_id` is ignored; JWT `user_id` is used), `POST /api/me/cards/virtual` (owner derived from JWT), `POST /api/me/orders`, `POST /api/me/otc/offers/:id/buy` (account ownership verified against JWT caller).
 
+> **Securities reservation flow (Phase 2, 2026-04-22):**
+> - `POST /api/v1/me/orders` accepts an optional `security_type` (`stock`|`futures`|`forex`|`option`) and — required when `security_type=forex` — a `base_account_id` (must differ from `account_id` and be owned by the JWT caller). Forex orders must be `direction=buy`. New 400 cases: `forex orders must be direction=buy`, `forex orders require base_account_id`, `base_account_id must differ from account_id`. New 409 case: insufficient available balance on the reservation account.
+> - `GET /api/v1/me/orders/:id` responses include `reservation_amount`, `reservation_currency`, `reservation_account_id`, `base_account_id` (forex), `placement_rate`, and `saga_id`. OrderTransaction rows additionally expose `native_amount`, `native_currency`, `converted_amount`, `account_currency`, `fx_rate` for cross-currency fills.
+> - `GET /api/v1/me/accounts` and `/api/v1/me/accounts/:id` responses include `reserved_balance` and `available_balance` (stored; `available_balance = balance - reserved_balance`).
+> - Settled fills post `LedgerEntry` rows so they appear in `/api/v1/me/accounts/:id/transactions`.
+
 | Method | Path | Middleware Extra | Handler | Description |
 |---|---|---|---|---|
 | GET | `/api/me` | RequireClientToken | meHandler.GetMe | Get own profile |
@@ -1425,13 +1440,27 @@ TransferLimit(decimal,default:50000), SetByEmployee(int64), CreatedAt, UpdatedAt
 **Account**
 ```
 ID(uint64), AccountNumber(unique,18), AccountName, OwnerID(uint64,indexed), OwnerName,
-Balance(numeric18,4), AvailableBalance(numeric18,4), EmployeeID(uint64),
-ExpiresAt, CurrencyCode(3,indexed), Status(active|inactive,indexed),
+Balance(numeric18,4), AvailableBalance(numeric18,4), ReservedBalance(numeric18,4,default:0),
+EmployeeID(uint64), ExpiresAt, CurrencyCode(3,indexed), Status(active|inactive,indexed),
 AccountKind(current|foreign), AccountType(standard|premium|student|youth|pension),
 AccountCategory, MaintenanceFee(numeric18,4), DailyLimit(numeric18,4,default:1000000),
 MonthlyLimit(numeric18,4,default:10000000), DailySpending(numeric18,4),
 MonthlySpending(numeric18,4), CompanyID(nullable), IsBankAccount(bool,indexed),
 Version(int64), CreatedAt, UpdatedAt, DeletedAt(soft delete)
+```
+`ReservedBalance` is the running total of amounts held by active securities-order reservations. Maintained atomically by the reservation RPCs (`ReserveFunds`, `ReleaseReservation`, `PartialSettleReservation`). `AvailableBalance = Balance - ReservedBalance` (logical invariant; the stored `AvailableBalance` column mirrors this after every reservation mutation).
+
+**AccountReservation** — Idempotency + state ledger for an order's hold on an account. Immutable except for `Status`/`Version`.
+```
+ID(uint64), AccountID(uint64,indexed), OrderID(uint64,unique), Amount(numeric18,4),
+CurrencyCode(3), Status(active|released|settled,indexed), CreatedAt, UpdatedAt, Version(int64)
+```
+`OrderID` is the idempotency key — retrying `ReserveFunds` with the same `order_id` is a safe no-op. `Amount` is immutable after insert; only `Status` transitions.
+
+**AccountReservationSettlement** — Append-only; one row per partial settle. The `OrderTransactionID` comes from stock-service's `OrderTransaction.ID` and is the cross-service idempotency key.
+```
+ID(uint64), ReservationID(uint64,indexed), OrderTransactionID(uint64,unique),
+Amount(numeric18,4), CreatedAt
 ```
 
 **Company**
@@ -1602,14 +1631,7 @@ Status(pending|delivered|expired), ExpiresAt, DeliveredAt(nullable), CreatedAt
 
 ### Stock Service (stock_db)
 
-> ⚠ **Phase-1 note (2026-04-22):** The securities order pipeline runs end-to-end
-> as of Phase 1 (`docs/superpowers/plans/2026-04-22-unblock-order-flow.md`),
-> but the fill path is **best-effort, not bank-safe**. Funds are not reserved at
-> placement; cross-currency debits use raw listing-currency amounts; holding
-> mutations can diverge from account state on partial failure; Kafka events
-> publish before the fill saga commits. These are all fixed in Phase 2
-> (`docs/superpowers/plans/2026-04-22-bank-safe-settlement.md`). Do not rely on
-> the securities pipeline for real settlement until Phase 2 ships.
+> **Phase 2 complete (2026-04-22):** The securities fill path is now bank-safe. Funds are reserved at placement (`AccountReservation` + `Account.ReservedBalance`), holdings are reserved for sells (`HoldingReservation` + `Holding.ReservedQuantity`), every fill runs through a saga log with idempotent settlement, and Kafka events publish only after the fill saga commits. See `docs/superpowers/plans/2026-04-22-bank-safe-settlement.md`.
 
 **StockExchange** — A stock exchange (e.g. NYSE, NASDAQ)
 ```
@@ -1660,7 +1682,21 @@ LastRefresh, Version(int64), CreatedAt, UpdatedAt
 ```
 ID(uint64), UserID(indexed), SecurityType(stock|futures|forex|option),
 SecurityID(indexed), Quantity(int64), AveragePrice(numeric 18,8),
-PublicQuantity(int64), AccountID(uint64), Version(int64), CreatedAt, UpdatedAt
+PublicQuantity(int64), ReservedQuantity(int64,default:0), AccountID(uint64),
+Version(int64), CreatedAt, UpdatedAt
+```
+`ReservedQuantity` is the running total of units locked by active sell-side `HoldingReservation` rows. `AvailableQuantity = Quantity - ReservedQuantity`. Sell orders are rejected at placement if `AvailableQuantity` is insufficient; filled sells decrement both `Quantity` and `ReservedQuantity` atomically.
+
+**HoldingReservation** — Quantity-based mirror of `AccountReservation`. Locks shares on a holding for the duration of a sell order. Immutable except for `Status`/`Version`.
+```
+ID(uint64), HoldingID(uint64,indexed), OrderID(uint64,unique), Quantity(int64),
+Status(active|released|settled,indexed), CreatedAt, UpdatedAt, Version(int64)
+```
+
+**HoldingReservationSettlement** — Append-only; one row per partial sell fill.
+```
+ID(uint64), HoldingReservationID(uint64,indexed), OrderTransactionID(uint64,unique),
+Quantity(int64), CreatedAt
 ```
 
 **Order** — A buy/sell order placed by a user
@@ -1668,9 +1704,37 @@ PublicQuantity(int64), AccountID(uint64), Version(int64), CreatedAt, UpdatedAt
 ID(uint64), UserID, ListingID(→Listing), Direction(buy|sell), OrderType(market|limit|stop|stop_limit),
 Quantity(int64), FilledQuantity(int64), Price(nullable), StopPrice(nullable),
 Status(pending|executed|cancelled|rejected), AccountID, ActingEmployeeID(uint64,nullable),
+ReservationAmount(numeric18,4,nullable), ReservationCurrency(3,nullable),
+ReservationAccountID(uint64,nullable), BaseAccountID(uint64,nullable,forex-only),
+PlacementRate(numeric18,8,nullable), SagaID(string,36,indexed),
 Version(int64), CreatedAt, UpdatedAt
 ```
 `ActingEmployeeID` — nullable audit column set when an employee places a trade on behalf of a client via `POST /api/v1/orders` or `POST /api/v1/otc/admin/offers/:id/buy`.
+`ReservationAmount`/`ReservationCurrency`/`ReservationAccountID` — populated by the placement saga's `reserve_funds` step; read on cancellation and recovery. Nullable for historical orders pre-dating Phase 2.
+`BaseAccountID` — forex orders only; the user's base-currency account credited on fill. Must differ from `AccountID` (the quote-currency account where funds are reserved).
+`PlacementRate` — audit snapshot of the FX rate used at placement time for cross-currency securities orders. Nullable for same-currency orders.
+`SagaID` — UUID linking the order to its placement-saga + fill-saga rows in `saga_logs`.
+
+**OrderTransaction** — One executed portion of an order (an order may have multiple partial fills).
+```
+ID(uint64), OrderID(uint64,indexed), Quantity(int64), PricePerUnit(numeric18,4),
+TotalPrice(numeric18,4), NativeAmount(numeric18,4,nullable), NativeCurrency(3,nullable),
+ConvertedAmount(numeric18,4,nullable), AccountCurrency(3,nullable),
+FxRate(numeric18,8,nullable), ExecutedAt
+```
+Currency-conversion audit fields (`NativeAmount`, `NativeCurrency`, `ConvertedAmount`, `AccountCurrency`, `FxRate`) are populated by the fill saga's `convert_amount` step. For same-currency fills `NativeAmount` mirrors `TotalPrice` and `FxRate`/`ConvertedAmount` may be empty. `OrderTransaction.ID` is the cross-service idempotency key for `PartialSettleReservation` and the holding decrement step.
+
+**SagaLog** (stock-service) — Mirrors `transaction-service/internal/model/saga_log.go`. One row per saga step. Stock-service runs two saga types: the placement saga (scoped to `order_id`) and the fill saga (one per partial fill, scoped to `order_id` + `order_transaction_id`).
+```
+ID(uint64), SagaID(uuid,36,indexed), OrderID(uint64,indexed),
+OrderTransactionID(uint64,nullable,indexed), StepNumber(int), StepName(size:64),
+Status(pending|completed|failed|compensating|compensated,indexed),
+IsCompensation(bool,default:false), CompensationOf(uint64,nullable),
+Amount(numeric18,4,nullable), CurrencyCode(3,nullable), Payload(JSONB),
+ErrorMessage(text), RetryCount(int,default:0),
+CreatedAt, UpdatedAt, Version(int64)
+```
+Placement saga steps: `validate_listing` → ... → `reserve_funds` → `persist_order`. Fill saga steps: `record_transaction` → `convert_amount` → `settle_reservation` → `update_holding` → `credit_commission` → `publish_kafka`. Compensating rows set `IsCompensation=true` and `CompensationOf` pointing at the forward step.
 
 **SystemSetting** — Global key-value configuration (key = primary key)
 ```
@@ -1735,6 +1799,11 @@ Key(string, PK, size:64), Value(string)
 | `verification.challenge-failed` | verification-service | transaction-service | VerificationChallengeFailedMessage |
 | `notification.mobile-push` | notification-service | api-gateway | MobilePushMessage |
 | `notification.general` | account/card/credit/auth/transaction-service | notification-service | GeneralNotificationMessage |
+| `stock.order-created` | stock-service | (consumers) | OrderCreatedMessage |
+| `stock.order-approved` | stock-service | (consumers) | OrderApprovedMessage |
+| `stock.order-declined` | stock-service | (consumers) | OrderDeclinedMessage |
+| `stock.order-filled` | stock-service | (consumers) | OrderFilledMessage (payload below) |
+| `stock.order-cancelled` | stock-service | (consumers) | OrderCancelledMessage |
 
 ### General Notification Types
 
@@ -1795,6 +1864,32 @@ type LoanDisbursedMessage struct {
 }
 ```
 
+**`stock.order-filled` payload** — published synchronously by stock-service after the fill saga's final step commits. A failed fill does NOT emit this event (stuck saga rows are reconciled on recovery). The payload is a JSON object (not a typed struct in `contract/kafka/messages.go`):
+
+| Field | Type | Notes |
+|---|---|---|
+| `saga_id` | string (UUID) | Links the fill to its saga_logs rows |
+| `order_id` | uint64 | |
+| `order_txn_id` | uint64 | `OrderTransaction.ID`; idempotency key for downstream consumers |
+| `user_id` | uint64 | |
+| `direction` | string | `buy` or `sell` |
+| `security_type` | string | `stock`, `futures`, `forex`, `option` |
+| `ticker` | string | |
+| `filled_qty` | int64 | Quantity filled in this partial |
+| `remaining_qty` | int64 | Quantity left on the order |
+| `price` | string (decimal) | Execution price per unit |
+| `total_price` | string (decimal) | `filled_qty × price × contract_size` in native currency |
+| `native_amount` | string (decimal) | May be empty for same-currency fills |
+| `native_currency` | string (3) | May be empty for same-currency fills |
+| `converted_amount` | string (decimal) | Populated for cross-currency fills |
+| `account_currency` | string (3) | May be empty for same-currency fills |
+| `fx_rate` | string (decimal) | May be empty for same-currency fills |
+| `is_done` | bool | True when the order's remaining portions reach zero |
+| `kafka_key` | string | Format `order-fill-{order_txn_id}` |
+| `timestamp` | int64 | Unix seconds at publish time |
+
+Note: Phase 2 intentionally did not introduce a `stock.order-failed` topic. Failed fills stay as stuck saga rows and are retried by the saga recovery reconciler on startup rather than emitting a failure event.
+
 When adding a new message type: define the struct in `contract/kafka/messages.go`, add a topic constant string, and follow the existing naming pattern (`{Entity}{Action}Message`).
 
 ---
@@ -1831,6 +1926,8 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 | `currency_code` | `RSD`, `EUR`, `CHF`, `USD`, `GBP`, `JPY`, `CAD`, `AUD` |
 | `listing_security_type` | `stock`, `futures`, `forex`, `option` |
 | `stock_source` | `external`, `generated`, `simulator` |
+| `reservation_status` | `active`, `released`, `settled` |
+| `saga_step_status` | `pending`, `completed`, `failed`, `compensating`, `compensated` |
 | `verification_method` | `code_pull` (default), `email` — active; `qr_scan`, `number_match` — planned but not yet active |
 | `verification_status` | `pending`, `verified`, `expired`, `failed` |
 | `mobile_device_status` | `pending`, `active`, `deactivated` |
@@ -1913,6 +2010,17 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - On startup, stock-service reads `system_settings.active_stock_source` and restores that source automatically. Default source when no setting exists is `external`.
 - When the active source is `simulator`, a background goroutine refreshes prices every 3 seconds. Switching away from `simulator` cancels this goroutine via `context.Context` cancellation.
 - The `SourceAdminService.SwitchSource` RPC rejects unknown source names with `codes.InvalidArgument`.
+
+**Securities & Trading (Phase 2 bank-safe settlement):**
+- Buy orders for securities reserve funds at placement (converted to the account currency via exchange-service for cross-currency listings). Reservations are released on cancellation; released partially when an order completes under the reserved amount due to market slippage.
+- Sell orders for securities reserve holdings at placement; sells are rejected if `AvailableQuantity = Quantity - ReservedQuantity` is insufficient. Filling decrements both `Quantity` and `ReservedQuantity` atomically via the holding reservation ledger.
+- Forex orders are **buy-only**, reserve on the quote-currency account, and credit the base-currency account on fill. No holdings are created; exchange-service is NOT called — stock-service computes the debit/credit using the forex listing's own price.
+- Forex `listing.Price`/`High`/`Low` for a pair represent the price of 1 base-currency unit denominated in quote-currency. Changing this convention breaks forex settlement math.
+- Securities order commissions are charged to the bank's commission account as a separate saga step per fill. Commission failures are logged and retried by the saga recovery reconciler; the underlying trade remains valid.
+- Kafka fill events (`stock.order-filled`) are published synchronously, only after the fill saga's final step commits. Failed fills do NOT emit events.
+- Fill saga steps are idempotent: account settlements are keyed on `order_transaction_id` (`AccountReservationSettlement.order_transaction_id` unique); holding decrements are keyed on `order_transaction_id` (`HoldingReservationSettlement.order_transaction_id` unique). Recovery retries after crashes are safe no-ops if the step already committed on the target service.
+- `GetReservation` returns the authoritative list of `settled_transaction_ids` so stock-service's saga recovery can distinguish "step already committed remotely" from "step never ran."
+- Only whole-remaining-order cancellation is supported; partial-cancel-during-fill is out of scope.
 
 ## 22. Concurrency & Transaction Safety
 
