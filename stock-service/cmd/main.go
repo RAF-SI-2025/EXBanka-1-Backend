@@ -354,6 +354,10 @@ func main() {
 		sagaLogRepo, stockAccountClient, orderTxRepo, nil, bankCommissionRecipient,
 	)
 	portfolioSvc = portfolioSvc.WithForexFillService(forexFillSvc)
+	// Route stock/futures/options commission credits through the same bank-RSD
+	// recipient as forex. stateAccountNo is NOT used for commissions anymore —
+	// it's reserved for capital-gains tax in tax_service.
+	portfolioSvc = portfolioSvc.WithBankCommissionRecipient(bankCommissionRecipient)
 	// Part B: wire the per-holding transaction history repo so
 	// ListHoldingTransactions returns real data.
 	portfolioSvc = portfolioSvc.WithHoldingTxRepo(orderTxRepo)

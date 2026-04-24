@@ -316,13 +316,17 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 	if commissionAmount.Sign() > 0 {
 		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, accountCurrency,
 			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
-				// Route commission through the fill-saga AccountClient wrapper so
-				// it shares the Phase-2 credit path (memo-aware, positive-only).
-				// The deterministic idempotency key makes the saga recovery
-				// retry path safe: if the credit already committed on a prior
-				// attempt, a replay is a no-op on account-service.
+				// Commission goes to the bank's RSD account (resolved dynamically
+				// via GetBankRSDAccount when a recipient is wired). Taxes go to
+				// the state account (handled separately by tax_service). The
+				// deterministic idempotency key makes the saga recovery retry
+				// path safe: a replayed credit is a no-op on account-service.
+				feeAcct, raErr := s.commissionRecipientAccount(ctx)
+				if raErr != nil {
+					return raErr
+				}
 				memo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
-				_, ferr := s.fillClient.CreditAccount(ctx, s.stateAccountNo, commissionAmount, memo, recoveryKeyFor("credit_commission", txn.ID))
+				_, ferr := s.fillClient.CreditAccount(ctx, feeAcct, commissionAmount, memo, recoveryKeyFor("credit_commission", txn.ID))
 				return ferr
 			}); cerr != nil {
 			log.Printf("WARN: commission credit failed for order %d fill %d: %v (recovery will retry)",
@@ -372,6 +376,17 @@ func (s *PortfolioService) upsertHoldingForBuy(order *model.Order, txn *model.Or
 		AccountID:     order.AccountID,
 	}
 	return s.holdingRepo.Upsert(holding)
+}
+
+// commissionRecipientAccount returns the account number that should receive
+// fee/commission credits for THIS fill. Prefers the dynamic recipient (bank's
+// RSD account via account-service.GetBankRSDAccount) when wired, else falls
+// back to stateAccountNo for legacy test compatibility.
+func (s *PortfolioService) commissionRecipientAccount(ctx context.Context) (string, error) {
+	if s.bankCommissionRecipient != nil {
+		return s.bankCommissionRecipient.BankCommissionAccountNumber(ctx)
+	}
+	return s.stateAccountNo, nil
 }
 
 // computeCommission returns the commission amount for a trade value, using
@@ -613,12 +628,17 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 	}
 
 	// --- Step 5: credit_commission (best-effort; do NOT fail the trade on error) ---
+	// Bank fees go to the bank's RSD account (not the state/country account).
 	commissionAmount := s.computeCommission(convertedAmount)
 	if commissionAmount.Sign() > 0 {
 		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, accountCurrency,
 			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
+				feeAcct, raErr := s.commissionRecipientAccount(ctx)
+				if raErr != nil {
+					return raErr
+				}
 				commissionMemo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
-				_, ferr := s.fillClient.CreditAccount(ctx, s.stateAccountNo, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
+				_, ferr := s.fillClient.CreditAccount(ctx, feeAcct, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
 				return ferr
 			}); cerr != nil {
 			log.Printf("WARN: commission credit failed for sell order %d fill %d: %v (recovery will retry)",
