@@ -22,6 +22,12 @@ func NewPortfolioHandler(portfolioSvc *service.PortfolioService, taxSvc *service
 	return &PortfolioHandler{portfolioSvc: portfolioSvc, taxSvc: taxSvc}
 }
 
+// ListHoldings returns the quantity-only view of a user's portfolio.
+// Per-purchase price detail (average_price, current_price, profit) moved
+// to GET /me/holdings/{id}/transactions in Part B so the list stays small
+// and reflects the Part-A rollup (one row per (user, security)).
+// PublicQuantity and AccountID are still populated so the UI can surface
+// "X publicly offered" + the last-used account without a second round-trip.
 func (h *PortfolioHandler) ListHoldings(ctx context.Context, req *pb.ListHoldingsRequest) (*pb.ListHoldingsResponse, error) {
 	filter := service.HoldingFilter{
 		SecurityType: req.SecurityType,
@@ -36,18 +42,14 @@ func (h *PortfolioHandler) ListHoldings(ctx context.Context, req *pb.ListHolding
 
 	pbHoldings := make([]*pb.Holding, len(holdings))
 	for i, hld := range holdings {
-		currentPrice, _ := h.portfolioSvc.GetCurrentPrice(hld.ListingID)
-		profit := currentPrice.Sub(hld.AveragePrice).Mul(decimal.NewFromInt(hld.Quantity))
-
+		// Part C: strip average_price / current_price / profit. Use the
+		// Part-B transactions endpoint for per-purchase details.
 		pbHoldings[i] = &pb.Holding{
 			Id:             hld.ID,
 			SecurityType:   hld.SecurityType,
 			Ticker:         hld.Ticker,
 			Name:           hld.Name,
 			Quantity:       hld.Quantity,
-			AveragePrice:   hld.AveragePrice.StringFixed(2),
-			CurrentPrice:   currentPrice.StringFixed(2),
-			Profit:         profit.StringFixed(2),
 			PublicQuantity: hld.PublicQuantity,
 			AccountId:      hld.AccountID,
 			LastModified:   hld.UpdatedAt.Format("2006-01-02T15:04:05Z"),
