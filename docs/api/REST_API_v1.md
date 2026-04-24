@@ -4600,7 +4600,7 @@ GET /api/v1/securities/candles?listing_id=42&interval=1h&from=2026-04-01T00:00:0
 
 ### POST /api/v1/me/orders
 
-Create a new stock order. Ownership is derived from the JWT — the `account_id` must belong to the JWT caller. Mismatches return `403 forbidden`.
+Create a new stock / futures / forex / option order. Ownership is derived from the JWT — the `account_id` (and `base_account_id`, when provided) must belong to the JWT caller. Mismatches return `403 forbidden`.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -4608,9 +4608,10 @@ Create a new stock order. Ownership is derived from the JWT — the `account_id`
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `security_type` | string | Optional | `stock`, `futures`, `forex`, or `option`. Required on the client for forex-specific gateway validation; stock-service otherwise derives it from the listing. |
 | `listing_id` | uint64 | Yes (buy) | Listing ID (required for buy orders) |
 | `holding_id` | uint64 | Yes (sell) | Holding ID (required for sell orders) |
-| `direction` | string | Yes | `buy` or `sell` |
+| `direction` | string | Yes | `buy` or `sell` (forex orders MUST be `buy`) |
 | `order_type` | string | Yes | `market`, `limit`, `stop`, or `stop_limit` |
 | `quantity` | int64 | Yes | Must be positive |
 | `limit_value` | string | Conditional | Required for `limit` or `stop_limit` orders |
@@ -4618,6 +4619,7 @@ Create a new stock order. Ownership is derived from the JWT — the `account_id`
 | `all_or_none` | boolean | No | Default: false |
 | `margin` | boolean | No | Default: false |
 | `account_id` | uint64 | Yes (buy) | Account to debit; must belong to the JWT caller |
+| `base_account_id` | uint64 | Yes (forex) | Required when `security_type=forex`. Account that will be credited with the base currency on fill. MUST differ from `account_id`; MUST be owned by the JWT caller. Ignored for non-forex orders. |
 
 **Example Request (buy market order):**
 ```json
@@ -4630,12 +4632,27 @@ Create a new stock order. Ownership is derived from the JWT — the `account_id`
 }
 ```
 
+**Example Request (forex buy):**
+```json
+{
+  "security_type": "forex",
+  "listing_id": 501,
+  "direction": "buy",
+  "order_type": "market",
+  "quantity": 1000,
+  "account_id": 3,
+  "base_account_id": 7
+}
+```
+
 **Response 201:** Order object.
 
 | Status | Description |
 |---|---|
 | 201 | Order created |
-| 400 | Validation error |
+| 400 | Validation error — including: `forex orders must be direction=buy`, `forex orders require base_account_id`, `base_account_id must differ from account_id` |
+| 403 | Account (or base account) does not belong to JWT caller |
+| 409 | Business rule violation (e.g., insufficient available balance) |
 
 ---
 
@@ -4766,15 +4783,17 @@ Place a stock/futures/forex/option order on behalf of a named client. The gatewa
 |---|---|---|---|
 | `client_id` | uint64 | Yes | Client for whom the order is placed |
 | `account_id` | uint64 | Yes | Account to debit; must belong to `client_id` |
+| `security_type` | string | Optional | `stock`, `futures`, `forex`, or `option`. Required for forex-specific gateway validation. |
 | `listing_id` | uint64 | Yes (buy) | Listing ID (required for buy orders) |
 | `holding_id` | uint64 | Yes (sell) | Holding ID (required for sell orders) |
-| `direction` | string | Yes | `buy` or `sell` |
+| `direction` | string | Yes | `buy` or `sell` (forex orders MUST be `buy`) |
 | `order_type` | string | Yes | `market`, `limit`, `stop`, or `stop_limit` |
 | `quantity` | int64 | Yes | Must be positive |
 | `limit_value` | string | Conditional | Required for `limit` or `stop_limit` orders |
 | `stop_value` | string | Conditional | Required for `stop` or `stop_limit` orders |
 | `all_or_none` | boolean | No | Default: false |
 | `margin` | boolean | No | Default: false |
+| `base_account_id` | uint64 | Yes (forex) | Required when `security_type=forex`. Must belong to `client_id` and differ from `account_id`. |
 
 **Example Request:**
 ```json
@@ -4793,8 +4812,8 @@ Place a stock/futures/forex/option order on behalf of a named client. The gatewa
 | Status | Description |
 |---|---|
 | 201 | Order created |
-| 400 | Validation error |
-| 403 | Account does not belong to the specified client |
+| 400 | Validation error — including forex direction/`base_account_id` mismatches |
+| 403 | Account (or base account) does not belong to the specified client |
 | 403 | Missing `securities.manage` permission |
 
 ---

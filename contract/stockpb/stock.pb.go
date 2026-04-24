@@ -3209,8 +3209,12 @@ type CreateOrderRequest struct {
 	AccountId          uint64                 `protobuf:"varint,12,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	ActingEmployeeId   uint64                 `protobuf:"varint,13,opt,name=acting_employee_id,json=actingEmployeeId,proto3" json:"acting_employee_id,omitempty"`           // set when an employee places on behalf of a client
 	OnBehalfOfClientId uint64                 `protobuf:"varint,14,opt,name=on_behalf_of_client_id,json=onBehalfOfClientId,proto3" json:"on_behalf_of_client_id,omitempty"` // required when acting_employee_id is set; target client
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// base_account_id is required for forex buy orders. Points at the user's
+	// base-currency account that will be credited when the order fills. Ignored
+	// for non-forex orders.
+	BaseAccountId *uint64 `protobuf:"varint,15,opt,name=base_account_id,json=baseAccountId,proto3,oneof" json:"base_account_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateOrderRequest) Reset() {
@@ -3337,6 +3341,13 @@ func (x *CreateOrderRequest) GetActingEmployeeId() uint64 {
 func (x *CreateOrderRequest) GetOnBehalfOfClientId() uint64 {
 	if x != nil {
 		return x.OnBehalfOfClientId
+	}
+	return 0
+}
+
+func (x *CreateOrderRequest) GetBaseAccountId() uint64 {
+	if x != nil && x.BaseAccountId != nil {
+		return *x.BaseAccountId
 	}
 	return 0
 }
@@ -5837,7 +5848,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"executedAt\"n\n" +
 	"\vOrderDetail\x12\"\n" +
 	"\x05order\x18\x01 \x01(\v2\f.stock.OrderR\x05order\x12;\n" +
-	"\ftransactions\x18\x02 \x03(\v2\x17.stock.OrderTransactionR\ftransactions\"\x87\x04\n" +
+	"\ftransactions\x18\x02 \x03(\v2\x17.stock.OrderTransactionR\ftransactions\"\xc8\x04\n" +
 	"\x12CreateOrderRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1f\n" +
 	"\vsystem_type\x18\x02 \x01(\tR\n" +
@@ -5860,9 +5871,11 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\n" +
 	"account_id\x18\f \x01(\x04R\taccountId\x12,\n" +
 	"\x12acting_employee_id\x18\r \x01(\x04R\x10actingEmployeeId\x122\n" +
-	"\x16on_behalf_of_client_id\x18\x0e \x01(\x04R\x12onBehalfOfClientIdB\x0e\n" +
+	"\x16on_behalf_of_client_id\x18\x0e \x01(\x04R\x12onBehalfOfClientId\x12+\n" +
+	"\x0fbase_account_id\x18\x0f \x01(\x04H\x02R\rbaseAccountId\x88\x01\x01B\x0e\n" +
 	"\f_limit_valueB\r\n" +
-	"\v_stop_value\":\n" +
+	"\v_stop_valueB\x12\n" +
+	"\x10_base_account_id\":\n" +
 	"\x0fGetOrderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\"\xb4\x01\n" +

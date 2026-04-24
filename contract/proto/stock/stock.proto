@@ -409,6 +409,10 @@ message CreateOrderRequest {
   uint64 account_id = 12;
   uint64 acting_employee_id    = 13;  // set when an employee places on behalf of a client
   uint64 on_behalf_of_client_id = 14;  // required when acting_employee_id is set; target client
+  // base_account_id is required for forex buy orders. Points at the user's
+  // base-currency account that will be credited when the order fills. Ignored
+  // for non-forex orders.
+  optional uint64 base_account_id = 15;
 }
 
 message GetOrderRequest {

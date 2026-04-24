@@ -7911,6 +7911,74 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/me/orders": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Validates forex-specific constraints (forex must be buy, requires base_account_id, base_account_id must differ from account_id).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "orders"
+                ],
+                "summary": "Place a securities order (stock/futures/forex/option) for the authenticated user",
+                "parameters": [
+                    {
+                        "description": "Order. security_type is optional ('stock'|'futures'|'forex'|'option'); required for forex validation. base_account_id is required for forex buy orders.",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "validation_error — forex orders must be direction=buy; forex orders require base_account_id; base_account_id must differ from account_id",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "business_rule_violation — insufficient available balance",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/me/transfers/preview": {
             "post": {
                 "security": [

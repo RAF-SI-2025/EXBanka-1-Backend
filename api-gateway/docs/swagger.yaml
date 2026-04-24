@@ -5975,6 +5975,56 @@ paths:
       summary: Get unread notification count
       tags:
       - notifications
+  /api/v1/me/orders:
+    post:
+      consumes:
+      - application/json
+      description: Validates forex-specific constraints (forex must be buy, requires
+        base_account_id, base_account_id must differ from account_id).
+      parameters:
+      - description: Order. security_type is optional ('stock'|'futures'|'forex'|'option');
+          required for forex validation. base_account_id is required for forex buy
+          orders.
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: validation_error — forex orders must be direction=buy; forex
+            orders require base_account_id; base_account_id must differ from account_id
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: business_rule_violation — insufficient available balance
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Place a securities order (stock/futures/forex/option) for the authenticated
+        user
+      tags:
+      - orders
   /api/v1/me/transfers/preview:
     post:
       consumes:
