@@ -37,6 +37,13 @@ func (r *OrderRepository) Update(order *model.Order) error {
 	return nil
 }
 
+// Delete removes an order by id. Used by placement-saga compensation when a
+// later step fails after the order row was persisted. No-op if the row does
+// not exist (returns nil) so compensation paths can be called unconditionally.
+func (r *OrderRepository) Delete(id uint64) error {
+	return r.db.Delete(&model.Order{}, id).Error
+}
+
 func (r *OrderRepository) ListByUser(userID uint64, filter OrderFilter) ([]model.Order, int64, error) {
 	var orders []model.Order
 	var total int64

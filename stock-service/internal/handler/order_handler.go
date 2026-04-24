@@ -60,17 +60,31 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 		targetUserID = req.OnBehalfOfClientId
 	}
 
-	order, err := h.orderSvc.CreateOrder(
-		targetUserID, req.SystemType, req.ListingId, holdingID,
-		req.Direction, req.OrderType, req.Quantity,
-		limitVal, stopVal, req.AllOrNone, req.Margin, req.AccountId,
-		actingEmployeeID,
-	)
+	order, err := h.orderSvc.CreateOrder(ctx, service.CreateOrderRequest{
+		UserID:           targetUserID,
+		SystemType:       req.SystemType,
+		ListingID:        req.ListingId,
+		HoldingID:        holdingID,
+		Direction:        req.Direction,
+		OrderType:        req.OrderType,
+		Quantity:         req.Quantity,
+		LimitValue:       limitVal,
+		StopValue:        stopVal,
+		AllOrNone:        req.AllOrNone,
+		Margin:           req.Margin,
+		AccountID:        req.AccountId,
+		ActingEmployeeID: actingEmployeeID,
+		// BaseAccountID intentionally nil — the proto hasn't been extended yet;
+		// forex orders placed via the current proto will be rejected by the
+		// service's forex-gating check until the gateway + proto are updated.
+		BaseAccountID: nil,
+	})
 	if err != nil {
 		return nil, mapOrderError(err)
 	}
 
-	// If auto-approved, start execution
+	// Start execution for any approved order (placement saga now always
+	// flips to "approved" on success).
 	if order.Status == "approved" {
 		h.execEngine.StartOrderExecution(ctx, order.ID)
 	}
@@ -147,6 +161,12 @@ func (h *OrderHandler) DeclineOrder(ctx context.Context, req *pb.DeclineOrderReq
 // --- Mapping helpers ---
 
 func mapOrderError(err error) error {
+	// If the error is already a gRPC status error (e.g., from the placement
+	// saga in CreateOrder), propagate it verbatim so the gateway maps the
+	// correct HTTP code.
+	if _, ok := status.FromError(err); ok && status.Code(err) != codes.Unknown {
+		return err
+	}
 	switch err.Error() {
 	case "order not found", "listing not found":
 		return status.Error(codes.NotFound, err.Error())

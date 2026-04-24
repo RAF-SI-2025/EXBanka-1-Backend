@@ -25,6 +25,7 @@ import (
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/config"
+	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/handler"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
@@ -283,7 +284,18 @@ func main() {
 
 	// Order services
 	securityLookup := service.NewSecurityLookupAdapter(futuresRepo)
-	orderSvc := service.NewOrderService(orderRepo, orderTxRepo, listingRepo, settingRepo, securityLookup, producer)
+
+	// Placement-saga dependencies (Task 12).
+	sagaLogRepo := repository.NewSagaLogRepository(db)
+	holdingReservationRepo := repository.NewHoldingReservationRepository(db)
+	holdingReservationSvc := service.NewHoldingReservationService(db, holdingRepo, holdingReservationRepo)
+	stockAccountClient := stockgrpc.NewAccountClient(accountClient)
+
+	orderSvc := service.NewOrderService(
+		orderRepo, orderTxRepo, listingRepo, settingRepo, securityLookup, producer,
+		sagaLogRepo, stockAccountClient, exchangeClient, holdingReservationSvc,
+		forexRepo, nil, // nil settings → uses defaults (5% slippage, 0.25% commission)
+	)
 	execEngine := service.NewOrderExecutionEngine(ctx, orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
 
 	// --- Seed securities ---

@@ -27,6 +27,7 @@ func (r *fakeBaseCtxOrderRepo) Update(o *model.Order) error {
 	r.order = o
 	return nil
 }
+func (r *fakeBaseCtxOrderRepo) Delete(_ uint64) error { return nil }
 func (r *fakeBaseCtxOrderRepo) ListByUser(_ uint64, _ repository.OrderFilter) ([]model.Order, int64, error) {
 	return nil, 0, nil
 }

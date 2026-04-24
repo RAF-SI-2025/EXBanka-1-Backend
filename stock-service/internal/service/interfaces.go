@@ -103,6 +103,7 @@ type OrderRepo interface {
 	Create(order *model.Order) error
 	GetByID(id uint64) (*model.Order, error)
 	Update(order *model.Order) error
+	Delete(id uint64) error
 	ListByUser(userID uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
 	ListAll(filter repository.OrderFilter) ([]model.Order, int64, error)
 	ListActiveApproved() ([]model.Order, error)
