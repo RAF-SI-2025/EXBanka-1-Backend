@@ -79,7 +79,7 @@ Fix:
     security.
 
 
-3. Stock / futures / forex buy orders never debit the account (money is not moved at all)  [FIXED 2026-04-23 — Phase 1, context lifecycle; money movement still best-effort until Phase 2]
+3. Stock / futures / forex buy orders never debit the account (money is not moved at all)  [FIXED 2026-04-24 — Phase 1 (ctx) + Phase 2 (reservation/saga money movement)]
 ------------------------------------------------------------------------------------------
 Severity: CRITICAL — this is the bug you are observing: "when I buy
 securities I don't lose money". It is not a safety bug in isolation, it
@@ -135,7 +135,7 @@ Fix:
     test deterministically.
 
 
-4. Once bug #3 is fixed, the fill path itself is not bank-safe
+4. Once bug #3 is fixed, the fill path itself is not bank-safe  [FIXED 2026-04-24 — Phase 2: reservations, saga log, currency conversion, forex-as-exchange, sync Kafka-after-commit, recovery reconciler]
 --------------------------------------------------------------
 Severity: CRITICAL — must be resolved before allowing real settlement.
 These issues are currently masked by bug #3 (nothing runs, so nothing
