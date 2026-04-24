@@ -130,7 +130,7 @@ type HoldingRepo interface {
 	GetByID(id uint64) (*model.Holding, error)
 	Update(holding *model.Holding) error
 	Delete(id uint64) error
-	GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64, accountID uint64) (*model.Holding, error)
+	GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64) (*model.Holding, error)
 	ListByUser(userID uint64, systemType string, filter HoldingFilter) ([]model.Holding, int64, error)
 	ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error)
 	// FindOldestLongOptionHolding returns the oldest (by created_at) holding with

@@ -97,8 +97,15 @@ func (s *OTCService) BuyOffer(
 		return nil, errors.New("failed to debit buyer account: " + err.Error())
 	}
 
-	// Credit seller's account: total
-	sellerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: sellerHolding.AccountID})
+	// Credit seller's account: total. Holdings aggregate across accounts and
+	// AccountID is the audit "last-used" account — use that as the proceeds
+	// destination. A seller whose holding has no recorded account cannot
+	// participate in OTC; surface that explicitly.
+	if sellerHolding.AccountID == 0 {
+		return nil, errors.New("seller holding has no recorded account for OTC")
+	}
+	sellerAccountID := sellerHolding.AccountID
+	sellerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: sellerAccountID})
 	if err != nil {
 		// Compensate: re-credit buyer since debit succeeded
 		_, _ = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
@@ -136,7 +143,7 @@ func (s *OTCService) BuyOffer(
 		SellPricePerUnit: pricePerUnit,
 		TotalGain:        gain,
 		Currency:         listing.Exchange.Currency,
-		AccountID:        sellerHolding.AccountID,
+		AccountID:        sellerAccountID,
 		TaxYear:          time.Now().Year(),
 		TaxMonth:         int(time.Now().Month()),
 	}

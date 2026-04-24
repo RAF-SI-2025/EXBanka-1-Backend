@@ -8,7 +8,10 @@ import (
 )
 
 // Holding represents a user's ownership of a security.
-// Holdings are aggregated per (user_id, security_type, security_id, account_id).
+// Holdings are aggregated per (user_id, system_type, security_type, security_id)
+// — one row per user per security, regardless of which account the user bought
+// from. AccountID is an optional "last-used" audit field populated by the most
+// recent buy fill; it is not part of the aggregation key.
 type Holding struct {
 	ID             uint64          `gorm:"primaryKey;autoIncrement" json:"id"`
 	UserID         uint64          `gorm:"not null;index:idx_holding_user" json:"user_id"`
@@ -26,7 +29,12 @@ type Holding struct {
 	// ReservedQuantity is the running total of units locked by active sell-side
 	// HoldingReservations. AvailableQuantity = Quantity - ReservedQuantity.
 	ReservedQuantity int64 `gorm:"not null;default:0" json:"reserved_quantity"`
-	AccountID      uint64          `gorm:"not null" json:"account_id"`
+	// AccountID is an audit pointer at the account used by the most recent
+	// buy fill. Not part of the aggregation key: a single user buying the
+	// same security from two accounts still produces one row. Nullable in
+	// practice (zero value treated as unknown) — production always populates
+	// it but tests/reservations may leave it as zero.
+	AccountID      uint64          `gorm:"index" json:"account_id,omitempty"`
 	Version        int64           `gorm:"not null;default:1" json:"-"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`

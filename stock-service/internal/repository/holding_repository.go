@@ -20,14 +20,17 @@ func NewHoldingRepository(db *gorm.DB) *HoldingRepository {
 
 // Upsert creates a new holding or updates an existing one with weighted average price.
 // Uses SELECT FOR UPDATE to prevent race conditions on concurrent fills.
-// The aggregation key is (user_id, system_type, security_type, security_id, account_id)
-// so client and employee holdings with colliding user_ids stay separated.
+// The aggregation key is (user_id, system_type, security_type, security_id)
+// so a user buying the same security from two different accounts aggregates
+// into a single row. The incoming holding's AccountID is treated as a
+// last-used audit field and overwrites the existing row's value (but never
+// participates in the lookup).
 func (r *HoldingRepository) Upsert(holding *model.Holding) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var existing model.Holding
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ? AND account_id = ?",
-				holding.UserID, holding.SystemType, holding.SecurityType, holding.SecurityID, holding.AccountID).
+			Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ?",
+				holding.UserID, holding.SystemType, holding.SecurityType, holding.SecurityID).
 			First(&existing).Error
 
 		if err == gorm.ErrRecordNotFound {
@@ -49,6 +52,12 @@ func (r *HoldingRepository) Upsert(holding *model.Holding) error {
 		existing.ListingID = holding.ListingID
 		existing.Ticker = holding.Ticker
 		existing.Name = holding.Name
+		// Update the audit "last account used" pointer when the caller
+		// supplied one (zero is treated as "don't overwrite" so a
+		// reservation-only update doesn't wipe the last-used account).
+		if holding.AccountID != 0 {
+			existing.AccountID = holding.AccountID
+		}
 
 		result := tx.Save(&existing)
 		if result.Error != nil {
@@ -86,10 +95,13 @@ func (r *HoldingRepository) Delete(id uint64) error {
 	return r.db.Delete(&model.Holding{}, id).Error
 }
 
-func (r *HoldingRepository) GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64, accountID uint64) (*model.Holding, error) {
+// GetByUserAndSecurity returns the aggregated holding for a user's
+// (system_type, security_type, security_id) tuple. Since holdings are
+// aggregated across accounts, the account_id is no longer part of the key.
+func (r *HoldingRepository) GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64) (*model.Holding, error) {
 	var holding model.Holding
-	err := r.db.Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ? AND account_id = ?",
-		userID, systemType, securityType, securityID, accountID).
+	err := r.db.Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ?",
+		userID, systemType, securityType, securityID).
 		First(&holding).Error
 	if err != nil {
 		return nil, err

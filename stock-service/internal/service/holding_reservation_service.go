@@ -72,11 +72,15 @@ type PartialSettleHoldingResult struct {
 // orderID: retries with the same orderID return the existing reservation
 // without double-counting. Returns codes.FailedPrecondition when the holding
 // does not exist or available quantity is insufficient.
+//
+// Post-rollup (Part A): holdings aggregate per (user_id, system_type,
+// security_type, security_id). The lookup no longer filters by account_id;
+// proceeds on a sell fill are credited to the order's AccountID independently.
 func (s *HoldingReservationService) Reserve(
 	ctx context.Context,
 	userID uint64,
 	systemType, securityType string,
-	securityID, accountID, orderID uint64,
+	securityID, orderID uint64,
 	qty int64,
 ) (*ReserveHoldingResult, error) {
 	if qty <= 0 {
@@ -86,8 +90,8 @@ func (s *HoldingReservationService) Reserve(
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var holding model.Holding
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ? AND account_id = ?",
-				userID, systemType, securityType, securityID, accountID).
+			Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ?",
+				userID, systemType, securityType, securityID).
 			First(&holding).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

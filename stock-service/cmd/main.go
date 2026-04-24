@@ -71,7 +71,13 @@ func main() {
 	// Composite unique indexes
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_security_unique ON listings(security_id, security_type)")
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_price_listing_date ON listing_daily_price_infos(listing_id, date)")
-	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_unique ON holdings(user_id, security_type, security_id, account_id)")
+	// Drop the pre-rollup unique index (if present) before recreating the new
+	// aggregation-key index. The old index included account_id, which caused
+	// buys from two different accounts for the same user+security to create
+	// two rows and required a holding_id on every sell. The new index keys on
+	// (user_id, system_type, security_type, security_id) only.
+	db.Exec("DROP INDEX IF EXISTS idx_holding_unique")
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_per_security ON holdings(user_id, system_type, security_type, security_id)")
 
 	// Durable data-normalization: exchange-service only accepts 8 ISO currency
 	// codes (RSD, EUR, CHF, USD, GBP, JPY, CAD, AUD). Any other code on a

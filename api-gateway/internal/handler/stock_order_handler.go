@@ -99,9 +99,22 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 			return
 		}
 	}
-	if direction == "sell" && req.HoldingID == 0 {
-		apiError(c, 400, ErrValidation, "holding_id is required for sell orders")
-		return
+	// Post-rollup (Part A): holdings aggregate per (user, security) so
+	// holding_id is no longer required for sell orders. The request's
+	// account_id is the proceeds destination; ownership is enforced below.
+	if direction == "sell" {
+		if req.AccountID == 0 {
+			apiError(c, 400, ErrValidation, "account_id is required for sell orders (proceeds destination)")
+			return
+		}
+		acctResp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		if ownErr := enforceOwnership(c, acctResp.OwnerId); ownErr != nil {
+			return
+		}
 	}
 	if (orderType == "limit" || orderType == "stop_limit") && req.LimitValue == nil {
 		apiError(c, 400, ErrValidation, "limit_value is required for limit/stop_limit orders")
@@ -311,8 +324,11 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 			return
 		}
 	}
-	if direction == "sell" && req.HoldingID == 0 {
-		apiError(c, 400, ErrValidation, "holding_id is required for sell orders")
+	// Post-rollup (Part A): holdings aggregate per (user, security) so
+	// holding_id is no longer required for sell orders. account_id is the
+	// proceeds destination and is verified to belong to the client below.
+	if direction == "sell" && req.AccountID == 0 {
+		apiError(c, 400, ErrValidation, "account_id is required for sell orders (proceeds destination)")
 		return
 	}
 	if (orderType == "limit" || orderType == "stop_limit") && req.LimitValue == nil {
@@ -340,8 +356,10 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 		return
 	}
 
-	// Verify the account belongs to the named client (buy path only; sell uses holding).
-	if direction == "buy" {
+	// Verify the account belongs to the named client. Post-rollup (Part A)
+	// sell orders also carry an account_id (proceeds destination) which must
+	// belong to the client.
+	if direction == "buy" || direction == "sell" {
 		acctResp, acctErr := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
 		if acctErr != nil {
 			handleGRPCError(c, acctErr)

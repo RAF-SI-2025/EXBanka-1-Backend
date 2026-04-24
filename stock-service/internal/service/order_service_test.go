@@ -504,7 +504,6 @@ type holdingReserveCall struct {
 	SystemType   string
 	SecurityType string
 	SecurityID   uint64
-	AccountID    uint64
 	OrderID      uint64
 	Qty          int64
 }
@@ -514,13 +513,13 @@ func newFakeHoldingReservation() *fakeHoldingReservation {
 }
 
 func (f *fakeHoldingReservation) Reserve(_ context.Context, userID uint64, systemType, securityType string,
-	securityID, accountID, orderID uint64, qty int64) (*ReserveHoldingResult, error) {
+	securityID, orderID uint64, qty int64) (*ReserveHoldingResult, error) {
 	if f.reserveErr != nil {
 		return nil, f.reserveErr
 	}
 	f.reserveCalls = append(f.reserveCalls, holdingReserveCall{
 		UserID: userID, SystemType: systemType, SecurityType: securityType,
-		SecurityID: securityID, AccountID: accountID, OrderID: orderID, Qty: qty,
+		SecurityID: securityID, OrderID: orderID, Qty: qty,
 	})
 	return &ReserveHoldingResult{ReservationID: orderID, ReservedQuantity: qty, AvailableQuantity: 0}, nil
 }

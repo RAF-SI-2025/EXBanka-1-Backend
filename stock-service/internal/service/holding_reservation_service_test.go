@@ -60,17 +60,18 @@ func newHoldingReservationFixture(t *testing.T) (*HoldingReservationService, *re
 	return svc, holdingRepo, h
 }
 
-// orderKeys captures the standard "client=1, stock, securityID=10, acct=1" keys
-// used across every test so we can pass them with less line noise.
-func orderKeys() (userID uint64, systemType, securityType string, securityID, accountID uint64) {
-	return 1, "client", "stock", 10, 1
+// orderKeys captures the standard "client=1, stock, securityID=10" keys
+// used across every test so we can pass them with less line noise. The
+// accountID slot was removed post-Part-A (holdings aggregate across accounts).
+func orderKeys() (userID uint64, systemType, securityType string, securityID uint64) {
+	return 1, "client", "stock", 10
 }
 
 func TestHoldingReservation_Reserve_HappyPath(t *testing.T) {
 	svc, holdingRepo, seeded := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 
-	out, err := svc.Reserve(context.Background(), userID, systemType, securityType, securityID, accountID, 500, 30)
+	out, err := svc.Reserve(context.Background(), userID, systemType, securityType, securityID, 500, 30)
 	require.NoError(t, err)
 	if out.ReservedQuantity != 30 {
 		t.Errorf("ReservedQuantity: got %d want 30", out.ReservedQuantity)
@@ -90,12 +91,12 @@ func TestHoldingReservation_Reserve_HappyPath(t *testing.T) {
 
 func TestHoldingReservation_Reserve_Idempotent(t *testing.T) {
 	svc, holdingRepo, seeded := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 	ctx := context.Background()
 
-	r1, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, accountID, 500, 30)
+	r1, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, 500, 30)
 	require.NoError(t, err)
-	r2, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, accountID, 500, 30)
+	r2, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, 500, 30)
 	require.NoError(t, err)
 	if r1.ReservationID != r2.ReservationID {
 		t.Errorf("retry produced different reservation id (%d vs %d)", r1.ReservationID, r2.ReservationID)
@@ -109,9 +110,9 @@ func TestHoldingReservation_Reserve_Idempotent(t *testing.T) {
 
 func TestHoldingReservation_Reserve_InsufficientAvailable(t *testing.T) {
 	svc, _, _ := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 
-	_, err := svc.Reserve(context.Background(), userID, systemType, securityType, securityID, accountID, 500, 200)
+	_, err := svc.Reserve(context.Background(), userID, systemType, securityType, securityID, 500, 200)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -125,7 +126,7 @@ func TestHoldingReservation_Reserve_HoldingMissing(t *testing.T) {
 	svc, _, _ := newHoldingReservationFixture(t)
 
 	// Different user → no matching holding.
-	_, err := svc.Reserve(context.Background(), 9999, "client", "stock", 10, 1, 500, 10)
+	_, err := svc.Reserve(context.Background(), 9999, "client", "stock", 10, 500, 10)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -137,10 +138,10 @@ func TestHoldingReservation_Reserve_HoldingMissing(t *testing.T) {
 
 func TestHoldingReservation_PartialSettle_HappyPath(t *testing.T) {
 	svc, holdingRepo, seeded := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 	ctx := context.Background()
 
-	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, accountID, 500, 50)
+	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, 500, 50)
 	require.NoError(t, err)
 
 	out, err := svc.PartialSettle(ctx, 500, 9001, 20)
@@ -167,10 +168,10 @@ func TestHoldingReservation_PartialSettle_HappyPath(t *testing.T) {
 
 func TestHoldingReservation_PartialSettle_IdempotentOnTxnID(t *testing.T) {
 	svc, holdingRepo, seeded := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 	ctx := context.Background()
 
-	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, accountID, 500, 50)
+	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, 500, 50)
 	require.NoError(t, err)
 
 	_, err = svc.PartialSettle(ctx, 500, 9001, 20)
@@ -192,10 +193,10 @@ func TestHoldingReservation_PartialSettle_IdempotentOnTxnID(t *testing.T) {
 
 func TestHoldingReservation_PartialSettle_OverReservation(t *testing.T) {
 	svc, holdingRepo, seeded := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 	ctx := context.Background()
 
-	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, accountID, 500, 30)
+	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, 500, 30)
 	require.NoError(t, err)
 
 	_, err = svc.PartialSettle(ctx, 500, 9001, 50)
@@ -219,10 +220,10 @@ func TestHoldingReservation_PartialSettle_OverReservation(t *testing.T) {
 
 func TestHoldingReservation_PartialSettle_FullyFills_TransitionsToSettled(t *testing.T) {
 	svc, _, _ := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 	ctx := context.Background()
 
-	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, accountID, 500, 30)
+	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, 500, 30)
 	require.NoError(t, err)
 	_, err = svc.PartialSettle(ctx, 500, 9001, 30)
 	require.NoError(t, err)
@@ -237,10 +238,10 @@ func TestHoldingReservation_PartialSettle_FullyFills_TransitionsToSettled(t *tes
 
 func TestHoldingReservation_Release_ActiveReservation(t *testing.T) {
 	svc, holdingRepo, seeded := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 	ctx := context.Background()
 
-	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, accountID, 500, 50)
+	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, 500, 50)
 	require.NoError(t, err)
 
 	rel, err := svc.Release(ctx, 500)
@@ -260,10 +261,10 @@ func TestHoldingReservation_Release_ActiveReservation(t *testing.T) {
 
 func TestHoldingReservation_Release_Idempotent(t *testing.T) {
 	svc, _, _ := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 	ctx := context.Background()
 
-	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, accountID, 500, 50)
+	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, 500, 50)
 	require.NoError(t, err)
 	if _, err := svc.Release(ctx, 500); err != nil {
 		t.Fatal(err)
@@ -279,10 +280,10 @@ func TestHoldingReservation_Release_Idempotent(t *testing.T) {
 
 func TestHoldingReservation_Release_PartialThenRelease(t *testing.T) {
 	svc, holdingRepo, seeded := newHoldingReservationFixture(t)
-	userID, systemType, securityType, securityID, accountID := orderKeys()
+	userID, systemType, securityType, securityID := orderKeys()
 	ctx := context.Background()
 
-	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, accountID, 500, 50)
+	_, err := svc.Reserve(ctx, userID, systemType, securityType, securityID, 500, 50)
 	require.NoError(t, err)
 	_, err = svc.PartialSettle(ctx, 500, 9001, 20)
 	require.NoError(t, err)

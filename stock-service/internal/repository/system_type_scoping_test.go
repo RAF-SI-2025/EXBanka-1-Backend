@@ -140,6 +140,8 @@ func TestOrderRepo_GetByIDWithOwner_ChecksSystemType(t *testing.T) {
 }
 
 // sampleHolding returns a minimally-valid Holding row for seeding tests.
+// The accountID arg is stored as the audit "last-used" account; it is not
+// part of the aggregation key (see holding_repository.Upsert).
 func sampleHolding(userID uint64, systemType, securityType string, securityID uint64, accountID uint64, qty int64) *model.Holding {
 	return &model.Holding{
 		UserID:        userID,
@@ -201,7 +203,7 @@ func TestHoldingRepo_GetByUserAndSecurity_ChecksSystemType(t *testing.T) {
 	}
 
 	// Correct match.
-	got, err := repo.GetByUserAndSecurity(5, "employee", "stock", 100, 1)
+	got, err := repo.GetByUserAndSecurity(5, "employee", "stock", 100)
 	if err != nil {
 		t.Fatalf("expected success: %v", err)
 	}
@@ -210,7 +212,7 @@ func TestHoldingRepo_GetByUserAndSecurity_ChecksSystemType(t *testing.T) {
 	}
 
 	// Wrong system_type: NotFound.
-	if _, err := repo.GetByUserAndSecurity(5, "client", "stock", 100, 1); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := repo.GetByUserAndSecurity(5, "client", "stock", 100); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Errorf("expected ErrRecordNotFound for cross-system access, got: %v", err)
 	}
 }
@@ -270,19 +272,61 @@ func TestHoldingRepo_Upsert_SeparatesClientAndEmployee(t *testing.T) {
 		t.Errorf("expected 2 rows after upserts, got %d", count)
 	}
 
-	gotEmp, err := repo.GetByUserAndSecurity(5, "employee", "stock", 100, 1)
+	gotEmp, err := repo.GetByUserAndSecurity(5, "employee", "stock", 100)
 	if err != nil {
 		t.Fatalf("get employee: %v", err)
 	}
 	if gotEmp.Quantity != 10 {
 		t.Errorf("expected employee quantity unchanged at 10, got %d", gotEmp.Quantity)
 	}
-	gotClient, err := repo.GetByUserAndSecurity(5, "client", "stock", 100, 1)
+	gotClient, err := repo.GetByUserAndSecurity(5, "client", "stock", 100)
 	if err != nil {
 		t.Fatalf("get client: %v", err)
 	}
 	if gotClient.Quantity != 20 {
 		t.Errorf("expected client quantity 20, got %d", gotClient.Quantity)
+	}
+}
+
+// TestHoldingRepo_Upsert_AggregatesAcrossAccounts verifies the Part-A
+// rollup: two buys for the same (user, system_type, security_type, security_id)
+// from different accounts collapse into a single holding row.
+func TestHoldingRepo_Upsert_AggregatesAcrossAccounts(t *testing.T) {
+	db := newSystemTypeScopingDB(t)
+	// Enforce the production aggregation key on the test DB (AutoMigrate
+	// alone doesn't add composite indexes). Recreate here so the race a
+	// production cluster would see is actually triggered.
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_per_security ON holdings(user_id, system_type, security_type, security_id)")
+	repo := NewHoldingRepository(db)
+
+	// Buy 10 AAPL from account A.
+	if err := repo.Upsert(sampleHolding(7, "client", "stock", 100, 1, 10)); err != nil {
+		t.Fatalf("upsert from acct 1: %v", err)
+	}
+	// Buy 10 more AAPL from account B — a different account.
+	if err := repo.Upsert(sampleHolding(7, "client", "stock", 100, 2, 10)); err != nil {
+		t.Fatalf("upsert from acct 2: %v", err)
+	}
+
+	// Exactly one row should exist, with quantity=20.
+	var count int64
+	if err := db.Model(&model.Holding{}).Where("user_id = ? AND system_type = ?", 7, "client").Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 aggregated row, got %d", count)
+	}
+
+	h, err := repo.GetByUserAndSecurity(7, "client", "stock", 100)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if h.Quantity != 20 {
+		t.Errorf("expected aggregated quantity 20, got %d", h.Quantity)
+	}
+	// The last-used account audit field should follow the most recent buy.
+	if h.AccountID != 2 {
+		t.Errorf("expected last-used account=2, got %d", h.AccountID)
 	}
 }
 

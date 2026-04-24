@@ -121,7 +121,7 @@ func TestOTC_BuyOffer_Success(t *testing.T) {
 	}
 
 	// Verify buyer got a holding
-	buyerHolding, err := mocks.holdingRepo.GetByUserAndSecurity(20, "client", "stock", 100, 5)
+	buyerHolding, err := mocks.holdingRepo.GetByUserAndSecurity(20, "client", "stock", 100)
 	if err != nil {
 		t.Fatalf("buyer holding not found: %v", err)
 	}

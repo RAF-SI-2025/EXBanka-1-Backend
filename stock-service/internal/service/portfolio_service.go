@@ -614,7 +614,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 // leave the position.
 func (s *PortfolioService) recordCapitalGain(order *model.Order, txn *model.OrderTransaction, listing *model.Listing) error {
 	holding, err := s.holdingRepo.GetByUserAndSecurity(
-		order.UserID, order.SystemType, order.SecurityType, listing.SecurityID, order.AccountID,
+		order.UserID, order.SystemType, order.SecurityType, listing.SecurityID,
 	)
 	if err != nil {
 		// PartialSettle deletes the row when Quantity hits zero; in that
@@ -659,7 +659,7 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 	}
 
 	holding, err := s.holdingRepo.GetByUserAndSecurity(
-		order.UserID, order.SystemType, order.SecurityType, listing.SecurityID, order.AccountID,
+		order.UserID, order.SystemType, order.SecurityType, listing.SecurityID,
 	)
 	if err != nil {
 		return errors.New("holding not found for sell order")
@@ -851,7 +851,7 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64, systemType s
 		if err != nil {
 			return nil, err
 		}
-		stockHolding, err := s.holdingRepo.GetByUserAndSecurity(userID, holding.SystemType, "stock", option.StockID, holding.AccountID)
+		stockHolding, err := s.holdingRepo.GetByUserAndSecurity(userID, holding.SystemType, "stock", option.StockID)
 		if err != nil || stockHolding.Quantity < sharesAffected {
 			return nil, errors.New("insufficient stock holdings to exercise put option")
 		}

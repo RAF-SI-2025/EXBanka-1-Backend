@@ -39,12 +39,13 @@ func (m *mockHoldingRepo) Upsert(holding *model.Holding) error {
 		m.failNextUpsert = nil
 		return err
 	}
-	// Find existing by (user_id, security_type, security_id, account_id)
+	// Find existing by (user_id, system_type, security_type, security_id) —
+	// holdings aggregate across accounts per Part A.
 	for _, h := range m.holdings {
 		if h.UserID == holding.UserID &&
+			h.SystemType == holding.SystemType &&
 			h.SecurityType == holding.SecurityType &&
-			h.SecurityID == holding.SecurityID &&
-			h.AccountID == holding.AccountID {
+			h.SecurityID == holding.SecurityID {
 			// Weighted average price calculation (mirrors real repo)
 			oldTotal := h.AveragePrice.Mul(decimal.NewFromInt(h.Quantity))
 			newTotal := holding.AveragePrice.Mul(decimal.NewFromInt(holding.Quantity))
@@ -56,6 +57,10 @@ func (m *mockHoldingRepo) Upsert(holding *model.Holding) error {
 			h.ListingID = holding.ListingID
 			h.Ticker = holding.Ticker
 			h.Name = holding.Name
+			// Refresh last-used account audit field when provided.
+			if holding.AccountID != 0 {
+				h.AccountID = holding.AccountID
+			}
 			*holding = *h
 			return nil
 		}
@@ -105,9 +110,9 @@ func (m *mockHoldingRepo) Delete(id uint64) error {
 	return nil
 }
 
-func (m *mockHoldingRepo) GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64, accountID uint64) (*model.Holding, error) {
+func (m *mockHoldingRepo) GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64) (*model.Holding, error) {
 	for _, h := range m.holdings {
-		if h.UserID == userID && h.SystemType == systemType && h.SecurityType == securityType && h.SecurityID == securityID && h.AccountID == accountID {
+		if h.UserID == userID && h.SystemType == systemType && h.SecurityType == securityType && h.SecurityID == securityID {
 			cp := *h
 			return &cp, nil
 		}
@@ -169,6 +174,7 @@ func (m *mockHoldingRepo) addHolding(h *model.Holding) {
 	stored := *h
 	m.holdings[h.ID] = &stored
 }
+
 
 // mockCapitalGainRepo records created capital gains.
 type mockCapitalGainRepo struct {
@@ -492,7 +498,7 @@ func TestPortfolio_ProcessBuyFill_NewHolding(t *testing.T) {
 	}
 
 	// Verify holding was created
-	holding, err := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
+	holding, err := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100)
 	if err != nil {
 		t.Fatalf("holding not found: %v", err)
 	}
@@ -580,7 +586,7 @@ func TestPortfolio_ProcessBuyFill_WeightedAverage(t *testing.T) {
 	}
 
 	// Weighted average: (10*50 + 10*60) / (10+10) = 1100/20 = 55
-	holding, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
+	holding, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100)
 	if holding.Quantity != 20 {
 		t.Errorf("expected quantity 20, got %d", holding.Quantity)
 	}
@@ -712,7 +718,7 @@ func TestPortfolio_ProcessSellFill_PartialSell(t *testing.T) {
 	}
 
 	// Holding should decrease from 20 to 15
-	holding, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
+	holding, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100)
 	if holding.Quantity != 15 {
 		t.Errorf("expected quantity 15, got %d", holding.Quantity)
 	}
@@ -1289,7 +1295,7 @@ func TestPortfolio_ExerciseOption_CallITM(t *testing.T) {
 	}
 
 	// Stock holding should be created with strike price as avg cost
-	stockHolding, err := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 500, 1)
+	stockHolding, err := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 500)
 	if err != nil {
 		t.Fatalf("stock holding not found: %v", err)
 	}
@@ -2324,7 +2330,7 @@ func TestProcessBuyFill_SameCurrency_HappyPath(t *testing.T) {
 	}
 
 	// Holding upserted with the txn quantity.
-	h, err := mocks.holdingRepo.GetByUserAndSecurity(77, "employee", "stock", 100, 1)
+	h, err := mocks.holdingRepo.GetByUserAndSecurity(77, "employee", "stock", 100)
 	if err != nil {
 		t.Fatalf("holding not created: %v", err)
 	}
@@ -2497,7 +2503,7 @@ func TestProcessBuyFill_CommissionFails_TradeStillSucceeds(t *testing.T) {
 	}
 
 	// Holding still updated.
-	h, err := mocks.holdingRepo.GetByUserAndSecurity(77, "employee", "stock", 100, 1)
+	h, err := mocks.holdingRepo.GetByUserAndSecurity(77, "employee", "stock", 100)
 	if err != nil || h.Quantity != 3 {
 		t.Errorf("holding should be upserted despite commission failure: err=%v qty=%d", err, h.Quantity)
 	}
@@ -2616,7 +2622,7 @@ func TestProcessSellFill_SameCurrency_HappyPath(t *testing.T) {
 	}
 
 	// Holding should be decremented 20 → 15.
-	h, err := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
+	h, err := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100)
 	if err != nil {
 		t.Fatalf("holding not found: %v", err)
 	}
@@ -2777,7 +2783,7 @@ func TestProcessSellFill_HoldingDecrementFails_RollsBackCredit(t *testing.T) {
 	}
 
 	// Holding quantity unchanged (PartialSettle failed before decrementing).
-	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
+	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100)
 	if h.Quantity != 20 {
 		t.Errorf("holding quantity should be unchanged: got %d want 20", h.Quantity)
 	}
@@ -2825,7 +2831,7 @@ func TestProcessSellFill_CommissionFails_TradeStillSucceeds(t *testing.T) {
 	}
 
 	// Holding decremented 20 → 15.
-	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
+	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100)
 	if h.Quantity != 15 {
 		t.Errorf("holding should still be decremented: got %d want 15", h.Quantity)
 	}

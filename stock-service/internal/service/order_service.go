@@ -66,9 +66,12 @@ type ForexPairLookup interface {
 // HoldingReservationAPI is the subset of HoldingReservationService OrderService
 // needs to reserve shares on sell-side placement. Stated as an interface so
 // tests can stub it without a real DB.
+//
+// Reserve's lookup key is (user_id, system_type, security_type, security_id) —
+// matches the Part-A rollup where holdings aggregate across accounts.
 type HoldingReservationAPI interface {
 	Reserve(ctx context.Context, userID uint64, systemType, securityType string,
-		securityID, accountID, orderID uint64, qty int64) (*ReserveHoldingResult, error)
+		securityID, orderID uint64, qty int64) (*ReserveHoldingResult, error)
 	Release(ctx context.Context, orderID uint64) (*ReleaseHoldingResult, error)
 }
 
@@ -428,7 +431,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 				return status.Error(codes.Internal, "holding reservation service not configured")
 			}
 			_, herr := s.holdingReservationSvc.Reserve(ctx, req.UserID, req.SystemType,
-				listing.SecurityType, listing.SecurityID, req.AccountID, order.ID, req.Quantity)
+				listing.SecurityType, listing.SecurityID, order.ID, req.Quantity)
 			return herr
 		}); err != nil {
 			// No funds were reserved for a sell, so we only need to delete
