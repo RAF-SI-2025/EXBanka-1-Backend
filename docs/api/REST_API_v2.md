@@ -839,7 +839,6 @@ Create a securities order for the authenticated user.
 |----------------|---------|----------|-----------------------------------------------------------------------------|
 | security_type  | string  | no       | one of `stock, futures, forex, option`; auto-derived from listing when absent |
 | listing_id     | uint64  | cond.    | required for buy orders                                                     |
-| holding_id     | uint64  | no       | optional for sell (post-rollup)                                             |
 | direction      | string  | yes      | one of `buy, sell`                                                          |
 | order_type     | string  | yes      | one of `market, limit, stop, stop_limit`                                    |
 | quantity       | int64   | yes      | > 0                                                                         |
@@ -859,7 +858,6 @@ Create a securities order for the authenticated user.
 | id                  | uint64  |                                                                                           |
 | user_id             | uint64  |                                                                                           |
 | listing_id          | uint64  |                                                                                           |
-| holding_id          | uint64  | 0 when not applicable (post-rollup)                                                       |
 | security_type       | string  | `stock` \| `futures` \| `forex` \| `option`                                                |
 | ticker              | string  |                                                                                           |
 | direction           | string  | `buy` \| `sell`                                                                            |
@@ -2573,7 +2571,6 @@ Create an order on behalf of a client.
 | account_id       | uint64  | cond.    | required for buy/sell (proceeds or debit account, must belong to client) |
 | security_type    | string  | no       | one of `stock, futures, forex, option`                                |
 | listing_id       | uint64  | cond.    | required for buy orders                                               |
-| holding_id       | uint64  | no       | optional for sell (post-rollup)                                       |
 | direction        | string  | yes      | one of `buy, sell`                                                    |
 | order_type       | string  | yes      | one of `market, limit, stop, stop_limit`                              |
 | quantity         | int64   | yes      | > 0                                                                   |
@@ -2787,7 +2784,6 @@ Create an order for an option contract, addressing it by its option ID. Internal
 | all_or_none  | bool   | no       | default false                                                  |
 | margin       | bool   | no       | options typically use margin; default false                    |
 | account_id   | uint64 | yes      | non-zero; caller-owned collateral/settlement account           |
-| holding_id   | uint64 | no       | for closing an existing long position; omit or `0` to open new |
 
 **201 response (Order object):**
 
@@ -2829,7 +2825,7 @@ curl -sS -X POST http://localhost:8080/api/v2/options/123/orders \
 
 ### POST /api/v2/options/{option_id}/exercise
 
-Exercise an option contract. Takes the option ID (not the holding ID); the server resolves the caller's oldest long option holding for that option when `holding_id` is `0` or omitted.
+Exercise an option contract. The server resolves the caller's long option holding for that option automatically (holdings are aggregated per user+option, so there is one per option).
 
 **Auth:** JWT + `securities.trade`
 
@@ -2839,11 +2835,7 @@ Exercise an option contract. Takes the option ID (not the holding ID); the serve
 |-----------|------|----------|-------------|
 | option_id | uint | yes      | non-zero    |
 
-**Request body (optional):**
-
-| Field      | Type   | Required | Constraints                                             |
-|------------|--------|----------|---------------------------------------------------------|
-| holding_id | uint64 | no       | specific holding; omit or `0` to auto-resolve           |
+**Request body:** none.
 
 **200 response:**
 
@@ -2870,7 +2862,7 @@ Exercise an option contract. Takes the option ID (not the holding ID); the serve
 
 ```bash
 curl -sS -X POST http://localhost:8080/api/v2/options/123/exercise \
-  -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d '{"holding_id":0}'
+  -H "Authorization: Bearer $T"
 ```
 
 ---
