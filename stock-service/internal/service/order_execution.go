@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -179,16 +180,21 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 			continue
 		}
 
-		// Process fill: update holdings and account balance
+		// Process fill: update holdings and account balance. If the fill saga
+		// returns an error we do NOT publish order_filled and do NOT advance the
+		// order row — the saga layer handles retries/compensations internally,
+		// so the next loop iteration will attempt the fill again. Fixes bug #4h
+		// in docs/Bugs.txt.
 		if e.fillHandler != nil {
+			var fillErr error
 			if order.Direction == "buy" {
-				if fillErr := e.fillHandler.ProcessBuyFill(order, txn); fillErr != nil {
-					log.Printf("WARN: order engine: buy fill processing failed for order %d: %v", orderID, fillErr)
-				}
+				fillErr = e.fillHandler.ProcessBuyFill(order, txn)
 			} else {
-				if fillErr := e.fillHandler.ProcessSellFill(order, txn); fillErr != nil {
-					log.Printf("WARN: order engine: sell fill processing failed for order %d: %v", orderID, fillErr)
-				}
+				fillErr = e.fillHandler.ProcessSellFill(order, txn)
+			}
+			if fillErr != nil {
+				log.Printf("WARN: order engine: order %d fill %d failed: %v — will retry next iteration", orderID, txn.ID, fillErr)
+				continue
 			}
 		}
 
@@ -206,23 +212,38 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 		log.Printf("order engine: order %d filled %d/%d at %s",
 			orderID, portionSize, order.Quantity, execPrice.StringFixed(4))
 
-		// Publish fill event to Kafka
+		// Publish fill event to Kafka synchronously, AFTER the fill saga has
+		// committed and the order row has been updated. Publishing is best-effort
+		// observability — a kafka failure does not roll back the fill.
 		if e.producer != nil {
-			go func() {
-				_ = e.producer.PublishOrderFilled(context.Background(), map[string]interface{}{
-					"order_id":      orderID,
-					"user_id":       order.UserID,
-					"direction":     order.Direction,
-					"security_type": order.SecurityType,
-					"ticker":        order.Ticker,
-					"filled_qty":    portionSize,
-					"remaining_qty": order.RemainingPortions,
-					"price":         execPrice.StringFixed(4),
-					"total_price":   txn.TotalPrice.StringFixed(4),
-					"is_done":       order.IsDone,
-					"timestamp":     time.Now().Unix(),
-				})
-			}()
+			key := fmt.Sprintf("order-fill-%d", txn.ID)
+			payload := map[string]any{
+				"saga_id":          order.SagaID,
+				"order_id":         orderID,
+				"order_txn_id":     txn.ID,
+				"user_id":          order.UserID,
+				"direction":        order.Direction,
+				"security_type":    order.SecurityType,
+				"ticker":           order.Ticker,
+				"filled_qty":       portionSize,
+				"remaining_qty":    order.RemainingPortions,
+				"price":            execPrice.StringFixed(4),
+				"total_price":      txn.TotalPrice.StringFixed(4),
+				"native_amount":    decStringPtr(txn.NativeAmount),
+				"native_currency":  txn.NativeCurrency,
+				"converted_amount": decStringPtr(txn.ConvertedAmount),
+				"account_currency": txn.AccountCurrency,
+				"fx_rate":          decStringPtr(txn.FxRate),
+				"is_done":          order.IsDone,
+				"kafka_key":        key,
+				"timestamp":        time.Now().Unix(),
+			}
+			if err := e.producer.PublishOrderFilled(e.baseCtx, payload); err != nil {
+				log.Printf("WARN: kafka publish failed for order %d fill %d: %v", orderID, txn.ID, err)
+				// Do NOT fail the fill — Kafka is observability, not a
+				// correctness gate. A future saga-level publish_kafka step
+				// could be used to retry; acceptable for Phase 2.
+			}
 		}
 
 		if order.IsDone {
@@ -320,4 +341,15 @@ func (e *OrderExecutionEngine) markDone(order *model.Order) {
 	if err := e.orderRepo.Update(order); err != nil {
 		log.Printf("WARN: order engine: failed to mark order %d done: %v", order.ID, err)
 	}
+}
+
+// decStringPtr returns a string encoding of a nullable decimal pointer. Empty
+// string for nil. Used for Kafka payload construction — consumers treat the
+// empty string the same as "field not populated" (e.g. same-currency fills
+// leave native_amount / converted_amount / fx_rate empty).
+func decStringPtr(p *decimal.Decimal) string {
+	if p == nil {
+		return ""
+	}
+	return p.StringFixed(4)
 }
