@@ -63,35 +63,53 @@ func (h *PortfolioHandler) ListHoldings(ctx context.Context, req *pb.ListHolding
 }
 
 func (h *PortfolioHandler) GetPortfolioSummary(ctx context.Context, req *pb.GetPortfolioSummaryRequest) (*pb.PortfolioSummary, error) {
-	// Compute total unrealized profit across all holdings
+	// Compute unrealized profit across all current holdings. Summed in each
+	// holding's native listing currency (no FX) — acceptable for display until
+	// multi-currency holdings become common.
 	allHoldings, _, err := h.portfolioSvc.ListHoldings(req.UserId, req.SystemType, service.HoldingFilter{
 		Page: 1, PageSize: 10000,
 	})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-
-	totalProfit := decimal.Zero
+	unrealized := decimal.Zero
+	openPositions := int64(0)
 	for _, holding := range allHoldings {
+		if holding.Quantity <= 0 {
+			continue
+		}
+		openPositions++
 		currentPrice, priceErr := h.portfolioSvc.GetCurrentPrice(holding.ListingID)
 		if priceErr != nil {
 			continue
 		}
 		profit := currentPrice.Sub(holding.AveragePrice).Mul(decimal.NewFromInt(holding.Quantity))
-		totalProfit = totalProfit.Add(profit)
+		unrealized = unrealized.Add(profit)
 	}
 
-	// Get tax info
-	taxPaidYear, taxUnpaidMonth, err := h.taxSvc.GetUserTaxSummary(req.UserId, req.SystemType)
+	// Rich gains + tax breakdown (converts every native-currency amount to RSD).
+	gt, err := h.taxSvc.GetUserGainsAndTax(req.UserId, req.SystemType)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	// Backwards-compat: total_profit / total_profit_rsd combine lifetime
+	// realised (RSD) + unrealised (native) so clients that only look at this
+	// field still see a meaningful number after the user closes positions.
+	totalProfit := gt.RealizedGainLifetimeRSD.Add(unrealized).Round(2)
+
 	return &pb.PortfolioSummary{
-		TotalProfit:        totalProfit.StringFixed(2),
-		TotalProfitRsd:     totalProfit.StringFixed(2), // TODO: convert via exchange-service if multi-currency
-		TaxPaidThisYear:    taxPaidYear.StringFixed(2),
-		TaxUnpaidThisMonth: taxUnpaidMonth.StringFixed(2),
+		TotalProfit:                 totalProfit.StringFixed(2),
+		TotalProfitRsd:              totalProfit.StringFixed(2),
+		TaxPaidThisYear:             gt.TaxPaidThisYearRSD.StringFixed(2),
+		TaxUnpaidThisMonth:          gt.TaxUnpaidThisMonthRSD.StringFixed(2),
+		RealizedProfitThisMonthRsd:  gt.RealizedGainThisMonthRSD.StringFixed(2),
+		RealizedProfitThisYearRsd:   gt.RealizedGainThisYearRSD.StringFixed(2),
+		RealizedProfitLifetimeRsd:   gt.RealizedGainLifetimeRSD.StringFixed(2),
+		UnrealizedProfit:            unrealized.Round(2).StringFixed(2),
+		TaxUnpaidTotalRsd:           gt.TaxUnpaidTotalRSD.StringFixed(2),
+		OpenPositionsCount:          openPositions,
+		ClosedTradesThisYear:        gt.ClosedTradesThisYear,
 	}, nil
 }
 

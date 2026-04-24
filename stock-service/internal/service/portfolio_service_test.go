@@ -217,6 +217,14 @@ func (m *mockCapitalGainRepo) SumByUserYear(userID uint64, systemType string, ye
 	return nil, nil
 }
 
+func (m *mockCapitalGainRepo) SumByUserAllTime(userID uint64, systemType string) ([]repository.AccountGainSummary, error) {
+	return nil, nil
+}
+
+func (m *mockCapitalGainRepo) CountByUserYear(userID uint64, systemType string, year int) (int64, error) {
+	return 0, nil
+}
+
 // mockStockRepo returns pre-configured stocks.
 type mockStockRepo struct {
 	stocks map[uint64]*model.Stock

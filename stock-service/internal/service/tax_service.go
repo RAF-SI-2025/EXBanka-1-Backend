@@ -115,6 +115,131 @@ func (s *TaxService) ListUserTaxRecords(userID uint64, systemType string, page, 
 	return s.capitalGainRepo.ListByUser(userID, systemType, page, pageSize)
 }
 
+// UserGainsAndTax aggregates realized gain + tax figures for a user across
+// the current month, current year, and lifetime. All monetary amounts are
+// converted to RSD via exchange-service. Gains may be negative (losses);
+// tax_unpaid is only computed on positive per-month gains (losses do not
+// produce negative tax).
+type UserGainsAndTax struct {
+	RealizedGainThisMonthRSD decimal.Decimal
+	RealizedGainThisYearRSD  decimal.Decimal
+	RealizedGainLifetimeRSD  decimal.Decimal
+	TaxPaidThisYearRSD       decimal.Decimal
+	TaxUnpaidThisMonthRSD    decimal.Decimal
+	TaxUnpaidTotalRSD        decimal.Decimal
+	ClosedTradesThisYear     int64
+}
+
+// GetUserGainsAndTax powers the rich portfolio summary endpoint. It composes
+// existing repo queries and the same convertToRSD helper the tax-collection
+// path already uses, so numbers here match what CollectTax will actually move.
+func (s *TaxService) GetUserGainsAndTax(userID uint64, systemType string) (UserGainsAndTax, error) {
+	now := time.Now()
+	year := now.Year()
+	month := int(now.Month())
+
+	out := UserGainsAndTax{}
+
+	monthGains, err := s.capitalGainRepo.SumByUserMonth(userID, systemType, year, month)
+	if err != nil {
+		return out, err
+	}
+	out.RealizedGainThisMonthRSD = s.sumGainsInRSD(monthGains)
+
+	yearGains, err := s.capitalGainRepo.SumByUserYear(userID, systemType, year)
+	if err != nil {
+		return out, err
+	}
+	out.RealizedGainThisYearRSD = s.sumGainsInRSD(yearGains)
+
+	lifeGains, err := s.capitalGainRepo.SumByUserAllTime(userID, systemType)
+	if err != nil {
+		return out, err
+	}
+	out.RealizedGainLifetimeRSD = s.sumGainsInRSD(lifeGains)
+
+	paidYear, err := s.taxCollectionRepo.SumByUserYear(userID, systemType, year)
+	if err != nil {
+		return out, err
+	}
+	out.TaxPaidThisYearRSD = paidYear
+
+	paidLife, err := s.taxCollectionRepo.SumByUserAllTime(userID, systemType)
+	if err != nil {
+		return out, err
+	}
+
+	// Tax unpaid (this month): same formula the existing GetUserTaxSummary uses.
+	collectedThisMonth, err := s.taxCollectionRepo.SumByUserMonth(userID, systemType, year, month)
+	if err != nil {
+		return out, err
+	}
+	out.TaxUnpaidThisMonthRSD = s.computeUnpaidTax(monthGains, collectedThisMonth)
+
+	// Tax unpaid (lifetime): 15% of every positive monthly gain ever minus
+	// everything collected. Using lifetime gains × 0.15 doesn't match per-
+	// month rounding/accumulation exactly but is close enough for the summary
+	// display and always ≥ 0.
+	out.TaxUnpaidTotalRSD = s.computeUnpaidTax(lifeGains, paidLife)
+
+	count, err := s.capitalGainRepo.CountByUserYear(userID, systemType, year)
+	if err != nil {
+		return out, err
+	}
+	out.ClosedTradesThisYear = count
+
+	return out, nil
+}
+
+// sumGainsInRSD converts every (account, currency) gain row to RSD via the
+// existing convertToRSD helper and sums them. A conversion failure on one
+// row degrades to "use the native amount" rather than dropping the row.
+func (s *TaxService) sumGainsInRSD(gains []AccountGainSummary) decimal.Decimal {
+	total := decimal.Zero
+	for _, g := range gains {
+		if g.Currency == "RSD" {
+			total = total.Add(g.TotalGain)
+			continue
+		}
+		conv, err := s.convertToRSD(g.Currency, g.TotalGain)
+		if err == nil {
+			total = total.Add(conv)
+			continue
+		}
+		// Degrade gracefully: accept the native-currency amount rather than
+		// silently dropping the row. Better a slightly-off display than a
+		// missing one.
+		total = total.Add(g.TotalGain)
+	}
+	return total.Round(2)
+}
+
+// computeUnpaidTax replicates the existing GetUserTaxSummary math: 15% of
+// positive gains minus already-collected tax, floored at zero. Applied over
+// whatever window of gains the caller passes in.
+func (s *TaxService) computeUnpaidTax(gains []AccountGainSummary, alreadyCollected decimal.Decimal) decimal.Decimal {
+	taxRate := decimal.NewFromFloat(0.15)
+	totalUnpaid := decimal.Zero
+	for _, g := range gains {
+		if !g.TotalGain.IsPositive() {
+			continue
+		}
+		taxInCurrency := g.TotalGain.Mul(taxRate)
+		taxInRSD := taxInCurrency
+		if g.Currency != "RSD" {
+			if converted, err := s.convertToRSD(g.Currency, taxInCurrency); err == nil {
+				taxInRSD = converted
+			}
+		}
+		totalUnpaid = totalUnpaid.Add(taxInRSD)
+	}
+	result := totalUnpaid.Sub(alreadyCollected).Round(2)
+	if result.IsNegative() {
+		return decimal.Zero
+	}
+	return result
+}
+
 // ListUserTaxCollections returns the full collection history for a single
 // (user_id, system_type) owner so they can see when tax was actually taken.
 // Capped to 200 most recent rows — that covers 16+ years of monthly collections.

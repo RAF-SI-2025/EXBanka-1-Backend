@@ -971,11 +971,27 @@ List the executed order-transactions that contributed to a holding. Replaces the
 
 ### GET /api/v2/me/portfolio/summary
 
-Aggregate value + P/L across the caller's portfolio.
+Aggregate P&L and tax information for the caller's portfolio.
 
 **Auth:** JWT
 
-**200 response:** summary object (total market value, realised/unrealised P/L, per-security-type breakdown).
+**200 response:**
+
+| Field                           | Type   | Notes                                                                                 |
+|---------------------------------|--------|---------------------------------------------------------------------------------------|
+| total_profit                    | string | Back-compat alias for `realized_profit_lifetime_rsd` + `unrealized_profit`            |
+| total_profit_rsd                | string | Same as `total_profit`                                                                |
+| unrealized_profit               | string | (current_price − average_price) × quantity, summed in each listing's native currency  |
+| realized_profit_this_month_rsd  | string | Sum of capital_gains for current calendar month, converted to RSD                     |
+| realized_profit_this_year_rsd   | string | Sum of capital_gains for current year, converted to RSD                               |
+| realized_profit_lifetime_rsd    | string | Sum of capital_gains across every year, converted to RSD                              |
+| tax_paid_this_year              | string | Total tax collected this year, in RSD                                                 |
+| tax_unpaid_this_month           | string | Estimated tax owed for current month (15% × positive gains − already collected)       |
+| tax_unpaid_total_rsd            | string | Same estimate across every month, lifetime                                            |
+| open_positions_count            | int    | Number of holdings with quantity > 0                                                  |
+| closed_trades_this_year         | int    | Count of capital_gains rows recorded this year                                        |
+
+Losses (negative gains) are included in the realised_profit_* sums; they reduce the totals rather than producing negative tax.
 
 ### POST /api/v2/me/portfolio/{id}/make-public
 

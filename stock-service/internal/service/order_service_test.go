@@ -248,6 +248,10 @@ func (m *mockSecurityLookupRepo) GetFuturesSettlementDate(securityID uint64) (ti
 	return m.settlementDate, m.err
 }
 
+func (m *mockSecurityLookupRepo) GetSecurityTicker(_ string, _ uint64) (string, error) {
+	return "", nil
+}
+
 // mockProducer records published events.
 type mockProducer struct {
 	created   int

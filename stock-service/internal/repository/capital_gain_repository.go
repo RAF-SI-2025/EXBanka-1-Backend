@@ -53,3 +53,25 @@ func (r *CapitalGainRepository) SumByUserYear(userID uint64, systemType string, 
 		Find(&results).Error
 	return results, err
 }
+
+// SumByUserAllTime returns capital gains grouped by (account_id, currency)
+// across every year — the lifetime realised P&L for a user.
+func (r *CapitalGainRepository) SumByUserAllTime(userID uint64, systemType string) ([]AccountGainSummary, error) {
+	var results []AccountGainSummary
+	err := r.db.Model(&model.CapitalGain{}).
+		Select("account_id, currency, SUM(total_gain) as total_gain").
+		Where("user_id = ? AND system_type = ?", userID, systemType).
+		Group("account_id, currency").
+		Find(&results).Error
+	return results, err
+}
+
+// CountByUserYear returns the number of capital_gains rows (i.e. closed
+// trades) a user has logged in the given calendar year.
+func (r *CapitalGainRepository) CountByUserYear(userID uint64, systemType string, year int) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.CapitalGain{}).
+		Where("user_id = ? AND system_type = ? AND tax_year = ?", userID, systemType, year).
+		Count(&count).Error
+	return count, err
+}

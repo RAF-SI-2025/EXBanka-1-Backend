@@ -65,6 +65,16 @@ func (m *mockTaxCollectionRepo) GetLastCollection(userID uint64, systemType stri
 	return last, nil
 }
 
+func (m *mockTaxCollectionRepo) SumByUserAllTime(userID uint64, systemType string) (decimal.Decimal, error) {
+	total := decimal.Zero
+	for _, c := range m.collections {
+		if c.UserID == userID && c.SystemType == systemType {
+			total = total.Add(c.TaxAmountRSD)
+		}
+	}
+	return total, nil
+}
+
 func (m *mockTaxCollectionRepo) ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.TaxCollection, int64, error) {
 	out := []model.TaxCollection{}
 	for i := range m.collections {
@@ -162,6 +172,39 @@ func (m *mockTaxCapitalGainRepo) SumByUserYear(userID uint64, systemType string,
 		})
 	}
 	return result, nil
+}
+
+func (m *mockTaxCapitalGainRepo) SumByUserAllTime(userID uint64, systemType string) ([]repository.AccountGainSummary, error) {
+	type key struct {
+		AccountID uint64
+		Currency  string
+	}
+	agg := make(map[key]decimal.Decimal)
+	for _, g := range m.gains {
+		if g.UserID == userID && g.SystemType == systemType {
+			k := key{AccountID: g.AccountID, Currency: g.Currency}
+			agg[k] = agg[k].Add(g.TotalGain)
+		}
+	}
+	var result []repository.AccountGainSummary
+	for k, v := range agg {
+		result = append(result, repository.AccountGainSummary{
+			AccountID: k.AccountID,
+			Currency:  k.Currency,
+			TotalGain: v,
+		})
+	}
+	return result, nil
+}
+
+func (m *mockTaxCapitalGainRepo) CountByUserYear(userID uint64, systemType string, year int) (int64, error) {
+	var count int64
+	for _, g := range m.gains {
+		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year {
+			count++
+		}
+	}
+	return count, nil
 }
 
 // ---------------------------------------------------------------------------

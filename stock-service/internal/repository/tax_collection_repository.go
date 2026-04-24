@@ -45,6 +45,20 @@ func (r *TaxCollectionRepository) SumByUserMonth(userID uint64, systemType strin
 	return result.Total, err
 }
 
+// SumByUserAllTime returns total RSD tax collected across every month for a
+// (user_id, system_type). Used by the portfolio-summary endpoint so the UI
+// can show lifetime-paid vs. lifetime-owed.
+func (r *TaxCollectionRepository) SumByUserAllTime(userID uint64, systemType string) (decimal.Decimal, error) {
+	var result struct {
+		Total decimal.Decimal
+	}
+	err := r.db.Model(&model.TaxCollection{}).
+		Select("COALESCE(SUM(tax_amount_rsd), 0) as total").
+		Where("user_id = ? AND system_type = ?", userID, systemType).
+		Scan(&result).Error
+	return result.Total, err
+}
+
 func (r *TaxCollectionRepository) GetLastCollection(userID uint64, systemType string) (*model.TaxCollection, error) {
 	var tc model.TaxCollection
 	err := r.db.Where("user_id = ? AND system_type = ?", userID, systemType).

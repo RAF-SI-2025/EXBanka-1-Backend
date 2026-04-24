@@ -112,9 +112,14 @@ type OrderEventPublisher interface {
 	PublishOrderCancelled(ctx context.Context, msg interface{}) error
 }
 
-// SecurityLookupRepo provides settlement date lookups for validation.
+// SecurityLookupRepo provides settlement date + ticker lookups for the
+// placement saga. Tests stub this without the underlying per-type repos.
 type SecurityLookupRepo interface {
 	GetFuturesSettlementDate(securityID uint64) (time.Time, error)
+	// GetSecurityTicker returns the canonical ticker for a security. Callers
+	// treat an empty string as "unknown — leave the order's ticker blank"
+	// rather than failing.
+	GetSecurityTicker(securityType string, securityID uint64) (string, error)
 }
 
 // NewOrderService constructs an OrderService with all placement-saga
@@ -362,13 +367,23 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		afterHours = s.isAfterHours(listing)
 	}
 
+	// Resolve ticker from the security model so downstream Holding / order
+	// response objects display it. Best-effort: a missing repo or lookup
+	// error leaves Ticker blank rather than blocking placement.
+	var orderTicker string
+	if s.securityRepo != nil {
+		if t, terr := s.securityRepo.GetSecurityTicker(listing.SecurityType, listing.SecurityID); terr == nil {
+			orderTicker = t
+		}
+	}
+
 	order := &model.Order{
 		UserID:            req.UserID,
 		SystemType:        req.SystemType,
 		ListingID:         req.ListingID,
 		HoldingID:         req.HoldingID,
 		SecurityType:      listing.SecurityType,
-		Ticker:            "", // populated by handler / higher layers from security model
+		Ticker:            orderTicker,
 		Direction:         req.Direction,
 		OrderType:         req.OrderType,
 		Quantity:          req.Quantity,

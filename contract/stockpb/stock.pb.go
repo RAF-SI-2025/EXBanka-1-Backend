@@ -4156,13 +4156,39 @@ func (x *GetPortfolioSummaryRequest) GetSystemType() string {
 }
 
 type PortfolioSummary struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	TotalProfit        string                 `protobuf:"bytes,1,opt,name=total_profit,json=totalProfit,proto3" json:"total_profit,omitempty"`
-	TotalProfitRsd     string                 `protobuf:"bytes,2,opt,name=total_profit_rsd,json=totalProfitRsd,proto3" json:"total_profit_rsd,omitempty"`
-	TaxPaidThisYear    string                 `protobuf:"bytes,3,opt,name=tax_paid_this_year,json=taxPaidThisYear,proto3" json:"tax_paid_this_year,omitempty"`
-	TaxUnpaidThisMonth string                 `protobuf:"bytes,4,opt,name=tax_unpaid_this_month,json=taxUnpaidThisMonth,proto3" json:"tax_unpaid_this_month,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// total_profit is the combined realised (lifetime, closed positions,
+	// converted to RSD) + unrealised (current holdings at the native listing
+	// currency) P&L. Kept for backwards compat; prefer the split fields below
+	// when you need to distinguish the two. String-encoded decimal.
+	TotalProfit string `protobuf:"bytes,1,opt,name=total_profit,json=totalProfit,proto3" json:"total_profit,omitempty"`
+	// total_profit_rsd is the same value as total_profit. The "_rsd" suffix is
+	// historical — the unrealised half is actually native-currency. Use
+	// realized_profit_lifetime_rsd + unrealized_profit fields below for clarity.
+	TotalProfitRsd string `protobuf:"bytes,2,opt,name=total_profit_rsd,json=totalProfitRsd,proto3" json:"total_profit_rsd,omitempty"`
+	// Tax paid this calendar year, in RSD.
+	TaxPaidThisYear string `protobuf:"bytes,3,opt,name=tax_paid_this_year,json=taxPaidThisYear,proto3" json:"tax_paid_this_year,omitempty"`
+	// Tax owed for the current calendar month, in RSD, not yet collected.
+	TaxUnpaidThisMonth string `protobuf:"bytes,4,opt,name=tax_unpaid_this_month,json=taxUnpaidThisMonth,proto3" json:"tax_unpaid_this_month,omitempty"`
+	// Realised gains from closed positions (capital_gains rows) — positive
+	// gains are profit, negative are losses; the sum here is net. All amounts
+	// are converted to RSD via exchange-service.Convert.
+	RealizedProfitThisMonthRsd string `protobuf:"bytes,5,opt,name=realized_profit_this_month_rsd,json=realizedProfitThisMonthRsd,proto3" json:"realized_profit_this_month_rsd,omitempty"`
+	RealizedProfitThisYearRsd  string `protobuf:"bytes,6,opt,name=realized_profit_this_year_rsd,json=realizedProfitThisYearRsd,proto3" json:"realized_profit_this_year_rsd,omitempty"`
+	RealizedProfitLifetimeRsd  string `protobuf:"bytes,7,opt,name=realized_profit_lifetime_rsd,json=realizedProfitLifetimeRsd,proto3" json:"realized_profit_lifetime_rsd,omitempty"`
+	// Unrealised gain on current holdings. Computed as (current_price −
+	// average_price) × quantity per holding, summed in the listing's native
+	// currency. Included so the client doesn't have to recompute, even though
+	// cross-currency portfolios may blend currencies here.
+	UnrealizedProfit string `protobuf:"bytes,8,opt,name=unrealized_profit,json=unrealizedProfit,proto3" json:"unrealized_profit,omitempty"`
+	// Tax owed across every month, not just the current one, in RSD.
+	TaxUnpaidTotalRsd string `protobuf:"bytes,9,opt,name=tax_unpaid_total_rsd,json=taxUnpaidTotalRsd,proto3" json:"tax_unpaid_total_rsd,omitempty"`
+	// Number of holdings with quantity > 0.
+	OpenPositionsCount int64 `protobuf:"varint,10,opt,name=open_positions_count,json=openPositionsCount,proto3" json:"open_positions_count,omitempty"`
+	// Number of closed trades this calendar year (count of capital_gains rows).
+	ClosedTradesThisYear int64 `protobuf:"varint,11,opt,name=closed_trades_this_year,json=closedTradesThisYear,proto3" json:"closed_trades_this_year,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *PortfolioSummary) Reset() {
@@ -4221,6 +4247,55 @@ func (x *PortfolioSummary) GetTaxUnpaidThisMonth() string {
 		return x.TaxUnpaidThisMonth
 	}
 	return ""
+}
+
+func (x *PortfolioSummary) GetRealizedProfitThisMonthRsd() string {
+	if x != nil {
+		return x.RealizedProfitThisMonthRsd
+	}
+	return ""
+}
+
+func (x *PortfolioSummary) GetRealizedProfitThisYearRsd() string {
+	if x != nil {
+		return x.RealizedProfitThisYearRsd
+	}
+	return ""
+}
+
+func (x *PortfolioSummary) GetRealizedProfitLifetimeRsd() string {
+	if x != nil {
+		return x.RealizedProfitLifetimeRsd
+	}
+	return ""
+}
+
+func (x *PortfolioSummary) GetUnrealizedProfit() string {
+	if x != nil {
+		return x.UnrealizedProfit
+	}
+	return ""
+}
+
+func (x *PortfolioSummary) GetTaxUnpaidTotalRsd() string {
+	if x != nil {
+		return x.TaxUnpaidTotalRsd
+	}
+	return ""
+}
+
+func (x *PortfolioSummary) GetOpenPositionsCount() int64 {
+	if x != nil {
+		return x.OpenPositionsCount
+	}
+	return 0
+}
+
+func (x *PortfolioSummary) GetClosedTradesThisYear() int64 {
+	if x != nil {
+		return x.ClosedTradesThisYear
+	}
+	return 0
 }
 
 type MakePublicRequest struct {
@@ -6491,12 +6566,20 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1f\n" +
 	"\vsystem_type\x18\n" +
 	" \x01(\tR\n" +
-	"systemType\"\xbf\x01\n" +
+	"systemType\"\xcd\x04\n" +
 	"\x10PortfolioSummary\x12!\n" +
 	"\ftotal_profit\x18\x01 \x01(\tR\vtotalProfit\x12(\n" +
 	"\x10total_profit_rsd\x18\x02 \x01(\tR\x0etotalProfitRsd\x12+\n" +
 	"\x12tax_paid_this_year\x18\x03 \x01(\tR\x0ftaxPaidThisYear\x121\n" +
-	"\x15tax_unpaid_this_month\x18\x04 \x01(\tR\x12taxUnpaidThisMonth\"\x88\x01\n" +
+	"\x15tax_unpaid_this_month\x18\x04 \x01(\tR\x12taxUnpaidThisMonth\x12B\n" +
+	"\x1erealized_profit_this_month_rsd\x18\x05 \x01(\tR\x1arealizedProfitThisMonthRsd\x12@\n" +
+	"\x1drealized_profit_this_year_rsd\x18\x06 \x01(\tR\x19realizedProfitThisYearRsd\x12?\n" +
+	"\x1crealized_profit_lifetime_rsd\x18\a \x01(\tR\x19realizedProfitLifetimeRsd\x12+\n" +
+	"\x11unrealized_profit\x18\b \x01(\tR\x10unrealizedProfit\x12/\n" +
+	"\x14tax_unpaid_total_rsd\x18\t \x01(\tR\x11taxUnpaidTotalRsd\x120\n" +
+	"\x14open_positions_count\x18\n" +
+	" \x01(\x03R\x12openPositionsCount\x125\n" +
+	"\x17closed_trades_this_year\x18\v \x01(\x03R\x14closedTradesThisYear\"\x88\x01\n" +
 	"\x11MakePublicRequest\x12\x1d\n" +
 	"\n" +
 	"holding_id\x18\x01 \x01(\x04R\tholdingId\x12\x17\n" +

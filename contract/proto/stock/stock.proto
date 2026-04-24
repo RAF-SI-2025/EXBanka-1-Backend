@@ -536,10 +536,41 @@ message GetPortfolioSummaryRequest {
 }
 
 message PortfolioSummary {
+  // total_profit is the combined realised (lifetime, closed positions,
+  // converted to RSD) + unrealised (current holdings at the native listing
+  // currency) P&L. Kept for backwards compat; prefer the split fields below
+  // when you need to distinguish the two. String-encoded decimal.
   string total_profit = 1;
+  // total_profit_rsd is the same value as total_profit. The "_rsd" suffix is
+  // historical — the unrealised half is actually native-currency. Use
+  // realized_profit_lifetime_rsd + unrealized_profit fields below for clarity.
   string total_profit_rsd = 2;
+  // Tax paid this calendar year, in RSD.
   string tax_paid_this_year = 3;
+  // Tax owed for the current calendar month, in RSD, not yet collected.
   string tax_unpaid_this_month = 4;
+
+  // Realised gains from closed positions (capital_gains rows) — positive
+  // gains are profit, negative are losses; the sum here is net. All amounts
+  // are converted to RSD via exchange-service.Convert.
+  string realized_profit_this_month_rsd = 5;
+  string realized_profit_this_year_rsd = 6;
+  string realized_profit_lifetime_rsd = 7;
+
+  // Unrealised gain on current holdings. Computed as (current_price −
+  // average_price) × quantity per holding, summed in the listing's native
+  // currency. Included so the client doesn't have to recompute, even though
+  // cross-currency portfolios may blend currencies here.
+  string unrealized_profit = 8;
+
+  // Tax owed across every month, not just the current one, in RSD.
+  string tax_unpaid_total_rsd = 9;
+
+  // Number of holdings with quantity > 0.
+  int64 open_positions_count = 10;
+
+  // Number of closed trades this calendar year (count of capital_gains rows).
+  int64 closed_trades_this_year = 11;
 }
 
 message MakePublicRequest {

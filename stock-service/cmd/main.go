@@ -328,7 +328,7 @@ func main() {
 	defer cancel()
 
 	// Order services
-	securityLookup := service.NewSecurityLookupAdapter(futuresRepo)
+	securityLookup := service.NewSecurityLookupAdapter(stockRepo, futuresRepo, forexRepo, optionRepo)
 
 	// Placement-saga dependencies (Task 12).
 	sagaLogRepo := repository.NewSagaLogRepository(db)
