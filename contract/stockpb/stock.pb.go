@@ -3353,9 +3353,13 @@ func (x *CreateOrderRequest) GetBaseAccountId() uint64 {
 }
 
 type GetOrderRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId        uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Id     uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// system_type is "client" or "employee" — forwarded from the JWT context
+	// by api-gateway so user-scoped queries filter by (user_id, system_type)
+	// and avoid cross-system-type data leaks.
+	SystemType    string `protobuf:"bytes,10,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3404,14 +3408,25 @@ func (x *GetOrderRequest) GetUserId() uint64 {
 	return 0
 }
 
+func (x *GetOrderRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
+}
+
 type ListMyOrdersRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	Direction     string                 `protobuf:"bytes,3,opt,name=direction,proto3" json:"direction,omitempty"`
-	OrderType     string                 `protobuf:"bytes,4,opt,name=order_type,json=orderType,proto3" json:"order_type,omitempty"`
-	Page          int32                  `protobuf:"varint,5,opt,name=page,proto3" json:"page,omitempty"`
-	PageSize      int32                  `protobuf:"varint,6,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	UserId    uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Status    string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Direction string                 `protobuf:"bytes,3,opt,name=direction,proto3" json:"direction,omitempty"`
+	OrderType string                 `protobuf:"bytes,4,opt,name=order_type,json=orderType,proto3" json:"order_type,omitempty"`
+	Page      int32                  `protobuf:"varint,5,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize  int32                  `protobuf:"varint,6,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// system_type is "client" or "employee" — forwarded from the JWT context
+	// by api-gateway so user-scoped queries filter by (user_id, system_type)
+	// and avoid cross-system-type data leaks.
+	SystemType    string `protobuf:"bytes,10,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3486,6 +3501,13 @@ func (x *ListMyOrdersRequest) GetPageSize() int32 {
 		return x.PageSize
 	}
 	return 0
+}
+
+func (x *ListMyOrdersRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
 }
 
 type ListOrdersRequest struct {
@@ -3625,9 +3647,13 @@ func (x *ListOrdersResponse) GetTotalCount() int64 {
 }
 
 type CancelOrderRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	UserId        uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Id     uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	UserId uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// system_type is "client" or "employee" — forwarded from the JWT context
+	// by api-gateway so user-scoped queries filter by (user_id, system_type)
+	// and avoid cross-system-type data leaks.
+	SystemType    string `protobuf:"bytes,10,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3674,6 +3700,13 @@ func (x *CancelOrderRequest) GetUserId() uint64 {
 		return x.UserId
 	}
 	return 0
+}
+
+func (x *CancelOrderRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
 }
 
 type ApproveOrderRequest struct {
@@ -3905,11 +3938,15 @@ func (x *Holding) GetLastModified() string {
 }
 
 type ListHoldingsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	SecurityType  string                 `protobuf:"bytes,2,opt,name=security_type,json=securityType,proto3" json:"security_type,omitempty"`
-	Page          int32                  `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`
-	PageSize      int32                  `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	UserId       uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	SecurityType string                 `protobuf:"bytes,2,opt,name=security_type,json=securityType,proto3" json:"security_type,omitempty"`
+	Page         int32                  `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize     int32                  `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// system_type is "client" or "employee" — forwarded from the JWT context
+	// by api-gateway so user-scoped queries filter by (user_id, system_type)
+	// and avoid cross-system-type data leaks.
+	SystemType    string `protobuf:"bytes,10,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3972,6 +4009,13 @@ func (x *ListHoldingsRequest) GetPageSize() int32 {
 	return 0
 }
 
+func (x *ListHoldingsRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
+}
+
 type ListHoldingsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Holdings      []*Holding             `protobuf:"bytes,1,rep,name=holdings,proto3" json:"holdings,omitempty"`
@@ -4025,8 +4069,12 @@ func (x *ListHoldingsResponse) GetTotalCount() int64 {
 }
 
 type GetPortfolioSummaryRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	UserId uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// system_type is "client" or "employee" — forwarded from the JWT context
+	// by api-gateway so user-scoped queries filter by (user_id, system_type)
+	// and avoid cross-system-type data leaks.
+	SystemType    string `protobuf:"bytes,10,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4066,6 +4114,13 @@ func (x *GetPortfolioSummaryRequest) GetUserId() uint64 {
 		return x.UserId
 	}
 	return 0
+}
+
+func (x *GetPortfolioSummaryRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
 }
 
 type PortfolioSummary struct {
@@ -4137,10 +4192,14 @@ func (x *PortfolioSummary) GetTaxUnpaidThisMonth() string {
 }
 
 type MakePublicRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	HoldingId     uint64                 `protobuf:"varint,1,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"`
-	UserId        uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Quantity      int64                  `protobuf:"varint,3,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	HoldingId uint64                 `protobuf:"varint,1,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"`
+	UserId    uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Quantity  int64                  `protobuf:"varint,3,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	// system_type is "client" or "employee" — forwarded from the JWT context
+	// by api-gateway so user-scoped queries filter by (user_id, system_type)
+	// and avoid cross-system-type data leaks.
+	SystemType    string `protobuf:"bytes,10,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4196,10 +4255,21 @@ func (x *MakePublicRequest) GetQuantity() int64 {
 	return 0
 }
 
+func (x *MakePublicRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
+}
+
 type ExerciseOptionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	HoldingId     uint64                 `protobuf:"varint,1,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"`
-	UserId        uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	HoldingId uint64                 `protobuf:"varint,1,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"`
+	UserId    uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// system_type is "client" or "employee" — forwarded from the JWT context
+	// by api-gateway so user-scoped queries filter by (user_id, system_type)
+	// and avoid cross-system-type data leaks.
+	SystemType    string `protobuf:"bytes,10,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4248,11 +4318,22 @@ func (x *ExerciseOptionRequest) GetUserId() uint64 {
 	return 0
 }
 
+func (x *ExerciseOptionRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
+}
+
 type ExerciseOptionByOptionIDRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OptionId      uint64                 `protobuf:"varint,1,opt,name=option_id,json=optionId,proto3" json:"option_id,omitempty"`
-	UserId        uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	HoldingId     uint64                 `protobuf:"varint,3,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"` // optional; 0 means auto-resolve
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	OptionId  uint64                 `protobuf:"varint,1,opt,name=option_id,json=optionId,proto3" json:"option_id,omitempty"`
+	UserId    uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	HoldingId uint64                 `protobuf:"varint,3,opt,name=holding_id,json=holdingId,proto3" json:"holding_id,omitempty"` // optional; 0 means auto-resolve
+	// system_type is "client" or "employee" — forwarded from the JWT context
+	// by api-gateway so user-scoped queries filter by (user_id, system_type)
+	// and avoid cross-system-type data leaks.
+	SystemType    string `protobuf:"bytes,10,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4306,6 +4387,13 @@ func (x *ExerciseOptionByOptionIDRequest) GetHoldingId() uint64 {
 		return x.HoldingId
 	}
 	return 0
+}
+
+func (x *ExerciseOptionByOptionIDRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
 }
 
 type ExerciseResult struct {
@@ -5089,10 +5177,14 @@ func (x *CollectTaxResponse) GetFailedCount() int64 {
 }
 
 type ListUserTaxRecordsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Page          int32                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
-	PageSize      int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	UserId   uint64                 `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Page     int32                  `protobuf:"varint,2,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// system_type is "client" or "employee" — forwarded from the JWT context
+	// by api-gateway so user-scoped queries filter by (user_id, system_type)
+	// and avoid cross-system-type data leaks.
+	SystemType    string `protobuf:"bytes,10,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5146,6 +5238,13 @@ func (x *ListUserTaxRecordsRequest) GetPageSize() int32 {
 		return x.PageSize
 	}
 	return 0
+}
+
+func (x *ListUserTaxRecordsRequest) GetSystemType() string {
+	if x != nil {
+		return x.SystemType
+	}
+	return ""
 }
 
 type UserTaxRecord struct {
@@ -5875,10 +5974,13 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x0fbase_account_id\x18\x0f \x01(\x04H\x02R\rbaseAccountId\x88\x01\x01B\x0e\n" +
 	"\f_limit_valueB\r\n" +
 	"\v_stop_valueB\x12\n" +
-	"\x10_base_account_id\":\n" +
+	"\x10_base_account_id\"[\n" +
 	"\x0fGetOrderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x04R\x06userId\"\xb4\x01\n" +
+	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1f\n" +
+	"\vsystem_type\x18\n" +
+	" \x01(\tR\n" +
+	"systemType\"\xd5\x01\n" +
 	"\x13ListMyOrdersRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x1c\n" +
@@ -5886,7 +5988,10 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\n" +
 	"order_type\x18\x04 \x01(\tR\torderType\x12\x12\n" +
 	"\x04page\x18\x05 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x06 \x01(\x05R\bpageSize\"\xba\x01\n" +
+	"\tpage_size\x18\x06 \x01(\x05R\bpageSize\x12\x1f\n" +
+	"\vsystem_type\x18\n" +
+	" \x01(\tR\n" +
+	"systemType\"\xba\x01\n" +
 	"\x11ListOrdersRequest\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x1f\n" +
 	"\vagent_email\x18\x02 \x01(\tR\n" +
@@ -5899,10 +6004,13 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x12ListOrdersResponse\x12$\n" +
 	"\x06orders\x18\x01 \x03(\v2\f.stock.OrderR\x06orders\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
-	"totalCount\"=\n" +
+	"totalCount\"^\n" +
 	"\x12CancelOrderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x04R\x06userId\"J\n" +
+	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1f\n" +
+	"\vsystem_type\x18\n" +
+	" \x01(\tR\n" +
+	"systemType\"J\n" +
 	"\x13ApproveOrderRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12#\n" +
 	"\rsupervisor_id\x18\x02 \x01(\x04R\fsupervisorId\"J\n" +
@@ -5922,37 +6030,52 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\n" +
 	"account_id\x18\n" +
 	" \x01(\x04R\taccountId\x12#\n" +
-	"\rlast_modified\x18\v \x01(\tR\flastModified\"\x84\x01\n" +
+	"\rlast_modified\x18\v \x01(\tR\flastModified\"\xa5\x01\n" +
 	"\x13ListHoldingsRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12#\n" +
 	"\rsecurity_type\x18\x02 \x01(\tR\fsecurityType\x12\x12\n" +
 	"\x04page\x18\x03 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"c\n" +
+	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\x12\x1f\n" +
+	"\vsystem_type\x18\n" +
+	" \x01(\tR\n" +
+	"systemType\"c\n" +
 	"\x14ListHoldingsResponse\x12*\n" +
 	"\bholdings\x18\x01 \x03(\v2\x0e.stock.HoldingR\bholdings\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
-	"totalCount\"5\n" +
+	"totalCount\"V\n" +
 	"\x1aGetPortfolioSummaryRequest\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\x04R\x06userId\"\xbf\x01\n" +
+	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1f\n" +
+	"\vsystem_type\x18\n" +
+	" \x01(\tR\n" +
+	"systemType\"\xbf\x01\n" +
 	"\x10PortfolioSummary\x12!\n" +
 	"\ftotal_profit\x18\x01 \x01(\tR\vtotalProfit\x12(\n" +
 	"\x10total_profit_rsd\x18\x02 \x01(\tR\x0etotalProfitRsd\x12+\n" +
 	"\x12tax_paid_this_year\x18\x03 \x01(\tR\x0ftaxPaidThisYear\x121\n" +
-	"\x15tax_unpaid_this_month\x18\x04 \x01(\tR\x12taxUnpaidThisMonth\"g\n" +
+	"\x15tax_unpaid_this_month\x18\x04 \x01(\tR\x12taxUnpaidThisMonth\"\x88\x01\n" +
 	"\x11MakePublicRequest\x12\x1d\n" +
 	"\n" +
 	"holding_id\x18\x01 \x01(\x04R\tholdingId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1a\n" +
-	"\bquantity\x18\x03 \x01(\x03R\bquantity\"O\n" +
+	"\bquantity\x18\x03 \x01(\x03R\bquantity\x12\x1f\n" +
+	"\vsystem_type\x18\n" +
+	" \x01(\tR\n" +
+	"systemType\"p\n" +
 	"\x15ExerciseOptionRequest\x12\x1d\n" +
 	"\n" +
 	"holding_id\x18\x01 \x01(\x04R\tholdingId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x04R\x06userId\"v\n" +
+	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1f\n" +
+	"\vsystem_type\x18\n" +
+	" \x01(\tR\n" +
+	"systemType\"\x97\x01\n" +
 	"\x1fExerciseOptionByOptionIDRequest\x12\x1b\n" +
 	"\toption_id\x18\x01 \x01(\x04R\boptionId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1d\n" +
 	"\n" +
-	"holding_id\x18\x03 \x01(\x04R\tholdingId\"\xb5\x01\n" +
+	"holding_id\x18\x03 \x01(\x04R\tholdingId\x12\x1f\n" +
+	"\vsystem_type\x18\n" +
+	" \x01(\tR\n" +
+	"systemType\"\xb5\x01\n" +
 	"\x0eExerciseResult\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12#\n" +
 	"\roption_ticker\x18\x02 \x01(\tR\foptionTicker\x12-\n" +
@@ -6022,11 +6145,14 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x12CollectTaxResponse\x12'\n" +
 	"\x0fcollected_count\x18\x01 \x01(\x03R\x0ecollectedCount\x12.\n" +
 	"\x13total_collected_rsd\x18\x02 \x01(\tR\x11totalCollectedRsd\x12!\n" +
-	"\ffailed_count\x18\x03 \x01(\x03R\vfailedCount\"e\n" +
+	"\ffailed_count\x18\x03 \x01(\x03R\vfailedCount\"\x86\x01\n" +
 	"\x19ListUserTaxRecordsRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x12\n" +
 	"\x04page\x18\x02 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\"\xe6\x02\n" +
+	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12\x1f\n" +
+	"\vsystem_type\x18\n" +
+	" \x01(\tR\n" +
+	"systemType\"\xe6\x02\n" +
 	"\rUserTaxRecord\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12#\n" +
 	"\rsecurity_type\x18\x02 \x01(\tR\fsecurityType\x12\x16\n" +

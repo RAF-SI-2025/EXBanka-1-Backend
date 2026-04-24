@@ -418,6 +418,10 @@ message CreateOrderRequest {
 message GetOrderRequest {
   uint64 id = 1;
   uint64 user_id = 2;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ListMyOrdersRequest {
@@ -427,6 +431,10 @@ message ListMyOrdersRequest {
   string order_type = 4;
   int32 page = 5;
   int32 page_size = 6;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ListOrdersRequest {
@@ -446,6 +454,10 @@ message ListOrdersResponse {
 message CancelOrderRequest {
   uint64 id = 1;
   uint64 user_id = 2;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ApproveOrderRequest {
@@ -487,6 +499,10 @@ message ListHoldingsRequest {
   string security_type = 2;
   int32 page = 3;
   int32 page_size = 4;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ListHoldingsResponse {
@@ -496,6 +512,10 @@ message ListHoldingsResponse {
 
 message GetPortfolioSummaryRequest {
   uint64 user_id = 1;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message PortfolioSummary {
@@ -509,17 +529,29 @@ message MakePublicRequest {
   uint64 holding_id = 1;
   uint64 user_id = 2;
   int64 quantity = 3;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ExerciseOptionRequest {
   uint64 holding_id = 1;
   uint64 user_id = 2;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ExerciseOptionByOptionIDRequest {
   uint64 option_id  = 1;
   uint64 user_id    = 2;
   uint64 holding_id = 3; // optional; 0 means auto-resolve
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ExerciseResult {
@@ -621,6 +653,10 @@ message ListUserTaxRecordsRequest {
   uint64 user_id = 1;
   int32 page = 2;
   int32 page_size = 3;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message UserTaxRecord {
