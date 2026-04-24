@@ -73,6 +73,23 @@ func main() {
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_price_listing_date ON listing_daily_price_infos(listing_id, date)")
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_unique ON holdings(user_id, security_type, security_id, account_id)")
 
+	// Durable data-normalization: exchange-service only accepts 8 ISO currency
+	// codes (RSD, EUR, CHF, USD, GBP, JPY, CAD, AUD). Any other code on a
+	// stock_exchanges row causes "currency unsupported" errors on cross-currency
+	// orders (the listing's Exchange.Currency flows into exchange.Convert).
+	// stock_exchanges is seeded from a CSV containing 40+ unsupported codes
+	// (PLN, KRW, HKD, CNY, …). Rewrite every non-supported code to USD at
+	// startup so the table is always in a state exchange-service can accept.
+	// The source layer's NormalizeExchangeCurrency handles new rows; this
+	// handles pre-existing rows + any that slip through via the CSV seed.
+	if res := db.Exec(
+		"UPDATE stock_exchanges SET currency = 'USD' WHERE currency NOT IN ('RSD','EUR','CHF','USD','GBP','JPY','CAD','AUD')",
+	); res.Error != nil {
+		log.Printf("WARN: exchange-currency normalization failed: %v", res.Error)
+	} else if res.RowsAffected > 0 {
+		log.Printf("normalized %d stock_exchanges rows to USD (was unsupported)", res.RowsAffected)
+	}
+
 	// --- Kafka ---
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
