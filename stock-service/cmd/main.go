@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -345,7 +346,10 @@ func main() {
 	// credit their base account with no holding row. The bank-commission
 	// recipient adapter exposes the pre-seeded state account to the forex
 	// saga without pulling the full PortfolioService lookup logic in.
-	bankCommissionRecipient := bankCommissionAccountAdapter{accountNo: cfg.StateAccountNo}
+	// Commissions go to the bank's RSD account (discovered dynamically via
+	// account-service.GetBankRSDAccount and cached for 5 minutes).
+	// cfg.StateAccountNo is reserved for capital-gains tax in tax_service.
+	bankCommissionRecipient := newBankCommissionAccountAdapter(accountConn)
 	forexFillSvc := service.NewForexFillService(
 		sagaLogRepo, stockAccountClient, orderTxRepo, nil, bankCommissionRecipient,
 	)
@@ -474,12 +478,45 @@ func main() {
 }
 
 // bankCommissionAccountAdapter satisfies service.BankCommissionRecipient by
-// returning the pre-seeded state-account number from config. Kept here (not
-// in internal/service) so the package stays free of config dependencies.
+// resolving the bank's RSD account number dynamically via account-service's
+// BankAccountService.GetBankRSDAccount RPC. "Dynamically" because the seed
+// assigns a different account_number on every reseed — hardcoding it would
+// break after a docker compose down -v. Caches the result for 5 minutes to
+// avoid hitting account-service on every fill.
+//
+// Used for every fee/commission credit in stock-service (securities trade
+// commission, forex trade commission, OTC commission). Separate from
+// cfg.StateAccountNo which is reserved for capital-gains tax collection.
 type bankCommissionAccountAdapter struct {
-	accountNo string
+	bankClient  accountpb.BankAccountServiceClient
+	mu          sync.Mutex
+	cached      string
+	cachedAt    time.Time
+	cacheTTL    time.Duration
 }
 
-func (a bankCommissionAccountAdapter) BankCommissionAccountNumber(context.Context) (string, error) {
-	return a.accountNo, nil
+func newBankCommissionAccountAdapter(conn *grpc.ClientConn) *bankCommissionAccountAdapter {
+	return &bankCommissionAccountAdapter{
+		bankClient: accountpb.NewBankAccountServiceClient(conn),
+		cacheTTL:   5 * time.Minute,
+	}
+}
+
+func (a *bankCommissionAccountAdapter) BankCommissionAccountNumber(ctx context.Context) (string, error) {
+	a.mu.Lock()
+	if a.cached != "" && time.Since(a.cachedAt) < a.cacheTTL {
+		defer a.mu.Unlock()
+		return a.cached, nil
+	}
+	a.mu.Unlock()
+
+	resp, err := a.bankClient.GetBankRSDAccount(ctx, &accountpb.GetBankRSDAccountRequest{})
+	if err != nil {
+		return "", err
+	}
+	a.mu.Lock()
+	a.cached = resp.AccountNumber
+	a.cachedAt = time.Now()
+	a.mu.Unlock()
+	return resp.AccountNumber, nil
 }

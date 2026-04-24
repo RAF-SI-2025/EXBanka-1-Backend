@@ -68,7 +68,16 @@ type PortfolioService struct {
 	optionRepo      OptionRepo
 	accountClient   accountpb.AccountServiceClient
 	nameResolver    UserNameResolver
-	stateAccountNo  string
+	// stateAccountNo is retained ONLY for the legacy ExerciseOption path
+	// (line 1024) which still credits the bank's RSD account. New fill-saga
+	// commission credits route through bankCommissionRecipient instead so
+	// commissions go to the bank's RSD account and taxes can go to the
+	// state/country account separately.
+	stateAccountNo string
+	// bankCommissionRecipient resolves the bank's RSD account number at
+	// call time. Set via WithFillSaga. When nil (legacy tests) the service
+	// falls back to stateAccountNo so old fixtures keep working.
+	bankCommissionRecipient BankCommissionRecipient
 	// Phase-2 fill-saga dependencies (Task 13 / Task 14). All optional: when
 	// nil the service falls back to the legacy (pre-saga) behaviour so tests
 	// that target ExerciseOption and legacy fill paths don't need to thread
@@ -137,6 +146,16 @@ func (s *PortfolioService) WithFillSaga(
 	cp.fillClient = fillClient
 	cp.holdingReservationSvc = holdingReservationSvc
 	cp.settings = settings
+	return &cp
+}
+
+// WithBankCommissionRecipient routes fill-saga commission credits through
+// the given recipient (typically a dynamic adapter that calls
+// account-service.GetBankRSDAccount). When nil the service falls back to
+// stateAccountNo for commission — matching pre-split behaviour.
+func (s *PortfolioService) WithBankCommissionRecipient(r BankCommissionRecipient) *PortfolioService {
+	cp := *s
+	cp.bankCommissionRecipient = r
 	return &cp
 }
 
