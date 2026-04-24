@@ -35,30 +35,30 @@ func (m *mockTaxCollectionRepo) Create(collection *model.TaxCollection) error {
 	return nil
 }
 
-func (m *mockTaxCollectionRepo) SumByUserYear(userID uint64, year int) (decimal.Decimal, error) {
+func (m *mockTaxCollectionRepo) SumByUserYear(userID uint64, systemType string, year int) (decimal.Decimal, error) {
 	total := decimal.Zero
 	for _, c := range m.collections {
-		if c.UserID == userID && c.Year == year {
+		if c.UserID == userID && c.SystemType == systemType && c.Year == year {
 			total = total.Add(c.TaxAmountRSD)
 		}
 	}
 	return total, nil
 }
 
-func (m *mockTaxCollectionRepo) SumByUserMonth(userID uint64, year, month int) (decimal.Decimal, error) {
+func (m *mockTaxCollectionRepo) SumByUserMonth(userID uint64, systemType string, year, month int) (decimal.Decimal, error) {
 	total := decimal.Zero
 	for _, c := range m.collections {
-		if c.UserID == userID && c.Year == year && c.Month == month {
+		if c.UserID == userID && c.SystemType == systemType && c.Year == year && c.Month == month {
 			total = total.Add(c.TaxAmountRSD)
 		}
 	}
 	return total, nil
 }
 
-func (m *mockTaxCollectionRepo) GetLastCollection(userID uint64) (*model.TaxCollection, error) {
+func (m *mockTaxCollectionRepo) GetLastCollection(userID uint64, systemType string) (*model.TaxCollection, error) {
 	var last *model.TaxCollection
 	for i := range m.collections {
-		if m.collections[i].UserID == userID {
+		if m.collections[i].UserID == userID && m.collections[i].SystemType == systemType {
 			last = &m.collections[i]
 		}
 	}
@@ -89,10 +89,10 @@ func (m *mockTaxCapitalGainRepo) Create(gain *model.CapitalGain) error {
 	return nil
 }
 
-func (m *mockTaxCapitalGainRepo) ListByUser(userID uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
+func (m *mockTaxCapitalGainRepo) ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error) {
 	var result []model.CapitalGain
 	for _, g := range m.gains {
-		if g.UserID == userID {
+		if g.UserID == userID && g.SystemType == systemType {
 			result = append(result, g)
 		}
 	}
@@ -108,14 +108,14 @@ func (m *mockTaxCapitalGainRepo) ListByUser(userID uint64, page, pageSize int) (
 	return result[start:end], total, nil
 }
 
-func (m *mockTaxCapitalGainRepo) SumByUserMonth(userID uint64, year, month int) ([]repository.AccountGainSummary, error) {
+func (m *mockTaxCapitalGainRepo) SumByUserMonth(userID uint64, systemType string, year, month int) ([]repository.AccountGainSummary, error) {
 	type key struct {
 		AccountID uint64
 		Currency  string
 	}
 	agg := make(map[key]decimal.Decimal)
 	for _, g := range m.gains {
-		if g.UserID == userID && g.TaxYear == year && g.TaxMonth == month {
+		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year && g.TaxMonth == month {
 			k := key{AccountID: g.AccountID, Currency: g.Currency}
 			agg[k] = agg[k].Add(g.TotalGain)
 		}
@@ -131,14 +131,14 @@ func (m *mockTaxCapitalGainRepo) SumByUserMonth(userID uint64, year, month int) 
 	return result, nil
 }
 
-func (m *mockTaxCapitalGainRepo) SumByUserYear(userID uint64, year int) ([]repository.AccountGainSummary, error) {
+func (m *mockTaxCapitalGainRepo) SumByUserYear(userID uint64, systemType string, year int) ([]repository.AccountGainSummary, error) {
 	type key struct {
 		AccountID uint64
 		Currency  string
 	}
 	agg := make(map[key]decimal.Decimal)
 	for _, g := range m.gains {
-		if g.UserID == userID && g.TaxYear == year {
+		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year {
 			k := key{AccountID: g.AccountID, Currency: g.Currency}
 			agg[k] = agg[k].Add(g.TotalGain)
 		}
@@ -373,7 +373,7 @@ func TestTaxService_GetUserTaxSummary_PositiveGain(t *testing.T) {
 		TaxMonth:         month,
 	})
 
-	paidThisYear, unpaidThisMonth, err := svc.GetUserTaxSummary(42)
+	paidThisYear, unpaidThisMonth, err := svc.GetUserTaxSummary(42, "employee")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -417,7 +417,7 @@ func TestTaxService_GetUserTaxSummary_NegativeGain(t *testing.T) {
 		TaxMonth:         month,
 	})
 
-	paidThisYear, unpaidThisMonth, err := svc.GetUserTaxSummary(42)
+	paidThisYear, unpaidThisMonth, err := svc.GetUserTaxSummary(42, "employee")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestTaxService_ListUserTaxRecords_OnlyUserRecords(t *testing.T) {
 		TaxYear: year, TaxMonth: month,
 	})
 
-	records, total, err := svc.ListUserTaxRecords(42, 1, 10)
+	records, total, err := svc.ListUserTaxRecords(42, "employee", 1, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestTaxService_GetUserTaxSummary_ForeignCurrency(t *testing.T) {
 		TaxMonth:         month,
 	})
 
-	_, unpaidThisMonth, err := svc.GetUserTaxSummary(42)
+	_, unpaidThisMonth, err := svc.GetUserTaxSummary(42, "employee")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

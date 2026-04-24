@@ -93,7 +93,7 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 }
 
 func (h *OrderHandler) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.OrderDetail, error) {
-	order, txns, err := h.orderSvc.GetOrder(req.Id, req.UserId)
+	order, txns, err := h.orderSvc.GetOrder(req.Id, req.UserId, req.SystemType)
 	if err != nil {
 		return nil, mapOrderError(err)
 	}
@@ -108,7 +108,7 @@ func (h *OrderHandler) ListMyOrders(ctx context.Context, req *pb.ListMyOrdersReq
 		Page:      int(req.Page),
 		PageSize:  int(req.PageSize),
 	}
-	orders, total, err := h.orderSvc.ListMyOrders(req.UserId, filter)
+	orders, total, err := h.orderSvc.ListMyOrders(req.UserId, req.SystemType, filter)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -116,7 +116,7 @@ func (h *OrderHandler) ListMyOrders(ctx context.Context, req *pb.ListMyOrdersReq
 }
 
 func (h *OrderHandler) CancelOrder(ctx context.Context, req *pb.CancelOrderRequest) (*pb.Order, error) {
-	order, err := h.orderSvc.CancelOrder(req.Id, req.UserId)
+	order, err := h.orderSvc.CancelOrder(req.Id, req.UserId, req.SystemType)
 	if err != nil {
 		return nil, mapOrderError(err)
 	}

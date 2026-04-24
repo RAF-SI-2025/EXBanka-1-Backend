@@ -29,7 +29,7 @@ func (h *PortfolioHandler) ListHoldings(ctx context.Context, req *pb.ListHolding
 		PageSize:     int(req.PageSize),
 	}
 
-	holdings, total, err := h.portfolioSvc.ListHoldings(req.UserId, filter)
+	holdings, total, err := h.portfolioSvc.ListHoldings(req.UserId, req.SystemType, filter)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -62,7 +62,7 @@ func (h *PortfolioHandler) ListHoldings(ctx context.Context, req *pb.ListHolding
 
 func (h *PortfolioHandler) GetPortfolioSummary(ctx context.Context, req *pb.GetPortfolioSummaryRequest) (*pb.PortfolioSummary, error) {
 	// Compute total unrealized profit across all holdings
-	allHoldings, _, err := h.portfolioSvc.ListHoldings(req.UserId, service.HoldingFilter{
+	allHoldings, _, err := h.portfolioSvc.ListHoldings(req.UserId, req.SystemType, service.HoldingFilter{
 		Page: 1, PageSize: 10000,
 	})
 	if err != nil {
@@ -80,7 +80,7 @@ func (h *PortfolioHandler) GetPortfolioSummary(ctx context.Context, req *pb.GetP
 	}
 
 	// Get tax info
-	taxPaidYear, taxUnpaidMonth, err := h.taxSvc.GetUserTaxSummary(req.UserId)
+	taxPaidYear, taxUnpaidMonth, err := h.taxSvc.GetUserTaxSummary(req.UserId, req.SystemType)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -94,7 +94,7 @@ func (h *PortfolioHandler) GetPortfolioSummary(ctx context.Context, req *pb.GetP
 }
 
 func (h *PortfolioHandler) MakePublic(ctx context.Context, req *pb.MakePublicRequest) (*pb.Holding, error) {
-	holding, err := h.portfolioSvc.MakePublic(req.HoldingId, req.UserId, req.Quantity)
+	holding, err := h.portfolioSvc.MakePublic(req.HoldingId, req.UserId, req.SystemType, req.Quantity)
 	if err != nil {
 		return nil, mapPortfolioError(err)
 	}
@@ -113,7 +113,7 @@ func (h *PortfolioHandler) MakePublic(ctx context.Context, req *pb.MakePublicReq
 }
 
 func (h *PortfolioHandler) ExerciseOption(ctx context.Context, req *pb.ExerciseOptionRequest) (*pb.ExerciseResult, error) {
-	result, err := h.portfolioSvc.ExerciseOption(req.HoldingId, req.UserId)
+	result, err := h.portfolioSvc.ExerciseOption(req.HoldingId, req.UserId, req.SystemType)
 	if err != nil {
 		return nil, mapPortfolioError(err)
 	}
@@ -122,7 +122,7 @@ func (h *PortfolioHandler) ExerciseOption(ctx context.Context, req *pb.ExerciseO
 }
 
 func (h *PortfolioHandler) ExerciseOptionByOptionID(ctx context.Context, req *pb.ExerciseOptionByOptionIDRequest) (*pb.ExerciseResult, error) {
-	result, err := h.portfolioSvc.ExerciseOptionByOptionID(ctx, req.OptionId, req.UserId, req.HoldingId)
+	result, err := h.portfolioSvc.ExerciseOptionByOptionID(ctx, req.OptionId, req.UserId, req.SystemType, req.HoldingId)
 	if err != nil {
 		return nil, mapPortfolioError(err)
 	}

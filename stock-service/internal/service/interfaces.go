@@ -102,9 +102,10 @@ type DailyPriceRepo interface {
 type OrderRepo interface {
 	Create(order *model.Order) error
 	GetByID(id uint64) (*model.Order, error)
+	GetByIDWithOwner(id, userID uint64, systemType string) (*model.Order, error)
 	Update(order *model.Order) error
 	Delete(id uint64) error
-	ListByUser(userID uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
+	ListByUser(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error)
 	ListAll(filter repository.OrderFilter) ([]model.Order, int64, error)
 	ListActiveApproved() ([]model.Order, error)
 }
@@ -129,29 +130,29 @@ type HoldingRepo interface {
 	GetByID(id uint64) (*model.Holding, error)
 	Update(holding *model.Holding) error
 	Delete(id uint64) error
-	GetByUserAndSecurity(userID uint64, securityType string, securityID uint64, accountID uint64) (*model.Holding, error)
-	ListByUser(userID uint64, filter HoldingFilter) ([]model.Holding, int64, error)
+	GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64, accountID uint64) (*model.Holding, error)
+	ListByUser(userID uint64, systemType string, filter HoldingFilter) ([]model.Holding, int64, error)
 	ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error)
 	// FindOldestLongOptionHolding returns the oldest (by created_at) holding with
-	// security_type="option", security_id=optionID, user_id=userID, quantity>0.
-	// Returns (nil, nil) when no such holding exists.
-	FindOldestLongOptionHolding(userID, optionID uint64) (*model.Holding, error)
+	// security_type="option", security_id=optionID, (user_id, system_type),
+	// quantity>0. Returns (nil, nil) when no such holding exists.
+	FindOldestLongOptionHolding(userID uint64, systemType string, optionID uint64) (*model.Holding, error)
 }
 
 // --- Tax ---
 
 type CapitalGainRepo interface {
 	Create(gain *model.CapitalGain) error
-	ListByUser(userID uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
-	SumByUserMonth(userID uint64, year, month int) ([]AccountGainSummary, error) // grouped by account_id, currency
-	SumByUserYear(userID uint64, year int) ([]AccountGainSummary, error)
+	ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error)
+	SumByUserMonth(userID uint64, systemType string, year, month int) ([]AccountGainSummary, error) // grouped by account_id, currency
+	SumByUserYear(userID uint64, systemType string, year int) ([]AccountGainSummary, error)
 }
 
 type TaxCollectionRepo interface {
 	Create(collection *model.TaxCollection) error
-	SumByUserYear(userID uint64, year int) (decimal.Decimal, error) // total RSD collected
-	SumByUserMonth(userID uint64, year, month int) (decimal.Decimal, error)
-	GetLastCollection(userID uint64) (*model.TaxCollection, error)
+	SumByUserYear(userID uint64, systemType string, year int) (decimal.Decimal, error) // total RSD collected
+	SumByUserMonth(userID uint64, systemType string, year, month int) (decimal.Decimal, error)
+	GetLastCollection(userID uint64, systemType string) (*model.TaxCollection, error)
 	ListUsersWithGains(year, month int, filter TaxFilter) ([]TaxUserSummary, int64, error)
 }
 

@@ -66,7 +66,7 @@ func (h *TaxHandler) ListUserTaxRecords(ctx context.Context, req *pb.ListUserTax
 		pageSize = 10
 	}
 
-	gains, total, err := h.taxSvc.ListUserTaxRecords(req.UserId, page, pageSize)
+	gains, total, err := h.taxSvc.ListUserTaxRecords(req.UserId, req.SystemType, page, pageSize)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -89,7 +89,7 @@ func (h *TaxHandler) ListUserTaxRecords(ctx context.Context, req *pb.ListUserTax
 	}
 
 	// Fetch balance summary
-	taxPaid, taxUnpaid, balErr := h.taxSvc.GetUserTaxSummary(req.UserId)
+	taxPaid, taxUnpaid, balErr := h.taxSvc.GetUserTaxSummary(req.UserId, req.SystemType)
 	if balErr != nil {
 		return nil, status.Error(codes.Internal, balErr.Error())
 	}

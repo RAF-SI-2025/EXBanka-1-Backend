@@ -20,12 +20,14 @@ func NewHoldingRepository(db *gorm.DB) *HoldingRepository {
 
 // Upsert creates a new holding or updates an existing one with weighted average price.
 // Uses SELECT FOR UPDATE to prevent race conditions on concurrent fills.
+// The aggregation key is (user_id, system_type, security_type, security_id, account_id)
+// so client and employee holdings with colliding user_ids stay separated.
 func (r *HoldingRepository) Upsert(holding *model.Holding) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var existing model.Holding
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ? AND security_type = ? AND security_id = ? AND account_id = ?",
-				holding.UserID, holding.SecurityType, holding.SecurityID, holding.AccountID).
+			Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ? AND account_id = ?",
+				holding.UserID, holding.SystemType, holding.SecurityType, holding.SecurityID, holding.AccountID).
 			First(&existing).Error
 
 		if err == gorm.ErrRecordNotFound {
@@ -84,10 +86,10 @@ func (r *HoldingRepository) Delete(id uint64) error {
 	return r.db.Delete(&model.Holding{}, id).Error
 }
 
-func (r *HoldingRepository) GetByUserAndSecurity(userID uint64, securityType string, securityID uint64, accountID uint64) (*model.Holding, error) {
+func (r *HoldingRepository) GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64, accountID uint64) (*model.Holding, error) {
 	var holding model.Holding
-	err := r.db.Where("user_id = ? AND security_type = ? AND security_id = ? AND account_id = ?",
-		userID, securityType, securityID, accountID).
+	err := r.db.Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ? AND account_id = ?",
+		userID, systemType, securityType, securityID, accountID).
 		First(&holding).Error
 	if err != nil {
 		return nil, err
@@ -95,11 +97,11 @@ func (r *HoldingRepository) GetByUserAndSecurity(userID uint64, securityType str
 	return &holding, nil
 }
 
-func (r *HoldingRepository) ListByUser(userID uint64, filter HoldingFilter) ([]model.Holding, int64, error) {
+func (r *HoldingRepository) ListByUser(userID uint64, systemType string, filter HoldingFilter) ([]model.Holding, int64, error) {
 	var holdings []model.Holding
 	var total int64
 
-	q := r.db.Model(&model.Holding{}).Where("user_id = ? AND quantity > 0", userID)
+	q := r.db.Model(&model.Holding{}).Where("user_id = ? AND system_type = ? AND quantity > 0", userID, systemType)
 	if filter.SecurityType != "" {
 		q = q.Where("security_type = ?", filter.SecurityType)
 	}
@@ -119,10 +121,10 @@ func (r *HoldingRepository) ListByUser(userID uint64, filter HoldingFilter) ([]m
 // FindOldestLongOptionHolding returns the oldest (by created_at) holding for
 // a given user and option (security_id) with quantity > 0.
 // Returns (nil, nil) when no such holding exists.
-func (r *HoldingRepository) FindOldestLongOptionHolding(userID, optionID uint64) (*model.Holding, error) {
+func (r *HoldingRepository) FindOldestLongOptionHolding(userID uint64, systemType string, optionID uint64) (*model.Holding, error) {
 	var h model.Holding
 	err := r.db.
-		Where("user_id = ? AND security_type = ? AND security_id = ? AND quantity > 0", userID, "option", optionID).
+		Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ? AND quantity > 0", userID, systemType, "option", optionID).
 		Order("created_at ASC").
 		First(&h).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

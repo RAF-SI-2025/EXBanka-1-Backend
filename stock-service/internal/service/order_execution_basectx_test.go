@@ -28,7 +28,16 @@ func (r *fakeBaseCtxOrderRepo) Update(o *model.Order) error {
 	return nil
 }
 func (r *fakeBaseCtxOrderRepo) Delete(_ uint64) error { return nil }
-func (r *fakeBaseCtxOrderRepo) ListByUser(_ uint64, _ repository.OrderFilter) ([]model.Order, int64, error) {
+func (r *fakeBaseCtxOrderRepo) GetByIDWithOwner(id, userID uint64, systemType string) (*model.Order, error) {
+	if r.order == nil || r.order.ID != id {
+		return nil, errors.New("not found")
+	}
+	if r.order.UserID != userID || r.order.SystemType != systemType {
+		return nil, errors.New("not found")
+	}
+	return r.order, nil
+}
+func (r *fakeBaseCtxOrderRepo) ListByUser(_ uint64, _ string, _ repository.OrderFilter) ([]model.Order, int64, error) {
 	return nil, 0, nil
 }
 func (r *fakeBaseCtxOrderRepo) ListAll(_ repository.OrderFilter) ([]model.Order, int64, error) {

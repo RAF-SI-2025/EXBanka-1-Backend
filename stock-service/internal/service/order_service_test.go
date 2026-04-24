@@ -56,6 +56,18 @@ func (m *mockOrderRepo) GetByID(id uint64) (*model.Order, error) {
 	return &copy, nil
 }
 
+func (m *mockOrderRepo) GetByIDWithOwner(id, userID uint64, systemType string) (*model.Order, error) {
+	o, ok := m.orders[id]
+	if !ok {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if o.UserID != userID || o.SystemType != systemType {
+		return nil, gorm.ErrRecordNotFound
+	}
+	copy := *o
+	return &copy, nil
+}
+
 func (m *mockOrderRepo) Update(order *model.Order) error {
 	if _, ok := m.orders[order.ID]; !ok {
 		return gorm.ErrRecordNotFound
@@ -71,10 +83,10 @@ func (m *mockOrderRepo) Delete(id uint64) error {
 	return nil
 }
 
-func (m *mockOrderRepo) ListByUser(userID uint64, filter repository.OrderFilter) ([]model.Order, int64, error) {
+func (m *mockOrderRepo) ListByUser(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error) {
 	var result []model.Order
 	for _, o := range m.orders {
-		if o.UserID == userID {
+		if o.UserID == userID && o.SystemType == systemType {
 			result = append(result, *o)
 		}
 	}
@@ -1140,7 +1152,7 @@ func TestCancelOrder_Success(t *testing.T) {
 	svc, orderRepo, listingRepo, _, _, _, _ := buildService()
 	order := createDefaultOrder(t, svc, listingRepo)
 
-	cancelled, err := svc.CancelOrder(order.ID, 42)
+	cancelled, err := svc.CancelOrder(order.ID, 42, "employee")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1161,11 +1173,14 @@ func TestCancelOrder_WrongUser(t *testing.T) {
 	svc, _, listingRepo, _, _, _, _ := buildService()
 	order := createDefaultOrder(t, svc, listingRepo)
 
-	_, err := svc.CancelOrder(order.ID, 999)
+	_, err := svc.CancelOrder(order.ID, 999, "employee")
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}
-	if err.Error() != "order does not belong to user" {
+	// With (user_id, system_type) ownership enforced at the repo layer,
+	// cross-owner access returns "order not found" rather than leaking
+	// existence to a different owner.
+	if err.Error() != "order not found" {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1178,7 +1193,7 @@ func TestCancelOrder_AlreadyCompleted(t *testing.T) {
 	stored.IsDone = true
 	_ = orderRepo.Update(stored)
 
-	_, err := svc.CancelOrder(order.ID, 42)
+	_, err := svc.CancelOrder(order.ID, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error when cancelling completed order")
 	}
@@ -1186,7 +1201,7 @@ func TestCancelOrder_AlreadyCompleted(t *testing.T) {
 
 func TestCancelOrder_NotFound(t *testing.T) {
 	svc, _, _, _, _, _, _ := buildService()
-	_, err := svc.CancelOrder(999, 42)
+	_, err := svc.CancelOrder(999, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error for non-existent order")
 	}
@@ -1196,7 +1211,7 @@ func TestGetOrder_Success(t *testing.T) {
 	svc, _, listingRepo, _, _, _, _ := buildService()
 	order := createDefaultOrder(t, svc, listingRepo)
 
-	got, txns, err := svc.GetOrder(order.ID, 42)
+	got, txns, err := svc.GetOrder(order.ID, 42, "employee")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1212,7 +1227,7 @@ func TestGetOrder_WrongUser(t *testing.T) {
 	svc, _, listingRepo, _, _, _, _ := buildService()
 	order := createDefaultOrder(t, svc, listingRepo)
 
-	_, _, err := svc.GetOrder(order.ID, 999)
+	_, _, err := svc.GetOrder(order.ID, 999, "employee")
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}

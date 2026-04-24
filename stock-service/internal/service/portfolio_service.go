@@ -614,7 +614,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 // leave the position.
 func (s *PortfolioService) recordCapitalGain(order *model.Order, txn *model.OrderTransaction, listing *model.Listing) error {
 	holding, err := s.holdingRepo.GetByUserAndSecurity(
-		order.UserID, order.SecurityType, listing.SecurityID, order.AccountID,
+		order.UserID, order.SystemType, order.SecurityType, listing.SecurityID, order.AccountID,
 	)
 	if err != nil {
 		// PartialSettle deletes the row when Quantity hits zero; in that
@@ -659,7 +659,7 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 	}
 
 	holding, err := s.holdingRepo.GetByUserAndSecurity(
-		order.UserID, order.SecurityType, listing.SecurityID, order.AccountID,
+		order.UserID, order.SystemType, order.SecurityType, listing.SecurityID, order.AccountID,
 	)
 	if err != nil {
 		return errors.New("holding not found for sell order")
@@ -717,9 +717,10 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 	return s.creditBankCommission(proportionalCommission)
 }
 
-// ListHoldings returns a user's holdings with computed profit.
-func (s *PortfolioService) ListHoldings(userID uint64, filter HoldingFilter) ([]model.Holding, int64, error) {
-	return s.holdingRepo.ListByUser(userID, filter)
+// ListHoldings returns a (user_id, system_type) owner's holdings with
+// computed profit.
+func (s *PortfolioService) ListHoldings(userID uint64, systemType string, filter HoldingFilter) ([]model.Holding, int64, error) {
+	return s.holdingRepo.ListByUser(userID, systemType, filter)
 }
 
 // GetCurrentPrice retrieves current listing price for a holding.
@@ -732,7 +733,9 @@ func (s *PortfolioService) GetCurrentPrice(listingID uint64) (decimal.Decimal, e
 }
 
 // MakePublic sets a number of shares as publicly available for OTC trading.
-func (s *PortfolioService) MakePublic(holdingID, userID uint64, quantity int64) (*model.Holding, error) {
+// Ownership is enforced on (user_id, system_type) so cross-system ID collisions
+// cannot mutate another owner's holding.
+func (s *PortfolioService) MakePublic(holdingID, userID uint64, systemType string, quantity int64) (*model.Holding, error) {
 	holding, err := s.holdingRepo.GetByID(holdingID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -740,7 +743,7 @@ func (s *PortfolioService) MakePublic(holdingID, userID uint64, quantity int64) 
 		}
 		return nil, err
 	}
-	if holding.UserID != userID {
+	if holding.UserID != userID || holding.SystemType != systemType {
 		return nil, errors.New("holding does not belong to user")
 	}
 	if holding.SecurityType != "stock" {
@@ -758,8 +761,10 @@ func (s *PortfolioService) MakePublic(holdingID, userID uint64, quantity int64) 
 	return holding, nil
 }
 
-// ExerciseOption exercises an option holding if it's in the money and not expired.
-func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseResult, error) {
+// ExerciseOption exercises an option holding if it's in the money and not
+// expired. Ownership is enforced on (user_id, system_type) so cross-system ID
+// collisions cannot exercise another owner's option.
+func (s *PortfolioService) ExerciseOption(holdingID, userID uint64, systemType string) (*ExerciseResult, error) {
 	holding, err := s.holdingRepo.GetByID(holdingID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -767,7 +772,7 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseRe
 		}
 		return nil, err
 	}
-	if holding.UserID != userID {
+	if holding.UserID != userID || holding.SystemType != systemType {
 		return nil, errors.New("holding does not belong to user")
 	}
 	if holding.SecurityType != "option" {
@@ -846,7 +851,7 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseRe
 		if err != nil {
 			return nil, err
 		}
-		stockHolding, err := s.holdingRepo.GetByUserAndSecurity(userID, "stock", option.StockID, holding.AccountID)
+		stockHolding, err := s.holdingRepo.GetByUserAndSecurity(userID, holding.SystemType, "stock", option.StockID, holding.AccountID)
 		if err != nil || stockHolding.Quantity < sharesAffected {
 			return nil, errors.New("insufficient stock holdings to exercise put option")
 		}
@@ -919,22 +924,22 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64) (*ExerciseRe
 
 // ExerciseOptionByOptionID exercises an option identified by its option_id.
 // When holdingID > 0, the specified holding is exercised directly (delegates
-// to ExerciseOption). When holdingID == 0, the user's oldest long holding for
-// the given optionID is auto-resolved and exercised.
-func (s *PortfolioService) ExerciseOptionByOptionID(ctx context.Context, optionID, userID, holdingID uint64) (*ExerciseResult, error) {
+// to ExerciseOption). When holdingID == 0, the (user_id, system_type) owner's
+// oldest long holding for the given optionID is auto-resolved and exercised.
+func (s *PortfolioService) ExerciseOptionByOptionID(ctx context.Context, optionID, userID uint64, systemType string, holdingID uint64) (*ExerciseResult, error) {
 	if holdingID > 0 {
-		return s.ExerciseOption(holdingID, userID)
+		return s.ExerciseOption(holdingID, userID, systemType)
 	}
 
-	// Auto-resolve: find the user's oldest long holding on this option.
-	holding, err := s.holdingRepo.FindOldestLongOptionHolding(userID, optionID)
+	// Auto-resolve: find the owner's oldest long holding on this option.
+	holding, err := s.holdingRepo.FindOldestLongOptionHolding(userID, systemType, optionID)
 	if err != nil {
 		return nil, err
 	}
 	if holding == nil {
 		return nil, errors.New("option holding not found")
 	}
-	return s.ExerciseOption(holding.ID, userID)
+	return s.ExerciseOption(holding.ID, userID, systemType)
 }
 
 // --- Account helpers ---

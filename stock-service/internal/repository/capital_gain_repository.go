@@ -19,12 +19,12 @@ func (r *CapitalGainRepository) Create(gain *model.CapitalGain) error {
 }
 
 // ListByUser returns paginated capital gain records for a user.
-func (r *CapitalGainRepository) ListByUser(userID uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
+func (r *CapitalGainRepository) ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error) {
 	var total int64
-	r.db.Model(&model.CapitalGain{}).Where("user_id = ?", userID).Count(&total)
+	r.db.Model(&model.CapitalGain{}).Where("user_id = ? AND system_type = ?", userID, systemType).Count(&total)
 
 	var records []model.CapitalGain
-	err := r.db.Where("user_id = ?", userID).
+	err := r.db.Where("user_id = ? AND system_type = ?", userID, systemType).
 		Order("created_at DESC").
 		Offset((page - 1) * pageSize).
 		Limit(pageSize).
@@ -33,22 +33,22 @@ func (r *CapitalGainRepository) ListByUser(userID uint64, page, pageSize int) ([
 }
 
 // SumByUserMonth returns capital gains grouped by (account_id, currency) for a month.
-func (r *CapitalGainRepository) SumByUserMonth(userID uint64, year, month int) ([]AccountGainSummary, error) {
+func (r *CapitalGainRepository) SumByUserMonth(userID uint64, systemType string, year, month int) ([]AccountGainSummary, error) {
 	var results []AccountGainSummary
 	err := r.db.Model(&model.CapitalGain{}).
 		Select("account_id, currency, SUM(total_gain) as total_gain").
-		Where("user_id = ? AND tax_year = ? AND tax_month = ?", userID, year, month).
+		Where("user_id = ? AND system_type = ? AND tax_year = ? AND tax_month = ?", userID, systemType, year, month).
 		Group("account_id, currency").
 		Find(&results).Error
 	return results, err
 }
 
 // SumByUserYear returns capital gains grouped by (account_id, currency) for a year.
-func (r *CapitalGainRepository) SumByUserYear(userID uint64, year int) ([]AccountGainSummary, error) {
+func (r *CapitalGainRepository) SumByUserYear(userID uint64, systemType string, year int) ([]AccountGainSummary, error) {
 	var results []AccountGainSummary
 	err := r.db.Model(&model.CapitalGain{}).
 		Select("account_id, currency, SUM(total_gain) as total_gain").
-		Where("user_id = ? AND tax_year = ?", userID, year).
+		Where("user_id = ? AND system_type = ? AND tax_year = ?", userID, systemType, year).
 		Group("account_id, currency").
 		Find(&results).Error
 	return results, err

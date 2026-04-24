@@ -517,17 +517,16 @@ func (s *OrderService) DeclineOrder(orderID uint64, supervisorID uint64, supervi
 	return order, nil
 }
 
-// CancelOrder cancels an unfilled (or partially filled) order.
-func (s *OrderService) CancelOrder(orderID, userID uint64) (*model.Order, error) {
-	order, err := s.orderRepo.GetByID(orderID)
+// CancelOrder cancels an unfilled (or partially filled) order for the given
+// (user_id, system_type) owner. Cross-system lookups return "order not found"
+// without leaking existence.
+func (s *OrderService) CancelOrder(orderID, userID uint64, systemType string) (*model.Order, error) {
+	order, err := s.orderRepo.GetByIDWithOwner(orderID, userID, systemType)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("order not found")
 		}
 		return nil, err
-	}
-	if order.UserID != userID {
-		return nil, errors.New("order does not belong to user")
 	}
 	if order.IsDone {
 		return nil, errors.New("order is already completed")
@@ -551,17 +550,15 @@ func (s *OrderService) CancelOrder(orderID, userID uint64) (*model.Order, error)
 	return order, nil
 }
 
-// GetOrder retrieves an order with ownership check.
-func (s *OrderService) GetOrder(orderID, userID uint64) (*model.Order, []model.OrderTransaction, error) {
-	order, err := s.orderRepo.GetByID(orderID)
+// GetOrder retrieves an order with (user_id, system_type) ownership check.
+// Cross-system lookups return "order not found" without leaking existence.
+func (s *OrderService) GetOrder(orderID, userID uint64, systemType string) (*model.Order, []model.OrderTransaction, error) {
+	order, err := s.orderRepo.GetByIDWithOwner(orderID, userID, systemType)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil, errors.New("order not found")
 		}
 		return nil, nil, err
-	}
-	if order.UserID != userID {
-		return nil, nil, errors.New("order does not belong to user")
 	}
 
 	txns, err := s.txRepo.ListByOrderID(orderID)
@@ -571,9 +568,9 @@ func (s *OrderService) GetOrder(orderID, userID uint64) (*model.Order, []model.O
 	return order, txns, nil
 }
 
-// ListMyOrders returns paginated orders for a user.
-func (s *OrderService) ListMyOrders(userID uint64, filter repository.OrderFilter) ([]model.Order, int64, error) {
-	return s.orderRepo.ListByUser(userID, filter)
+// ListMyOrders returns paginated orders for a (user_id, system_type) owner.
+func (s *OrderService) ListMyOrders(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error) {
+	return s.orderRepo.ListByUser(userID, systemType, filter)
 }
 
 // ListAllOrders returns paginated orders for supervisor view.

@@ -105,9 +105,9 @@ func (m *mockHoldingRepo) Delete(id uint64) error {
 	return nil
 }
 
-func (m *mockHoldingRepo) GetByUserAndSecurity(userID uint64, securityType string, securityID uint64, accountID uint64) (*model.Holding, error) {
+func (m *mockHoldingRepo) GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64, accountID uint64) (*model.Holding, error) {
 	for _, h := range m.holdings {
-		if h.UserID == userID && h.SecurityType == securityType && h.SecurityID == securityID && h.AccountID == accountID {
+		if h.UserID == userID && h.SystemType == systemType && h.SecurityType == securityType && h.SecurityID == securityID && h.AccountID == accountID {
 			cp := *h
 			return &cp, nil
 		}
@@ -115,10 +115,10 @@ func (m *mockHoldingRepo) GetByUserAndSecurity(userID uint64, securityType strin
 	return nil, gorm.ErrRecordNotFound
 }
 
-func (m *mockHoldingRepo) ListByUser(userID uint64, filter repository.HoldingFilter) ([]model.Holding, int64, error) {
+func (m *mockHoldingRepo) ListByUser(userID uint64, systemType string, filter repository.HoldingFilter) ([]model.Holding, int64, error) {
 	var result []model.Holding
 	for _, h := range m.holdings {
-		if h.UserID == userID && h.Quantity > 0 {
+		if h.UserID == userID && h.SystemType == systemType && h.Quantity > 0 {
 			if filter.SecurityType != "" && h.SecurityType != filter.SecurityType {
 				continue
 			}
@@ -139,11 +139,12 @@ func (m *mockHoldingRepo) ListPublicOffers(filter repository.OTCFilter) ([]model
 }
 
 // FindOldestLongOptionHolding returns the oldest holding (lowest CreatedAt) for
-// the given user and option that has quantity > 0. Returns (nil, nil) if none.
-func (m *mockHoldingRepo) FindOldestLongOptionHolding(userID, optionID uint64) (*model.Holding, error) {
+// the given (user_id, system_type) and option that has quantity > 0. Returns
+// (nil, nil) if none.
+func (m *mockHoldingRepo) FindOldestLongOptionHolding(userID uint64, systemType string, optionID uint64) (*model.Holding, error) {
 	var oldest *model.Holding
 	for _, h := range m.holdings {
-		if h.UserID == userID && h.SecurityType == "option" && h.SecurityID == optionID && h.Quantity > 0 {
+		if h.UserID == userID && h.SystemType == systemType && h.SecurityType == "option" && h.SecurityID == optionID && h.Quantity > 0 {
 			if oldest == nil || h.CreatedAt.Before(oldest.CreatedAt) {
 				cp := *h
 				oldest = &cp
@@ -154,10 +155,16 @@ func (m *mockHoldingRepo) FindOldestLongOptionHolding(userID, optionID uint64) (
 }
 
 // addHolding inserts a holding directly for test setup.
+// Defaults SystemType to "employee" when unset so pre-existing tests that
+// pre-date the (user_id, system_type) ownership check continue to find the
+// holdings they insert.
 func (m *mockHoldingRepo) addHolding(h *model.Holding) {
 	if h.ID == 0 {
 		h.ID = m.nextID
 		m.nextID++
+	}
+	if h.SystemType == "" {
+		h.SystemType = "employee"
 	}
 	stored := *h
 	m.holdings[h.ID] = &stored
@@ -186,21 +193,21 @@ func (m *mockCapitalGainRepo) Create(gain *model.CapitalGain) error {
 	return nil
 }
 
-func (m *mockCapitalGainRepo) ListByUser(userID uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
+func (m *mockCapitalGainRepo) ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error) {
 	var result []model.CapitalGain
 	for _, g := range m.gains {
-		if g.UserID == userID {
+		if g.UserID == userID && g.SystemType == systemType {
 			result = append(result, g)
 		}
 	}
 	return result, int64(len(result)), nil
 }
 
-func (m *mockCapitalGainRepo) SumByUserMonth(userID uint64, year, month int) ([]repository.AccountGainSummary, error) {
+func (m *mockCapitalGainRepo) SumByUserMonth(userID uint64, systemType string, year, month int) ([]repository.AccountGainSummary, error) {
 	return nil, nil
 }
 
-func (m *mockCapitalGainRepo) SumByUserYear(userID uint64, year int) ([]repository.AccountGainSummary, error) {
+func (m *mockCapitalGainRepo) SumByUserYear(userID uint64, systemType string, year int) ([]repository.AccountGainSummary, error) {
 	return nil, nil
 }
 
@@ -485,7 +492,7 @@ func TestPortfolio_ProcessBuyFill_NewHolding(t *testing.T) {
 	}
 
 	// Verify holding was created
-	holding, err := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 100, 1)
+	holding, err := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
 	if err != nil {
 		t.Fatalf("holding not found: %v", err)
 	}
@@ -573,7 +580,7 @@ func TestPortfolio_ProcessBuyFill_WeightedAverage(t *testing.T) {
 	}
 
 	// Weighted average: (10*50 + 10*60) / (10+10) = 1100/20 = 55
-	holding, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 100, 1)
+	holding, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
 	if holding.Quantity != 20 {
 		t.Errorf("expected quantity 20, got %d", holding.Quantity)
 	}
@@ -705,7 +712,7 @@ func TestPortfolio_ProcessSellFill_PartialSell(t *testing.T) {
 	}
 
 	// Holding should decrease from 20 to 15
-	holding, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 100, 1)
+	holding, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
 	if holding.Quantity != 15 {
 		t.Errorf("expected quantity 15, got %d", holding.Quantity)
 	}
@@ -964,7 +971,7 @@ func TestPortfolio_MakePublic_Success(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	result, err := svc.MakePublic(h.ID, 42, 15)
+	result, err := svc.MakePublic(h.ID, 42, "employee", 15)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -986,7 +993,7 @@ func TestPortfolio_MakePublic_ExceedsOwned(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	_, err := svc.MakePublic(h.ID, 42, 15) // more than owned
+	_, err := svc.MakePublic(h.ID, 42, "employee", 15) // more than owned
 	if err == nil {
 		t.Fatal("expected error for quantity exceeding owned")
 	}
@@ -1008,7 +1015,7 @@ func TestPortfolio_MakePublic_NegativeQuantity(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	_, err := svc.MakePublic(h.ID, 42, -1)
+	_, err := svc.MakePublic(h.ID, 42, "employee", -1)
 	if err == nil {
 		t.Fatal("expected error for negative quantity")
 	}
@@ -1030,7 +1037,7 @@ func TestPortfolio_MakePublic_WrongUser(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	_, err := svc.MakePublic(h.ID, 999, 5)
+	_, err := svc.MakePublic(h.ID, 999, "employee", 5)
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}
@@ -1052,7 +1059,7 @@ func TestPortfolio_MakePublic_NotStock(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	_, err := svc.MakePublic(h.ID, 42, 5)
+	_, err := svc.MakePublic(h.ID, 42, "employee", 5)
 	if err == nil {
 		t.Fatal("expected error for non-stock holding")
 	}
@@ -1064,7 +1071,7 @@ func TestPortfolio_MakePublic_NotStock(t *testing.T) {
 func TestPortfolio_MakePublic_NotFound(t *testing.T) {
 	svc, _ := buildPortfolioService()
 
-	_, err := svc.MakePublic(999, 42, 5)
+	_, err := svc.MakePublic(999, 42, "employee", 5)
 	if err == nil {
 		t.Fatal("expected error for non-existent holding")
 	}
@@ -1087,7 +1094,7 @@ func TestPortfolio_MakePublic_SetToZero(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	result, err := svc.MakePublic(h.ID, 42, 0)
+	result, err := svc.MakePublic(h.ID, 42, "employee", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1128,7 +1135,7 @@ func TestPortfolio_ListHoldings_ReturnsUserHoldings(t *testing.T) {
 		AccountID:    1,
 	})
 
-	holdings, total, err := svc.ListHoldings(42, HoldingFilter{})
+	holdings, total, err := svc.ListHoldings(42, "employee", HoldingFilter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1160,7 +1167,7 @@ func TestPortfolio_ListHoldings_FilterBySecurityType(t *testing.T) {
 		AccountID:    2,
 	})
 
-	holdings, total, err := svc.ListHoldings(42, HoldingFilter{SecurityType: "stock"})
+	holdings, total, err := svc.ListHoldings(42, "employee", HoldingFilter{SecurityType: "stock"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1175,7 +1182,7 @@ func TestPortfolio_ListHoldings_FilterBySecurityType(t *testing.T) {
 func TestPortfolio_ListHoldings_EmptyForUnknownUser(t *testing.T) {
 	svc, _ := buildPortfolioService()
 
-	holdings, total, err := svc.ListHoldings(999, HoldingFilter{})
+	holdings, total, err := svc.ListHoldings(999, "employee", HoldingFilter{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1257,7 +1264,7 @@ func TestPortfolio_ExerciseOption_CallITM(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	result, err := svc.ExerciseOption(h.ID, 42)
+	result, err := svc.ExerciseOption(h.ID, 42, "employee")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1282,7 +1289,7 @@ func TestPortfolio_ExerciseOption_CallITM(t *testing.T) {
 	}
 
 	// Stock holding should be created with strike price as avg cost
-	stockHolding, err := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 500, 1)
+	stockHolding, err := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 500, 1)
 	if err != nil {
 		t.Fatalf("stock holding not found: %v", err)
 	}
@@ -1333,7 +1340,7 @@ func TestPortfolio_ExerciseOption_CallOTM(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	_, err := svc.ExerciseOption(h.ID, 42)
+	_, err := svc.ExerciseOption(h.ID, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error for OTM call option")
 	}
@@ -1396,7 +1403,7 @@ func TestPortfolio_ExerciseOption_PutITM(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(stockH)
 
-	result, err := svc.ExerciseOption(optH.ID, 42)
+	result, err := svc.ExerciseOption(optH.ID, 42, "employee")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1470,7 +1477,7 @@ func TestPortfolio_ExerciseOption_PutOTM(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	_, err := svc.ExerciseOption(h.ID, 42)
+	_, err := svc.ExerciseOption(h.ID, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error for OTM put option")
 	}
@@ -1517,7 +1524,7 @@ func TestPortfolio_ExerciseOption_PutInsufficientStock(t *testing.T) {
 		AccountID:    1,
 	})
 
-	_, err := svc.ExerciseOption(h.ID, 42)
+	_, err := svc.ExerciseOption(h.ID, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error for insufficient stock")
 	}
@@ -1533,7 +1540,7 @@ func TestPortfolio_ExerciseOption_PutInsufficientStock(t *testing.T) {
 func TestPortfolio_ExerciseOption_NotFound(t *testing.T) {
 	svc, _ := buildPortfolioService()
 
-	_, err := svc.ExerciseOption(999, 42)
+	_, err := svc.ExerciseOption(999, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error for non-existent holding")
 	}
@@ -1555,7 +1562,7 @@ func TestPortfolio_ExerciseOption_WrongUser(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	_, err := svc.ExerciseOption(h.ID, 999) // wrong user
+	_, err := svc.ExerciseOption(h.ID, 999, "employee") // wrong user
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}
@@ -1577,7 +1584,7 @@ func TestPortfolio_ExerciseOption_NotAnOption(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	_, err := svc.ExerciseOption(h.ID, 42)
+	_, err := svc.ExerciseOption(h.ID, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error for non-option holding")
 	}
@@ -1607,7 +1614,7 @@ func TestPortfolio_ExerciseOption_Expired(t *testing.T) {
 	}
 	mocks.holdingRepo.addHolding(h)
 
-	_, err := svc.ExerciseOption(h.ID, 42)
+	_, err := svc.ExerciseOption(h.ID, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error for expired option")
 	}
@@ -1720,7 +1727,7 @@ func TestPortfolio_ExerciseOption_Call_CompensatesOnUpsertFailure(t *testing.T) 
 	// Make holding upsert fail
 	mocks.holdingRepo.failNextUpsert = errors.New("db connection lost")
 
-	_, err := svc.ExerciseOption(h.ID, 42)
+	_, err := svc.ExerciseOption(h.ID, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error when holding upsert fails")
 	}
@@ -1803,7 +1810,7 @@ func TestPortfolio_ExerciseOption_Put_CompensatesOnHoldingUpdateFailure(t *testi
 	// Make holding update fail (stock holding decrease step)
 	mocks.holdingRepo.failNextUpdate = errors.New("optimistic lock conflict")
 
-	_, err := svc.ExerciseOption(optH.ID, 42)
+	_, err := svc.ExerciseOption(optH.ID, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error when stock holding update fails")
 	}
@@ -1884,7 +1891,7 @@ func TestPortfolio_ExerciseOption_Put_CompensatesOnCapitalGainFailure(t *testing
 	// Make capital gain creation fail (after credit and holding update succeed)
 	mocks.capitalGainRepo.failNextCreate = errors.New("capital gain db error")
 
-	_, err := svc.ExerciseOption(optH.ID, 42)
+	_, err := svc.ExerciseOption(optH.ID, 42, "employee")
 	if err == nil {
 		t.Fatal("expected error when capital gain creation fails")
 	}
@@ -1944,7 +1951,7 @@ func TestExerciseOptionByOptionID_WithExplicitHolding(t *testing.T) {
 	mocks.holdingRepo.addHolding(h)
 
 	// Call with explicit holding_id — must exercise via the existing ExerciseOption path
-	result, err := svc.ExerciseOptionByOptionID(context.Background(), 7, 42, h.ID)
+	result, err := svc.ExerciseOptionByOptionID(context.Background(), 7, 42, "employee", h.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2021,7 +2028,7 @@ func TestExerciseOptionByOptionID_AutoResolvesOldestHolding(t *testing.T) {
 	mocks.holdingRepo.addHolding(newer)
 
 	// Call with holding_id=0 → auto-resolve to the oldest holding
-	result, err := svc.ExerciseOptionByOptionID(context.Background(), 7, 42, 0)
+	result, err := svc.ExerciseOptionByOptionID(context.Background(), 7, 42, "employee", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2049,7 +2056,7 @@ func TestExerciseOptionByOptionID_NotFound(t *testing.T) {
 	svc, _ := buildPortfolioService()
 
 	// No holdings in repo; holding_id=0 triggers auto-resolve which finds nothing
-	_, err := svc.ExerciseOptionByOptionID(context.Background(), 99, 42, 0)
+	_, err := svc.ExerciseOptionByOptionID(context.Background(), 99, 42, "employee", 0)
 	if err == nil {
 		t.Fatal("expected error when no holding exists for option")
 	}
@@ -2317,7 +2324,7 @@ func TestProcessBuyFill_SameCurrency_HappyPath(t *testing.T) {
 	}
 
 	// Holding upserted with the txn quantity.
-	h, err := mocks.holdingRepo.GetByUserAndSecurity(77, "stock", 100, 1)
+	h, err := mocks.holdingRepo.GetByUserAndSecurity(77, "employee", "stock", 100, 1)
 	if err != nil {
 		t.Fatalf("holding not created: %v", err)
 	}
@@ -2490,7 +2497,7 @@ func TestProcessBuyFill_CommissionFails_TradeStillSucceeds(t *testing.T) {
 	}
 
 	// Holding still updated.
-	h, err := mocks.holdingRepo.GetByUserAndSecurity(77, "stock", 100, 1)
+	h, err := mocks.holdingRepo.GetByUserAndSecurity(77, "employee", "stock", 100, 1)
 	if err != nil || h.Quantity != 3 {
 		t.Errorf("holding should be upserted despite commission failure: err=%v qty=%d", err, h.Quantity)
 	}
@@ -2609,7 +2616,7 @@ func TestProcessSellFill_SameCurrency_HappyPath(t *testing.T) {
 	}
 
 	// Holding should be decremented 20 → 15.
-	h, err := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 100, 1)
+	h, err := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
 	if err != nil {
 		t.Fatalf("holding not found: %v", err)
 	}
@@ -2770,7 +2777,7 @@ func TestProcessSellFill_HoldingDecrementFails_RollsBackCredit(t *testing.T) {
 	}
 
 	// Holding quantity unchanged (PartialSettle failed before decrementing).
-	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 100, 1)
+	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
 	if h.Quantity != 20 {
 		t.Errorf("holding quantity should be unchanged: got %d want 20", h.Quantity)
 	}
@@ -2818,7 +2825,7 @@ func TestProcessSellFill_CommissionFails_TradeStillSucceeds(t *testing.T) {
 	}
 
 	// Holding decremented 20 → 15.
-	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 100, 1)
+	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "employee", "stock", 100, 1)
 	if h.Quantity != 15 {
 		t.Errorf("holding should still be decremented: got %d want 15", h.Quantity)
 	}

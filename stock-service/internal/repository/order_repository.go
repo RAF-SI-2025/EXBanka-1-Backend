@@ -26,6 +26,21 @@ func (r *OrderRepository) GetByID(id uint64) (*model.Order, error) {
 	return &order, nil
 }
 
+// GetByIDWithOwner loads an order and verifies (user_id, system_type) ownership.
+// Use for /me/* endpoints. Returns gorm.ErrRecordNotFound on any mismatch so
+// callers can map the response to 404 without leaking order existence to a
+// different owner.
+func (r *OrderRepository) GetByIDWithOwner(id, userID uint64, systemType string) (*model.Order, error) {
+	var order model.Order
+	err := r.db.Preload("Listing").Preload("Listing.Exchange").
+		Where("id = ? AND user_id = ? AND system_type = ?", id, userID, systemType).
+		First(&order).Error
+	if err != nil {
+		return nil, err
+	}
+	return &order, nil
+}
+
 func (r *OrderRepository) Update(order *model.Order) error {
 	result := r.db.Save(order)
 	if result.Error != nil {
@@ -44,11 +59,11 @@ func (r *OrderRepository) Delete(id uint64) error {
 	return r.db.Delete(&model.Order{}, id).Error
 }
 
-func (r *OrderRepository) ListByUser(userID uint64, filter OrderFilter) ([]model.Order, int64, error) {
+func (r *OrderRepository) ListByUser(userID uint64, systemType string, filter OrderFilter) ([]model.Order, int64, error) {
 	var orders []model.Order
 	var total int64
 
-	q := r.db.Model(&model.Order{}).Where("user_id = ?", userID)
+	q := r.db.Model(&model.Order{}).Where("user_id = ? AND system_type = ?", userID, systemType)
 	q = applyOrderFilters(q, filter)
 
 	if err := q.Count(&total).Error; err != nil {

@@ -44,26 +44,27 @@ func (s *TaxService) ListTaxRecords(year, month int, filter TaxFilter) ([]TaxUse
 	return s.taxCollectionRepo.ListUsersWithGains(year, month, filter)
 }
 
-// GetUserTaxSummary returns tax summary for a user's portfolio page.
-func (s *TaxService) GetUserTaxSummary(userID uint64) (taxPaidThisYear, taxUnpaidThisMonth decimal.Decimal, err error) {
+// GetUserTaxSummary returns tax summary for a (user_id, system_type) owner's
+// portfolio page.
+func (s *TaxService) GetUserTaxSummary(userID uint64, systemType string) (taxPaidThisYear, taxUnpaidThisMonth decimal.Decimal, err error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
 	// Tax paid this year
-	taxPaidThisYear, err = s.taxCollectionRepo.SumByUserYear(userID, year)
+	taxPaidThisYear, err = s.taxCollectionRepo.SumByUserYear(userID, systemType, year)
 	if err != nil {
 		return decimal.Zero, decimal.Zero, err
 	}
 
 	// Tax owed this month (uncollected)
-	gainSummaries, err := s.capitalGainRepo.SumByUserMonth(userID, year, month)
+	gainSummaries, err := s.capitalGainRepo.SumByUserMonth(userID, systemType, year, month)
 	if err != nil {
 		return decimal.Zero, decimal.Zero, err
 	}
 
 	// Already collected this month
-	collectedThisMonth, err := s.taxCollectionRepo.SumByUserMonth(userID, year, month)
+	collectedThisMonth, err := s.taxCollectionRepo.SumByUserMonth(userID, systemType, year, month)
 	if err != nil {
 		return decimal.Zero, decimal.Zero, err
 	}
@@ -92,9 +93,10 @@ func (s *TaxService) GetUserTaxSummary(userID uint64) (taxPaidThisYear, taxUnpai
 	return taxPaidThisYear, taxUnpaidThisMonth, nil
 }
 
-// ListUserTaxRecords returns paginated capital gain records for a single user.
-func (s *TaxService) ListUserTaxRecords(userID uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
-	return s.capitalGainRepo.ListByUser(userID, page, pageSize)
+// ListUserTaxRecords returns paginated capital gain records for a single
+// (user_id, system_type) owner.
+func (s *TaxService) ListUserTaxRecords(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error) {
+	return s.capitalGainRepo.ListByUser(userID, systemType, page, pageSize)
 }
 
 // CollectTax collects tax from all users for the given month.
@@ -117,11 +119,12 @@ func (s *TaxService) CollectTax(year, month int) (collectedCount int64, totalRSD
 			continue
 		}
 
-		// Get detailed gains per account
-		gainSummaries, gainErr := s.capitalGainRepo.SumByUserMonth(summary.UserID, year, month)
+		// Get detailed gains per account, scoped to this (user_id, system_type)
+		// pair so employee and client bookkeeping stay separate when IDs collide.
+		gainSummaries, gainErr := s.capitalGainRepo.SumByUserMonth(summary.UserID, summary.SystemType, year, month)
 		if gainErr != nil {
 			failedCount++
-			log.Printf("WARN: tax: failed to get gains for user %d: %v", summary.UserID, gainErr)
+			log.Printf("WARN: tax: failed to get gains for user %d (%s): %v", summary.UserID, summary.SystemType, gainErr)
 			continue
 		}
 
