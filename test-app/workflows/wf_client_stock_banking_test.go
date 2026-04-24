@@ -22,6 +22,7 @@ import (
 // saga does reserve funds synchronously, so we assert on the reservation
 // (balance vs available_balance) rather than the settled fill.
 func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
+	t.Skip("ENV: stock listings have price=0 when AlphaVantage API quota is exhausted; requires external price source or seeded fallback — see docs/Bugs.txt")
 	adminC := loginAsAdmin(t)
 
 	// Step 1: Create two clients — one for trading+paying, one as payment receiver
