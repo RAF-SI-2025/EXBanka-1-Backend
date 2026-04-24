@@ -11,9 +11,10 @@ import (
 
 func TestToListingInfo_PopulatesID(t *testing.T) {
 	info := toListingInfo(
-		42,                              // listingID — NEW leading parameter
+		42,                              // listingID
 		7,                               // exchangeID
 		"NYSE",                          // exchangeAcronym
+		"USD",                           // exchangeCurrency
 		decimal.NewFromInt(100),         // price
 		decimal.NewFromInt(101),         // high
 		decimal.NewFromInt(99),          // low
@@ -22,6 +23,9 @@ func TestToListingInfo_PopulatesID(t *testing.T) {
 		decimal.NewFromInt(50),          // initialMarginCost
 		time.Unix(1_700_000_000, 0).UTC(),
 	)
+	if info.Currency != "USD" {
+		t.Errorf("expected Currency=USD, got %q", info.Currency)
+	}
 	if info.Id != 42 {
 		t.Fatalf("expected Id=42, got %d", info.Id)
 	}

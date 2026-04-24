@@ -367,6 +367,7 @@ func toListingInfo(
 	listingID uint64,
 	exchangeID uint64,
 	exchangeAcronym string,
+	exchangeCurrency string,
 	price, high, low, change decimal.Decimal,
 	volume int64,
 	initialMarginCost decimal.Decimal,
@@ -377,6 +378,7 @@ func toListingInfo(
 		Id:                listingID,
 		ExchangeId:        exchangeID,
 		ExchangeAcronym:   exchangeAcronym,
+		Currency:          exchangeCurrency,
 		Price:             price.StringFixed(4),
 		High:              high.StringFixed(4),
 		Low:               low.StringFixed(4),
@@ -397,7 +399,7 @@ func toStockItem(s *model.Stock, listingID uint64) *pb.StockItem {
 		DividendYield:     s.DividendYield.StringFixed(6),
 		Listing: toListingInfo(
 			listingID,
-			s.ExchangeID, s.Exchange.Acronym,
+			s.ExchangeID, s.Exchange.Acronym, s.Exchange.Currency,
 			s.Price, s.High, s.Low, s.Change, s.Volume,
 			s.InitialMarginCost(), s.LastRefresh,
 		),
@@ -418,7 +420,7 @@ func toStockDetail(s *model.Stock, options []model.Option, listingID uint64) *pb
 		MarketCap:         s.MarketCap().StringFixed(2),
 		Listing: toListingInfo(
 			listingID,
-			s.ExchangeID, s.Exchange.Acronym,
+			s.ExchangeID, s.Exchange.Acronym, s.Exchange.Currency,
 			s.Price, s.High, s.Low, s.Change, s.Volume,
 			s.InitialMarginCost(), s.LastRefresh,
 		),
@@ -436,7 +438,7 @@ func toFuturesItem(f *model.FuturesContract, listingID uint64) *pb.FuturesItem {
 		SettlementDate: f.SettlementDate.Format("2006-01-02"),
 		Listing: toListingInfo(
 			listingID,
-			f.ExchangeID, f.Exchange.Acronym,
+			f.ExchangeID, f.Exchange.Acronym, f.Exchange.Currency,
 			f.Price, f.High, f.Low, f.Change, f.Volume,
 			f.InitialMarginCost(), f.LastRefresh,
 		),
@@ -454,7 +456,7 @@ func toFuturesDetail(f *model.FuturesContract, listingID uint64) *pb.FuturesDeta
 		MaintenanceMargin: f.MaintenanceMargin().StringFixed(2),
 		Listing: toListingInfo(
 			listingID,
-			f.ExchangeID, f.Exchange.Acronym,
+			f.ExchangeID, f.Exchange.Acronym, f.Exchange.Currency,
 			f.Price, f.High, f.Low, f.Change, f.Volume,
 			f.InitialMarginCost(), f.LastRefresh,
 		),
@@ -473,7 +475,7 @@ func toForexPairItem(fp *model.ForexPair, listingID uint64) *pb.ForexPairItem {
 		ContractSize:  fp.ContractSizeValue(),
 		Listing: toListingInfo(
 			listingID,
-			fp.ExchangeID, fp.Exchange.Acronym,
+			fp.ExchangeID, fp.Exchange.Acronym, fp.Exchange.Currency,
 			fp.ExchangeRate, fp.High, fp.Low, fp.Change, fp.Volume,
 			fp.InitialMarginCost(), fp.LastRefresh,
 		),
@@ -493,7 +495,7 @@ func toForexPairDetail(fp *model.ForexPair, listingID uint64) *pb.ForexPairDetai
 		MaintenanceMargin: fp.MaintenanceMargin().StringFixed(2),
 		Listing: toListingInfo(
 			listingID,
-			fp.ExchangeID, fp.Exchange.Acronym,
+			fp.ExchangeID, fp.Exchange.Acronym, fp.Exchange.Currency,
 			fp.ExchangeRate, fp.High, fp.Low, fp.Change, fp.Volume,
 			fp.InitialMarginCost(), fp.LastRefresh,
 		),

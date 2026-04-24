@@ -482,8 +482,12 @@ type ListingInfo struct {
 	Volume            int64                  `protobuf:"varint,9,opt,name=volume,proto3" json:"volume,omitempty"`
 	InitialMarginCost string                 `protobuf:"bytes,10,opt,name=initial_margin_cost,json=initialMarginCost,proto3" json:"initial_margin_cost,omitempty"`
 	LastRefresh       string                 `protobuf:"bytes,11,opt,name=last_refresh,json=lastRefresh,proto3" json:"last_refresh,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// currency is the listing currency (derived from the exchange). Same code
+	// that flows into cross-currency conversion on order placement. So users
+	// know whether "price: 155.0000" is 155 USD, 155 EUR, etc.
+	Currency      string `protobuf:"bytes,12,opt,name=currency,proto3" json:"currency,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListingInfo) Reset() {
@@ -589,6 +593,13 @@ func (x *ListingInfo) GetInitialMarginCost() string {
 func (x *ListingInfo) GetLastRefresh() string {
 	if x != nil {
 		return x.LastRefresh
+	}
+	return ""
+}
+
+func (x *ListingInfo) GetCurrency() string {
+	if x != nil {
+		return x.Currency
 	}
 	return ""
 }
@@ -5787,7 +5798,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\ftesting_mode\x18\x01 \x01(\bR\vtestingMode\"\x17\n" +
 	"\x15GetTestingModeRequest\";\n" +
 	"\x16GetTestingModeResponse\x12!\n" +
-	"\ftesting_mode\x18\x01 \x01(\bR\vtestingMode\"\xcf\x02\n" +
+	"\ftesting_mode\x18\x01 \x01(\bR\vtestingMode\"\xeb\x02\n" +
 	"\vListingInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1f\n" +
 	"\vexchange_id\x18\x02 \x01(\x04R\n" +
@@ -5801,7 +5812,8 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x06volume\x18\t \x01(\x03R\x06volume\x12.\n" +
 	"\x13initial_margin_cost\x18\n" +
 	" \x01(\tR\x11initialMarginCost\x12!\n" +
-	"\flast_refresh\x18\v \x01(\tR\vlastRefresh\"\xa1\x02\n" +
+	"\flast_refresh\x18\v \x01(\tR\vlastRefresh\x12\x1a\n" +
+	"\bcurrency\x18\f \x01(\tR\bcurrency\"\xa1\x02\n" +
 	"\vDerivedData\x12#\n" +
 	"\rcontract_size\x18\x01 \x01(\x03R\fcontractSize\x12-\n" +
 	"\x12maintenance_margin\x18\x02 \x01(\tR\x11maintenanceMargin\x12.\n" +

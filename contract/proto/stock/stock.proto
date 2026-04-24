@@ -68,6 +68,10 @@ message ListingInfo {
   int64 volume = 9;
   string initial_margin_cost = 10;
   string last_refresh = 11;
+  // currency is the listing currency (derived from the exchange). Same code
+  // that flows into cross-currency conversion on order placement. So users
+  // know whether "price: 155.0000" is 155 USD, 155 EUR, etc.
+  string currency = 12;
 }
 
 message DerivedData {
@@ -478,6 +482,12 @@ service PortfolioGRPCService {
   rpc MakePublic(MakePublicRequest) returns (Holding);
   rpc ExerciseOption(ExerciseOptionRequest) returns (ExerciseResult);
   rpc ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult);
+  // ListHoldingTransactions returns the executed order-transactions that
+  // contributed to a given holding. Since holdings aggregate per
+  // (user_id, system_type, security_type, security_id) (see Part A), this
+  // surfaces the full buy/sell history for that security across every
+  // account the owner used.
+  rpc ListHoldingTransactions(ListHoldingTransactionsRequest) returns (ListHoldingTransactionsResponse);
 }
 
 message Holding {
