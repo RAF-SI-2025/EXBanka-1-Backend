@@ -2073,11 +2073,14 @@ func TestExerciseOptionByOptionID_NotFound(t *testing.T) {
 type mockFillAccountClient struct {
 	stub *mockAccountClient
 	// Recorded calls
-	partialSettleCalls  []partialSettleCall
-	creditAccountCalls  []creditAccountCall
-	commissionCalls     []creditAccountCall
+	partialSettleCalls []partialSettleCall
+	creditAccountCalls []creditAccountCall
+	debitAccountCalls  []creditAccountCall
+	commissionCalls    []creditAccountCall
 	// Failure switches
 	partialSettleErr error
+	creditErr        error
+	debitErr         error
 	commissionErr    error
 }
 
@@ -2120,7 +2123,20 @@ func (m *mockFillAccountClient) CreditAccount(_ context.Context, accountNumber s
 		})
 		return &accountpb.AccountResponse{}, nil
 	}
+	if m.creditErr != nil {
+		return nil, m.creditErr
+	}
 	m.creditAccountCalls = append(m.creditAccountCalls, creditAccountCall{
+		AccountNumber: accountNumber, Amount: amount, Memo: memo,
+	})
+	return &accountpb.AccountResponse{}, nil
+}
+
+func (m *mockFillAccountClient) DebitAccount(_ context.Context, accountNumber string, amount decimal.Decimal, memo string) (*accountpb.AccountResponse, error) {
+	if m.debitErr != nil {
+		return nil, m.debitErr
+	}
+	m.debitAccountCalls = append(m.debitAccountCalls, creditAccountCall{
 		AccountNumber: accountNumber, Amount: amount, Memo: memo,
 	})
 	return &accountpb.AccountResponse{}, nil
@@ -2143,14 +2159,75 @@ func (m *mockFillAccountClient) routedState() (string, bool) {
 
 func (m *mockFillAccountClient) Stub() accountpb.AccountServiceClient { return m.stub }
 
+// mockHoldingReservationSvc is a thin stub for FillHoldingReservationAPI.
+// It records PartialSettle calls and, on success, decrements a configured
+// holding in the provided mockHoldingRepo to mimic the reservation-service
+// behaviour that the sell-fill saga assumes. That lets the saga's
+// capital-gain lookup (which reads the holding AveragePrice) work even
+// though we're not spinning up a real reservation ledger in unit tests.
+type mockHoldingReservationSvc struct {
+	calls           []partialSettleHoldingCall
+	partialSettleErr error
+	holdingRepo     *mockHoldingRepo
+}
+
+type partialSettleHoldingCall struct {
+	OrderID            uint64
+	OrderTransactionID uint64
+	Quantity           int64
+}
+
+func newMockHoldingReservationSvc(holdingRepo *mockHoldingRepo) *mockHoldingReservationSvc {
+	return &mockHoldingReservationSvc{holdingRepo: holdingRepo}
+}
+
+func (m *mockHoldingReservationSvc) PartialSettle(_ context.Context, orderID, txnID uint64, qty int64) (*PartialSettleHoldingResult, error) {
+	if m.partialSettleErr != nil {
+		return nil, m.partialSettleErr
+	}
+	m.calls = append(m.calls, partialSettleHoldingCall{
+		OrderID: orderID, OrderTransactionID: txnID, Quantity: qty,
+	})
+	// Mirror HoldingReservationService.PartialSettle: decrement Quantity
+	// on the holding (and ReservedQuantity if tracked). Use the first
+	// holding that has enough quantity — tests seed exactly one so this
+	// is unambiguous.
+	if m.holdingRepo != nil {
+		for _, h := range m.holdingRepo.holdings {
+			if h.Quantity >= qty {
+				h.Quantity -= qty
+				if h.ReservedQuantity >= qty {
+					h.ReservedQuantity -= qty
+				} else {
+					h.ReservedQuantity = 0
+				}
+				if h.PublicQuantity > h.Quantity {
+					h.PublicQuantity = h.Quantity
+				}
+				return &PartialSettleHoldingResult{
+					SettledQuantity:   qty,
+					RemainingReserved: h.ReservedQuantity,
+					QuantityAfter:     h.Quantity,
+				}, nil
+			}
+		}
+	}
+	return &PartialSettleHoldingResult{
+		SettledQuantity:   qty,
+		RemainingReserved: 0,
+		QuantityAfter:     0,
+	}, nil
+}
+
 // fillSagaMocks bundles the saga-path dependencies the tests assert against.
 type fillSagaMocks struct {
 	portfolioMocks
-	sagaRepo       *mockSagaRepo
-	txRepo         *mockOrderTxRepo
-	exchangeClient *mockExchangeClient
-	fillClient     *mockFillAccountClient
-	settings       *fakeOrderSettings
+	sagaRepo              *mockSagaRepo
+	txRepo                *mockOrderTxRepo
+	exchangeClient        *mockExchangeClient
+	fillClient            *mockFillAccountClient
+	holdingReservationSvc *mockHoldingReservationSvc
+	settings              *fakeOrderSettings
 }
 
 // buildPortfolioServiceWithSaga builds a PortfolioService wired with all
@@ -2169,17 +2246,19 @@ func buildPortfolioServiceWithSaga(accountCurrency, listingCurrency string) (*Po
 	txRepo := newMockOrderTxRepo()
 	exchangeClient := newMockExchangeClient()
 	fillClient := newMockFillAccountClient(mocks.accountClient)
+	holdingResSvc := newMockHoldingReservationSvc(mocks.holdingRepo)
 	settings := newFakeOrderSettings()
 
-	svc := base.WithFillSaga(sagaRepo, txRepo, exchangeClient, fillClient, settings)
+	svc := base.WithFillSaga(sagaRepo, txRepo, exchangeClient, fillClient, holdingResSvc, settings)
 
 	fsm := &fillSagaMocks{
-		portfolioMocks: *mocks,
-		sagaRepo:       sagaRepo,
-		txRepo:         txRepo,
-		exchangeClient: exchangeClient,
-		fillClient:     fillClient,
-		settings:       settings,
+		portfolioMocks:        *mocks,
+		sagaRepo:              sagaRepo,
+		txRepo:                txRepo,
+		exchangeClient:        exchangeClient,
+		fillClient:            fillClient,
+		holdingReservationSvc: holdingResSvc,
+		settings:              settings,
 	}
 	// Align listing currency on seeded listings helper.
 	_ = listingCurrency
@@ -2452,5 +2531,335 @@ func TestProcessBuyFill_ForexShortCircuits(t *testing.T) {
 	// No holding should be created for forex.
 	if len(mocks.holdingRepo.holdings) != 0 {
 		t.Errorf("forex short-circuit must not upsert holdings, got %d", len(mocks.holdingRepo.holdings))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: ProcessSellFill — Phase-2 fill saga (Task 14)
+// ---------------------------------------------------------------------------
+//
+// These tests cover the Phase-2 sell-fill saga exercised by WithFillSaga.
+// Mirror-image of the buy saga: credit_proceeds happens before
+// decrement_holding, so a holding-settle failure is compensated by
+// reverse-debiting the credited amount.
+
+func TestProcessSellFill_SameCurrency_HappyPath(t *testing.T) {
+	svc, mocks := buildPortfolioServiceWithSaga("USD", "USD")
+
+	listing := stockListing(1, 100, 60.00)
+	listing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(listing)
+
+	// Existing holding: 20 shares at avg $50.
+	mocks.holdingRepo.addHolding(&model.Holding{
+		UserID:       42,
+		SystemType:   "employee",
+		SecurityType: "stock",
+		SecurityID:   100,
+		ListingID:    1,
+		Ticker:       "AAPL",
+		Quantity:     20,
+		AveragePrice: decimal.NewFromFloat(50.00),
+		AccountID:    1,
+	})
+
+	txn := &model.OrderTransaction{
+		ID: 900, OrderID: 10, Quantity: 5,
+		PricePerUnit: decimal.NewFromFloat(60.00),
+		TotalPrice:   decimal.NewFromFloat(300.00),
+	}
+	_ = mocks.txRepo.Create(txn)
+
+	order := &model.Order{
+		ID: 10, UserID: 42, SystemType: "employee", ListingID: 1,
+		SecurityType: "stock", Ticker: "AAPL", Direction: "sell",
+		Quantity: 5, AccountID: 1, SagaID: "sell-saga-1",
+	}
+
+	if err := svc.ProcessSellFill(order, txn); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// No cross-currency → no Convert call.
+	if len(mocks.exchangeClient.convertCalls) != 0 {
+		t.Errorf("expected no Convert calls for same-currency fill, got %d", len(mocks.exchangeClient.convertCalls))
+	}
+
+	// credit_proceeds: the user's account must be credited with the native total price.
+	if len(mocks.fillClient.creditAccountCalls) != 1 {
+		t.Fatalf("expected 1 credit_proceeds call, got %d", len(mocks.fillClient.creditAccountCalls))
+	}
+	cr := mocks.fillClient.creditAccountCalls[0]
+	if !cr.Amount.Equal(decimal.NewFromFloat(300.00)) {
+		t.Errorf("credit_proceeds amount: got %s want 300", cr.Amount)
+	}
+	if cr.AccountNumber != "ACCT-001" {
+		t.Errorf("credit target account: got %s want ACCT-001", cr.AccountNumber)
+	}
+
+	// decrement_holding via PartialSettle: qty=5 on order=10 txn=900.
+	if len(mocks.holdingReservationSvc.calls) != 1 {
+		t.Fatalf("expected 1 PartialSettle call, got %d", len(mocks.holdingReservationSvc.calls))
+	}
+	ps := mocks.holdingReservationSvc.calls[0]
+	if ps.OrderID != 10 || ps.OrderTransactionID != 900 || ps.Quantity != 5 {
+		t.Errorf("PartialSettle args: got order=%d txn=%d qty=%d want 10/900/5",
+			ps.OrderID, ps.OrderTransactionID, ps.Quantity)
+	}
+
+	// Holding should be decremented 20 → 15.
+	h, err := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 100, 1)
+	if err != nil {
+		t.Fatalf("holding not found: %v", err)
+	}
+	if h.Quantity != 15 {
+		t.Errorf("holding quantity after sell: got %d want 15", h.Quantity)
+	}
+
+	// Capital gain: (60 - 50) * 5 = 50, currency USD.
+	if len(mocks.capitalGainRepo.gains) != 1 {
+		t.Fatalf("expected 1 capital gain, got %d", len(mocks.capitalGainRepo.gains))
+	}
+	gain := mocks.capitalGainRepo.gains[0]
+	if !gain.TotalGain.Equal(decimal.NewFromFloat(50.00)) {
+		t.Errorf("capital gain: got %s want 50", gain.TotalGain)
+	}
+
+	// Commission credited to state account with a positive amount.
+	if len(mocks.fillClient.commissionCalls) != 1 {
+		t.Fatalf("expected 1 commission credit, got %d", len(mocks.fillClient.commissionCalls))
+	}
+	if mocks.fillClient.commissionCalls[0].Amount.Sign() <= 0 {
+		t.Errorf("commission amount not positive: %s", mocks.fillClient.commissionCalls[0].Amount)
+	}
+
+	// No compensation on happy path.
+	if len(mocks.fillClient.debitAccountCalls) != 0 {
+		t.Errorf("no compensation expected on happy path, got %d", len(mocks.fillClient.debitAccountCalls))
+	}
+
+	// txn should have native/converted/currencies recorded.
+	if txn.NativeAmount == nil || !txn.NativeAmount.Equal(decimal.NewFromFloat(300.00)) {
+		t.Errorf("native amount: %+v", txn.NativeAmount)
+	}
+	if txn.ConvertedAmount == nil || !txn.ConvertedAmount.Equal(decimal.NewFromFloat(300.00)) {
+		t.Errorf("converted amount: %+v", txn.ConvertedAmount)
+	}
+	if txn.NativeCurrency != "USD" || txn.AccountCurrency != "USD" {
+		t.Errorf("currency fields: native=%s account=%s", txn.NativeCurrency, txn.AccountCurrency)
+	}
+}
+
+func TestProcessSellFill_CrossCurrency_ConvertsAmount(t *testing.T) {
+	svc, mocks := buildPortfolioServiceWithSaga("RSD", "USD")
+	// 1 USD = 100 RSD
+	mocks.exchangeClient.setRate("USD", "RSD", decimal.NewFromInt(100))
+
+	listing := stockListing(1, 100, 60.00)
+	listing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(listing)
+
+	mocks.holdingRepo.addHolding(&model.Holding{
+		UserID: 42, SystemType: "employee", SecurityType: "stock",
+		SecurityID: 100, ListingID: 1, Ticker: "AAPL",
+		Quantity: 20, AveragePrice: decimal.NewFromFloat(50.00), AccountID: 1,
+	})
+
+	txn := &model.OrderTransaction{
+		ID: 900, OrderID: 10, Quantity: 5,
+		PricePerUnit: decimal.NewFromFloat(60.00),
+		TotalPrice:   decimal.NewFromFloat(300.00), // USD
+	}
+	_ = mocks.txRepo.Create(txn)
+
+	order := &model.Order{
+		ID: 10, UserID: 42, SystemType: "employee", ListingID: 1,
+		SecurityType: "stock", Ticker: "AAPL", Direction: "sell",
+		Quantity: 5, AccountID: 1, SagaID: "sell-saga-xc",
+	}
+
+	if err := svc.ProcessSellFill(order, txn); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Convert should be called once USD→RSD on amount 300.
+	if len(mocks.exchangeClient.convertCalls) != 1 {
+		t.Fatalf("expected 1 Convert call, got %d", len(mocks.exchangeClient.convertCalls))
+	}
+	call := mocks.exchangeClient.convertCalls[0]
+	if call.From != "USD" || call.To != "RSD" {
+		t.Errorf("Convert direction: got %s→%s want USD→RSD", call.From, call.To)
+	}
+
+	// credit_proceeds uses the converted (RSD) value: 300 * 100 = 30000.
+	if len(mocks.fillClient.creditAccountCalls) != 1 {
+		t.Fatalf("expected 1 credit call, got %d", len(mocks.fillClient.creditAccountCalls))
+	}
+	cr := mocks.fillClient.creditAccountCalls[0]
+	if !cr.Amount.Equal(decimal.NewFromInt(30_000)) {
+		t.Errorf("converted credit amount: got %s want 30000", cr.Amount)
+	}
+
+	// txn must carry the converted amount and FX rate for audit.
+	if txn.ConvertedAmount == nil || !txn.ConvertedAmount.Equal(decimal.NewFromInt(30_000)) {
+		t.Errorf("ConvertedAmount on txn: %+v", txn.ConvertedAmount)
+	}
+	if txn.FxRate == nil || !txn.FxRate.Equal(decimal.NewFromInt(100)) {
+		t.Errorf("FxRate on txn: %+v", txn.FxRate)
+	}
+	if txn.NativeCurrency != "USD" || txn.AccountCurrency != "RSD" {
+		t.Errorf("currency fields: native=%s account=%s", txn.NativeCurrency, txn.AccountCurrency)
+	}
+}
+
+func TestProcessSellFill_HoldingDecrementFails_RollsBackCredit(t *testing.T) {
+	svc, mocks := buildPortfolioServiceWithSaga("USD", "USD")
+
+	listing := stockListing(1, 100, 60.00)
+	listing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(listing)
+
+	mocks.holdingRepo.addHolding(&model.Holding{
+		UserID: 42, SystemType: "employee", SecurityType: "stock",
+		SecurityID: 100, ListingID: 1, Ticker: "AAPL",
+		Quantity: 20, AveragePrice: decimal.NewFromFloat(50.00), AccountID: 1,
+	})
+
+	txn := &model.OrderTransaction{
+		ID: 900, OrderID: 10, Quantity: 5,
+		PricePerUnit: decimal.NewFromFloat(60.00),
+		TotalPrice:   decimal.NewFromFloat(300.00),
+	}
+	_ = mocks.txRepo.Create(txn)
+
+	order := &model.Order{
+		ID: 10, UserID: 42, SystemType: "employee", ListingID: 1,
+		SecurityType: "stock", Ticker: "AAPL", Direction: "sell",
+		Quantity: 5, AccountID: 1, SagaID: "sell-saga-fail",
+	}
+
+	// Force PartialSettle to fail — the credit must be reversed.
+	mocks.holdingReservationSvc.partialSettleErr = errors.New("holding locked")
+
+	err := svc.ProcessSellFill(order, txn)
+	if err == nil {
+		t.Fatal("expected error when PartialSettle fails")
+	}
+
+	// Credit proceeds happened before the holding failure.
+	if len(mocks.fillClient.creditAccountCalls) != 1 {
+		t.Fatalf("expected 1 credit call prior to holding failure, got %d", len(mocks.fillClient.creditAccountCalls))
+	}
+
+	// Compensation: reverse-debit the user's account for the converted amount.
+	if len(mocks.fillClient.debitAccountCalls) != 1 {
+		t.Fatalf("expected 1 compensation debit, got %d", len(mocks.fillClient.debitAccountCalls))
+	}
+	comp := mocks.fillClient.debitAccountCalls[0]
+	if !comp.Amount.Equal(decimal.NewFromFloat(300.00)) {
+		t.Errorf("compensation debit amount: got %s want 300", comp.Amount)
+	}
+	if comp.AccountNumber != "ACCT-001" {
+		t.Errorf("compensation target account: got %s want ACCT-001", comp.AccountNumber)
+	}
+
+	// No commission should be charged when the trade failed.
+	if len(mocks.fillClient.commissionCalls) != 0 {
+		t.Errorf("no commission expected on failed sell, got %d", len(mocks.fillClient.commissionCalls))
+	}
+
+	// Holding quantity unchanged (PartialSettle failed before decrementing).
+	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 100, 1)
+	if h.Quantity != 20 {
+		t.Errorf("holding quantity should be unchanged: got %d want 20", h.Quantity)
+	}
+}
+
+func TestProcessSellFill_CommissionFails_TradeStillSucceeds(t *testing.T) {
+	svc, mocks := buildPortfolioServiceWithSaga("USD", "USD")
+
+	listing := stockListing(1, 100, 60.00)
+	listing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(listing)
+
+	mocks.holdingRepo.addHolding(&model.Holding{
+		UserID: 42, SystemType: "employee", SecurityType: "stock",
+		SecurityID: 100, ListingID: 1, Ticker: "AAPL",
+		Quantity: 20, AveragePrice: decimal.NewFromFloat(50.00), AccountID: 1,
+	})
+
+	txn := &model.OrderTransaction{
+		ID: 900, OrderID: 10, Quantity: 5,
+		PricePerUnit: decimal.NewFromFloat(60.00),
+		TotalPrice:   decimal.NewFromFloat(300.00),
+	}
+	_ = mocks.txRepo.Create(txn)
+
+	order := &model.Order{
+		ID: 10, UserID: 42, SystemType: "employee", ListingID: 1,
+		SecurityType: "stock", Ticker: "AAPL", Direction: "sell",
+		Quantity: 5, AccountID: 1, SagaID: "sell-saga-commerr",
+	}
+
+	// Commission credit will fail; the trade must still succeed.
+	mocks.fillClient.commissionErr = errors.New("bank commission acct unreachable")
+
+	if err := svc.ProcessSellFill(order, txn); err != nil {
+		t.Fatalf("commission failure should not fail the trade: %v", err)
+	}
+
+	// credit_proceeds + decrement_holding still happened.
+	if len(mocks.fillClient.creditAccountCalls) != 1 {
+		t.Errorf("main credit should still happen, got %d calls", len(mocks.fillClient.creditAccountCalls))
+	}
+	if len(mocks.holdingReservationSvc.calls) != 1 {
+		t.Errorf("PartialSettle should still run, got %d calls", len(mocks.holdingReservationSvc.calls))
+	}
+
+	// Holding decremented 20 → 15.
+	h, _ := mocks.holdingRepo.GetByUserAndSecurity(42, "stock", 100, 1)
+	if h.Quantity != 15 {
+		t.Errorf("holding should still be decremented: got %d want 15", h.Quantity)
+	}
+
+	// No compensation debit — commission failure does not trigger compensation.
+	if len(mocks.fillClient.debitAccountCalls) != 0 {
+		t.Errorf("no compensation expected on commission failure, got %d", len(mocks.fillClient.debitAccountCalls))
+	}
+}
+
+func TestProcessSellFill_ForexShortCircuits(t *testing.T) {
+	svc, mocks := buildPortfolioServiceWithSaga("RSD", "USD")
+
+	order := &model.Order{
+		ID: 1, UserID: 77, SystemType: "client", ListingID: 1,
+		SecurityType: "forex", Ticker: "EUR/RSD", Direction: "sell",
+		Quantity: 10, AccountID: 1,
+	}
+	txn := &model.OrderTransaction{
+		ID: 1, OrderID: 1, Quantity: 10,
+		PricePerUnit: decimal.NewFromInt(120),
+		TotalPrice:   decimal.NewFromInt(1200),
+	}
+
+	if err := svc.ProcessSellFill(order, txn); err != nil {
+		t.Fatalf("forex short-circuit should return nil, got: %v", err)
+	}
+
+	// None of the fill-saga side effects should fire.
+	if len(mocks.fillClient.creditAccountCalls) != 0 {
+		t.Errorf("forex short-circuit must not credit, got %d calls", len(mocks.fillClient.creditAccountCalls))
+	}
+	if len(mocks.fillClient.debitAccountCalls) != 0 {
+		t.Errorf("forex short-circuit must not debit, got %d calls", len(mocks.fillClient.debitAccountCalls))
+	}
+	if len(mocks.fillClient.commissionCalls) != 0 {
+		t.Errorf("forex short-circuit must not credit commission")
+	}
+	if len(mocks.holdingReservationSvc.calls) != 0 {
+		t.Errorf("forex short-circuit must not settle holding")
+	}
+	if len(mocks.exchangeClient.convertCalls) != 0 {
+		t.Errorf("forex short-circuit must not call Convert")
 	}
 }

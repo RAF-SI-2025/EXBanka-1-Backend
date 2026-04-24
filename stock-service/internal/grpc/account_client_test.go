@@ -170,3 +170,40 @@ func TestAccountClient_CreditAccount_UsesAbsoluteAmountAndUpdatesAvailable(t *te
 		t.Error("UpdateAvailable should always be true for CreditAccount")
 	}
 }
+
+func TestAccountClient_DebitAccount_ForcesNegativeAmountAndUpdatesAvailable(t *testing.T) {
+	stub := &stubAccountServiceClient{}
+	c := NewAccountClient(stub)
+
+	if _, err := c.DebitAccount(context.Background(), "265000-42", decimal.NewFromFloat(25.5), "compensation"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	req := stub.updateBalanceReq
+	if req == nil {
+		t.Fatal("UpdateBalance was not invoked")
+	}
+	if req.AccountNumber != "265000-42" {
+		t.Errorf("AccountNumber: got %q, want %q", req.AccountNumber, "265000-42")
+	}
+	if req.Amount != "-25.5000" {
+		t.Errorf("Amount: got %q, want %q (negative, fixed 4dp)", req.Amount, "-25.5000")
+	}
+	if !req.UpdateAvailable {
+		t.Error("UpdateAvailable should always be true for DebitAccount")
+	}
+}
+
+func TestAccountClient_DebitAccount_RejectsNonPositiveAmount(t *testing.T) {
+	stub := &stubAccountServiceClient{}
+	c := NewAccountClient(stub)
+
+	if _, err := c.DebitAccount(context.Background(), "265000-42", decimal.Zero, "bad"); err == nil {
+		t.Error("expected error for zero amount")
+	}
+	if _, err := c.DebitAccount(context.Background(), "265000-42", decimal.NewFromFloat(-1), "bad"); err == nil {
+		t.Error("expected error for negative amount")
+	}
+	if stub.updateBalanceReq != nil {
+		t.Error("UpdateBalance must not be invoked for invalid amount")
+	}
+}

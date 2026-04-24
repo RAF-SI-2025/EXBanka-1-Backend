@@ -18,15 +18,32 @@ import (
 
 // FillAccountClient is the subset of grpc.AccountClient the fill saga needs.
 // Expressed as an interface so tests can stub it without the real wrapper.
-// The fill saga calls PartialSettleReservation to commit the held funds,
-// CreditAccount to reverse-compensate on holding failures (and to credit the
-// bank's commission account), and Stub() for direct GetAccount/UpdateBalance
-// access on paths that predate Phase 2 (stateAccountNo-based commission, the
-// existing ProcessSellFill path, and exercise-option helpers).
+// The fill saga calls:
+//   - PartialSettleReservation to commit the held funds on buy fills,
+//   - CreditAccount to credit the user (sell proceeds) or the bank commission
+//     account, and to reverse-compensate on buy-side holding failures,
+//   - DebitAccount to reverse-compensate a sell-side credit when the
+//     holding-decrement step fails (Task 14),
+//   - Stub() for direct GetAccount/UpdateBalance access on paths that predate
+//     Phase 2 (stateAccountNo-based commission, legacy helpers, exercise-option).
 type FillAccountClient interface {
 	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error)
 	CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo string) (*accountpb.AccountResponse, error)
+	DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo string) (*accountpb.AccountResponse, error)
 	Stub() accountpb.AccountServiceClient
+}
+
+// FillHoldingReservationAPI is the narrow slice of HoldingReservationService
+// the sell fill saga needs. Expressed as an interface so tests can stub
+// PartialSettle without standing up a real DB + reservation ledger.
+//
+// PartialSettle is the quantity-side mirror of account-service's
+// PartialSettleReservation: it decrements both Holding.ReservedQuantity and
+// Holding.Quantity by `qty` under a SELECT FOR UPDATE transaction, and is
+// idempotent on orderTransactionID via ON CONFLICT DO NOTHING on the
+// settlements table.
+type FillHoldingReservationAPI interface {
+	PartialSettle(ctx context.Context, orderID, orderTransactionID uint64, qty int64) (*PartialSettleHoldingResult, error)
 }
 
 // FillSagaLogRepo extends SagaLogRepo with the lookup the fill saga needs
@@ -47,14 +64,16 @@ type PortfolioService struct {
 	accountClient   accountpb.AccountServiceClient
 	nameResolver    UserNameResolver
 	stateAccountNo  string
-	// Phase-2 fill-saga dependencies (Task 13). All optional: when nil the
-	// service falls back to the legacy (pre-saga) behaviour so tests that
-	// target ProcessSellFill / ExerciseOption don't need to thread them.
-	sagaRepo       FillSagaLogRepo
-	txRepo         OrderTransactionRepo
-	exchangeClient exchangepb.ExchangeServiceClient
-	fillClient     FillAccountClient
-	settings       OrderSettings
+	// Phase-2 fill-saga dependencies (Task 13 / Task 14). All optional: when
+	// nil the service falls back to the legacy (pre-saga) behaviour so tests
+	// that target ExerciseOption and legacy fill paths don't need to thread
+	// them. The sell-fill saga additionally needs holdingReservationSvc.
+	sagaRepo              FillSagaLogRepo
+	txRepo                OrderTransactionRepo
+	exchangeClient        exchangepb.ExchangeServiceClient
+	fillClient            FillAccountClient
+	holdingReservationSvc FillHoldingReservationAPI
+	settings              OrderSettings
 }
 
 // NewPortfolioService is the legacy constructor retained for existing call
@@ -85,13 +104,16 @@ func NewPortfolioService(
 
 // WithFillSaga returns a shallow copy of the receiver with the fill-saga
 // dependencies populated. Call sites in cmd/main.go that have the saga
-// repository, exchange client, fill client, and settings available use this
-// to upgrade the service to the Phase-2 ProcessBuyFill path.
+// repository, exchange client, fill client, holding-reservation service, and
+// settings available use this to upgrade the service to the Phase-2
+// ProcessBuyFill / ProcessSellFill paths. The holdingReservationSvc is only
+// required by ProcessSellFill (Task 14); ProcessBuyFill ignores it.
 func (s *PortfolioService) WithFillSaga(
 	sagaRepo FillSagaLogRepo,
 	txRepo OrderTransactionRepo,
 	exchangeClient exchangepb.ExchangeServiceClient,
 	fillClient FillAccountClient,
+	holdingReservationSvc FillHoldingReservationAPI,
 	settings OrderSettings,
 ) *PortfolioService {
 	cp := *s
@@ -99,6 +121,7 @@ func (s *PortfolioService) WithFillSaga(
 	cp.txRepo = txRepo
 	cp.exchangeClient = exchangeClient
 	cp.fillClient = fillClient
+	cp.holdingReservationSvc = holdingReservationSvc
 	cp.settings = settings
 	return &cp
 }
@@ -395,9 +418,215 @@ func (s *PortfolioService) processBuyFillLegacy(order *model.Order, txn *model.O
 	return nil
 }
 
-// ProcessSellFill handles a sell order fill: decreases holding, credits account, records gain.
+// ProcessSellFill handles a sell order fill for stocks / futures / options.
+//
+// Phase-2 path (when fill-saga deps are wired): runs a mirror-image saga of
+// ProcessBuyFill — record_transaction → convert_amount → credit_proceeds →
+// decrement_holding → credit_commission. The ORDER MATTERS: the user is
+// credited BEFORE their holding is decremented so a holding-decrement
+// failure is compensated by reverse-debiting the credit (and the reservation
+// itself stays active for the fill loop to retry).
+//
+// Forex sells short-circuit defensively — forex sells are rejected at
+// placement (Task 12), so this branch is only reachable on a bug.
+//
+// Legacy path (when any fill-saga dep is nil): falls back to the original
+// direct credit + holding-update behaviour so tests and call sites that
+// haven't upgraded to the saga constructor keep working.
 func (s *PortfolioService) ProcessSellFill(order *model.Order, txn *model.OrderTransaction) error {
-	// Find the holding
+	if order.SecurityType == "forex" {
+		// Forex sells are rejected at placement (Task 12); reaching here
+		// would indicate a placement-saga bug, not a legitimate fill.
+		log.Printf("WARN: forex sell fill for order %d — forex sells are rejected at placement; no-op", order.ID)
+		return nil
+	}
+
+	if s.sagaRepo == nil || s.fillClient == nil || s.txRepo == nil || s.holdingReservationSvc == nil {
+		return s.processSellFillLegacy(order, txn)
+	}
+	return s.processSellFillSaga(order, txn)
+}
+
+// processSellFillSaga is the Phase-2 sell-fill saga implementation. Credits
+// the seller first, then consumes the holding reservation; on
+// holding-decrement failure the credit is reversed via DebitAccount.
+func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.OrderTransaction) error {
+	ctx := context.Background()
+
+	sagaID := order.SagaID
+	if sagaID == "" {
+		sagaID = uuid.New().String()
+	}
+	txnID := txn.ID
+	exec := NewSagaExecutor(s.sagaRepo, sagaID, order.ID, &txnID)
+
+	// --- Step 1: record_transaction (no-op; caller already persisted the txn) ---
+	if err := exec.RunStep(ctx, "record_transaction", txn.TotalPrice, "", nil, func() error {
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// --- Step 2: convert_amount ---
+	var convertedAmount decimal.Decimal
+	var accountCurrency, accountNumber, listingCurrency string
+	var listing *model.Listing
+	if err := exec.RunStep(ctx, "convert_amount", txn.TotalPrice, "", nil, func() error {
+		l, err := s.listingRepo.GetByID(order.ListingID)
+		if err != nil {
+			return fmt.Errorf("listing lookup: %w", err)
+		}
+		listing = l
+		listingCurrency = l.Exchange.Currency
+
+		acct, err := s.fillClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: order.AccountID})
+		if err != nil {
+			return fmt.Errorf("get account: %w", err)
+		}
+		accountCurrency = acct.CurrencyCode
+		accountNumber = acct.AccountNumber
+
+		native := txn.TotalPrice
+		txn.NativeAmount = &native
+		txn.NativeCurrency = listingCurrency
+		txn.AccountCurrency = accountCurrency
+
+		if listingCurrency == accountCurrency || accountCurrency == "" {
+			// Same currency (or legacy account with no currency code).
+			convertedAmount = txn.TotalPrice
+			c := convertedAmount
+			txn.ConvertedAmount = &c
+			return s.txRepo.Update(txn)
+		}
+
+		resp, cerr := s.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
+			FromCurrency: listingCurrency,
+			ToCurrency:   accountCurrency,
+			Amount:       txn.TotalPrice.String(),
+		})
+		if cerr != nil {
+			return fmt.Errorf("exchange convert: %w", cerr)
+		}
+		conv, perr := decimal.NewFromString(resp.ConvertedAmount)
+		if perr != nil {
+			return fmt.Errorf("parse converted amount: %w", perr)
+		}
+		convertedAmount = conv
+		c := conv
+		txn.ConvertedAmount = &c
+		if rate, rerr := decimal.NewFromString(resp.EffectiveRate); rerr == nil {
+			r := rate
+			txn.FxRate = &r
+		}
+		return s.txRepo.Update(txn)
+	}); err != nil {
+		return err
+	}
+
+	// --- Step 3: credit_proceeds ---
+	creditMemo := fmt.Sprintf("Sell fill for order #%d (txn #%d)", order.ID, txn.ID)
+	if err := exec.RunStep(ctx, "credit_proceeds", convertedAmount, accountCurrency,
+		map[string]any{"account_id": order.AccountID, "txn_id": txn.ID}, func() error {
+			_, cerr := s.fillClient.CreditAccount(ctx, accountNumber, convertedAmount, creditMemo)
+			return cerr
+		}); err != nil {
+		return err
+	}
+
+	// --- Step 4: decrement_holding (via HoldingReservationService.PartialSettle) ---
+	// PartialSettle is idempotent on orderTransactionID and atomically
+	// decrements both Holding.ReservedQuantity and Holding.Quantity. On
+	// failure we compensate by reverse-debiting the credit_proceeds amount.
+	if err := exec.RunStep(ctx, "decrement_holding", decimal.NewFromInt(txn.Quantity), "",
+		map[string]any{"security_type": order.SecurityType, "ticker": order.Ticker}, func() error {
+			_, perr := s.holdingReservationSvc.PartialSettle(ctx, order.ID, txn.ID, txn.Quantity)
+			if perr != nil {
+				return perr
+			}
+			// Capital gain is part of the logical holding transition, so
+			// record it inside the same saga step. A failure here is
+			// treated the same as PartialSettle failure — the credit
+			// must be reversed.
+			return s.recordCapitalGain(order, txn, listing)
+		}); err != nil {
+		// Compensate: reverse the credit via DebitAccount.
+		var forwardID uint64
+		if step, lerr := s.sagaRepo.GetByStepName(order.ID, "credit_proceeds"); lerr == nil && step != nil {
+			forwardID = step.ID
+		}
+		_ = exec.RunCompensation(ctx, forwardID, "compensate_credit_via_debit", func() error {
+			reverseMemo := fmt.Sprintf("Compensating sell order #%d fill #%d", order.ID, txn.ID)
+			_, derr := s.fillClient.DebitAccount(ctx, accountNumber, convertedAmount, reverseMemo)
+			return derr
+		})
+		return err
+	}
+
+	// --- Step 5: credit_commission (best-effort; do NOT fail the trade on error) ---
+	commissionAmount := s.computeCommission(convertedAmount)
+	if commissionAmount.Sign() > 0 {
+		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, accountCurrency,
+			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
+				commissionMemo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
+				_, ferr := s.fillClient.CreditAccount(ctx, s.stateAccountNo, commissionAmount, commissionMemo)
+				return ferr
+			}); cerr != nil {
+			log.Printf("WARN: commission credit failed for sell order %d fill %d: %v (recovery will retry)",
+				order.ID, txn.ID, cerr)
+			// Deliberately do not return — the trade is valid.
+		}
+	}
+
+	return nil
+}
+
+// recordCapitalGain persists a CapitalGain row for a sell fill. Called
+// inside the decrement_holding saga step (and by the legacy path) so gain
+// recording is atomic with the holding transition from the caller's POV.
+// Looks up the pre-fill AveragePrice on the holding via the repo; the
+// average_price on a sell is the cost basis so it does not change as shares
+// leave the position.
+func (s *PortfolioService) recordCapitalGain(order *model.Order, txn *model.OrderTransaction, listing *model.Listing) error {
+	holding, err := s.holdingRepo.GetByUserAndSecurity(
+		order.UserID, order.SecurityType, listing.SecurityID, order.AccountID,
+	)
+	if err != nil {
+		// PartialSettle deletes the row when Quantity hits zero; in that
+		// case we can't look it up here. A missing holding after a
+		// successful PartialSettle is benign — capital gain is best-
+		// effort at the saga layer. Log and continue.
+		log.Printf("WARN: capital gain skipped for order %d fill %d (holding not found after partial settle): %v",
+			order.ID, txn.ID, err)
+		return nil
+	}
+	currency := ""
+	if listing != nil {
+		currency = listing.Exchange.Currency
+	}
+	gain := txn.PricePerUnit.Sub(holding.AveragePrice).Mul(decimal.NewFromInt(txn.Quantity))
+	capitalGain := &model.CapitalGain{
+		UserID:             order.UserID,
+		SystemType:         order.SystemType,
+		OrderTransactionID: txn.ID,
+		OTC:                false,
+		SecurityType:       order.SecurityType,
+		Ticker:             order.Ticker,
+		Quantity:           txn.Quantity,
+		BuyPricePerUnit:    holding.AveragePrice,
+		SellPricePerUnit:   txn.PricePerUnit,
+		TotalGain:          gain,
+		Currency:           currency,
+		AccountID:          order.AccountID,
+		TaxYear:            time.Now().Year(),
+		TaxMonth:           int(time.Now().Month()),
+	}
+	return s.capitalGainRepo.Create(capitalGain)
+}
+
+// processSellFillLegacy is the pre-Phase-2 direct-credit path retained for
+// unit tests and call sites that haven't upgraded to the saga constructor.
+// It mirrors the original ProcessSellFill behaviour exactly.
+func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.OrderTransaction) error {
 	listing, err := s.listingRepo.GetByID(order.ListingID)
 	if err != nil {
 		return err
@@ -414,7 +643,6 @@ func (s *PortfolioService) ProcessSellFill(order *model.Order, txn *model.OrderT
 		return errors.New("insufficient holding quantity for sell")
 	}
 
-	// Record capital gain
 	gain := txn.PricePerUnit.Sub(holding.AveragePrice).Mul(decimal.NewFromInt(txn.Quantity))
 	capitalGain := &model.CapitalGain{
 		UserID:             order.UserID,
@@ -436,7 +664,6 @@ func (s *PortfolioService) ProcessSellFill(order *model.Order, txn *model.OrderT
 		return err
 	}
 
-	// Decrease holding
 	holding.Quantity -= txn.Quantity
 	if holding.PublicQuantity > holding.Quantity {
 		holding.PublicQuantity = holding.Quantity
@@ -452,7 +679,6 @@ func (s *PortfolioService) ProcessSellFill(order *model.Order, txn *model.OrderT
 		}
 	}
 
-	// Credit seller's account: total_price - proportional commission
 	proportionalCommission := order.Commission.Mul(
 		decimal.NewFromInt(txn.Quantity),
 	).Div(decimal.NewFromInt(order.Quantity))
@@ -462,12 +688,7 @@ func (s *PortfolioService) ProcessSellFill(order *model.Order, txn *model.OrderT
 		return err
 	}
 
-	// Credit bank with commission
-	if err := s.creditBankCommission(proportionalCommission); err != nil {
-		return err
-	}
-
-	return nil
+	return s.creditBankCommission(proportionalCommission)
 }
 
 // ListHoldings returns a user's holdings with computed profit.

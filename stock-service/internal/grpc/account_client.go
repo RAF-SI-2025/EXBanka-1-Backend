@@ -7,6 +7,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 
 	"github.com/shopspring/decimal"
 
@@ -98,6 +99,33 @@ func (c *AccountClient) CreditAccount(ctx context.Context, accountNumber string,
 	return c.stub.UpdateBalance(ctx, &pb.UpdateBalanceRequest{
 		AccountNumber:   accountNumber,
 		Amount:          credit.StringFixed(4),
+		UpdateAvailable: true,
+	})
+}
+
+// DebitAccount decreases the balance of the account identified by
+// accountNumber by the given (positive) amount. It is the mirror of
+// CreditAccount and is used by the sell-fill saga to reverse a previously
+// credited amount when a later saga step (decrement_holding) fails.
+//
+// The `amount` argument MUST be positive; the wrapper forces the signed
+// delta passed to UpdateBalance to be negative so callers cannot
+// accidentally credit via a negative value. Debits tied to a reservation
+// should still go through PartialSettleReservation (which writes a
+// ledger-backed audit entry); this wrapper is deliberately narrow to the
+// compensation path, where no reservation exists at the moment of reversal.
+//
+// Note: account-service's UpdateBalanceRequest doesn't carry a memo field;
+// the memo parameter is accepted here so call sites can document intent at
+// the wrapper layer even though it's not persisted in a ledger entry.
+func (c *AccountClient) DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, _ string) (*pb.AccountResponse, error) {
+	if amount.Sign() <= 0 {
+		return nil, errors.New("amount must be > 0")
+	}
+	debit := amount.Abs().Neg()
+	return c.stub.UpdateBalance(ctx, &pb.UpdateBalanceRequest{
+		AccountNumber:   accountNumber,
+		Amount:          debit.StringFixed(4),
 		UpdateAvailable: true,
 	})
 }

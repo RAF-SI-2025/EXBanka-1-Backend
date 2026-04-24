@@ -301,13 +301,18 @@ func main() {
 		forexRepo, nil, // nil settings → uses defaults (5% slippage, 0.25% commission)
 	)
 
-	// Upgrade portfolioSvc with Phase-2 fill-saga deps so ProcessBuyFill runs
-	// the saga path (record_transaction → convert_amount → settle_reservation
-	// → update_holding → credit_commission). The legacy constructor path is
-	// retained in-struct and falls back if any dep is nil. Using defaults for
-	// commission (0.25%) via the shared OrderSettings default implementation.
+	// Upgrade portfolioSvc with Phase-2 fill-saga deps so ProcessBuyFill and
+	// ProcessSellFill run the saga paths. Buy saga:
+	//   record_transaction → convert_amount → settle_reservation →
+	//   update_holding → credit_commission.
+	// Sell saga (Task 14):
+	//   record_transaction → convert_amount → credit_proceeds →
+	//   decrement_holding → credit_commission.
+	// The legacy constructor path is retained in-struct and falls back if
+	// any dep is nil. Settings = nil uses the default OrderSettings
+	// (0.25% commission).
 	portfolioSvc = portfolioSvc.WithFillSaga(
-		sagaLogRepo, orderTxRepo, exchangeClient, stockAccountClient, nil,
+		sagaLogRepo, orderTxRepo, exchangeClient, stockAccountClient, holdingReservationSvc, nil,
 	)
 	execEngine := service.NewOrderExecutionEngine(ctx, orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
 
