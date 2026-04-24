@@ -3,6 +3,7 @@
 package workflows
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -139,13 +140,43 @@ func setupSupervisorEmployee(t *testing.T, adminC *client.APIClient) (empID int,
 }
 
 // getFirstStockListingID fetches stocks and returns the first stock's ID and listing_id.
-// Assumes stock-service has seeded data.
+// Assumes stock-service has seeded data. Skips stocks that cannot be traded:
+//   - no resolvable listing_id (simulator hasn't seeded it),
+//   - listing price == 0 (reservation math needs a positive price),
+//   - exchange currency not in the supported set (transaction-service rejects
+//     unsupported currencies with a 400 on the buy path).
+//
+// Supported currencies are the bank-account-seedable set:
+// RSD, EUR, CHF, USD, GBP, JPY, CAD, AUD.
 func getFirstStockListingID(t *testing.T, c *client.APIClient) (stockID uint64, listingID uint64) {
 	t.Helper()
 
+	supported := map[string]bool{
+		"RSD": true, "EUR": true, "CHF": true, "USD": true,
+		"GBP": true, "JPY": true, "CAD": true, "AUD": true,
+	}
+	// Map exchange acronym -> currency (one-shot lookup).
+	exCurrency := map[string]string{}
+	exResp, err := c.GET("/api/v1/stock-exchanges?page=1&page_size=50")
+	if err == nil && exResp.StatusCode == 200 {
+		if exs, ok := exResp.Body["exchanges"].([]interface{}); ok {
+			for _, e := range exs {
+				m, ok := e.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				ac, _ := m["acronym"].(string)
+				cur, _ := m["currency"].(string)
+				if ac != "" && cur != "" {
+					exCurrency[ac] = cur
+				}
+			}
+		}
+	}
+
 	// Retry a few times — the seeder may still be populating listings.
 	for attempt := 0; attempt < 10; attempt++ {
-		resp, err := c.GET("/api/v1/securities/stocks?page=1&page_size=1")
+		resp, err := c.GET("/api/v1/securities/stocks?page=1&page_size=50")
 		if err != nil {
 			t.Fatalf("getFirstStockListingID: %v", err)
 		}
@@ -156,20 +187,37 @@ func getFirstStockListingID(t *testing.T, c *client.APIClient) (stockID uint64, 
 			time.Sleep(3 * time.Second)
 			continue
 		}
-		stock := stocks[0].(map[string]interface{})
 
-		listing, ok := stock["listing"].(map[string]interface{})
-		if !ok || listing == nil {
-			t.Logf("getFirstStockListingID: stock has no listing yet, retrying (%d/10)...", attempt+1)
-			time.Sleep(3 * time.Second)
-			continue
+		for _, s := range stocks {
+			stock, ok := s.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			listing, ok := stock["listing"].(map[string]interface{})
+			if !ok || listing == nil {
+				continue
+			}
+			lid, ok := listing["id"].(float64)
+			if !ok || lid == 0 {
+				continue
+			}
+			priceStr, _ := listing["price"].(string)
+			priceNum, _ := strconv.ParseFloat(priceStr, 64)
+			if priceNum <= 0 {
+				continue
+			}
+			acronym, _ := listing["exchange_acronym"].(string)
+			if cur, ok := exCurrency[acronym]; ok && !supported[cur] {
+				continue
+			}
+			stockID = uint64(stock["id"].(float64))
+			listingID = uint64(lid)
+			return
 		}
-
-		stockID = uint64(stock["id"].(float64))
-		listingID = uint64(listing["id"].(float64))
-		return
+		t.Logf("getFirstStockListingID: no tradeable stock yet, retrying (%d/10)...", attempt+1)
+		time.Sleep(3 * time.Second)
 	}
-	t.Fatal("getFirstStockListingID: no stock with listing found after 10 attempts")
+	t.Fatal("getFirstStockListingID: no stock with priced listing + supported-currency exchange found after 10 attempts")
 	return
 }
 

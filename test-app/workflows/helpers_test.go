@@ -463,6 +463,38 @@ func waitForOrderFill(t *testing.T, c *client.APIClient, orderID int, timeout ti
 	t.Fatalf("waitForOrderFill: order %d not filled within %s", orderID, timeout)
 }
 
+// tryWaitForOrderFill is a non-fatal variant of waitForOrderFill. Returns
+// true when the order reaches is_done=true OR records at least one
+// OrderTransaction, and false on timeout (without failing the test).
+//
+// Use this when the test tolerates "order placed but market simulator is
+// post-close". The market simulator adds ~30 min to the wait between
+// portion-fills when the underlying exchange is closed at wall-clock time,
+// so non-after-hours market orders can reach fill in under a minute while
+// after-hours ones won't. Tests that must assert only "placement succeeded"
+// can use this to skip the fill-verification branch instead of failing.
+func tryWaitForOrderFill(t *testing.T, c *client.APIClient, orderID int, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := c.GET(fmt.Sprintf("/api/v1/me/orders/%d", orderID))
+		if err != nil {
+			return false
+		}
+		if resp.StatusCode != 200 {
+			return false
+		}
+		if done, ok := resp.Body["is_done"].(bool); ok && done {
+			return true
+		}
+		if txns, ok := resp.Body["transactions"].([]interface{}); ok && len(txns) > 0 {
+			return true
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return false
+}
+
 // createLoanAndApprove submits a loan request and has admin approve it.
 func createLoanAndApprove(t *testing.T, adminC *client.APIClient, clientC *client.APIClient, loanType string, amount float64, accountNum string, months int, clientID ...int) int {
 	t.Helper()

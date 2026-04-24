@@ -60,6 +60,16 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 		targetUserID = req.OnBehalfOfClientId
 	}
 
+	// BaseAccountId on the proto is an optional uint64 populated by the
+	// gateway for forex buy orders. Forward it to the service layer; the
+	// service's forex gating (order_service.go CreateOrder) rejects forex
+	// orders without it.
+	var baseAccountID *uint64
+	if req.BaseAccountId != nil {
+		v := *req.BaseAccountId
+		baseAccountID = &v
+	}
+
 	order, err := h.orderSvc.CreateOrder(ctx, service.CreateOrderRequest{
 		UserID:           targetUserID,
 		SystemType:       req.SystemType,
@@ -74,10 +84,7 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 		Margin:           req.Margin,
 		AccountID:        req.AccountId,
 		ActingEmployeeID: actingEmployeeID,
-		// BaseAccountID intentionally nil — the proto hasn't been extended yet;
-		// forex orders placed via the current proto will be rejected by the
-		// service's forex-gating check until the gateway + proto are updated.
-		BaseAccountID: nil,
+		BaseAccountID:    baseAccountID,
 	})
 	if err != nil {
 		return nil, mapOrderError(err)

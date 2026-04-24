@@ -62,6 +62,24 @@ func getAccountBalancesByID(t *testing.T, c *client.APIClient, accountID uint64)
 	}
 }
 
+// getAccountIDByNumber resolves an account_number to its numeric id via the
+// by-number lookup endpoint. Used by tests that have only the account_number
+// (from setupActivatedClient) but need the id to pass as account_id on
+// POST /api/v1/me/orders.
+func getAccountIDByNumber(t *testing.T, c *client.APIClient, accountNumber string) uint64 {
+	t.Helper()
+	resp, err := c.GET("/api/v1/accounts/by-number/" + accountNumber)
+	if err != nil {
+		t.Fatalf("getAccountIDByNumber: GET /api/v1/accounts/by-number/%s: %v", accountNumber, err)
+	}
+	helpers.RequireStatus(t, resp, 200)
+	idVal, ok := resp.Body["id"].(float64)
+	if !ok {
+		t.Fatalf("getAccountIDByNumber: response missing id: %v", resp.Body)
+	}
+	return uint64(idVal)
+}
+
 // placeOrderRaw sends POST /api/v1/me/orders with the given body and returns
 // the HTTP status + parsed body without asserting. Tests can then branch on
 // 201 (accepted), 400 (validation), 409 (insufficient funds), etc.
@@ -84,9 +102,9 @@ func placeOrderRaw(t *testing.T, c *client.APIClient, body map[string]interface{
 // setupActivatedClient into an account_id suitable for POST /api/v1/me/orders.
 func getFirstClientAccountID(t *testing.T, c *client.APIClient, clientID int) uint64 {
 	t.Helper()
-	resp, err := c.GET("/api/v1/accounts/client/" + helpers.FormatID(clientID))
+	resp, err := c.GET("/api/v1/accounts?client_id=" + helpers.FormatID(clientID))
 	if err != nil {
-		t.Fatalf("getFirstClientAccountID: GET /api/v1/accounts/client/%d: %v", clientID, err)
+		t.Fatalf("getFirstClientAccountID: GET /api/v1/accounts?client_id=%d: %v", clientID, err)
 	}
 	helpers.RequireStatus(t, resp, 200)
 	accts, ok := resp.Body["accounts"].([]interface{})
@@ -110,9 +128,9 @@ func getFirstClientAccountID(t *testing.T, c *client.APIClient, clientID int) ui
 // setup.
 func getClientAccountIDByCurrency(t *testing.T, c *client.APIClient, clientID int, currency string) uint64 {
 	t.Helper()
-	resp, err := c.GET("/api/v1/accounts/client/" + helpers.FormatID(clientID))
+	resp, err := c.GET("/api/v1/accounts?client_id=" + helpers.FormatID(clientID))
 	if err != nil {
-		t.Fatalf("getClientAccountIDByCurrency: GET /api/v1/accounts/client/%d: %v", clientID, err)
+		t.Fatalf("getClientAccountIDByCurrency: GET /api/v1/accounts?client_id=%d: %v", clientID, err)
 	}
 	helpers.RequireStatus(t, resp, 200)
 	accts, ok := resp.Body["accounts"].([]interface{})
