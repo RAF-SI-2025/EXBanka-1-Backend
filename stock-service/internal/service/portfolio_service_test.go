@@ -372,6 +372,18 @@ func (m *mockAccountClient) GetCurrency(context.Context, *accountpb.GetCurrencyR
 func (m *mockAccountClient) GetLedgerEntries(context.Context, *accountpb.GetLedgerEntriesRequest, ...grpc.CallOption) (*accountpb.GetLedgerEntriesResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClient) ReserveFunds(context.Context, *accountpb.ReserveFundsRequest, ...grpc.CallOption) (*accountpb.ReserveFundsResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClient) ReleaseReservation(context.Context, *accountpb.ReleaseReservationRequest, ...grpc.CallOption) (*accountpb.ReleaseReservationResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClient) PartialSettleReservation(context.Context, *accountpb.PartialSettleReservationRequest, ...grpc.CallOption) (*accountpb.PartialSettleReservationResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClient) GetReservation(context.Context, *accountpb.GetReservationRequest, ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
+	return nil, nil
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build a PortfolioService with all mock dependencies
