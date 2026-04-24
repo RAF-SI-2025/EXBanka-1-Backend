@@ -1101,6 +1101,7 @@ const (
 	PortfolioGRPCService_MakePublic_FullMethodName               = "/stock.PortfolioGRPCService/MakePublic"
 	PortfolioGRPCService_ExerciseOption_FullMethodName           = "/stock.PortfolioGRPCService/ExerciseOption"
 	PortfolioGRPCService_ExerciseOptionByOptionID_FullMethodName = "/stock.PortfolioGRPCService/ExerciseOptionByOptionID"
+	PortfolioGRPCService_ListHoldingTransactions_FullMethodName  = "/stock.PortfolioGRPCService/ListHoldingTransactions"
 )
 
 // PortfolioGRPCServiceClient is the client API for PortfolioGRPCService service.
@@ -1112,6 +1113,12 @@ type PortfolioGRPCServiceClient interface {
 	MakePublic(ctx context.Context, in *MakePublicRequest, opts ...grpc.CallOption) (*Holding, error)
 	ExerciseOption(ctx context.Context, in *ExerciseOptionRequest, opts ...grpc.CallOption) (*ExerciseResult, error)
 	ExerciseOptionByOptionID(ctx context.Context, in *ExerciseOptionByOptionIDRequest, opts ...grpc.CallOption) (*ExerciseResult, error)
+	// ListHoldingTransactions returns the executed order-transactions that
+	// contributed to a given holding. Since holdings aggregate per
+	// (user_id, system_type, security_type, security_id) (see Part A), this
+	// surfaces the full buy/sell history for that security across every
+	// account the owner used.
+	ListHoldingTransactions(ctx context.Context, in *ListHoldingTransactionsRequest, opts ...grpc.CallOption) (*ListHoldingTransactionsResponse, error)
 }
 
 type portfolioGRPCServiceClient struct {
@@ -1172,6 +1179,16 @@ func (c *portfolioGRPCServiceClient) ExerciseOptionByOptionID(ctx context.Contex
 	return out, nil
 }
 
+func (c *portfolioGRPCServiceClient) ListHoldingTransactions(ctx context.Context, in *ListHoldingTransactionsRequest, opts ...grpc.CallOption) (*ListHoldingTransactionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListHoldingTransactionsResponse)
+	err := c.cc.Invoke(ctx, PortfolioGRPCService_ListHoldingTransactions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PortfolioGRPCServiceServer is the server API for PortfolioGRPCService service.
 // All implementations must embed UnimplementedPortfolioGRPCServiceServer
 // for forward compatibility.
@@ -1181,6 +1198,12 @@ type PortfolioGRPCServiceServer interface {
 	MakePublic(context.Context, *MakePublicRequest) (*Holding, error)
 	ExerciseOption(context.Context, *ExerciseOptionRequest) (*ExerciseResult, error)
 	ExerciseOptionByOptionID(context.Context, *ExerciseOptionByOptionIDRequest) (*ExerciseResult, error)
+	// ListHoldingTransactions returns the executed order-transactions that
+	// contributed to a given holding. Since holdings aggregate per
+	// (user_id, system_type, security_type, security_id) (see Part A), this
+	// surfaces the full buy/sell history for that security across every
+	// account the owner used.
+	ListHoldingTransactions(context.Context, *ListHoldingTransactionsRequest) (*ListHoldingTransactionsResponse, error)
 	mustEmbedUnimplementedPortfolioGRPCServiceServer()
 }
 
@@ -1205,6 +1228,9 @@ func (UnimplementedPortfolioGRPCServiceServer) ExerciseOption(context.Context, *
 }
 func (UnimplementedPortfolioGRPCServiceServer) ExerciseOptionByOptionID(context.Context, *ExerciseOptionByOptionIDRequest) (*ExerciseResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExerciseOptionByOptionID not implemented")
+}
+func (UnimplementedPortfolioGRPCServiceServer) ListHoldingTransactions(context.Context, *ListHoldingTransactionsRequest) (*ListHoldingTransactionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListHoldingTransactions not implemented")
 }
 func (UnimplementedPortfolioGRPCServiceServer) mustEmbedUnimplementedPortfolioGRPCServiceServer() {}
 func (UnimplementedPortfolioGRPCServiceServer) testEmbeddedByValue()                              {}
@@ -1317,6 +1343,24 @@ func _PortfolioGRPCService_ExerciseOptionByOptionID_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PortfolioGRPCService_ListHoldingTransactions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListHoldingTransactionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PortfolioGRPCServiceServer).ListHoldingTransactions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PortfolioGRPCService_ListHoldingTransactions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PortfolioGRPCServiceServer).ListHoldingTransactions(ctx, req.(*ListHoldingTransactionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PortfolioGRPCService_ServiceDesc is the grpc.ServiceDesc for PortfolioGRPCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1343,6 +1387,10 @@ var PortfolioGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExerciseOptionByOptionID",
 			Handler:    _PortfolioGRPCService_ExerciseOptionByOptionID_Handler,
+		},
+		{
+			MethodName: "ListHoldingTransactions",
+			Handler:    _PortfolioGRPCService_ListHoldingTransactions_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

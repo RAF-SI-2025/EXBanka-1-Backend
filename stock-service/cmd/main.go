@@ -350,6 +350,9 @@ func main() {
 		sagaLogRepo, stockAccountClient, orderTxRepo, nil, bankCommissionRecipient,
 	)
 	portfolioSvc = portfolioSvc.WithForexFillService(forexFillSvc)
+	// Part B: wire the per-holding transaction history repo so
+	// ListHoldingTransactions returns real data.
+	portfolioSvc = portfolioSvc.WithHoldingTxRepo(orderTxRepo)
 	execEngine := service.NewOrderExecutionEngine(ctx, orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
 
 	// --- Seed securities ---

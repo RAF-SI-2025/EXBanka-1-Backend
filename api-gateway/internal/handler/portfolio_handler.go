@@ -97,6 +97,59 @@ func (h *PortfolioHandler) MakePublic(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// ListHoldingTransactions godoc
+// @Summary      List per-purchase history for a holding
+// @Description  Returns the OrderTransactions that contributed to a holding — when each buy/sell executed, price per unit, native vs account currency, FX rate, commission, and which account was used. Replaces the per-purchase detail removed from /me/portfolio in Part C.
+// @Tags         portfolio
+// @Produce      json
+// @Param        id         path   integer true  "Holding ID"
+// @Param        direction  query  string  false "Filter by direction (buy|sell); empty for both"
+// @Param        page       query  int     false "Page number (default 1)"
+// @Param        page_size  query  int     false "Page size (default 10)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "transactions + total_count"
+// @Failure      400  {object}  map[string]interface{}  "validation_error"
+// @Failure      401  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}  "not_found — holding does not exist or does not belong to caller"
+// @Router       /api/v1/me/holdings/{id}/transactions [get]
+func (h *PortfolioHandler) ListHoldingTransactions(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid holding id")
+		return
+	}
+	userID, systemType, ok := meIdentity(c)
+	if !ok {
+		return
+	}
+	direction := c.Query("direction")
+	if direction != "" {
+		if _, err := oneOf("direction", direction, "buy", "sell"); err != nil {
+			apiError(c, 400, ErrValidation, err.Error())
+			return
+		}
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+
+	resp, err := h.portfolioClient.ListHoldingTransactions(c.Request.Context(), &stockpb.ListHoldingTransactionsRequest{
+		HoldingId:  id,
+		UserId:     userID,
+		SystemType: systemType,
+		Direction:  direction,
+		Page:       int32(page),
+		PageSize:   int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"transactions": emptyIfNil(resp.Transactions),
+		"total_count":  resp.TotalCount,
+	})
+}
+
 func (h *PortfolioHandler) ExerciseOption(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

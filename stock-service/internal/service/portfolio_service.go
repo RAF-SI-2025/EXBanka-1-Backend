@@ -14,6 +14,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/repository"
 )
 
 // FillAccountClient is the subset of grpc.AccountClient the fill saga needs.
@@ -83,6 +84,10 @@ type PortfolioService struct {
 	// pre-Task-15 behaviour and keeps legacy tests compiling without the
 	// ForexFillService dependency.
 	forexFillSvc *ForexFillService
+	// holdingTxRepo backs the Part-B per-holding transaction history
+	// endpoint. Nil in legacy tests — ListHoldingTransactions degrades to
+	// an empty response in that case.
+	holdingTxRepo HoldingTransactionRepo
 }
 
 // NewPortfolioService is the legacy constructor retained for existing call
@@ -721,6 +726,47 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 // computed profit.
 func (s *PortfolioService) ListHoldings(userID uint64, systemType string, filter HoldingFilter) ([]model.Holding, int64, error) {
 	return s.holdingRepo.ListByUser(userID, systemType, filter)
+}
+
+// WithHoldingTxRepo injects the Part-B read-side repository. Separate from
+// the constructor so existing call sites (legacy tests) don't need the new
+// dependency wired in — ListHoldingTransactions returns an empty result if
+// nil.
+func (s *PortfolioService) WithHoldingTxRepo(repo HoldingTransactionRepo) *PortfolioService {
+	cp := *s
+	cp.holdingTxRepo = repo
+	return &cp
+}
+
+// ListHoldingTransactions returns the per-purchase transaction history for a
+// given holding. Ownership is verified by loading the holding and checking
+// the (user_id, system_type) match — cross-owner lookups return "holding not
+// found" without leaking existence.
+func (s *PortfolioService) ListHoldingTransactions(
+	holdingID, userID uint64,
+	systemType, direction string,
+	page, pageSize int,
+) ([]repository.HoldingTransactionRow, int64, error) {
+	holding, err := s.holdingRepo.GetByID(holdingID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, 0, errors.New("holding not found")
+		}
+		return nil, 0, err
+	}
+	if holding.UserID != userID || holding.SystemType != systemType {
+		// Non-owner access. Match the existing portfolio-handler convention
+		// of returning a not-found message so the gateway surfaces HTTP 404
+		// rather than leaking the row's existence.
+		return nil, 0, errors.New("holding not found")
+	}
+	if s.holdingTxRepo == nil {
+		return nil, 0, nil
+	}
+	return s.holdingTxRepo.ListByHolding(
+		holding.UserID, holding.SystemType, holding.SecurityType, holding.SecurityID,
+		direction, page, pageSize,
+	)
 }
 
 // GetCurrentPrice retrieves current listing price for a holding.

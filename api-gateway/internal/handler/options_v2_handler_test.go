@@ -128,6 +128,9 @@ func (s *stubPortfolioClient) MakePublic(ctx context.Context, in *stockpb.MakePu
 func (s *stubPortfolioClient) ExerciseOption(ctx context.Context, in *stockpb.ExerciseOptionRequest, opts ...grpc.CallOption) (*stockpb.ExerciseResult, error) {
 	return nil, nil
 }
+func (s *stubPortfolioClient) ListHoldingTransactions(ctx context.Context, in *stockpb.ListHoldingTransactionsRequest, opts ...grpc.CallOption) (*stockpb.ListHoldingTransactionsResponse, error) {
+	return nil, nil
+}
 func (s *stubPortfolioClient) ExerciseOptionByOptionID(ctx context.Context, in *stockpb.ExerciseOptionByOptionIDRequest, opts ...grpc.CallOption) (*stockpb.ExerciseResult, error) {
 	if s.exerciseByOptionIDFn != nil {
 		return s.exerciseByOptionIDFn(in), nil

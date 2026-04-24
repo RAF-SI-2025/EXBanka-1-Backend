@@ -230,6 +230,8 @@ func RegisterCoreRoutes(
 		me.GET("/portfolio/summary", portfolioHandler.GetPortfolioSummary)
 		me.POST("/portfolio/:id/make-public", portfolioHandler.MakePublic)
 		me.POST("/portfolio/:id/exercise", portfolioHandler.ExerciseOption)
+		// Part B: per-holding transaction history.
+		me.GET("/holdings/:id/transactions", portfolioHandler.ListHoldingTransactions)
 
 		// Tax
 		me.GET("/tax", taxHandler.ListMyTaxRecords)

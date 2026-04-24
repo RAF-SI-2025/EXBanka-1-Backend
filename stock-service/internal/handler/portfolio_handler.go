@@ -121,6 +121,58 @@ func (h *PortfolioHandler) ExerciseOption(ctx context.Context, req *pb.ExerciseO
 	return toExerciseResultPB(result), nil
 }
 
+// ListHoldingTransactions surfaces the per-purchase history for a single
+// holding (Part B). Ownership is enforced by the service layer; errors are
+// mapped to gRPC codes via mapPortfolioError.
+func (h *PortfolioHandler) ListHoldingTransactions(ctx context.Context, req *pb.ListHoldingTransactionsRequest) (*pb.ListHoldingTransactionsResponse, error) {
+	page := int(req.Page)
+	pageSize := int(req.PageSize)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	rows, total, err := h.portfolioSvc.ListHoldingTransactions(
+		req.HoldingId, req.UserId, req.SystemType, req.Direction, page, pageSize,
+	)
+	if err != nil {
+		return nil, mapPortfolioError(err)
+	}
+	out := make([]*pb.HoldingTransaction, len(rows))
+	for i, r := range rows {
+		native := ""
+		if r.NativeAmount != nil {
+			native = r.NativeAmount.StringFixed(4)
+		}
+		converted := ""
+		if r.ConvertedAmount != nil {
+			converted = r.ConvertedAmount.StringFixed(4)
+		}
+		fx := ""
+		if r.FxRate != nil {
+			fx = r.FxRate.StringFixed(8)
+		}
+		out[i] = &pb.HoldingTransaction{
+			Id:              r.ID,
+			OrderId:         r.OrderID,
+			ExecutedAt:      r.ExecutedAt.Format("2006-01-02T15:04:05Z"),
+			Direction:       r.Direction,
+			Quantity:        r.Quantity,
+			PricePerUnit:    r.PricePerUnit.StringFixed(4),
+			NativeAmount:    native,
+			NativeCurrency:  r.NativeCurrency,
+			ConvertedAmount: converted,
+			AccountCurrency: r.AccountCurrency,
+			FxRate:          fx,
+			Commission:      r.Commission.StringFixed(4),
+			AccountId:       r.AccountID,
+			Ticker:          r.Ticker,
+		}
+	}
+	return &pb.ListHoldingTransactionsResponse{Transactions: out, TotalCount: total}, nil
+}
+
 func (h *PortfolioHandler) ExerciseOptionByOptionID(ctx context.Context, req *pb.ExerciseOptionByOptionIDRequest) (*pb.ExerciseResult, error) {
 	result, err := h.portfolioSvc.ExerciseOptionByOptionID(ctx, req.OptionId, req.UserId, req.SystemType, req.HoldingId)
 	if err != nil {

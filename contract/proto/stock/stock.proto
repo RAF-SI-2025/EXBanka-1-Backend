@@ -572,6 +572,41 @@ message ExerciseResult {
   string profit = 5;
 }
 
+// HoldingTransaction is one executed order-transaction that touched a holding.
+// Populated from model.OrderTransaction plus lookup fields from the parent
+// Order. Post-Part-A (rollup) these can span multiple accounts for the same
+// holding, so account_id is returned per row for audit purposes.
+message HoldingTransaction {
+  uint64 id = 1;                 // order_transactions.id
+  uint64 order_id = 2;
+  string executed_at = 3;        // RFC3339
+  string direction = 4;          // "buy" | "sell"
+  int64  quantity = 5;
+  string price_per_unit = 6;
+  string native_amount = 7;
+  string native_currency = 8;
+  string converted_amount = 9;
+  string account_currency = 10;
+  string fx_rate = 11;
+  string commission = 12;
+  uint64 account_id = 13;
+  string ticker = 14;
+}
+
+message ListHoldingTransactionsRequest {
+  uint64 holding_id = 1;
+  uint64 user_id    = 2;
+  string system_type = 3;        // "client" | "employee"
+  string direction  = 4;         // "" | "buy" | "sell"
+  int32  page       = 5;
+  int32  page_size  = 6;
+}
+
+message ListHoldingTransactionsResponse {
+  repeated HoldingTransaction transactions = 1;
+  int64 total_count = 2;
+}
+
 // ==================== OTC Trading ====================
 
 service OTCGRPCService {

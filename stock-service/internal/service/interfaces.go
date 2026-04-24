@@ -116,6 +116,15 @@ type OrderTransactionRepo interface {
 	ListByOrderID(orderID uint64) ([]model.OrderTransaction, error)
 }
 
+// HoldingTransactionRepo is the narrow read-side interface the portfolio
+// service uses for the Part-B per-holding history endpoint. Kept separate
+// from OrderTransactionRepo so existing mocks (stubbed Create/Update/ListByOrderID)
+// stay backwards compatible.
+type HoldingTransactionRepo interface {
+	ListByHolding(userID uint64, systemType, securityType string, securityID uint64,
+		direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
+}
+
 // --- Portfolio ---
 
 // Type aliases for filter/summary types defined in repository package.
