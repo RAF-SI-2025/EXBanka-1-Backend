@@ -48,6 +48,7 @@ type StockWithListing struct {
 	Price       decimal.Decimal
 	High        decimal.Decimal
 	Low         decimal.Decimal
+	Volume      int64
 	LastRefresh time.Time
 }
 
@@ -58,6 +59,7 @@ type FuturesWithListing struct {
 	Price       decimal.Decimal
 	High        decimal.Decimal
 	Low         decimal.Decimal
+	Volume      int64
 	LastRefresh time.Time
 }
 
@@ -68,5 +70,6 @@ type ForexWithListing struct {
 	Price       decimal.Decimal
 	High        decimal.Decimal
 	Low         decimal.Decimal
+	Volume      int64
 	LastRefresh time.Time
 }

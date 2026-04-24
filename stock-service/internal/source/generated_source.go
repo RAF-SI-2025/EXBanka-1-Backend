@@ -81,6 +81,20 @@ func exchangeForTicker(ticker string) uint64 {
 	return uint64(h.Sum32()%20) + 1
 }
 
+// hashVolume returns a deterministic int64 in [minVol, maxVol] derived from
+// the given seed string. Same seed → same value across process restarts, so
+// the generated source produces reproducible Volume fields for
+// stocks/futures/forex.
+func hashVolume(seed string, minVol, maxVol int64) int64 {
+	if maxVol <= minVol {
+		return minVol
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(seed))
+	rangeSize := uint64(maxVol - minVol + 1)
+	return minVol + int64(h.Sum64()%rangeSize)
+}
+
 // generatedExchangeAcronyms lists the 20 generated exchanges in the same order
 // as generatedExchanges so exchangeForTicker can map its hash result to a
 // stable acronym, which the resolver translates to a real DB ID.
@@ -202,17 +216,20 @@ func (g *GeneratedSource) FetchStocks(_ context.Context) ([]StockWithListing, er
 	for _, s := range generatedStocks {
 		price := g.stockPx[s.Ticker]
 		exchangeID := g.resolveExchangeID(s.Ticker)
+		volume := hashVolume("stock:"+s.Ticker, 100_000, 50_000_000)
 		out = append(out, StockWithListing{
 			Stock: model.Stock{
 				Ticker:     s.Ticker,
 				Name:       s.Name,
 				Price:      price,
+				Volume:     volume,
 				ExchangeID: exchangeID,
 			},
 			ExchangeID:  exchangeID,
 			Price:       price,
 			High:        price,
 			Low:         price,
+			Volume:      volume,
 			LastRefresh: g.now,
 		})
 	}
@@ -231,6 +248,7 @@ func (g *GeneratedSource) FetchFutures(_ context.Context) ([]FuturesWithListing,
 			unit = "contract"
 		}
 		exchangeID := g.resolveExchangeID(f.Ticker)
+		volume := hashVolume("futures:"+f.Ticker, 1_000, 500_000)
 		out = append(out, FuturesWithListing{
 			Futures: model.FuturesContract{
 				Ticker:         f.Ticker,
@@ -238,6 +256,7 @@ func (g *GeneratedSource) FetchFutures(_ context.Context) ([]FuturesWithListing,
 				ContractSize:   f.ContractSize,
 				ContractUnit:   unit,
 				Price:          price,
+				Volume:         volume,
 				SettlementDate: futuresSettlementDate(g.now, f.DaysToExpiry),
 				ExchangeID:     exchangeID,
 			},
@@ -245,6 +264,7 @@ func (g *GeneratedSource) FetchFutures(_ context.Context) ([]FuturesWithListing,
 			Price:       price,
 			High:        price,
 			Low:         price,
+			Volume:      volume,
 			LastRefresh: g.now,
 		})
 	}
@@ -274,6 +294,7 @@ func (g *GeneratedSource) FetchForex(_ context.Context) ([]ForexWithListing, err
 				liquidity = "low"
 			}
 			exchangeID := g.resolveExchangeID(pair)
+			volume := hashVolume("forex:"+pair, 100_000_000, 10_000_000_000)
 			out = append(out, ForexWithListing{
 				Forex: model.ForexPair{
 					Ticker:        pair,
@@ -282,6 +303,7 @@ func (g *GeneratedSource) FetchForex(_ context.Context) ([]ForexWithListing, err
 					QuoteCurrency: quote,
 					ExchangeRate:  price, // ForexPair uses ExchangeRate, not Price
 					Liquidity:     liquidity,
+					Volume:        volume,
 					ExchangeID:    exchangeID,
 					LastRefresh:   g.now,
 				},
@@ -289,6 +311,7 @@ func (g *GeneratedSource) FetchForex(_ context.Context) ([]ForexWithListing, err
 				Price:       price,
 				High:        price,
 				Low:         price,
+				Volume:      volume,
 				LastRefresh: g.now,
 			})
 		}
