@@ -198,7 +198,8 @@ func main() {
 
 	r := router.NewRouter()
 	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
-	router.SetupV2Routes(r, authClient, securityClient, orderClient, portfolioClient)
+	router.SetupV2Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
+	router.SetupV3Routes(r)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,
