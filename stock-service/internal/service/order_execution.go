@@ -285,24 +285,37 @@ func (e *OrderExecutionEngine) isOrderTriggered(order *model.Order) bool {
 }
 
 func (e *OrderExecutionEngine) getExecutionPrice(order *model.Order, listing *model.Listing) decimal.Decimal {
+	// Fall back to listing.Price whenever the side-specific quote (High/ask for
+	// buys, Low/bid for sells) is zero — happens on externally-sourced listings
+	// where the source has only populated Price. Mirrors the pattern already in
+	// OrderService.computeNativeReservation so the engine and placement saga
+	// agree on price. Without this, market buys on such listings produced
+	// txn.TotalPrice=0, which PartialSettleReservation rejected, and the engine
+	// spun on failed fills forever.
+	ask := listing.High
+	if ask.IsZero() {
+		ask = listing.Price
+	}
+	bid := listing.Low
+	if bid.IsZero() {
+		bid = listing.Price
+	}
 	switch order.OrderType {
 	case "market", "stop":
 		if order.Direction == "buy" {
-			return listing.High // Ask/High
+			return ask
 		}
-		return listing.Low // Bid/Low
+		return bid
 	case "limit", "stop_limit":
 		if order.LimitValue == nil {
 			return listing.Price
 		}
 		if order.Direction == "buy" {
-			ask := listing.High
 			if order.LimitValue.LessThan(ask) {
 				return *order.LimitValue
 			}
 			return ask
 		}
-		bid := listing.Low
 		if order.LimitValue.GreaterThan(bid) {
 			return *order.LimitValue
 		}
