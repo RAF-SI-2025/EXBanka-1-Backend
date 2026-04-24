@@ -535,6 +535,110 @@ func TestUpdateBalance_NotFound(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// UpdateBalance — memo + idempotency_key (bank-safety plumbing)
+// ---------------------------------------------------------------------------
+
+// A retry with the same idempotency_key must not mutate the account a second
+// time — crash-retries of a credit/debit step are safe no-ops.
+func TestUpdateBalance_WithIdempotencyKey_RetrySafe(t *testing.T) {
+	db := newTestDB(t)
+	repo := repository.NewAccountRepository(db)
+	svc := NewAccountService(repo, db, nil)
+
+	acct := seedAccount(t, db, "111000100000010011", decimal.NewFromInt(1000), decimal.NewFromInt(1_000_000))
+
+	opts := repository.UpdateBalanceOpts{Memo: "sell proceeds", IdempotencyKey: "sell-credit-42"}
+	require.NoError(t, svc.UpdateBalanceWithOpts(acct.AccountNumber, decimal.NewFromInt(100), true, opts))
+
+	// Replay with same key — even with different amount, the first call wins
+	// and no further mutation happens.
+	require.NoError(t, svc.UpdateBalanceWithOpts(acct.AccountNumber, decimal.NewFromInt(500), true, opts))
+
+	got, err := svc.GetAccountByNumber(acct.AccountNumber)
+	require.NoError(t, err)
+	assert.True(t, got.Balance.Equal(decimal.NewFromInt(1100)), "retry must not double-credit: got %s want 1100", got.Balance)
+
+	// Exactly one ledger entry with the key.
+	var count int64
+	require.NoError(t, db.Table("ledger_entries").Where("idempotency_key = ?", "sell-credit-42").Count(&count).Error)
+	assert.Equal(t, int64(1), count, "exactly one ledger entry should exist for the key")
+}
+
+// Distinct idempotency_keys are treated as distinct operations — both land.
+func TestUpdateBalance_DifferentKeys_NotDeduped(t *testing.T) {
+	db := newTestDB(t)
+	repo := repository.NewAccountRepository(db)
+	svc := NewAccountService(repo, db, nil)
+
+	acct := seedAccount(t, db, "111000100000011011", decimal.NewFromInt(1000), decimal.NewFromInt(1_000_000))
+
+	require.NoError(t, svc.UpdateBalanceWithOpts(acct.AccountNumber, decimal.NewFromInt(100), true,
+		repository.UpdateBalanceOpts{Memo: "first", IdempotencyKey: "key-a"}))
+	require.NoError(t, svc.UpdateBalanceWithOpts(acct.AccountNumber, decimal.NewFromInt(100), true,
+		repository.UpdateBalanceOpts{Memo: "second", IdempotencyKey: "key-b"}))
+
+	got, err := svc.GetAccountByNumber(acct.AccountNumber)
+	require.NoError(t, err)
+	assert.True(t, got.Balance.Equal(decimal.NewFromInt(1200)), "different keys must credit cumulatively: got %s want 1200", got.Balance)
+}
+
+// Empty idempotency_key opts out of dedup — existing (pre-plumbing) callers
+// that didn't pass a key keep the original "apply each call" behaviour.
+func TestUpdateBalance_EmptyKey_NotDeduped(t *testing.T) {
+	db := newTestDB(t)
+	repo := repository.NewAccountRepository(db)
+	svc := NewAccountService(repo, db, nil)
+
+	acct := seedAccount(t, db, "111000100000012011", decimal.NewFromInt(1000), decimal.NewFromInt(1_000_000))
+
+	require.NoError(t, svc.UpdateBalance(acct.AccountNumber, decimal.NewFromInt(100), true))
+	require.NoError(t, svc.UpdateBalance(acct.AccountNumber, decimal.NewFromInt(100), true))
+
+	got, err := svc.GetAccountByNumber(acct.AccountNumber)
+	require.NoError(t, err)
+	assert.True(t, got.Balance.Equal(decimal.NewFromInt(1200)), "empty-key calls must credit cumulatively: got %s want 1200", got.Balance)
+}
+
+// Memo persists to the ledger entry's description so transaction history
+// shows what the balance change was for.
+func TestUpdateBalance_Memo_PersistsToLedger(t *testing.T) {
+	db := newTestDB(t)
+	repo := repository.NewAccountRepository(db)
+	svc := NewAccountService(repo, db, nil)
+
+	acct := seedAccount(t, db, "111000100000013011", decimal.NewFromInt(1000), decimal.NewFromInt(1_000_000))
+
+	require.NoError(t, svc.UpdateBalanceWithOpts(acct.AccountNumber, decimal.NewFromInt(250), true,
+		repository.UpdateBalanceOpts{Memo: "Commission for order #17"}))
+
+	ledgerRepo := repository.NewLedgerRepository(db)
+	entries, _, err := ledgerRepo.GetEntriesByAccount(acct.AccountNumber, 1, 10)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "expected 1 ledger entry")
+	assert.Equal(t, "Commission for order #17", entries[0].Description)
+	assert.Equal(t, "credit", entries[0].EntryType)
+	assert.True(t, entries[0].Amount.Equal(decimal.NewFromInt(250)))
+}
+
+// Without memo/key neither a ledger entry is written (the historical no-
+// ledger UpdateBalance behaviour) — this is what keeps transaction-service
+// / payment-service, which write their own ledger entries, unaffected.
+func TestUpdateBalance_NoOpts_NoLedgerEntry(t *testing.T) {
+	db := newTestDB(t)
+	repo := repository.NewAccountRepository(db)
+	svc := NewAccountService(repo, db, nil)
+
+	acct := seedAccount(t, db, "111000100000014011", decimal.NewFromInt(1000), decimal.NewFromInt(1_000_000))
+
+	require.NoError(t, svc.UpdateBalance(acct.AccountNumber, decimal.NewFromInt(100), true))
+
+	ledgerRepo := repository.NewLedgerRepository(db)
+	entries, _, err := ledgerRepo.GetEntriesByAccount(acct.AccountNumber, 1, 10)
+	require.NoError(t, err)
+	assert.Len(t, entries, 0, "no ledger entry should be written when memo and key are empty")
+}
+
+// ---------------------------------------------------------------------------
 // CreateBankAccount / ListBankAccounts / DeleteBankAccount
 // ---------------------------------------------------------------------------
 

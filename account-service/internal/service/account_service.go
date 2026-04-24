@@ -284,9 +284,23 @@ func (s *AccountService) UpdateAccountStatus(id uint64, newStatus string, change
 }
 
 func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
+	return s.UpdateBalanceWithOpts(accountNumber, amount, updateAvailable, repository.UpdateBalanceOpts{})
+}
+
+// UpdateBalanceWithOpts is the memo/idempotency-aware entry point. Callers that
+// pass a non-empty IdempotencyKey get "at-most-once" semantics: a retry with
+// the same key short-circuits via the partial unique index on ledger_entries
+// and returns success without mutating the account. Callers that pass a non-
+// empty Memo get a ledger_entries row with that description so the balance
+// change is visible in transaction history.
+//
+// Backward compatible: UpdateBalance with no opts remains pure balance
+// mutation (no ledger row written), so existing transaction-service /
+// payment-service flows that write their own ledger entries are unaffected.
+func (s *AccountService) UpdateBalanceWithOpts(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts repository.UpdateBalanceOpts) error {
 	// All checks (funds, spending limits) and updates (balance, spending) are
 	// performed atomically inside a single SELECT FOR UPDATE transaction in the repo.
-	if err := s.repo.UpdateBalance(accountNumber, amount, updateAvailable); err != nil {
+	if _, err := s.repo.UpdateBalance(accountNumber, amount, updateAvailable, opts); err != nil {
 		return err
 	}
 	// Invalidate cached read-only data after balance change.

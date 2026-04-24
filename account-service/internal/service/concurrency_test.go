@@ -82,7 +82,7 @@ func TestConcurrentDebitDoesNotOverdraft(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		go func() {
 			defer wg.Done()
-			err := repo.UpdateBalance(acctNumber, decimal.NewFromInt(-debitEach), true)
+			_, err := repo.UpdateBalance(acctNumber, decimal.NewFromInt(-debitEach), true, repository.UpdateBalanceOpts{})
 			mu.Lock()
 			defer mu.Unlock()
 			if err == nil {
@@ -120,7 +120,7 @@ func TestConcurrentSpendingTracking(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		go func() {
 			defer wg.Done()
-			_ = repo.UpdateBalance(acctNumber, decimal.NewFromInt(-debitEach), true)
+			_, _ = repo.UpdateBalance(acctNumber, decimal.NewFromInt(-debitEach), true, repository.UpdateBalanceOpts{})
 		}()
 	}
 	wg.Wait()
@@ -153,7 +153,7 @@ func TestSpendingLimitEnforcedConcurrently(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		go func() {
 			defer wg.Done()
-			err := repo.UpdateBalance(acctNumber, decimal.NewFromInt(-100), true)
+			_, err := repo.UpdateBalance(acctNumber, decimal.NewFromInt(-100), true, repository.UpdateBalanceOpts{})
 			if err == nil {
 				mu.Lock()
 				successCount++

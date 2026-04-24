@@ -14,6 +14,7 @@ import (
 
 	kafkaprod "github.com/exbanka/account-service/internal/kafka"
 	"github.com/exbanka/account-service/internal/model"
+	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
 	"github.com/exbanka/contract/changelog"
@@ -268,7 +269,11 @@ func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.Up
 
 func (h *AccountGRPCHandler) UpdateBalance(ctx context.Context, req *pb.UpdateBalanceRequest) (*pb.AccountResponse, error) {
 	amount, _ := decimal.NewFromString(req.Amount)
-	if err := h.accountService.UpdateBalance(req.AccountNumber, amount, req.UpdateAvailable); err != nil {
+	opts := repository.UpdateBalanceOpts{
+		Memo:           req.GetMemo(),
+		IdempotencyKey: req.GetIdempotencyKey(),
+	}
+	if err := h.accountService.UpdateBalanceWithOpts(req.AccountNumber, amount, req.UpdateAvailable, opts); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}

@@ -17,5 +17,15 @@ type LedgerEntry struct {
 	Description   string          `gorm:"size:512"`
 	ReferenceID   string          `gorm:"size:128;index"` // payment/transfer ID
 	ReferenceType string          `gorm:"size:50"`        // "payment", "transfer", "fee", "interest"
-	CreatedAt     time.Time       `gorm:"not null;index:idx_ledger_created"`
+	// IdempotencyKey, when non-empty, is unique across ledger_entries. A
+	// subsequent UpdateBalance call with the same key becomes a no-op and
+	// returns the original response — used for safe crash-retry of saga
+	// credit/debit steps (stock-service's SagaRecovery).
+	//
+	// The partial unique index (WHERE idempotency_key <> '') is supported by
+	// both PostgreSQL (production) and the SQLite build used in tests
+	// (modernc glebarez/sqlite). Pre-existing rows with an empty string are
+	// untouched by the constraint.
+	IdempotencyKey string    `gorm:"size:128;uniqueIndex:idx_ledger_idempotency_key,where:idempotency_key <> ''" json:"idempotency_key,omitempty"`
+	CreatedAt      time.Time `gorm:"not null;index:idx_ledger_created"`
 }

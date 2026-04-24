@@ -582,8 +582,20 @@ type UpdateBalanceRequest struct {
 	AccountNumber   string                 `protobuf:"bytes,1,opt,name=account_number,json=accountNumber,proto3" json:"account_number,omitempty"`
 	Amount          string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
 	UpdateAvailable bool                   `protobuf:"varint,3,opt,name=update_available,json=updateAvailable,proto3" json:"update_available,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// memo is written to the resulting ledger entry's description so the
+	// account owner can see what the balance change was for. Only persisted
+	// when a ledger entry is created (i.e. when idempotency_key or memo is
+	// provided — callers that don't opt in keep the pre-existing no-ledger
+	// behaviour).
+	Memo string `protobuf:"bytes,4,opt,name=memo,proto3" json:"memo,omitempty"`
+	// idempotency_key, when set, guarantees the request is processed at most
+	// once. Retries with the same key return the cached response without
+	// mutating state. Used by stock-service's saga recovery to safely retry
+	// credit/debit steps after a crash. Uniqueness is enforced by a partial
+	// unique index on ledger_entries; an empty string opts out of dedup.
+	IdempotencyKey string `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *UpdateBalanceRequest) Reset() {
@@ -635,6 +647,20 @@ func (x *UpdateBalanceRequest) GetUpdateAvailable() bool {
 		return x.UpdateAvailable
 	}
 	return false
+}
+
+func (x *UpdateBalanceRequest) GetMemo() string {
+	if x != nil {
+		return x.Memo
+	}
+	return ""
+}
+
+func (x *UpdateBalanceRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
 }
 
 type AccountResponse struct {
@@ -2520,11 +2546,13 @@ const file_account_account_proto_rawDesc = "" +
 	"\x0e_monthly_limit\"D\n" +
 	"\x1aUpdateAccountStatusRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"\x80\x01\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"\xbd\x01\n" +
 	"\x14UpdateBalanceRequest\x12%\n" +
 	"\x0eaccount_number\x18\x01 \x01(\tR\raccountNumber\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\tR\x06amount\x12)\n" +
-	"\x10update_available\x18\x03 \x01(\bR\x0fupdateAvailable\"\xed\x05\n" +
+	"\x10update_available\x18\x03 \x01(\bR\x0fupdateAvailable\x12\x12\n" +
+	"\x04memo\x18\x04 \x01(\tR\x04memo\x12'\n" +
+	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\"\xed\x05\n" +
 	"\x0fAccountResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12%\n" +
 	"\x0eaccount_number\x18\x02 \x01(\tR\raccountNumber\x12!\n" +

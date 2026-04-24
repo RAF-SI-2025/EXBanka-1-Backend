@@ -84,6 +84,18 @@ message UpdateBalanceRequest {
   string account_number = 1;
   string amount = 2;
   bool update_available = 3;
+  // memo is written to the resulting ledger entry's description so the
+  // account owner can see what the balance change was for. Only persisted
+  // when a ledger entry is created (i.e. when idempotency_key or memo is
+  // provided — callers that don't opt in keep the pre-existing no-ledger
+  // behaviour).
+  string memo = 4;
+  // idempotency_key, when set, guarantees the request is processed at most
+  // once. Retries with the same key return the cached response without
+  // mutating state. Used by stock-service's saga recovery to safely retry
+  // credit/debit steps after a crash. Uniqueness is enforced by a partial
+  // unique index on ledger_entries; an empty string opts out of dedup.
+  string idempotency_key = 5;
 }
 
 message AccountResponse {
