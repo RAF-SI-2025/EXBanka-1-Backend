@@ -314,6 +314,17 @@ func main() {
 	portfolioSvc = portfolioSvc.WithFillSaga(
 		sagaLogRepo, orderTxRepo, exchangeClient, stockAccountClient, holdingReservationSvc, nil,
 	)
+
+	// Wire the forex-specific fill path (Task 15). Forex fills don't go
+	// through the stock saga: they debit the user's quote account and
+	// credit their base account with no holding row. The bank-commission
+	// recipient adapter exposes the pre-seeded state account to the forex
+	// saga without pulling the full PortfolioService lookup logic in.
+	bankCommissionRecipient := bankCommissionAccountAdapter{accountNo: cfg.StateAccountNo}
+	forexFillSvc := service.NewForexFillService(
+		sagaLogRepo, stockAccountClient, orderTxRepo, nil, bankCommissionRecipient,
+	)
+	portfolioSvc = portfolioSvc.WithForexFillService(forexFillSvc)
 	execEngine := service.NewOrderExecutionEngine(ctx, orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
 
 	// --- Seed securities ---
@@ -425,4 +436,15 @@ func main() {
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("gRPC server failed: %v", err)
 	}
+}
+
+// bankCommissionAccountAdapter satisfies service.BankCommissionRecipient by
+// returning the pre-seeded state-account number from config. Kept here (not
+// in internal/service) so the package stays free of config dependencies.
+type bankCommissionAccountAdapter struct {
+	accountNo string
+}
+
+func (a bankCommissionAccountAdapter) BankCommissionAccountNumber(context.Context) (string, error) {
+	return a.accountNo, nil
 }

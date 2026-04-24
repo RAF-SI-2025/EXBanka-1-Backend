@@ -74,6 +74,11 @@ type PortfolioService struct {
 	fillClient            FillAccountClient
 	holdingReservationSvc FillHoldingReservationAPI
 	settings              OrderSettings
+	// forexFillSvc handles forex buy fills (debit quote, credit base). When
+	// nil, forex fills short-circuit with a warning — this matches the
+	// pre-Task-15 behaviour and keeps legacy tests compiling without the
+	// ForexFillService dependency.
+	forexFillSvc *ForexFillService
 }
 
 // NewPortfolioService is the legacy constructor retained for existing call
@@ -126,7 +131,19 @@ func (s *PortfolioService) WithFillSaga(
 	return &cp
 }
 
-// ProcessBuyFill handles a buy order fill for stocks / futures / options.
+// WithForexFillService returns a shallow copy of the receiver with the
+// forex-fill delegate populated. Separate from WithFillSaga because the
+// forex path is independent of the stock/futures/options saga deps — it
+// doesn't need exchangeClient or holdingReservationSvc — and because
+// ForexFillService is constructed after PortfolioService in main.go.
+func (s *PortfolioService) WithForexFillService(forexFillSvc *ForexFillService) *PortfolioService {
+	cp := *s
+	cp.forexFillSvc = forexFillSvc
+	return &cp
+}
+
+// ProcessBuyFill handles a buy order fill for stocks / futures / options
+// and routes forex fills to the ForexFillService when wired.
 //
 // Phase-2 path (when fill-saga deps are wired): runs a five-step saga —
 // record_transaction → convert_amount → settle_reservation → update_holding →
@@ -134,18 +151,22 @@ func (s *PortfolioService) WithFillSaga(
 // via CreditAccount. Commission failure is logged and left for recovery so
 // the trade remains valid.
 //
-// Forex buys short-circuit here until Task 15 lands the ForexFillService —
-// the trade is a no-op with a warning log. This keeps Task 13 scoped.
+// Forex buys delegate to ForexFillService (Task 15): settlement is a pure
+// intra-user transfer (debit quote, credit base) with no holding row and no
+// exchange-service call. When forexFillSvc is nil the fill short-circuits
+// with a warning so legacy tests and callers that don't wire the service
+// still compile and run.
 //
 // Legacy path (when sagaRepo is nil): falls back to the original direct-debit
 // behaviour so tests and call sites that haven't upgraded to the saga path
 // keep working.
 func (s *PortfolioService) ProcessBuyFill(order *model.Order, txn *model.OrderTransaction) error {
 	if order.SecurityType == "forex" {
-		// Task 15 implements ForexFillService; until then the fill is a no-op.
-		// Task 18's integration tests will exercise the completed flow.
-		log.Printf("WARN: forex buy fill for order %d — forex_fill_service not yet wired", order.ID)
-		return nil
+		if s.forexFillSvc == nil {
+			log.Printf("WARN: forex buy fill for order %d — forex_fill_service not wired", order.ID)
+			return nil
+		}
+		return s.forexFillSvc.ProcessForexBuy(context.Background(), order, txn)
 	}
 
 	if s.sagaRepo == nil || s.fillClient == nil || s.txRepo == nil {
