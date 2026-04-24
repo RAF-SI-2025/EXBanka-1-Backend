@@ -112,6 +112,13 @@ func main() {
 	actuarySvc := service.NewActuaryService(actuaryRepo, repo, producer)
 	actuaryHandler := handler.NewActuaryGRPCHandler(actuarySvc)
 
+	// One-shot: seed role-based default Limit onto any ActuaryLimit rows that
+	// predate the default (Limit == 0). Safe to re-run; skips rows that
+	// already have a limit set.
+	if err := actuarySvc.BackfillDefaultLimits(); err != nil {
+		log.Printf("warn: actuary default-limit backfill failed: %v", err)
+	}
+
 	actuaryCron := service.NewActuaryCronService(actuaryRepo)
 	actuaryCron.Start(ctx)
 

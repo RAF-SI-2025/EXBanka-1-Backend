@@ -31,6 +31,48 @@ func (s *ActuaryService) ListActuaries(search, position string, page, pageSize i
 	return s.actuaryRepo.ListActuaries(search, position, page, pageSize)
 }
 
+// BackfillDefaultLimits applies the role-based default ActuaryLimit to any
+// existing rows whose Limit is zero. Safe to call on every startup: rows
+// that already have a non-zero limit are skipped. Needed because the
+// defaultActuaryLimit path only fires on row creation — legacy rows
+// created before role-based defaults existed (or via a SetActuaryLimit(0)
+// call) stay at zero otherwise.
+func (s *ActuaryService) BackfillDefaultLimits() error {
+	rows, _, err := s.actuaryRepo.ListActuaries("", "", 1, 100000)
+	if err != nil {
+		return err
+	}
+	updated := 0
+	for _, row := range rows {
+		if row.Limit != 0 {
+			continue
+		}
+		emp, err := s.empRepo.GetByIDWithRoles(row.EmployeeID)
+		if err != nil {
+			log.Printf("WARN: actuary backfill: employee %d lookup failed: %v", row.EmployeeID, err)
+			continue
+		}
+		def := defaultActuaryLimit(emp)
+		if def.IsZero() {
+			continue
+		}
+		limit, err := s.actuaryRepo.GetByEmployeeID(row.EmployeeID)
+		if err != nil {
+			continue
+		}
+		limit.Limit = def
+		if err := s.actuaryRepo.Save(limit); err != nil {
+			log.Printf("WARN: actuary backfill: save failed for employee %d: %v", row.EmployeeID, err)
+			continue
+		}
+		updated++
+	}
+	if updated > 0 {
+		log.Printf("actuary backfill: seeded default limit on %d legacy rows", updated)
+	}
+	return nil
+}
+
 func (s *ActuaryService) GetActuaryInfo(employeeID int64) (*model.ActuaryLimit, *model.Employee, error) {
 	return s.getOrCreateActuaryLimit(employeeID)
 }

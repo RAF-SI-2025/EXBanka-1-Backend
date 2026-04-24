@@ -190,7 +190,9 @@ func TestGetActuaryInfo_AutoCreatesMissingLimit(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, limit)
 	assert.NotNil(t, returnedEmp)
-	assert.True(t, limit.Limit.IsZero(), "auto-created limit should be 0")
+	// Role-based default: an EmployeeAgent seeds at 5M RSD trading budget.
+	assert.True(t, limit.Limit.Equal(decimal.NewFromInt(5_000_000)),
+		"EmployeeAgent auto-created limit should be 5M RSD, got %s", limit.Limit)
 	assert.True(t, limit.UsedLimit.IsZero(), "auto-created used limit should be 0")
 	// Agent (non-supervisor) should have NeedApproval = true
 	assert.True(t, limit.NeedApproval, "agent should have NeedApproval=true by default")

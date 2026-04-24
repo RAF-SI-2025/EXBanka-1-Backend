@@ -351,11 +351,32 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 				continue
 			}
 
+			// The debit must be in the user's ACCOUNT currency, not the gain's
+			// native currency. Previously this debited `taxInCurrency` (e.g.
+			// $1.05 USD for a $7 gain) against an RSD account literally as 1.05
+			// RSD — the state then received the FX-converted 105.68 RSD and
+			// ~104 RSD was minted. Convert to account currency here to keep
+			// double-entry balanced.
+			debitAmount := taxInCurrency
+			if gs.Currency != acctResp.CurrencyCode {
+				if acctResp.CurrencyCode == "RSD" {
+					debitAmount = taxInRSD
+				} else {
+					converted, convErr := s.convertCurrency(gs.Currency, acctResp.CurrencyCode, taxInCurrency)
+					if convErr != nil {
+						log.Printf("WARN: tax: FX convert %s->%s failed for user %d: %v — falling back to native-currency debit (may mismatch state credit)",
+							gs.Currency, acctResp.CurrencyCode, summary.UserID, convErr)
+					} else {
+						debitAmount = converted
+					}
+				}
+			}
+
 			debitMemo := fmt.Sprintf("Capital-gains tax collection %04d-%02d", year, month)
 			debitKey := fmt.Sprintf("tax-debit-%s-%d-%04d-%02d-%d", summary.SystemType, summary.UserID, year, month, gs.AccountID)
 			_, debitErr := s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 				AccountNumber:   acctResp.AccountNumber,
-				Amount:          taxInCurrency.Neg().StringFixed(4),
+				Amount:          debitAmount.Neg().StringFixed(4),
 				UpdateAvailable: true,
 				Memo:            debitMemo,
 				IdempotencyKey:  debitKey,
@@ -412,9 +433,18 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 
 // convertToRSD converts an amount from a foreign currency to RSD.
 func (s *TaxService) convertToRSD(fromCurrency string, amount decimal.Decimal) (decimal.Decimal, error) {
+	return s.convertCurrency(fromCurrency, "RSD", amount)
+}
+
+// convertCurrency converts an amount between arbitrary currencies. A no-op
+// (returns amount unchanged) when from == to.
+func (s *TaxService) convertCurrency(fromCurrency, toCurrency string, amount decimal.Decimal) (decimal.Decimal, error) {
+	if fromCurrency == toCurrency {
+		return amount, nil
+	}
 	resp, err := s.exchangeClient.Convert(context.Background(), &exchangepb.ConvertRequest{
 		FromCurrency: fromCurrency,
-		ToCurrency:   "RSD",
+		ToCurrency:   toCurrency,
 		Amount:       amount.StringFixed(4),
 	})
 	if err != nil {
