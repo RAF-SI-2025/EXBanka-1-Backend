@@ -49,16 +49,11 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 		holdingID = &v
 	}
 
-	// Resolve effective user ID: when an employee places on behalf of a client,
-	// the order belongs to the client and the employee is recorded for audit.
-	targetUserID := req.UserId
-	actingEmployeeID := req.ActingEmployeeId
-	if req.ActingEmployeeId != 0 {
-		if req.OnBehalfOfClientId == 0 {
-			return nil, status.Error(codes.InvalidArgument, "on_behalf_of_client_id required when acting_employee_id is set")
-		}
-		targetUserID = req.OnBehalfOfClientId
+	targetUserID, targetSystemType, rerr := resolveOrderOwner(req.UserId, req.SystemType, req.ActingEmployeeId, req.OnBehalfOfClientId)
+	if rerr != nil {
+		return nil, rerr
 	}
+	actingEmployeeID := req.ActingEmployeeId
 
 	// BaseAccountId on the proto is an optional uint64 populated by the
 	// gateway for forex buy orders. Forward it to the service layer; the
@@ -72,7 +67,7 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 
 	order, err := h.orderSvc.CreateOrder(ctx, service.CreateOrderRequest{
 		UserID:           targetUserID,
-		SystemType:       req.SystemType,
+		SystemType:       targetSystemType,
 		ListingID:        req.ListingId,
 		HoldingID:        holdingID,
 		Direction:        req.Direction,
@@ -293,4 +288,19 @@ func toOrderListResponse(orders []model.Order, total int64) *pb.ListOrdersRespon
 		protos[i] = toOrderProto(&o)
 	}
 	return &pb.ListOrdersResponse{Orders: protos, TotalCount: total}
+}
+
+// resolveOrderOwner decides who the order (and any resulting holding) belongs
+// to. When an employee places on behalf of a client, the order is attributed
+// to the client — both the user ID and the system_type flip — so the holding
+// shows up in the client's /me/portfolio. The acting employee is recorded
+// separately on the order for audit; this function does not touch it.
+func resolveOrderOwner(reqUserID uint64, reqSystemType string, actingEmployeeID, onBehalfOfClientID uint64) (uint64, string, error) {
+	if actingEmployeeID != 0 {
+		if onBehalfOfClientID == 0 {
+			return 0, "", status.Error(codes.InvalidArgument, "on_behalf_of_client_id required when acting_employee_id is set")
+		}
+		return onBehalfOfClientID, "client", nil
+	}
+	return reqUserID, reqSystemType, nil
 }
