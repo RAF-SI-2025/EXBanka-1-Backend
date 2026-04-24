@@ -26,6 +26,40 @@ func TestGeneratedSource_FetchExchanges_Returns20(t *testing.T) {
 	}
 }
 
+// TestGeneratedSource_FetchExchanges_CurrenciesAreSupported is the regression
+// test for Bug A: any exchange currency that is not in exchange-service's
+// supported-currency set (RSD/EUR/CHF/USD/GBP/JPY/CAD/AUD) would cause a
+// cross-currency buy order to fail at exchange.Convert with "XXX is not a
+// supported currency". The normalization layer must coerce HKD, CNY, INR,
+// ZAR, MXN, BRL, KRW, SEK, PLN, COP, RUB to USD before the exchange rows
+// hit the DB.
+func TestGeneratedSource_FetchExchanges_CurrenciesAreSupported(t *testing.T) {
+	s := source.NewGeneratedSource()
+	ex, err := s.FetchExchanges(context.Background())
+	require.NoError(t, err)
+	supported := map[string]bool{
+		"RSD": true, "EUR": true, "CHF": true, "USD": true,
+		"GBP": true, "JPY": true, "CAD": true, "AUD": true,
+	}
+	for _, e := range ex {
+		require.True(t, supported[e.Currency],
+			"exchange %s (%s) has unsupported currency %q; must be normalized",
+			e.Acronym, e.MICCode, e.Currency)
+	}
+}
+
+func TestNormalizeExchangeCurrency(t *testing.T) {
+	// Supported codes pass through unchanged.
+	for _, c := range []string{"RSD", "EUR", "CHF", "USD", "GBP", "JPY", "CAD", "AUD"} {
+		require.Equal(t, c, source.NormalizeExchangeCurrency(c))
+	}
+	// Unsupported ISO codes and empty/garbage values collapse to USD.
+	for _, c := range []string{"", "CNY", "HKD", "INR", "ZAR", "MXN", "BRL", "KRW", "SEK", "PLN", "COP", "RUB", "PAl", "GAE"} {
+		require.Equal(t, "USD", source.NormalizeExchangeCurrency(c),
+			"unsupported code %q must collapse to USD", c)
+	}
+}
+
 func TestGeneratedSource_FetchStocks_Returns20WithNonZeroPrice(t *testing.T) {
 	s := source.NewGeneratedSource()
 	stocks, err := s.FetchStocks(context.Background())

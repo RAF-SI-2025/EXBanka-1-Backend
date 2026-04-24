@@ -124,6 +124,11 @@ func (s *ExternalSource) FetchExchanges(ctx context.Context) ([]model.StockExcha
 	if csvErr != nil && len(result) == 0 {
 		return nil, fmt.Errorf("fetch exchanges: %w", csvErr)
 	}
+	// Normalize to the subset of currencies exchange-service supports so that
+	// buy orders on these listings don't trip validateCurrency at fill time.
+	for i := range result {
+		result[i].Currency = NormalizeExchangeCurrency(result[i].Currency)
+	}
 	return result, nil
 }
 

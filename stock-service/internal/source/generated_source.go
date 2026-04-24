@@ -203,6 +203,11 @@ func (g *GeneratedSource) FetchExchanges(_ context.Context) ([]model.StockExchan
 			ex.OpenTime = "09:00"
 			ex.CloseTime = "17:00"
 		}
+		// Normalize to the supported-currency set so a buy order on this
+		// exchange survives the exchange-service.Convert call at fill time.
+		// Unsupported codes (HKD, CNY, INR, ZAR, MXN, BRL, KRW, SEK, PLN,
+		// COP, RUB — all present in exchangeDefaults above) collapse to USD.
+		ex.Currency = NormalizeExchangeCurrency(ex.Currency)
 		out = append(out, ex)
 	}
 	return out, nil
