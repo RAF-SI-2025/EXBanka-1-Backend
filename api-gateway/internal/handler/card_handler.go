@@ -751,7 +751,7 @@ func (h *CardHandler) GetCardRequest(c *gin.Context) {
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      422  {object}  map[string]string       "already processed"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/v2/cards/requests/{id}/approve [put]
+// @Router       /api/v2/cards/requests/{id}/approve [post]
 func (h *CardHandler) ApproveCardRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -796,7 +796,7 @@ func (h *CardHandler) ApproveCardRequest(c *gin.Context) {
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      422  {object}  map[string]string       "already processed"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/v2/cards/requests/{id}/reject [put]
+// @Router       /api/v2/cards/requests/{id}/reject [post]
 func (h *CardHandler) RejectCardRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

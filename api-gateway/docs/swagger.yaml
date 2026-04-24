@@ -828,58 +828,6 @@ info:
   title: EXBanka API
   version: "2.0"
 paths:
-  /api/v1/me/holdings/{id}/transactions:
-    get:
-      description: Returns the OrderTransactions that contributed to a holding — when
-        each buy/sell executed, price per unit, native vs account currency, FX rate,
-        commission, and which account was used. Replaces the per-purchase detail removed
-        from /me/portfolio in Part C.
-      parameters:
-      - description: Holding ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: Filter by direction (buy|sell); empty for both
-        in: query
-        name: direction
-        type: string
-      - description: Page number (default 1)
-        in: query
-        name: page
-        type: integer
-      - description: Page size (default 10)
-        in: query
-        name: page_size
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: transactions + total_count
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: validation_error
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: not_found — holding does not exist or does not belong to caller
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: List per-purchase history for a holding
-      tags:
-      - portfolio
   /api/v2/accounts:
     get:
       parameters:
@@ -2625,7 +2573,7 @@ paths:
       tags:
       - card-requests
   /api/v2/cards/requests/{id}/approve:
-    put:
+    post:
       description: Employee approves a pending card request, which creates the card.
         Requires cards.approve permission.
       parameters:
@@ -2684,7 +2632,7 @@ paths:
       tags:
       - card-requests
   /api/v2/cards/requests/{id}/reject:
-    put:
+    post:
       consumes:
       - application/json
       description: Employee rejects a pending card request with a reason. Requires
@@ -4631,6 +4579,59 @@ paths:
       summary: Get current user profile
       tags:
       - me
+  /api/v2/me/accounts/{id}/activity:
+    get:
+      description: Returns every balance-affecting event on the account in reverse-chronological
+        order. Includes securities buys/sells (`reference_type=order`), tax collection
+        (`reference_type=tax`), commission debits, transfers, payments, and interest.
+        Ownership enforced against the JWT.
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 200)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entries, total_count
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: validation_error
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: account does not belong to caller
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List activity on one of my accounts
+      tags:
+      - accounts
   /api/v2/me/cards/virtual:
     post:
       consumes:
@@ -4682,6 +4683,58 @@ paths:
       summary: Create virtual card for authenticated client
       tags:
       - cards
+  /api/v2/me/holdings/{id}/transactions:
+    get:
+      description: Returns the OrderTransactions that contributed to a holding — when
+        each buy/sell executed, price per unit, native vs account currency, FX rate,
+        commission, and which account was used. Replaces the per-purchase detail removed
+        from /me/portfolio in Part C.
+      parameters:
+      - description: Holding ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Filter by direction (buy|sell); empty for both
+        in: query
+        name: direction
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 10)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: transactions + total_count
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: validation_error
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not_found — holding does not exist or does not belong to caller
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List per-purchase history for a holding
+      tags:
+      - portfolio
   /api/v2/me/login-history:
     get:
       description: Returns recent login attempts for the authenticated user

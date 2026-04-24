@@ -111,7 +111,7 @@ func (h *PortfolioHandler) MakePublic(c *gin.Context) {
 // @Failure      400  {object}  map[string]interface{}  "validation_error"
 // @Failure      401  {object}  map[string]interface{}
 // @Failure      404  {object}  map[string]interface{}  "not_found — holding does not exist or does not belong to caller"
-// @Router       /api/v1/me/holdings/{id}/transactions [get]
+// @Router       /api/v2/me/holdings/{id}/transactions [get]
 func (h *PortfolioHandler) ListHoldingTransactions(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

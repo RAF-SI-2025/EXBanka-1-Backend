@@ -182,6 +182,7 @@ func RegisterCoreRoutes(
 		// Accounts
 		me.GET("/accounts", accountHandler.ListMyAccounts)
 		me.GET("/accounts/:id", accountHandler.GetMyAccount)
+		me.GET("/accounts/:id/activity", accountHandler.GetMyAccountActivity)
 
 		// Cards
 		me.GET("/cards", cardHandler.ListMyCards)

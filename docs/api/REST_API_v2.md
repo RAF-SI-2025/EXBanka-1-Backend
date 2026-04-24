@@ -466,6 +466,37 @@ Get one of the authenticated user's accounts by ID (ownership enforced).
 
 **Example:** `curl -sS http://localhost:8080/api/v2/me/accounts/42 -H "Authorization: Bearer $T"`
 
+### GET /api/v2/me/accounts/{id}/activity
+
+List every balance-affecting event on one of the caller's accounts, newest first. Covers buys/sells (settlement debits and proceeds credits), commission debits, tax collection, transfers, payments, and interest — everything that moved money on the account. Ownership enforced.
+
+**Auth:** JWT
+
+**Path params:** `id` — account ID
+
+**Query:** `page` (default 1), `page_size` (default 20, max 200)
+
+**200 response:** `{"entries": [...], "total_count": N}`.
+
+**Entry object:**
+
+| Field           | Type    | Notes                                                                                                         |
+|-----------------|---------|---------------------------------------------------------------------------------------------------------------|
+| id              | uint64  | ledger-entry id                                                                                               |
+| entry_type      | string  | `debit` or `credit`                                                                                           |
+| amount          | string  | positive decimal; pair with `entry_type` to know the sign                                                     |
+| currency        | string  | currency of the parent account (same for every entry on that account)                                         |
+| balance_before  | string  | decimal, before the entry                                                                                     |
+| balance_after   | string  | decimal, after the entry                                                                                      |
+| description     | string  | human-readable memo, e.g. "Order #9 partial fill (txn #15)", "Capital-gains tax collection 2026-04"            |
+| reference_type  | string  | category tag; examples: `reservation_settlement` (buy), `` (sell credit, tax, commission, transfer, payment) — may be empty for categories that have not yet been tagged; rely on `description` until more tags are added |
+| reference_id    | string  | external id the entry links to, e.g. `"order-9-txn-15"`                                                       |
+| occurred_at     | int     | unix seconds                                                                                                  |
+
+**Error responses:** 400 invalid id, 401, 403 forbidden (not owner), 404 account not found.
+
+**Example:** `curl -sS "http://localhost:8080/api/v2/me/accounts/42/activity?page_size=50" -H "Authorization: Bearer $T"`
+
 ### GET /api/v2/me/cards
 
 List the authenticated user's cards.

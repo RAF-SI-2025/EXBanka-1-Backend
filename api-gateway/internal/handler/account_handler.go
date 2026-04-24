@@ -650,6 +650,89 @@ func (h *AccountHandler) GetMyAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, accountToJSON(resp))
 }
 
+// GetMyAccountActivity godoc
+// @Summary      List activity on one of my accounts
+// @Description  Returns every balance-affecting event on the account in reverse-chronological order. Includes securities buys/sells (`reference_type=order`), tax collection (`reference_type=tax`), commission debits, transfers, payments, and interest. Ownership enforced against the JWT.
+// @Tags         accounts
+// @Produce      json
+// @Param        id         path   int true  "Account ID"
+// @Param        page       query  int false "Page number (default 1)"
+// @Param        page_size  query  int false "Page size (default 20, max 200)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "entries, total_count"
+// @Failure      400  {object}  map[string]interface{}  "validation_error"
+// @Failure      401  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}  "account does not belong to caller"
+// @Failure      404  {object}  map[string]interface{}
+// @Router       /api/v2/me/accounts/{id}/activity [get]
+func (h *AccountHandler) GetMyAccountActivity(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	acct, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if acct.OwnerId != uint64(uid) {
+		apiError(c, 403, ErrForbidden, "access denied")
+		return
+	}
+
+	resp, err := h.accountClient.GetLedgerEntries(c.Request.Context(), &accountpb.GetLedgerEntriesRequest{
+		AccountNumber: acct.AccountNumber,
+		Page:          int32(page),
+		PageSize:      int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	out := make([]gin.H, 0, len(resp.Entries))
+	for _, e := range resp.Entries {
+		out = append(out, ledgerEntryToJSON(e, acct.CurrencyCode))
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"entries":     out,
+		"total_count": resp.TotalCount,
+	})
+}
+
+// ledgerEntryToJSON trims the raw LedgerEntryResponse to fields the client
+// cares about. Internal fields like idempotency keys are not exposed. The
+// ledger entry's account currency isn't carried on the entry itself — we
+// stamp it from the parent account so consumers can format amounts without
+// a second lookup.
+func ledgerEntryToJSON(e *accountpb.LedgerEntryResponse, currency string) gin.H {
+	return gin.H{
+		"id":             e.Id,
+		"entry_type":     e.EntryType, // "debit" or "credit"
+		"amount":         e.Amount,
+		"currency":       currency,
+		"balance_before": e.BalanceBefore,
+		"balance_after":  e.BalanceAfter,
+		"description":    e.Description,
+		"reference_id":   e.ReferenceId,
+		"reference_type": e.ReferenceType, // e.g. "order", "tax", "commission", "transfer", "payment", "interest"
+		"occurred_at":    e.CreatedAt,     // unix seconds
+	}
+}
+
 func accountToJSON(acc *accountpb.AccountResponse) gin.H {
 	return gin.H{
 		"id":                acc.Id,
