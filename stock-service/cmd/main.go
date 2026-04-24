@@ -354,7 +354,7 @@ func main() {
 	// stuck from a prior crash) and then every 60 seconds until ctx is
 	// cancelled. Must use the long-lived main ctx so the ticker lives for the
 	// process lifetime and honors graceful shutdown via cancel().
-	sagaRecovery := service.NewSagaRecovery(sagaLogRepo, stockAccountClient)
+	sagaRecovery := service.NewSagaRecovery(sagaLogRepo, stockAccountClient, orderRepo, cfg.StateAccountNo)
 	sagaRecovery.Run(ctx, 60*time.Second)
 
 	// Start tax collection cron

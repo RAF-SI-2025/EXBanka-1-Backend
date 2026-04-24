@@ -153,7 +153,7 @@ func TestAccountClient_CreditAccount_UsesAbsoluteAmountAndUpdatesAvailable(t *te
 
 	// Pass a negative amount to verify the wrapper coerces to absolute so
 	// callers can't accidentally debit via CreditAccount.
-	if _, err := c.CreditAccount(context.Background(), "265000-42", decimal.NewFromFloat(-25.5), "compensation"); err != nil {
+	if _, err := c.CreditAccount(context.Background(), "265000-42", decimal.NewFromFloat(-25.5), "compensation", "idem-credit-1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	req := stub.updateBalanceReq
@@ -169,13 +169,19 @@ func TestAccountClient_CreditAccount_UsesAbsoluteAmountAndUpdatesAvailable(t *te
 	if !req.UpdateAvailable {
 		t.Error("UpdateAvailable should always be true for CreditAccount")
 	}
+	if req.Memo != "compensation" {
+		t.Errorf("Memo: got %q, want %q", req.Memo, "compensation")
+	}
+	if req.IdempotencyKey != "idem-credit-1" {
+		t.Errorf("IdempotencyKey: got %q, want %q", req.IdempotencyKey, "idem-credit-1")
+	}
 }
 
 func TestAccountClient_DebitAccount_ForcesNegativeAmountAndUpdatesAvailable(t *testing.T) {
 	stub := &stubAccountServiceClient{}
 	c := NewAccountClient(stub)
 
-	if _, err := c.DebitAccount(context.Background(), "265000-42", decimal.NewFromFloat(25.5), "compensation"); err != nil {
+	if _, err := c.DebitAccount(context.Background(), "265000-42", decimal.NewFromFloat(25.5), "compensation", "idem-debit-1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	req := stub.updateBalanceReq
@@ -191,16 +197,22 @@ func TestAccountClient_DebitAccount_ForcesNegativeAmountAndUpdatesAvailable(t *t
 	if !req.UpdateAvailable {
 		t.Error("UpdateAvailable should always be true for DebitAccount")
 	}
+	if req.Memo != "compensation" {
+		t.Errorf("Memo: got %q, want %q", req.Memo, "compensation")
+	}
+	if req.IdempotencyKey != "idem-debit-1" {
+		t.Errorf("IdempotencyKey: got %q, want %q", req.IdempotencyKey, "idem-debit-1")
+	}
 }
 
 func TestAccountClient_DebitAccount_RejectsNonPositiveAmount(t *testing.T) {
 	stub := &stubAccountServiceClient{}
 	c := NewAccountClient(stub)
 
-	if _, err := c.DebitAccount(context.Background(), "265000-42", decimal.Zero, "bad"); err == nil {
+	if _, err := c.DebitAccount(context.Background(), "265000-42", decimal.Zero, "bad", ""); err == nil {
 		t.Error("expected error for zero amount")
 	}
-	if _, err := c.DebitAccount(context.Background(), "265000-42", decimal.NewFromFloat(-1), "bad"); err == nil {
+	if _, err := c.DebitAccount(context.Background(), "265000-42", decimal.NewFromFloat(-1), "bad", ""); err == nil {
 		t.Error("expected error for negative amount")
 	}
 	if stub.updateBalanceReq != nil {

@@ -22,13 +22,13 @@ import (
 // IncrementRetryCount invocations so tests can assert the reconciler's
 // decisions against it.
 type fakeRecoveryRepo struct {
-	mu                 sync.Mutex
-	stuck              []model.SagaLog
-	updateCalls        []updateStatusCall
-	incrementCalls     []uint64
-	forceListErr       error
-	forceUpdateErr     error
-	forceIncrementErr  error
+	mu                sync.Mutex
+	stuck             []model.SagaLog
+	updateCalls       []updateStatusCall
+	incrementCalls    []uint64
+	forceListErr      error
+	forceUpdateErr    error
+	forceIncrementErr error
 }
 
 type updateStatusCall struct {
@@ -80,8 +80,13 @@ func (r *fakeRecoveryRepo) IncrementRetryCount(id uint64) error {
 type fakeRecoveryFillClient struct {
 	stub *fakeRecoveryAccountStub
 
-	partialSettleErr    error
-	partialSettleCalls  []partialSettleRecoveryCall
+	partialSettleErr   error
+	partialSettleCalls []partialSettleRecoveryCall
+
+	creditErr   error
+	creditCalls []creditDebitRecoveryCall
+	debitErr    error
+	debitCalls  []creditDebitRecoveryCall
 }
 
 type partialSettleRecoveryCall struct {
@@ -89,6 +94,13 @@ type partialSettleRecoveryCall struct {
 	TxnID   uint64
 	Amount  decimal.Decimal
 	Memo    string
+}
+
+type creditDebitRecoveryCall struct {
+	AccountNumber  string
+	Amount         decimal.Decimal
+	Memo           string
+	IdempotencyKey string
 }
 
 func newFakeRecoveryFillClient(stub *fakeRecoveryAccountStub) *fakeRecoveryFillClient {
@@ -105,22 +117,39 @@ func (c *fakeRecoveryFillClient) PartialSettleReservation(_ context.Context, ord
 	return &accountpb.PartialSettleReservationResponse{}, nil
 }
 
-func (c *fakeRecoveryFillClient) CreditAccount(_ context.Context, _ string, _ decimal.Decimal, _ string) (*accountpb.AccountResponse, error) {
+func (c *fakeRecoveryFillClient) CreditAccount(_ context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	if c.creditErr != nil {
+		return nil, c.creditErr
+	}
+	c.creditCalls = append(c.creditCalls, creditDebitRecoveryCall{
+		AccountNumber: accountNumber, Amount: amount, Memo: memo, IdempotencyKey: idempotencyKey,
+	})
 	return &accountpb.AccountResponse{}, nil
 }
 
-func (c *fakeRecoveryFillClient) DebitAccount(_ context.Context, _ string, _ decimal.Decimal, _ string) (*accountpb.AccountResponse, error) {
+func (c *fakeRecoveryFillClient) DebitAccount(_ context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	if c.debitErr != nil {
+		return nil, c.debitErr
+	}
+	c.debitCalls = append(c.debitCalls, creditDebitRecoveryCall{
+		AccountNumber: accountNumber, Amount: amount, Memo: memo, IdempotencyKey: idempotencyKey,
+	})
 	return &accountpb.AccountResponse{}, nil
 }
 
 func (c *fakeRecoveryFillClient) Stub() accountpb.AccountServiceClient { return c.stub }
 
 // fakeRecoveryAccountStub implements accountpb.AccountServiceClient with a
-// canned GetReservation response. All other methods return zero values.
+// canned GetReservation response. Other methods return zero values except
+// GetAccount, which returns a canned response so the credit/debit recovery
+// path can resolve an account ID to an account number.
 type fakeRecoveryAccountStub struct {
-	getReservationResp *accountpb.GetReservationResponse
-	getReservationErr  error
+	getReservationResp      *accountpb.GetReservationResponse
+	getReservationErr       error
 	getReservationCallCount int
+
+	getAccountResp *accountpb.AccountResponse
+	getAccountErr  error
 }
 
 func (s *fakeRecoveryAccountStub) GetReservation(_ context.Context, _ *accountpb.GetReservationRequest, _ ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
@@ -136,7 +165,13 @@ func (s *fakeRecoveryAccountStub) CreateAccount(context.Context, *accountpb.Crea
 	return nil, nil
 }
 func (s *fakeRecoveryAccountStub) GetAccount(context.Context, *accountpb.GetAccountRequest, ...grpc.CallOption) (*accountpb.AccountResponse, error) {
-	return nil, nil
+	if s.getAccountErr != nil {
+		return nil, s.getAccountErr
+	}
+	if s.getAccountResp != nil {
+		return s.getAccountResp, nil
+	}
+	return &accountpb.AccountResponse{}, nil
 }
 func (s *fakeRecoveryAccountStub) GetAccountByNumber(context.Context, *accountpb.GetAccountByNumberRequest, ...grpc.CallOption) (*accountpb.AccountResponse, error) {
 	return nil, nil
@@ -228,7 +263,7 @@ func TestSagaRecovery_SettlementAlreadyCommitted_MarksCompleted(t *testing.T) {
 	}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client)
+	rec := NewSagaRecovery(repo, client, nil, "")
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -260,7 +295,7 @@ func TestSagaRecovery_SettlementMissing_RetriesAndCompletes(t *testing.T) {
 	}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client)
+	rec := NewSagaRecovery(repo, client, nil, "")
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -291,7 +326,7 @@ func TestSagaRecovery_QuoteSettlementMissing_RetriesWithForexMemo(t *testing.T) 
 	}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client)
+	rec := NewSagaRecovery(repo, client, nil, "")
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -315,7 +350,7 @@ func TestSagaRecovery_MaxRetriesExceeded_LogsAndSkips(t *testing.T) {
 	stub := &fakeRecoveryAccountStub{}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client)
+	rec := NewSagaRecovery(repo, client, nil, "")
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -334,16 +369,16 @@ func TestSagaRecovery_MaxRetriesExceeded_LogsAndSkips(t *testing.T) {
 	}
 }
 
-// Credit/debit steps must NOT be auto-retried — the mock should see no
-// account-service calls and no status change.
-func TestSagaRecovery_CreditStep_NotAutoRetried(t *testing.T) {
+// When no orderRepo is wired, credit/debit steps fall back to the degraded
+// "log and leave alone" behaviour: no account-service calls, no status change.
+func TestSagaRecovery_CreditStep_WithoutOrderRepo_LeftAlone(t *testing.T) {
 	step := settleStep(5, 104, 204, decimal.NewFromFloat(1), "credit_proceeds")
 	repo := newFakeRecoveryRepo(step)
 
 	stub := &fakeRecoveryAccountStub{}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client)
+	rec := NewSagaRecovery(repo, client, nil, "")
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -353,6 +388,9 @@ func TestSagaRecovery_CreditStep_NotAutoRetried(t *testing.T) {
 	}
 	if len(client.partialSettleCalls) != 0 {
 		t.Errorf("expected no PartialSettleReservation calls, got %d", len(client.partialSettleCalls))
+	}
+	if len(client.creditCalls) != 0 {
+		t.Errorf("expected no CreditAccount calls without orderRepo wiring, got %d", len(client.creditCalls))
 	}
 	if len(repo.updateCalls) != 0 {
 		t.Errorf("expected no UpdateStatus calls, got %d", len(repo.updateCalls))
@@ -372,7 +410,7 @@ func TestSagaRecovery_PlacementStep_NotAutoRetried(t *testing.T) {
 			stub := &fakeRecoveryAccountStub{}
 			client := newFakeRecoveryFillClient(stub)
 
-			rec := NewSagaRecovery(repo, client)
+			rec := NewSagaRecovery(repo, client, nil, "")
 			if err := rec.Reconcile(context.Background()); err != nil {
 				t.Fatalf("Reconcile: %v", err)
 			}
@@ -398,7 +436,7 @@ func TestSagaRecovery_UpdateHolding_MarksCompleted(t *testing.T) {
 	stub := &fakeRecoveryAccountStub{}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client)
+	rec := NewSagaRecovery(repo, client, nil, "")
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -422,7 +460,7 @@ func TestSagaRecovery_RetryFailure_IncrementsRetryCount(t *testing.T) {
 	client := newFakeRecoveryFillClient(stub)
 	client.partialSettleErr = errors.New("boom")
 
-	rec := NewSagaRecovery(repo, client)
+	rec := NewSagaRecovery(repo, client, nil, "")
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -443,7 +481,7 @@ func TestSagaRecovery_UnknownStep_LeftAlone(t *testing.T) {
 	stub := &fakeRecoveryAccountStub{}
 	client := newFakeRecoveryFillClient(stub)
 
-	rec := NewSagaRecovery(repo, client)
+	rec := NewSagaRecovery(repo, client, nil, "")
 	if err := rec.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -460,7 +498,7 @@ func TestSagaRecovery_Run_StopsOnContextCancel(t *testing.T) {
 	client := newFakeRecoveryFillClient(stub)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	rec := NewSagaRecovery(repo, client)
+	rec := NewSagaRecovery(repo, client, nil, "")
 	rec.Run(ctx, 10*time.Millisecond)
 
 	// Give the initial Reconcile a moment to run, then cancel. We only
@@ -468,4 +506,186 @@ func TestSagaRecovery_Run_StopsOnContextCancel(t *testing.T) {
 	time.Sleep(25 * time.Millisecond)
 	cancel()
 	time.Sleep(15 * time.Millisecond)
+}
+
+// ---------------------------------------------------------------------------
+// Auto-retry for credit/debit steps (the idempotency-key unlock)
+// ---------------------------------------------------------------------------
+
+// fakeRecoveryOrderRepo satisfies RecoveryOrderRepo with a canned order lookup.
+type fakeRecoveryOrderRepo struct {
+	orders map[uint64]*model.Order
+	err    error
+}
+
+func (r *fakeRecoveryOrderRepo) GetByID(id uint64) (*model.Order, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if o, ok := r.orders[id]; ok {
+		return o, nil
+	}
+	return nil, errors.New("order not found")
+}
+
+// credit_proceeds auto-retries with key "sell-credit-{txnID}" on the user's
+// main account and marks the saga row completed on success.
+func TestSagaRecovery_CreditProceeds_AutoRetriesWithKey(t *testing.T) {
+	const orderID, txnID uint64 = 300, 400
+	amount := decimal.NewFromFloat(789.25)
+	step := settleStep(1, orderID, txnID, amount, "credit_proceeds")
+	repo := newFakeRecoveryRepo(step)
+
+	stub := &fakeRecoveryAccountStub{
+		getAccountResp: &accountpb.AccountResponse{AccountNumber: "USER-ACCT-1"},
+	}
+	client := newFakeRecoveryFillClient(stub)
+	orderRepo := &fakeRecoveryOrderRepo{orders: map[uint64]*model.Order{
+		orderID: {ID: orderID, AccountID: 11},
+	}}
+
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001")
+	if err := rec.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if len(client.creditCalls) != 1 {
+		t.Fatalf("expected 1 CreditAccount retry, got %d", len(client.creditCalls))
+	}
+	got := client.creditCalls[0]
+	if got.AccountNumber != "USER-ACCT-1" {
+		t.Errorf("AccountNumber: got %q want USER-ACCT-1", got.AccountNumber)
+	}
+	if !got.Amount.Equal(amount) {
+		t.Errorf("Amount: got %s want %s", got.Amount, amount)
+	}
+	wantKey := "sell-credit-400"
+	if got.IdempotencyKey != wantKey {
+		t.Errorf("IdempotencyKey: got %q want %q", got.IdempotencyKey, wantKey)
+	}
+	if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+		t.Errorf("expected UpdateStatus(completed), got %+v", repo.updateCalls)
+	}
+}
+
+// credit_commission retries land on the state account with key "commission-{txnID}".
+func TestSagaRecovery_CommissionCredit_AutoRetriesWithKey(t *testing.T) {
+	const orderID, txnID uint64 = 301, 401
+	step := settleStep(2, orderID, txnID, decimal.NewFromFloat(1.25), "credit_commission")
+	repo := newFakeRecoveryRepo(step)
+
+	stub := &fakeRecoveryAccountStub{}
+	client := newFakeRecoveryFillClient(stub)
+	orderRepo := &fakeRecoveryOrderRepo{orders: map[uint64]*model.Order{
+		orderID: {ID: orderID, AccountID: 99},
+	}}
+
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001")
+	if err := rec.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if len(client.creditCalls) != 1 {
+		t.Fatalf("expected 1 CreditAccount retry, got %d", len(client.creditCalls))
+	}
+	got := client.creditCalls[0]
+	if got.AccountNumber != "STATE-ACCT-001" {
+		t.Errorf("AccountNumber: got %q want STATE-ACCT-001", got.AccountNumber)
+	}
+	wantKey := "commission-401"
+	if got.IdempotencyKey != wantKey {
+		t.Errorf("IdempotencyKey: got %q want %q", got.IdempotencyKey, wantKey)
+	}
+	if len(repo.updateCalls) != 1 || repo.updateCalls[0].NewStatus != model.SagaStatusCompleted {
+		t.Errorf("expected UpdateStatus(completed), got %+v", repo.updateCalls)
+	}
+}
+
+// compensate_settle_via_credit (buy-side compensation) retries with key
+// "compensate-buy-{txnID}" on the user's main account.
+func TestSagaRecovery_CompensationCredit_AutoRetriesWithKey(t *testing.T) {
+	const orderID, txnID uint64 = 302, 402
+	step := settleStep(3, orderID, txnID, decimal.NewFromFloat(500), "compensate_settle_via_credit")
+	repo := newFakeRecoveryRepo(step)
+
+	stub := &fakeRecoveryAccountStub{
+		getAccountResp: &accountpb.AccountResponse{AccountNumber: "USER-ACCT-2"},
+	}
+	client := newFakeRecoveryFillClient(stub)
+	orderRepo := &fakeRecoveryOrderRepo{orders: map[uint64]*model.Order{
+		orderID: {ID: orderID, AccountID: 22},
+	}}
+
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001")
+	if err := rec.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if len(client.creditCalls) != 1 {
+		t.Fatalf("expected 1 CreditAccount retry, got %d", len(client.creditCalls))
+	}
+	if got := client.creditCalls[0].IdempotencyKey; got != "compensate-buy-402" {
+		t.Errorf("IdempotencyKey: got %q want compensate-buy-402", got)
+	}
+}
+
+// compensate_credit_via_debit (sell-side compensation) retries via DebitAccount
+// with key "compensate-sell-{txnID}".
+func TestSagaRecovery_SellCompensationDebit_AutoRetriesWithKey(t *testing.T) {
+	const orderID, txnID uint64 = 303, 403
+	step := settleStep(4, orderID, txnID, decimal.NewFromFloat(25), "compensate_credit_via_debit")
+	repo := newFakeRecoveryRepo(step)
+
+	stub := &fakeRecoveryAccountStub{
+		getAccountResp: &accountpb.AccountResponse{AccountNumber: "USER-ACCT-3"},
+	}
+	client := newFakeRecoveryFillClient(stub)
+	orderRepo := &fakeRecoveryOrderRepo{orders: map[uint64]*model.Order{
+		orderID: {ID: orderID, AccountID: 33},
+	}}
+
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001")
+	if err := rec.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if len(client.debitCalls) != 1 {
+		t.Fatalf("expected 1 DebitAccount retry, got %d", len(client.debitCalls))
+	}
+	if got := client.debitCalls[0].IdempotencyKey; got != "compensate-sell-403" {
+		t.Errorf("IdempotencyKey: got %q want compensate-sell-403", got)
+	}
+	if len(client.creditCalls) != 0 {
+		t.Errorf("no CreditAccount calls expected for sell-side compensation, got %d", len(client.creditCalls))
+	}
+}
+
+// When the retry RPC errors, the reconciler increments retry_count and leaves
+// the row's status untouched — so repeated failures hit the ceiling instead of
+// silently looping forever.
+func TestSagaRecovery_CreditRetryFailure_IncrementsRetryCount(t *testing.T) {
+	const orderID, txnID uint64 = 304, 404
+	step := settleStep(5, orderID, txnID, decimal.NewFromFloat(1), "credit_proceeds")
+	repo := newFakeRecoveryRepo(step)
+
+	stub := &fakeRecoveryAccountStub{
+		getAccountResp: &accountpb.AccountResponse{AccountNumber: "USER-ACCT-4"},
+	}
+	client := newFakeRecoveryFillClient(stub)
+	client.creditErr = errors.New("boom")
+	orderRepo := &fakeRecoveryOrderRepo{orders: map[uint64]*model.Order{
+		orderID: {ID: orderID, AccountID: 44},
+	}}
+
+	rec := NewSagaRecovery(repo, client, orderRepo, "STATE-ACCT-001")
+	if err := rec.Reconcile(context.Background()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if len(repo.incrementCalls) != 1 {
+		t.Errorf("expected 1 IncrementRetryCount call, got %d", len(repo.incrementCalls))
+	}
+	if len(repo.updateCalls) != 0 {
+		t.Errorf("expected no UpdateStatus on failed retry, got %+v", repo.updateCalls)
+	}
 }

@@ -28,8 +28,12 @@ import (
 //     Phase 2 (stateAccountNo-based commission, legacy helpers, exercise-option).
 type FillAccountClient interface {
 	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error)
-	CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo string) (*accountpb.AccountResponse, error)
-	DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo string) (*accountpb.AccountResponse, error)
+	// CreditAccount and DebitAccount take an idempotencyKey (empty string
+	// opts out). Callers driven by the fill/compensation saga pass a
+	// deterministic key derived from the order-transaction ID so a retried
+	// call after a crash becomes a safe no-op at the account-service layer.
+	CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error)
+	DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error)
 	Stub() accountpb.AccountServiceClient
 }
 
@@ -277,7 +281,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 			if gerr != nil {
 				return gerr
 			}
-			_, cerr := s.fillClient.CreditAccount(ctx, acct.AccountNumber, convertedAmount, reverseMemo)
+			_, cerr := s.fillClient.CreditAccount(ctx, acct.AccountNumber, convertedAmount, reverseMemo, recoveryKeyFor("compensate_settle_via_credit", txn.ID))
 			return cerr
 		})
 		return err
@@ -290,10 +294,11 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
 				// Route commission through the fill-saga AccountClient wrapper so
 				// it shares the Phase-2 credit path (memo-aware, positive-only).
-				// No ledger-entry audit is available at this layer — commission
-				// reconciliation is future work.
+				// The deterministic idempotency key makes the saga recovery
+				// retry path safe: if the credit already committed on a prior
+				// attempt, a replay is a no-op on account-service.
 				memo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
-				_, ferr := s.fillClient.CreditAccount(ctx, s.stateAccountNo, commissionAmount, memo)
+				_, ferr := s.fillClient.CreditAccount(ctx, s.stateAccountNo, commissionAmount, memo, recoveryKeyFor("credit_commission", txn.ID))
 				return ferr
 			}); cerr != nil {
 			log.Printf("WARN: commission credit failed for order %d fill %d: %v (recovery will retry)",
@@ -548,7 +553,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 	creditMemo := fmt.Sprintf("Sell fill for order #%d (txn #%d)", order.ID, txn.ID)
 	if err := exec.RunStep(ctx, "credit_proceeds", convertedAmount, accountCurrency,
 		map[string]any{"account_id": order.AccountID, "txn_id": txn.ID}, func() error {
-			_, cerr := s.fillClient.CreditAccount(ctx, accountNumber, convertedAmount, creditMemo)
+			_, cerr := s.fillClient.CreditAccount(ctx, accountNumber, convertedAmount, creditMemo, recoveryKeyFor("credit_proceeds", txn.ID))
 			return cerr
 		}); err != nil {
 		return err
@@ -577,7 +582,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 		}
 		_ = exec.RunCompensation(ctx, forwardID, "compensate_credit_via_debit", func() error {
 			reverseMemo := fmt.Sprintf("Compensating sell order #%d fill #%d", order.ID, txn.ID)
-			_, derr := s.fillClient.DebitAccount(ctx, accountNumber, convertedAmount, reverseMemo)
+			_, derr := s.fillClient.DebitAccount(ctx, accountNumber, convertedAmount, reverseMemo, recoveryKeyFor("compensate_credit_via_debit", txn.ID))
 			return derr
 		})
 		return err
@@ -589,7 +594,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, accountCurrency,
 			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
 				commissionMemo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
-				_, ferr := s.fillClient.CreditAccount(ctx, s.stateAccountNo, commissionAmount, commissionMemo)
+				_, ferr := s.fillClient.CreditAccount(ctx, s.stateAccountNo, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
 				return ferr
 			}); cerr != nil {
 			log.Printf("WARN: commission credit failed for sell order %d fill %d: %v (recovery will retry)",

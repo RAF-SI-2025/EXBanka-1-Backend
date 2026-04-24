@@ -89,17 +89,19 @@ func (c *AccountClient) GetReservation(ctx context.Context, orderID uint64) (*pb
 // amount to be non-negative so callers can't accidentally debit via a
 // negative value — debits must go through PartialSettleReservation.
 //
-// Note: account-service's UpdateBalanceRequest doesn't carry a memo field;
-// the memo parameter is accepted here so call sites can document intent at
-// the wrapper layer even though it's not persisted in a ledger entry.
-// When memo-backed audit trails are required, callers should go through
-// PartialSettleReservation (which does write to ledger_entries) instead.
-func (c *AccountClient) CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, _ string) (*pb.AccountResponse, error) {
+// `memo` is persisted to ledger_entries.description when either memo or
+// idempotencyKey is non-empty, giving saga-driven credits a visible audit
+// trail. `idempotencyKey`, when non-empty, guarantees at-most-once semantics
+// via the partial unique index on ledger_entries — used by SagaRecovery to
+// re-issue a stuck credit step without double-applying it.
+func (c *AccountClient) CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*pb.AccountResponse, error) {
 	credit := amount.Abs()
 	return c.stub.UpdateBalance(ctx, &pb.UpdateBalanceRequest{
 		AccountNumber:   accountNumber,
 		Amount:          credit.StringFixed(4),
 		UpdateAvailable: true,
+		Memo:            memo,
+		IdempotencyKey:  idempotencyKey,
 	})
 }
 
@@ -115,10 +117,10 @@ func (c *AccountClient) CreditAccount(ctx context.Context, accountNumber string,
 // ledger-backed audit entry); this wrapper is deliberately narrow to the
 // compensation path, where no reservation exists at the moment of reversal.
 //
-// Note: account-service's UpdateBalanceRequest doesn't carry a memo field;
-// the memo parameter is accepted here so call sites can document intent at
-// the wrapper layer even though it's not persisted in a ledger entry.
-func (c *AccountClient) DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, _ string) (*pb.AccountResponse, error) {
+// `memo` is persisted to ledger_entries.description when either memo or
+// idempotencyKey is non-empty. `idempotencyKey`, when non-empty, makes the
+// call retry-safe (partial unique index on ledger_entries).
+func (c *AccountClient) DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*pb.AccountResponse, error) {
 	if amount.Sign() <= 0 {
 		return nil, errors.New("amount must be > 0")
 	}
@@ -127,5 +129,7 @@ func (c *AccountClient) DebitAccount(ctx context.Context, accountNumber string, 
 		AccountNumber:   accountNumber,
 		Amount:          debit.StringFixed(4),
 		UpdateAvailable: true,
+		Memo:            memo,
+		IdempotencyKey:  idempotencyKey,
 	})
 }

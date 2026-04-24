@@ -157,7 +157,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	baseMemo := fmt.Sprintf("Forex buy order #%d fill #%d — credit base", order.ID, txn.ID)
 	if err := exec.RunStep(ctx, "credit_base", baseAmount, baseAcct.CurrencyCode,
 		map[string]any{"base_account_id": *order.BaseAccountID}, func() error {
-			_, cerr := s.accountClient.CreditAccount(ctx, baseAcct.AccountNumber, baseAmount, baseMemo)
+			_, cerr := s.accountClient.CreditAccount(ctx, baseAcct.AccountNumber, baseAmount, baseMemo, recoveryKeyFor("credit_base", txn.ID))
 			return cerr
 		}); err != nil {
 		// Compensate: reverse-credit the quote account for the settled amount.
@@ -175,7 +175,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 					return aerr
 				}
 				commissionMemo := fmt.Sprintf("Commission for forex order #%d fill #%d", order.ID, txn.ID)
-				_, ferr := s.accountClient.CreditAccount(ctx, bankAcctNo, commissionAmount, commissionMemo)
+				_, ferr := s.accountClient.CreditAccount(ctx, bankAcctNo, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
 				return ferr
 			}); cerr != nil {
 			log.Printf("WARN: forex commission credit failed for order %d fill %d: %v (recovery will retry)",
@@ -206,7 +206,7 @@ func (s *ForexFillService) compensateQuote(
 			return gerr
 		}
 		reverseMemo := fmt.Sprintf("Compensating forex order #%d fill #%d — refund quote", order.ID, txn.ID)
-		_, cerr := s.accountClient.CreditAccount(ctx, quoteAcct.AccountNumber, quoteAmount, reverseMemo)
+		_, cerr := s.accountClient.CreditAccount(ctx, quoteAcct.AccountNumber, quoteAmount, reverseMemo, recoveryKeyFor("compensate_quote_settle", txn.ID))
 		return cerr
 	})
 }

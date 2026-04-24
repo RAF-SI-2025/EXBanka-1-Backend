@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -9,6 +11,33 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	"github.com/exbanka/stock-service/internal/model"
 )
+
+// recoveryKeyFor returns the deterministic idempotency key for a saga step
+// driven credit/debit. Shared by the forward-path call sites (portfolio_service
+// and forex_fill_service) and by SagaRecovery, so the recovery retry key
+// matches the original call's key and account-service dedups the RPC at the
+// ledger layer.
+//
+// Every key uses the order_transaction_id — globally unique per fill in
+// stock-service — plus a step-unique prefix so two different saga steps for
+// the same fill can never collide.
+func recoveryKeyFor(stepName string, txnID uint64) string {
+	switch stepName {
+	case "credit_proceeds":
+		return fmt.Sprintf("sell-credit-%d", txnID)
+	case "credit_base":
+		return fmt.Sprintf("forex-base-credit-%d", txnID)
+	case "credit_commission":
+		return fmt.Sprintf("commission-%d", txnID)
+	case "compensate_settle_via_credit":
+		return fmt.Sprintf("compensate-buy-%d", txnID)
+	case "compensate_credit_via_debit":
+		return fmt.Sprintf("compensate-sell-%d", txnID)
+	case "compensate_quote_settle":
+		return fmt.Sprintf("compensate-forex-%d", txnID)
+	}
+	return ""
+}
 
 // maxSagaRecoveryRetries is the per-step retry ceiling. Beyond this the
 // reconciler leaves the row untouched with a loud ERROR log so operations
@@ -30,9 +59,10 @@ const maxSagaRecoveryRetries = 5
 //     order-transaction IDs at the storage layer. We treat them as
 //     safe-to-auto-complete because double application is a no-op; full
 //     verification would require extra query plumbing not yet wired.
-//   - credit_* / compensate_*: NOT auto-retried. UpdateBalance lacks memo-based
-//     dedup, so a blind retry could double-credit / double-debit. Logged for
-//     human review.
+//   - credit_* / compensate_*: auto-retried with the same deterministic
+//     idempotency_key the forward-path step used (see recoveryKeyFor). The
+//     partial unique index on ledger_entries.idempotency_key makes a second
+//     apply a safe no-op, so the reconciler can safely re-issue the RPC.
 //   - Placement-saga steps (validate_listing, reserve_funds, etc.): NOT
 //     auto-retried. These are much more disruptive to the user when replayed
 //     and must be reviewed before any action.
@@ -40,8 +70,10 @@ const maxSagaRecoveryRetries = 5
 // Started once at service boot via Run; runs periodically thereafter until
 // the provided context is cancelled.
 type SagaRecovery struct {
-	sagaRepo      SagaRecoveryLogRepo
-	accountClient FillAccountClient
+	sagaRepo       SagaRecoveryLogRepo
+	accountClient  FillAccountClient
+	orderRepo      RecoveryOrderRepo
+	stateAccountNo string
 }
 
 // SagaRecoveryLogRepo is the minimum interface the reconciler needs.
@@ -52,18 +84,31 @@ type SagaRecoveryLogRepo interface {
 	IncrementRetryCount(id uint64) error
 }
 
-// NewSagaRecovery builds a reconciler. Only the saga repository and the
-// account client are truly required today — the settle-reservation path is
-// the only one that reads external state to decide "already done?" vs.
-// "retry it". Holding-side verification (update_holding / decrement_holding)
-// is deliberately simplified to "mark completed" per Task 17's scope.
+// RecoveryOrderRepo is the narrow slice of OrderRepo the reconciler needs to
+// look up the user's account (and, for forex, the base account) when
+// retrying a credit/debit step. Expressed as a dedicated interface so tests
+// can stub it without standing up a full OrderRepository.
+type RecoveryOrderRepo interface {
+	GetByID(id uint64) (*model.Order, error)
+}
+
+// NewSagaRecovery builds a reconciler. orderRepo may be nil — in that case
+// credit/debit auto-retry is disabled and those steps fall back to the
+// logged-for-review behaviour. In production main.go always wires it so
+// the retry path is active. stateAccountNo is the bank's commission account
+// number; empty falls back to the order.AccountID for commission retries
+// (primarily a test-wiring convenience).
 func NewSagaRecovery(
 	sagaRepo SagaRecoveryLogRepo,
 	accountClient FillAccountClient,
+	orderRepo RecoveryOrderRepo,
+	stateAccountNo string,
 ) *SagaRecovery {
 	return &SagaRecovery{
-		sagaRepo:      sagaRepo,
-		accountClient: accountClient,
+		sagaRepo:       sagaRepo,
+		accountClient:  accountClient,
+		orderRepo:      orderRepo,
+		stateAccountNo: stateAccountNo,
 	}
 }
 
@@ -120,12 +165,12 @@ func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) er
 
 	case "credit_proceeds", "credit_base", "credit_commission",
 		"compensate_settle_via_credit", "compensate_credit_via_debit", "compensate_quote_settle":
-		// UpdateBalance on account-service has no memo-based dedup, so
-		// retrying a credit/debit could double-apply it. Leave the row as-is
-		// and surface it loudly for operations to resolve manually.
-		log.Printf("WARN: stuck credit/debit saga step %d (order=%d, step=%s) — not auto-retrying to avoid double-ledger; needs review",
-			step.ID, step.OrderID, step.StepName)
-		return nil
+		// Auto-retry with the deterministic idempotency_key the forward-path
+		// used. account-service's partial unique index on
+		// ledger_entries.idempotency_key makes a second apply a safe no-op,
+		// so a stuck credit/debit step can be driven to completion without
+		// risking a double-ledger.
+		return r.reconcileCreditDebit(ctx, step)
 
 	case "record_transaction", "convert_amount", "persist_order_pending",
 		"approve_order", "validate_listing", "compute_reservation_amount",
@@ -207,6 +252,92 @@ func (r *SagaRecovery) reconcileSettle(ctx context.Context, step model.SagaLog) 
 		return err
 	}
 	return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted, "recovered by retry")
+}
+
+// reconcileCreditDebit retries a stuck credit_*/compensate_* step using the
+// deterministic idempotency_key shared with the forward-path caller. The key
+// scheme (see recoveryKeyFor) guarantees that a retry lands on the same
+// ledger entry row as the original call if the original commit succeeded —
+// account-service short-circuits and returns success without mutating.
+//
+// Missing plumbing (nil orderRepo, nil step.OrderTransactionID, zero
+// step.Amount) degrades to the old "log and leave alone" behaviour so the
+// recovery path can't destabilise a service that's wired incompletely.
+func (r *SagaRecovery) reconcileCreditDebit(ctx context.Context, step model.SagaLog) error {
+	if r.orderRepo == nil || step.OrderTransactionID == nil || step.Amount == nil {
+		log.Printf("WARN: stuck credit/debit saga step %d (order=%d, step=%s) — missing recovery plumbing, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+	txnID := *step.OrderTransactionID
+	amount := *step.Amount
+	key := recoveryKeyFor(step.StepName, txnID)
+	if key == "" {
+		log.Printf("WARN: stuck credit/debit saga step %d (order=%d, step=%s) — no recovery key mapping, needs review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+	}
+
+	order, err := r.orderRepo.GetByID(step.OrderID)
+	if err != nil {
+		return fmt.Errorf("recovery: order lookup: %w", err)
+	}
+
+	// Resolve the target account number for this step. Commission credits
+	// go to the state (bank) account; base credits go to the user's base
+	// account; everything else goes to the user's main (quote) account.
+	var accountNumber string
+	switch step.StepName {
+	case "credit_commission":
+		accountNumber = r.stateAccountNo
+		if accountNumber == "" {
+			// No state account wired (test path). Fall back to the order's
+			// main account so the retry still exercises a valid path.
+			accountNumber, err = r.lookupAccountNumber(ctx, order.AccountID)
+			if err != nil {
+				return err
+			}
+		}
+	case "credit_base":
+		if order.BaseAccountID == nil {
+			return errors.New("recovery: forex credit_base step without base_account_id")
+		}
+		accountNumber, err = r.lookupAccountNumber(ctx, *order.BaseAccountID)
+		if err != nil {
+			return err
+		}
+	default:
+		accountNumber, err = r.lookupAccountNumber(ctx, order.AccountID)
+		if err != nil {
+			return err
+		}
+	}
+
+	memo := fmt.Sprintf("Recovery of %s for order #%d txn #%d", step.StepName, order.ID, txnID)
+	switch step.StepName {
+	case "compensate_credit_via_debit":
+		// The sell-side compensation is a debit (reverses the earlier credit_proceeds).
+		if _, derr := r.accountClient.DebitAccount(ctx, accountNumber, amount, memo, key); derr != nil {
+			return derr
+		}
+	default:
+		// All other retryable steps are credits.
+		if _, cerr := r.accountClient.CreditAccount(ctx, accountNumber, amount, memo, key); cerr != nil {
+			return cerr
+		}
+	}
+	return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted, "recovered by retry (idempotency_key)")
+}
+
+// lookupAccountNumber resolves an account ID to its account number via
+// account-service. Returns a descriptive error on lookup failure so the
+// reconciler can log and back off.
+func (r *SagaRecovery) lookupAccountNumber(ctx context.Context, accountID uint64) (string, error) {
+	resp, err := r.accountClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: accountID})
+	if err != nil {
+		return "", fmt.Errorf("recovery: get account %d: %w", accountID, err)
+	}
+	return resp.GetAccountNumber(), nil
 }
 
 // Run spawns a goroutine that calls Reconcile once immediately and then

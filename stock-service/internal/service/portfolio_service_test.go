@@ -2092,9 +2092,10 @@ type partialSettleCall struct {
 }
 
 type creditAccountCall struct {
-	AccountNumber string
-	Amount        decimal.Decimal
-	Memo          string
+	AccountNumber  string
+	Amount         decimal.Decimal
+	Memo           string
+	IdempotencyKey string
 }
 
 func newMockFillAccountClient(stub *mockAccountClient) *mockFillAccountClient {
@@ -2111,7 +2112,7 @@ func (m *mockFillAccountClient) PartialSettleReservation(_ context.Context, orde
 	return &accountpb.PartialSettleReservationResponse{}, nil
 }
 
-func (m *mockFillAccountClient) CreditAccount(_ context.Context, accountNumber string, amount decimal.Decimal, memo string) (*accountpb.AccountResponse, error) {
+func (m *mockFillAccountClient) CreditAccount(_ context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
 	// Route commission credits (to state account) into commissionCalls so
 	// tests can distinguish compensation credits from commission credits.
 	if stateNo, ok := m.routedState(); ok && accountNumber == stateNo {
@@ -2119,7 +2120,7 @@ func (m *mockFillAccountClient) CreditAccount(_ context.Context, accountNumber s
 			return nil, m.commissionErr
 		}
 		m.commissionCalls = append(m.commissionCalls, creditAccountCall{
-			AccountNumber: accountNumber, Amount: amount, Memo: memo,
+			AccountNumber: accountNumber, Amount: amount, Memo: memo, IdempotencyKey: idempotencyKey,
 		})
 		return &accountpb.AccountResponse{}, nil
 	}
@@ -2127,17 +2128,17 @@ func (m *mockFillAccountClient) CreditAccount(_ context.Context, accountNumber s
 		return nil, m.creditErr
 	}
 	m.creditAccountCalls = append(m.creditAccountCalls, creditAccountCall{
-		AccountNumber: accountNumber, Amount: amount, Memo: memo,
+		AccountNumber: accountNumber, Amount: amount, Memo: memo, IdempotencyKey: idempotencyKey,
 	})
 	return &accountpb.AccountResponse{}, nil
 }
 
-func (m *mockFillAccountClient) DebitAccount(_ context.Context, accountNumber string, amount decimal.Decimal, memo string) (*accountpb.AccountResponse, error) {
+func (m *mockFillAccountClient) DebitAccount(_ context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
 	if m.debitErr != nil {
 		return nil, m.debitErr
 	}
 	m.debitAccountCalls = append(m.debitAccountCalls, creditAccountCall{
-		AccountNumber: accountNumber, Amount: amount, Memo: memo,
+		AccountNumber: accountNumber, Amount: amount, Memo: memo, IdempotencyKey: idempotencyKey,
 	})
 	return &accountpb.AccountResponse{}, nil
 }
@@ -2166,9 +2167,9 @@ func (m *mockFillAccountClient) Stub() accountpb.AccountServiceClient { return m
 // capital-gain lookup (which reads the holding AveragePrice) work even
 // though we're not spinning up a real reservation ledger in unit tests.
 type mockHoldingReservationSvc struct {
-	calls           []partialSettleHoldingCall
+	calls            []partialSettleHoldingCall
 	partialSettleErr error
-	holdingRepo     *mockHoldingRepo
+	holdingRepo      *mockHoldingRepo
 }
 
 type partialSettleHoldingCall struct {
