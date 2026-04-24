@@ -2860,8 +2860,15 @@ type Order struct {
 	LimitValue        *string                `protobuf:"bytes,24,opt,name=limit_value,json=limitValue,proto3,oneof" json:"limit_value,omitempty"`
 	StopValue         *string                `protobuf:"bytes,25,opt,name=stop_value,json=stopValue,proto3,oneof" json:"stop_value,omitempty"`
 	ActingEmployeeId  uint64                 `protobuf:"varint,26,opt,name=acting_employee_id,json=actingEmployeeId,proto3" json:"acting_employee_id,omitempty"` // non-zero when the order was placed by an employee on behalf
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Part D: computed state field derived from (status, is_done, has_fills).
+	// Values: "pending" | "approved" | "filling" | "filled" | "cancelled" |
+	// "declined". Raw "status" is retained for backwards compatibility.
+	State string `protobuf:"bytes,27,opt,name=state,proto3" json:"state,omitempty"`
+	// filled_quantity is Quantity - RemainingPortions. Surfaced so the UI can
+	// render "3 of 10 filled" without re-calling /orders/{id}.
+	FilledQuantity int64 `protobuf:"varint,28,opt,name=filled_quantity,json=filledQuantity,proto3" json:"filled_quantity,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Order) Reset() {
@@ -3072,6 +3079,20 @@ func (x *Order) GetStopValue() string {
 func (x *Order) GetActingEmployeeId() uint64 {
 	if x != nil {
 		return x.ActingEmployeeId
+	}
+	return 0
+}
+
+func (x *Order) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *Order) GetFilledQuantity() int64 {
+	if x != nil {
+		return x.FilledQuantity
 	}
 	return 0
 }
@@ -6316,7 +6337,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x06volume\x18\x06 \x01(\x03R\x06volume\"X\n" +
 	"\x12GetCandlesResponse\x12,\n" +
 	"\acandles\x18\x01 \x03(\v2\x12.stock.CandlePointR\acandles\x12\x14\n" +
-	"\x05count\x18\x02 \x01(\x03R\x05count\"\xf8\x06\n" +
+	"\x05count\x18\x02 \x01(\x03R\x05count\"\xb7\a\n" +
 	"\x05Order\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x1d\n" +
@@ -6355,7 +6376,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	"limitValue\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"stop_value\x18\x19 \x01(\tH\x01R\tstopValue\x88\x01\x01\x12,\n" +
-	"\x12acting_employee_id\x18\x1a \x01(\x04R\x10actingEmployeeIdB\x0e\n" +
+	"\x12acting_employee_id\x18\x1a \x01(\x04R\x10actingEmployeeId\x12\x14\n" +
+	"\x05state\x18\x1b \x01(\tR\x05state\x12'\n" +
+	"\x0ffilled_quantity\x18\x1c \x01(\x03R\x0efilledQuantityB\x0e\n" +
 	"\f_limit_valueB\r\n" +
 	"\v_stop_value\"\xa6\x01\n" +
 	"\x10OrderTransaction\x12\x0e\n" +

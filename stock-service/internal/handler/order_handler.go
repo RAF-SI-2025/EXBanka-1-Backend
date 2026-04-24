@@ -191,7 +191,42 @@ func mapOrderError(err error) error {
 	}
 }
 
+// computeOrderState returns the computed "state" field from (status, is_done,
+// has_fills). Users were confused that orders stayed in status="approved"
+// after fully filling — state collapses (status, is_done, fill count) into a
+// single label.
+//
+//	pending   → status=pending
+//	declined  → status=declined
+//	cancelled → status=cancelled
+//	filled    → status=approved AND is_done
+//	filling   → status=approved AND has fills but not done
+//	approved  → status=approved AND no fills yet
+func computeOrderState(o *model.Order, hasFills bool) string {
+	switch o.Status {
+	case "pending":
+		return "pending"
+	case "declined":
+		return "declined"
+	case "cancelled":
+		return "cancelled"
+	case "approved":
+		if o.IsDone {
+			return "filled"
+		}
+		if hasFills {
+			return "filling"
+		}
+		return "approved"
+	}
+	return "unknown"
+}
+
 func toOrderProto(o *model.Order) *pb.Order {
+	// has-fills is derived from RemainingPortions < Quantity. The execution
+	// engine maintains this invariant on every partial fill.
+	hasFills := o.RemainingPortions < o.Quantity
+	filledQty := o.Quantity - o.RemainingPortions
 	order := &pb.Order{
 		Id:                o.ID,
 		UserId:            o.UserID,
@@ -206,6 +241,8 @@ func toOrderProto(o *model.Order) *pb.Order {
 		ApproximatePrice:  o.ApproximatePrice.StringFixed(4),
 		Commission:        o.Commission.StringFixed(2),
 		Status:            o.Status,
+		State:             computeOrderState(o, hasFills),
+		FilledQuantity:    filledQty,
 		ApprovedBy:        o.ApprovedBy,
 		IsDone:            o.IsDone,
 		RemainingPortions: o.RemainingPortions,
@@ -233,6 +270,10 @@ func toOrderProto(o *model.Order) *pb.Order {
 
 func toOrderDetailProto(o *model.Order, txns []model.OrderTransaction) *pb.OrderDetail {
 	orderProto := toOrderProto(o)
+	// Refine the computed "state" field with the authoritative txn count —
+	// toOrderProto has to guess from RemainingPortions; the detail endpoint
+	// knows for sure.
+	orderProto.State = computeOrderState(o, len(txns) > 0)
 	txnProtos := make([]*pb.OrderTransaction, len(txns))
 	for i, t := range txns {
 		txnProtos[i] = &pb.OrderTransaction{

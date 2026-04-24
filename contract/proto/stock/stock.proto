@@ -383,6 +383,13 @@ message Order {
   optional string limit_value = 24;
   optional string stop_value = 25;
   uint64 acting_employee_id = 26;  // non-zero when the order was placed by an employee on behalf
+  // Part D: computed state field derived from (status, is_done, has_fills).
+  // Values: "pending" | "approved" | "filling" | "filled" | "cancelled" |
+  // "declined". Raw "status" is retained for backwards compatibility.
+  string state = 27;
+  // filled_quantity is Quantity - RemainingPortions. Surfaced so the UI can
+  // render "3 of 10 filled" without re-calling /orders/{id}.
+  int64 filled_quantity = 28;
 }
 
 message OrderTransaction {
