@@ -23,6 +23,9 @@ type Holding struct {
 	Quantity       int64           `gorm:"not null" json:"quantity"`
 	AveragePrice   decimal.Decimal `gorm:"type:numeric(18,4);not null" json:"average_price"`
 	PublicQuantity int64           `gorm:"not null;default:0" json:"public_quantity"` // OTC: shares available for purchase
+	// ReservedQuantity is the running total of units locked by active sell-side
+	// HoldingReservations. AvailableQuantity = Quantity - ReservedQuantity.
+	ReservedQuantity int64 `gorm:"not null;default:0" json:"reserved_quantity"`
 	AccountID      uint64          `gorm:"not null" json:"account_id"`
 	Version        int64           `gorm:"not null;default:1" json:"-"`
 	CreatedAt      time.Time       `json:"created_at"`

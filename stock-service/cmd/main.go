@@ -58,6 +58,8 @@ func main() {
 		&model.Order{},
 		&model.OrderTransaction{},
 		&model.Holding{},
+		&model.HoldingReservation{},
+		&model.HoldingReservationSettlement{},
 		&model.CapitalGain{},
 		&model.TaxCollection{},
 		&model.SagaLog{},

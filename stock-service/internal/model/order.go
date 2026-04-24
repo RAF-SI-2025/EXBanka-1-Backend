@@ -35,7 +35,22 @@ type Order struct {
 	Margin            bool             `gorm:"not null;default:false" json:"margin"`
 	AccountID         uint64           `gorm:"not null" json:"account_id"`
 	ActingEmployeeID  uint64           `gorm:"default:0" json:"acting_employee_id"`
-	Version           int64            `gorm:"not null;default:1" json:"-"`
+	// Reservation metadata populated on placement; read on cancellation and
+	// recovery. Nullable because historical orders pre-date Phase 2.
+	ReservationAmount    *decimal.Decimal `gorm:"type:numeric(18,4)" json:"reservation_amount,omitempty"`
+	ReservationCurrency  string           `gorm:"size:3" json:"reservation_currency,omitempty"`
+	ReservationAccountID *uint64          `json:"reservation_account_id,omitempty"`
+	// BaseAccountID is used by forex orders only: the user's base-currency
+	// account that will be credited on fill. Must be distinct from AccountID
+	// (the quote-currency account where funds are reserved).
+	BaseAccountID *uint64 `json:"base_account_id,omitempty"`
+	// PlacementRate is the audit snapshot of the FX rate at placement time
+	// (for cross-currency securities orders). Nullable for same-currency
+	// orders.
+	PlacementRate *decimal.Decimal `gorm:"type:numeric(18,8)" json:"placement_rate,omitempty"`
+	// SagaID links this order to its placement-saga rows in saga_logs.
+	SagaID           string `gorm:"size:36;index" json:"saga_id,omitempty"`
+	Version          int64  `gorm:"not null;default:1" json:"-"`
 	LastModification  time.Time        `json:"last_modification"`
 	CreatedAt         time.Time        `json:"created_at"`
 	UpdatedAt         time.Time        `json:"updated_at"`
