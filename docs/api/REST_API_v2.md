@@ -852,6 +852,39 @@ Create a securities order for the authenticated user.
 
 **201 response:** order object.
 
+**Order object fields (also returned by GET /api/v2/me/orders and GET /api/v2/me/orders/{id}):**
+
+| Field               | Type    | Notes                                                                                     |
+|---------------------|---------|-------------------------------------------------------------------------------------------|
+| id                  | uint64  |                                                                                           |
+| user_id             | uint64  |                                                                                           |
+| listing_id          | uint64  |                                                                                           |
+| holding_id          | uint64  | 0 when not applicable (post-rollup)                                                       |
+| security_type       | string  | `stock` \| `futures` \| `forex` \| `option`                                                |
+| ticker              | string  |                                                                                           |
+| direction           | string  | `buy` \| `sell`                                                                            |
+| order_type          | string  | `market` \| `limit` \| `stop` \| `stop_limit`                                              |
+| quantity            | int64   | total quantity requested                                                                  |
+| filled_quantity     | int64   | `quantity - remaining_portions` — how much of the order has executed                      |
+| contract_size       | int64   |                                                                                           |
+| price_per_unit      | string  | decimal                                                                                   |
+| approximate_price   | string  |                                                                                           |
+| commission          | string  |                                                                                           |
+| status              | string  | raw status kept for backwards compatibility                                                |
+| state               | string  | derived: `pending` \| `approved` \| `filling` \| `filled` \| `cancelled` \| `declined`     |
+| approved_by         | string  |                                                                                           |
+| is_done             | bool    |                                                                                           |
+| remaining_portions  | int64   |                                                                                           |
+| after_hours         | bool    |                                                                                           |
+| all_or_none         | bool    |                                                                                           |
+| margin              | bool    |                                                                                           |
+| account_id          | uint64  |                                                                                           |
+| acting_employee_id  | uint64  | non-zero when an employee placed the order on behalf                                       |
+| limit_value         | string  | present for `limit` / `stop_limit`                                                         |
+| stop_value          | string  | present for `stop` / `stop_limit`                                                          |
+| last_modification   | string  | RFC3339                                                                                   |
+| created_at          | string  | RFC3339                                                                                   |
+
 **Error responses:** 400, 401, 403, 404, 409 business_rule_violation (insufficient available balance), 500.
 
 ### GET /api/v2/me/orders
@@ -884,13 +917,59 @@ Cancel an open order belonging to the caller.
 
 ### GET /api/v2/me/portfolio
 
-List the caller's holdings (stock/futures/options).
+List the caller's holdings (stock/futures/options). Holdings are rolled up per `(user_id, system_type, security_type, security_id)` — buying the same security from two different accounts produces one holding row, not two.
 
 **Auth:** JWT
 
 **Query:** `page` (default 1), `page_size` (default 10), `security_type` (optional; one of `stock, futures, option`).
 
 **200 response:** `{"holdings": [...], "total_count": N}`.
+
+**Holding object fields (trimmed quantity-only view; use the per-holding transactions endpoint for price/FX/commission history):**
+
+| Field            | Type   | Notes                                                            |
+|------------------|--------|------------------------------------------------------------------|
+| id               | uint64 | holding ID                                                       |
+| security_type    | string | `stock` \| `futures` \| `option`                                   |
+| ticker           | string |                                                                  |
+| name             | string |                                                                  |
+| quantity         | int64  | total units held (aggregated across accounts)                    |
+| public_quantity  | int64  | portion exposed as OTC-offerable via `/me/portfolio/{id}/make-public` |
+| account_id       | uint64 | most recent account used to acquire/settle this security          |
+| last_modified    | string | RFC3339                                                          |
+
+### GET /api/v2/me/holdings/{id}/transactions
+
+List the executed order-transactions that contributed to a holding. Replaces the per-purchase detail that was removed from `/me/portfolio` during the aggregation rollup: use this to answer "when did each buy/sell happen, at what price, in what currency, through which account."
+
+**Auth:** JWT (ownership enforced)
+
+**Path params:** `id` — holding ID
+
+**Query:** `direction` (optional; one of `buy, sell`), `page` (default 1), `page_size` (default 10).
+
+**200 response:** `{"transactions": [...], "total_count": N}`.
+
+**Transaction object fields:**
+
+| Field            | Type   | Notes                                                        |
+|------------------|--------|--------------------------------------------------------------|
+| id               | uint64 | order_transactions.id                                        |
+| order_id         | uint64 |                                                              |
+| executed_at      | string | RFC3339                                                      |
+| direction        | string | `buy` \| `sell`                                                |
+| quantity         | int64  |                                                              |
+| price_per_unit   | string | decimal, in native listing currency                          |
+| native_amount    | string | quantity × price_per_unit in native currency                  |
+| native_currency  | string | listing currency (one of the 8 supported: RSD/EUR/CHF/USD/GBP/JPY/CAD/AUD) |
+| converted_amount | string | amount debited/credited in `account_currency`                 |
+| account_currency | string | currency of the settlement account                            |
+| fx_rate          | string | exchange rate applied; equals `1` when native == account       |
+| commission       | string | in account currency                                          |
+| account_id       | uint64 | the specific account this transaction hit                     |
+| ticker           | string |                                                              |
+
+**Error responses:** 400 (invalid `direction`), 401, 404 (holding not found or not owned by caller).
 
 ### GET /api/v2/me/portfolio/summary
 
@@ -1058,7 +1137,24 @@ Get one stock exchange.
 
 ## 5. Securities (market data)
 
-Browsable by any authenticated user (`AnyAuthMiddleware`).
+Browsable by any authenticated user (`AnyAuthMiddleware`). Every security item (`stocks[]`, `futures[]`, `forex_pairs[]`, `options[]`) carries the same embedded `listing` object so clients can read price data uniformly.
+
+**Embedded listing object (present on every security response):**
+
+| Field                | Type   | Notes                                                                                   |
+|----------------------|--------|-----------------------------------------------------------------------------------------|
+| id                   | uint64 | listing ID                                                                              |
+| exchange_id          | uint64 |                                                                                         |
+| exchange_acronym     | string |                                                                                         |
+| currency             | string | listing currency, one of `RSD, EUR, CHF, USD, GBP, JPY, CAD, AUD`. Tells the client whether `price: 155.0000` is in USD, EUR, etc. |
+| price                | string | decimal                                                                                 |
+| high                 | string | decimal                                                                                 |
+| low                  | string | decimal                                                                                 |
+| change               | string | decimal                                                                                 |
+| change_percent       | string | decimal                                                                                 |
+| volume               | int64  |                                                                                         |
+| initial_margin_cost  | string | decimal; total margin a buy order would reserve per unit                                |
+| last_refresh         | string | RFC3339                                                                                 |
 
 ### GET /api/v2/securities/stocks
 
@@ -1068,13 +1164,13 @@ List stocks.
 
 **Query:** `page`, `page_size`, `search`, `exchange_acronym`, `min_price`, `max_price`, `min_volume`, `max_volume`, `sort_by` (one of `price, volume, change, margin`), `sort_order` (`asc|desc`, default `asc`).
 
-**200 response:** `{"stocks": [...], "total_count": N}`.
+**200 response:** `{"stocks": [...], "total_count": N}`. Each stock: `{id, ticker, name, sector, industry, listing: {…see embedded listing object above…}}`.
 
 ### GET /api/v2/securities/stocks/{id}
 
 Get one stock listing.
 
-**200 response:** stock listing object.
+**200 response:** same stock item shape as the list endpoint, including the embedded `listing` (with `currency`).
 
 **Error responses:** 400, 401, 404.
 
@@ -2803,3 +2899,16 @@ Passwords for both employees and clients must satisfy:
 11. **Mobile auth flow:** `POST /api/v2/mobile/auth/request-activation` → `POST /api/v2/mobile/auth/activate` → receive `device_id, device_secret`. Mobile JWTs include `system_type: "mobile"` and require `X-Device-ID` on all authenticated requests.
 12. **Verification flow:** payments and transfers require two-factor verification. Create the transaction → create a verification challenge (or rely on the auto-generated code from the transaction) → wait for mobile approval or submit code → execute. Users with `verification.skip` permission bypass this flow.
 13. **v2 options routes:** prefer `/api/v2/options/:option_id/orders` and `/api/v2/options/:option_id/exercise` over the legacy listing-id / holding-id routes; the v2 URLs match how UIs naturally browse the options chain.
+14. **Listing currency:** every `listing` object on stocks/futures/forex/options carries a `currency` field (one of `RSD, EUR, CHF, USD, GBP, JPY, CAD, AUD`). Use it to format price/volume for display and to know which currency the order will convert from.
+15. **Holdings are aggregated:** `/api/v2/me/portfolio` rolls up per `(user, security)` — you won't see separate rows for the same stock bought via two different accounts. For per-purchase history (when each lot was bought, at what price, in what currency, from which account), use `GET /api/v2/me/holdings/{id}/transactions`.
+16. **Order state field:** every order response now includes a derived `state` — `pending | approved | filling | filled | cancelled | declined` — and `filled_quantity` so you can render "3 of 10 filled" without a second call. The raw `status` field is preserved for backwards compatibility.
+
+---
+
+## Changelog (v2 additions since last publish)
+
+- **2026-04-24** — `listing.currency` surfaced on every security response (stocks/futures/forex/options).
+- **2026-04-24** — `/me/portfolio` trimmed to quantity-only view; per-lot history moved to new endpoint `GET /me/holdings/{id}/transactions`.
+- **2026-04-24** — order response includes derived `state` + `filled_quantity` fields.
+- **2026-04-24** — bank commissions now route to the bank's RSD account (resolved dynamically); capital-gains tax continues to route to the state account.
+- **2026-04-24** — enforced supported-currency set (`RSD, EUR, CHF, USD, GBP, JPY, CAD, AUD`) on every persisted stock_exchange and forex_pair row.
