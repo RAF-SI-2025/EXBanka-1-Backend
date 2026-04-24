@@ -282,6 +282,7 @@ type stubSource struct {
 	stocksCalled    int
 	futuresCalled   int
 	forexCalled     int
+	refreshCalled   int
 	exchanges       []model.StockExchange
 	stocks          []source.StockWithListing
 	futures         []source.FuturesWithListing
@@ -308,7 +309,10 @@ func (s *stubSource) FetchForex(_ context.Context) ([]source.ForexWithListing, e
 func (s *stubSource) FetchOptions(_ context.Context, _ *model.Stock) ([]model.Option, error) {
 	return nil, nil
 }
-func (s *stubSource) RefreshPrices(_ context.Context) error { return nil }
+func (s *stubSource) RefreshPrices(_ context.Context) error {
+	s.refreshCalled++
+	return nil
+}
 
 // syncMockFuturesRepo is a minimal in-memory stub for FuturesRepo.
 type syncMockFuturesRepo struct{}
@@ -518,4 +522,83 @@ func TestSwitchSource_GeneratedSucceeds(t *testing.T) {
 	svc.switchMu.Unlock()
 	require.Error(t, err2, "concurrent switch should fail")
 	require.Contains(t, err2.Error(), "another source switch is in progress")
+}
+
+// newSyncServiceForRefreshTest wires a SecuritySyncService around a stubSource
+// with just enough repo stubs that RefreshPrices can run end-to-end without
+// hitting a real DB. Used by the dispatch tests below.
+func newSyncServiceForRefreshTest(t *testing.T, src source.Source) *SecuritySyncService {
+	t.Helper()
+	stockRepo := &syncMockStockRepo{}
+	futuresRepo := &syncMockFuturesRepo{}
+	forexRepo := &syncMockForexRepo{}
+	listingRepo := newSyncMockListingRepo()
+	listingSvc := NewListingService(listingRepo, nil, stockRepo, futuresRepo, forexRepo)
+	return NewSecuritySyncService(
+		stockRepo,
+		futuresRepo,
+		forexRepo,
+		newSyncMockOptionRepo(),
+		nil,
+		&syncMockSettingRepo{},
+		listingSvc,
+		nil, // redisCache
+		nil, // influxClient
+		nil, // avClient — ensures the external legacy path is effectively no-op if taken
+		nil, // finnhubClient
+		src,
+		nil, // wipe
+	)
+}
+
+// TestRefreshPrices_GeneratedSource_CallsSourceRefresh_NotExternalAPI verifies
+// that when the active source is "generated", RefreshPrices dispatches through
+// the Source abstraction and re-syncs from it — it does NOT fall back to the
+// external AlphaVantage/Finnhub path. Without this guarantee the background
+// loop overwrites drifted prices with quota-error zeros.
+func TestRefreshPrices_GeneratedSource_CallsSourceRefresh_NotExternalAPI(t *testing.T) {
+	stub := &stubSource{name: "generated"}
+	svc := newSyncServiceForRefreshTest(t, stub)
+
+	// Reset counters in case any setup work bumped them.
+	stub.refreshCalled, stub.stocksCalled, stub.futuresCalled, stub.forexCalled = 0, 0, 0, 0
+
+	svc.RefreshPrices(context.Background())
+
+	require.Equal(t, 1, stub.refreshCalled, "generated source must have RefreshPrices called exactly once")
+	require.Equal(t, 1, stub.stocksCalled, "RefreshPrices must re-fetch stocks from the source after drift")
+	require.Equal(t, 1, stub.futuresCalled, "RefreshPrices must re-fetch futures from the source after drift")
+	require.Equal(t, 1, stub.forexCalled, "RefreshPrices must re-fetch forex from the source after drift")
+}
+
+// TestRefreshPrices_SimulatorSource_CallsSourceRefresh mirrors the generated
+// check for "simulator" — same dispatch rules apply.
+func TestRefreshPrices_SimulatorSource_CallsSourceRefresh(t *testing.T) {
+	stub := &stubSource{name: "simulator"}
+	svc := newSyncServiceForRefreshTest(t, stub)
+	stub.refreshCalled, stub.stocksCalled, stub.futuresCalled, stub.forexCalled = 0, 0, 0, 0
+
+	svc.RefreshPrices(context.Background())
+
+	require.Equal(t, 1, stub.refreshCalled)
+	require.Equal(t, 1, stub.stocksCalled)
+	require.Equal(t, 1, stub.futuresCalled)
+	require.Equal(t, 1, stub.forexCalled)
+}
+
+// TestRefreshPrices_ExternalSource_SkipsSourceRefresh verifies the legacy
+// external path still bypasses Source.RefreshPrices. ExternalSource's own
+// RefreshPrices is a no-op on purpose; the direct AV / Finnhub calls handle
+// the actual refresh.
+func TestRefreshPrices_ExternalSource_SkipsSourceRefresh(t *testing.T) {
+	stub := &stubSource{name: "external"}
+	svc := newSyncServiceForRefreshTest(t, stub)
+	stub.refreshCalled, stub.stocksCalled, stub.futuresCalled, stub.forexCalled = 0, 0, 0, 0
+
+	svc.RefreshPrices(context.Background())
+
+	require.Equal(t, 0, stub.refreshCalled, "external path must not invoke Source.RefreshPrices")
+	require.Equal(t, 0, stub.stocksCalled, "external path must not re-fetch stocks via the source abstraction")
+	require.Equal(t, 0, stub.futuresCalled)
+	require.Equal(t, 0, stub.forexCalled)
 }
