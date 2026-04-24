@@ -88,12 +88,14 @@ func main() {
 	ledgerRepo := repository.NewLedgerRepository(db)
 	changelogRepo := repository.NewChangelogRepository(db)
 	bankRepo := repository.NewBankAccountRepository(db)
+	reservationRepo := repository.NewAccountReservationRepository(db)
 
 	accountService := service.NewAccountService(accountRepo, db, redisCache, changelogRepo)
 	accountService.SetBankRepo(bankRepo)
 	companyService := service.NewCompanyService(companyRepo)
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
+	reservationService := service.NewReservationService(db, accountRepo, reservationRepo, ledgerRepo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -175,7 +177,8 @@ func main() {
 	reconcileSvc := service.NewReconciliationService(db, ledgerService)
 	reconcileSvc.CheckAllBalances(ctx)
 
-	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer, clientClient)
+	reservationHandler := handler.NewReservationHandler(reservationService)
+	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, reservationHandler, producer, clientClient)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)

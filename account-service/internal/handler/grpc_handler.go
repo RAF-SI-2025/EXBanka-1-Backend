@@ -53,6 +53,7 @@ type AccountGRPCHandler struct {
 	companyService  *service.CompanyService
 	currencyService *service.CurrencyService
 	ledgerService   *service.LedgerService
+	reservation     *ReservationHandler
 	producer        *kafkaprod.Producer
 	clientClient    clientpb.ClientServiceClient
 }
@@ -62,6 +63,7 @@ func NewAccountGRPCHandler(
 	companyService *service.CompanyService,
 	currencyService *service.CurrencyService,
 	ledgerService *service.LedgerService,
+	reservation *ReservationHandler,
 	producer *kafkaprod.Producer,
 	clientClient clientpb.ClientServiceClient,
 ) *AccountGRPCHandler {
@@ -70,9 +72,30 @@ func NewAccountGRPCHandler(
 		companyService:  companyService,
 		currencyService: currencyService,
 		ledgerService:   ledgerService,
+		reservation:     reservation,
 		producer:        producer,
 		clientClient:    clientClient,
 	}
+}
+
+// ReserveFunds forwards to the reservation handler.
+func (h *AccountGRPCHandler) ReserveFunds(ctx context.Context, req *pb.ReserveFundsRequest) (*pb.ReserveFundsResponse, error) {
+	return h.reservation.ReserveFunds(ctx, req)
+}
+
+// ReleaseReservation forwards to the reservation handler.
+func (h *AccountGRPCHandler) ReleaseReservation(ctx context.Context, req *pb.ReleaseReservationRequest) (*pb.ReleaseReservationResponse, error) {
+	return h.reservation.ReleaseReservation(ctx, req)
+}
+
+// PartialSettleReservation forwards to the reservation handler.
+func (h *AccountGRPCHandler) PartialSettleReservation(ctx context.Context, req *pb.PartialSettleReservationRequest) (*pb.PartialSettleReservationResponse, error) {
+	return h.reservation.PartialSettleReservation(ctx, req)
+}
+
+// GetReservation forwards to the reservation handler.
+func (h *AccountGRPCHandler) GetReservation(ctx context.Context, req *pb.GetReservationRequest) (*pb.GetReservationResponse, error) {
+	return h.reservation.GetReservation(ctx, req)
 }
 
 func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.AccountResponse, error) {
