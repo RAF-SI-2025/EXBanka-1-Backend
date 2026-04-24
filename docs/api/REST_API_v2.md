@@ -838,7 +838,7 @@ Create a securities order for the authenticated user.
 | Field          | Type    | Required | Constraints                                                                 |
 |----------------|---------|----------|-----------------------------------------------------------------------------|
 | security_type  | string  | no       | one of `stock, futures, forex, option`; auto-derived from listing when absent |
-| listing_id     | uint64  | cond.    | required for buy orders                                                     |
+| listing_id     | uint64  | yes      | names the execution venue; required for both buy and sell (holdings key on (user, security), not listing, so the client picks the venue to sell on) |
 | direction      | string  | yes      | one of `buy, sell`                                                          |
 | order_type     | string  | yes      | one of `market, limit, stop, stop_limit`                                    |
 | quantity       | int64   | yes      | > 0                                                                         |
@@ -2570,7 +2570,7 @@ Create an order on behalf of a client.
 | client_id        | uint64  | yes      | non-zero                                                              |
 | account_id       | uint64  | cond.    | required for buy/sell (proceeds or debit account, must belong to client) |
 | security_type    | string  | no       | one of `stock, futures, forex, option`                                |
-| listing_id       | uint64  | cond.    | required for buy orders                                               |
+| listing_id       | uint64  | yes      | names the execution venue; required for both buy and sell             |
 | direction        | string  | yes      | one of `buy, sell`                                                    |
 | order_type       | string  | yes      | one of `market, limit, stop, stop_limit`                              |
 | quantity         | int64   | yes      | > 0                                                                   |

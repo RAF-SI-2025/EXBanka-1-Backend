@@ -81,8 +81,12 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "quantity must be positive")
 		return
 	}
-	if direction == "buy" && req.ListingID == 0 {
-		apiError(c, 400, ErrValidation, "listing_id is required for buy orders")
+	if req.ListingID == 0 {
+		// listing_id is required for both buy and sell: it names the venue the
+		// order will execute on. A user can sell on a different listing than
+		// where they bought (holdings are per (user, security), not per
+		// listing), so we cannot infer the venue from the holding.
+		apiError(c, 400, ErrValidation, "listing_id is required")
 		return
 	}
 	if direction == "buy" && req.AccountID == 0 {
@@ -314,19 +318,17 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "quantity must be positive")
 		return
 	}
-	if direction == "buy" {
-		if req.ListingID == 0 {
-			apiError(c, 400, ErrValidation, "listing_id is required for buy orders")
-			return
-		}
-		if req.AccountID == 0 {
-			apiError(c, 400, ErrValidation, "account_id is required for buy orders")
-			return
-		}
+	if req.ListingID == 0 {
+		// Sell requires a listing to identify the execution venue — holdings
+		// are keyed on (user, security), not listing, so a user may choose
+		// to sell on a different venue than where they bought.
+		apiError(c, 400, ErrValidation, "listing_id is required")
+		return
 	}
-	// Post-rollup (Part A): holdings aggregate per (user, security) so
-	// holding_id is no longer required for sell orders. account_id is the
-	// proceeds destination and is verified to belong to the client below.
+	if direction == "buy" && req.AccountID == 0 {
+		apiError(c, 400, ErrValidation, "account_id is required for buy orders")
+		return
+	}
 	if direction == "sell" && req.AccountID == 0 {
 		apiError(c, 400, ErrValidation, "account_id is required for sell orders (proceeds destination)")
 		return
