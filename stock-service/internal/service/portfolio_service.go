@@ -286,10 +286,16 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 	}
 
 	// --- Step 3: settle_reservation (idempotent on txn ID) ---
+	// Settle trade + commission from the reservation. The reservation was sized
+	// to cover both at placement (reserveAmount = base × (1+slippage) × (1+commission)),
+	// so there is always enough held. Without adding commission here, the bank
+	// credit below would have no user-side source and money would be minted.
+	commissionAmount := s.computeCommission(convertedAmount)
+	settleAmount := convertedAmount.Add(commissionAmount)
 	memo := fmt.Sprintf("Order #%d partial fill (txn #%d)", order.ID, txn.ID)
-	if err := exec.RunStep(ctx, "settle_reservation", convertedAmount, accountCurrency,
+	if err := exec.RunStep(ctx, "settle_reservation", settleAmount, accountCurrency,
 		map[string]any{"account_id": order.AccountID, "txn_id": txn.ID}, func() error {
-			_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, convertedAmount, memo)
+			_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, settleAmount, memo)
 			return serr
 		}); err != nil {
 		return err
@@ -311,14 +317,17 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 			if gerr != nil {
 				return gerr
 			}
-			_, cerr := s.fillClient.CreditAccount(ctx, acct.AccountNumber, convertedAmount, reverseMemo, recoveryKeyFor("compensate_settle_via_credit", txn.ID))
+			_, cerr := s.fillClient.CreditAccount(ctx, acct.AccountNumber, settleAmount, reverseMemo, recoveryKeyFor("compensate_settle_via_credit", txn.ID))
 			return cerr
 		})
 		return err
 	}
 
 	// --- Step 5: credit_commission (best-effort; do NOT fail the trade on error) ---
-	commissionAmount := s.computeCommission(convertedAmount)
+	// User has already been debited commission via the settle step above; this
+	// step completes the transfer by crediting the bank's commission account.
+	// Double-entry: user debit = convertedAmount + commission; bank credit =
+	// commission; "market" (simulated) absorbs the trade value.
 	if commissionAmount.Sign() > 0 {
 		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, accountCurrency,
 			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
@@ -595,10 +604,15 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 	}
 
 	// --- Step 3: credit_proceeds ---
-	creditMemo := fmt.Sprintf("Sell fill for order #%d (txn #%d)", order.ID, txn.ID)
-	if err := exec.RunStep(ctx, "credit_proceeds", convertedAmount, accountCurrency,
+	// Seller receives NET proceeds (gross − commission). The bank collects the
+	// commission separately below. Without subtracting commission here the
+	// bank credit would have no user-side source and funds would be minted.
+	commissionAmount := s.computeCommission(convertedAmount)
+	netProceeds := convertedAmount.Sub(commissionAmount)
+	creditMemo := fmt.Sprintf("Sell fill for order #%d (txn #%d) — net of commission", order.ID, txn.ID)
+	if err := exec.RunStep(ctx, "credit_proceeds", netProceeds, accountCurrency,
 		map[string]any{"account_id": order.AccountID, "txn_id": txn.ID}, func() error {
-			_, cerr := s.fillClient.CreditAccount(ctx, accountNumber, convertedAmount, creditMemo, recoveryKeyFor("credit_proceeds", txn.ID))
+			_, cerr := s.fillClient.CreditAccount(ctx, accountNumber, netProceeds, creditMemo, recoveryKeyFor("credit_proceeds", txn.ID))
 			return cerr
 		}); err != nil {
 		return err
@@ -627,15 +641,17 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 		}
 		_ = exec.RunCompensation(ctx, forwardID, "compensate_credit_via_debit", func() error {
 			reverseMemo := fmt.Sprintf("Compensating sell order #%d fill #%d", order.ID, txn.ID)
-			_, derr := s.fillClient.DebitAccount(ctx, accountNumber, convertedAmount, reverseMemo, recoveryKeyFor("compensate_credit_via_debit", txn.ID))
+			_, derr := s.fillClient.DebitAccount(ctx, accountNumber, netProceeds, reverseMemo, recoveryKeyFor("compensate_credit_via_debit", txn.ID))
 			return derr
 		})
 		return err
 	}
 
 	// --- Step 5: credit_commission (best-effort; do NOT fail the trade on error) ---
-	// Bank fees go to the bank's RSD account (not the state/country account).
-	commissionAmount := s.computeCommission(convertedAmount)
+	// Double-entry: seller gave up `commission` via the netted credit above;
+	// this step completes the transfer by crediting the bank's commission
+	// account. Total debit from user = commission; total credit to bank =
+	// commission. Balanced.
 	if commissionAmount.Sign() > 0 {
 		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, accountCurrency,
 			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {

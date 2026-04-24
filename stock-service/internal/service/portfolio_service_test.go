@@ -2321,13 +2321,16 @@ func TestProcessBuyFill_SameCurrency_HappyPath(t *testing.T) {
 		t.Errorf("expected no Convert calls for same-currency fill, got %d", len(mocks.exchangeClient.convertCalls))
 	}
 
-	// Partial settle should be called with the native total price.
+	// Partial settle should be called with trade + commission (300 + 0.25% = 300.75).
+	// The reservation was sized to cover both, so settlement consumes trade plus
+	// commission and the bank credit below has a user-side source.
 	if len(mocks.fillClient.partialSettleCalls) != 1 {
 		t.Fatalf("expected 1 PartialSettleReservation call, got %d", len(mocks.fillClient.partialSettleCalls))
 	}
 	ps := mocks.fillClient.partialSettleCalls[0]
-	if !ps.Amount.Equal(decimal.NewFromInt(300)) {
-		t.Errorf("settle amount: got %s want 300", ps.Amount)
+	wantSettle := decimal.RequireFromString("300.75")
+	if !ps.Amount.Equal(wantSettle) {
+		t.Errorf("settle amount: got %s want %s", ps.Amount, wantSettle)
 	}
 	if ps.OrderID != 1 || ps.OrderTransactionID != 900 {
 		t.Errorf("settle IDs: got order=%d txn=%d want 1/900", ps.OrderID, ps.OrderTransactionID)
@@ -2405,13 +2408,14 @@ func TestProcessBuyFill_CrossCurrency_ConvertsAmount(t *testing.T) {
 		t.Errorf("Convert direction: got %s→%s want USD→RSD", call.From, call.To)
 	}
 
-	// Settle amount must be the converted (RSD) value: 300 * 100 = 30000.
+	// Settle amount = converted trade (30000) + commission (0.25% = 75) = 30075.
 	if len(mocks.fillClient.partialSettleCalls) != 1 {
 		t.Fatalf("expected 1 settle call, got %d", len(mocks.fillClient.partialSettleCalls))
 	}
 	ps := mocks.fillClient.partialSettleCalls[0]
-	if !ps.Amount.Equal(decimal.NewFromInt(30_000)) {
-		t.Errorf("converted settle amount: got %s want 30000", ps.Amount)
+	wantSettle := decimal.NewFromInt(30_075)
+	if !ps.Amount.Equal(wantSettle) {
+		t.Errorf("converted settle amount: got %s want %s", ps.Amount, wantSettle)
 	}
 
 	// txn must carry the converted amount and FX rate for audit.
@@ -2460,13 +2464,15 @@ func TestProcessBuyFill_HoldingFails_RollsBackSettlement(t *testing.T) {
 		t.Fatalf("expected 1 settle call prior to holding failure, got %d", len(mocks.fillClient.partialSettleCalls))
 	}
 
-	// Compensation: reverse-credit the user's account for the converted amount.
+	// Compensation: reverse-credit the user for the settled amount
+	// (trade + commission = 300.75).
 	if len(mocks.fillClient.creditAccountCalls) != 1 {
 		t.Fatalf("expected 1 compensation credit, got %d", len(mocks.fillClient.creditAccountCalls))
 	}
 	comp := mocks.fillClient.creditAccountCalls[0]
-	if !comp.Amount.Equal(decimal.NewFromInt(300)) {
-		t.Errorf("compensation credit amount: got %s want 300", comp.Amount)
+	wantComp := decimal.RequireFromString("300.75")
+	if !comp.Amount.Equal(wantComp) {
+		t.Errorf("compensation credit amount: got %s want %s", comp.Amount, wantComp)
 	}
 	if comp.AccountNumber != "ACCT-001" {
 		t.Errorf("compensation target account: got %s want ACCT-001", comp.AccountNumber)
@@ -2603,13 +2609,15 @@ func TestProcessSellFill_SameCurrency_HappyPath(t *testing.T) {
 		t.Errorf("expected no Convert calls for same-currency fill, got %d", len(mocks.exchangeClient.convertCalls))
 	}
 
-	// credit_proceeds: the user's account must be credited with the native total price.
+	// credit_proceeds: seller receives NET of commission (300 − 0.25% = 299.25).
+	// Bank collects the 0.75 commission in the separate credit_commission step.
 	if len(mocks.fillClient.creditAccountCalls) != 1 {
 		t.Fatalf("expected 1 credit_proceeds call, got %d", len(mocks.fillClient.creditAccountCalls))
 	}
 	cr := mocks.fillClient.creditAccountCalls[0]
-	if !cr.Amount.Equal(decimal.NewFromFloat(300.00)) {
-		t.Errorf("credit_proceeds amount: got %s want 300", cr.Amount)
+	wantNet := decimal.RequireFromString("299.25")
+	if !cr.Amount.Equal(wantNet) {
+		t.Errorf("credit_proceeds amount: got %s want %s (net of 0.75 commission)", cr.Amount, wantNet)
 	}
 	if cr.AccountNumber != "ACCT-001" {
 		t.Errorf("credit target account: got %s want ACCT-001", cr.AccountNumber)
@@ -2709,13 +2717,14 @@ func TestProcessSellFill_CrossCurrency_ConvertsAmount(t *testing.T) {
 		t.Errorf("Convert direction: got %s→%s want USD→RSD", call.From, call.To)
 	}
 
-	// credit_proceeds uses the converted (RSD) value: 300 * 100 = 30000.
+	// credit_proceeds: converted (RSD) net of commission = 30000 − 75 = 29925.
 	if len(mocks.fillClient.creditAccountCalls) != 1 {
 		t.Fatalf("expected 1 credit call, got %d", len(mocks.fillClient.creditAccountCalls))
 	}
 	cr := mocks.fillClient.creditAccountCalls[0]
-	if !cr.Amount.Equal(decimal.NewFromInt(30_000)) {
-		t.Errorf("converted credit amount: got %s want 30000", cr.Amount)
+	wantNet := decimal.NewFromInt(29_925)
+	if !cr.Amount.Equal(wantNet) {
+		t.Errorf("converted credit amount: got %s want %s", cr.Amount, wantNet)
 	}
 
 	// txn must carry the converted amount and FX rate for audit.
@@ -2769,13 +2778,14 @@ func TestProcessSellFill_HoldingDecrementFails_RollsBackCredit(t *testing.T) {
 		t.Fatalf("expected 1 credit call prior to holding failure, got %d", len(mocks.fillClient.creditAccountCalls))
 	}
 
-	// Compensation: reverse-debit the user's account for the converted amount.
+	// Compensation: reverse-debit the net proceeds credited above (299.25).
 	if len(mocks.fillClient.debitAccountCalls) != 1 {
 		t.Fatalf("expected 1 compensation debit, got %d", len(mocks.fillClient.debitAccountCalls))
 	}
 	comp := mocks.fillClient.debitAccountCalls[0]
-	if !comp.Amount.Equal(decimal.NewFromFloat(300.00)) {
-		t.Errorf("compensation debit amount: got %s want 300", comp.Amount)
+	wantComp := decimal.RequireFromString("299.25")
+	if !comp.Amount.Equal(wantComp) {
+		t.Errorf("compensation debit amount: got %s want %s", comp.Amount, wantComp)
 	}
 	if comp.AccountNumber != "ACCT-001" {
 		t.Errorf("compensation target account: got %s want ACCT-001", comp.AccountNumber)
