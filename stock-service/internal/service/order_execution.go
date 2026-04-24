@@ -247,6 +247,17 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 		}
 
 		if order.IsDone {
+			// Drop any slippage/commission buffer left on the reservation now
+			// that every fill has settled. Buy-only — sells don't reserve
+			// funds. Best-effort: errors are logged, not surfaced, because
+			// the trade itself is already complete. A leftover reservation
+			// can always be cleaned up on cancel or by the ledger recovery
+			// sweep.
+			if order.Direction == "buy" {
+				if err := e.fillHandler.ReleaseResidualReservation(e.baseCtx, order.ID); err != nil {
+					log.Printf("WARN: order engine: release residual reservation for order %d failed: %v", order.ID, err)
+				}
+			}
 			return
 		}
 	}
@@ -353,6 +364,12 @@ func (e *OrderExecutionEngine) markDone(order *model.Order) {
 	order.LastModification = time.Now()
 	if err := e.orderRepo.Update(order); err != nil {
 		log.Printf("WARN: order engine: failed to mark order %d done: %v", order.ID, err)
+	}
+	// Same residual-release hook as the fill loop: see the comment there.
+	if order.Direction == "buy" {
+		if err := e.fillHandler.ReleaseResidualReservation(e.baseCtx, order.ID); err != nil {
+			log.Printf("WARN: order engine: release residual reservation for order %d failed: %v", order.ID, err)
+		}
 	}
 }
 

@@ -68,6 +68,10 @@ func (h *crossCurrencyFillHandler) ProcessSellFill(_ *model.Order, _ *model.Orde
 	return nil
 }
 
+func (h *crossCurrencyFillHandler) ReleaseResidualReservation(_ context.Context, _ uint64) error {
+	return nil
+}
+
 // failingFillHandler always returns an error, simulating a failed saga step.
 type failingFillHandler struct {
 	attempts int32
@@ -91,6 +95,10 @@ func (h *failingFillHandler) ProcessBuyFill(_ *model.Order, _ *model.OrderTransa
 func (h *failingFillHandler) ProcessSellFill(_ *model.Order, _ *model.OrderTransaction) error {
 	h.bump()
 	return errors.New("fill saga failed")
+}
+
+func (h *failingFillHandler) ReleaseResidualReservation(_ context.Context, _ uint64) error {
+	return nil
 }
 
 // TestExecuteOrder_KafkaPayload_IncludesSagaFields verifies that a successful

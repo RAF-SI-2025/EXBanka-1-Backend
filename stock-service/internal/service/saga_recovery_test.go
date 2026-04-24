@@ -139,6 +139,10 @@ func (c *fakeRecoveryFillClient) DebitAccount(_ context.Context, accountNumber s
 
 func (c *fakeRecoveryFillClient) Stub() accountpb.AccountServiceClient { return c.stub }
 
+func (c *fakeRecoveryFillClient) ReleaseReservation(_ context.Context, _ uint64) (*accountpb.ReleaseReservationResponse, error) {
+	return &accountpb.ReleaseReservationResponse{ReleasedAmount: "0", ReservedBalance: "0"}, nil
+}
+
 // fakeRecoveryAccountStub implements accountpb.AccountServiceClient with a
 // canned GetReservation response. Other methods return zero values except
 // GetAccount, which returns a canned response so the credit/debit recovery

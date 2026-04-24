@@ -171,6 +171,11 @@ type TaxCollectionRepo interface {
 type FillHandler interface {
 	ProcessBuyFill(order *model.Order, txn *model.OrderTransaction) error
 	ProcessSellFill(order *model.Order, txn *model.OrderTransaction) error
+	// ReleaseResidualReservation is called by the execution engine once a buy
+	// order has fully filled. It drops the slippage+commission buffer that
+	// was reserved at placement but not consumed by partial-settle calls.
+	// Implementations must be safe to call with nothing left to release.
+	ReleaseResidualReservation(ctx context.Context, orderID uint64) error
 }
 
 // --- Name Resolver (for user name lookup) ---

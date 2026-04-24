@@ -107,6 +107,10 @@ func (h *fakeBaseCtxFillHandler) ProcessSellFill(_ *model.Order, _ *model.OrderT
 	return nil
 }
 
+func (h *fakeBaseCtxFillHandler) ReleaseResidualReservation(_ context.Context, _ uint64) error {
+	return nil
+}
+
 type fakeBaseCtxPublisher struct{}
 
 func (fakeBaseCtxPublisher) PublishOrderFilled(_ context.Context, _ interface{}) error { return nil }

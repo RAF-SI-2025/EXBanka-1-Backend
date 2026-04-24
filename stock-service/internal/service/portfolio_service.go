@@ -35,6 +35,12 @@ type FillAccountClient interface {
 	// call after a crash becomes a safe no-op at the account-service layer.
 	CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error)
 	DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error)
+	// ReleaseReservation drops any residual held balance for a buy order once
+	// it has fully filled. Reservations include a slippage+commission buffer
+	// on top of the expected fill amount; settlement only consumes the actual
+	// fill, leaving the buffer stuck on the user's account until this is
+	// called. Safe to call when nothing is reserved.
+	ReleaseReservation(ctx context.Context, orderID uint64) (*accountpb.ReleaseReservationResponse, error)
 	Stub() accountpb.AccountServiceClient
 }
 
@@ -691,6 +697,22 @@ func (s *PortfolioService) recordCapitalGain(order *model.Order, txn *model.Orde
 		TaxMonth:           int(time.Now().Month()),
 	}
 	return s.capitalGainRepo.Create(capitalGain)
+}
+
+// ReleaseResidualReservation drops any held balance left on the reservation
+// after a buy order has fully filled. Reservation at placement includes a
+// slippage buffer (market/stop) and a commission buffer; settlement consumes
+// only the actual fill amount, leaving the buffer held. Without this call,
+// a user who buys N then sells N will still see a stuck reserved_balance.
+//
+// Idempotent by design: when nothing is reserved, account-service returns a
+// no-op response. Safe to call for legacy sagas or when fillClient is nil.
+func (s *PortfolioService) ReleaseResidualReservation(ctx context.Context, orderID uint64) error {
+	if s.fillClient == nil {
+		return nil
+	}
+	_, err := s.fillClient.ReleaseReservation(ctx, orderID)
+	return err
 }
 
 // processSellFillLegacy is the pre-Phase-2 direct-credit path retained for

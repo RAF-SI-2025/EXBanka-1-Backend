@@ -2173,6 +2173,10 @@ func (m *mockFillAccountClient) routedState() (string, bool) {
 
 func (m *mockFillAccountClient) Stub() accountpb.AccountServiceClient { return m.stub }
 
+func (m *mockFillAccountClient) ReleaseReservation(_ context.Context, _ uint64) (*accountpb.ReleaseReservationResponse, error) {
+	return &accountpb.ReleaseReservationResponse{ReleasedAmount: "0", ReservedBalance: "0"}, nil
+}
+
 // mockHoldingReservationSvc is a thin stub for FillHoldingReservationAPI.
 // It records PartialSettle calls and, on success, decrements a configured
 // holding in the provided mockHoldingRepo to mimic the reservation-service
