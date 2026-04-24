@@ -497,16 +497,17 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 			}
 			limitAmountRSD = rsdAmt
 			actuaryLimitID = info.ID
-			// An order needs supervisor approval only when the actuary has
-			// already spent their full configured limit. Orders placed while
-			// used_limit < limit auto-approve even if this one order would
-			// overflow the ceiling — we still bump used_limit, and the NEXT
-			// order will find used_limit >= limit and require approval.
+			// Pre-check overflow: an order needs supervisor approval whenever
+			// settling it would push used_limit past the configured limit.
+			// No single order can blow through the limit — agent has to stay
+			// within their remaining budget per order.
 			//
-			// Limit == 0 is treated as "not yet configured" (the default for a
-			// freshly created EmployeeAgent row) and lets orders through so a
-			// new actuary isn't blocked until a supervisor sets their limit.
-			if info.NeedApproval && info.Limit.Sign() > 0 && info.UsedLimit.Cmp(info.Limit) >= 0 {
+			// Limit == 0 is still treated as "not yet configured" (legacy
+			// ActuaryLimit rows that pre-date the role-based default in
+			// user-service's actuary_service) and lets orders through so a
+			// freshly-made agent isn't blocked.
+			if info.NeedApproval && info.Limit.Sign() > 0 &&
+				info.UsedLimit.Add(rsdAmt).GreaterThan(info.Limit) {
 				needsApproval = true
 			}
 		case errors.Is(aerr, stockgrpc.ErrActuaryNotFound):

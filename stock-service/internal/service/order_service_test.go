@@ -1378,17 +1378,17 @@ func TestCreateOrder_Employee_LimitSpent_RemainsPending(t *testing.T) {
 	}
 }
 
-// A big order that would overflow the remaining budget still auto-approves as
-// long as the actuary has not yet spent their full limit. The next order after
-// this one will find UsedLimit >= Limit and require approval.
-func TestCreateOrder_Employee_WouldOverflow_ButLimitNotSpent_AutoApproves(t *testing.T) {
+// An order whose RSD-equivalent would push used_limit past the configured
+// limit requires supervisor approval, even when the agent still has headroom
+// before the order. Pre-check overflow: no single order can blow through the
+// budget.
+func TestCreateOrder_Employee_WouldOverflow_RequiresApproval(t *testing.T) {
 	fx := newOrderServiceFixture()
 	fx.listingRepo.addListing(rsdListing(1))
 	fx.accountClient.stub.accountCcy[77] = "RSD"
 	actuary := newFakeActuaryClient()
-	// Limit 1_000, UsedLimit 0 — plenty of headroom by the old "remaining"
-	// rule would fail on a 10_025 RSD order, but the new rule auto-approves
-	// because UsedLimit < Limit.
+	// Limit 1_000, UsedLimit 0. The incoming order is 10_025 RSD (well past
+	// the limit) so pre-check triggers approval.
 	actuary.setInfo(21, 99, decimal.NewFromInt(1000), decimal.Zero, true)
 	fx.svc.WithActuaryClient(actuary)
 
@@ -1399,11 +1399,11 @@ func TestCreateOrder_Employee_WouldOverflow_ButLimitNotSpent_AutoApproves(t *tes
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if order.Status != "approved" {
-		t.Errorf("expected auto-approved (limit not yet spent), got %s", order.Status)
+	if order.Status != "pending" {
+		t.Errorf("expected pending (order would overflow limit), got %s", order.Status)
 	}
-	if len(actuary.incrementCalls) != 1 {
-		t.Errorf("expected 1 increment call, got %d", len(actuary.incrementCalls))
+	if len(actuary.incrementCalls) != 0 {
+		t.Errorf("pending order must not increment used_limit, got %d", len(actuary.incrementCalls))
 	}
 }
 

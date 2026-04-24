@@ -146,7 +146,7 @@ func (s *ActuaryService) getOrCreateActuaryLimit(employeeID int64) (*model.Actua
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			limit = &model.ActuaryLimit{
 				EmployeeID:   employeeID,
-				Limit:        decimal.NewFromInt(0),
+				Limit:        defaultActuaryLimit(emp),
 				UsedLimit:    decimal.NewFromInt(0),
 				NeedApproval: !isSupervisor(emp),
 			}
@@ -158,6 +158,34 @@ func (s *ActuaryService) getOrCreateActuaryLimit(employeeID int64) (*model.Actua
 		}
 	}
 	return limit, emp, nil
+}
+
+// defaultActuaryLimit seeds the per-role RSD trading budget when an
+// ActuaryLimit row is first auto-created. Mirrors the scale of
+// EmployeeLimit.MaxDailyTransaction so the two limit systems don't get
+// wildly out of sync. Supervisors / admins get an effectively-unlimited
+// number so the gate never triggers for them (they also have
+// NeedApproval=false so it wouldn't matter anyway, but keeping numbers
+// sensible helps reporting).
+func defaultActuaryLimit(emp *model.Employee) decimal.Decimal {
+	switch {
+	case hasRole(emp, "EmployeeAdmin"):
+		return decimal.NewFromInt(999_999_999)
+	case hasRole(emp, "EmployeeSupervisor"):
+		return decimal.NewFromInt(50_000_000)
+	case hasRole(emp, "EmployeeAgent"):
+		return decimal.NewFromInt(5_000_000)
+	}
+	return decimal.NewFromInt(0)
+}
+
+func hasRole(emp *model.Employee, name string) bool {
+	for _, r := range emp.Roles {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func isActuary(emp *model.Employee) bool {
