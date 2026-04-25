@@ -448,6 +448,22 @@ services:
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
       VERIFICATION_GRPC_ADDR: "verification-service:50061"
       METRICS_PORT: "9107"
+      OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
+      INTERBANK_PREPARE_TIMEOUT: "30s"
+      INTERBANK_COMMIT_TIMEOUT: "30s"
+      INTERBANK_RECEIVER_WAIT: "90s"
+      INTERBANK_RECONCILE_INTERVAL: "60s"
+      INTERBANK_RECONCILE_MAX_RETRIES: "10"
+      INTERBANK_RECONCILE_STALE_AFTER: "24h"
+      PEER_222_BASE_URL: "${PEER_222_BASE_URL:-}"
+      PEER_222_INBOUND_KEY: "${PEER_222_INBOUND_KEY:-}"
+      PEER_222_OUTBOUND_KEY: "${PEER_222_OUTBOUND_KEY:-}"
+      PEER_333_BASE_URL: "${PEER_333_BASE_URL:-}"
+      PEER_333_INBOUND_KEY: "${PEER_333_INBOUND_KEY:-}"
+      PEER_333_OUTBOUND_KEY: "${PEER_333_OUTBOUND_KEY:-}"
+      PEER_444_BASE_URL: "${PEER_444_BASE_URL:-}"
+      PEER_444_INBOUND_KEY: "${PEER_444_INBOUND_KEY:-}"
+      PEER_444_OUTBOUND_KEY: "${PEER_444_OUTBOUND_KEY:-}"
     ports:
       - "50057:50057"
       - "9107:9107"
@@ -582,6 +598,8 @@ services:
       INFLUX_ORG: exbanka
       INFLUX_BUCKET: stock_prices
       METRICS_PORT: "9110"
+      OTC_EXPIRY_CRON_UTC: "02:00"
+      OTC_EXPIRY_BATCH_SIZE: "500"
     ports:
       - "50060:50060"
       - "9110:9110"
@@ -623,6 +641,11 @@ services:
       NOTIFICATION_GRPC_ADDR: "notification-service:50053"
       KAFKA_BROKERS: kafka:9092
       METRICS_PORT: "9100"
+      REDIS_ADDR: "redis:6379"
+      OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
+      PEER_222_INBOUND_KEY: "${PEER_222_INBOUND_KEY:-}"
+      PEER_333_INBOUND_KEY: "${PEER_333_INBOUND_KEY:-}"
+      PEER_444_INBOUND_KEY: "${PEER_444_INBOUND_KEY:-}"
     ports:
       - "8080:8080"
       - "9100:9100"
@@ -650,6 +673,8 @@ services:
       notification-service:
         condition: service_started
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # ─── Seeder ───────────────────────────────────────────────────────────────
