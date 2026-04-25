@@ -569,6 +569,23 @@ func main() {
 	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC)
 	otcExpiry.Start(ctx)
 
+	// --- Cross-bank OTC (Spec 4 / Celina 5) ---
+	// Peers are added to crossbankPeerRouter at deployment time once the
+	// cohort wire shapes are locked. With an empty router, sagas reject
+	// with a clear "no peer client configured" error.
+	interBankSagaLogRepo := repository.NewInterBankSagaLogRepository(db)
+	crossbankExec := service.NewCrossbankSagaExecutor(interBankSagaLogRepo, producer)
+	crossbankPeerRouter := service.NewStaticCrossbankPeerRouter(map[string]*service.CrossbankPeerClient{})
+	crossbankExpire := service.NewCrossbankExpireSaga(crossbankExec, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, "111")
+	crossbankExpiryCron := service.NewCrossbankExpiryCron(optionContractRepo, crossbankExpire, "02:30", 200)
+	crossbankExpiryCron.Start(ctx)
+	crossbankCheckStatus := service.NewCrossbankCheckStatusCron(interBankSagaLogRepo, crossbankPeerRouter, producer, 30*time.Second, 30*time.Second)
+	crossbankCheckStatus.Start(ctx)
+	crossbankOrphan := service.NewCrossbankOrphanReservationCron(interBankSagaLogRepo, holdingReservationSvc, 5*time.Minute, 30*time.Minute)
+	crossbankOrphan.Start(ctx)
+	crossbankInternalHandler := handler.NewCrossbankInternalHandler(otcOfferRepo, optionContractRepo, holdingRepo, holdingReservationSvc, interBankSagaLogRepo, "111")
+	pb.RegisterCrossBankOTCServiceServer(grpcServer, crossbankInternalHandler)
+
 	// Source admin handler
 	sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 		switch name {
