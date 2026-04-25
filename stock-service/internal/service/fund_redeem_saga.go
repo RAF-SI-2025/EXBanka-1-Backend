@@ -81,7 +81,18 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	}
 	cashAvail, _ := decimal.NewFromString(fundAcct.AvailableBalance)
 	if cashAvail.LessThan(in.AmountRSD.Add(feeRSD)) {
-		return nil, ErrInsufficientFundCash
+		// Try the liquidation sub-saga: sell fund securities (FIFO) until
+		// cash covers the deficit. Returns ErrInsufficientFundCash if the
+		// fund's holdings can't free enough cash within the timeout.
+		deficit := in.AmountRSD.Add(feeRSD).Sub(cashAvail)
+		if err := s.LiquidateAndAwait(ctx, fund, deficit, "liq-redeem"); err != nil {
+			return nil, err
+		}
+		// Re-fetch cash after liquidation — saga continues against the new balance.
+		fundAcct, err = s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: fund.RSDAccountID})
+		if err != nil {
+			return nil, fmt.Errorf("get fund account post-liquidation: %w", err)
+		}
 	}
 
 	targetAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.TargetAccountID})

@@ -65,6 +65,10 @@ type FundService struct {
 
 	// position-reads deps (optional; wired via WithPositionReads).
 	listingRepo *repository.ListingRepository
+
+	// liquidation dep (optional; wired via WithLiquidation). When nil,
+	// Redeem's insufficient-cash path returns ErrInsufficientFundCash directly.
+	orderPlacer FundOrderPlacer
 }
 
 func NewFundService(repo *repository.FundRepository, bankAccountClient BankAccountClient, producer *kafkaprod.Producer) *FundService {
