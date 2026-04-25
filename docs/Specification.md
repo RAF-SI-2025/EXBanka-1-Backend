@@ -2372,7 +2372,7 @@ No new permissions. `transfers.create` (existing) gates POST `/api/v3/me/transfe
 - Kafka events are published AFTER the relevant DB transaction commits (CLAUDE.md §Concurrency requirement).
 - HMAC verification is fail-closed in production: missing or mismatched signature → 401 with no information leaked. Unknown or inactive bank also returns 401 (not 503) so peers cannot probe for activity.
 
-## 25. Intra-bank OTC Options (Celina 4 / Spec 2)
+## 26. Intra-bank OTC Options (Celina 4 / Spec 2)
 
 ### Entities (stock-service)
 
