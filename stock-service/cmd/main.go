@@ -69,6 +69,32 @@ func main() {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
 
+	// One-shot backfill for the new capital_gains.tax_collection_id column.
+	// Stamps every existing capital_gain row that already has a corresponding
+	// tax_collections row (matched on user, system_type, year, month,
+	// account_id, currency) so the next incremental CollectTax run does not
+	// re-tax already-collected gains. Without this, the deploy-day click of
+	// "Collect Tax" for the current month would re-charge users whose taxes
+	// were already collected before the column existed. Idempotent: the
+	// `WHERE cg.tax_collection_id IS NULL` clause makes this a no-op on
+	// subsequent restarts.
+	if res := db.Exec(`
+		UPDATE capital_gains AS cg
+		SET tax_collection_id = tc.id
+		FROM tax_collections AS tc
+		WHERE cg.tax_collection_id IS NULL
+		  AND cg.user_id = tc.user_id
+		  AND cg.system_type = tc.system_type
+		  AND cg.tax_year = tc.year
+		  AND cg.tax_month = tc.month
+		  AND cg.account_id = tc.account_id
+		  AND cg.currency = tc.currency
+	`); res.Error != nil {
+		log.Printf("WARN: capital_gains tax_collection_id backfill failed: %v", res.Error)
+	} else if res.RowsAffected > 0 {
+		log.Printf("backfilled tax_collection_id on %d capital_gains rows", res.RowsAffected)
+	}
+
 	// Composite unique indexes
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_security_unique ON listings(security_id, security_type)")
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_price_listing_date ON listing_daily_price_infos(listing_id, date)")
