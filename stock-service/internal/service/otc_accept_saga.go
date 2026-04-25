@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -69,11 +71,32 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	if err != nil {
 		return nil, fmt.Errorf("get seller account: %w", err)
 	}
-	if buyerAcct.CurrencyCode != sellerAcct.CurrencyCode {
-		return nil, errors.New("cross-currency OTC accept not yet supported (TODO)")
-	}
-	premiumAmt := o.Premium
+	// Premium is denominated in the seller's currency. For cross-currency
+	// accepts the buyer-side debit (reserve + settle) runs in the buyer's
+	// currency at the live exchange rate; the seller is credited in their
+	// currency. Same-currency flows skip the conversion entirely.
+	premiumSellerCcy := o.Premium
 	premiumCcy := sellerAcct.CurrencyCode
+	premiumBuyerCcy := premiumSellerCcy
+	buyerCcy := buyerAcct.CurrencyCode
+	if buyerCcy != premiumCcy {
+		if s.exchange == nil {
+			return nil, errors.New("cross-currency OTC accept requires exchange client")
+		}
+		conv, err := s.exchange.Convert(ctx, &exchangepb.ConvertRequest{
+			FromCurrency: premiumCcy,
+			ToCurrency:   buyerCcy,
+			Amount:       premiumSellerCcy.String(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("FX premium convert: %w", err)
+		}
+		converted, err := decimal.NewFromString(conv.ConvertedAmount)
+		if err != nil {
+			return nil, fmt.Errorf("FX premium convert: parse %q: %w", conv.ConvertedAmount, err)
+		}
+		premiumBuyerCcy = converted
+	}
 
 	sagaID := uuid.NewString()
 	exec := NewSagaExecutor(s.sagaRepo, sagaID, 0, nil)
@@ -88,6 +111,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		SettlementDate: o.SettlementDate, Status: model.OptionContractStatusActive,
 		SagaID: sagaID, PremiumPaidAt: time.Now().UTC(),
 	}
+	_ = premiumSellerCcy // alias used for clarity in the cross-currency math
 	if err := exec.RunStep(ctx, "reserve_and_contract", o.Quantity, "shares", nil, func() error {
 		if err := s.contracts.Create(contract); err != nil {
 			return err
@@ -101,9 +125,9 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		return nil, err
 	}
 
-	// Step 3: reserve premium on buyer.
-	if err := exec.RunStep(ctx, "reserve_premium", premiumAmt, premiumCcy, nil, func() error {
-		_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumAmt, premiumCcy)
+	// Step 3: reserve premium on buyer (in buyer's currency).
+	if err := exec.RunStep(ctx, "reserve_premium", premiumBuyerCcy, buyerCcy, nil, func() error {
+		_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy)
 		return e
 	}); err != nil {
 		_ = exec.RunCompensation(ctx, 0, "drop_contract", func() error {
@@ -113,10 +137,10 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		return nil, err
 	}
 
-	// Step 4: settle premium debit on buyer.
+	// Step 4: settle premium debit on buyer (in buyer's currency).
 	memo := fmt.Sprintf("OTC premium for contract #%d", contract.ID)
-	if err := exec.RunStep(ctx, "settle_premium_buyer", premiumAmt, premiumCcy, nil, func() error {
-		_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumAmt, memo)
+	if err := exec.RunStep(ctx, "settle_premium_buyer", premiumBuyerCcy, buyerCcy, nil, func() error {
+		_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, memo)
 		return e
 	}); err != nil {
 		_ = exec.RunCompensation(ctx, 0, "release_premium", func() error {
@@ -133,12 +157,12 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	// Step 5: credit seller in their currency.
 	idemSeller := fmt.Sprintf("otc-accept-%d-seller", contract.ID)
 	creditMemo := fmt.Sprintf("OTC premium credit for contract #%d", contract.ID)
-	if err := exec.RunStep(ctx, "credit_premium_seller", premiumAmt, premiumCcy, nil, func() error {
-		_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumAmt, creditMemo, idemSeller)
+	if err := exec.RunStep(ctx, "credit_premium_seller", premiumSellerCcy, premiumCcy, nil, func() error {
+		_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy, creditMemo, idemSeller)
 		return e
 	}); err != nil {
 		_ = exec.RunCompensation(ctx, 0, "compensate_buyer_credit", func() error {
-			_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, premiumAmt,
+			_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, premiumBuyerCcy,
 				fmt.Sprintf("Compensating OTC premium #%d", contract.ID),
 				fmt.Sprintf("otc-accept-%d-comp-buyer", contract.ID))
 			return e

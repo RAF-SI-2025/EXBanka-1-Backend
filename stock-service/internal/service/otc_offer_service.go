@@ -40,6 +40,7 @@ type OTCOfferService struct {
 	// ExerciseContract.
 	sagaRepo   SagaLogRepo
 	accounts   OTCAccountClient
+	exchange   FundExchangeClient
 	holdingRes *HoldingReservationService
 }
 
@@ -59,16 +60,20 @@ type OTCHoldingMutator interface {
 }
 
 // WithSaga wires the dependencies needed by Accept / ExerciseContract.
-// Without it, those methods reject with errOTCSagaDepsNotWired.
+// Without it, those methods reject with errOTCSagaDepsNotWired. Pass nil
+// for `exchange` to disable cross-currency support; same-currency flows
+// still work.
 func (s *OTCOfferService) WithSaga(
 	sagaRepo SagaLogRepo,
 	accounts OTCAccountClient,
+	exchange FundExchangeClient,
 	holdingRes *HoldingReservationService,
 	holdingRepo OTCHoldingMutator,
 ) *OTCOfferService {
 	cp := *s
 	cp.sagaRepo = sagaRepo
 	cp.accounts = accounts
+	cp.exchange = exchange
 	cp.holdingRes = holdingRes
 	cp.holdingRepo = holdingRepo
 	return &cp

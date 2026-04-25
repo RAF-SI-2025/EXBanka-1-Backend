@@ -551,12 +551,13 @@ func main() {
 	otcOfferSvc := service.NewOTCOfferService(
 		otcOfferRepo, otcRevisionRepo, optionContractRepo,
 		holdingRepo, otcReadReceiptRepo, producer,
-	).WithSaga(sagaLogRepo, fundAccountAdapter, holdingReservationSvc, holdingRepo)
+	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo)
 	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo)
 	pb.RegisterOTCOptionsServiceServer(grpcServer, otcOptionsHandler)
 
-	// OTC expiry cron (daily). Settings driven by config; defaults 02:00 UTC, batch 500.
-	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, 0, "")
+	// OTC expiry cron (daily). Settings driven by OTC_EXPIRY_CRON_UTC and
+	// OTC_EXPIRY_BATCH_SIZE env vars (defaults 02:00 UTC, batch 500).
+	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC)
 	otcExpiry.Start(ctx)
 
 	// Source admin handler

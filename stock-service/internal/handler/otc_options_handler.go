@@ -201,6 +201,9 @@ func (h *OTCOptionsHandler) ExerciseContract(ctx context.Context, in *stockpb.Ex
 	if err != nil {
 		return nil, mapOTCErr(err)
 	}
+	// The saga doesn't return per-currency amounts — surface the seller-side
+	// figure here. Cross-currency callers can compute the buyer-side
+	// amount client-side via the exchange rate they observed.
 	strikeAmt := c.Quantity.Mul(c.StrikePrice)
 	return &stockpb.ExerciseResponse{
 		ContractId:            c.ID,

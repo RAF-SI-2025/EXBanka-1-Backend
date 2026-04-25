@@ -41,6 +41,9 @@ type Config struct {
 	InfluxToken  string
 	InfluxOrg    string
 	InfluxBucket string
+	// OTC option-contract / offer expiry cron (Celina-4 / Spec 2).
+	OTCExpiryCronUTC   string // "HH:MM" UTC; default 02:00
+	OTCExpiryBatchSize int    // default 500
 }
 
 func Load() *Config {
@@ -79,7 +82,20 @@ func Load() *Config {
 		InfluxToken:              getEnv("INFLUX_TOKEN", ""),
 		InfluxOrg:                getEnv("INFLUX_ORG", "exbanka"),
 		InfluxBucket:             getEnv("INFLUX_BUCKET", "stock_prices"),
+		OTCExpiryCronUTC:         getEnv("OTC_EXPIRY_CRON_UTC", "02:00"),
+		OTCExpiryBatchSize:       getEnvInt("OTC_EXPIRY_BATCH_SIZE", 500),
 	}
+}
+
+// getEnvInt reads an env var as int, falling back to fallback on missing /
+// invalid input.
+func getEnvInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return fallback
 }
 
 func (c *Config) DSN() string {

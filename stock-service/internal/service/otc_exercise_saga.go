@@ -12,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -66,11 +67,31 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	if err != nil {
 		return nil, fmt.Errorf("get seller account: %w", err)
 	}
-	if buyerAcct.CurrencyCode != sellerAcct.CurrencyCode {
-		return nil, errors.New("cross-currency OTC exercise not yet supported (TODO)")
-	}
-	strikeAmt := c.Quantity.Mul(c.StrikePrice)
+	// Strike is denominated in the seller's currency. For cross-currency
+	// exercises the buyer-side debit runs in the buyer's currency at the
+	// live rate; the seller is credited in their currency.
+	strikeSellerCcy := c.Quantity.Mul(c.StrikePrice)
 	strikeCcy := sellerAcct.CurrencyCode
+	strikeBuyerCcy := strikeSellerCcy
+	buyerCcy := buyerAcct.CurrencyCode
+	if buyerCcy != strikeCcy {
+		if s.exchange == nil {
+			return nil, errors.New("cross-currency OTC exercise requires exchange client")
+		}
+		conv, err := s.exchange.Convert(ctx, &exchangepb.ConvertRequest{
+			FromCurrency: strikeCcy,
+			ToCurrency:   buyerCcy,
+			Amount:       strikeSellerCcy.String(),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("FX strike convert: %w", err)
+		}
+		converted, err := decimal.NewFromString(conv.ConvertedAmount)
+		if err != nil {
+			return nil, fmt.Errorf("FX strike convert: parse %q: %w", conv.ConvertedAmount, err)
+		}
+		strikeBuyerCcy = converted
+	}
 
 	sagaID := uuid.NewString()
 	exec := NewSagaExecutor(s.sagaRepo, sagaID, 0, nil)
@@ -78,18 +99,18 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	// the contract ID so retries land in the same row.
 	syntheticTxnID := c.ID + 1_000_000_000_000
 
-	// Step 2: reserve buyer strike funds.
-	if err := exec.RunStep(ctx, "reserve_strike", strikeAmt, strikeCcy, nil, func() error {
-		_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeAmt, strikeCcy)
+	// Step 2: reserve buyer strike funds (in buyer's currency).
+	if err := exec.RunStep(ctx, "reserve_strike", strikeBuyerCcy, buyerCcy, nil, func() error {
+		_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy)
 		return e
 	}); err != nil {
 		return nil, err
 	}
 
-	// Step 3: settle buyer debit.
+	// Step 3: settle buyer debit (in buyer's currency).
 	memo := fmt.Sprintf("OTC strike for contract #%d", c.ID)
-	if err := exec.RunStep(ctx, "settle_strike_buyer", strikeAmt, strikeCcy, nil, func() error {
-		_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeAmt, memo)
+	if err := exec.RunStep(ctx, "settle_strike_buyer", strikeBuyerCcy, buyerCcy, nil, func() error {
+		_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, memo)
 		return e
 	}); err != nil {
 		_ = exec.RunCompensation(ctx, 0, "release_strike", func() error {
@@ -99,16 +120,16 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		return nil, err
 	}
 
-	// Step 4: credit seller.
+	// Step 4: credit seller in their currency.
 	idemSeller := fmt.Sprintf("otc-exercise-%d-seller", c.ID)
 	creditMemo := fmt.Sprintf("OTC strike credit for contract #%d", c.ID)
-	if err := exec.RunStep(ctx, "credit_strike_seller", strikeAmt, strikeCcy, nil, func() error {
-		_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, strikeAmt, creditMemo, idemSeller)
+	if err := exec.RunStep(ctx, "credit_strike_seller", strikeSellerCcy, strikeCcy, nil, func() error {
+		_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, strikeSellerCcy, creditMemo, idemSeller)
 		return e
 	}); err != nil {
-		// Reverse buyer debit (credit it back).
+		// Reverse buyer debit (credit it back in buyer's currency).
 		_ = exec.RunCompensation(ctx, 0, "compensate_buyer_credit", func() error {
-			_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, strikeAmt,
+			_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, strikeBuyerCcy,
 				fmt.Sprintf("Compensating OTC strike #%d", c.ID),
 				fmt.Sprintf("otc-exercise-%d-comp-buyer", c.ID))
 			return e
@@ -121,13 +142,13 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	if _, err := s.holdingRes.ConsumeForOTCContract(ctx, c.ID, qty, syntheticTxnID); err != nil {
 		// Best-effort reverse the seller credit + buyer debit.
 		_ = exec.RunCompensation(ctx, 0, "compensate_seller_credit", func() error {
-			_, e := s.accounts.DebitAccount(ctx, sellerAcct.AccountNumber, strikeAmt,
+			_, e := s.accounts.DebitAccount(ctx, sellerAcct.AccountNumber, strikeSellerCcy,
 				fmt.Sprintf("Compensating OTC strike credit #%d", c.ID),
 				fmt.Sprintf("otc-exercise-%d-comp-seller", c.ID))
 			return e
 		})
 		_ = exec.RunCompensation(ctx, 0, "compensate_buyer_credit", func() error {
-			_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, strikeAmt,
+			_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, strikeBuyerCcy,
 				fmt.Sprintf("Compensating OTC strike #%d", c.ID),
 				fmt.Sprintf("otc-exercise-%d-comp-buyer", c.ID))
 			return e
@@ -165,7 +186,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			ContractID:        c.ID,
 			Buyer:             kafkamsg.OTCParty{UserID: c.BuyerUserID, SystemType: c.BuyerSystemType},
 			Seller:            kafkamsg.OTCParty{UserID: c.SellerUserID, SystemType: c.SellerSystemType},
-			StrikeAmountPaid:  strikeAmt.String(),
+			StrikeAmountPaid:  strikeSellerCcy.String(),
 			SharesTransferred: decimal.NewFromInt(qty).String(),
 			ExercisedAt:       now.Format(time.RFC3339),
 		}
