@@ -162,6 +162,12 @@ func main() {
 	}
 	defer sourceAdminConn.Close()
 
+	fundClient, fundConn, err := grpcclients.NewInvestmentFundClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to investment fund service: %v", err)
+	}
+	defer fundConn.Close()
+
 	// Blueprint service reuses the user-service connection
 	blueprintClient, blueprintConn, err := grpcclients.NewBlueprintClient(cfg.UserGRPCAddr)
 	if err != nil {
@@ -199,7 +205,7 @@ func main() {
 	r := router.NewRouter()
 	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
 	router.SetupV2Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
-	router.SetupV3Routes(r)
+	router.SetupV3Routes(r, authClient, fundClient)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,

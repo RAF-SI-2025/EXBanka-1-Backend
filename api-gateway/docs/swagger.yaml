@@ -267,6 +267,15 @@ definitions:
     - name
     - transaction_type
     type: object
+  handler.createFundRequest:
+    properties:
+      description:
+        type: string
+      minimum_contribution_rsd:
+        type: string
+      name:
+        type: string
+    type: object
   handler.createInterestRateTierBody:
     properties:
       amount_from:
@@ -487,6 +496,17 @@ definitions:
       holding_id:
         type: integer
     type: object
+  handler.investRequest:
+    properties:
+      amount:
+        type: string
+      currency:
+        type: string
+      on_behalf_of_type:
+        type: string
+      source_account_id:
+        type: integer
+    type: object
   handler.loginRequest:
     properties:
       email:
@@ -523,6 +543,15 @@ definitions:
     - amount
     - from_account_number
     - to_account_number
+    type: object
+  handler.redeemRequest:
+    properties:
+      amount_rsd:
+        type: string
+      on_behalf_of_type:
+        type: string
+      target_account_id:
+        type: integer
     type: object
   handler.refreshMobileReq:
     properties:
@@ -781,6 +810,17 @@ definitions:
         example: payment
         type: string
     type: object
+  handler.updateFundRequest:
+    properties:
+      active:
+        type: boolean
+      description:
+        type: string
+      minimum_contribution_rsd:
+        type: string
+      name:
+        type: string
+    type: object
   handler.updateInterestRateTierBody:
     properties:
       amount_from:
@@ -828,6 +868,255 @@ info:
   title: EXBanka API
   version: "2.0"
 paths:
+  /api/v1/actuaries/performance:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Actuary performance — realised profit by acting employee
+      tags:
+      - InvestmentFunds
+  /api/v1/investment-funds:
+    get:
+      parameters:
+      - description: page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: case-insensitive name substring
+        in: query
+        name: search
+        type: string
+      - description: filter to active funds
+        in: query
+        name: active_only
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List investment funds
+      tags:
+      - InvestmentFunds
+    post:
+      consumes:
+      - application/json
+      description: Supervisor or admin creates a fund. Triggers an account-service
+        call to provision the fund's RSD account.
+      parameters:
+      - description: fund details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createFundRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new investment fund
+      tags:
+      - InvestmentFunds
+  /api/v1/investment-funds/{id}:
+    get:
+      parameters:
+      - description: fund id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get investment fund detail
+      tags:
+      - InvestmentFunds
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: fund id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: fields to change (omitted = unchanged)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updateFundRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update an investment fund
+      tags:
+      - InvestmentFunds
+  /api/v1/investment-funds/{id}/invest:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: fund id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: invest payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.investRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Invest in an investment fund
+      tags:
+      - InvestmentFunds
+  /api/v1/investment-funds/{id}/redeem:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: fund id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: redeem payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.redeemRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Redeem from an investment fund
+      tags:
+      - InvestmentFunds
+  /api/v1/investment-funds/positions:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the bank's investment-fund positions
+      tags:
+      - InvestmentFunds
+  /api/v1/me/investment-funds:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's investment-fund positions
+      tags:
+      - InvestmentFunds
   /api/v2/accounts:
     get:
       parameters:

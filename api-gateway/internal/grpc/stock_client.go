@@ -62,3 +62,11 @@ func NewSourceAdminClient(addr string) (stockpb.SourceAdminServiceClient, *grpc.
 	}
 	return stockpb.NewSourceAdminServiceClient(conn), conn, nil
 }
+
+func NewInvestmentFundClient(addr string) (stockpb.InvestmentFundServiceClient, *grpc.ClientConn, error) {
+	conn, err := shared.DialGRPC(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewInvestmentFundServiceClient(conn), conn, nil
+}
