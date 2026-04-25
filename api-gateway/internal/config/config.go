@@ -19,6 +19,14 @@ type Config struct {
 	NotificationGRPCAddr string
 	KafkaBrokers         string
 	MetricsPort          string
+
+	// Inter-bank HMAC (Spec 3 §8). The gateway needs Redis for the nonce
+	// store and the per-peer plaintext inbound keys for HMAC verification.
+	RedisAddr         string
+	OwnBankCode       string
+	Peer222InboundKey string
+	Peer333InboundKey string
+	Peer444InboundKey string
 }
 
 func Load() *Config {
@@ -37,6 +45,12 @@ func Load() *Config {
 		NotificationGRPCAddr: getEnv("NOTIFICATION_GRPC_ADDR", "localhost:50053"),
 		KafkaBrokers:         getEnv("KAFKA_BROKERS", "localhost:9092"),
 		MetricsPort:          getEnv("METRICS_PORT", "9100"),
+
+		RedisAddr:         getEnv("REDIS_ADDR", "localhost:6379"),
+		OwnBankCode:       getEnv("OWN_BANK_CODE", "111"),
+		Peer222InboundKey: getEnv("PEER_222_INBOUND_KEY", ""),
+		Peer333InboundKey: getEnv("PEER_333_INBOUND_KEY", ""),
+		Peer444InboundKey: getEnv("PEER_444_INBOUND_KEY", ""),
 	}
 }
 
