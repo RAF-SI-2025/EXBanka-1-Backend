@@ -210,6 +210,23 @@ const (
 	TopicClientLimitsUpdated   = "client.limits-updated"
 )
 
+// Role permissions change event — published by user-service when a role's
+// permission set changes. auth-service consumes this to revoke active sessions
+// of every employee currently holding the role so they pick up the new perms
+// on next request.
+const TopicUserRolePermissionsChanged = "user.role-permissions-changed"
+
+// RolePermissionsChangedMessage carries the role identity and the list of
+// employees who hold that role at the moment of the change. ChangedAt is unix
+// seconds; auth-service uses it as the revocation epoch.
+type RolePermissionsChangedMessage struct {
+	RoleID              int64   `json:"role_id"`
+	RoleName            string  `json:"role_name"`
+	AffectedEmployeeIDs []int64 `json:"affected_employee_ids"`
+	ChangedAt           int64   `json:"changed_at"`
+	Source              string  `json:"source"` // "update_role_permissions" | "create_role"
+}
+
 // EmployeeLimitsUpdatedMessage is published when an employee's limits are set or updated.
 type EmployeeLimitsUpdatedMessage struct {
 	EmployeeID int64  `json:"employee_id"`
