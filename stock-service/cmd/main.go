@@ -386,7 +386,7 @@ func main() {
 		orderRepo, orderTxRepo, listingRepo, settingRepo, securityLookup, producer,
 		sagaLogRepo, stockAccountClient, exchangeClient, holdingReservationSvc,
 		forexRepo, nil, // nil settings → uses defaults (5% slippage, 0.25% commission)
-	).WithActuaryClient(stockActuaryClient)
+	).WithActuaryClient(stockActuaryClient).WithFundSupport(fundRepo)
 
 	// Upgrade portfolioSvc with Phase-2 fill-saga deps so ProcessBuyFill and
 	// ProcessSellFill run the saga paths. Buy saga:
@@ -422,6 +422,8 @@ func main() {
 	// Part B: wire the per-holding transaction history repo so
 	// ListHoldingTransactions returns real data.
 	portfolioSvc = portfolioSvc.WithHoldingTxRepo(orderTxRepo)
+	// Celina 4 Task 18: route on-behalf-of-fund buy fills into fund_holdings.
+	portfolioSvc = portfolioSvc.WithFundHoldings(fundHoldingRepo)
 	execEngine := service.NewOrderExecutionEngine(ctx, orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
 
 	// --- Seed securities ---

@@ -424,6 +424,11 @@ message CreateOrderRequest {
   // base-currency account that will be credited when the order fills. Ignored
   // for non-forex orders.
   optional uint64 base_account_id = 15;
+  // on_behalf_of_fund_id, when non-zero, places the order against the fund's
+  // RSD account; owner becomes the bank sentinel and fills credit
+  // fund_holdings instead of the user's holdings. Caller must be the fund's
+  // manager (or an admin). account_id must equal the fund's RSD account id.
+  uint64 on_behalf_of_fund_id = 16;
 }
 
 message GetOrderRequest {

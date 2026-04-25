@@ -3245,8 +3245,13 @@ type CreateOrderRequest struct {
 	// base-currency account that will be credited when the order fills. Ignored
 	// for non-forex orders.
 	BaseAccountId *uint64 `protobuf:"varint,15,opt,name=base_account_id,json=baseAccountId,proto3,oneof" json:"base_account_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// on_behalf_of_fund_id, when non-zero, places the order against the fund's
+	// RSD account; owner becomes the bank sentinel and fills credit
+	// fund_holdings instead of the user's holdings. Caller must be the fund's
+	// manager (or an admin). account_id must equal the fund's RSD account id.
+	OnBehalfOfFundId uint64 `protobuf:"varint,16,opt,name=on_behalf_of_fund_id,json=onBehalfOfFundId,proto3" json:"on_behalf_of_fund_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *CreateOrderRequest) Reset() {
@@ -3380,6 +3385,13 @@ func (x *CreateOrderRequest) GetOnBehalfOfClientId() uint64 {
 func (x *CreateOrderRequest) GetBaseAccountId() uint64 {
 	if x != nil && x.BaseAccountId != nil {
 		return *x.BaseAccountId
+	}
+	return 0
+}
+
+func (x *CreateOrderRequest) GetOnBehalfOfFundId() uint64 {
+	if x != nil {
+		return x.OnBehalfOfFundId
 	}
 	return 0
 }
@@ -7806,7 +7818,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"executedAt\"n\n" +
 	"\vOrderDetail\x12\"\n" +
 	"\x05order\x18\x01 \x01(\v2\f.stock.OrderR\x05order\x12;\n" +
-	"\ftransactions\x18\x02 \x03(\v2\x17.stock.OrderTransactionR\ftransactions\"\xc8\x04\n" +
+	"\ftransactions\x18\x02 \x03(\v2\x17.stock.OrderTransactionR\ftransactions\"\xf8\x04\n" +
 	"\x12CreateOrderRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x04R\x06userId\x12\x1f\n" +
 	"\vsystem_type\x18\x02 \x01(\tR\n" +
@@ -7830,7 +7842,8 @@ const file_stock_stock_proto_rawDesc = "" +
 	"account_id\x18\f \x01(\x04R\taccountId\x12,\n" +
 	"\x12acting_employee_id\x18\r \x01(\x04R\x10actingEmployeeId\x122\n" +
 	"\x16on_behalf_of_client_id\x18\x0e \x01(\x04R\x12onBehalfOfClientId\x12+\n" +
-	"\x0fbase_account_id\x18\x0f \x01(\x04H\x02R\rbaseAccountId\x88\x01\x01B\x0e\n" +
+	"\x0fbase_account_id\x18\x0f \x01(\x04H\x02R\rbaseAccountId\x88\x01\x01\x12.\n" +
+	"\x14on_behalf_of_fund_id\x18\x10 \x01(\x04R\x10onBehalfOfFundIdB\x0e\n" +
 	"\f_limit_valueB\r\n" +
 	"\v_stop_valueB\x12\n" +
 	"\x10_base_account_id\"[\n" +

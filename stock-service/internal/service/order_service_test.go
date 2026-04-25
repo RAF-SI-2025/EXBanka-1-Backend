@@ -1727,3 +1727,92 @@ func ptrDec(v int64) *decimal.Decimal {
 	d := decimal.NewFromInt(v)
 	return &d
 }
+
+// ---------------------------------------------------------------------------
+// Tests: CreateOrder — on_behalf_of=fund (Task 18)
+// ---------------------------------------------------------------------------
+
+// stubFundLookup satisfies FundLookup without standing up a real DB.
+type stubFundLookup struct {
+	fund *model.InvestmentFund
+}
+
+func (s *stubFundLookup) GetByID(id uint64) (*model.InvestmentFund, error) {
+	if s.fund == nil || s.fund.ID != id {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return s.fund, nil
+}
+
+func TestCreateOrder_OnBehalfOfFund_HappyPath_StampsFundIDAndBankOwner(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	fx.accountClient.stub.accountCcy[7000] = "USD"
+	fund := &model.InvestmentFund{ID: 42, Name: "Alpha", ManagerEmployeeID: 25, RSDAccountID: 7000, Active: true}
+	fx.svc = fx.svc.WithFundSupport(&stubFundLookup{fund: fund})
+
+	order, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 25, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), AccountID: 7000,
+		ActingEmployeeID: 25, OnBehalfOfFundID: 42,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if order.FundID == nil || *order.FundID != 42 {
+		t.Errorf("FundID not stamped: %v", order.FundID)
+	}
+	if order.UserID != 1_000_000_000 || order.SystemType != "employee" {
+		t.Errorf("expected bank-sentinel owner, got %d/%s", order.UserID, order.SystemType)
+	}
+	if order.AccountID != 7000 {
+		t.Errorf("account_id should equal fund RSD account, got %d", order.AccountID)
+	}
+}
+
+func TestCreateOrder_OnBehalfOfFund_NonManagerRejected(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	fund := &model.InvestmentFund{ID: 42, Name: "Alpha", ManagerEmployeeID: 25, RSDAccountID: 7000, Active: true}
+	fx.svc = fx.svc.WithFundSupport(&stubFundLookup{fund: fund})
+
+	_, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 99, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), AccountID: 7000,
+		ActingEmployeeID: 99, OnBehalfOfFundID: 42,
+	})
+	if err == nil {
+		t.Fatal("expected non-manager to be rejected")
+	}
+}
+
+func TestCreateOrder_OnBehalfOfFund_AccountIDMismatchRejected(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	fund := &model.InvestmentFund{ID: 42, Name: "Alpha", ManagerEmployeeID: 25, RSDAccountID: 7000, Active: true}
+	fx.svc = fx.svc.WithFundSupport(&stubFundLookup{fund: fund})
+
+	_, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 25, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), AccountID: 9999,
+		ActingEmployeeID: 25, OnBehalfOfFundID: 42,
+	})
+	if err == nil {
+		t.Fatal("expected account_id mismatch to be rejected")
+	}
+}
+
+func TestCreateOrder_OnBehalfOfFund_FundNotConfigured_Rejected(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	// Note: WithFundSupport NOT called → fundRepo is nil.
+
+	_, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 25, SystemType: "employee", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), AccountID: 7000,
+		ActingEmployeeID: 25, OnBehalfOfFundID: 42,
+	})
+	if err == nil {
+		t.Fatal("expected error when fund support not wired")
+	}
+}
