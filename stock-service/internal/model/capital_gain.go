@@ -24,6 +24,10 @@ type CapitalGain struct {
 	AccountID          uint64          `gorm:"not null" json:"account_id"`
 	TaxYear            int             `gorm:"not null;index:idx_cg_user_month" json:"tax_year"`
 	TaxMonth           int             `gorm:"not null;index:idx_cg_user_month" json:"tax_month"`
+	// ActingEmployeeID is non-zero when an employee placed the order on
+	// behalf of someone else (client, fund, or bank). Used by Celina-4
+	// actuary performance reads to attribute realised gains to the actor.
+	ActingEmployeeID int64 `gorm:"default:0;index:idx_cg_acting_emp" json:"acting_employee_id"`
 	// TaxCollectionID links this gain to the TaxCollection row that taxed it.
 	// NULL means "not yet taxed" — CollectTax only sums rows where this is NULL
 	// so incremental admin collections within the same month tax only the new,

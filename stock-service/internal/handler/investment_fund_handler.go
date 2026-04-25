@@ -10,21 +10,25 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	stockpb "github.com/exbanka/contract/stockpb"
+	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 	"github.com/exbanka/stock-service/internal/service"
 )
 
 // InvestmentFundHandler implements the InvestmentFundService gRPC server.
-// Methods that depend on follow-up tasks (position-reads, actuary-performance,
-// liquidation) return empty responses or NotImplemented until those tasks
-// land — see the docstring on each method.
+// Methods that depend on follow-up tasks (position-reads, liquidation) return
+// empty responses or NotImplemented until those tasks land.
 type InvestmentFundHandler struct {
 	stockpb.UnimplementedInvestmentFundServiceServer
-	fundSvc      *service.FundService
-	fundRepo     *repository.FundRepository
-	positions    *repository.ClientFundPositionRepository
+	fundSvc        *service.FundService
+	fundRepo       *repository.FundRepository
+	positions      *repository.ClientFundPositionRepository
+	capitalGains   *repository.CapitalGainRepository
+	userClient     userpb.UserServiceClient
+	exchangeClient exchangepb.ExchangeServiceClient
 }
 
 func NewInvestmentFundHandler(
@@ -37,6 +41,21 @@ func NewInvestmentFundHandler(
 		fundRepo:  fundRepo,
 		positions: positions,
 	}
+}
+
+// WithActuaryDeps wires the repositories and clients needed by the actuary
+// performance read. Call after constructing the handler. Without these
+// dependencies GetActuaryPerformance returns an empty list.
+func (h *InvestmentFundHandler) WithActuaryDeps(
+	capitalGains *repository.CapitalGainRepository,
+	userClient userpb.UserServiceClient,
+	exchangeClient exchangepb.ExchangeServiceClient,
+) *InvestmentFundHandler {
+	cp := *h
+	cp.capitalGains = capitalGains
+	cp.userClient = userClient
+	cp.exchangeClient = exchangeClient
+	return &cp
 }
 
 func (h *InvestmentFundHandler) CreateFund(ctx context.Context, in *stockpb.CreateFundRequest) (*stockpb.FundResponse, error) {
@@ -197,10 +216,59 @@ func (h *InvestmentFundHandler) ListBankPositions(ctx context.Context, _ *stockp
 	})
 }
 
-// GetActuaryPerformance is wired in Task 21. Until then the gRPC method
-// returns an empty list so the gateway endpoint behaves predictably.
+// GetActuaryPerformance sums realised capital gains per acting employee,
+// converts non-RSD gains to RSD via exchange-service, and decorates the
+// result with full names from user-service. Returns empty when the actuary
+// dependencies (capitalGains / userClient / exchangeClient) are not wired.
 func (h *InvestmentFundHandler) GetActuaryPerformance(ctx context.Context, _ *stockpb.GetActuaryPerformanceRequest) (*stockpb.GetActuaryPerformanceResponse, error) {
-	return &stockpb.GetActuaryPerformanceResponse{Actuaries: nil}, nil
+	if h.capitalGains == nil {
+		return &stockpb.GetActuaryPerformanceResponse{Actuaries: nil}, nil
+	}
+	rows, err := h.capitalGains.SumByActingEmployee()
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	totals := make(map[int64]decimal.Decimal, len(rows))
+	for _, r := range rows {
+		amt := r.TotalGain
+		if r.Currency != "RSD" && h.exchangeClient != nil {
+			conv, err := h.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
+				FromCurrency: r.Currency,
+				ToCurrency:   "RSD",
+				Amount:       amt.String(),
+			})
+			if err == nil {
+				if d, err := decimal.NewFromString(conv.ConvertedAmount); err == nil {
+					amt = d
+				}
+			}
+		}
+		totals[r.EmployeeID] = totals[r.EmployeeID].Add(amt)
+	}
+
+	names := map[int64]string{}
+	if h.userClient != nil && len(totals) > 0 {
+		ids := make([]int64, 0, len(totals))
+		for id := range totals {
+			ids = append(ids, id)
+		}
+		resp, err := h.userClient.ListEmployeeFullNames(ctx, &userpb.ListEmployeeFullNamesRequest{EmployeeIds: ids})
+		if err == nil && resp != nil {
+			names = resp.NamesById
+		}
+	}
+
+	out := &stockpb.GetActuaryPerformanceResponse{Actuaries: make([]*stockpb.ActuaryPerformance, 0, len(totals))}
+	for id, total := range totals {
+		out.Actuaries = append(out.Actuaries, &stockpb.ActuaryPerformance{
+			EmployeeId:        id,
+			FullName:          names[id],
+			Role:              "actuary",
+			RealizedProfitRsd: total.String(),
+		})
+	}
+	return out, nil
 }
 
 func toFundResponse(f *model.InvestmentFund) *stockpb.FundResponse {

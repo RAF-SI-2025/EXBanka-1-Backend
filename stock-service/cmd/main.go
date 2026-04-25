@@ -512,7 +512,8 @@ func main() {
 			return resp.AccountNumber, resp.Id, nil
 		},
 	)
-	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo)
+	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo).
+		WithActuaryDeps(capitalGainRepo, userClient, exchangeClient)
 	pb.RegisterInvestmentFundServiceServer(grpcServer, fundHandler)
 
 	// Supervisor-demoted consumer: reassigns the demoted supervisor's funds

@@ -711,6 +711,7 @@ func (s *PortfolioService) recordCapitalGain(order *model.Order, txn *model.Orde
 		AccountID:          order.AccountID,
 		TaxYear:            time.Now().Year(),
 		TaxMonth:           int(time.Now().Month()),
+		ActingEmployeeID:   int64(order.ActingEmployeeID),
 	}
 	return s.capitalGainRepo.Create(capitalGain)
 }
@@ -767,6 +768,7 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 		AccountID:          order.AccountID,
 		TaxYear:            time.Now().Year(),
 		TaxMonth:           int(time.Now().Month()),
+		ActingEmployeeID:   int64(order.ActingEmployeeID),
 	}
 	if err := s.capitalGainRepo.Create(capitalGain); err != nil {
 		return err
