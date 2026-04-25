@@ -559,3 +559,75 @@ type AuthSessionRevokedMessage struct {
 	UserID    int64  `json:"user_id"`
 	Reason    string `json:"reason"` // "logout", "force_revoke", "password_reset", "device_deactivation"
 }
+
+// ==================== Investment Funds (Celina 4) ====================
+
+const (
+	TopicStockFundCreated      = "stock.fund-created"
+	TopicStockFundUpdated      = "stock.fund-updated"
+	TopicStockFundInvested     = "stock.fund-invested"
+	TopicStockFundRedeemed     = "stock.fund-redeemed"
+	TopicStockFundsReassigned  = "stock.funds-reassigned"
+	TopicUserSupervisorDemoted = "user.supervisor-demoted"
+)
+
+type StockFundCreatedMessage struct {
+	MessageID         string `json:"message_id"`
+	OccurredAt        string `json:"occurred_at"`
+	FundID            uint64 `json:"fund_id"`
+	Name              string `json:"name"`
+	ManagerEmployeeID int64  `json:"manager_employee_id"`
+	RSDAccountID      uint64 `json:"rsd_account_id"`
+	CreatedAt         string `json:"created_at"`
+}
+
+type StockFundUpdatedMessage struct {
+	MessageID     string   `json:"message_id"`
+	OccurredAt    string   `json:"occurred_at"`
+	FundID        uint64   `json:"fund_id"`
+	ChangedFields []string `json:"changed_fields"`
+	UpdatedAt     string   `json:"updated_at"`
+}
+
+type StockFundInvestedMessage struct {
+	MessageID      string `json:"message_id"`
+	OccurredAt     string `json:"occurred_at"`
+	FundID         uint64 `json:"fund_id"`
+	UserID         uint64 `json:"user_id"`
+	SystemType     string `json:"system_type"`
+	AmountNative   string `json:"amount_native"`
+	NativeCurrency string `json:"native_currency"`
+	AmountRSD      string `json:"amount_rsd"`
+	FxRate         string `json:"fx_rate"`
+	SagaID         uint64 `json:"saga_id"`
+	ContributionID uint64 `json:"contribution_id"`
+}
+
+type StockFundRedeemedMessage struct {
+	MessageID       string `json:"message_id"`
+	OccurredAt      string `json:"occurred_at"`
+	FundID          uint64 `json:"fund_id"`
+	UserID          uint64 `json:"user_id"`
+	SystemType      string `json:"system_type"`
+	AmountRSD       string `json:"amount_rsd"`
+	FeeRSD          string `json:"fee_rsd"`
+	TargetAccountID uint64 `json:"target_account_id"`
+	SagaID          uint64 `json:"saga_id"`
+	ContributionID  uint64 `json:"contribution_id"`
+}
+
+type StockFundsReassignedMessage struct {
+	MessageID    string   `json:"message_id"`
+	OccurredAt   string   `json:"occurred_at"`
+	SupervisorID int64    `json:"supervisor_id"`
+	AdminID      int64    `json:"admin_id"`
+	FundIDs      []uint64 `json:"fund_ids"`
+}
+
+type UserSupervisorDemotedMessage struct {
+	MessageID    string `json:"message_id"`
+	OccurredAt   string `json:"occurred_at"`
+	SupervisorID int64  `json:"supervisor_id"`
+	AdminID      int64  `json:"admin_id"`
+	RevokedAt    string `json:"revoked_at"`
+}

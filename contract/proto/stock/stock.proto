@@ -804,3 +804,145 @@ message SourceStatus {
   string started_at = 3; // RFC3339 timestamp of the last switch
   string last_error = 4; // populated when status=failed
 }
+
+// ==================== Investment Funds (Celina 4) ====================
+
+service InvestmentFundService {
+  rpc CreateFund(CreateFundRequest) returns (FundResponse);
+  rpc ListFunds(ListFundsRequest) returns (ListFundsResponse);
+  rpc GetFund(GetFundRequest) returns (FundDetailResponse);
+  rpc UpdateFund(UpdateFundRequest) returns (FundResponse);
+
+  rpc InvestInFund(InvestInFundRequest) returns (ContributionResponse);
+  rpc RedeemFromFund(RedeemFromFundRequest) returns (ContributionResponse);
+
+  rpc ListMyPositions(ListMyPositionsRequest) returns (ListPositionsResponse);
+  rpc ListBankPositions(ListBankPositionsRequest) returns (ListPositionsResponse);
+  rpc GetActuaryPerformance(GetActuaryPerformanceRequest) returns (GetActuaryPerformanceResponse);
+}
+
+message OnBehalfOf {
+  string type = 1;        // "self" | "bank" | "fund"
+  uint64 fund_id = 2;     // required when type == "fund"
+}
+
+message CreateFundRequest {
+  int64 actor_employee_id = 1;
+  string name = 2;
+  string description = 3;
+  string minimum_contribution_rsd = 4;
+}
+
+message FundResponse {
+  uint64 id = 1;
+  string name = 2;
+  string description = 3;
+  int64  manager_employee_id = 4;
+  string manager_full_name = 5;
+  string minimum_contribution_rsd = 6;
+  uint64 rsd_account_id = 7;
+  string rsd_account_number = 8;
+  bool   active = 9;
+  string created_at = 10;
+  string updated_at = 11;
+  string value_rsd = 12;
+  string liquid_rsd = 13;
+  string profit_rsd = 14;
+}
+
+message ListFundsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string search = 3;
+  bool   active_only = 4;
+}
+message ListFundsResponse {
+  repeated FundResponse funds = 1;
+  int64 total = 2;
+}
+
+message GetFundRequest { uint64 fund_id = 1; }
+message FundDetailResponse {
+  FundResponse fund = 1;
+  repeated FundHoldingItem holdings = 2;
+}
+message FundHoldingItem {
+  string security_type = 1;
+  uint64 security_id = 2;
+  string ticker = 3;
+  int64  quantity = 4;
+  string average_price_rsd = 5;
+  string current_price_rsd = 6;
+  string acquired_at = 7;
+}
+
+message UpdateFundRequest {
+  int64  actor_employee_id = 1;
+  uint64 fund_id = 2;
+  string name = 3;
+  string description = 4;
+  string minimum_contribution_rsd = 5;
+  bool   active = 6;
+  bool   active_set = 7;
+}
+
+message InvestInFundRequest {
+  uint64 fund_id = 1;
+  uint64 actor_user_id = 2;
+  string actor_system_type = 3;
+  uint64 source_account_id = 4;
+  string amount = 5;
+  string currency = 6;
+  OnBehalfOf on_behalf_of = 7;
+}
+message RedeemFromFundRequest {
+  uint64 fund_id = 1;
+  uint64 actor_user_id = 2;
+  string actor_system_type = 3;
+  string amount_rsd = 4;
+  uint64 target_account_id = 5;
+  OnBehalfOf on_behalf_of = 6;
+}
+
+message ContributionResponse {
+  uint64 id = 1;
+  uint64 fund_id = 2;
+  string direction = 3;
+  string amount_native = 4;
+  string native_currency = 5;
+  string amount_rsd = 6;
+  string fx_rate = 7;
+  string fee_rsd = 8;
+  string status = 9;
+  uint64 saga_id = 10;
+}
+
+message ListMyPositionsRequest {
+  uint64 actor_user_id = 1;
+  string actor_system_type = 2;
+}
+message ListBankPositionsRequest {}
+message ListPositionsResponse {
+  repeated PositionItem positions = 1;
+}
+message PositionItem {
+  uint64 fund_id = 1;
+  string fund_name = 2;
+  string manager_full_name = 3;
+  string contribution_rsd = 4;
+  string percentage_fund = 5;
+  string current_value_rsd = 6;
+  string profit_rsd = 7;
+  string last_changed_at = 8;
+}
+
+message GetActuaryPerformanceRequest {}
+message GetActuaryPerformanceResponse {
+  repeated ActuaryPerformance actuaries = 1;
+}
+message ActuaryPerformance {
+  int64  employee_id = 1;
+  string full_name = 2;
+  string role = 3;
+  string realized_profit_rsd = 4;
+}

@@ -6147,6 +6147,1346 @@ func (x *SourceStatus) GetLastError() string {
 	return ""
 }
 
+type OnBehalfOf struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`                    // "self" | "bank" | "fund"
+	FundId        uint64                 `protobuf:"varint,2,opt,name=fund_id,json=fundId,proto3" json:"fund_id,omitempty"` // required when type == "fund"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OnBehalfOf) Reset() {
+	*x = OnBehalfOf{}
+	mi := &file_stock_stock_proto_msgTypes[77]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OnBehalfOf) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OnBehalfOf) ProtoMessage() {}
+
+func (x *OnBehalfOf) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[77]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OnBehalfOf.ProtoReflect.Descriptor instead.
+func (*OnBehalfOf) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{77}
+}
+
+func (x *OnBehalfOf) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *OnBehalfOf) GetFundId() uint64 {
+	if x != nil {
+		return x.FundId
+	}
+	return 0
+}
+
+type CreateFundRequest struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	ActorEmployeeId        int64                  `protobuf:"varint,1,opt,name=actor_employee_id,json=actorEmployeeId,proto3" json:"actor_employee_id,omitempty"`
+	Name                   string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description            string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	MinimumContributionRsd string                 `protobuf:"bytes,4,opt,name=minimum_contribution_rsd,json=minimumContributionRsd,proto3" json:"minimum_contribution_rsd,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *CreateFundRequest) Reset() {
+	*x = CreateFundRequest{}
+	mi := &file_stock_stock_proto_msgTypes[78]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateFundRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateFundRequest) ProtoMessage() {}
+
+func (x *CreateFundRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[78]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateFundRequest.ProtoReflect.Descriptor instead.
+func (*CreateFundRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{78}
+}
+
+func (x *CreateFundRequest) GetActorEmployeeId() int64 {
+	if x != nil {
+		return x.ActorEmployeeId
+	}
+	return 0
+}
+
+func (x *CreateFundRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateFundRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *CreateFundRequest) GetMinimumContributionRsd() string {
+	if x != nil {
+		return x.MinimumContributionRsd
+	}
+	return ""
+}
+
+type FundResponse struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	Id                     uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                   string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Description            string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	ManagerEmployeeId      int64                  `protobuf:"varint,4,opt,name=manager_employee_id,json=managerEmployeeId,proto3" json:"manager_employee_id,omitempty"`
+	ManagerFullName        string                 `protobuf:"bytes,5,opt,name=manager_full_name,json=managerFullName,proto3" json:"manager_full_name,omitempty"`
+	MinimumContributionRsd string                 `protobuf:"bytes,6,opt,name=minimum_contribution_rsd,json=minimumContributionRsd,proto3" json:"minimum_contribution_rsd,omitempty"`
+	RsdAccountId           uint64                 `protobuf:"varint,7,opt,name=rsd_account_id,json=rsdAccountId,proto3" json:"rsd_account_id,omitempty"`
+	RsdAccountNumber       string                 `protobuf:"bytes,8,opt,name=rsd_account_number,json=rsdAccountNumber,proto3" json:"rsd_account_number,omitempty"`
+	Active                 bool                   `protobuf:"varint,9,opt,name=active,proto3" json:"active,omitempty"`
+	CreatedAt              string                 `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt              string                 `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	ValueRsd               string                 `protobuf:"bytes,12,opt,name=value_rsd,json=valueRsd,proto3" json:"value_rsd,omitempty"`
+	LiquidRsd              string                 `protobuf:"bytes,13,opt,name=liquid_rsd,json=liquidRsd,proto3" json:"liquid_rsd,omitempty"`
+	ProfitRsd              string                 `protobuf:"bytes,14,opt,name=profit_rsd,json=profitRsd,proto3" json:"profit_rsd,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *FundResponse) Reset() {
+	*x = FundResponse{}
+	mi := &file_stock_stock_proto_msgTypes[79]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FundResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FundResponse) ProtoMessage() {}
+
+func (x *FundResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[79]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FundResponse.ProtoReflect.Descriptor instead.
+func (*FundResponse) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{79}
+}
+
+func (x *FundResponse) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *FundResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FundResponse) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *FundResponse) GetManagerEmployeeId() int64 {
+	if x != nil {
+		return x.ManagerEmployeeId
+	}
+	return 0
+}
+
+func (x *FundResponse) GetManagerFullName() string {
+	if x != nil {
+		return x.ManagerFullName
+	}
+	return ""
+}
+
+func (x *FundResponse) GetMinimumContributionRsd() string {
+	if x != nil {
+		return x.MinimumContributionRsd
+	}
+	return ""
+}
+
+func (x *FundResponse) GetRsdAccountId() uint64 {
+	if x != nil {
+		return x.RsdAccountId
+	}
+	return 0
+}
+
+func (x *FundResponse) GetRsdAccountNumber() string {
+	if x != nil {
+		return x.RsdAccountNumber
+	}
+	return ""
+}
+
+func (x *FundResponse) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *FundResponse) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *FundResponse) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *FundResponse) GetValueRsd() string {
+	if x != nil {
+		return x.ValueRsd
+	}
+	return ""
+}
+
+func (x *FundResponse) GetLiquidRsd() string {
+	if x != nil {
+		return x.LiquidRsd
+	}
+	return ""
+}
+
+func (x *FundResponse) GetProfitRsd() string {
+	if x != nil {
+		return x.ProfitRsd
+	}
+	return ""
+}
+
+type ListFundsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Page          int32                  `protobuf:"varint,1,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize      int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	Search        string                 `protobuf:"bytes,3,opt,name=search,proto3" json:"search,omitempty"`
+	ActiveOnly    bool                   `protobuf:"varint,4,opt,name=active_only,json=activeOnly,proto3" json:"active_only,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFundsRequest) Reset() {
+	*x = ListFundsRequest{}
+	mi := &file_stock_stock_proto_msgTypes[80]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFundsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFundsRequest) ProtoMessage() {}
+
+func (x *ListFundsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[80]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFundsRequest.ProtoReflect.Descriptor instead.
+func (*ListFundsRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{80}
+}
+
+func (x *ListFundsRequest) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *ListFundsRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListFundsRequest) GetSearch() string {
+	if x != nil {
+		return x.Search
+	}
+	return ""
+}
+
+func (x *ListFundsRequest) GetActiveOnly() bool {
+	if x != nil {
+		return x.ActiveOnly
+	}
+	return false
+}
+
+type ListFundsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Funds         []*FundResponse        `protobuf:"bytes,1,rep,name=funds,proto3" json:"funds,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListFundsResponse) Reset() {
+	*x = ListFundsResponse{}
+	mi := &file_stock_stock_proto_msgTypes[81]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListFundsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListFundsResponse) ProtoMessage() {}
+
+func (x *ListFundsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[81]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListFundsResponse.ProtoReflect.Descriptor instead.
+func (*ListFundsResponse) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{81}
+}
+
+func (x *ListFundsResponse) GetFunds() []*FundResponse {
+	if x != nil {
+		return x.Funds
+	}
+	return nil
+}
+
+func (x *ListFundsResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+type GetFundRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FundId        uint64                 `protobuf:"varint,1,opt,name=fund_id,json=fundId,proto3" json:"fund_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFundRequest) Reset() {
+	*x = GetFundRequest{}
+	mi := &file_stock_stock_proto_msgTypes[82]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFundRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFundRequest) ProtoMessage() {}
+
+func (x *GetFundRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[82]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFundRequest.ProtoReflect.Descriptor instead.
+func (*GetFundRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{82}
+}
+
+func (x *GetFundRequest) GetFundId() uint64 {
+	if x != nil {
+		return x.FundId
+	}
+	return 0
+}
+
+type FundDetailResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fund          *FundResponse          `protobuf:"bytes,1,opt,name=fund,proto3" json:"fund,omitempty"`
+	Holdings      []*FundHoldingItem     `protobuf:"bytes,2,rep,name=holdings,proto3" json:"holdings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FundDetailResponse) Reset() {
+	*x = FundDetailResponse{}
+	mi := &file_stock_stock_proto_msgTypes[83]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FundDetailResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FundDetailResponse) ProtoMessage() {}
+
+func (x *FundDetailResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[83]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FundDetailResponse.ProtoReflect.Descriptor instead.
+func (*FundDetailResponse) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{83}
+}
+
+func (x *FundDetailResponse) GetFund() *FundResponse {
+	if x != nil {
+		return x.Fund
+	}
+	return nil
+}
+
+func (x *FundDetailResponse) GetHoldings() []*FundHoldingItem {
+	if x != nil {
+		return x.Holdings
+	}
+	return nil
+}
+
+type FundHoldingItem struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SecurityType    string                 `protobuf:"bytes,1,opt,name=security_type,json=securityType,proto3" json:"security_type,omitempty"`
+	SecurityId      uint64                 `protobuf:"varint,2,opt,name=security_id,json=securityId,proto3" json:"security_id,omitempty"`
+	Ticker          string                 `protobuf:"bytes,3,opt,name=ticker,proto3" json:"ticker,omitempty"`
+	Quantity        int64                  `protobuf:"varint,4,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	AveragePriceRsd string                 `protobuf:"bytes,5,opt,name=average_price_rsd,json=averagePriceRsd,proto3" json:"average_price_rsd,omitempty"`
+	CurrentPriceRsd string                 `protobuf:"bytes,6,opt,name=current_price_rsd,json=currentPriceRsd,proto3" json:"current_price_rsd,omitempty"`
+	AcquiredAt      string                 `protobuf:"bytes,7,opt,name=acquired_at,json=acquiredAt,proto3" json:"acquired_at,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *FundHoldingItem) Reset() {
+	*x = FundHoldingItem{}
+	mi := &file_stock_stock_proto_msgTypes[84]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FundHoldingItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FundHoldingItem) ProtoMessage() {}
+
+func (x *FundHoldingItem) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[84]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FundHoldingItem.ProtoReflect.Descriptor instead.
+func (*FundHoldingItem) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{84}
+}
+
+func (x *FundHoldingItem) GetSecurityType() string {
+	if x != nil {
+		return x.SecurityType
+	}
+	return ""
+}
+
+func (x *FundHoldingItem) GetSecurityId() uint64 {
+	if x != nil {
+		return x.SecurityId
+	}
+	return 0
+}
+
+func (x *FundHoldingItem) GetTicker() string {
+	if x != nil {
+		return x.Ticker
+	}
+	return ""
+}
+
+func (x *FundHoldingItem) GetQuantity() int64 {
+	if x != nil {
+		return x.Quantity
+	}
+	return 0
+}
+
+func (x *FundHoldingItem) GetAveragePriceRsd() string {
+	if x != nil {
+		return x.AveragePriceRsd
+	}
+	return ""
+}
+
+func (x *FundHoldingItem) GetCurrentPriceRsd() string {
+	if x != nil {
+		return x.CurrentPriceRsd
+	}
+	return ""
+}
+
+func (x *FundHoldingItem) GetAcquiredAt() string {
+	if x != nil {
+		return x.AcquiredAt
+	}
+	return ""
+}
+
+type UpdateFundRequest struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	ActorEmployeeId        int64                  `protobuf:"varint,1,opt,name=actor_employee_id,json=actorEmployeeId,proto3" json:"actor_employee_id,omitempty"`
+	FundId                 uint64                 `protobuf:"varint,2,opt,name=fund_id,json=fundId,proto3" json:"fund_id,omitempty"`
+	Name                   string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Description            string                 `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	MinimumContributionRsd string                 `protobuf:"bytes,5,opt,name=minimum_contribution_rsd,json=minimumContributionRsd,proto3" json:"minimum_contribution_rsd,omitempty"`
+	Active                 bool                   `protobuf:"varint,6,opt,name=active,proto3" json:"active,omitempty"`
+	ActiveSet              bool                   `protobuf:"varint,7,opt,name=active_set,json=activeSet,proto3" json:"active_set,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *UpdateFundRequest) Reset() {
+	*x = UpdateFundRequest{}
+	mi := &file_stock_stock_proto_msgTypes[85]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateFundRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateFundRequest) ProtoMessage() {}
+
+func (x *UpdateFundRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[85]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateFundRequest.ProtoReflect.Descriptor instead.
+func (*UpdateFundRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{85}
+}
+
+func (x *UpdateFundRequest) GetActorEmployeeId() int64 {
+	if x != nil {
+		return x.ActorEmployeeId
+	}
+	return 0
+}
+
+func (x *UpdateFundRequest) GetFundId() uint64 {
+	if x != nil {
+		return x.FundId
+	}
+	return 0
+}
+
+func (x *UpdateFundRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *UpdateFundRequest) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *UpdateFundRequest) GetMinimumContributionRsd() string {
+	if x != nil {
+		return x.MinimumContributionRsd
+	}
+	return ""
+}
+
+func (x *UpdateFundRequest) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *UpdateFundRequest) GetActiveSet() bool {
+	if x != nil {
+		return x.ActiveSet
+	}
+	return false
+}
+
+type InvestInFundRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	FundId          uint64                 `protobuf:"varint,1,opt,name=fund_id,json=fundId,proto3" json:"fund_id,omitempty"`
+	ActorUserId     uint64                 `protobuf:"varint,2,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
+	ActorSystemType string                 `protobuf:"bytes,3,opt,name=actor_system_type,json=actorSystemType,proto3" json:"actor_system_type,omitempty"`
+	SourceAccountId uint64                 `protobuf:"varint,4,opt,name=source_account_id,json=sourceAccountId,proto3" json:"source_account_id,omitempty"`
+	Amount          string                 `protobuf:"bytes,5,opt,name=amount,proto3" json:"amount,omitempty"`
+	Currency        string                 `protobuf:"bytes,6,opt,name=currency,proto3" json:"currency,omitempty"`
+	OnBehalfOf      *OnBehalfOf            `protobuf:"bytes,7,opt,name=on_behalf_of,json=onBehalfOf,proto3" json:"on_behalf_of,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *InvestInFundRequest) Reset() {
+	*x = InvestInFundRequest{}
+	mi := &file_stock_stock_proto_msgTypes[86]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InvestInFundRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InvestInFundRequest) ProtoMessage() {}
+
+func (x *InvestInFundRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[86]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InvestInFundRequest.ProtoReflect.Descriptor instead.
+func (*InvestInFundRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{86}
+}
+
+func (x *InvestInFundRequest) GetFundId() uint64 {
+	if x != nil {
+		return x.FundId
+	}
+	return 0
+}
+
+func (x *InvestInFundRequest) GetActorUserId() uint64 {
+	if x != nil {
+		return x.ActorUserId
+	}
+	return 0
+}
+
+func (x *InvestInFundRequest) GetActorSystemType() string {
+	if x != nil {
+		return x.ActorSystemType
+	}
+	return ""
+}
+
+func (x *InvestInFundRequest) GetSourceAccountId() uint64 {
+	if x != nil {
+		return x.SourceAccountId
+	}
+	return 0
+}
+
+func (x *InvestInFundRequest) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *InvestInFundRequest) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+func (x *InvestInFundRequest) GetOnBehalfOf() *OnBehalfOf {
+	if x != nil {
+		return x.OnBehalfOf
+	}
+	return nil
+}
+
+type RedeemFromFundRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	FundId          uint64                 `protobuf:"varint,1,opt,name=fund_id,json=fundId,proto3" json:"fund_id,omitempty"`
+	ActorUserId     uint64                 `protobuf:"varint,2,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
+	ActorSystemType string                 `protobuf:"bytes,3,opt,name=actor_system_type,json=actorSystemType,proto3" json:"actor_system_type,omitempty"`
+	AmountRsd       string                 `protobuf:"bytes,4,opt,name=amount_rsd,json=amountRsd,proto3" json:"amount_rsd,omitempty"`
+	TargetAccountId uint64                 `protobuf:"varint,5,opt,name=target_account_id,json=targetAccountId,proto3" json:"target_account_id,omitempty"`
+	OnBehalfOf      *OnBehalfOf            `protobuf:"bytes,6,opt,name=on_behalf_of,json=onBehalfOf,proto3" json:"on_behalf_of,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RedeemFromFundRequest) Reset() {
+	*x = RedeemFromFundRequest{}
+	mi := &file_stock_stock_proto_msgTypes[87]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RedeemFromFundRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RedeemFromFundRequest) ProtoMessage() {}
+
+func (x *RedeemFromFundRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[87]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RedeemFromFundRequest.ProtoReflect.Descriptor instead.
+func (*RedeemFromFundRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{87}
+}
+
+func (x *RedeemFromFundRequest) GetFundId() uint64 {
+	if x != nil {
+		return x.FundId
+	}
+	return 0
+}
+
+func (x *RedeemFromFundRequest) GetActorUserId() uint64 {
+	if x != nil {
+		return x.ActorUserId
+	}
+	return 0
+}
+
+func (x *RedeemFromFundRequest) GetActorSystemType() string {
+	if x != nil {
+		return x.ActorSystemType
+	}
+	return ""
+}
+
+func (x *RedeemFromFundRequest) GetAmountRsd() string {
+	if x != nil {
+		return x.AmountRsd
+	}
+	return ""
+}
+
+func (x *RedeemFromFundRequest) GetTargetAccountId() uint64 {
+	if x != nil {
+		return x.TargetAccountId
+	}
+	return 0
+}
+
+func (x *RedeemFromFundRequest) GetOnBehalfOf() *OnBehalfOf {
+	if x != nil {
+		return x.OnBehalfOf
+	}
+	return nil
+}
+
+type ContributionResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	FundId         uint64                 `protobuf:"varint,2,opt,name=fund_id,json=fundId,proto3" json:"fund_id,omitempty"`
+	Direction      string                 `protobuf:"bytes,3,opt,name=direction,proto3" json:"direction,omitempty"`
+	AmountNative   string                 `protobuf:"bytes,4,opt,name=amount_native,json=amountNative,proto3" json:"amount_native,omitempty"`
+	NativeCurrency string                 `protobuf:"bytes,5,opt,name=native_currency,json=nativeCurrency,proto3" json:"native_currency,omitempty"`
+	AmountRsd      string                 `protobuf:"bytes,6,opt,name=amount_rsd,json=amountRsd,proto3" json:"amount_rsd,omitempty"`
+	FxRate         string                 `protobuf:"bytes,7,opt,name=fx_rate,json=fxRate,proto3" json:"fx_rate,omitempty"`
+	FeeRsd         string                 `protobuf:"bytes,8,opt,name=fee_rsd,json=feeRsd,proto3" json:"fee_rsd,omitempty"`
+	Status         string                 `protobuf:"bytes,9,opt,name=status,proto3" json:"status,omitempty"`
+	SagaId         uint64                 `protobuf:"varint,10,opt,name=saga_id,json=sagaId,proto3" json:"saga_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ContributionResponse) Reset() {
+	*x = ContributionResponse{}
+	mi := &file_stock_stock_proto_msgTypes[88]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContributionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContributionResponse) ProtoMessage() {}
+
+func (x *ContributionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[88]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContributionResponse.ProtoReflect.Descriptor instead.
+func (*ContributionResponse) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{88}
+}
+
+func (x *ContributionResponse) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *ContributionResponse) GetFundId() uint64 {
+	if x != nil {
+		return x.FundId
+	}
+	return 0
+}
+
+func (x *ContributionResponse) GetDirection() string {
+	if x != nil {
+		return x.Direction
+	}
+	return ""
+}
+
+func (x *ContributionResponse) GetAmountNative() string {
+	if x != nil {
+		return x.AmountNative
+	}
+	return ""
+}
+
+func (x *ContributionResponse) GetNativeCurrency() string {
+	if x != nil {
+		return x.NativeCurrency
+	}
+	return ""
+}
+
+func (x *ContributionResponse) GetAmountRsd() string {
+	if x != nil {
+		return x.AmountRsd
+	}
+	return ""
+}
+
+func (x *ContributionResponse) GetFxRate() string {
+	if x != nil {
+		return x.FxRate
+	}
+	return ""
+}
+
+func (x *ContributionResponse) GetFeeRsd() string {
+	if x != nil {
+		return x.FeeRsd
+	}
+	return ""
+}
+
+func (x *ContributionResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ContributionResponse) GetSagaId() uint64 {
+	if x != nil {
+		return x.SagaId
+	}
+	return 0
+}
+
+type ListMyPositionsRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ActorUserId     uint64                 `protobuf:"varint,1,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
+	ActorSystemType string                 `protobuf:"bytes,2,opt,name=actor_system_type,json=actorSystemType,proto3" json:"actor_system_type,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ListMyPositionsRequest) Reset() {
+	*x = ListMyPositionsRequest{}
+	mi := &file_stock_stock_proto_msgTypes[89]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMyPositionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMyPositionsRequest) ProtoMessage() {}
+
+func (x *ListMyPositionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[89]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMyPositionsRequest.ProtoReflect.Descriptor instead.
+func (*ListMyPositionsRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{89}
+}
+
+func (x *ListMyPositionsRequest) GetActorUserId() uint64 {
+	if x != nil {
+		return x.ActorUserId
+	}
+	return 0
+}
+
+func (x *ListMyPositionsRequest) GetActorSystemType() string {
+	if x != nil {
+		return x.ActorSystemType
+	}
+	return ""
+}
+
+type ListBankPositionsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListBankPositionsRequest) Reset() {
+	*x = ListBankPositionsRequest{}
+	mi := &file_stock_stock_proto_msgTypes[90]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListBankPositionsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBankPositionsRequest) ProtoMessage() {}
+
+func (x *ListBankPositionsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[90]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBankPositionsRequest.ProtoReflect.Descriptor instead.
+func (*ListBankPositionsRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{90}
+}
+
+type ListPositionsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Positions     []*PositionItem        `protobuf:"bytes,1,rep,name=positions,proto3" json:"positions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPositionsResponse) Reset() {
+	*x = ListPositionsResponse{}
+	mi := &file_stock_stock_proto_msgTypes[91]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPositionsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPositionsResponse) ProtoMessage() {}
+
+func (x *ListPositionsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[91]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPositionsResponse.ProtoReflect.Descriptor instead.
+func (*ListPositionsResponse) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{91}
+}
+
+func (x *ListPositionsResponse) GetPositions() []*PositionItem {
+	if x != nil {
+		return x.Positions
+	}
+	return nil
+}
+
+type PositionItem struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	FundId          uint64                 `protobuf:"varint,1,opt,name=fund_id,json=fundId,proto3" json:"fund_id,omitempty"`
+	FundName        string                 `protobuf:"bytes,2,opt,name=fund_name,json=fundName,proto3" json:"fund_name,omitempty"`
+	ManagerFullName string                 `protobuf:"bytes,3,opt,name=manager_full_name,json=managerFullName,proto3" json:"manager_full_name,omitempty"`
+	ContributionRsd string                 `protobuf:"bytes,4,opt,name=contribution_rsd,json=contributionRsd,proto3" json:"contribution_rsd,omitempty"`
+	PercentageFund  string                 `protobuf:"bytes,5,opt,name=percentage_fund,json=percentageFund,proto3" json:"percentage_fund,omitempty"`
+	CurrentValueRsd string                 `protobuf:"bytes,6,opt,name=current_value_rsd,json=currentValueRsd,proto3" json:"current_value_rsd,omitempty"`
+	ProfitRsd       string                 `protobuf:"bytes,7,opt,name=profit_rsd,json=profitRsd,proto3" json:"profit_rsd,omitempty"`
+	LastChangedAt   string                 `protobuf:"bytes,8,opt,name=last_changed_at,json=lastChangedAt,proto3" json:"last_changed_at,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PositionItem) Reset() {
+	*x = PositionItem{}
+	mi := &file_stock_stock_proto_msgTypes[92]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PositionItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PositionItem) ProtoMessage() {}
+
+func (x *PositionItem) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[92]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PositionItem.ProtoReflect.Descriptor instead.
+func (*PositionItem) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{92}
+}
+
+func (x *PositionItem) GetFundId() uint64 {
+	if x != nil {
+		return x.FundId
+	}
+	return 0
+}
+
+func (x *PositionItem) GetFundName() string {
+	if x != nil {
+		return x.FundName
+	}
+	return ""
+}
+
+func (x *PositionItem) GetManagerFullName() string {
+	if x != nil {
+		return x.ManagerFullName
+	}
+	return ""
+}
+
+func (x *PositionItem) GetContributionRsd() string {
+	if x != nil {
+		return x.ContributionRsd
+	}
+	return ""
+}
+
+func (x *PositionItem) GetPercentageFund() string {
+	if x != nil {
+		return x.PercentageFund
+	}
+	return ""
+}
+
+func (x *PositionItem) GetCurrentValueRsd() string {
+	if x != nil {
+		return x.CurrentValueRsd
+	}
+	return ""
+}
+
+func (x *PositionItem) GetProfitRsd() string {
+	if x != nil {
+		return x.ProfitRsd
+	}
+	return ""
+}
+
+func (x *PositionItem) GetLastChangedAt() string {
+	if x != nil {
+		return x.LastChangedAt
+	}
+	return ""
+}
+
+type GetActuaryPerformanceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetActuaryPerformanceRequest) Reset() {
+	*x = GetActuaryPerformanceRequest{}
+	mi := &file_stock_stock_proto_msgTypes[93]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActuaryPerformanceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActuaryPerformanceRequest) ProtoMessage() {}
+
+func (x *GetActuaryPerformanceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[93]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActuaryPerformanceRequest.ProtoReflect.Descriptor instead.
+func (*GetActuaryPerformanceRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{93}
+}
+
+type GetActuaryPerformanceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Actuaries     []*ActuaryPerformance  `protobuf:"bytes,1,rep,name=actuaries,proto3" json:"actuaries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetActuaryPerformanceResponse) Reset() {
+	*x = GetActuaryPerformanceResponse{}
+	mi := &file_stock_stock_proto_msgTypes[94]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetActuaryPerformanceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetActuaryPerformanceResponse) ProtoMessage() {}
+
+func (x *GetActuaryPerformanceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[94]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetActuaryPerformanceResponse.ProtoReflect.Descriptor instead.
+func (*GetActuaryPerformanceResponse) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{94}
+}
+
+func (x *GetActuaryPerformanceResponse) GetActuaries() []*ActuaryPerformance {
+	if x != nil {
+		return x.Actuaries
+	}
+	return nil
+}
+
+type ActuaryPerformance struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	EmployeeId        int64                  `protobuf:"varint,1,opt,name=employee_id,json=employeeId,proto3" json:"employee_id,omitempty"`
+	FullName          string                 `protobuf:"bytes,2,opt,name=full_name,json=fullName,proto3" json:"full_name,omitempty"`
+	Role              string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	RealizedProfitRsd string                 `protobuf:"bytes,4,opt,name=realized_profit_rsd,json=realizedProfitRsd,proto3" json:"realized_profit_rsd,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ActuaryPerformance) Reset() {
+	*x = ActuaryPerformance{}
+	mi := &file_stock_stock_proto_msgTypes[95]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ActuaryPerformance) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ActuaryPerformance) ProtoMessage() {}
+
+func (x *ActuaryPerformance) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[95]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ActuaryPerformance.ProtoReflect.Descriptor instead.
+func (*ActuaryPerformance) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{95}
+}
+
+func (x *ActuaryPerformance) GetEmployeeId() int64 {
+	if x != nil {
+		return x.EmployeeId
+	}
+	return 0
+}
+
+func (x *ActuaryPerformance) GetFullName() string {
+	if x != nil {
+		return x.FullName
+	}
+	return ""
+}
+
+func (x *ActuaryPerformance) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *ActuaryPerformance) GetRealizedProfitRsd() string {
+	if x != nil {
+		return x.RealizedProfitRsd
+	}
+	return ""
+}
+
 var File_stock_stock_proto protoreflect.FileDescriptor
 
 const file_stock_stock_proto_rawDesc = "" +
@@ -6759,7 +8099,125 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\n" +
 	"started_at\x18\x03 \x01(\tR\tstartedAt\x12\x1d\n" +
 	"\n" +
-	"last_error\x18\x04 \x01(\tR\tlastError2\xbf\x02\n" +
+	"last_error\x18\x04 \x01(\tR\tlastError\"9\n" +
+	"\n" +
+	"OnBehalfOf\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x12\x17\n" +
+	"\afund_id\x18\x02 \x01(\x04R\x06fundId\"\xaf\x01\n" +
+	"\x11CreateFundRequest\x12*\n" +
+	"\x11actor_employee_id\x18\x01 \x01(\x03R\x0factorEmployeeId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x128\n" +
+	"\x18minimum_contribution_rsd\x18\x04 \x01(\tR\x16minimumContributionRsd\"\xef\x03\n" +
+	"\fFundResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12.\n" +
+	"\x13manager_employee_id\x18\x04 \x01(\x03R\x11managerEmployeeId\x12*\n" +
+	"\x11manager_full_name\x18\x05 \x01(\tR\x0fmanagerFullName\x128\n" +
+	"\x18minimum_contribution_rsd\x18\x06 \x01(\tR\x16minimumContributionRsd\x12$\n" +
+	"\x0ersd_account_id\x18\a \x01(\x04R\frsdAccountId\x12,\n" +
+	"\x12rsd_account_number\x18\b \x01(\tR\x10rsdAccountNumber\x12\x16\n" +
+	"\x06active\x18\t \x01(\bR\x06active\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\n" +
+	" \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\v \x01(\tR\tupdatedAt\x12\x1b\n" +
+	"\tvalue_rsd\x18\f \x01(\tR\bvalueRsd\x12\x1d\n" +
+	"\n" +
+	"liquid_rsd\x18\r \x01(\tR\tliquidRsd\x12\x1d\n" +
+	"\n" +
+	"profit_rsd\x18\x0e \x01(\tR\tprofitRsd\"|\n" +
+	"\x10ListFundsRequest\x12\x12\n" +
+	"\x04page\x18\x01 \x01(\x05R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x16\n" +
+	"\x06search\x18\x03 \x01(\tR\x06search\x12\x1f\n" +
+	"\vactive_only\x18\x04 \x01(\bR\n" +
+	"activeOnly\"T\n" +
+	"\x11ListFundsResponse\x12)\n" +
+	"\x05funds\x18\x01 \x03(\v2\x13.stock.FundResponseR\x05funds\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\")\n" +
+	"\x0eGetFundRequest\x12\x17\n" +
+	"\afund_id\x18\x01 \x01(\x04R\x06fundId\"q\n" +
+	"\x12FundDetailResponse\x12'\n" +
+	"\x04fund\x18\x01 \x01(\v2\x13.stock.FundResponseR\x04fund\x122\n" +
+	"\bholdings\x18\x02 \x03(\v2\x16.stock.FundHoldingItemR\bholdings\"\x84\x02\n" +
+	"\x0fFundHoldingItem\x12#\n" +
+	"\rsecurity_type\x18\x01 \x01(\tR\fsecurityType\x12\x1f\n" +
+	"\vsecurity_id\x18\x02 \x01(\x04R\n" +
+	"securityId\x12\x16\n" +
+	"\x06ticker\x18\x03 \x01(\tR\x06ticker\x12\x1a\n" +
+	"\bquantity\x18\x04 \x01(\x03R\bquantity\x12*\n" +
+	"\x11average_price_rsd\x18\x05 \x01(\tR\x0faveragePriceRsd\x12*\n" +
+	"\x11current_price_rsd\x18\x06 \x01(\tR\x0fcurrentPriceRsd\x12\x1f\n" +
+	"\vacquired_at\x18\a \x01(\tR\n" +
+	"acquiredAt\"\xff\x01\n" +
+	"\x11UpdateFundRequest\x12*\n" +
+	"\x11actor_employee_id\x18\x01 \x01(\x03R\x0factorEmployeeId\x12\x17\n" +
+	"\afund_id\x18\x02 \x01(\x04R\x06fundId\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12 \n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\x128\n" +
+	"\x18minimum_contribution_rsd\x18\x05 \x01(\tR\x16minimumContributionRsd\x12\x16\n" +
+	"\x06active\x18\x06 \x01(\bR\x06active\x12\x1d\n" +
+	"\n" +
+	"active_set\x18\a \x01(\bR\tactiveSet\"\x93\x02\n" +
+	"\x13InvestInFundRequest\x12\x17\n" +
+	"\afund_id\x18\x01 \x01(\x04R\x06fundId\x12\"\n" +
+	"\ractor_user_id\x18\x02 \x01(\x04R\vactorUserId\x12*\n" +
+	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\x12*\n" +
+	"\x11source_account_id\x18\x04 \x01(\x04R\x0fsourceAccountId\x12\x16\n" +
+	"\x06amount\x18\x05 \x01(\tR\x06amount\x12\x1a\n" +
+	"\bcurrency\x18\x06 \x01(\tR\bcurrency\x123\n" +
+	"\fon_behalf_of\x18\a \x01(\v2\x11.stock.OnBehalfOfR\n" +
+	"onBehalfOf\"\x80\x02\n" +
+	"\x15RedeemFromFundRequest\x12\x17\n" +
+	"\afund_id\x18\x01 \x01(\x04R\x06fundId\x12\"\n" +
+	"\ractor_user_id\x18\x02 \x01(\x04R\vactorUserId\x12*\n" +
+	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\x12\x1d\n" +
+	"\n" +
+	"amount_rsd\x18\x04 \x01(\tR\tamountRsd\x12*\n" +
+	"\x11target_account_id\x18\x05 \x01(\x04R\x0ftargetAccountId\x123\n" +
+	"\fon_behalf_of\x18\x06 \x01(\v2\x11.stock.OnBehalfOfR\n" +
+	"onBehalfOf\"\xad\x02\n" +
+	"\x14ContributionResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
+	"\afund_id\x18\x02 \x01(\x04R\x06fundId\x12\x1c\n" +
+	"\tdirection\x18\x03 \x01(\tR\tdirection\x12#\n" +
+	"\ramount_native\x18\x04 \x01(\tR\famountNative\x12'\n" +
+	"\x0fnative_currency\x18\x05 \x01(\tR\x0enativeCurrency\x12\x1d\n" +
+	"\n" +
+	"amount_rsd\x18\x06 \x01(\tR\tamountRsd\x12\x17\n" +
+	"\afx_rate\x18\a \x01(\tR\x06fxRate\x12\x17\n" +
+	"\afee_rsd\x18\b \x01(\tR\x06feeRsd\x12\x16\n" +
+	"\x06status\x18\t \x01(\tR\x06status\x12\x17\n" +
+	"\asaga_id\x18\n" +
+	" \x01(\x04R\x06sagaId\"h\n" +
+	"\x16ListMyPositionsRequest\x12\"\n" +
+	"\ractor_user_id\x18\x01 \x01(\x04R\vactorUserId\x12*\n" +
+	"\x11actor_system_type\x18\x02 \x01(\tR\x0factorSystemType\"\x1a\n" +
+	"\x18ListBankPositionsRequest\"J\n" +
+	"\x15ListPositionsResponse\x121\n" +
+	"\tpositions\x18\x01 \x03(\v2\x13.stock.PositionItemR\tpositions\"\xb7\x02\n" +
+	"\fPositionItem\x12\x17\n" +
+	"\afund_id\x18\x01 \x01(\x04R\x06fundId\x12\x1b\n" +
+	"\tfund_name\x18\x02 \x01(\tR\bfundName\x12*\n" +
+	"\x11manager_full_name\x18\x03 \x01(\tR\x0fmanagerFullName\x12)\n" +
+	"\x10contribution_rsd\x18\x04 \x01(\tR\x0fcontributionRsd\x12'\n" +
+	"\x0fpercentage_fund\x18\x05 \x01(\tR\x0epercentageFund\x12*\n" +
+	"\x11current_value_rsd\x18\x06 \x01(\tR\x0fcurrentValueRsd\x12\x1d\n" +
+	"\n" +
+	"profit_rsd\x18\a \x01(\tR\tprofitRsd\x12&\n" +
+	"\x0flast_changed_at\x18\b \x01(\tR\rlastChangedAt\"\x1e\n" +
+	"\x1cGetActuaryPerformanceRequest\"X\n" +
+	"\x1dGetActuaryPerformanceResponse\x127\n" +
+	"\tactuaries\x18\x01 \x03(\v2\x19.stock.ActuaryPerformanceR\tactuaries\"\x96\x01\n" +
+	"\x12ActuaryPerformance\x12\x1f\n" +
+	"\vemployee_id\x18\x01 \x01(\x03R\n" +
+	"employeeId\x12\x1b\n" +
+	"\tfull_name\x18\x02 \x01(\tR\bfullName\x12\x12\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\x12.\n" +
+	"\x13realized_profit_rsd\x18\x04 \x01(\tR\x11realizedProfitRsd2\xbf\x02\n" +
 	"\x18StockExchangeGRPCService\x12J\n" +
 	"\rListExchanges\x12\x1b.stock.ListExchangesRequest\x1a\x1c.stock.ListExchangesResponse\x129\n" +
 	"\vGetExchange\x12\x19.stock.GetExchangeRequest\x1a\x0f.stock.Exchange\x12M\n" +
@@ -6809,7 +8267,19 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x12ListUserTaxRecords\x12 .stock.ListUserTaxRecordsRequest\x1a!.stock.ListUserTaxRecordsResponse2\xa4\x01\n" +
 	"\x12SourceAdminService\x12G\n" +
 	"\fSwitchSource\x12\x1a.stock.SwitchSourceRequest\x1a\x1b.stock.SwitchSourceResponse\x12E\n" +
-	"\x0fGetSourceStatus\x12\x1d.stock.GetSourceStatusRequest\x1a\x13.stock.SourceStatusB-Z+github.com/exbanka/contract/stockpb;stockpbb\x06proto3"
+	"\x0fGetSourceStatus\x12\x1d.stock.GetSourceStatusRequest\x1a\x13.stock.SourceStatus2\xac\x05\n" +
+	"\x15InvestmentFundService\x12;\n" +
+	"\n" +
+	"CreateFund\x12\x18.stock.CreateFundRequest\x1a\x13.stock.FundResponse\x12>\n" +
+	"\tListFunds\x12\x17.stock.ListFundsRequest\x1a\x18.stock.ListFundsResponse\x12;\n" +
+	"\aGetFund\x12\x15.stock.GetFundRequest\x1a\x19.stock.FundDetailResponse\x12;\n" +
+	"\n" +
+	"UpdateFund\x12\x18.stock.UpdateFundRequest\x1a\x13.stock.FundResponse\x12G\n" +
+	"\fInvestInFund\x12\x1a.stock.InvestInFundRequest\x1a\x1b.stock.ContributionResponse\x12K\n" +
+	"\x0eRedeemFromFund\x12\x1c.stock.RedeemFromFundRequest\x1a\x1b.stock.ContributionResponse\x12N\n" +
+	"\x0fListMyPositions\x12\x1d.stock.ListMyPositionsRequest\x1a\x1c.stock.ListPositionsResponse\x12R\n" +
+	"\x11ListBankPositions\x12\x1f.stock.ListBankPositionsRequest\x1a\x1c.stock.ListPositionsResponse\x12b\n" +
+	"\x15GetActuaryPerformance\x12#.stock.GetActuaryPerformanceRequest\x1a$.stock.GetActuaryPerformanceResponseB-Z+github.com/exbanka/contract/stockpb;stockpbb\x06proto3"
 
 var (
 	file_stock_stock_proto_rawDescOnce sync.Once
@@ -6823,7 +8293,7 @@ func file_stock_stock_proto_rawDescGZIP() []byte {
 	return file_stock_stock_proto_rawDescData
 }
 
-var file_stock_stock_proto_msgTypes = make([]protoimpl.MessageInfo, 77)
+var file_stock_stock_proto_msgTypes = make([]protoimpl.MessageInfo, 96)
 var file_stock_stock_proto_goTypes = []any{
 	(*Exchange)(nil),                        // 0: stock.Exchange
 	(*ListExchangesRequest)(nil),            // 1: stock.ListExchangesRequest
@@ -6902,6 +8372,25 @@ var file_stock_stock_proto_goTypes = []any{
 	(*SwitchSourceResponse)(nil),            // 74: stock.SwitchSourceResponse
 	(*GetSourceStatusRequest)(nil),          // 75: stock.GetSourceStatusRequest
 	(*SourceStatus)(nil),                    // 76: stock.SourceStatus
+	(*OnBehalfOf)(nil),                      // 77: stock.OnBehalfOf
+	(*CreateFundRequest)(nil),               // 78: stock.CreateFundRequest
+	(*FundResponse)(nil),                    // 79: stock.FundResponse
+	(*ListFundsRequest)(nil),                // 80: stock.ListFundsRequest
+	(*ListFundsResponse)(nil),               // 81: stock.ListFundsResponse
+	(*GetFundRequest)(nil),                  // 82: stock.GetFundRequest
+	(*FundDetailResponse)(nil),              // 83: stock.FundDetailResponse
+	(*FundHoldingItem)(nil),                 // 84: stock.FundHoldingItem
+	(*UpdateFundRequest)(nil),               // 85: stock.UpdateFundRequest
+	(*InvestInFundRequest)(nil),             // 86: stock.InvestInFundRequest
+	(*RedeemFromFundRequest)(nil),           // 87: stock.RedeemFromFundRequest
+	(*ContributionResponse)(nil),            // 88: stock.ContributionResponse
+	(*ListMyPositionsRequest)(nil),          // 89: stock.ListMyPositionsRequest
+	(*ListBankPositionsRequest)(nil),        // 90: stock.ListBankPositionsRequest
+	(*ListPositionsResponse)(nil),           // 91: stock.ListPositionsResponse
+	(*PositionItem)(nil),                    // 92: stock.PositionItem
+	(*GetActuaryPerformanceRequest)(nil),    // 93: stock.GetActuaryPerformanceRequest
+	(*GetActuaryPerformanceResponse)(nil),   // 94: stock.GetActuaryPerformanceResponse
+	(*ActuaryPerformance)(nil),              // 95: stock.ActuaryPerformance
 }
 var file_stock_stock_proto_depIdxs = []int32{
 	0,  // 0: stock.ListExchangesResponse.exchanges:type_name -> stock.Exchange
@@ -6928,83 +8417,108 @@ var file_stock_stock_proto_depIdxs = []int32{
 	70, // 21: stock.ListUserTaxRecordsResponse.records:type_name -> stock.UserTaxRecord
 	72, // 22: stock.ListUserTaxRecordsResponse.collections:type_name -> stock.TaxCollectionRecord
 	76, // 23: stock.SwitchSourceResponse.status:type_name -> stock.SourceStatus
-	1,  // 24: stock.StockExchangeGRPCService.ListExchanges:input_type -> stock.ListExchangesRequest
-	3,  // 25: stock.StockExchangeGRPCService.GetExchange:input_type -> stock.GetExchangeRequest
-	4,  // 26: stock.StockExchangeGRPCService.SetTestingMode:input_type -> stock.SetTestingModeRequest
-	6,  // 27: stock.StockExchangeGRPCService.GetTestingMode:input_type -> stock.GetTestingModeRequest
-	15, // 28: stock.SecurityGRPCService.ListStocks:input_type -> stock.ListStocksRequest
-	17, // 29: stock.SecurityGRPCService.GetStock:input_type -> stock.GetStockRequest
-	11, // 30: stock.SecurityGRPCService.GetStockHistory:input_type -> stock.GetPriceHistoryRequest
-	20, // 31: stock.SecurityGRPCService.ListFutures:input_type -> stock.ListFuturesRequest
-	22, // 32: stock.SecurityGRPCService.GetFutures:input_type -> stock.GetFuturesRequest
-	11, // 33: stock.SecurityGRPCService.GetFuturesHistory:input_type -> stock.GetPriceHistoryRequest
-	25, // 34: stock.SecurityGRPCService.ListForexPairs:input_type -> stock.ListForexPairsRequest
-	27, // 35: stock.SecurityGRPCService.GetForexPair:input_type -> stock.GetForexPairRequest
-	11, // 36: stock.SecurityGRPCService.GetForexPairHistory:input_type -> stock.GetPriceHistoryRequest
-	30, // 37: stock.SecurityGRPCService.ListOptions:input_type -> stock.ListOptionsRequest
-	32, // 38: stock.SecurityGRPCService.GetOption:input_type -> stock.GetOptionRequest
-	33, // 39: stock.SecurityGRPCService.GetCandles:input_type -> stock.GetCandlesRequest
-	39, // 40: stock.OrderGRPCService.CreateOrder:input_type -> stock.CreateOrderRequest
-	40, // 41: stock.OrderGRPCService.GetOrder:input_type -> stock.GetOrderRequest
-	41, // 42: stock.OrderGRPCService.ListMyOrders:input_type -> stock.ListMyOrdersRequest
-	44, // 43: stock.OrderGRPCService.CancelOrder:input_type -> stock.CancelOrderRequest
-	42, // 44: stock.OrderGRPCService.ListOrders:input_type -> stock.ListOrdersRequest
-	45, // 45: stock.OrderGRPCService.ApproveOrder:input_type -> stock.ApproveOrderRequest
-	46, // 46: stock.OrderGRPCService.DeclineOrder:input_type -> stock.DeclineOrderRequest
-	48, // 47: stock.PortfolioGRPCService.ListHoldings:input_type -> stock.ListHoldingsRequest
-	50, // 48: stock.PortfolioGRPCService.GetPortfolioSummary:input_type -> stock.GetPortfolioSummaryRequest
-	52, // 49: stock.PortfolioGRPCService.MakePublic:input_type -> stock.MakePublicRequest
-	53, // 50: stock.PortfolioGRPCService.ExerciseOption:input_type -> stock.ExerciseOptionRequest
-	54, // 51: stock.PortfolioGRPCService.ExerciseOptionByOptionID:input_type -> stock.ExerciseOptionByOptionIDRequest
-	57, // 52: stock.PortfolioGRPCService.ListHoldingTransactions:input_type -> stock.ListHoldingTransactionsRequest
-	60, // 53: stock.OTCGRPCService.ListOffers:input_type -> stock.ListOTCOffersRequest
-	62, // 54: stock.OTCGRPCService.BuyOffer:input_type -> stock.BuyOTCOfferRequest
-	65, // 55: stock.TaxGRPCService.ListTaxRecords:input_type -> stock.ListTaxRecordsRequest
-	67, // 56: stock.TaxGRPCService.CollectTax:input_type -> stock.CollectTaxRequest
-	69, // 57: stock.TaxGRPCService.ListUserTaxRecords:input_type -> stock.ListUserTaxRecordsRequest
-	73, // 58: stock.SourceAdminService.SwitchSource:input_type -> stock.SwitchSourceRequest
-	75, // 59: stock.SourceAdminService.GetSourceStatus:input_type -> stock.GetSourceStatusRequest
-	2,  // 60: stock.StockExchangeGRPCService.ListExchanges:output_type -> stock.ListExchangesResponse
-	0,  // 61: stock.StockExchangeGRPCService.GetExchange:output_type -> stock.Exchange
-	5,  // 62: stock.StockExchangeGRPCService.SetTestingMode:output_type -> stock.SetTestingModeResponse
-	7,  // 63: stock.StockExchangeGRPCService.GetTestingMode:output_type -> stock.GetTestingModeResponse
-	16, // 64: stock.SecurityGRPCService.ListStocks:output_type -> stock.ListStocksResponse
-	14, // 65: stock.SecurityGRPCService.GetStock:output_type -> stock.StockDetail
-	12, // 66: stock.SecurityGRPCService.GetStockHistory:output_type -> stock.PriceHistoryResponse
-	21, // 67: stock.SecurityGRPCService.ListFutures:output_type -> stock.ListFuturesResponse
-	19, // 68: stock.SecurityGRPCService.GetFutures:output_type -> stock.FuturesDetail
-	12, // 69: stock.SecurityGRPCService.GetFuturesHistory:output_type -> stock.PriceHistoryResponse
-	26, // 70: stock.SecurityGRPCService.ListForexPairs:output_type -> stock.ListForexPairsResponse
-	24, // 71: stock.SecurityGRPCService.GetForexPair:output_type -> stock.ForexPairDetail
-	12, // 72: stock.SecurityGRPCService.GetForexPairHistory:output_type -> stock.PriceHistoryResponse
-	31, // 73: stock.SecurityGRPCService.ListOptions:output_type -> stock.ListOptionsResponse
-	29, // 74: stock.SecurityGRPCService.GetOption:output_type -> stock.OptionDetail
-	35, // 75: stock.SecurityGRPCService.GetCandles:output_type -> stock.GetCandlesResponse
-	36, // 76: stock.OrderGRPCService.CreateOrder:output_type -> stock.Order
-	38, // 77: stock.OrderGRPCService.GetOrder:output_type -> stock.OrderDetail
-	43, // 78: stock.OrderGRPCService.ListMyOrders:output_type -> stock.ListOrdersResponse
-	36, // 79: stock.OrderGRPCService.CancelOrder:output_type -> stock.Order
-	43, // 80: stock.OrderGRPCService.ListOrders:output_type -> stock.ListOrdersResponse
-	36, // 81: stock.OrderGRPCService.ApproveOrder:output_type -> stock.Order
-	36, // 82: stock.OrderGRPCService.DeclineOrder:output_type -> stock.Order
-	49, // 83: stock.PortfolioGRPCService.ListHoldings:output_type -> stock.ListHoldingsResponse
-	51, // 84: stock.PortfolioGRPCService.GetPortfolioSummary:output_type -> stock.PortfolioSummary
-	47, // 85: stock.PortfolioGRPCService.MakePublic:output_type -> stock.Holding
-	55, // 86: stock.PortfolioGRPCService.ExerciseOption:output_type -> stock.ExerciseResult
-	55, // 87: stock.PortfolioGRPCService.ExerciseOptionByOptionID:output_type -> stock.ExerciseResult
-	58, // 88: stock.PortfolioGRPCService.ListHoldingTransactions:output_type -> stock.ListHoldingTransactionsResponse
-	61, // 89: stock.OTCGRPCService.ListOffers:output_type -> stock.ListOTCOffersResponse
-	63, // 90: stock.OTCGRPCService.BuyOffer:output_type -> stock.OTCTransaction
-	66, // 91: stock.TaxGRPCService.ListTaxRecords:output_type -> stock.ListTaxRecordsResponse
-	68, // 92: stock.TaxGRPCService.CollectTax:output_type -> stock.CollectTaxResponse
-	71, // 93: stock.TaxGRPCService.ListUserTaxRecords:output_type -> stock.ListUserTaxRecordsResponse
-	74, // 94: stock.SourceAdminService.SwitchSource:output_type -> stock.SwitchSourceResponse
-	76, // 95: stock.SourceAdminService.GetSourceStatus:output_type -> stock.SourceStatus
-	60, // [60:96] is the sub-list for method output_type
-	24, // [24:60] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	79, // 24: stock.ListFundsResponse.funds:type_name -> stock.FundResponse
+	79, // 25: stock.FundDetailResponse.fund:type_name -> stock.FundResponse
+	84, // 26: stock.FundDetailResponse.holdings:type_name -> stock.FundHoldingItem
+	77, // 27: stock.InvestInFundRequest.on_behalf_of:type_name -> stock.OnBehalfOf
+	77, // 28: stock.RedeemFromFundRequest.on_behalf_of:type_name -> stock.OnBehalfOf
+	92, // 29: stock.ListPositionsResponse.positions:type_name -> stock.PositionItem
+	95, // 30: stock.GetActuaryPerformanceResponse.actuaries:type_name -> stock.ActuaryPerformance
+	1,  // 31: stock.StockExchangeGRPCService.ListExchanges:input_type -> stock.ListExchangesRequest
+	3,  // 32: stock.StockExchangeGRPCService.GetExchange:input_type -> stock.GetExchangeRequest
+	4,  // 33: stock.StockExchangeGRPCService.SetTestingMode:input_type -> stock.SetTestingModeRequest
+	6,  // 34: stock.StockExchangeGRPCService.GetTestingMode:input_type -> stock.GetTestingModeRequest
+	15, // 35: stock.SecurityGRPCService.ListStocks:input_type -> stock.ListStocksRequest
+	17, // 36: stock.SecurityGRPCService.GetStock:input_type -> stock.GetStockRequest
+	11, // 37: stock.SecurityGRPCService.GetStockHistory:input_type -> stock.GetPriceHistoryRequest
+	20, // 38: stock.SecurityGRPCService.ListFutures:input_type -> stock.ListFuturesRequest
+	22, // 39: stock.SecurityGRPCService.GetFutures:input_type -> stock.GetFuturesRequest
+	11, // 40: stock.SecurityGRPCService.GetFuturesHistory:input_type -> stock.GetPriceHistoryRequest
+	25, // 41: stock.SecurityGRPCService.ListForexPairs:input_type -> stock.ListForexPairsRequest
+	27, // 42: stock.SecurityGRPCService.GetForexPair:input_type -> stock.GetForexPairRequest
+	11, // 43: stock.SecurityGRPCService.GetForexPairHistory:input_type -> stock.GetPriceHistoryRequest
+	30, // 44: stock.SecurityGRPCService.ListOptions:input_type -> stock.ListOptionsRequest
+	32, // 45: stock.SecurityGRPCService.GetOption:input_type -> stock.GetOptionRequest
+	33, // 46: stock.SecurityGRPCService.GetCandles:input_type -> stock.GetCandlesRequest
+	39, // 47: stock.OrderGRPCService.CreateOrder:input_type -> stock.CreateOrderRequest
+	40, // 48: stock.OrderGRPCService.GetOrder:input_type -> stock.GetOrderRequest
+	41, // 49: stock.OrderGRPCService.ListMyOrders:input_type -> stock.ListMyOrdersRequest
+	44, // 50: stock.OrderGRPCService.CancelOrder:input_type -> stock.CancelOrderRequest
+	42, // 51: stock.OrderGRPCService.ListOrders:input_type -> stock.ListOrdersRequest
+	45, // 52: stock.OrderGRPCService.ApproveOrder:input_type -> stock.ApproveOrderRequest
+	46, // 53: stock.OrderGRPCService.DeclineOrder:input_type -> stock.DeclineOrderRequest
+	48, // 54: stock.PortfolioGRPCService.ListHoldings:input_type -> stock.ListHoldingsRequest
+	50, // 55: stock.PortfolioGRPCService.GetPortfolioSummary:input_type -> stock.GetPortfolioSummaryRequest
+	52, // 56: stock.PortfolioGRPCService.MakePublic:input_type -> stock.MakePublicRequest
+	53, // 57: stock.PortfolioGRPCService.ExerciseOption:input_type -> stock.ExerciseOptionRequest
+	54, // 58: stock.PortfolioGRPCService.ExerciseOptionByOptionID:input_type -> stock.ExerciseOptionByOptionIDRequest
+	57, // 59: stock.PortfolioGRPCService.ListHoldingTransactions:input_type -> stock.ListHoldingTransactionsRequest
+	60, // 60: stock.OTCGRPCService.ListOffers:input_type -> stock.ListOTCOffersRequest
+	62, // 61: stock.OTCGRPCService.BuyOffer:input_type -> stock.BuyOTCOfferRequest
+	65, // 62: stock.TaxGRPCService.ListTaxRecords:input_type -> stock.ListTaxRecordsRequest
+	67, // 63: stock.TaxGRPCService.CollectTax:input_type -> stock.CollectTaxRequest
+	69, // 64: stock.TaxGRPCService.ListUserTaxRecords:input_type -> stock.ListUserTaxRecordsRequest
+	73, // 65: stock.SourceAdminService.SwitchSource:input_type -> stock.SwitchSourceRequest
+	75, // 66: stock.SourceAdminService.GetSourceStatus:input_type -> stock.GetSourceStatusRequest
+	78, // 67: stock.InvestmentFundService.CreateFund:input_type -> stock.CreateFundRequest
+	80, // 68: stock.InvestmentFundService.ListFunds:input_type -> stock.ListFundsRequest
+	82, // 69: stock.InvestmentFundService.GetFund:input_type -> stock.GetFundRequest
+	85, // 70: stock.InvestmentFundService.UpdateFund:input_type -> stock.UpdateFundRequest
+	86, // 71: stock.InvestmentFundService.InvestInFund:input_type -> stock.InvestInFundRequest
+	87, // 72: stock.InvestmentFundService.RedeemFromFund:input_type -> stock.RedeemFromFundRequest
+	89, // 73: stock.InvestmentFundService.ListMyPositions:input_type -> stock.ListMyPositionsRequest
+	90, // 74: stock.InvestmentFundService.ListBankPositions:input_type -> stock.ListBankPositionsRequest
+	93, // 75: stock.InvestmentFundService.GetActuaryPerformance:input_type -> stock.GetActuaryPerformanceRequest
+	2,  // 76: stock.StockExchangeGRPCService.ListExchanges:output_type -> stock.ListExchangesResponse
+	0,  // 77: stock.StockExchangeGRPCService.GetExchange:output_type -> stock.Exchange
+	5,  // 78: stock.StockExchangeGRPCService.SetTestingMode:output_type -> stock.SetTestingModeResponse
+	7,  // 79: stock.StockExchangeGRPCService.GetTestingMode:output_type -> stock.GetTestingModeResponse
+	16, // 80: stock.SecurityGRPCService.ListStocks:output_type -> stock.ListStocksResponse
+	14, // 81: stock.SecurityGRPCService.GetStock:output_type -> stock.StockDetail
+	12, // 82: stock.SecurityGRPCService.GetStockHistory:output_type -> stock.PriceHistoryResponse
+	21, // 83: stock.SecurityGRPCService.ListFutures:output_type -> stock.ListFuturesResponse
+	19, // 84: stock.SecurityGRPCService.GetFutures:output_type -> stock.FuturesDetail
+	12, // 85: stock.SecurityGRPCService.GetFuturesHistory:output_type -> stock.PriceHistoryResponse
+	26, // 86: stock.SecurityGRPCService.ListForexPairs:output_type -> stock.ListForexPairsResponse
+	24, // 87: stock.SecurityGRPCService.GetForexPair:output_type -> stock.ForexPairDetail
+	12, // 88: stock.SecurityGRPCService.GetForexPairHistory:output_type -> stock.PriceHistoryResponse
+	31, // 89: stock.SecurityGRPCService.ListOptions:output_type -> stock.ListOptionsResponse
+	29, // 90: stock.SecurityGRPCService.GetOption:output_type -> stock.OptionDetail
+	35, // 91: stock.SecurityGRPCService.GetCandles:output_type -> stock.GetCandlesResponse
+	36, // 92: stock.OrderGRPCService.CreateOrder:output_type -> stock.Order
+	38, // 93: stock.OrderGRPCService.GetOrder:output_type -> stock.OrderDetail
+	43, // 94: stock.OrderGRPCService.ListMyOrders:output_type -> stock.ListOrdersResponse
+	36, // 95: stock.OrderGRPCService.CancelOrder:output_type -> stock.Order
+	43, // 96: stock.OrderGRPCService.ListOrders:output_type -> stock.ListOrdersResponse
+	36, // 97: stock.OrderGRPCService.ApproveOrder:output_type -> stock.Order
+	36, // 98: stock.OrderGRPCService.DeclineOrder:output_type -> stock.Order
+	49, // 99: stock.PortfolioGRPCService.ListHoldings:output_type -> stock.ListHoldingsResponse
+	51, // 100: stock.PortfolioGRPCService.GetPortfolioSummary:output_type -> stock.PortfolioSummary
+	47, // 101: stock.PortfolioGRPCService.MakePublic:output_type -> stock.Holding
+	55, // 102: stock.PortfolioGRPCService.ExerciseOption:output_type -> stock.ExerciseResult
+	55, // 103: stock.PortfolioGRPCService.ExerciseOptionByOptionID:output_type -> stock.ExerciseResult
+	58, // 104: stock.PortfolioGRPCService.ListHoldingTransactions:output_type -> stock.ListHoldingTransactionsResponse
+	61, // 105: stock.OTCGRPCService.ListOffers:output_type -> stock.ListOTCOffersResponse
+	63, // 106: stock.OTCGRPCService.BuyOffer:output_type -> stock.OTCTransaction
+	66, // 107: stock.TaxGRPCService.ListTaxRecords:output_type -> stock.ListTaxRecordsResponse
+	68, // 108: stock.TaxGRPCService.CollectTax:output_type -> stock.CollectTaxResponse
+	71, // 109: stock.TaxGRPCService.ListUserTaxRecords:output_type -> stock.ListUserTaxRecordsResponse
+	74, // 110: stock.SourceAdminService.SwitchSource:output_type -> stock.SwitchSourceResponse
+	76, // 111: stock.SourceAdminService.GetSourceStatus:output_type -> stock.SourceStatus
+	79, // 112: stock.InvestmentFundService.CreateFund:output_type -> stock.FundResponse
+	81, // 113: stock.InvestmentFundService.ListFunds:output_type -> stock.ListFundsResponse
+	83, // 114: stock.InvestmentFundService.GetFund:output_type -> stock.FundDetailResponse
+	79, // 115: stock.InvestmentFundService.UpdateFund:output_type -> stock.FundResponse
+	88, // 116: stock.InvestmentFundService.InvestInFund:output_type -> stock.ContributionResponse
+	88, // 117: stock.InvestmentFundService.RedeemFromFund:output_type -> stock.ContributionResponse
+	91, // 118: stock.InvestmentFundService.ListMyPositions:output_type -> stock.ListPositionsResponse
+	91, // 119: stock.InvestmentFundService.ListBankPositions:output_type -> stock.ListPositionsResponse
+	94, // 120: stock.InvestmentFundService.GetActuaryPerformance:output_type -> stock.GetActuaryPerformanceResponse
+	76, // [76:121] is the sub-list for method output_type
+	31, // [31:76] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_stock_stock_proto_init() }
@@ -7022,9 +8536,9 @@ func file_stock_stock_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_stock_stock_proto_rawDesc), len(file_stock_stock_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   77,
+			NumMessages:   96,
 			NumExtensions: 0,
-			NumServices:   7,
+			NumServices:   8,
 		},
 		GoTypes:           file_stock_stock_proto_goTypes,
 		DependencyIndexes: file_stock_stock_proto_depIdxs,

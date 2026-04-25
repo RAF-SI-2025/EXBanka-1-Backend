@@ -1854,3 +1854,409 @@ var SourceAdminService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "stock/stock.proto",
 }
+
+const (
+	InvestmentFundService_CreateFund_FullMethodName            = "/stock.InvestmentFundService/CreateFund"
+	InvestmentFundService_ListFunds_FullMethodName             = "/stock.InvestmentFundService/ListFunds"
+	InvestmentFundService_GetFund_FullMethodName               = "/stock.InvestmentFundService/GetFund"
+	InvestmentFundService_UpdateFund_FullMethodName            = "/stock.InvestmentFundService/UpdateFund"
+	InvestmentFundService_InvestInFund_FullMethodName          = "/stock.InvestmentFundService/InvestInFund"
+	InvestmentFundService_RedeemFromFund_FullMethodName        = "/stock.InvestmentFundService/RedeemFromFund"
+	InvestmentFundService_ListMyPositions_FullMethodName       = "/stock.InvestmentFundService/ListMyPositions"
+	InvestmentFundService_ListBankPositions_FullMethodName     = "/stock.InvestmentFundService/ListBankPositions"
+	InvestmentFundService_GetActuaryPerformance_FullMethodName = "/stock.InvestmentFundService/GetActuaryPerformance"
+)
+
+// InvestmentFundServiceClient is the client API for InvestmentFundService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type InvestmentFundServiceClient interface {
+	CreateFund(ctx context.Context, in *CreateFundRequest, opts ...grpc.CallOption) (*FundResponse, error)
+	ListFunds(ctx context.Context, in *ListFundsRequest, opts ...grpc.CallOption) (*ListFundsResponse, error)
+	GetFund(ctx context.Context, in *GetFundRequest, opts ...grpc.CallOption) (*FundDetailResponse, error)
+	UpdateFund(ctx context.Context, in *UpdateFundRequest, opts ...grpc.CallOption) (*FundResponse, error)
+	InvestInFund(ctx context.Context, in *InvestInFundRequest, opts ...grpc.CallOption) (*ContributionResponse, error)
+	RedeemFromFund(ctx context.Context, in *RedeemFromFundRequest, opts ...grpc.CallOption) (*ContributionResponse, error)
+	ListMyPositions(ctx context.Context, in *ListMyPositionsRequest, opts ...grpc.CallOption) (*ListPositionsResponse, error)
+	ListBankPositions(ctx context.Context, in *ListBankPositionsRequest, opts ...grpc.CallOption) (*ListPositionsResponse, error)
+	GetActuaryPerformance(ctx context.Context, in *GetActuaryPerformanceRequest, opts ...grpc.CallOption) (*GetActuaryPerformanceResponse, error)
+}
+
+type investmentFundServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewInvestmentFundServiceClient(cc grpc.ClientConnInterface) InvestmentFundServiceClient {
+	return &investmentFundServiceClient{cc}
+}
+
+func (c *investmentFundServiceClient) CreateFund(ctx context.Context, in *CreateFundRequest, opts ...grpc.CallOption) (*FundResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FundResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_CreateFund_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) ListFunds(ctx context.Context, in *ListFundsRequest, opts ...grpc.CallOption) (*ListFundsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListFundsResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_ListFunds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) GetFund(ctx context.Context, in *GetFundRequest, opts ...grpc.CallOption) (*FundDetailResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FundDetailResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_GetFund_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) UpdateFund(ctx context.Context, in *UpdateFundRequest, opts ...grpc.CallOption) (*FundResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FundResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_UpdateFund_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) InvestInFund(ctx context.Context, in *InvestInFundRequest, opts ...grpc.CallOption) (*ContributionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContributionResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_InvestInFund_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) RedeemFromFund(ctx context.Context, in *RedeemFromFundRequest, opts ...grpc.CallOption) (*ContributionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContributionResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_RedeemFromFund_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) ListMyPositions(ctx context.Context, in *ListMyPositionsRequest, opts ...grpc.CallOption) (*ListPositionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPositionsResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_ListMyPositions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) ListBankPositions(ctx context.Context, in *ListBankPositionsRequest, opts ...grpc.CallOption) (*ListPositionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPositionsResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_ListBankPositions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *investmentFundServiceClient) GetActuaryPerformance(ctx context.Context, in *GetActuaryPerformanceRequest, opts ...grpc.CallOption) (*GetActuaryPerformanceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetActuaryPerformanceResponse)
+	err := c.cc.Invoke(ctx, InvestmentFundService_GetActuaryPerformance_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// InvestmentFundServiceServer is the server API for InvestmentFundService service.
+// All implementations must embed UnimplementedInvestmentFundServiceServer
+// for forward compatibility.
+type InvestmentFundServiceServer interface {
+	CreateFund(context.Context, *CreateFundRequest) (*FundResponse, error)
+	ListFunds(context.Context, *ListFundsRequest) (*ListFundsResponse, error)
+	GetFund(context.Context, *GetFundRequest) (*FundDetailResponse, error)
+	UpdateFund(context.Context, *UpdateFundRequest) (*FundResponse, error)
+	InvestInFund(context.Context, *InvestInFundRequest) (*ContributionResponse, error)
+	RedeemFromFund(context.Context, *RedeemFromFundRequest) (*ContributionResponse, error)
+	ListMyPositions(context.Context, *ListMyPositionsRequest) (*ListPositionsResponse, error)
+	ListBankPositions(context.Context, *ListBankPositionsRequest) (*ListPositionsResponse, error)
+	GetActuaryPerformance(context.Context, *GetActuaryPerformanceRequest) (*GetActuaryPerformanceResponse, error)
+	mustEmbedUnimplementedInvestmentFundServiceServer()
+}
+
+// UnimplementedInvestmentFundServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedInvestmentFundServiceServer struct{}
+
+func (UnimplementedInvestmentFundServiceServer) CreateFund(context.Context, *CreateFundRequest) (*FundResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateFund not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) ListFunds(context.Context, *ListFundsRequest) (*ListFundsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListFunds not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) GetFund(context.Context, *GetFundRequest) (*FundDetailResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetFund not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) UpdateFund(context.Context, *UpdateFundRequest) (*FundResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateFund not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) InvestInFund(context.Context, *InvestInFundRequest) (*ContributionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InvestInFund not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) RedeemFromFund(context.Context, *RedeemFromFundRequest) (*ContributionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RedeemFromFund not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) ListMyPositions(context.Context, *ListMyPositionsRequest) (*ListPositionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMyPositions not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) ListBankPositions(context.Context, *ListBankPositionsRequest) (*ListPositionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListBankPositions not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) GetActuaryPerformance(context.Context, *GetActuaryPerformanceRequest) (*GetActuaryPerformanceResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetActuaryPerformance not implemented")
+}
+func (UnimplementedInvestmentFundServiceServer) mustEmbedUnimplementedInvestmentFundServiceServer() {}
+func (UnimplementedInvestmentFundServiceServer) testEmbeddedByValue()                               {}
+
+// UnsafeInvestmentFundServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to InvestmentFundServiceServer will
+// result in compilation errors.
+type UnsafeInvestmentFundServiceServer interface {
+	mustEmbedUnimplementedInvestmentFundServiceServer()
+}
+
+func RegisterInvestmentFundServiceServer(s grpc.ServiceRegistrar, srv InvestmentFundServiceServer) {
+	// If the following call panics, it indicates UnimplementedInvestmentFundServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&InvestmentFundService_ServiceDesc, srv)
+}
+
+func _InvestmentFundService_CreateFund_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).CreateFund(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_CreateFund_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).CreateFund(ctx, req.(*CreateFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_ListFunds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListFundsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).ListFunds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_ListFunds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).ListFunds(ctx, req.(*ListFundsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_GetFund_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).GetFund(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_GetFund_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).GetFund(ctx, req.(*GetFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_UpdateFund_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).UpdateFund(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_UpdateFund_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).UpdateFund(ctx, req.(*UpdateFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_InvestInFund_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InvestInFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).InvestInFund(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_InvestInFund_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).InvestInFund(ctx, req.(*InvestInFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_RedeemFromFund_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RedeemFromFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).RedeemFromFund(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_RedeemFromFund_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).RedeemFromFund(ctx, req.(*RedeemFromFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_ListMyPositions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyPositionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).ListMyPositions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_ListMyPositions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).ListMyPositions(ctx, req.(*ListMyPositionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_ListBankPositions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBankPositionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).ListBankPositions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_ListBankPositions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).ListBankPositions(ctx, req.(*ListBankPositionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InvestmentFundService_GetActuaryPerformance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetActuaryPerformanceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InvestmentFundServiceServer).GetActuaryPerformance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InvestmentFundService_GetActuaryPerformance_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InvestmentFundServiceServer).GetActuaryPerformance(ctx, req.(*GetActuaryPerformanceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// InvestmentFundService_ServiceDesc is the grpc.ServiceDesc for InvestmentFundService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var InvestmentFundService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.InvestmentFundService",
+	HandlerType: (*InvestmentFundServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateFund",
+			Handler:    _InvestmentFundService_CreateFund_Handler,
+		},
+		{
+			MethodName: "ListFunds",
+			Handler:    _InvestmentFundService_ListFunds_Handler,
+		},
+		{
+			MethodName: "GetFund",
+			Handler:    _InvestmentFundService_GetFund_Handler,
+		},
+		{
+			MethodName: "UpdateFund",
+			Handler:    _InvestmentFundService_UpdateFund_Handler,
+		},
+		{
+			MethodName: "InvestInFund",
+			Handler:    _InvestmentFundService_InvestInFund_Handler,
+		},
+		{
+			MethodName: "RedeemFromFund",
+			Handler:    _InvestmentFundService_RedeemFromFund_Handler,
+		},
+		{
+			MethodName: "ListMyPositions",
+			Handler:    _InvestmentFundService_ListMyPositions_Handler,
+		},
+		{
+			MethodName: "ListBankPositions",
+			Handler:    _InvestmentFundService_ListBankPositions_Handler,
+		},
+		{
+			MethodName: "GetActuaryPerformance",
+			Handler:    _InvestmentFundService_GetActuaryPerformance_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}
