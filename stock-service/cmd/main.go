@@ -260,31 +260,51 @@ func main() {
 		return ex.ID, nil
 	})
 
-	// Restore the last-active data source so a restart preserves the admin's choice.
-	var initialSource source.Source = extSource // default fallback
+	// Helper to construct a generated source on demand (used as both the
+	// default and the restored choice).
+	newGeneratedSource := func() source.Source {
+		return source.NewGeneratedSource().WithExchangeResolver(func(acronym string) (uint64, error) {
+			ex, err := exchangeRepo.GetByAcronym(acronym)
+			if err != nil {
+				return 0, err
+			}
+			return ex.ID, nil
+		})
+	}
+
+	// Default to the generated source. External is opt-in via the admin
+	// switch endpoint (or by seeding active_stock_source=external before boot).
+	// Rationale: in the project environment, external providers (AlphaVantage,
+	// Finnhub) routinely exhaust their free-tier quota, which the legacy
+	// fallback would then interpret as zero-prices and wipe the market data.
+	// Generated prices are deterministic, offline, and good enough for all
+	// demo / test workflows.
+	var initialSource source.Source = newGeneratedSource()
 	if settingRepo != nil {
 		if active, err := settingRepo.Get("active_stock_source"); err == nil && active != "" {
 			switch active {
 			case "external":
 				initialSource = extSource
+				log.Println("restored active stock source: external")
 			case "generated":
-				initialSource = source.NewGeneratedSource().WithExchangeResolver(func(acronym string) (uint64, error) {
-					ex, err := exchangeRepo.GetByAcronym(acronym)
-					if err != nil {
-						return 0, err
-					}
-					return ex.ID, nil
-				})
+				initialSource = newGeneratedSource()
 				log.Println("restored active stock source: generated")
 			case "simulator":
 				client := source.NewSimulatorClient(cfg.MarketSimulatorURL, cfg.BankName, settingRepo)
 				if err := client.EnsureRegistered(); err != nil {
-					log.Printf("WARN: simulator registration failed on boot, falling back to external: %v", err)
+					log.Printf("WARN: simulator registration failed on boot, falling back to generated: %v", err)
 				} else {
 					initialSource = source.NewSimulatorSource(client)
 					log.Println("restored active stock source: simulator")
 				}
 			}
+		} else {
+			// No setting yet — persist the default so future restarts are
+			// unambiguous and the admin endpoint reports the real value.
+			if err := settingRepo.Set("active_stock_source", "generated"); err != nil {
+				log.Printf("WARN: could not persist default active_stock_source: %v", err)
+			}
+			log.Println("initial stock source: generated (default)")
 		}
 	}
 
