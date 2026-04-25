@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -314,10 +315,11 @@ func (m *mockExchangeClient) Calculate(_ context.Context, _ *exchangepb.Calculat
 // ---------------------------------------------------------------------------
 
 type mockTaxAccountClient struct {
-	accounts       map[uint64]*accountpb.AccountResponse
-	updateBalErr   error
-	getAccountErr  error
-	updateBalCalls []taxUpdateBalCall
+	accounts            map[uint64]*accountpb.AccountResponse
+	updateBalErr        error
+	failOnAccountNumber string // when non-empty, UpdateBalance returns an error for this account number specifically
+	getAccountErr       error
+	updateBalCalls      []taxUpdateBalCall
 }
 
 type taxUpdateBalCall struct {
@@ -351,10 +353,16 @@ func (m *mockTaxAccountClient) UpdateBalance(_ context.Context, req *accountpb.U
 	if m.updateBalErr != nil {
 		return nil, m.updateBalErr
 	}
+	// Record the call BEFORE the targeted failure check so tests can assert
+	// that the failing leg was actually attempted (and that the dedup retry
+	// reuses the same idempotency key).
 	m.updateBalCalls = append(m.updateBalCalls, taxUpdateBalCall{
 		AccountNumber: req.AccountNumber,
 		Amount:        req.Amount,
 	})
+	if m.failOnAccountNumber != "" && req.AccountNumber == m.failOnAccountNumber {
+		return nil, errors.New("simulated UpdateBalance failure for " + req.AccountNumber)
+	}
 	return &accountpb.AccountResponse{}, nil
 }
 
@@ -853,5 +861,103 @@ func TestTaxService_CollectTax_NoNewProfitIsNoOp(t *testing.T) {
 	}
 	if len(mocks.taxCollectionRepo.collections) != 1 {
 		t.Errorf("expected exactly 1 tax_collection row after no-op second call, got %d", len(mocks.taxCollectionRepo.collections))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CollectTax — credit-leg failure: when the user-debit succeeds but the
+// state-credit fails, NO TaxCollection row is persisted and the capital_gain
+// rows stay uncollected, so a future CollectTax call retries the credit
+// under the same idempotency key (account-service safely dedups the debit).
+// ---------------------------------------------------------------------------
+
+func TestTaxService_CollectTax_CreditFailure_DoesNotLockInMissingCredit(t *testing.T) {
+	svc, mocks := buildTaxService()
+
+	now := time.Now()
+	year := now.Year()
+	month := int(now.Month())
+
+	mocks.accountClient.addAccount(1, "USER-ACCT-001")
+	mocks.taxCollectionRepo.usersWithGains = []repository.TaxUserSummary{
+		{UserID: 42, SystemType: "employee", TotalDebtRSD: decimal.NewFromInt(150)},
+	}
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
+		UserID: 42, SystemType: "employee", SecurityType: "stock", Ticker: "AAPL",
+		Quantity: 10, BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(200),
+		TotalGain: decimal.NewFromInt(1000), Currency: "RSD", AccountID: 1,
+		TaxYear: year, TaxMonth: month,
+	})
+
+	// Fail every call to the state RSD account (credit leg).
+	mocks.accountClient.failOnAccountNumber = "STATE-RSD-001"
+
+	collectedCount, totalRSD, failedCount, err := svc.CollectTax(year, month)
+	if err != nil {
+		t.Fatalf("CollectTax: %v", err)
+	}
+	if collectedCount != 0 {
+		t.Errorf("collectedCount: got %d, want 0 (credit failed → user counted as failed, not collected)", collectedCount)
+	}
+	if failedCount != 1 {
+		t.Errorf("failedCount: got %d, want 1", failedCount)
+	}
+	if !totalRSD.IsZero() {
+		t.Errorf("totalRSD: got %s, want 0 (credit never landed)", totalRSD)
+	}
+
+	// Both the user-debit and the state-credit attempt should have been made.
+	if len(mocks.accountClient.updateBalCalls) != 2 {
+		t.Fatalf("expected 2 UpdateBalance calls (debit + failing credit attempt), got %d", len(mocks.accountClient.updateBalCalls))
+	}
+	if mocks.accountClient.updateBalCalls[0].AccountNumber != "USER-ACCT-001" {
+		t.Errorf("first call should be user debit, got %s", mocks.accountClient.updateBalCalls[0].AccountNumber)
+	}
+	if mocks.accountClient.updateBalCalls[1].AccountNumber != "STATE-RSD-001" {
+		t.Errorf("second call should be state credit attempt, got %s", mocks.accountClient.updateBalCalls[1].AccountNumber)
+	}
+
+	// Critical invariants: NO TaxCollection row, NO MarkCollected stamping.
+	if len(mocks.taxCollectionRepo.collections) != 0 {
+		t.Errorf("expected 0 tax_collection rows when credit failed, got %d", len(mocks.taxCollectionRepo.collections))
+	}
+	if len(mocks.capitalGainRepo.gains) != 1 {
+		t.Fatalf("expected 1 capital_gain row, got %d", len(mocks.capitalGainRepo.gains))
+	}
+	if mocks.capitalGainRepo.gains[0].TaxCollectionID != nil {
+		t.Errorf("capital_gain.tax_collection_id should remain NULL when credit failed, got %v", *mocks.capitalGainRepo.gains[0].TaxCollectionID)
+	}
+
+	// Now simulate the credit recovery: state account is healthy on retry.
+	// Account-service dedups the debit (same idempotency key) and finally
+	// applies the credit. The retry must reuse the SAME attempt number → same
+	// idempotency keys → no double-debit. We assert this by checking the
+	// TaxCollection row that lands has the same Year/Month/Account/Currency
+	// tuple and the second debit/credit pair go through cleanly.
+	mocks.accountClient.failOnAccountNumber = ""
+	mocks.accountClient.updateBalCalls = nil
+
+	collectedCount2, totalRSD2, failedCount2, err := svc.CollectTax(year, month)
+	if err != nil {
+		t.Fatalf("retry CollectTax: %v", err)
+	}
+	if collectedCount2 != 1 {
+		t.Errorf("retry collectedCount: got %d, want 1", collectedCount2)
+	}
+	if failedCount2 != 0 {
+		t.Errorf("retry failedCount: got %d, want 0", failedCount2)
+	}
+	if !totalRSD2.Equal(decimal.NewFromInt(150)) {
+		t.Errorf("retry totalRSD: got %s, want 150", totalRSD2)
+	}
+	if len(mocks.taxCollectionRepo.collections) != 1 {
+		t.Errorf("expected 1 tax_collection row after retry, got %d", len(mocks.taxCollectionRepo.collections))
+	}
+	// Retry must use attempt=1 (because the failed run never persisted a
+	// collection row, so CountByKey is still 0). The idempotency keys must
+	// therefore end with "-a1", which is what account-service would have
+	// dedup'd against.
+	if len(mocks.accountClient.updateBalCalls) != 2 {
+		t.Fatalf("retry: expected 2 UpdateBalance calls, got %d", len(mocks.accountClient.updateBalCalls))
 	}
 }

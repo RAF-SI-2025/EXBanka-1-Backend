@@ -409,7 +409,20 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 				IdempotencyKey:  creditKey,
 			})
 			if creditErr != nil {
-				log.Printf("WARN: tax: credit state account failed for user %d: %v", summary.UserID, creditErr)
+				// User was already debited but the state RSD account did not
+				// receive the credit. We must NOT persist the TaxCollection
+				// row or stamp the capital_gain rows — doing so would lock in
+				// the missing credit forever, because the next CollectTax run
+				// would see the gains as already collected and never retry.
+				//
+				// By skipping persistence we leave the gains uncollected for
+				// the same attempt number. On retry, account-service safely
+				// dedups the user-debit (same idempotency key) and the credit
+				// is re-issued with the same key — so we eventually land both
+				// halves of the double-entry without double-charging the user.
+				log.Printf("WARN: tax: credit state account failed for user %d account %d %s: %v — skipping collection record so retry can re-issue the credit (user-debit will safely dedup)", summary.UserID, gs.AccountID, gs.Currency, creditErr)
+				userFailed = true
+				continue
 			}
 
 			// Record collection
