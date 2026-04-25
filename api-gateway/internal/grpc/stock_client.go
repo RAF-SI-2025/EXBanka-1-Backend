@@ -70,3 +70,11 @@ func NewInvestmentFundClient(addr string) (stockpb.InvestmentFundServiceClient, 
 	}
 	return stockpb.NewInvestmentFundServiceClient(conn), conn, nil
 }
+
+func NewOTCOptionsClient(addr string) (stockpb.OTCOptionsServiceClient, *grpc.ClientConn, error) {
+	conn, err := shared.DialGRPC(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewOTCOptionsServiceClient(conn), conn, nil
+}

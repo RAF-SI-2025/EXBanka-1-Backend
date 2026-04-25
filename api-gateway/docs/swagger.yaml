@@ -16,6 +16,13 @@ definitions:
     - fromCurrency
     - toCurrency
     type: object
+  handler.acceptOTCOfferRequest:
+    properties:
+      buyer_account_id:
+        type: integer
+      seller_account_id:
+        type: integer
+    type: object
   handler.activateDeviceReq:
     properties:
       code:
@@ -57,6 +64,17 @@ definitions:
         type: string
     required:
     - template_name
+    type: object
+  handler.counterOTCOfferRequest:
+    properties:
+      premium:
+        type: string
+      quantity:
+        type: string
+      settlement_date:
+        type: string
+      strike_price:
+        type: string
     type: object
   handler.createAccountRequest:
     properties:
@@ -353,6 +371,25 @@ definitions:
     - loan_type
     - repayment_period
     type: object
+  handler.createOTCOfferRequest:
+    properties:
+      counterparty_system_type:
+        type: string
+      counterparty_user_id:
+        type: integer
+      direction:
+        type: string
+      premium:
+        type: string
+      quantity:
+        type: string
+      settlement_date:
+        type: string
+      stock_id:
+        type: integer
+      strike_price:
+        type: string
+    type: object
   handler.createOptionOrderRequest:
     properties:
       account_id:
@@ -494,6 +531,13 @@ definitions:
   handler.exerciseOptionRequest:
     properties:
       holding_id:
+        type: integer
+    type: object
+  handler.exerciseRequest:
+    properties:
+      buyer_account_id:
+        type: integer
+      seller_account_id:
         type: integer
     type: object
   handler.investRequest:
@@ -6821,6 +6865,215 @@ paths:
       summary: QR code verification (mobile scans QR)
       tags:
       - mobile-verifications
+  /api/v3/me/otc/contracts:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's OTC contracts
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/offers:
+    get:
+      parameters:
+      - description: initiator|counterparty|either
+        in: query
+        name: role
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's OTC offers
+      tags:
+      - OTCOptions
+  /api/v3/otc/contracts/{id}:
+    get:
+      parameters:
+      - description: contract id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get an OTC contract
+      tags:
+      - OTCOptions
+  /api/v3/otc/contracts/{id}/exercise:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: contract id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: buyer + seller account IDs
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.exerciseRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Exercise an OTC option contract
+      tags:
+      - OTCOptions
+  /api/v3/otc/offers:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: offer details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createOTCOfferRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create an OTC option offer
+      tags:
+      - OTCOptions
+  /api/v3/otc/offers/{id}:
+    get:
+      parameters:
+      - description: offer id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get an OTC offer with revisions
+      tags:
+      - OTCOptions
+  /api/v3/otc/offers/{id}/accept:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: offer id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: buyer + seller account IDs
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.acceptOTCOfferRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Accept an OTC offer (premium-payment saga)
+      tags:
+      - OTCOptions
+  /api/v3/otc/offers/{id}/counter:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: offer id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: new terms
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.counterOTCOfferRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Counter an OTC offer
+      tags:
+      - OTCOptions
+  /api/v3/otc/offers/{id}/reject:
+    post:
+      parameters:
+      - description: offer id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reject an OTC offer
+      tags:
+      - OTCOptions
 securityDefinitions:
   BearerAuth:
     description: Enter "Bearer <token>"
