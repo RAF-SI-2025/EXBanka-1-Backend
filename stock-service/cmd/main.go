@@ -27,6 +27,7 @@ import (
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/config"
+	"github.com/exbanka/stock-service/internal/consumer"
 	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/handler"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
@@ -513,6 +514,12 @@ func main() {
 	)
 	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo)
 	pb.RegisterInvestmentFundServiceServer(grpcServer, fundHandler)
+
+	// Supervisor-demoted consumer: reassigns the demoted supervisor's funds
+	// to the admin who demoted them.
+	supervisorDemotedConsumer := consumer.NewSupervisorDemotedConsumer(cfg.KafkaBrokers, fundRepo, producer)
+	supervisorDemotedConsumer.Start(ctx)
+	defer func() { _ = supervisorDemotedConsumer.Close() }()
 
 	// Source admin handler
 	sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {

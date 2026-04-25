@@ -73,6 +73,29 @@ func (r *FundRepository) Save(f *model.InvestmentFund) error {
 	return nil
 }
 
+// ReassignManager moves every active fund managed by `from` (typically a
+// demoted supervisor) to `to` (the admin) inside a single TX. Returns the
+// fund IDs that were updated so the caller can publish a downstream event.
+// Idempotent: a second call with no matching rows returns ([]).
+func (r *FundRepository) ReassignManager(from, to int64) ([]uint64, error) {
+	var ids []uint64
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		var rows []model.InvestmentFund
+		if err := tx.Where("manager_employee_id = ?", from).Find(&rows).Error; err != nil {
+			return err
+		}
+		for i := range rows {
+			rows[i].ManagerEmployeeID = to
+			if err := tx.Save(&rows[i]).Error; err != nil {
+				return err
+			}
+			ids = append(ids, rows[i].ID)
+		}
+		return nil
+	})
+	return ids, err
+}
+
 func (r *FundRepository) assertNameAvailable(name string, ignoreID uint64) error {
 	var count int64
 	q := r.db.Model(&model.InvestmentFund{}).
