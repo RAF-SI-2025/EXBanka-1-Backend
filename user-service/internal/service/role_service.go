@@ -252,6 +252,12 @@ func (s *RoleService) publishRolePermissionsChanged(roleID int64, roleName, sour
 		log.Printf("WARN: role-perm-changed: list employees for role %d: %v", roleID, err)
 		return
 	}
+	if len(ids) == 0 {
+		// Nobody to revoke — skip the publish to keep the topic quiet.
+		// Newly-created roles always hit this path because employees are
+		// attached afterwards via SetEmployeeRoles.
+		return
+	}
 	msg := kafkamsg.RolePermissionsChangedMessage{
 		RoleID:              roleID,
 		RoleName:            roleName,
