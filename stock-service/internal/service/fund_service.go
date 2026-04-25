@@ -12,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
@@ -24,15 +25,76 @@ type BankAccountClient interface {
 	CreateBankAccount(ctx context.Context, in *accountpb.CreateBankAccountRequest) (*accountpb.AccountResponse, error)
 }
 
+// FundAccountClient is the minimal account-service surface invest/redeem
+// sagas use. Tests stub it.
+type FundAccountClient interface {
+	GetAccount(ctx context.Context, in *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error)
+	CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error)
+	DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error)
+}
+
+// FundExchangeClient is the minimal exchange-service surface needed for
+// cross-currency invest.
+type FundExchangeClient interface {
+	Convert(ctx context.Context, in *exchangepb.ConvertRequest) (*exchangepb.ConvertResponse, error)
+}
+
+// FundSettings exposes the settings the fund saga reads (currently only the
+// redemption fee rate).
+type FundSettings interface {
+	GetDecimal(key string) (decimal.Decimal, error)
+}
+
+const bankSentinelUserID uint64 = 1_000_000_000
+
 type FundService struct {
 	repo              *repository.FundRepository
 	bankAccountClient BankAccountClient
 	producer          *kafkaprod.Producer
+
+	// saga deps (optional; wired via WithSaga). Nil → Invest/Redeem return
+	// errSagaDepsNotWired. Tests that exercise plain CRUD can skip the wiring.
+	sagaRepo  SagaLogRepo
+	accounts  FundAccountClient
+	exchange  FundExchangeClient
+	contribs  *repository.FundContributionRepository
+	positions *repository.ClientFundPositionRepository
+	holdings  *repository.FundHoldingRepository
+	settings  FundSettings
+	bankRSDAccountFn func(context.Context) (string, uint64, error)
 }
 
 func NewFundService(repo *repository.FundRepository, bankAccountClient BankAccountClient, producer *kafkaprod.Producer) *FundService {
 	return &FundService{repo: repo, bankAccountClient: bankAccountClient, producer: producer}
 }
+
+// WithSaga returns a copy of the receiver wired with the dependencies needed
+// by Invest / Redeem. Call sites that exercise plain CRUD (Create / Update /
+// Get / List) can skip this and Invest/Redeem will reject with an explicit
+// "saga deps not wired" error.
+func (s *FundService) WithSaga(
+	sagaRepo SagaLogRepo,
+	accounts FundAccountClient,
+	exchange FundExchangeClient,
+	contribs *repository.FundContributionRepository,
+	positions *repository.ClientFundPositionRepository,
+	holdings *repository.FundHoldingRepository,
+	settings FundSettings,
+	bankRSDAccountFn func(context.Context) (string, uint64, error),
+) *FundService {
+	cp := *s
+	cp.sagaRepo = sagaRepo
+	cp.accounts = accounts
+	cp.exchange = exchange
+	cp.contribs = contribs
+	cp.positions = positions
+	cp.holdings = holdings
+	cp.settings = settings
+	cp.bankRSDAccountFn = bankRSDAccountFn
+	return &cp
+}
+
+var errSagaDepsNotWired = errors.New("fund saga dependencies not wired (Invest/Redeem unavailable)")
 
 type CreateFundInput struct {
 	ActorEmployeeID        int64

@@ -599,7 +599,7 @@ type StockFundInvestedMessage struct {
 	NativeCurrency string `json:"native_currency"`
 	AmountRSD      string `json:"amount_rsd"`
 	FxRate         string `json:"fx_rate"`
-	SagaID         uint64 `json:"saga_id"`
+	SagaID         string `json:"saga_id"`
 	ContributionID uint64 `json:"contribution_id"`
 }
 
@@ -612,7 +612,7 @@ type StockFundRedeemedMessage struct {
 	AmountRSD       string `json:"amount_rsd"`
 	FeeRSD          string `json:"fee_rsd"`
 	TargetAccountID uint64 `json:"target_account_id"`
-	SagaID          uint64 `json:"saga_id"`
+	SagaID          string `json:"saga_id"`
 	ContributionID  uint64 `json:"contribution_id"`
 }
 

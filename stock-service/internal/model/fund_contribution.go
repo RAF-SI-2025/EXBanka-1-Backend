@@ -30,7 +30,7 @@ type FundContribution struct {
 	FxRate                  *decimal.Decimal `gorm:"type:numeric(20,10)" json:"fx_rate,omitempty"`
 	FeeRSD                  decimal.Decimal  `gorm:"type:numeric(20,4);not null;default:0" json:"fee_rsd"`
 	SourceOrTargetAccountID uint64           `gorm:"not null" json:"source_or_target_account_id"`
-	SagaID                  uint64           `gorm:"not null;index:ix_contrib_saga" json:"saga_id"`
+	SagaID                  string           `gorm:"size:36;not null;index:ix_contrib_saga" json:"saga_id"`
 	Status                  string           `gorm:"size:12;not null" json:"status"`
 	CreatedAt               time.Time        `json:"created_at"`
 	UpdatedAt               time.Time        `json:"updated_at"`
