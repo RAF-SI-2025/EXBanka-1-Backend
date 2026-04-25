@@ -48,14 +48,53 @@ func mapServiceError(err error) codes.Code {
 	}
 }
 
+// accountSvcFacade is the subset of *service.AccountService used by AccountGRPCHandler.
+type accountSvcFacade interface {
+	CreateAccount(account *model.Account) error
+	GetAccount(id uint64) (*model.Account, error)
+	GetAccountByNumber(accountNumber string) (*model.Account, error)
+	ListAccountsByClient(clientID uint64, page, pageSize int) ([]model.Account, int64, error)
+	ListAllAccounts(nameFilter, numberFilter, typeFilter string, page, pageSize int) ([]model.Account, int64, error)
+	UpdateAccountName(id, clientID uint64, newName string, changedBy int64) error
+	UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error
+	UpdateAccountStatus(id uint64, newStatus string, changedBy int64) error
+	UpdateBalanceWithOpts(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts repository.UpdateBalanceOpts) error
+}
+
+// companySvcFacade is the subset of *service.CompanyService used by AccountGRPCHandler.
+type companySvcFacade interface {
+	Create(company *model.Company) error
+	Get(id uint64) (*model.Company, error)
+	Update(company *model.Company) error
+}
+
+// currencySvcFacade is the subset of *service.CurrencyService used by AccountGRPCHandler.
+type currencySvcFacade interface {
+	List() ([]model.Currency, error)
+	GetByCode(code string) (*model.Currency, error)
+}
+
+// ledgerSvcFacade is the subset of *service.LedgerService used by AccountGRPCHandler.
+type ledgerSvcFacade interface {
+	GetLedgerEntries(accountNumber string, page, pageSize int) ([]model.LedgerEntry, int64, error)
+}
+
+// accountProducer is the subset of *kafkaprod.Producer used by AccountGRPCHandler.
+type accountProducer interface {
+	PublishAccountCreated(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
+	PublishAccountStatusChanged(ctx context.Context, msg kafkaprod.AccountStatusChangedMsg) error
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+	SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error
+}
+
 type AccountGRPCHandler struct {
 	pb.UnimplementedAccountServiceServer
-	accountService  *service.AccountService
-	companyService  *service.CompanyService
-	currencyService *service.CurrencyService
-	ledgerService   *service.LedgerService
+	accountService  accountSvcFacade
+	companyService  companySvcFacade
+	currencyService currencySvcFacade
+	ledgerService   ledgerSvcFacade
 	reservation     *ReservationHandler
-	producer        *kafkaprod.Producer
+	producer        accountProducer
 	clientClient    clientpb.ClientServiceClient
 }
 

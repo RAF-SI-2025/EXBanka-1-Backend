@@ -10,16 +10,32 @@ import (
 	"gorm.io/gorm"
 
 	kafkaprod "github.com/exbanka/account-service/internal/kafka"
+	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
+// bankAccountSvcFacade is the subset of *service.AccountService used by BankAccountGRPCHandler.
+type bankAccountSvcFacade interface {
+	CreateBankAccount(currencyCode, accountKind, accountName string, initialBalance decimal.Decimal) (*model.Account, error)
+	ListBankAccounts() ([]model.Account, error)
+	DeleteBankAccount(id uint64) error
+	GetBankRSDAccount() (*model.Account, error)
+	DebitBankAccount(ctx context.Context, currency, amountStr, reference, reason string) (*repository.BankOpResult, error)
+	CreditBankAccount(ctx context.Context, currency, amountStr, reference, reason string) (*repository.BankOpResult, error)
+}
+
+// bankProducer is the subset of *kafkaprod.Producer used by BankAccountGRPCHandler.
+type bankProducer interface {
+	PublishAccountCreated(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
+}
+
 type BankAccountGRPCHandler struct {
 	pb.UnimplementedBankAccountServiceServer
-	accountSvc *service.AccountService
-	producer   *kafkaprod.Producer
+	accountSvc bankAccountSvcFacade
+	producer   bankProducer
 }
 
 func NewBankAccountGRPCHandler(accountSvc *service.AccountService, producer *kafkaprod.Producer) *BankAccountGRPCHandler {
