@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/exbanka/stock-service/internal/model"
 )
 
@@ -80,10 +82,33 @@ func (d *CrossbankDiscovery) refresh(ctx context.Context, peerCodes []string) []
 				ch <- result{err: err}
 				return
 			}
-			// PeerListOffers isn't on CrossbankPeerClient yet — placeholder
-			// stub. Add this method when the wire shape is locked.
-			_ = peer
-			ch <- result{}
+			resp, err := peer.PeerListOffers(ctx, d.cachedAtRFC(), "either")
+			if err != nil {
+				ch <- result{err: err}
+				return
+			}
+			out := make([]model.OTCOffer, 0, len(resp.Offers))
+			for _, item := range resp.Offers {
+				qty, _ := decimal.NewFromString(item.Quantity)
+				strike, _ := decimal.NewFromString(item.StrikePrice)
+				prem, _ := decimal.NewFromString(item.Premium)
+				settle, _ := time.Parse("2006-01-02", item.SettlementDate)
+				updatedAt, _ := time.Parse(time.RFC3339, item.UpdatedAt)
+				bankCode := item.BankCode
+				out = append(out, model.OTCOffer{
+					ID:                  item.OfferID,
+					InitiatorBankCode:   &bankCode,
+					Direction:           item.Direction,
+					StockID:             item.StockID,
+					Quantity:            qty,
+					StrikePrice:         strike,
+					Premium:             prem,
+					SettlementDate:      settle,
+					Status:              item.Status,
+					UpdatedAt:           updatedAt,
+				})
+			}
+			ch <- result{offers: out}
 		}()
 	}
 	out := make([]model.OTCOffer, 0)
@@ -95,6 +120,17 @@ func (d *CrossbankDiscovery) refresh(ctx context.Context, peerCodes []string) []
 		}
 		out = append(out, r.offers...)
 	}
-	_ = json.Marshal // silence unused on stub paths
+	_ = json.Marshal // serialization helper retained for future use
 	return out
+}
+
+// cachedAtRFC returns the cache's last-refresh timestamp in RFC3339, or
+// empty string if the cache is cold (full fetch).
+func (d *CrossbankDiscovery) cachedAtRFC() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.cachedAt.IsZero() {
+		return ""
+	}
+	return d.cachedAt.UTC().Format(time.RFC3339)
 }

@@ -28,10 +28,33 @@ type OTCOptionsHandler struct {
 	stockpb.UnimplementedOTCOptionsServiceServer
 	svc       *service.OTCOfferService
 	contracts *repository.OptionContractRepository
+	listings  *repository.ListingRepository // optional; populates market_reference_price
 }
 
 func NewOTCOptionsHandler(svc *service.OTCOfferService, contracts *repository.OptionContractRepository) *OTCOptionsHandler {
 	return &OTCOptionsHandler{svc: svc, contracts: contracts}
+}
+
+// WithListings wires the listing repo so contract / offer responses can
+// surface market_reference_price for the UI to compute profit-vs-strike
+// (Celina-4 §Sklopljeni ugovori "Profit" column).
+func (h *OTCOptionsHandler) WithListings(listings *repository.ListingRepository) *OTCOptionsHandler {
+	cp := *h
+	cp.listings = listings
+	return &cp
+}
+
+// marketRefPrice returns the listing's current price for the stock id, or
+// "" when no listing is wired or the lookup fails.
+func (h *OTCOptionsHandler) marketRefPrice(stockID uint64) string {
+	if h.listings == nil {
+		return ""
+	}
+	listing, err := h.listings.GetBySecurityIDAndType(stockID, "stock")
+	if err != nil || listing == nil {
+		return ""
+	}
+	return listing.Price.String()
 }
 
 func (h *OTCOptionsHandler) CreateOffer(ctx context.Context, in *stockpb.CreateOTCOfferRequest) (*stockpb.OTCOfferResponse, error) {
@@ -67,7 +90,7 @@ func (h *OTCOptionsHandler) CreateOffer(ctx context.Context, in *stockpb.CreateO
 	if err != nil {
 		return nil, mapOTCErr(err)
 	}
-	return toOTCOfferProto(o, false), nil
+	return h.withOfferMarketRef(o, toOTCOfferProto(o, false)), nil
 }
 
 func (h *OTCOptionsHandler) ListMyOffers(ctx context.Context, in *stockpb.ListMyOTCOffersRequest) (*stockpb.ListMyOTCOffersResponse, error) {
@@ -77,9 +100,26 @@ func (h *OTCOptionsHandler) ListMyOffers(ctx context.Context, in *stockpb.ListMy
 	}
 	out := &stockpb.ListMyOTCOffersResponse{Total: total, Offers: make([]*stockpb.OTCOfferResponse, 0, len(rows))}
 	for i := range rows {
-		out.Offers = append(out.Offers, toOTCOfferProto(&rows[i], false))
+		// Celina-4 §Aktivne ponude: unread = caller hasn't seen this update
+		// yet. Computed from the read-receipt comparing to the offer's
+		// updated_at. Caller is its own last-modifier => always read.
+		unread := h.computeUnread(&rows[i], in.ActorUserId, in.ActorSystemType)
+		out.Offers = append(out.Offers, h.withOfferMarketRef(&rows[i], toOTCOfferProto(&rows[i], unread)))
 	}
 	return out, nil
+}
+
+// computeUnread returns true if the offer has been touched since the
+// caller last opened it AND the caller wasn't the one who touched it.
+func (h *OTCOptionsHandler) computeUnread(o *model.OTCOffer, callerID int64, callerType string) bool {
+	if o.LastModifiedByUserID == callerID && o.LastModifiedBySystemType == callerType {
+		return false
+	}
+	rec, err := h.svc.LastReadReceipt(callerID, callerType, o.ID)
+	if err != nil || rec == nil {
+		return true // never opened
+	}
+	return o.UpdatedAt.After(rec.LastSeenUpdatedAt)
 }
 
 func (h *OTCOptionsHandler) GetOffer(ctx context.Context, in *stockpb.GetOTCOfferRequest) (*stockpb.OTCOfferDetailResponse, error) {
@@ -88,7 +128,7 @@ func (h *OTCOptionsHandler) GetOffer(ctx context.Context, in *stockpb.GetOTCOffe
 		return nil, mapOTCErr(err)
 	}
 	out := &stockpb.OTCOfferDetailResponse{
-		Offer:     toOTCOfferProto(o, false),
+		Offer:     h.withOfferMarketRef(o, toOTCOfferProto(o, false)),
 		Revisions: make([]*stockpb.OTCOfferRevisionItem, 0, len(revs)),
 	}
 	for _, r := range revs {
@@ -130,7 +170,7 @@ func (h *OTCOptionsHandler) CounterOffer(ctx context.Context, in *stockpb.Counte
 	if err != nil {
 		return nil, mapOTCErr(err)
 	}
-	return toOTCOfferProto(o, false), nil
+	return h.withOfferMarketRef(o, toOTCOfferProto(o, false)), nil
 }
 
 func (h *OTCOptionsHandler) AcceptOffer(ctx context.Context, in *stockpb.AcceptOTCOfferRequest) (*stockpb.AcceptOfferResponse, error) {
@@ -146,7 +186,7 @@ func (h *OTCOptionsHandler) AcceptOffer(ctx context.Context, in *stockpb.AcceptO
 	}
 	return &stockpb.AcceptOfferResponse{
 		OfferId: c.OfferID, ContractId: c.ID, Status: c.Status,
-		SagaId: c.SagaID, Contract: toContractProto(c),
+		SagaId: c.SagaID, Contract: h.withMarketRef(c, toContractProto(c)),
 	}, nil
 }
 
@@ -157,7 +197,7 @@ func (h *OTCOptionsHandler) RejectOffer(ctx context.Context, in *stockpb.RejectO
 	if err != nil {
 		return nil, mapOTCErr(err)
 	}
-	return toOTCOfferProto(o, false), nil
+	return h.withOfferMarketRef(o, toOTCOfferProto(o, false)), nil
 }
 
 func (h *OTCOptionsHandler) ListMyContracts(ctx context.Context, in *stockpb.ListMyContractsRequest) (*stockpb.ListContractsResponse, error) {
@@ -170,7 +210,7 @@ func (h *OTCOptionsHandler) ListMyContracts(ctx context.Context, in *stockpb.Lis
 	}
 	out := &stockpb.ListContractsResponse{Total: total, Contracts: make([]*stockpb.OptionContractResponse, 0, len(rows))}
 	for i := range rows {
-		out.Contracts = append(out.Contracts, toContractProto(&rows[i]))
+		out.Contracts = append(out.Contracts, h.withMarketRef(&rows[i], toContractProto(&rows[i])))
 	}
 	return out, nil
 }
@@ -187,7 +227,7 @@ func (h *OTCOptionsHandler) GetContract(ctx context.Context, in *stockpb.GetCont
 		(c.SellerUserID != in.ActorUserId || c.SellerSystemType != in.ActorSystemType) {
 		return nil, status.Error(codes.PermissionDenied, "not a participant")
 	}
-	return toContractProto(c), nil
+	return h.withMarketRef(c, toContractProto(c)), nil
 }
 
 func (h *OTCOptionsHandler) ExerciseContract(ctx context.Context, in *stockpb.ExerciseContractRequest) (*stockpb.ExerciseResponse, error) {
@@ -242,6 +282,20 @@ func toContractProto(c *model.OptionContract) *stockpb.OptionContractResponse {
 	if c.ExpiredAt != nil {
 		resp.ExpiredAt = c.ExpiredAt.Format(time.RFC3339)
 	}
+	return resp
+}
+
+// withMarketRef returns a fresh response with MarketReferencePrice
+// populated. Caller wraps a base proto so the toContractProto helper can
+// stay simple and free of repo dependencies.
+func (h *OTCOptionsHandler) withMarketRef(c *model.OptionContract, resp *stockpb.OptionContractResponse) *stockpb.OptionContractResponse {
+	resp.MarketReferencePrice = h.marketRefPrice(c.StockID)
+	return resp
+}
+
+// withOfferMarketRef populates MarketReferencePrice on an offer response.
+func (h *OTCOptionsHandler) withOfferMarketRef(o *model.OTCOffer, resp *stockpb.OTCOfferResponse) *stockpb.OTCOfferResponse {
+	resp.MarketReferencePrice = h.marketRefPrice(o.StockID)
 	return resp
 }
 

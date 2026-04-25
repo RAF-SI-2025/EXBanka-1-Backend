@@ -29,6 +29,10 @@ type InvestmentFundHandler struct {
 	capitalGains   *repository.CapitalGainRepository
 	userClient     userpb.UserServiceClient
 	exchangeClient exchangepb.ExchangeServiceClient
+	// optional fund-detail deps (Celina-4 §Detaljan prikaz fonda holdings list)
+	fundHoldings *repository.FundHoldingRepository
+	listings     *repository.ListingRepository
+	stocks       *repository.StockRepository
 }
 
 func NewInvestmentFundHandler(
@@ -55,6 +59,21 @@ func (h *InvestmentFundHandler) WithActuaryDeps(
 	cp.capitalGains = capitalGains
 	cp.userClient = userClient
 	cp.exchangeClient = exchangeClient
+	return &cp
+}
+
+// WithFundDetailDeps wires the repos used to populate the holdings list
+// in GetFund (per Celina-4 §Detaljan prikaz fonda — "Lista hartija:
+// Ticker, Price, Change, Volume, initialMarginCost, acquisitionDate").
+func (h *InvestmentFundHandler) WithFundDetailDeps(
+	fundHoldings *repository.FundHoldingRepository,
+	listings *repository.ListingRepository,
+	stocks *repository.StockRepository,
+) *InvestmentFundHandler {
+	cp := *h
+	cp.fundHoldings = fundHoldings
+	cp.listings = listings
+	cp.stocks = stocks
 	return &cp
 }
 
@@ -101,10 +120,35 @@ func (h *InvestmentFundHandler) GetFund(ctx context.Context, in *stockpb.GetFund
 	if err != nil {
 		return nil, mapFundErr(err)
 	}
-	return &stockpb.FundDetailResponse{
-		Fund:     toFundResponse(f),
-		Holdings: nil, // populated by Task 20 (position-reads service)
-	}, nil
+	resp := &stockpb.FundDetailResponse{Fund: toFundResponse(f)}
+	if h.fundHoldings != nil {
+		holdings, err := h.fundHoldings.ListByFundFIFO(f.ID)
+		if err == nil {
+			resp.Holdings = make([]*stockpb.FundHoldingItem, 0, len(holdings))
+			for i := range holdings {
+				h2 := &holdings[i]
+				item := &stockpb.FundHoldingItem{
+					SecurityType:    h2.SecurityType,
+					SecurityId:      h2.SecurityID,
+					Quantity:        h2.Quantity,
+					AveragePriceRsd: h2.AveragePriceRSD.String(),
+					AcquiredAt:      h2.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+				}
+				if h.listings != nil {
+					if listing, lerr := h.listings.GetBySecurityIDAndType(h2.SecurityID, h2.SecurityType); lerr == nil && listing != nil {
+						item.CurrentPriceRsd = listing.Price.String()
+					}
+				}
+				if h.stocks != nil && h2.SecurityType == "stock" {
+					if stock, serr := h.stocks.GetByID(h2.SecurityID); serr == nil && stock != nil {
+						item.Ticker = stock.Ticker
+					}
+				}
+				resp.Holdings = append(resp.Holdings, item)
+			}
+		}
+	}
+	return resp, nil
 }
 
 func (h *InvestmentFundHandler) UpdateFund(ctx context.Context, in *stockpb.UpdateFundRequest) (*stockpb.FundResponse, error) {

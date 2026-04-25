@@ -348,6 +348,16 @@ func (s *OTCOfferService) ListMyOffers(userID int64, systemType, role string, st
 	return s.offers.ListByOwner(userID, systemType, role, statuses, stockID, page, pageSize)
 }
 
+// LastReadReceipt returns the read-receipt for (userID, systemType, offerID),
+// or nil if the user has never opened the offer. Used by the gateway to
+// compute the `unread` flag on list responses (Celina-4 §Aktivne ponude).
+func (s *OTCOfferService) LastReadReceipt(userID int64, systemType string, offerID uint64) (*model.OTCOfferReadReceipt, error) {
+	if s.receipts == nil {
+		return nil, nil
+	}
+	return s.receipts.GetReceipt(userID, systemType, offerID)
+}
+
 // GetOffer returns the offer + its revisions, scoped to participants only.
 func (s *OTCOfferService) GetOffer(offerID uint64, actorUserID int64, actorSystemType string) (*model.OTCOffer, []model.OTCOfferRevision, error) {
 	o, err := s.offers.GetByID(offerID)

@@ -557,7 +557,8 @@ func main() {
 		},
 	).WithPositionReads(listingRepo).WithLiquidation(orderSvc)
 	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo).
-		WithActuaryDeps(capitalGainRepo, userClient, exchangeClient)
+		WithActuaryDeps(capitalGainRepo, userClient, exchangeClient).
+		WithFundDetailDeps(fundHoldingRepo, listingRepo, stockRepo)
 	pb.RegisterInvestmentFundServiceServer(grpcServer, fundHandler)
 
 	// Supervisor-demoted consumer: reassigns the demoted supervisor's funds
@@ -575,7 +576,7 @@ func main() {
 		otcOfferRepo, otcRevisionRepo, optionContractRepo,
 		holdingRepo, otcReadReceiptRepo, producer,
 	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo)
-	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo)
+	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).WithListings(listingRepo)
 	pb.RegisterOTCOptionsServiceServer(grpcServer, otcOptionsHandler)
 
 	// OTC expiry cron (daily). Settings driven by OTC_EXPIRY_CRON_UTC and

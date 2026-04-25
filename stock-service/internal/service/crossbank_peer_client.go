@@ -66,6 +66,46 @@ func (r *StaticCrossbankPeerRouter) ClientFor(bankCode string) (*CrossbankPeerCl
 	return c, nil
 }
 
+// ---------- Discovery: PeerListOffers ----------
+
+// PeerListOffersBody is the body for /otc/list-offers — discovery per
+// Celina-5 §Dobavljanje OTC ponuda druge banke.
+type PeerListOffersBody struct {
+	Since         string `json:"since,omitempty"`
+	RequesterRole string `json:"requesterRole,omitempty"`
+	SelfBankCode  string `json:"selfBankCode"`
+}
+
+// PeerOfferItem is the slim shape returned by peer-list-offers — enough
+// to render in the discovery list. Full detail comes via PeerFetchOffer.
+type PeerOfferItem struct {
+	OfferID        uint64 `json:"offerId"`
+	BankCode       string `json:"bankCode"`
+	StockID        uint64 `json:"stockId"`
+	Direction      string `json:"direction"`
+	Quantity       string `json:"quantity"`
+	StrikePrice    string `json:"strikePrice"`
+	Premium        string `json:"premium"`
+	SettlementDate string `json:"settlementDate"`
+	Status         string `json:"status"`
+	UpdatedAt      string `json:"updatedAt"`
+}
+
+type PeerListOffersResponseBody struct {
+	Offers []PeerOfferItem `json:"offers"`
+}
+
+// PeerListOffers asks the remote bank for its public offers.
+func (c *CrossbankPeerClient) PeerListOffers(ctx context.Context, since, requesterRole string) (*PeerListOffersResponseBody, error) {
+	body := PeerListOffersBody{Since: since, RequesterRole: requesterRole, SelfBankCode: c.ownBankCode}
+	var out PeerListOffersResponseBody
+	idemKey := "list-" + c.receiverBankCode + "-" + since
+	if err := c.do(ctx, "/otc/list-offers", idemKey, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ---------- Phase-2 RESERVE_SHARES ----------
 
 type PeerReserveSharesRequest struct {
