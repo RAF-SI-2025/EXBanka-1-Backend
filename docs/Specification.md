@@ -1766,6 +1766,7 @@ Key(string, PK, size:64), Value(string)
 | `user.limit-template-updated` | user-service | (consumers) | LimitTemplateMessage |
 | `user.limit-template-deleted` | user-service | (consumers) | LimitTemplateMessage |
 | `user.client-limits-updated` | user-service | (consumers) | ClientLimitsUpdatedMessage |
+| `user.role-permissions-changed` | user-service | auth-service | RolePermissionsChangedMessage |
 | `client.created` | client-service | notification-service | ClientCreatedMessage |
 | `client.updated` | client-service | (consumers) | (generic) |
 | `account.created` | account-service | notification-service | AccountCreatedMessage |
@@ -1863,6 +1864,17 @@ type LoanDisbursedMessage struct {
     Amount       string `json:"amount"`
     CurrencyCode string `json:"currency_code"`
     DisbursedAt  string `json:"disbursed_at"` // RFC3339
+}
+```
+
+**RolePermissionsChangedMessage** — published to `user.role-permissions-changed` after a role's permissions are updated; auth-service consumes and invalidates sessions for all affected employees:
+```go
+type RolePermissionsChangedMessage struct {
+    RoleID              int64   `json:"role_id"`
+    RoleName            string  `json:"role_name"`
+    AffectedEmployeeIDs []int64 `json:"affected_employee_ids"`
+    ChangedAt           int64   `json:"changed_at"`        // unix seconds
+    Source              string  `json:"source"`            // "update_role_permissions" | "create_role"
 }
 ```
 
@@ -1985,6 +1997,7 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - 5 failed login attempts → 30-min lockout
 - Password: 8-32 chars, 2+ digits, 1 uppercase, 1 lowercase
 - JMBG: exactly 13 digits
+- Role permission updates revoke active sessions for affected employees within seconds via the `user.role-permissions-changed` Kafka event; auth-service rejects access tokens whose `iat` predates the per-user revocation epoch (`user_revoked_at:<id>` Redis key, TTL = `JWT_ACCESS_EXPIRY`) and revokes their refresh tokens to force a full re-login.
 
 **Exchange Rates:**
 - Synced every 6 hours from open.er-api.com
