@@ -1,5 +1,6 @@
 # EXBanka REST API v2
 
+
 **Base URL:** `http://<gateway>/api/v2`
 **Content-Type:** `application/json`
 **Swagger UI:** `http://<gateway>/swagger/index.html`
