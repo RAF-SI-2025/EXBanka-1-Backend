@@ -115,6 +115,7 @@ func main() {
 	outboxRepo := repository.NewOutboxRepository(db)
 	outboxRelay := service.NewOutboxRelay(outboxRepo, producer, 2*time.Second)
 	outboxRelay.Start(ctx)
+	empService = empService.WithOutbox(outboxRepo)
 
 	actuaryRepo := repository.NewActuaryRepository(db)
 	actuarySvc := service.NewActuaryService(actuaryRepo, repo, producer)

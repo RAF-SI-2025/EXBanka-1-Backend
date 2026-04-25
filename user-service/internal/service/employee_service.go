@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/exbanka/contract/changelog"
@@ -17,12 +19,29 @@ import (
 	"github.com/exbanka/user-service/internal/model"
 )
 
+// OutboxInserter is the minimal subset of OutboxRepository EmployeeService
+// needs. Defined as an interface so tests can stub it.
+type OutboxInserter interface {
+	Insert(e *model.OutboxEvent) error
+}
+
 type EmployeeService struct {
 	repo          EmployeeRepo
 	producer      *kafkaprod.Producer
 	cache         *cache.RedisCache
 	roleSvc       *RoleService
 	changelogRepo ChangelogRepo
+	outboxRepo    OutboxInserter
+}
+
+// WithOutbox returns a copy of the service with the outbox repo wired in.
+// Called from main.go after both EmployeeService and OutboxRepository are
+// constructed. Optional: services without outboxRepo wired skip cross-service
+// event emission silently.
+func (s *EmployeeService) WithOutbox(repo OutboxInserter) *EmployeeService {
+	cp := *s
+	cp.outboxRepo = repo
+	return &cp
 }
 
 func NewEmployeeService(repo EmployeeRepo, producer *kafkaprod.Producer, cache *cache.RedisCache, roleSvc *RoleService, changelogRepo ...ChangelogRepo) *EmployeeService {
@@ -196,6 +215,7 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 
 	// Capture old roles for changelog.
 	oldRoles := extractRoleNames(emp.Roles)
+	beforePerms := s.ResolvePermissions(emp)
 
 	if s.roleSvc != nil {
 		for _, name := range roleNames {
@@ -238,6 +258,8 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 			_ = s.cache.Delete(ctx, "employee:email:"+emp2.Email)
 		}
 	}
+
+	s.emitSupervisorDemotedIfLost(employeeID, changedBy, beforePerms)
 	return nil
 }
 
@@ -247,6 +269,8 @@ func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, 
 	if err != nil {
 		return fmt.Errorf("employee %d not found: %w", employeeID, err)
 	}
+
+	beforePerms := s.ResolvePermissions(emp)
 
 	// Capture old permissions for changelog.
 	oldPerms := make([]string, 0, len(emp.AdditionalPermissions))
@@ -290,6 +314,8 @@ func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, 
 			_ = s.cache.Delete(ctx, "employee:email:"+emp2.Email)
 		}
 	}
+
+	s.emitSupervisorDemotedIfLost(employeeID, changedBy, beforePerms)
 	return nil
 }
 
@@ -319,6 +345,60 @@ func ValidatePassword(password string) error {
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return string(bytes), err
+}
+
+// emitSupervisorDemotedIfLost compares pre/post resolved permission sets and
+// inserts a `user.supervisor-demoted` outbox row when funds.manage was held
+// before but is no longer held. The outbox relay drains it to Kafka so
+// stock-service can reassign that supervisor's funds to the admin.
+func (s *EmployeeService) emitSupervisorDemotedIfLost(employeeID, changedBy int64, beforePerms []string) {
+	if s.outboxRepo == nil {
+		return
+	}
+	hadFunds := false
+	for _, p := range beforePerms {
+		if p == "funds.manage" {
+			hadFunds = true
+			break
+		}
+	}
+	if !hadFunds {
+		return
+	}
+	emp, err := s.repo.GetByIDWithRoles(employeeID)
+	if err != nil {
+		log.Printf("WARN: emitSupervisorDemoted: refetch failed: %v", err)
+		return
+	}
+	stillHasFunds := false
+	for _, p := range s.ResolvePermissions(emp) {
+		if p == "funds.manage" {
+			stillHasFunds = true
+			break
+		}
+	}
+	if stillHasFunds {
+		return
+	}
+	now := time.Now().UTC()
+	payload, err := json.Marshal(kafkamsg.UserSupervisorDemotedMessage{
+		MessageID:    uuid.NewString(),
+		OccurredAt:   now.Format(time.RFC3339),
+		SupervisorID: employeeID,
+		AdminID:      changedBy,
+		RevokedAt:    now.Format(time.RFC3339),
+	})
+	if err != nil {
+		log.Printf("WARN: marshal supervisor-demoted: %v", err)
+		return
+	}
+	if err := s.outboxRepo.Insert(&model.OutboxEvent{
+		AggregateID: fmt.Sprintf("supervisor:%d", employeeID),
+		EventType:   kafkamsg.TopicUserSupervisorDemoted,
+		Payload:     payload,
+	}); err != nil {
+		log.Printf("WARN: outbox insert supervisor-demoted: %v", err)
+	}
 }
 
 func extractRoleNames(roles []model.Role) []string {
