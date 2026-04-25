@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
@@ -132,6 +133,12 @@ func main() {
 		"stock.otc-trade-executed",
 		"stock.tax-collected",
 		"stock.option-exercised",
+		"stock.fund-created",
+		"stock.fund-updated",
+		"stock.fund-invested",
+		"stock.fund-redeemed",
+		"stock.funds-reassigned",
+		"user.supervisor-demoted",
 	)
 
 	// --- InfluxDB ---
@@ -204,6 +211,12 @@ func main() {
 	holdingRepo := repository.NewHoldingRepository(db)
 	capitalGainRepo := repository.NewCapitalGainRepository(db)
 	taxCollectionRepo := repository.NewTaxCollectionRepository(db)
+
+	// --- Investment funds (Celina 4) ---
+	fundRepo := repository.NewFundRepository(db)
+	fundContribRepo := repository.NewFundContributionRepository(db)
+	fundPositionRepo := repository.NewClientFundPositionRepository(db)
+	fundHoldingRepo := repository.NewFundHoldingRepository(db)
 
 	// --- Name Resolver ---
 	nameResolver := service.UserNameResolver(func(userID uint64, systemType string) (string, string, error) {
@@ -476,6 +489,31 @@ func main() {
 	taxHandler := handler.NewTaxHandler(taxSvc)
 	pb.RegisterTaxGRPCServiceServer(grpcServer, taxHandler)
 
+	// Investment Funds handler (Celina 4)
+	rawBankAccountClient := accountpb.NewBankAccountServiceClient(accountConn)
+	fundBankAdapter := &fundBankAccountAdapter{stub: rawBankAccountClient}
+	fundAccountAdapter := &fundAccountAdapter{
+		fillClient: stockAccountClient,
+		stub:       accountClient,
+	}
+	fundExchangeAdapter := &fundExchangeAdapter{client: exchangeClient}
+	fundSettingsAdapter := &fundSettingsAdapter{repo: settingRepo}
+	fundService := service.NewFundService(fundRepo, fundBankAdapter, producer)
+	fundService = fundService.WithSaga(
+		sagaLogRepo, fundAccountAdapter, fundExchangeAdapter,
+		fundContribRepo, fundPositionRepo, fundHoldingRepo,
+		fundSettingsAdapter,
+		func(ctx context.Context) (string, uint64, error) {
+			resp, err := rawBankAccountClient.GetBankRSDAccount(ctx, &accountpb.GetBankRSDAccountRequest{})
+			if err != nil {
+				return "", 0, err
+			}
+			return resp.AccountNumber, resp.Id, nil
+		},
+	)
+	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo)
+	pb.RegisterInvestmentFundServiceServer(grpcServer, fundHandler)
+
 	// Source admin handler
 	sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 		switch name {
@@ -570,4 +608,64 @@ func (a *bankCommissionAccountAdapter) BankCommissionAccountNumber(ctx context.C
 	a.cachedAt = time.Now()
 	a.mu.Unlock()
 	return resp.AccountNumber, nil
+}
+
+// fundBankAccountAdapter adapts the gRPC BankAccountServiceClient (which has
+// variadic call options) to the narrower BankAccountClient interface used by
+// FundService.Create — the latter omits CallOption to keep test stubs simple.
+type fundBankAccountAdapter struct {
+	stub accountpb.BankAccountServiceClient
+}
+
+func (a *fundBankAccountAdapter) CreateBankAccount(ctx context.Context, in *accountpb.CreateBankAccountRequest) (*accountpb.AccountResponse, error) {
+	return a.stub.CreateBankAccount(ctx, in)
+}
+
+// fundAccountAdapter adapts the existing stockAccountClient (FillAccountClient)
+// + raw AccountServiceClient to the FundAccountClient interface used by the
+// invest/redeem sagas.
+type fundAccountAdapter struct {
+	fillClient *stockgrpc.AccountClient
+	stub       accountpb.AccountServiceClient
+}
+
+func (a *fundAccountAdapter) GetAccount(ctx context.Context, in *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
+	return a.stub.GetAccount(ctx, in)
+}
+
+func (a *fundAccountAdapter) CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	return a.fillClient.CreditAccount(ctx, accountNumber, amount, memo, idempotencyKey)
+}
+
+func (a *fundAccountAdapter) DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	return a.fillClient.DebitAccount(ctx, accountNumber, amount, memo, idempotencyKey)
+}
+
+// fundExchangeAdapter narrows the exchange-service gRPC client to the
+// FundExchangeClient interface (just Convert).
+type fundExchangeAdapter struct {
+	client exchangepb.ExchangeServiceClient
+}
+
+func (a *fundExchangeAdapter) Convert(ctx context.Context, in *exchangepb.ConvertRequest) (*exchangepb.ConvertResponse, error) {
+	return a.client.Convert(ctx, in)
+}
+
+// fundSettingsAdapter exposes settings as decimals; falls back to zero on
+// missing-key or parse errors so the saga never blocks on a missing rate
+// (the caller treats that as fee=0).
+type fundSettingsAdapter struct {
+	repo *repository.SystemSettingRepository
+}
+
+func (a *fundSettingsAdapter) GetDecimal(key string) (decimal.Decimal, error) {
+	v, err := a.repo.Get(key)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	d, err := decimal.NewFromString(v)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return d, nil
 }
