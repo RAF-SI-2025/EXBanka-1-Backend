@@ -5,16 +5,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/exbanka/contract/testutil"
 	"github.com/exbanka/user-service/internal/model"
 )
 
-// TestRoleRepository_ListEmployeeIDsByRole inserts two roles, two employees with
-// overlapping role assignments, and asserts the helper returns deduped, sorted IDs.
+// TestRoleRepository_ListEmployeeIDsByRole inserts two roles and three employees
+// with overlapping role assignments and asserts the join-table lookup returns the
+// right IDs (sorted client-side for deterministic comparison) plus a non-nil empty
+// slice for an unknown role.
 func TestRoleRepository_ListEmployeeIDsByRole(t *testing.T) {
-	db := newTestDB(t)
-	if err := db.AutoMigrate(&model.Role{}, &model.Permission{}, &model.Employee{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
+	db := testutil.SetupTestDB(t, &model.Role{}, &model.Permission{}, &model.Employee{})
 
 	roleA := model.Role{Name: "RoleA"}
 	roleB := model.Role{Name: "RoleB"}
