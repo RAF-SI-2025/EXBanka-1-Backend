@@ -16,6 +16,8 @@ import (
 )
 
 // --- stub SecurityGRPCServiceClient ---
+// For new tests needing additional method overrides, prefer secStub from
+// securities_handler_test.go which uses the function-field pattern.
 
 type stubSecurityClient struct {
 	getOptionFn func(req *stockpb.GetOptionRequest) *stockpb.OptionDetail
@@ -111,6 +113,8 @@ func (s *stubOrderClient) DeclineOrder(ctx context.Context, in *stockpb.DeclineO
 }
 
 // --- stub PortfolioGRPCServiceClient ---
+// For new tests needing additional method overrides, prefer portfolioStub from
+// portfolio_handler_test.go which uses the function-field pattern.
 
 type stubPortfolioClient struct {
 	exerciseByOptionIDFn func(req *stockpb.ExerciseOptionByOptionIDRequest) *stockpb.ExerciseResult

@@ -1212,3 +1212,30 @@ func (s *stubTaxClient) ListUserTaxRecords(_ context.Context, in *stockpb.ListUs
 	}
 	return &stockpb.ListUserTaxRecordsResponse{}, nil
 }
+
+// ---------------------------------------------------------------------------
+// Compile-time interface assertions
+// ---------------------------------------------------------------------------
+
+var (
+	_ accountpb.BankAccountServiceClient      = (*stubBankAccountClient)(nil)
+	_ authpb.AuthServiceClient                = (*stubAuthClient)(nil)
+	_ userpb.UserServiceClient                = (*stubUserClient)(nil)
+	_ userpb.EmployeeLimitServiceClient       = (*stubEmployeeLimitClient)(nil)
+	_ userpb.ActuaryServiceClient             = (*stubActuaryClient)(nil)
+	_ userpb.BlueprintServiceClient           = (*stubBlueprintClient)(nil)
+	_ clientpb.ClientServiceClient            = (*stubClientClient)(nil)
+	_ clientpb.ClientLimitServiceClient       = (*stubClientLimitClient)(nil)
+	_ cardpb.CardServiceClient                = (*stubCardClient)(nil)
+	_ cardpb.VirtualCardServiceClient         = (*stubVirtualCardClient)(nil)
+	_ cardpb.CardRequestServiceClient         = (*stubCardRequestClient)(nil)
+	_ creditpb.CreditServiceClient            = (*stubCreditClient)(nil)
+	_ exchangepb.ExchangeServiceClient        = (*stubExchangeClient)(nil)
+	_ notificationpb.NotificationServiceClient = (*stubNotificationClient)(nil)
+	_ verificationpb.VerificationGRPCServiceClient = (*stubVerificationClient)(nil)
+	_ transactionpb.TransactionServiceClient  = (*stubTransactionClient)(nil)
+	_ transactionpb.FeeServiceClient          = (*stubFeeClient)(nil)
+	_ stockpb.StockExchangeGRPCServiceClient  = (*stubStockExchangeClient)(nil)
+	_ stockpb.OTCGRPCServiceClient            = (*stubOTCClient)(nil)
+	_ stockpb.TaxGRPCServiceClient            = (*stubTaxClient)(nil)
+)

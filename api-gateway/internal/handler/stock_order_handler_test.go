@@ -17,6 +17,8 @@ import (
 )
 
 // --- stub AccountServiceClient (minimal, only GetAccount used by these tests) ---
+// For new tests that need to override additional methods, prefer accountFullStub
+// from account_handler_test.go which uses the function-field pattern.
 
 type stubAccountClient struct {
 	getAccountFn func(req *accountpb.GetAccountRequest) *accountpb.AccountResponse
