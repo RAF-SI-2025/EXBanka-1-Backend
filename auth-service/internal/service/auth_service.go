@@ -283,6 +283,9 @@ func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 					return nil, fmt.Errorf("access token has been revoked; please log in again")
 				}
 			}
+			if revoked, _ := s.checkRevokedByEpoch(&cached); revoked {
+				return nil, fmt.Errorf("access token has been revoked; please log in again")
+			}
 			return &cached, nil
 		}
 	}
@@ -298,6 +301,10 @@ func (s *AuthService) ValidateToken(tokenString string) (*Claims, error) {
 		if blacklisted {
 			return nil, fmt.Errorf("access token has been revoked; please log in again")
 		}
+	}
+
+	if revoked, _ := s.checkRevokedByEpoch(claims); revoked {
+		return nil, fmt.Errorf("access token has been revoked; please log in again")
 	}
 
 	// Cache with TTL = remaining token lifetime
@@ -322,6 +329,21 @@ func (s *AuthService) RevokeAccessToken(ctx context.Context, jti string, remaini
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
+}
+
+// checkRevokedByEpoch returns true when the given claims' IssuedAt is older
+// than the per-user revocation epoch in Redis. Redis errors are swallowed
+// (fail-open), matching the existing posture of the JTI blacklist lookup.
+// Returns (false, nil) when no epoch is set or the claim has no IssuedAt.
+func (s *AuthService) checkRevokedByEpoch(claims *Claims) (bool, error) {
+	if claims == nil || claims.IssuedAt == nil || s.cache == nil {
+		return false, nil
+	}
+	revokedAt, err := s.cache.GetUserRevokedAt(context.Background(), claims.UserID)
+	if err != nil || revokedAt == 0 {
+		return false, err
+	}
+	return claims.IssuedAt.Unix() < revokedAt, nil
 }
 
 func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr, ipAddress, userAgent string) (string, string, error) {
