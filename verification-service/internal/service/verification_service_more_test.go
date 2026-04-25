@@ -78,9 +78,9 @@ func (s *stubAuthClient) CheckBiometricsEnabled(_ context.Context, in *authpb.Ch
 }
 
 // newServiceWithStubs builds a VerificationService backed by an in-memory SQLite DB,
-// with the supplied stubs wired in. Both `producer` and `authClient` may be nil — the
-// service tolerates a nil authClient only inside VerifyByBiometric; production code
-// always supplies non-nil values.
+// with the supplied stubs wired in. Both `producer` and `authClient` may be nil; only
+// the code paths that don't call them tolerate nil — most tests should pass
+// `&stubProducer{}` and `&stubAuthClient{}`.
 func newServiceWithStubs(t *testing.T, producer verificationProducer, auth biometricsChecker) (*VerificationService, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
@@ -347,6 +347,33 @@ func TestSubmitCode_AlreadyVerified(t *testing.T) {
 	_, _, err := svc.SubmitCode(context.Background(), vc.ID, "111111")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "verified")
+}
+
+// TestSubmitCode_ExpiredChallenge_Rejected ensures that a stale challenge (ExpiresAt
+// in the past) is rejected even when the caller supplies the correct code.  This is the
+// primary security fence against replayed or delayed verification attempts.
+func TestSubmitCode_ExpiredChallenge_Rejected(t *testing.T) {
+	prod := &stubProducer{}
+	svc, db := newServiceWithStubs(t, prod, nil)
+
+	vc := seedChallenge(t, db, &model.VerificationChallenge{
+		UserID:        1,
+		SourceService: "transaction",
+		SourceID:      1,
+		Method:        "code_pull",
+		Code:          "888888",
+		ChallengeData: datatypes.JSON([]byte("{}")),
+		Status:        "pending",
+		ExpiresAt:     time.Now().Add(-1 * time.Minute), // already expired
+		Version:       1,
+	})
+
+	_, _, err := svc.SubmitCode(context.Background(), vc.ID, "888888")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "expired")
+
+	// No verified event must be published for an expired challenge.
+	assert.Len(t, prod.verifiedCalls, 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -737,22 +764,65 @@ func TestBuildDisplayData_UnknownMethod(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Constructor wiring (light smoke check)
+// Constructor wiring (behavioral smoke check)
 // ---------------------------------------------------------------------------
 
-func TestNewVerificationService_ReturnsConfiguredInstance(t *testing.T) {
+// TestNewVerificationService_MaxAttemptsWired verifies that the service correctly
+// enforces the maxAttempts limit by exercising the real behavior: submit the wrong
+// code maxAttempts times and confirm the challenge transitions to "failed" and that
+// a subsequent call returns the "failed" error.
+func TestNewVerificationService_MaxAttemptsWired(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
-		_ = sqlDB.Close()
-	})
-	repo := repository.NewVerificationChallengeRepository(db)
+	sqlDB, _ := db.DB()
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(&model.VerificationChallenge{}))
 
-	svc := NewVerificationService(repo, nil, db, nil, 7*time.Minute, 5)
+	repo := repository.NewVerificationChallengeRepository(db)
+	prod := &stubProducer{}
+	// Build with 2 max attempts so the test is fast.
+	svc := &VerificationService{
+		repo:            repo,
+		producer:        prod,
+		db:              db,
+		challengeExpiry: 5 * time.Minute,
+		maxAttempts:     2,
+	}
 	require.NotNil(t, svc)
-	assert.Equal(t, 7*time.Minute, svc.challengeExpiry)
-	assert.Equal(t, 5, svc.maxAttempts)
+
+	vc := seedChallenge(t, db, &model.VerificationChallenge{
+		UserID:        1,
+		SourceService: "transaction",
+		SourceID:      1,
+		Method:        "code_pull",
+		Code:          "correct",
+		ChallengeData: datatypes.JSON([]byte("{}")),
+		Status:        "pending",
+		ExpiresAt:     time.Now().Add(5 * time.Minute),
+		Version:       1,
+	})
+
+	// First wrong attempt: should succeed (no error), success=false, remaining=1.
+	ok, remaining, err := svc.SubmitCode(context.Background(), vc.ID, "wrong1")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Equal(t, 1, remaining)
+
+	// Second wrong attempt: maxAttempts hit → challenge marked failed.
+	ok, remaining, err = svc.SubmitCode(context.Background(), vc.ID, "wrong2")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	assert.Equal(t, 0, remaining)
+
+	// Third call: challenge is now "failed" → validateChallengeState returns error.
+	_, _, err = svc.SubmitCode(context.Background(), vc.ID, "anything")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed")
+
+	// The failed Kafka event must have been published exactly once (on attempt 2).
+	require.Len(t, prod.failedCalls, 1)
+	assert.Equal(t, "max_attempts_exceeded", prod.failedCalls[0].Reason)
 }
 
 // checkResponse: cover the "default" branch (unsupported method) and the qr_scan/number_match

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -513,6 +512,6 @@ func TestHandlerVerifyByBiometric_Internal(t *testing.T) {
 	_, err := h.VerifyByBiometric(context.Background(), &pb.VerifyByBiometricRequest{ChallengeId: 1, UserId: 1})
 	require.Error(t, err)
 	assert.Equal(t, codes.Internal, status.Code(err))
-	// status message should also propagate the original.
-	assert.True(t, strings.Contains(err.Error(), "oops") || strings.Contains(err.Error(), "db"))
+	// status message should also propagate the original error string.
+	assert.Contains(t, err.Error(), "oops")
 }
