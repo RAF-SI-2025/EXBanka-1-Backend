@@ -16,9 +16,25 @@ import (
 	kafkaprod "github.com/exbanka/verification-service/internal/kafka"
 	"github.com/exbanka/verification-service/internal/model"
 	"github.com/exbanka/verification-service/internal/repository"
+	"google.golang.org/grpc"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
+
+// verificationProducer is the small interface this service depends on for
+// publishing Kafka events. The concrete `*kafkaprod.Producer` satisfies it.
+// Defined to allow hand-written stubs in tests.
+type verificationProducer interface {
+	PublishChallengeCreated(ctx context.Context, msg kafkamsg.VerificationChallengeCreatedMessage) error
+	PublishChallengeVerified(ctx context.Context, msg kafkamsg.VerificationChallengeVerifiedMessage) error
+	PublishChallengeFailed(ctx context.Context, msg kafkamsg.VerificationChallengeFailedMessage) error
+}
+
+// biometricsChecker is the minimal subset of authpb.AuthServiceClient that this
+// service uses. The full client satisfies it, but tests can supply a hand-written stub.
+type biometricsChecker interface {
+	CheckBiometricsEnabled(ctx context.Context, in *authpb.CheckBiometricsRequest, opts ...grpc.CallOption) (*authpb.CheckBiometricsResponse, error)
+}
 
 var validMethods = map[string]bool{
 	"code_pull": true,
@@ -37,9 +53,9 @@ const defaultBypassCode = "111111"
 
 type VerificationService struct {
 	repo            *repository.VerificationChallengeRepository
-	producer        *kafkaprod.Producer
+	producer        verificationProducer
 	db              *gorm.DB
-	authClient      authpb.AuthServiceClient
+	authClient      biometricsChecker
 	challengeExpiry time.Duration
 	maxAttempts     int
 }

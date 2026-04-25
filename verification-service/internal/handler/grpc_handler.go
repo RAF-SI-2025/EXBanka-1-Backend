@@ -11,8 +11,21 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/exbanka/contract/verificationpb"
+	"github.com/exbanka/verification-service/internal/model"
 	"github.com/exbanka/verification-service/internal/service"
 )
+
+// verificationService is the minimal subset of *service.VerificationService that
+// this handler depends on. Defined to allow hand-written stubs in tests; the
+// concrete service satisfies it.
+type verificationService interface {
+	CreateChallenge(ctx context.Context, userID uint64, sourceService string, sourceID uint64, method string, deviceID string) (*model.VerificationChallenge, error)
+	GetChallengeStatus(challengeID uint64) (*model.VerificationChallenge, error)
+	GetPendingChallenge(userID uint64) (*model.VerificationChallenge, error)
+	SubmitVerification(ctx context.Context, challengeID uint64, deviceID string, response string) (bool, int, string, error)
+	SubmitCode(ctx context.Context, challengeID uint64, code string) (bool, int, error)
+	VerifyByBiometric(ctx context.Context, challengeID uint64, userID uint64, deviceID string) error
+}
 
 // mapServiceError maps service-layer error messages to appropriate gRPC status codes.
 func mapServiceError(err error) codes.Code {
@@ -40,7 +53,7 @@ func mapServiceError(err error) codes.Code {
 
 type VerificationGRPCHandler struct {
 	pb.UnimplementedVerificationGRPCServiceServer
-	svc *service.VerificationService
+	svc verificationService
 }
 
 func NewVerificationGRPCHandler(svc *service.VerificationService) *VerificationGRPCHandler {
