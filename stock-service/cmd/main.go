@@ -71,6 +71,10 @@ func main() {
 		&model.ClientFundPosition{},
 		&model.FundContribution{},
 		&model.FundHolding{},
+		&model.OTCOffer{},
+		&model.OTCOfferRevision{},
+		&model.OptionContract{},
+		&model.OTCOfferReadReceipt{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
@@ -85,6 +89,12 @@ func main() {
 	// (user_id, system_type, security_type, security_id) only.
 	db.Exec("DROP INDEX IF EXISTS idx_holding_unique")
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_per_security ON holdings(user_id, system_type, security_type, security_id)")
+
+	// Celina-4 OTC: enforce "exactly one of order_id / otc_contract_id" at DB
+	// level. The model's BeforeCreate hook does the same check application-side,
+	// but the constraint is defense-in-depth against raw SQL inserts.
+	db.Exec(`ALTER TABLE holding_reservations DROP CONSTRAINT IF EXISTS holding_reservation_owner_chk`)
+	db.Exec(`ALTER TABLE holding_reservations ADD CONSTRAINT holding_reservation_owner_chk CHECK ((order_id IS NOT NULL) <> (otc_contract_id IS NOT NULL))`)
 
 	// Durable data-normalization: exchange-service only accepts 8 ISO currency
 	// codes (RSD, EUR, CHF, USD, GBP, JPY, CAD, AUD). Any other code on a

@@ -34,12 +34,17 @@ func (r *HoldingReservationRepository) Create(res *model.HoldingReservation) err
 }
 
 // InsertIfAbsent inserts the reservation unless a row with the same OrderID
-// already exists. Returns (inserted, row, error) where row is either the new
-// row (inserted=true) or the pre-existing row (inserted=false). Callers use
-// this for idempotent ReserveShares retries.
+// (legacy sell-order path) or OTCContractID (OTC option contract path) already
+// exists. Returns (inserted, row, error) where row is either the new row
+// (inserted=true) or the pre-existing row (inserted=false). Callers use
+// this for idempotent ReserveShares / ReserveForOTCContract retries.
 func (r *HoldingReservationRepository) InsertIfAbsent(res *model.HoldingReservation) (bool, *model.HoldingReservation, error) {
+	conflictCol := "order_id"
+	if res.OTCContractID != nil {
+		conflictCol = "otc_contract_id"
+	}
 	result := r.db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "order_id"}},
+		Columns:   []clause.Column{{Name: conflictCol}},
 		DoNothing: true,
 	}).Create(res)
 	if result.Error != nil {
@@ -48,11 +53,39 @@ func (r *HoldingReservationRepository) InsertIfAbsent(res *model.HoldingReservat
 	if result.RowsAffected == 1 {
 		return true, res, nil
 	}
-	existing, err := r.GetByOrderID(res.OrderID)
+	if res.OrderID != nil {
+		existing, err := r.GetByOrderID(*res.OrderID)
+		if err != nil {
+			return false, nil, err
+		}
+		return false, existing, nil
+	}
+	existing, err := r.GetByOTCContractID(*res.OTCContractID)
 	if err != nil {
 		return false, nil, err
 	}
 	return false, existing, nil
+}
+
+// GetByOTCContractID returns the reservation row keyed on OTCContractID
+// (mirror of GetByOrderID for the OTC option-contract path).
+func (r *HoldingReservationRepository) GetByOTCContractID(otcContractID uint64) (*model.HoldingReservation, error) {
+	var res model.HoldingReservation
+	if err := r.db.Where("otc_contract_id = ?", otcContractID).First(&res).Error; err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// GetByOTCContractIDForUpdate is the SELECT FOR UPDATE variant.
+func (r *HoldingReservationRepository) GetByOTCContractIDForUpdate(otcContractID uint64) (*model.HoldingReservation, error) {
+	var res model.HoldingReservation
+	err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("otc_contract_id = ?", otcContractID).First(&res).Error
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 func (r *HoldingReservationRepository) GetByOrderID(orderID uint64) (*model.HoldingReservation, error) {

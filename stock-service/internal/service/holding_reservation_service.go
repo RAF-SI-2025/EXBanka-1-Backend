@@ -104,9 +104,10 @@ func (s *HoldingReservationService) Reserve(
 			return status.Errorf(codes.FailedPrecondition,
 				"insufficient available quantity: have %d, need %d", available, qty)
 		}
+		oid := orderID
 		res := &model.HoldingReservation{
 			HoldingID: holding.ID,
-			OrderID:   orderID,
+			OrderID:   &oid,
 			Quantity:  qty,
 			Status:    model.HoldingReservationStatusActive,
 			CreatedAt: time.Now(),
