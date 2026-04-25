@@ -45,6 +45,7 @@ var AllPermissions = []struct {
 	// Agent/OTC/Funds
 	{"agents.manage", "Manage agent employees", "agents"},
 	{"otc.manage", "Manage OTC trading", "otc"},
+	{"otc.trade", "Trade OTC options (create / counter / accept / exercise)", "otc"},
 	{"funds.manage", "Manage investment funds", "funds"},
 	{"funds.bank-position-read", "View the bank's positions across investment funds and actuary performance", "funds"},
 	// Stock trading operations
@@ -73,7 +74,7 @@ var DefaultRolePermissions = map[string][]string{
 		"cards.create", "cards.read", "cards.update", "cards.approve",
 		"payments.read",
 		"credits.read", "credits.approve",
-		"securities.trade", "securities.read",
+		"securities.trade", "securities.read", "otc.trade",
 	},
 	"EmployeeSupervisor": {
 		"clients.create", "clients.read", "clients.update",
@@ -81,7 +82,7 @@ var DefaultRolePermissions = map[string][]string{
 		"cards.create", "cards.read", "cards.update", "cards.approve",
 		"payments.read",
 		"credits.read", "credits.approve",
-		"securities.trade", "securities.read",
+		"securities.trade", "securities.read", "otc.trade",
 		"agents.manage", "otc.manage", "funds.manage", "funds.bank-position-read",
 		"orders.approve", "tax.manage", "exchanges.manage",
 		"verification.skip", "verification.manage",
@@ -92,7 +93,7 @@ var DefaultRolePermissions = map[string][]string{
 		"cards.create", "cards.read", "cards.update", "cards.approve",
 		"payments.read",
 		"credits.read", "credits.approve",
-		"securities.trade", "securities.read",
+		"securities.trade", "securities.read", "otc.trade",
 		"agents.manage", "otc.manage", "funds.manage", "funds.bank-position-read",
 		"orders.approve", "tax.manage", "exchanges.manage",
 		"employees.create", "employees.update",
