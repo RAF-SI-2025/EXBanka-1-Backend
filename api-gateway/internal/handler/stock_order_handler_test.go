@@ -82,6 +82,15 @@ func (s *stubAccountClient) PartialSettleReservation(ctx context.Context, in *ac
 func (s *stubAccountClient) GetReservation(ctx context.Context, in *accountpb.GetReservationRequest, opts ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
 	return nil, nil
 }
+func (s *stubAccountClient) ReserveIncoming(ctx context.Context, in *accountpb.ReserveIncomingRequest, opts ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error) {
+	return nil, nil
+}
+func (s *stubAccountClient) CommitIncoming(ctx context.Context, in *accountpb.CommitIncomingRequest, opts ...grpc.CallOption) (*accountpb.CommitIncomingResponse, error) {
+	return nil, nil
+}
+func (s *stubAccountClient) ReleaseIncoming(ctx context.Context, in *accountpb.ReleaseIncomingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+	return nil, nil
+}
 
 // --- helper ---
 

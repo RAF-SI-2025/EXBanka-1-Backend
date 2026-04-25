@@ -81,6 +81,15 @@ func (m *mockAccountClientForRequest) PartialSettleReservation(_ context.Context
 func (m *mockAccountClientForRequest) GetReservation(_ context.Context, _ *accountpb.GetReservationRequest, _ ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClientForRequest) ReserveIncoming(_ context.Context, _ *accountpb.ReserveIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) CommitIncoming(_ context.Context, _ *accountpb.CommitIncomingRequest, _ ...grpc.CallOption) (*accountpb.CommitIncomingResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) ReleaseIncoming(_ context.Context, _ *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+	return nil, nil
+}
 
 // --- helpers ------------------------------------------------------------------
 

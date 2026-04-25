@@ -82,6 +82,15 @@ func (m *mockCronAccountClient) PartialSettleReservation(_ context.Context, _ *a
 func (m *mockCronAccountClient) GetReservation(_ context.Context, _ *accountpb.GetReservationRequest, _ ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
 	return nil, nil
 }
+func (m *mockCronAccountClient) ReserveIncoming(_ context.Context, _ *accountpb.ReserveIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error) {
+	return nil, nil
+}
+func (m *mockCronAccountClient) CommitIncoming(_ context.Context, _ *accountpb.CommitIncomingRequest, _ ...grpc.CallOption) (*accountpb.CommitIncomingResponse, error) {
+	return nil, nil
+}
+func (m *mockCronAccountClient) ReleaseIncoming(_ context.Context, _ *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+	return nil, nil
+}
 
 func newCronTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
