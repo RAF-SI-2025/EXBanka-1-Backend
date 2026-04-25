@@ -156,6 +156,15 @@ func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 		log.Printf("WARN: RefreshPrices: unknown source %q — skipping", sourceName)
 	}
 
+	// Regenerate option chains from the freshly-priced stocks. Needed because
+	// GenerateOptionsForStock short-circuits on stock.Price == 0. If SeedAll
+	// ran before the first price refresh landed (e.g. source-switch during a
+	// brief zero-price window), options were never created. Upsert-by-ticker
+	// makes this idempotent — stocks that already have options get their
+	// premiums refreshed, stocks that were skipped get their options created
+	// on the first refresh that sees non-zero prices.
+	s.generateAllOptions()
+
 	if s.listingSvc != nil {
 		s.listingSvc.SyncListingsFromSecurities()
 	}

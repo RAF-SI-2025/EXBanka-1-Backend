@@ -602,3 +602,78 @@ func TestRefreshPrices_ExternalSource_SkipsSourceRefresh(t *testing.T) {
 	require.Equal(t, 0, stub.futuresCalled)
 	require.Equal(t, 0, stub.forexCalled)
 }
+
+// TestRefreshPrices_RegeneratesOptions_AfterInitialZeroPrice covers the
+// option-seeding gap: SeedAll runs once at boot; if stock prices happened
+// to be zero at that instant (e.g. a source switch landed in the middle of
+// a price sync), GenerateOptionsForStock short-circuited to nil and the
+// options table stayed empty. A later RefreshPrices bumped stock prices
+// but never re-ran option generation. This test seeds a stock with a
+// non-zero price + a matching listing and asserts RefreshPrices produces
+// option rows via the generator's idempotent upsert path.
+func TestRefreshPrices_RegeneratesOptions_AfterInitialZeroPrice(t *testing.T) {
+	stub := &stubSource{name: "generated"}
+	stockRepo := &syncMockStockRepo{stocks: []model.Stock{{
+		ID:     1,
+		Ticker: "TEST",
+		Name:   "Test Inc.",
+		Price:  decimal.NewFromInt(100),
+	}}}
+	futuresRepo := &syncMockFuturesRepo{}
+	forexRepo := &syncMockForexRepo{}
+	optionRepo := newSyncMockOptionRepo()
+	listingRepo := newSyncMockListingRepo()
+	// Seed a stock listing so listingSvc.FindByStock(1) returns it inside
+	// generateAllOptions.
+	listingRepo.addListing(&model.Listing{
+		ID:           1,
+		SecurityID:   1,
+		SecurityType: "stock",
+		ExchangeID:   42,
+		Price:        decimal.NewFromInt(100),
+	})
+	listingRepo.nextID = 2
+	listingSvc := NewListingService(listingRepo, nil, stockRepo, futuresRepo, forexRepo)
+	svc := NewSecuritySyncService(
+		stockRepo, futuresRepo, forexRepo, optionRepo,
+		nil, &syncMockSettingRepo{}, listingSvc,
+		nil, nil, nil, nil, stub, nil,
+	)
+
+	svc.RefreshPrices(context.Background())
+
+	require.NotZero(t, len(optionRepo.options), "RefreshPrices should generate options for stocks with non-zero price")
+	// Each call to GenerateOptionsForStock produces settlementDates × strikes ×
+	// 2 (call+put). With the current generator defaults (5 dates × 11 strikes
+	// × 2), we expect 110 options. Keep the assertion loose so the test
+	// survives generator tuning.
+	require.GreaterOrEqual(t, len(optionRepo.options), 10, "expected at least a handful of options")
+}
+
+// TestRefreshPrices_SkipsOptionGenWhenStockPriceZero locks in the
+// short-circuit at option_generator.go:18 — stocks still at zero price
+// after RefreshPrices must not get option rows.
+func TestRefreshPrices_SkipsOptionGenWhenStockPriceZero(t *testing.T) {
+	stub := &stubSource{name: "generated"}
+	stockRepo := &syncMockStockRepo{stocks: []model.Stock{{
+		ID: 1, Ticker: "ZERO", Name: "Zero Co.", Price: decimal.Zero,
+	}}}
+	optionRepo := newSyncMockOptionRepo()
+	listingRepo := newSyncMockListingRepo()
+	listingRepo.addListing(&model.Listing{
+		ID: 1, SecurityID: 1, SecurityType: "stock", ExchangeID: 42, Price: decimal.Zero,
+	})
+	listingRepo.nextID = 2
+	futuresRepo := &syncMockFuturesRepo{}
+	forexRepo := &syncMockForexRepo{}
+	listingSvc := NewListingService(listingRepo, nil, stockRepo, futuresRepo, forexRepo)
+	svc := NewSecuritySyncService(
+		stockRepo, futuresRepo, forexRepo, optionRepo,
+		nil, &syncMockSettingRepo{}, listingSvc,
+		nil, nil, nil, nil, stub, nil,
+	)
+
+	svc.RefreshPrices(context.Background())
+
+	require.Equal(t, 0, len(optionRepo.options), "zero-price stocks must not produce options")
+}
