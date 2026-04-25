@@ -15,6 +15,11 @@ type Order struct {
 	ListingID         uint64           `gorm:"not null;index" json:"listing_id"`
 	Listing           Listing          `gorm:"foreignKey:ListingID" json:"-"`
 	HoldingID         *uint64          `gorm:"index" json:"holding_id"` // for sell orders, references portfolio holding
+	// FundID is non-nil when the order was placed on behalf of an investment
+	// fund. owner_user_id is then 1_000_000_000 (bank sentinel) and
+	// system_type is "employee". Fills credit fund_holdings instead of
+	// holdings.
+	FundID *uint64 `gorm:"index" json:"fund_id,omitempty"`
 	SecurityType      string           `gorm:"size:10;not null" json:"security_type"`
 	Ticker            string           `gorm:"size:30;not null" json:"ticker"`
 	Direction         string           `gorm:"size:4;not null" json:"direction"`   // "buy" or "sell"
