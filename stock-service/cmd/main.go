@@ -150,6 +150,14 @@ func main() {
 		"stock.fund-redeemed",
 		"stock.funds-reassigned",
 		"user.supervisor-demoted",
+		"otc.offer-created",
+		"otc.offer-countered",
+		"otc.offer-rejected",
+		"otc.offer-expired",
+		"otc.contract-created",
+		"otc.contract-exercised",
+		"otc.contract-expired",
+		"otc.contract-failed",
 	)
 
 	// --- InfluxDB ---
@@ -228,6 +236,7 @@ func main() {
 	fundContribRepo := repository.NewFundContributionRepository(db)
 	fundPositionRepo := repository.NewClientFundPositionRepository(db)
 	fundHoldingRepo := repository.NewFundHoldingRepository(db)
+
 
 	// --- Name Resolver ---
 	nameResolver := service.UserNameResolver(func(userID uint64, systemType string) (string, string, error) {
@@ -534,6 +543,22 @@ func main() {
 	supervisorDemotedConsumer.Start(ctx)
 	defer func() { _ = supervisorDemotedConsumer.Close() }()
 
+	// --- Intra-bank OTC Options (Spec 2 / Celina 4) ---
+	otcOfferRepo := repository.NewOTCOfferRepository(db)
+	otcRevisionRepo := repository.NewOTCOfferRevisionRepository(db)
+	optionContractRepo := repository.NewOptionContractRepository(db)
+	otcReadReceiptRepo := repository.NewOTCReadReceiptRepository(db)
+	otcOfferSvc := service.NewOTCOfferService(
+		otcOfferRepo, otcRevisionRepo, optionContractRepo,
+		holdingRepo, otcReadReceiptRepo, producer,
+	).WithSaga(sagaLogRepo, fundAccountAdapter, holdingReservationSvc, holdingRepo)
+	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo)
+	pb.RegisterOTCOptionsServiceServer(grpcServer, otcOptionsHandler)
+
+	// OTC expiry cron (daily). Settings driven by config; defaults 02:00 UTC, batch 500.
+	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, 0, "")
+	otcExpiry.Start(ctx)
+
 	// Source admin handler
 	sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 		switch name {
@@ -659,6 +684,20 @@ func (a *fundAccountAdapter) CreditAccount(ctx context.Context, accountNumber st
 
 func (a *fundAccountAdapter) DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
 	return a.fillClient.DebitAccount(ctx, accountNumber, amount, memo, idempotencyKey)
+}
+
+// Reservation lifecycle methods — added so fundAccountAdapter also satisfies
+// service.OTCAccountClient (Celina-4 OTC accept/exercise sagas).
+func (a *fundAccountAdapter) ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency string) (*accountpb.ReserveFundsResponse, error) {
+	return a.fillClient.ReserveFunds(ctx, accountID, sagaOrderID, amount, currency)
+}
+
+func (a *fundAccountAdapter) ReleaseReservation(ctx context.Context, sagaOrderID uint64) (*accountpb.ReleaseReservationResponse, error) {
+	return a.fillClient.ReleaseReservation(ctx, sagaOrderID)
+}
+
+func (a *fundAccountAdapter) PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error) {
+	return a.fillClient.PartialSettleReservation(ctx, sagaOrderID, settleSeq, amount, memo)
 }
 
 // fundExchangeAdapter narrows the exchange-service gRPC client to the

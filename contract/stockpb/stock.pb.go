@@ -8300,6 +8300,10 @@ type AcceptOTCOfferRequest struct {
 	OfferId         uint64                 `protobuf:"varint,1,opt,name=offer_id,json=offerId,proto3" json:"offer_id,omitempty"`
 	ActorUserId     int64                  `protobuf:"varint,2,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
 	ActorSystemType string                 `protobuf:"bytes,3,opt,name=actor_system_type,json=actorSystemType,proto3" json:"actor_system_type,omitempty"`
+	// Buyer's account that pays the premium.
+	BuyerAccountId uint64 `protobuf:"varint,4,opt,name=buyer_account_id,json=buyerAccountId,proto3" json:"buyer_account_id,omitempty"`
+	// Seller's account that receives the premium.
+	SellerAccountId uint64 `protobuf:"varint,5,opt,name=seller_account_id,json=sellerAccountId,proto3" json:"seller_account_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -8353,6 +8357,20 @@ func (x *AcceptOTCOfferRequest) GetActorSystemType() string {
 		return x.ActorSystemType
 	}
 	return ""
+}
+
+func (x *AcceptOTCOfferRequest) GetBuyerAccountId() uint64 {
+	if x != nil {
+		return x.BuyerAccountId
+	}
+	return 0
+}
+
+func (x *AcceptOTCOfferRequest) GetSellerAccountId() uint64 {
+	if x != nil {
+		return x.SellerAccountId
+	}
+	return 0
 }
 
 type AcceptOfferResponse struct {
@@ -8888,6 +8906,10 @@ type ExerciseContractRequest struct {
 	ContractId      uint64                 `protobuf:"varint,1,opt,name=contract_id,json=contractId,proto3" json:"contract_id,omitempty"`
 	ActorUserId     int64                  `protobuf:"varint,2,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
 	ActorSystemType string                 `protobuf:"bytes,3,opt,name=actor_system_type,json=actorSystemType,proto3" json:"actor_system_type,omitempty"`
+	// Buyer's account that pays the strike (and gets the shares).
+	BuyerAccountId uint64 `protobuf:"varint,4,opt,name=buyer_account_id,json=buyerAccountId,proto3" json:"buyer_account_id,omitempty"`
+	// Seller's account that receives the strike funds.
+	SellerAccountId uint64 `protobuf:"varint,5,opt,name=seller_account_id,json=sellerAccountId,proto3" json:"seller_account_id,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -8941,6 +8963,20 @@ func (x *ExerciseContractRequest) GetActorSystemType() string {
 		return x.ActorSystemType
 	}
 	return ""
+}
+
+func (x *ExerciseContractRequest) GetBuyerAccountId() uint64 {
+	if x != nil {
+		return x.BuyerAccountId
+	}
+	return 0
+}
+
+func (x *ExerciseContractRequest) GetSellerAccountId() uint64 {
+	if x != nil {
+		return x.SellerAccountId
+	}
+	return 0
 }
 
 type ExerciseResponse struct {
@@ -9856,11 +9892,13 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\bquantity\x18\x04 \x01(\tR\bquantity\x12!\n" +
 	"\fstrike_price\x18\x05 \x01(\tR\vstrikePrice\x12\x18\n" +
 	"\apremium\x18\x06 \x01(\tR\apremium\x12'\n" +
-	"\x0fsettlement_date\x18\a \x01(\tR\x0esettlementDate\"\x82\x01\n" +
+	"\x0fsettlement_date\x18\a \x01(\tR\x0esettlementDate\"\xd8\x01\n" +
 	"\x15AcceptOTCOfferRequest\x12\x19\n" +
 	"\boffer_id\x18\x01 \x01(\x04R\aofferId\x12\"\n" +
 	"\ractor_user_id\x18\x02 \x01(\x03R\vactorUserId\x12*\n" +
-	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\"\xbd\x01\n" +
+	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\x12(\n" +
+	"\x10buyer_account_id\x18\x04 \x01(\x04R\x0ebuyerAccountId\x12*\n" +
+	"\x11seller_account_id\x18\x05 \x01(\x04R\x0fsellerAccountId\"\xbd\x01\n" +
 	"\x13AcceptOfferResponse\x12\x19\n" +
 	"\boffer_id\x18\x01 \x01(\x04R\aofferId\x12\x1f\n" +
 	"\vcontract_id\x18\x02 \x01(\x04R\n" +
@@ -9911,12 +9949,14 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\vcontract_id\x18\x01 \x01(\x04R\n" +
 	"contractId\x12\"\n" +
 	"\ractor_user_id\x18\x02 \x01(\x03R\vactorUserId\x12*\n" +
-	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\"\x8a\x01\n" +
+	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\"\xe0\x01\n" +
 	"\x17ExerciseContractRequest\x12\x1f\n" +
 	"\vcontract_id\x18\x01 \x01(\x04R\n" +
 	"contractId\x12\"\n" +
 	"\ractor_user_id\x18\x02 \x01(\x03R\vactorUserId\x12*\n" +
-	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\"\xf7\x02\n" +
+	"\x11actor_system_type\x18\x03 \x01(\tR\x0factorSystemType\x12(\n" +
+	"\x10buyer_account_id\x18\x04 \x01(\x04R\x0ebuyerAccountId\x12*\n" +
+	"\x11seller_account_id\x18\x05 \x01(\x04R\x0fsellerAccountId\"\xf7\x02\n" +
 	"\x10ExerciseResponse\x12\x1f\n" +
 	"\vcontract_id\x18\x01 \x01(\x04R\n" +
 	"contractId\x12\x16\n" +
