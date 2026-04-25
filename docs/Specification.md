@@ -2413,8 +2413,12 @@ Defined in `contract/proto/stock/stock.proto`. RPCs: CreateOffer, ListMyOffers, 
 
 **Expiry cron**: daily 02:00 UTC. Pass A: ACTIVE contracts past settlement_date → release seller's reservation, mark EXPIRED, publish event. Pass B: PENDING/COUNTERED offers past settlement_date → mark EXPIRED, publish event.
 
-### Open follow-ups
+### Cross-currency support
 
-- Cross-currency Accept/Exercise (currently rejects with "cross-currency not yet supported"). Hook in `exchange-service.Convert` for premium and strike conversion.
-- Compensation matrix tests (Task 12) — happy path covered, per-step compensation tests deferred.
-- Integration tests in `test-app/workflows/otc_options_test.go` (Task 18).
+Both Accept and Exercise convert through `exchange-service.Convert` when buyer + seller account currencies differ:
+
+- Premium / strike are denominated in the seller's currency
+- Buyer-side reserve, settle, and compensation legs run in the buyer's currency at the live rate
+- Seller is credited in their currency
+
+Same-currency flows skip the conversion call entirely.

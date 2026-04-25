@@ -390,9 +390,9 @@ Quantity changes re-run the seller invariant. Last-mover rule: caller must NOT b
 }
 ```
 
-Same-currency only at the moment (cross-currency support is a follow-up). Saga: reserve seller's shares + create OptionContract → ReserveFunds(buyer) → PartialSettle(buyer) → CreditAccount(seller) → mark offer ACCEPTED → kafka event.
+Cross-currency supported: when `buyer_account_id` and `seller_account_id` are in different currencies, the buyer-side reserve / settle / compensation legs run in the buyer's currency (premium converted at the live `exchange-service.Convert` rate); the seller is credited in their currency. Saga: reserve seller's shares + create OptionContract → ReserveFunds(buyer, in buyer ccy) → PartialSettle(buyer) → CreditAccount(seller, in seller ccy) → mark offer ACCEPTED → kafka event.
 
-**Responses:** `201 Created` with `{"offer_id", "contract_id", "status", "saga_id", "contract"}`. `403` for last-mover, `409` for terminal offer / cross-currency.
+**Responses:** `201 Created` with `{"offer_id", "contract_id", "status", "saga_id", "contract"}`. `403` for last-mover, `409` for terminal offer.
 
 ### POST /api/v3/otc/offers/{id}/reject — Reject
 
