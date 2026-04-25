@@ -1,6 +1,11 @@
 package service
 
 import (
+	"context"
+	"log"
+	"time"
+
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/user-service/internal/model"
 )
 
@@ -104,12 +109,21 @@ var DefaultRolePermissions = map[string][]string{
 }
 
 type RoleService struct {
-	roleRepo RoleRepo
-	permRepo PermissionRepo
+	roleRepo  RoleRepo
+	permRepo  PermissionRepo
+	publisher RolePermPublisher
 }
 
 func NewRoleService(roleRepo RoleRepo, permRepo PermissionRepo) *RoleService {
 	return &RoleService{roleRepo: roleRepo, permRepo: permRepo}
+}
+
+// WithPublisher wires the Kafka publisher used to emit
+// role-permissions-changed events. Returns the same receiver mutated for
+// builder-style wiring in cmd/main.go. Pass nil to disable publishing.
+func (s *RoleService) WithPublisher(p RolePermPublisher) *RoleService {
+	s.publisher = p
+	return s
 }
 
 // SeedRolesAndPermissions inserts default permissions and roles if they don't exist.
@@ -185,7 +199,9 @@ func (s *RoleService) ListRoles() ([]model.Role, error) {
 	return s.roleRepo.List()
 }
 
-// CreateRole creates a new role with the given permission codes.
+// CreateRole creates a new role with the given permission codes. Publishes a
+// best-effort role-permissions-changed event so any pre-existing employees
+// added to this role mid-flight (rare but possible) get session revocation.
 func (s *RoleService) CreateRole(name, description string, permissionCodes []string) (*model.Role, error) {
 	perms, err := s.permRepo.ListByCodes(permissionCodes)
 	if err != nil {
@@ -195,16 +211,52 @@ func (s *RoleService) CreateRole(name, description string, permissionCodes []str
 	if err := s.roleRepo.Create(role); err != nil {
 		return nil, err
 	}
+	s.publishRolePermissionsChanged(role.ID, name, "create_role")
 	return role, nil
 }
 
-// UpdateRolePermissions replaces the permissions on a role.
+// UpdateRolePermissions replaces the permissions on a role and publishes a
+// best-effort Kafka event so auth-service can revoke active sessions for every
+// employee currently holding the role. A Kafka failure is logged but does NOT
+// fail the update; the DB write is the source of truth.
 func (s *RoleService) UpdateRolePermissions(roleID int64, permissionCodes []string) error {
 	perms, err := s.permRepo.ListByCodes(permissionCodes)
 	if err != nil {
 		return err
 	}
-	return s.roleRepo.SetPermissions(roleID, perms)
+	if err := s.roleRepo.SetPermissions(roleID, perms); err != nil {
+		return err
+	}
+	role, err := s.roleRepo.GetByID(roleID)
+	roleName := ""
+	if err == nil && role != nil {
+		roleName = role.Name
+	}
+	s.publishRolePermissionsChanged(roleID, roleName, "update_role_permissions")
+	return nil
+}
+
+// publishRolePermissionsChanged fans out the event. Nil publisher → no-op.
+// Errors are logged at warn but never propagated; the DB state is canonical.
+func (s *RoleService) publishRolePermissionsChanged(roleID int64, roleName, source string) {
+	if s.publisher == nil {
+		return
+	}
+	ids, err := s.roleRepo.ListEmployeeIDsByRole(roleID)
+	if err != nil {
+		log.Printf("WARN: role-perm-changed: list employees for role %d: %v", roleID, err)
+		return
+	}
+	msg := kafkamsg.RolePermissionsChangedMessage{
+		RoleID:              roleID,
+		RoleName:            roleName,
+		AffectedEmployeeIDs: ids,
+		ChangedAt:           time.Now().Unix(),
+		Source:              source,
+	}
+	if err := s.publisher.PublishRolePermissionsChanged(context.Background(), msg); err != nil {
+		log.Printf("WARN: role-perm-changed: publish for role %d: %v", roleID, err)
+	}
 }
 
 // ListPermissions returns all permissions.

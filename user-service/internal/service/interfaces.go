@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/exbanka/contract/changelog"
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/user-service/internal/model"
 )
 
@@ -37,6 +38,12 @@ type RoleRepo interface {
 	Update(role *model.Role) error
 	SetPermissions(roleID int64, permissions []model.Permission) error
 	Delete(id int64) error
+	ListEmployeeIDsByRole(roleID int64) ([]int64, error)
+}
+
+// RolePermPublisher is the narrow Kafka surface RoleService needs.
+type RolePermPublisher interface {
+	PublishRolePermissionsChanged(ctx context.Context, msg kafkamsg.RolePermissionsChangedMessage) error
 }
 
 type PermissionRepo interface {

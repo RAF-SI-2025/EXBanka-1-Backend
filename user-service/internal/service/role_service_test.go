@@ -2,25 +2,30 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/stretchr/testify/assert"
 )
 
 // mockRoleRepo implements RoleRepo for testing.
 type mockRoleRepo struct {
-	roles  map[string]*model.Role
-	byID   map[int64]*model.Role
-	nextID int64
+	roles           map[string]*model.Role
+	byID            map[int64]*model.Role
+	nextID          int64
+	employeesByRole map[int64][]int64
 }
 
 func newMockRoleRepo() *mockRoleRepo {
 	return &mockRoleRepo{
-		roles:  make(map[string]*model.Role),
-		byID:   make(map[int64]*model.Role),
-		nextID: 1,
+		roles:           make(map[string]*model.Role),
+		byID:            make(map[int64]*model.Role),
+		nextID:          1,
+		employeesByRole: make(map[int64][]int64),
 	}
 }
 
@@ -89,6 +94,25 @@ func (m *mockRoleRepo) Delete(id int64) error {
 	delete(m.roles, r.Name)
 	delete(m.byID, id)
 	return nil
+}
+
+func (m *mockRoleRepo) ListEmployeeIDsByRole(roleID int64) ([]int64, error) {
+	ids, ok := m.employeesByRole[roleID]
+	if !ok {
+		return []int64{}, nil
+	}
+	return ids, nil
+}
+
+// fakeRolePermPublisher records calls to PublishRolePermissionsChanged.
+type fakeRolePermPublisher struct {
+	calls []kafkamsg.RolePermissionsChangedMessage
+	err   error
+}
+
+func (f *fakeRolePermPublisher) PublishRolePermissionsChanged(_ context.Context, msg kafkamsg.RolePermissionsChangedMessage) error {
+	f.calls = append(f.calls, msg)
+	return f.err
 }
 
 // mockPermRepo implements PermissionRepo for testing.
@@ -330,5 +354,83 @@ func TestSeedRoles_EmployeeAdminHasSecuritiesManage(t *testing.T) {
 		assert.NoError(t, err2)
 		assert.NotContains(t, codes, "securities.manage",
 			"%s should NOT have the securities.manage permission", roleName)
+	}
+}
+
+func TestRoleService_UpdateRolePermissions_PublishesEvent(t *testing.T) {
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+
+	role := &model.Role{Name: "EmployeeAgent"}
+	if err := roleRepo.Create(role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	if err := permRepo.Create(&model.Permission{Code: "clients.read"}); err != nil {
+		t.Fatalf("create perm: %v", err)
+	}
+
+	roleRepo.employeesByRole[role.ID] = []int64{42, 43}
+
+	pub := &fakeRolePermPublisher{}
+	svc := NewRoleService(roleRepo, permRepo).WithPublisher(pub)
+
+	before := time.Now().Unix()
+	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read"}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	after := time.Now().Unix()
+
+	if len(pub.calls) != 1 {
+		t.Fatalf("expected 1 publish, got %d", len(pub.calls))
+	}
+	got := pub.calls[0]
+	if got.RoleID != role.ID || got.RoleName != "EmployeeAgent" {
+		t.Errorf("role identity: got %+v", got)
+	}
+	if got.Source != "update_role_permissions" {
+		t.Errorf("source: got %q", got.Source)
+	}
+	if len(got.AffectedEmployeeIDs) != 2 || got.AffectedEmployeeIDs[0] != 42 || got.AffectedEmployeeIDs[1] != 43 {
+		t.Errorf("affected ids: got %v", got.AffectedEmployeeIDs)
+	}
+	if got.ChangedAt < before || got.ChangedAt > after {
+		t.Errorf("ChangedAt %d not within [%d,%d]", got.ChangedAt, before, after)
+	}
+}
+
+func TestRoleService_UpdateRolePermissions_KafkaFailureDoesNotFailUpdate(t *testing.T) {
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	role := &model.Role{Name: "EmployeeAgent"}
+	if err := roleRepo.Create(role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	if err := permRepo.Create(&model.Permission{Code: "clients.read"}); err != nil {
+		t.Fatalf("create perm: %v", err)
+	}
+	roleRepo.employeesByRole[role.ID] = []int64{1}
+
+	pub := &fakeRolePermPublisher{err: errors.New("kafka down")}
+	svc := NewRoleService(roleRepo, permRepo).WithPublisher(pub)
+
+	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read"}); err != nil {
+		t.Fatalf("update should not propagate kafka errors: %v", err)
+	}
+}
+
+func TestRoleService_UpdateRolePermissions_NoPublisherIsAllowed(t *testing.T) {
+	roleRepo := newMockRoleRepo()
+	permRepo := newMockPermRepo()
+	role := &model.Role{Name: "EmployeeAgent"}
+	if err := roleRepo.Create(role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	if err := permRepo.Create(&model.Permission{Code: "clients.read"}); err != nil {
+		t.Fatalf("create perm: %v", err)
+	}
+
+	svc := NewRoleService(roleRepo, permRepo) // no publisher
+	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read"}); err != nil {
+		t.Fatalf("update: %v", err)
 	}
 }
