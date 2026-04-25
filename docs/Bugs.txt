@@ -300,3 +300,56 @@ Fix:
 
 Status: FIXED 2026-04-24. Regression test at
 test-app/workflows/wf_systemtype_isolation_test.go.
+
+
+===============================================================================
+[2026-04-25] Cohort-dependent / cross-team TODOs deliberately left open
+===============================================================================
+
+These came out of the Celina 4 + Celina 5 audit after Plans 1–4 landed. Each
+one needs a decision or work outside the four-plan scope and so was
+deliberately left as a TODO instead of being half-implemented.
+
+1. PeerReviseOffer + PeerAcceptIntent RPCs return Unimplemented
+   - Defined in contract/proto/stock/stock.proto under CrossBankOTCService
+   - The Celina spec describes the user-visible flow ("Klijent klikne
+     Predlozi kontra ponudu") but does not lock the inter-bank wire
+     contract. The four faculty banks must agree on the
+     counter / accept-intent payload shape and write it down in
+     docs/superpowers/refs/crossbank-otc-wire.md before any bank can
+     implement these handlers — a unilateral implementation would fail
+     at HMAC + envelope validation on the receiving bank.
+   - Until the wire shape is locked, both RPCs return
+     codes.Unimplemented and the responder-side
+     CrossbankInternalHandler short-circuits with a clear error message.
+
+2. Fund performance history charts (Celina 4 §Detaljan prikaz fonda)
+   - Spec calls for "tabela ili grafikon (po želji tima: mesečni,
+     kvartalni ili godišnji prikaz)".
+   - Backend would need a snapshot table (e.g. fund_value_snapshots) +
+     a daily cron that records (fund_id, date, value_rsd, profit_rsd).
+     None of that is in the original Plan 1 scope.
+   - The fund detail endpoint (GET /api/v3/investment-funds/{id})
+     surfaces current value via the position-reads service; historical
+     series is the missing piece.
+
+3. Visual color thresholds (Celina 4 §Aktivne ponude)
+   - Spec calls for ±5% green / ±5–20% yellow / >20% red banding on
+     the negotiation list.
+   - Backend already returns the data the frontend needs to compute the
+     banding (market_reference_price now ships on every offer +
+     contract response). The thresholds + colours are pure UI.
+
+4. Notification-service consumers for otc.* Kafka topics
+   - Celina 5 §Pregovaranje shows "Prodavac vidi obaveštenje" / Celina 4
+     parallel for fund / OTC events.
+   - Stock-service publishes the full set of otc.offer-* and
+     otc.contract-* topics today, but notification-service has no
+     consumer registered for any of them — emails won't be sent on
+     counter, accept, reject, exercise, or expire events.
+   - Cross-cutting: this would touch notification-service's consumer
+     wiring + new email templates per event type, plus depend on a
+     new EmailType enum value per topic. Outside the four OTC plans.
+
+Each item is genuinely "won't" rather than "missed". Track here so a
+future maintainer doesn't re-discover the same conclusions.
