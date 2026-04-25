@@ -75,6 +75,7 @@ func main() {
 		&model.OTCOfferRevision{},
 		&model.OptionContract{},
 		&model.OTCOfferReadReceipt{},
+		&model.InterBankSagaLog{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}

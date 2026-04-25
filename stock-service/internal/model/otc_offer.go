@@ -49,6 +49,12 @@ type OTCOffer struct {
 	LastModifiedByUserID     int64           `gorm:"not null" json:"last_modified_by_user_id"`
 	LastModifiedBySystemType string          `gorm:"size:10;not null" json:"last_modified_by_system_type"`
 	ExternalCorrelationID    *string         `gorm:"size:64" json:"external_correlation_id,omitempty"`
+	// Cross-bank visibility (Spec 4 / Celina 5). Public offers are listed via
+	// peer discovery; Private offers are only shown to the named bank in
+	// PrivateToBankCode. NULL bank codes mean a same-bank offer.
+	Public            bool    `gorm:"not null;default:true" json:"public"`
+	Private           bool    `gorm:"not null;default:false" json:"private"`
+	PrivateToBankCode *string `gorm:"size:3" json:"private_to_bank_code,omitempty"`
 	CreatedAt                time.Time       `json:"created_at"`
 	UpdatedAt                time.Time       `json:"updated_at"`
 	Version                  int64           `gorm:"not null;default:0" json:"-"`
@@ -60,6 +66,30 @@ func (o *OTCOffer) BeforeUpdate(tx *gorm.DB) error {
 	}
 	o.Version++
 	return nil
+}
+
+// IsCrossBankOffer reports whether the offer participates in a cross-bank
+// trade from the perspective of the given bank. Empty / NULL bank-code
+// columns mean the row predates Spec 4 and is treated as same-bank.
+func IsCrossBankOffer(o *OTCOffer, selfBankCode string) bool {
+	cpb := ""
+	if o.CounterpartyBankCode != nil {
+		cpb = *o.CounterpartyBankCode
+	}
+	ipb := ""
+	if o.InitiatorBankCode != nil {
+		ipb = *o.InitiatorBankCode
+	}
+	if cpb == "" && ipb == "" {
+		return false
+	}
+	if ipb != "" && ipb != selfBankCode {
+		return true
+	}
+	if cpb != "" && cpb != selfBankCode {
+		return true
+	}
+	return false
 }
 
 // IsTerminal reports whether the offer is in a terminal state and cannot be

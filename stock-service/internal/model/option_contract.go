@@ -38,6 +38,10 @@ type OptionContract struct {
 	PremiumPaidAt    time.Time       `gorm:"not null" json:"premium_paid_at"`
 	ExercisedAt      *time.Time      `json:"exercised_at,omitempty"`
 	ExpiredAt        *time.Time      `json:"expired_at,omitempty"`
+	// Cross-bank saga linkage (Spec 4 / Celina 5). CrossbankTxID is set on
+	// accept; CrossbankExerciseTxID is set on cross-bank exercise.
+	CrossbankTxID         *string `gorm:"size:36;index" json:"crossbank_tx_id,omitempty"`
+	CrossbankExerciseTxID *string `gorm:"size:36;index" json:"crossbank_exercise_tx_id,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
 	Version          int64           `gorm:"not null;default:0" json:"-"`
@@ -49,6 +53,19 @@ func (c *OptionContract) BeforeUpdate(tx *gorm.DB) error {
 	}
 	c.Version++
 	return nil
+}
+
+// IsCrossBank reports whether buyer and seller live on different banks.
+// Empty bank codes mean same-bank (legacy / pre-Spec-4 rows).
+func (c *OptionContract) IsCrossBank() bool {
+	bb, sb := "", ""
+	if c.BuyerBankCode != nil {
+		bb = *c.BuyerBankCode
+	}
+	if c.SellerBankCode != nil {
+		sb = *c.SellerBankCode
+	}
+	return bb != "" && sb != "" && bb != sb
 }
 
 func (c *OptionContract) IsTerminal() bool {
