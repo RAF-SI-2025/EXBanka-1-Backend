@@ -40,13 +40,39 @@ func mapServiceError(err error) codes.Code {
 	}
 }
 
+// employeeFacade is the minimal interface of EmployeeService used by UserGRPCHandler.
+type employeeFacade interface {
+	CreateEmployee(ctx context.Context, emp *model.Employee) error
+	GetEmployee(id int64) (*model.Employee, error)
+	ListEmployees(emailFilter, nameFilter, positionFilter string, page, pageSize int) ([]model.Employee, int64, error)
+	UpdateEmployee(ctx context.Context, id int64, updates map[string]interface{}, changedBy int64) (*model.Employee, error)
+	SetEmployeeRoles(ctx context.Context, employeeID int64, roleNames []string, changedBy int64) error
+	SetEmployeeAdditionalPermissions(ctx context.Context, employeeID int64, permCodes []string, changedBy int64) error
+	ResolvePermissions(emp *model.Employee) []string
+}
+
+// roleFacade is the minimal interface of RoleService used by UserGRPCHandler.
+type roleFacade interface {
+	ListRoles() ([]model.Role, error)
+	GetRole(id int64) (*model.Role, error)
+	CreateRole(name, description string, permissionCodes []string) (*model.Role, error)
+	UpdateRolePermissions(roleID int64, permissionCodes []string) error
+	ListPermissions() ([]model.Permission, error)
+}
+
 type UserGRPCHandler struct {
 	pb.UnimplementedUserServiceServer
-	empService *service.EmployeeService
-	roleSvc    *service.RoleService
+	empService employeeFacade
+	roleSvc    roleFacade
 }
 
 func NewUserGRPCHandler(empService *service.EmployeeService, roleSvc *service.RoleService) *UserGRPCHandler {
+	return &UserGRPCHandler{empService: empService, roleSvc: roleSvc}
+}
+
+// newUserHandlerForTest constructs a UserGRPCHandler with interface-typed dependencies
+// for use in unit tests (no concrete service instances needed).
+func newUserHandlerForTest(empService employeeFacade, roleSvc roleFacade) *UserGRPCHandler {
 	return &UserGRPCHandler{empService: empService, roleSvc: roleSvc}
 }
 
@@ -230,7 +256,7 @@ func (h *UserGRPCHandler) SetEmployeeAdditionalPermissions(ctx context.Context, 
 	return toEmployeeResponse(emp, h.empService), nil
 }
 
-func toEmployeeResponse(emp *model.Employee, empSvc *service.EmployeeService) *pb.EmployeeResponse {
+func toEmployeeResponse(emp *model.Employee, empSvc employeeFacade) *pb.EmployeeResponse {
 	permissions := empSvc.ResolvePermissions(emp)
 	roleNames := extractRoleNames(emp.Roles)
 
