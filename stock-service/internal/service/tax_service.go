@@ -425,15 +425,35 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 				TaxAmountRSD: taxInRSD,
 				CollectedAt:  time.Now(),
 			}
-			if createErr := s.taxCollectionRepo.Create(collection); createErr != nil {
-				log.Printf("WARN: tax: failed to record collection for user %d: %v", summary.UserID, createErr)
+			// Persist the TaxCollection row AND stamp the contributing
+			// capital_gain rows atomically. If we recorded the collection
+			// without stamping the gains, the next CollectTax run would see
+			// the gains as still uncollected (NULL), produce a fresh attempt
+			// number from CountByKey (which would now return 1), generate
+			// distinct idempotency keys, and double-debit the user. Wrapping
+			// both writes in a single transaction means a marking failure
+			// rolls back the collection row too, so the next run safely
+			// retries the whole batch with the same attempt number.
+			//
+			// When s.db is nil (unit tests) we fall back to the original
+			// best-effort sequence so the existing mocks still work.
+			if s.db == nil {
+				if createErr := s.taxCollectionRepo.Create(collection); createErr != nil {
+					log.Printf("WARN: tax: failed to record collection for user %d: %v", summary.UserID, createErr)
+				} else if markErr := s.capitalGainRepo.MarkCollected(summary.UserID, summary.SystemType, year, month, gs.AccountID, gs.Currency, collection.ID); markErr != nil {
+					log.Printf("WARN: tax: MarkCollected failed for user %d account %d %s: %v", summary.UserID, gs.AccountID, gs.Currency, markErr)
+				}
 			} else {
-				// Stamp every uncollected capital_gain row that fed this
-				// collection with the new collection's ID so the next
-				// CollectTax run ignores them. Best-effort — a marking
-				// failure logs but doesn't roll back the money move.
-				if markErr := s.capitalGainRepo.MarkCollected(summary.UserID, summary.SystemType, year, month, gs.AccountID, gs.Currency, collection.ID); markErr != nil {
-					log.Printf("WARN: tax: MarkCollected failed for user %d account %d %s: %v — future runs may re-tax these gains", summary.UserID, gs.AccountID, gs.Currency, markErr)
+				if persistErr := s.db.Transaction(func(tx *gorm.DB) error {
+					if err := tx.Create(collection).Error; err != nil {
+						return err
+					}
+					return tx.Model(&model.CapitalGain{}).
+						Where("user_id = ? AND system_type = ? AND tax_year = ? AND tax_month = ? AND account_id = ? AND currency = ? AND tax_collection_id IS NULL",
+							summary.UserID, summary.SystemType, year, month, gs.AccountID, gs.Currency).
+						Update("tax_collection_id", collection.ID).Error
+				}); persistErr != nil {
+					log.Printf("WARN: tax: failed to atomically record+stamp collection for user %d account %d %s: %v — money was moved; next run will retry under the same attempt number", summary.UserID, gs.AccountID, gs.Currency, persistErr)
 				}
 			}
 
