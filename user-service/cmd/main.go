@@ -69,6 +69,7 @@ func main() {
 		"user.blueprint-deleted",
 		"user.blueprint-applied",
 		"user.changelog",
+		"user.role-permissions-changed",
 		"notification.send-email",
 	)
 
@@ -87,7 +88,7 @@ func main() {
 	employeeLimitRepo := repository.NewEmployeeLimitRepository(db)
 	limitTemplateRepo := repository.NewLimitTemplateRepository(db)
 
-	roleSvc := service.NewRoleService(roleRepo, permRepo)
+	roleSvc := service.NewRoleService(roleRepo, permRepo).WithPublisher(producer)
 
 	// Seed roles and permissions on startup
 	if err := roleSvc.SeedRolesAndPermissions(); err != nil {
