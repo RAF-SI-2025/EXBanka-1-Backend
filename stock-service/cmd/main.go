@@ -65,6 +65,10 @@ func main() {
 		&model.CapitalGain{},
 		&model.TaxCollection{},
 		&model.SagaLog{},
+		&model.InvestmentFund{},
+		&model.ClientFundPosition{},
+		&model.FundContribution{},
+		&model.FundHolding{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
