@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
+	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
@@ -31,9 +32,49 @@ type OTCOfferService struct {
 	revisions *repository.OTCOfferRevisionRepository
 	contracts *repository.OptionContractRepository
 	holdings  OTCHoldingLookup
+	holdingRepo OTCHoldingMutator
 	receipts  *repository.OTCReadReceiptRepository
 	producer  *kafkaprod.Producer
+
+	// saga deps (optional; wired via WithSaga). Required by Accept and
+	// ExerciseContract.
+	sagaRepo   SagaLogRepo
+	accounts   OTCAccountClient
+	holdingRes *HoldingReservationService
 }
+
+// OTCAccountClient is the account-service surface the accept and exercise
+// sagas use. Superset of FundAccountClient (adds reservation lifecycle).
+type OTCAccountClient interface {
+	FundAccountClient
+	ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency string) (*accountpb.ReserveFundsResponse, error)
+	ReleaseReservation(ctx context.Context, sagaOrderID uint64) (*accountpb.ReleaseReservationResponse, error)
+	PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error)
+}
+
+// OTCHoldingMutator is the surface needed to credit a buyer's holding on
+// exercise. Implemented by *repository.HoldingRepository.
+type OTCHoldingMutator interface {
+	Upsert(h *model.Holding) error
+}
+
+// WithSaga wires the dependencies needed by Accept / ExerciseContract.
+// Without it, those methods reject with errOTCSagaDepsNotWired.
+func (s *OTCOfferService) WithSaga(
+	sagaRepo SagaLogRepo,
+	accounts OTCAccountClient,
+	holdingRes *HoldingReservationService,
+	holdingRepo OTCHoldingMutator,
+) *OTCOfferService {
+	cp := *s
+	cp.sagaRepo = sagaRepo
+	cp.accounts = accounts
+	cp.holdingRes = holdingRes
+	cp.holdingRepo = holdingRepo
+	return &cp
+}
+
+var errOTCSagaDepsNotWired = errors.New("OTC saga dependencies not wired")
 
 func NewOTCOfferService(
 	offers *repository.OTCOfferRepository,

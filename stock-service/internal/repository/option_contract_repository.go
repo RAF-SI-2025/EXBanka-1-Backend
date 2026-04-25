@@ -38,6 +38,10 @@ func (r *OptionContractRepository) GetByOfferID(offerID uint64) (*model.OptionCo
 	return &c, err
 }
 
+func (r *OptionContractRepository) Delete(id uint64) error {
+	return r.db.Delete(&model.OptionContract{}, id).Error
+}
+
 func (r *OptionContractRepository) Save(c *model.OptionContract) error {
 	res := r.db.Save(c)
 	if res.Error != nil {
