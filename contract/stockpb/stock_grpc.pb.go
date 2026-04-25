@@ -2260,3 +2260,409 @@ var InvestmentFundService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "stock/stock.proto",
 }
+
+const (
+	OTCOptionsService_CreateOffer_FullMethodName      = "/stock.OTCOptionsService/CreateOffer"
+	OTCOptionsService_ListMyOffers_FullMethodName     = "/stock.OTCOptionsService/ListMyOffers"
+	OTCOptionsService_GetOffer_FullMethodName         = "/stock.OTCOptionsService/GetOffer"
+	OTCOptionsService_CounterOffer_FullMethodName     = "/stock.OTCOptionsService/CounterOffer"
+	OTCOptionsService_AcceptOffer_FullMethodName      = "/stock.OTCOptionsService/AcceptOffer"
+	OTCOptionsService_RejectOffer_FullMethodName      = "/stock.OTCOptionsService/RejectOffer"
+	OTCOptionsService_ListMyContracts_FullMethodName  = "/stock.OTCOptionsService/ListMyContracts"
+	OTCOptionsService_GetContract_FullMethodName      = "/stock.OTCOptionsService/GetContract"
+	OTCOptionsService_ExerciseContract_FullMethodName = "/stock.OTCOptionsService/ExerciseContract"
+)
+
+// OTCOptionsServiceClient is the client API for OTCOptionsService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type OTCOptionsServiceClient interface {
+	CreateOffer(ctx context.Context, in *CreateOTCOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error)
+	ListMyOffers(ctx context.Context, in *ListMyOTCOffersRequest, opts ...grpc.CallOption) (*ListMyOTCOffersResponse, error)
+	GetOffer(ctx context.Context, in *GetOTCOfferRequest, opts ...grpc.CallOption) (*OTCOfferDetailResponse, error)
+	CounterOffer(ctx context.Context, in *CounterOTCOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error)
+	AcceptOffer(ctx context.Context, in *AcceptOTCOfferRequest, opts ...grpc.CallOption) (*AcceptOfferResponse, error)
+	RejectOffer(ctx context.Context, in *RejectOTCOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error)
+	ListMyContracts(ctx context.Context, in *ListMyContractsRequest, opts ...grpc.CallOption) (*ListContractsResponse, error)
+	GetContract(ctx context.Context, in *GetContractRequest, opts ...grpc.CallOption) (*OptionContractResponse, error)
+	ExerciseContract(ctx context.Context, in *ExerciseContractRequest, opts ...grpc.CallOption) (*ExerciseResponse, error)
+}
+
+type oTCOptionsServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewOTCOptionsServiceClient(cc grpc.ClientConnInterface) OTCOptionsServiceClient {
+	return &oTCOptionsServiceClient{cc}
+}
+
+func (c *oTCOptionsServiceClient) CreateOffer(ctx context.Context, in *CreateOTCOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCOfferResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_CreateOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) ListMyOffers(ctx context.Context, in *ListMyOTCOffersRequest, opts ...grpc.CallOption) (*ListMyOTCOffersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMyOTCOffersResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_ListMyOffers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) GetOffer(ctx context.Context, in *GetOTCOfferRequest, opts ...grpc.CallOption) (*OTCOfferDetailResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCOfferDetailResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_GetOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) CounterOffer(ctx context.Context, in *CounterOTCOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCOfferResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_CounterOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) AcceptOffer(ctx context.Context, in *AcceptOTCOfferRequest, opts ...grpc.CallOption) (*AcceptOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AcceptOfferResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_AcceptOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) RejectOffer(ctx context.Context, in *RejectOTCOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCOfferResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_RejectOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) ListMyContracts(ctx context.Context, in *ListMyContractsRequest, opts ...grpc.CallOption) (*ListContractsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListContractsResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_ListMyContracts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) GetContract(ctx context.Context, in *GetContractRequest, opts ...grpc.CallOption) (*OptionContractResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OptionContractResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_GetContract_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) ExerciseContract(ctx context.Context, in *ExerciseContractRequest, opts ...grpc.CallOption) (*ExerciseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExerciseResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_ExerciseContract_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OTCOptionsServiceServer is the server API for OTCOptionsService service.
+// All implementations must embed UnimplementedOTCOptionsServiceServer
+// for forward compatibility.
+type OTCOptionsServiceServer interface {
+	CreateOffer(context.Context, *CreateOTCOfferRequest) (*OTCOfferResponse, error)
+	ListMyOffers(context.Context, *ListMyOTCOffersRequest) (*ListMyOTCOffersResponse, error)
+	GetOffer(context.Context, *GetOTCOfferRequest) (*OTCOfferDetailResponse, error)
+	CounterOffer(context.Context, *CounterOTCOfferRequest) (*OTCOfferResponse, error)
+	AcceptOffer(context.Context, *AcceptOTCOfferRequest) (*AcceptOfferResponse, error)
+	RejectOffer(context.Context, *RejectOTCOfferRequest) (*OTCOfferResponse, error)
+	ListMyContracts(context.Context, *ListMyContractsRequest) (*ListContractsResponse, error)
+	GetContract(context.Context, *GetContractRequest) (*OptionContractResponse, error)
+	ExerciseContract(context.Context, *ExerciseContractRequest) (*ExerciseResponse, error)
+	mustEmbedUnimplementedOTCOptionsServiceServer()
+}
+
+// UnimplementedOTCOptionsServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedOTCOptionsServiceServer struct{}
+
+func (UnimplementedOTCOptionsServiceServer) CreateOffer(context.Context, *CreateOTCOfferRequest) (*OTCOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateOffer not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) ListMyOffers(context.Context, *ListMyOTCOffersRequest) (*ListMyOTCOffersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMyOffers not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) GetOffer(context.Context, *GetOTCOfferRequest) (*OTCOfferDetailResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetOffer not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) CounterOffer(context.Context, *CounterOTCOfferRequest) (*OTCOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CounterOffer not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) AcceptOffer(context.Context, *AcceptOTCOfferRequest) (*AcceptOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptOffer not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) RejectOffer(context.Context, *RejectOTCOfferRequest) (*OTCOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RejectOffer not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) ListMyContracts(context.Context, *ListMyContractsRequest) (*ListContractsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMyContracts not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) GetContract(context.Context, *GetContractRequest) (*OptionContractResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetContract not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) ExerciseContract(context.Context, *ExerciseContractRequest) (*ExerciseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExerciseContract not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) mustEmbedUnimplementedOTCOptionsServiceServer() {}
+func (UnimplementedOTCOptionsServiceServer) testEmbeddedByValue()                           {}
+
+// UnsafeOTCOptionsServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to OTCOptionsServiceServer will
+// result in compilation errors.
+type UnsafeOTCOptionsServiceServer interface {
+	mustEmbedUnimplementedOTCOptionsServiceServer()
+}
+
+func RegisterOTCOptionsServiceServer(s grpc.ServiceRegistrar, srv OTCOptionsServiceServer) {
+	// If the following call panics, it indicates UnimplementedOTCOptionsServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&OTCOptionsService_ServiceDesc, srv)
+}
+
+func _OTCOptionsService_CreateOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateOTCOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).CreateOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_CreateOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).CreateOffer(ctx, req.(*CreateOTCOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_ListMyOffers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyOTCOffersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).ListMyOffers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_ListMyOffers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).ListMyOffers(ctx, req.(*ListMyOTCOffersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_GetOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOTCOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).GetOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_GetOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).GetOffer(ctx, req.(*GetOTCOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_CounterOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CounterOTCOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).CounterOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_CounterOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).CounterOffer(ctx, req.(*CounterOTCOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_AcceptOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptOTCOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).AcceptOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_AcceptOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).AcceptOffer(ctx, req.(*AcceptOTCOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_RejectOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RejectOTCOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).RejectOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_RejectOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).RejectOffer(ctx, req.(*RejectOTCOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_ListMyContracts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyContractsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).ListMyContracts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_ListMyContracts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).ListMyContracts(ctx, req.(*ListMyContractsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_GetContract_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetContractRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).GetContract(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_GetContract_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).GetContract(ctx, req.(*GetContractRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_ExerciseContract_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExerciseContractRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).ExerciseContract(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_ExerciseContract_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).ExerciseContract(ctx, req.(*ExerciseContractRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// OTCOptionsService_ServiceDesc is the grpc.ServiceDesc for OTCOptionsService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.OTCOptionsService",
+	HandlerType: (*OTCOptionsServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateOffer",
+			Handler:    _OTCOptionsService_CreateOffer_Handler,
+		},
+		{
+			MethodName: "ListMyOffers",
+			Handler:    _OTCOptionsService_ListMyOffers_Handler,
+		},
+		{
+			MethodName: "GetOffer",
+			Handler:    _OTCOptionsService_GetOffer_Handler,
+		},
+		{
+			MethodName: "CounterOffer",
+			Handler:    _OTCOptionsService_CounterOffer_Handler,
+		},
+		{
+			MethodName: "AcceptOffer",
+			Handler:    _OTCOptionsService_AcceptOffer_Handler,
+		},
+		{
+			MethodName: "RejectOffer",
+			Handler:    _OTCOptionsService_RejectOffer_Handler,
+		},
+		{
+			MethodName: "ListMyContracts",
+			Handler:    _OTCOptionsService_ListMyContracts_Handler,
+		},
+		{
+			MethodName: "GetContract",
+			Handler:    _OTCOptionsService_GetContract_Handler,
+		},
+		{
+			MethodName: "ExerciseContract",
+			Handler:    _OTCOptionsService_ExerciseContract_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}

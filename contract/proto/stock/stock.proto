@@ -951,3 +951,181 @@ message ActuaryPerformance {
   string role = 3;
   string realized_profit_rsd = 4;
 }
+
+// ==================== Intra-bank OTC Options (Spec 2) ====================
+
+service OTCOptionsService {
+  rpc CreateOffer(CreateOTCOfferRequest)   returns (OTCOfferResponse);
+  rpc ListMyOffers(ListMyOTCOffersRequest) returns (ListMyOTCOffersResponse);
+  rpc GetOffer(GetOTCOfferRequest)         returns (OTCOfferDetailResponse);
+  rpc CounterOffer(CounterOTCOfferRequest) returns (OTCOfferResponse);
+  rpc AcceptOffer(AcceptOTCOfferRequest)   returns (AcceptOfferResponse);
+  rpc RejectOffer(RejectOTCOfferRequest)   returns (OTCOfferResponse);
+
+  rpc ListMyContracts(ListMyContractsRequest)   returns (ListContractsResponse);
+  rpc GetContract(GetContractRequest)           returns (OptionContractResponse);
+  rpc ExerciseContract(ExerciseContractRequest) returns (ExerciseResponse);
+}
+
+message PartyRef {
+  int64  user_id = 1;
+  string system_type = 2;
+  string display_name = 3;
+  string bank_code = 4;
+}
+
+message CreateOTCOfferRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string direction = 3;
+  uint64 stock_id = 4;
+  string quantity = 5;
+  string strike_price = 6;
+  string premium = 7;
+  string settlement_date = 8;
+  PartyRef counterparty = 9;
+}
+
+message OTCOfferResponse {
+  uint64  id = 1;
+  string  direction = 2;
+  uint64  stock_id = 3;
+  string  stock_ticker = 4;
+  string  quantity = 5;
+  string  strike_price = 6;
+  string  premium = 7;
+  string  settlement_date = 8;
+  string  status = 9;
+  PartyRef initiator = 10;
+  PartyRef counterparty = 11;
+  PartyRef last_modified_by = 12;
+  string  market_reference_price = 13;
+  string  created_at = 14;
+  string  updated_at = 15;
+  int64   version = 16;
+  bool    unread = 17;
+}
+
+message OTCOfferRevisionItem {
+  int32  revision_number = 1;
+  string quantity = 2;
+  string strike_price = 3;
+  string premium = 4;
+  string settlement_date = 5;
+  string action = 6;
+  PartyRef modified_by = 7;
+  string created_at = 8;
+}
+
+message OTCOfferDetailResponse {
+  OTCOfferResponse offer = 1;
+  repeated OTCOfferRevisionItem revisions = 2;
+}
+
+message ListMyOTCOffersRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string role = 3;
+  repeated string statuses = 4;
+  uint64 stock_id = 5;
+  int32  page = 6;
+  int32  page_size = 7;
+}
+message ListMyOTCOffersResponse {
+  repeated OTCOfferResponse offers = 1;
+  int64 total = 2;
+}
+
+message GetOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message CounterOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  string quantity = 4;
+  string strike_price = 5;
+  string premium = 6;
+  string settlement_date = 7;
+}
+
+message AcceptOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+message AcceptOfferResponse {
+  uint64 offer_id = 1;
+  uint64 contract_id = 2;
+  string status = 3;
+  string saga_id = 4;
+  OptionContractResponse contract = 5;
+}
+
+message RejectOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message OptionContractResponse {
+  uint64  id = 1;
+  uint64  offer_id = 2;
+  uint64  stock_id = 3;
+  string  stock_ticker = 4;
+  string  quantity = 5;
+  string  strike_price = 6;
+  string  premium_paid = 7;
+  string  premium_currency = 8;
+  string  strike_currency = 9;
+  string  settlement_date = 10;
+  string  status = 11;
+  PartyRef buyer = 12;
+  PartyRef seller = 13;
+  string  market_reference_price = 14;
+  string  premium_paid_at = 15;
+  string  exercised_at = 16;
+  string  expired_at = 17;
+  string  created_at = 18;
+  string  updated_at = 19;
+  int64   version = 20;
+}
+
+message ListMyContractsRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string role = 3;
+  repeated string statuses = 4;
+  int32  page = 5;
+  int32  page_size = 6;
+}
+message ListContractsResponse {
+  repeated OptionContractResponse contracts = 1;
+  int64 total = 2;
+}
+
+message GetContractRequest {
+  uint64 contract_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message ExerciseContractRequest {
+  uint64 contract_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+message ExerciseResponse {
+  uint64 contract_id = 1;
+  string status = 2;
+  string saga_id = 3;
+  string strike_amount_seller_ccy = 4;
+  string strike_amount_buyer_ccy = 5;
+  string ccy_rate_used = 6;
+  string seller_currency = 7;
+  string buyer_currency = 8;
+  string shares_transferred = 9;
+}
