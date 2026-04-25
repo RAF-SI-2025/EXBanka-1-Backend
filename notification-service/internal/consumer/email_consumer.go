@@ -14,10 +14,20 @@ import (
 	kafkago "github.com/segmentio/kafka-go"
 )
 
+// emailDispatcher is the minimal subset of *sender.EmailSender used by EmailConsumer.
+type emailDispatcher interface {
+	Send(to, subject, body string) error
+}
+
+// emailSentPublisher is the minimal subset of *kafkaprod.Producer used by EmailConsumer.
+type emailSentPublisher interface {
+	PublishEmailSent(ctx context.Context, msg kafkamsg.EmailSentMessage) error
+}
+
 type EmailConsumer struct {
 	reader   *kafkago.Reader
-	sender   *sender.EmailSender
-	producer *kafkaprod.Producer
+	sender   emailDispatcher
+	producer emailSentPublisher
 }
 
 func NewEmailConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer) *EmailConsumer {
@@ -33,6 +43,12 @@ func NewEmailConsumer(brokers string, emailSender *sender.EmailSender, producer 
 		sender:   emailSender,
 		producer: producer,
 	}
+}
+
+// newEmailConsumerForTest constructs an EmailConsumer with no Kafka reader.
+// Tests call handleMessage directly.
+func newEmailConsumerForTest(d emailDispatcher, p emailSentPublisher) *EmailConsumer {
+	return &EmailConsumer{sender: d, producer: p}
 }
 
 func (c *EmailConsumer) Start(ctx context.Context) {
