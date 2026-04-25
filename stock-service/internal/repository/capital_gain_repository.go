@@ -43,6 +43,33 @@ func (r *CapitalGainRepository) SumByUserMonth(userID uint64, systemType string,
 	return results, err
 }
 
+// SumUncollectedByUserMonth returns capital gains grouped by (account_id,
+// currency) for a month, considering ONLY rows that have not yet been tied to
+// a TaxCollection (tax_collection_id IS NULL). This is the basis for
+// incremental tax collection — every CollectTax run taxes only the profit
+// realised since the previous run.
+func (r *CapitalGainRepository) SumUncollectedByUserMonth(userID uint64, systemType string, year, month int) ([]AccountGainSummary, error) {
+	var results []AccountGainSummary
+	err := r.db.Model(&model.CapitalGain{}).
+		Select("account_id, currency, SUM(total_gain) as total_gain").
+		Where("user_id = ? AND system_type = ? AND tax_year = ? AND tax_month = ? AND tax_collection_id IS NULL",
+			userID, systemType, year, month).
+		Group("account_id, currency").
+		Find(&results).Error
+	return results, err
+}
+
+// MarkCollected stamps every uncollected capital_gain row matching the tuple
+// with the given TaxCollection ID so the next CollectTax run ignores them.
+// Scoped to rows where tax_collection_id IS NULL so a crashed+retried run
+// doesn't clobber a prior collection's marking.
+func (r *CapitalGainRepository) MarkCollected(userID uint64, systemType string, year, month int, accountID uint64, currency string, taxCollectionID uint64) error {
+	return r.db.Model(&model.CapitalGain{}).
+		Where("user_id = ? AND system_type = ? AND tax_year = ? AND tax_month = ? AND account_id = ? AND currency = ? AND tax_collection_id IS NULL",
+			userID, systemType, year, month, accountID, currency).
+		Update("tax_collection_id", taxCollectionID).Error
+}
+
 // SumByUserYear returns capital gains grouped by (account_id, currency) for a year.
 func (r *CapitalGainRepository) SumByUserYear(userID uint64, systemType string, year int) ([]AccountGainSummary, error) {
 	var results []AccountGainSummary

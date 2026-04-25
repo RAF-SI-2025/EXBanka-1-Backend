@@ -59,6 +59,21 @@ func (r *TaxCollectionRepository) SumByUserAllTime(userID uint64, systemType str
 	return result.Total, err
 }
 
+// CountByKey counts how many TaxCollection rows already exist for the
+// (user, system_type, year, month, account_id, currency) tuple. CollectTax
+// uses this to derive an "attempt number" suffix for the account-service
+// idempotency keys, so two incremental collections in the same month produce
+// distinct keys (not deduped as replays) while a crash-and-retry of the same
+// incremental batch produces the same key (safely deduped).
+func (r *TaxCollectionRepository) CountByKey(userID uint64, systemType string, year, month int, accountID uint64, currency string) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.TaxCollection{}).
+		Where("user_id = ? AND system_type = ? AND year = ? AND month = ? AND account_id = ? AND currency = ?",
+			userID, systemType, year, month, accountID, currency).
+		Count(&count).Error
+	return count, err
+}
+
 func (r *TaxCollectionRepository) GetLastCollection(userID uint64, systemType string) (*model.TaxCollection, error) {
 	var tc model.TaxCollection
 	err := r.db.Where("user_id = ? AND system_type = ?", userID, systemType).
@@ -126,7 +141,7 @@ func (r *TaxCollectionRepository) ListUsersWithGains(year, month int, filter Tax
 			(SELECT MAX(tc.collected_at) FROM tax_collections tc WHERE tc.user_id = cg.user_id AND tc.system_type = cg.system_type) as last_collected
 		`).
 		Joins("LEFT JOIN holdings h ON h.user_id = cg.user_id AND h.system_type = cg.system_type AND h.id = (SELECT MIN(id) FROM holdings WHERE user_id = cg.user_id AND system_type = cg.system_type)").
-		Where("cg.tax_year = ? AND cg.tax_month = ?", year, month)
+		Where("cg.tax_year = ? AND cg.tax_month = ? AND cg.tax_collection_id IS NULL", year, month)
 
 	if filter.UserType != "" {
 		if filter.UserType == "actuary" {

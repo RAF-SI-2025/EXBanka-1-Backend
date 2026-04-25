@@ -85,6 +85,16 @@ func (m *mockTaxCollectionRepo) ListByUser(userID uint64, systemType string, pag
 	return out, int64(len(out)), nil
 }
 
+func (m *mockTaxCollectionRepo) CountByKey(userID uint64, systemType string, year, month int, accountID uint64, currency string) (int64, error) {
+	var count int64
+	for _, c := range m.collections {
+		if c.UserID == userID && c.SystemType == systemType && c.Year == year && c.Month == month && c.AccountID == accountID && c.Currency == currency {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (m *mockTaxCollectionRepo) ListUsersWithGains(year, month int, filter repository.TaxFilter) ([]repository.TaxUserSummary, int64, error) {
 	return m.usersWithGains, int64(len(m.usersWithGains)), nil
 }
@@ -149,6 +159,40 @@ func (m *mockTaxCapitalGainRepo) SumByUserMonth(userID uint64, systemType string
 		})
 	}
 	return result, nil
+}
+
+func (m *mockTaxCapitalGainRepo) SumUncollectedByUserMonth(userID uint64, systemType string, year, month int) ([]repository.AccountGainSummary, error) {
+	type key struct {
+		AccountID uint64
+		Currency  string
+	}
+	agg := make(map[key]decimal.Decimal)
+	for _, g := range m.gains {
+		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year && g.TaxMonth == month && g.TaxCollectionID == nil {
+			k := key{AccountID: g.AccountID, Currency: g.Currency}
+			agg[k] = agg[k].Add(g.TotalGain)
+		}
+	}
+	var result []repository.AccountGainSummary
+	for k, v := range agg {
+		result = append(result, repository.AccountGainSummary{
+			AccountID: k.AccountID,
+			Currency:  k.Currency,
+			TotalGain: v,
+		})
+	}
+	return result, nil
+}
+
+func (m *mockTaxCapitalGainRepo) MarkCollected(userID uint64, systemType string, year, month int, accountID uint64, currency string, taxCollectionID uint64) error {
+	for i := range m.gains {
+		g := &m.gains[i]
+		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year && g.TaxMonth == month && g.AccountID == accountID && g.Currency == currency && g.TaxCollectionID == nil {
+			id := taxCollectionID
+			g.TaxCollectionID = &id
+		}
+	}
+	return nil
 }
 
 func (m *mockTaxCapitalGainRepo) SumByUserYear(userID uint64, systemType string, year int) ([]repository.AccountGainSummary, error) {
@@ -684,5 +728,130 @@ func TestTaxService_CollectTax_PositiveGain(t *testing.T) {
 	}
 	if !tc.TaxAmountRSD.Equal(expectedTax) {
 		t.Errorf("expected TaxAmountRSD %s, got %s", expectedTax, tc.TaxAmountRSD)
+	}
+
+	// The capital-gain row must be stamped with the new collection ID so that
+	// a subsequent CollectTax call in the same month doesn't re-tax it.
+	if len(mocks.capitalGainRepo.gains) != 1 {
+		t.Fatalf("expected 1 capital_gain row in mock, got %d", len(mocks.capitalGainRepo.gains))
+	}
+	if mocks.capitalGainRepo.gains[0].TaxCollectionID == nil {
+		t.Error("expected capital_gain.tax_collection_id to be set after collection")
+	} else if *mocks.capitalGainRepo.gains[0].TaxCollectionID != tc.ID {
+		t.Errorf("expected capital_gain.tax_collection_id=%d, got %d", tc.ID, *mocks.capitalGainRepo.gains[0].TaxCollectionID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CollectTax — incremental: a second call in the same month taxes only the
+// NEW profit realised since the first call, not the original profit again.
+// ---------------------------------------------------------------------------
+
+func TestTaxService_CollectTax_IncrementalNewProfit(t *testing.T) {
+	svc, mocks := buildTaxService()
+
+	now := time.Now()
+	year := now.Year()
+	month := int(now.Month())
+
+	mocks.accountClient.addAccount(1, "USER-ACCT-001")
+	mocks.taxCollectionRepo.usersWithGains = []repository.TaxUserSummary{
+		{UserID: 42, SystemType: "employee", TotalDebtRSD: decimal.NewFromInt(150)},
+	}
+
+	// First gain: 1000 RSD profit → 150 RSD tax.
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
+		UserID: 42, SystemType: "employee", SecurityType: "stock", Ticker: "AAPL",
+		Quantity: 10, BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(200),
+		TotalGain: decimal.NewFromInt(1000), Currency: "RSD", AccountID: 1,
+		TaxYear: year, TaxMonth: month,
+	})
+
+	_, firstTotal, _, err := svc.CollectTax(year, month)
+	if err != nil {
+		t.Fatalf("first CollectTax: %v", err)
+	}
+	if !firstTotal.Equal(decimal.NewFromInt(150)) {
+		t.Fatalf("first CollectTax: expected 150 RSD, got %s", firstTotal)
+	}
+
+	// Second gain lands: another 500 RSD profit → 75 RSD tax on the delta only.
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
+		UserID: 42, SystemType: "employee", SecurityType: "stock", Ticker: "MSFT",
+		Quantity: 5, BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(200),
+		TotalGain: decimal.NewFromInt(500), Currency: "RSD", AccountID: 1,
+		TaxYear: year, TaxMonth: month,
+	})
+
+	collectedCount, secondTotal, failedCount, err := svc.CollectTax(year, month)
+	if err != nil {
+		t.Fatalf("second CollectTax: %v", err)
+	}
+	if failedCount != 0 {
+		t.Errorf("expected 0 failures, got %d", failedCount)
+	}
+	if collectedCount != 1 {
+		t.Errorf("expected 1 user collected on second call, got %d", collectedCount)
+	}
+	// 500 RSD × 15% = 75 RSD — NOT 1500 × 15% = 225 (double-taxing old profit),
+	// NOT 0 (the silent-skip pre-fix bug).
+	if !secondTotal.Equal(decimal.NewFromInt(75)) {
+		t.Errorf("second CollectTax: expected 75 RSD on new profit only, got %s", secondTotal)
+	}
+
+	// Two TaxCollection rows total (one per call).
+	if len(mocks.taxCollectionRepo.collections) != 2 {
+		t.Fatalf("expected 2 tax collections, got %d", len(mocks.taxCollectionRepo.collections))
+	}
+
+	// Idempotency keys for the second batch must differ from the first so
+	// account-service doesn't dedupe the second debit/credit as a replay.
+	// updateBalCalls order: [1st-debit, 1st-credit, 2nd-debit, 2nd-credit].
+	if len(mocks.accountClient.updateBalCalls) != 4 {
+		t.Fatalf("expected 4 UpdateBalance calls across both collections, got %d", len(mocks.accountClient.updateBalCalls))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CollectTax — clicking the button again with no new profit is a no-op.
+// ---------------------------------------------------------------------------
+
+func TestTaxService_CollectTax_NoNewProfitIsNoOp(t *testing.T) {
+	svc, mocks := buildTaxService()
+
+	now := time.Now()
+	year := now.Year()
+	month := int(now.Month())
+
+	mocks.accountClient.addAccount(1, "USER-ACCT-001")
+	mocks.taxCollectionRepo.usersWithGains = []repository.TaxUserSummary{
+		{UserID: 42, SystemType: "employee", TotalDebtRSD: decimal.NewFromInt(150)},
+	}
+	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
+		UserID: 42, SystemType: "employee", SecurityType: "stock", Ticker: "AAPL",
+		Quantity: 10, BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(200),
+		TotalGain: decimal.NewFromInt(1000), Currency: "RSD", AccountID: 1,
+		TaxYear: year, TaxMonth: month,
+	})
+
+	if _, _, _, err := svc.CollectTax(year, month); err != nil {
+		t.Fatalf("first CollectTax: %v", err)
+	}
+
+	collectedCount, totalRSD, failedCount, err := svc.CollectTax(year, month)
+	if err != nil {
+		t.Fatalf("second CollectTax: %v", err)
+	}
+	if collectedCount != 0 {
+		t.Errorf("expected collectedCount=0 when nothing new to tax, got %d", collectedCount)
+	}
+	if failedCount != 0 {
+		t.Errorf("expected failedCount=0, got %d", failedCount)
+	}
+	if !totalRSD.IsZero() {
+		t.Errorf("expected totalRSD=0, got %s", totalRSD)
+	}
+	if len(mocks.taxCollectionRepo.collections) != 1 {
+		t.Errorf("expected exactly 1 tax_collection row after no-op second call, got %d", len(mocks.taxCollectionRepo.collections))
 	}
 }
