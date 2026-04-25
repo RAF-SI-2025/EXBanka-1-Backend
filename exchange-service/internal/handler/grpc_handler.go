@@ -16,12 +16,27 @@ import (
 	"github.com/exbanka/exchange-service/internal/service"
 )
 
+// exchangeFacade is the narrow interface the handler requires from the service.
+// Using an interface here allows test injection without a live DB.
+type exchangeFacade interface {
+	ListRates() ([]model.ExchangeRate, error)
+	GetRate(from, to string) (*model.ExchangeRate, error)
+	Calculate(ctx context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, decimal.Decimal, error)
+	Convert(ctx context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, error)
+}
+
 type ExchangeGRPCHandler struct {
 	pb.UnimplementedExchangeServiceServer
-	svc *service.ExchangeService
+	svc exchangeFacade
 }
 
 func NewExchangeGRPCHandler(svc *service.ExchangeService) *ExchangeGRPCHandler {
+	return &ExchangeGRPCHandler{svc: svc}
+}
+
+// newExchangeGRPCHandlerForTest constructs a handler from any exchangeFacade
+// implementation. Only for use in tests.
+func newExchangeGRPCHandlerForTest(svc exchangeFacade) *ExchangeGRPCHandler {
 	return &ExchangeGRPCHandler{svc: svc}
 }
 
