@@ -2422,3 +2422,55 @@ Both Accept and Exercise convert through `exchange-service.Convert` when buyer +
 - Seller is credited in their currency
 
 Same-currency flows skip the conversion call entirely.
+
+## 27. Cross-bank OTC Options (Celina 5 / Spec 4) — Foundation
+
+### Status
+
+The foundation layer landed in this commit set. Saga internals, gateway routes, and crons are deferred — they need the faculty-cohort wire shapes locked in writing (`docs/superpowers/refs/crossbank-otc-wire.md`) before the final implementation can be built and tested against real peer banks.
+
+### Foundation entities (stock-service)
+
+| Entity | Table | Purpose |
+|---|---|---|
+| `OTCOffer.Public` / `Private` / `PrivateToBankCode` | `otc_offers` | Visibility flags for peer discovery — public offers fan out, private offers are restricted to a named bank |
+| `OptionContract.CrossbankTxID` / `CrossbankExerciseTxID` | `option_contracts` | Saga-id linkage so the contract row can be traced back to its accept / exercise saga |
+| `InterBankSagaLog` | `inter_bank_saga_logs` | Durable per-step audit. One row per `(TxID, Phase, Role)`. Optimistic-locked. Idempotency key is `<saga_kind>-<tx_id>-<phase>-<role>` (unique). |
+
+### Helpers
+
+- `model.IsCrossBankOffer(o, selfBankCode)` — true if either side's bank code is set and not the self code
+- `OptionContract.IsCrossBank()` — true if buyer + seller bank codes differ
+
+### Saga executor
+
+`service.CrossbankSagaExecutor` provides idempotent `BeginPhase` / `CompletePhase` / `FailPhase` / `IsPhaseCompleted` plus Kafka publishers for the four saga lifecycle topics (`otc.crossbank-saga-{started, committed, rolled-back, stuck-rollback}`).
+
+### gRPC + Kafka contract
+
+Defined in `contract/proto/stock/stock.proto` (`CrossBankOTCService`, 12 RPCs, 22 messages) and `contract/kafka/messages.go` (8 new `otc.*` topics + payload structs). `contract/proto/transaction/transaction.proto` adds `ReverseInterBankTransfer` to `InterBankService` for the compensation path on accept-saga ownership-transfer failure.
+
+### Open follow-ups (Tasks 5, 7-21 of the plan)
+
+| Task | Description |
+|---|---|
+| 5 | `transaction-service`: implement `ReverseInterBankTransfer` (currently returns Unimplemented via `UnimplementedInterBankServiceServer` embedding) |
+| 7 | Accept saga Phase 1 — `reserve_buyer_funds` (local; reuses Spec 2 reservation code) |
+| 8 | Accept saga Phase 2 — `RESERVE_SHARES` peer call (HMAC) |
+| 9 | Accept saga Phase 3 — `transfer_funds` via Spec 3's `InitiateInterBankTransfer` with `parent_saga_tx_id` |
+| 10 | Accept saga Phase 4 — `transfer_ownership` peer call |
+| 11 | Accept saga Phase 5 — `finalize` + Kafka publishing |
+| 12 | Exercise saga (delta from accept — same Phases 1-5 but with strike instead of premium) |
+| 13 | Expire saga (3-phase: notify → apply locally + remotely → finalize) |
+| 14 | `CHECK_STATUS` reconciler cron — picks up phase-2 rows stuck pending past timeout, queries the peer for the canonical state |
+| 15 | Orphan-reservation cron — sweeps responder-side phase-2 reservations with no contract binding (§6.3) |
+| 16 | Cross-bank expiry cron — runs alongside the Spec 2 intra-bank cron |
+| 17 | Discovery: peer-list cache with 60s Redis TTL + invalidation on `otc.local-offer-changed` |
+| 18 | api-gateway: extend public `/api/v3/otc/*` routes to detect cross-bank offers/contracts and forward through the new internal handler |
+| 19 | api-gateway: 12 internal HMAC routes mirroring the gRPC `CrossBankOTCService` surface |
+| 20 | Integration tests: peer-bank A and B docker-compose overlay + 3-bank workflow tests |
+| 21 | Final lint + push |
+
+### Why the saga isn't implemented yet
+
+Each phase's wire shape (`RESERVE_SHARES` payload, `TRANSFER_OWNERSHIP` payload, `FINAL_CONFIRM` ack semantics) must be agreed in writing across every faculty bank participating in cross-bank trades — see plan Step 0.3. Without that lock-down, the implementation is speculative and any peer-bank call will fail at HMAC + envelope-validation time even before the body is parsed. Build the wire-shape doc, then resume from Task 7.
