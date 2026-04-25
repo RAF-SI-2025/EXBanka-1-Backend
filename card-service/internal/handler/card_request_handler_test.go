@@ -225,9 +225,7 @@ func TestApproveCardRequest_AlreadyApproved(t *testing.T) {
 	_, err := h.ApproveCardRequest(context.Background(), &pb.ApproveCardRequestRequest{Id: 10, EmployeeId: 100})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
-	// "already approved" is not in the FailedPrecondition matcher list, so it
-	// maps to the default Internal code.
-	assert.Equal(t, codes.Internal, st.Code())
+	assert.Equal(t, codes.FailedPrecondition, st.Code())
 	assert.Contains(t, st.Message(), "already approved")
 }
 
@@ -289,8 +287,8 @@ func TestRejectCardRequest_AlreadyApproved(t *testing.T) {
 	_, err := h.RejectCardRequest(context.Background(), &pb.RejectCardRequestRequest{Id: 10, EmployeeId: 100})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
-	// Same as Approve: "already approved" falls through to Internal.
-	assert.Equal(t, codes.Internal, st.Code())
+	assert.Equal(t, codes.FailedPrecondition, st.Code())
+	assert.Contains(t, st.Message(), "already approved")
 }
 
 func TestRejectCardRequest_FetchUpdatedFails(t *testing.T) {
