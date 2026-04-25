@@ -89,6 +89,10 @@ func (p *Producer) PublishBlueprint(ctx context.Context, msg kafkamsg.BlueprintM
 	return p.publish(ctx, topic, msg)
 }
 
+func (p *Producer) PublishRolePermissionsChanged(ctx context.Context, msg kafkamsg.RolePermissionsChangedMessage) error {
+	return p.publish(ctx, kafkamsg.TopicUserRolePermissionsChanged, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }
