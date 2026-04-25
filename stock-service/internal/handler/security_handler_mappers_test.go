@@ -144,6 +144,22 @@ func TestToStockDetail_PopulatesOptionsList(t *testing.T) {
 	if d.Options[0].Id != 1 {
 		t.Errorf("Options[0].Id: %d", d.Options[0].Id)
 	}
+	// MarketCap = Price(180) * OutstandingShares(1_000_000) = 180_000_000.00
+	if d.MarketCap != "180000000.00" {
+		t.Errorf("MarketCap: want 180000000.00, got %q", d.MarketCap)
+	}
+	// DividendYield = 0.005000
+	if d.DividendYield != "0.005000" {
+		t.Errorf("DividendYield: want 0.005000, got %q", d.DividendYield)
+	}
+	// ChangePercent = change(1)*100 / (price(180)-change(1)) = 100/179 ≈ 0.56
+	if d.Listing.ChangePercent != "0.56" {
+		t.Errorf("Listing.ChangePercent: want 0.56, got %q", d.Listing.ChangePercent)
+	}
+	// InitialMarginCost = price(180) * 0.5 * 1.1 = 99.00
+	if d.Listing.InitialMarginCost != "99.00" {
+		t.Errorf("Listing.InitialMarginCost: want 99.00, got %q", d.Listing.InitialMarginCost)
+	}
 }
 
 func TestToFuturesDetail_PopulatesAllFields(t *testing.T) {
@@ -175,6 +191,10 @@ func TestToFuturesDetail_PopulatesAllFields(t *testing.T) {
 	if d.Listing.Id != 33 {
 		t.Errorf("Listing.Id: %d", d.Listing.Id)
 	}
+	// MaintenanceMargin = ContractSize(1000) * Price(75.50) * 10% = 7550.00
+	if d.MaintenanceMargin != "7550.00" {
+		t.Errorf("MaintenanceMargin: want 7550.00, got %q", d.MaintenanceMargin)
+	}
 }
 
 func TestToForexPairDetail_PopulatesAllFields(t *testing.T) {
@@ -205,6 +225,14 @@ func TestToForexPairDetail_PopulatesAllFields(t *testing.T) {
 	}
 	if d.Listing.Id != 77 {
 		t.Errorf("Listing.Id: %d", d.Listing.Id)
+	}
+	// ContractSize = 1000 (constant for forex pairs)
+	if d.ContractSize != 1000 {
+		t.Errorf("ContractSize: want 1000, got %d", d.ContractSize)
+	}
+	// MaintenanceMargin = ContractSize(1000) * Rate(1.08) * 10% = 108.00
+	if d.MaintenanceMargin != "108.00" {
+		t.Errorf("MaintenanceMargin: want 108.00, got %q", d.MaintenanceMargin)
 	}
 }
 

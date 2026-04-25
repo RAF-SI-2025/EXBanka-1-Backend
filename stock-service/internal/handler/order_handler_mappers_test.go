@@ -178,38 +178,27 @@ func TestToOrderListResponse(t *testing.T) {
 	}
 }
 
-func TestMapOrderError_NotFound(t *testing.T) {
-	err := mapOrderError(errors.New("order not found"))
-	if status.Code(err) != codes.NotFound {
-		t.Errorf("expected NotFound, got %v", status.Code(err))
+func TestMapOrderError_AllArms(t *testing.T) {
+	cases := []struct {
+		msg      string
+		wantCode codes.Code
+	}{
+		{"order not found", codes.NotFound},
+		{"listing not found", codes.NotFound},
+		{"order does not belong to user", codes.PermissionDenied},
+		{"order is not pending", codes.FailedPrecondition},
+		{"order is already completed", codes.FailedPrecondition},
+		{"order is already declined/cancelled", codes.FailedPrecondition},
+		{"cannot approve: settlement date has passed", codes.FailedPrecondition},
+		{"limit_value required for limit/stop_limit orders", codes.InvalidArgument},
+		{"stop_value required for stop/stop_limit orders", codes.InvalidArgument},
+		{"some unexpected db failure", codes.Internal},
 	}
-}
-
-func TestMapOrderError_PermissionDenied(t *testing.T) {
-	err := mapOrderError(errors.New("order does not belong to user"))
-	if status.Code(err) != codes.PermissionDenied {
-		t.Errorf("expected PermissionDenied, got %v", status.Code(err))
-	}
-}
-
-func TestMapOrderError_FailedPrecondition(t *testing.T) {
-	err := mapOrderError(errors.New("order is not pending"))
-	if status.Code(err) != codes.FailedPrecondition {
-		t.Errorf("expected FailedPrecondition, got %v", status.Code(err))
-	}
-}
-
-func TestMapOrderError_InvalidArgument(t *testing.T) {
-	err := mapOrderError(errors.New("limit_value required for limit/stop_limit orders"))
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", status.Code(err))
-	}
-}
-
-func TestMapOrderError_DefaultInternal(t *testing.T) {
-	err := mapOrderError(errors.New("some unexpected db failure"))
-	if status.Code(err) != codes.Internal {
-		t.Errorf("expected Internal, got %v", status.Code(err))
+	for _, tc := range cases {
+		err := mapOrderError(errors.New(tc.msg))
+		if status.Code(err) != tc.wantCode {
+			t.Errorf("msg=%q: want %v, got %v", tc.msg, tc.wantCode, status.Code(err))
+		}
 	}
 }
 

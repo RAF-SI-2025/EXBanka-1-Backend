@@ -214,15 +214,20 @@ func TestAlphaVantage_FetchStockData_OverviewFails(t *testing.T) {
 	}
 }
 
-func TestNewAlphaVantageClient_PopulatesDefaults(t *testing.T) {
-	c := NewAlphaVantageClient("k")
-	if c.apiKey != "k" {
-		t.Errorf("apiKey not set")
+func TestAlphaVantage_FetchOverview_BadJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`not-json`))
+	}))
+	defer server.Close()
+
+	c := NewAlphaVantageClient("test-key")
+	c.baseURL = server.URL
+
+	_, err := c.FetchOverview("AAPL")
+	if err == nil {
+		t.Fatal("expected JSON parse error")
 	}
-	if c.baseURL != alphaVantageBaseURL {
-		t.Errorf("baseURL default mismatch: %q", c.baseURL)
-	}
-	if c.httpClient == nil {
-		t.Fatal("httpClient nil")
+	if !strings.Contains(err.Error(), "parse overview") {
+		t.Errorf("expected error mentioning 'parse overview', got %q", err.Error())
 	}
 }
