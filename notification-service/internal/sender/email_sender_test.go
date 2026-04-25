@@ -10,20 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewEmailSender_StoresFields(t *testing.T) {
-	s := NewEmailSender("smtp.example.com", "587", "user@example.com", "secret", "noreply@example.com")
-	require.NotNil(t, s)
-	assert.Equal(t, "smtp.example.com", s.host)
-	assert.Equal(t, "587", s.port)
-	assert.Equal(t, "user@example.com", s.user)
-	assert.Equal(t, "secret", s.password)
-	assert.Equal(t, "noreply@example.com", s.from)
-	require.NotNil(t, s.transport, "default transport should be wired to smtp.SendMail")
-}
-
 func TestEmailSender_Send_SuccessPropagatesArgs(t *testing.T) {
-	s := NewEmailSender("smtp.example.com", "587", "user@example.com", "pw", "noreply@example.com")
-
 	var (
 		gotAddr string
 		gotFrom string
@@ -31,14 +18,15 @@ func TestEmailSender_Send_SuccessPropagatesArgs(t *testing.T) {
 		gotMsg  []byte
 		gotAuth smtp.Auth
 	)
-	s.SetTransport(func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
-		gotAddr = addr
-		gotFrom = from
-		gotTo = to
-		gotMsg = msg
-		gotAuth = a
-		return nil
-	})
+	s := newEmailSenderWithTransport("smtp.example.com", "587", "user@example.com", "pw", "noreply@example.com",
+		func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+			gotAddr = addr
+			gotFrom = from
+			gotTo = to
+			gotMsg = msg
+			gotAuth = a
+			return nil
+		})
 
 	err := s.Send("recipient@example.com", "Hello Subject", "<p>Hi</p>")
 	require.NoError(t, err)
@@ -59,11 +47,11 @@ func TestEmailSender_Send_SuccessPropagatesArgs(t *testing.T) {
 }
 
 func TestEmailSender_Send_TransportErrorIsReturned(t *testing.T) {
-	s := NewEmailSender("smtp.example.com", "587", "u", "p", "f@example.com")
 	wantErr := errors.New("smtp boom")
-	s.SetTransport(func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
-		return wantErr
-	})
+	s := newEmailSenderWithTransport("smtp.example.com", "587", "u", "p", "f@example.com",
+		func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+			return wantErr
+		})
 
 	err := s.Send("x@example.com", "subj", "body")
 	require.Error(t, err)

@@ -17,12 +17,6 @@ import (
 	"gorm.io/datatypes"
 )
 
-// verificationEmailSender mirrors emailDispatcher but is duplicated locally
-// (Go doesn't allow re-using interfaces from another file as alias names cleanly).
-type verificationEmailSender interface {
-	Send(to, subject, body string) error
-}
-
 // genericPublisher is the minimal Producer subset used by VerificationConsumer.
 type genericPublisher interface {
 	Publish(ctx context.Context, topic string, msg interface{}) error
@@ -35,7 +29,7 @@ type inboxItemCreator interface {
 
 type VerificationConsumer struct {
 	reader    *kafkago.Reader
-	sender    verificationEmailSender
+	sender    emailDispatcher
 	producer  genericPublisher
 	inboxRepo inboxItemCreator
 }
@@ -57,7 +51,7 @@ func NewVerificationConsumer(brokers string, emailSender *sender.EmailSender, pr
 }
 
 // newVerificationConsumerForTest constructs a consumer with mocks; no reader.
-func newVerificationConsumerForTest(s verificationEmailSender, p genericPublisher, repo inboxItemCreator) *VerificationConsumer {
+func newVerificationConsumerForTest(s emailDispatcher, p genericPublisher, repo inboxItemCreator) *VerificationConsumer {
 	return &VerificationConsumer{sender: s, producer: p, inboxRepo: repo}
 }
 

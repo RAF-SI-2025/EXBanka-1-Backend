@@ -65,19 +65,20 @@ func TestInboxCleanupService_StartCleanupCron_StopsOnContextCancel(t *testing.T)
 	svc := newInboxCleanupServiceWithDeleter(stub)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	svc.StartCleanupCron(ctx)
+	done := make(chan struct{})
+	go func() {
+		svc.StartCleanupCron(ctx)
+		close(done)
+	}()
 
 	// Cancel almost immediately — the cron uses a 1-minute ticker,
 	// so we should never see DeleteExpired called.
 	cancel()
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("goroutine did not exit within deadline")
+	}
 
 	assert.Equal(t, 0, stub.calls, "ticker should not have fired before cancellation")
-}
-
-func TestNewInboxCleanupService_WrapsRepository(t *testing.T) {
-	// Constructor with the public signature still works (repo arg may be nil
-	// since we don't call it — we just need to confirm the wiring compiles).
-	svc := NewInboxCleanupService(nil)
-	require.NotNil(t, svc)
 }

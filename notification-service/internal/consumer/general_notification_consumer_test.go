@@ -42,7 +42,7 @@ func TestGeneralNotificationConsumer_HandleMessage_MalformedPayloadIsIgnored(t *
 	assert.Empty(t, repo.created)
 }
 
-func TestGeneralNotificationConsumer_HandleMessage_RepoErrorSwallowed(t *testing.T) {
+func TestGeneralNotificationConsumer_HandleMessage_RepoError_LogsAndDoesNotPanic(t *testing.T) {
 	repo := &stubGeneralNotificationCreator{createErr: errors.New("db boom")}
 	c := newGeneralNotificationConsumerForTest(repo)
 

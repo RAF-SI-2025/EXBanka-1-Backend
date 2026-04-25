@@ -29,9 +29,17 @@ func NewEmailSender(host, port, user, password, from string) *EmailSender {
 	}
 }
 
-// SetTransport overrides the SMTP transport. Intended for tests.
-func (s *EmailSender) SetTransport(t MailTransport) {
-	s.transport = t
+// newEmailSenderWithTransport constructs an EmailSender with a custom transport.
+// Only callable from within the sender package (e.g., package-level tests).
+func newEmailSenderWithTransport(host, port, user, password, from string, t MailTransport) *EmailSender {
+	return &EmailSender{
+		host:      host,
+		port:      port,
+		user:      user,
+		password:  password,
+		from:      from,
+		transport: t,
+	}
 }
 
 func (s *EmailSender) Send(to, subject, body string) error {
