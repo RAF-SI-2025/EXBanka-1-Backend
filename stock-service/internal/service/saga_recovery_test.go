@@ -225,6 +225,15 @@ func (s *fakeRecoveryAccountStub) ReleaseReservation(context.Context, *accountpb
 func (s *fakeRecoveryAccountStub) PartialSettleReservation(context.Context, *accountpb.PartialSettleReservationRequest, ...grpc.CallOption) (*accountpb.PartialSettleReservationResponse, error) {
 	return nil, nil
 }
+func (s *fakeRecoveryAccountStub) ReserveIncoming(context.Context, *accountpb.ReserveIncomingRequest, ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error) {
+	return nil, nil
+}
+func (s *fakeRecoveryAccountStub) CommitIncoming(context.Context, *accountpb.CommitIncomingRequest, ...grpc.CallOption) (*accountpb.CommitIncomingResponse, error) {
+	return nil, nil
+}
+func (s *fakeRecoveryAccountStub) ReleaseIncoming(context.Context, *accountpb.ReleaseIncomingRequest, ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+	return nil, nil
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
