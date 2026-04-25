@@ -874,6 +874,7 @@ const (
 	InterBankService_HandleCommit_FullMethodName              = "/transaction.InterBankService/HandleCommit"
 	InterBankService_HandleCheckStatus_FullMethodName         = "/transaction.InterBankService/HandleCheckStatus"
 	InterBankService_GetInterBankTransfer_FullMethodName      = "/transaction.InterBankService/GetInterBankTransfer"
+	InterBankService_ReverseInterBankTransfer_FullMethodName  = "/transaction.InterBankService/ReverseInterBankTransfer"
 )
 
 // InterBankServiceClient is the client API for InterBankService service.
@@ -894,6 +895,11 @@ type InterBankServiceClient interface {
 	// Read-side helper used by the public GET /api/v1/me/transfers/{id}
 	// route to render an inter-bank transfer's state.
 	GetInterBankTransfer(ctx context.Context, in *GetInterBankTransferRequest, opts ...grpc.CallOption) (*GetInterBankTransferResponse, error)
+	// Spec 4 / Celina 5 addendum: REVERSE_TRANSFER. Reuses the existing
+	// PREPARE/COMMIT machinery on the opposite direction. Used by the
+	// cross-bank OTC accept saga's compensation path when seller-side
+	// ownership transfer fails after the buyer's funds have already moved.
+	ReverseInterBankTransfer(ctx context.Context, in *ReverseInterBankTransferRequest, opts ...grpc.CallOption) (*ReverseInterBankTransferResponse, error)
 }
 
 type interBankServiceClient struct {
@@ -954,6 +960,16 @@ func (c *interBankServiceClient) GetInterBankTransfer(ctx context.Context, in *G
 	return out, nil
 }
 
+func (c *interBankServiceClient) ReverseInterBankTransfer(ctx context.Context, in *ReverseInterBankTransferRequest, opts ...grpc.CallOption) (*ReverseInterBankTransferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReverseInterBankTransferResponse)
+	err := c.cc.Invoke(ctx, InterBankService_ReverseInterBankTransfer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InterBankServiceServer is the server API for InterBankService service.
 // All implementations must embed UnimplementedInterBankServiceServer
 // for forward compatibility.
@@ -972,6 +988,11 @@ type InterBankServiceServer interface {
 	// Read-side helper used by the public GET /api/v1/me/transfers/{id}
 	// route to render an inter-bank transfer's state.
 	GetInterBankTransfer(context.Context, *GetInterBankTransferRequest) (*GetInterBankTransferResponse, error)
+	// Spec 4 / Celina 5 addendum: REVERSE_TRANSFER. Reuses the existing
+	// PREPARE/COMMIT machinery on the opposite direction. Used by the
+	// cross-bank OTC accept saga's compensation path when seller-side
+	// ownership transfer fails after the buyer's funds have already moved.
+	ReverseInterBankTransfer(context.Context, *ReverseInterBankTransferRequest) (*ReverseInterBankTransferResponse, error)
 	mustEmbedUnimplementedInterBankServiceServer()
 }
 
@@ -996,6 +1017,9 @@ func (UnimplementedInterBankServiceServer) HandleCheckStatus(context.Context, *I
 }
 func (UnimplementedInterBankServiceServer) GetInterBankTransfer(context.Context, *GetInterBankTransferRequest) (*GetInterBankTransferResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetInterBankTransfer not implemented")
+}
+func (UnimplementedInterBankServiceServer) ReverseInterBankTransfer(context.Context, *ReverseInterBankTransferRequest) (*ReverseInterBankTransferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReverseInterBankTransfer not implemented")
 }
 func (UnimplementedInterBankServiceServer) mustEmbedUnimplementedInterBankServiceServer() {}
 func (UnimplementedInterBankServiceServer) testEmbeddedByValue()                          {}
@@ -1108,6 +1132,24 @@ func _InterBankService_GetInterBankTransfer_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InterBankService_ReverseInterBankTransfer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReverseInterBankTransferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InterBankServiceServer).ReverseInterBankTransfer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InterBankService_ReverseInterBankTransfer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InterBankServiceServer).ReverseInterBankTransfer(ctx, req.(*ReverseInterBankTransferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InterBankService_ServiceDesc is the grpc.ServiceDesc for InterBankService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1134,6 +1176,10 @@ var InterBankService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetInterBankTransfer",
 			Handler:    _InterBankService_GetInterBankTransfer_Handler,
+		},
+		{
+			MethodName: "ReverseInterBankTransfer",
+			Handler:    _InterBankService_ReverseInterBankTransfer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

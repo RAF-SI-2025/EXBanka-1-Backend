@@ -2666,3 +2666,455 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "stock/stock.proto",
 }
+
+const (
+	CrossBankOTCService_PeerListOffers_FullMethodName              = "/stock.CrossBankOTCService/PeerListOffers"
+	CrossBankOTCService_PeerFetchOffer_FullMethodName              = "/stock.CrossBankOTCService/PeerFetchOffer"
+	CrossBankOTCService_PeerReviseOffer_FullMethodName             = "/stock.CrossBankOTCService/PeerReviseOffer"
+	CrossBankOTCService_PeerAcceptIntent_FullMethodName            = "/stock.CrossBankOTCService/PeerAcceptIntent"
+	CrossBankOTCService_HandleReserveSellerShares_FullMethodName   = "/stock.CrossBankOTCService/HandleReserveSellerShares"
+	CrossBankOTCService_HandleTransferOwnership_FullMethodName     = "/stock.CrossBankOTCService/HandleTransferOwnership"
+	CrossBankOTCService_HandleFinalize_FullMethodName              = "/stock.CrossBankOTCService/HandleFinalize"
+	CrossBankOTCService_HandleContractExpire_FullMethodName        = "/stock.CrossBankOTCService/HandleContractExpire"
+	CrossBankOTCService_HandleSagaCheckStatus_FullMethodName       = "/stock.CrossBankOTCService/HandleSagaCheckStatus"
+	CrossBankOTCService_HandleReserveSharesRollback_FullMethodName = "/stock.CrossBankOTCService/HandleReserveSharesRollback"
+)
+
+// CrossBankOTCServiceClient is the client API for CrossBankOTCService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type CrossBankOTCServiceClient interface {
+	// Discovery
+	PeerListOffers(ctx context.Context, in *PeerListOffersRequest, opts ...grpc.CallOption) (*PeerListOffersResponse, error)
+	PeerFetchOffer(ctx context.Context, in *PeerFetchOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error)
+	// Negotiation
+	PeerReviseOffer(ctx context.Context, in *PeerReviseOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error)
+	PeerAcceptIntent(ctx context.Context, in *PeerAcceptIntentRequest, opts ...grpc.CallOption) (*PeerAcceptIntentResponse, error)
+	// Saga phases (responder side)
+	HandleReserveSellerShares(ctx context.Context, in *ReserveSellerSharesRequest, opts ...grpc.CallOption) (*ReserveSellerSharesResponse, error)
+	HandleTransferOwnership(ctx context.Context, in *TransferOwnershipRequest, opts ...grpc.CallOption) (*TransferOwnershipResponse, error)
+	HandleFinalize(ctx context.Context, in *FinalizeRequest, opts ...grpc.CallOption) (*FinalizeResponse, error)
+	HandleContractExpire(ctx context.Context, in *ContractExpireRequest, opts ...grpc.CallOption) (*ContractExpireResponse, error)
+	HandleSagaCheckStatus(ctx context.Context, in *SagaCheckStatusRequest, opts ...grpc.CallOption) (*SagaCheckStatusResponse, error)
+	// Compensation
+	HandleReserveSharesRollback(ctx context.Context, in *ReserveSharesRollbackRequest, opts ...grpc.CallOption) (*ReserveSharesRollbackResponse, error)
+}
+
+type crossBankOTCServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewCrossBankOTCServiceClient(cc grpc.ClientConnInterface) CrossBankOTCServiceClient {
+	return &crossBankOTCServiceClient{cc}
+}
+
+func (c *crossBankOTCServiceClient) PeerListOffers(ctx context.Context, in *PeerListOffersRequest, opts ...grpc.CallOption) (*PeerListOffersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PeerListOffersResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_PeerListOffers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *crossBankOTCServiceClient) PeerFetchOffer(ctx context.Context, in *PeerFetchOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCOfferResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_PeerFetchOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *crossBankOTCServiceClient) PeerReviseOffer(ctx context.Context, in *PeerReviseOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCOfferResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_PeerReviseOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *crossBankOTCServiceClient) PeerAcceptIntent(ctx context.Context, in *PeerAcceptIntentRequest, opts ...grpc.CallOption) (*PeerAcceptIntentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PeerAcceptIntentResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_PeerAcceptIntent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *crossBankOTCServiceClient) HandleReserveSellerShares(ctx context.Context, in *ReserveSellerSharesRequest, opts ...grpc.CallOption) (*ReserveSellerSharesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReserveSellerSharesResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_HandleReserveSellerShares_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *crossBankOTCServiceClient) HandleTransferOwnership(ctx context.Context, in *TransferOwnershipRequest, opts ...grpc.CallOption) (*TransferOwnershipResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TransferOwnershipResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_HandleTransferOwnership_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *crossBankOTCServiceClient) HandleFinalize(ctx context.Context, in *FinalizeRequest, opts ...grpc.CallOption) (*FinalizeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(FinalizeResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_HandleFinalize_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *crossBankOTCServiceClient) HandleContractExpire(ctx context.Context, in *ContractExpireRequest, opts ...grpc.CallOption) (*ContractExpireResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContractExpireResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_HandleContractExpire_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *crossBankOTCServiceClient) HandleSagaCheckStatus(ctx context.Context, in *SagaCheckStatusRequest, opts ...grpc.CallOption) (*SagaCheckStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SagaCheckStatusResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_HandleSagaCheckStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *crossBankOTCServiceClient) HandleReserveSharesRollback(ctx context.Context, in *ReserveSharesRollbackRequest, opts ...grpc.CallOption) (*ReserveSharesRollbackResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReserveSharesRollbackResponse)
+	err := c.cc.Invoke(ctx, CrossBankOTCService_HandleReserveSharesRollback_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CrossBankOTCServiceServer is the server API for CrossBankOTCService service.
+// All implementations must embed UnimplementedCrossBankOTCServiceServer
+// for forward compatibility.
+type CrossBankOTCServiceServer interface {
+	// Discovery
+	PeerListOffers(context.Context, *PeerListOffersRequest) (*PeerListOffersResponse, error)
+	PeerFetchOffer(context.Context, *PeerFetchOfferRequest) (*OTCOfferResponse, error)
+	// Negotiation
+	PeerReviseOffer(context.Context, *PeerReviseOfferRequest) (*OTCOfferResponse, error)
+	PeerAcceptIntent(context.Context, *PeerAcceptIntentRequest) (*PeerAcceptIntentResponse, error)
+	// Saga phases (responder side)
+	HandleReserveSellerShares(context.Context, *ReserveSellerSharesRequest) (*ReserveSellerSharesResponse, error)
+	HandleTransferOwnership(context.Context, *TransferOwnershipRequest) (*TransferOwnershipResponse, error)
+	HandleFinalize(context.Context, *FinalizeRequest) (*FinalizeResponse, error)
+	HandleContractExpire(context.Context, *ContractExpireRequest) (*ContractExpireResponse, error)
+	HandleSagaCheckStatus(context.Context, *SagaCheckStatusRequest) (*SagaCheckStatusResponse, error)
+	// Compensation
+	HandleReserveSharesRollback(context.Context, *ReserveSharesRollbackRequest) (*ReserveSharesRollbackResponse, error)
+	mustEmbedUnimplementedCrossBankOTCServiceServer()
+}
+
+// UnimplementedCrossBankOTCServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedCrossBankOTCServiceServer struct{}
+
+func (UnimplementedCrossBankOTCServiceServer) PeerListOffers(context.Context, *PeerListOffersRequest) (*PeerListOffersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PeerListOffers not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) PeerFetchOffer(context.Context, *PeerFetchOfferRequest) (*OTCOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PeerFetchOffer not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) PeerReviseOffer(context.Context, *PeerReviseOfferRequest) (*OTCOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PeerReviseOffer not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) PeerAcceptIntent(context.Context, *PeerAcceptIntentRequest) (*PeerAcceptIntentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PeerAcceptIntent not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) HandleReserveSellerShares(context.Context, *ReserveSellerSharesRequest) (*ReserveSellerSharesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleReserveSellerShares not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) HandleTransferOwnership(context.Context, *TransferOwnershipRequest) (*TransferOwnershipResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleTransferOwnership not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) HandleFinalize(context.Context, *FinalizeRequest) (*FinalizeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleFinalize not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) HandleContractExpire(context.Context, *ContractExpireRequest) (*ContractExpireResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleContractExpire not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) HandleSagaCheckStatus(context.Context, *SagaCheckStatusRequest) (*SagaCheckStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleSagaCheckStatus not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) HandleReserveSharesRollback(context.Context, *ReserveSharesRollbackRequest) (*ReserveSharesRollbackResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleReserveSharesRollback not implemented")
+}
+func (UnimplementedCrossBankOTCServiceServer) mustEmbedUnimplementedCrossBankOTCServiceServer() {}
+func (UnimplementedCrossBankOTCServiceServer) testEmbeddedByValue()                             {}
+
+// UnsafeCrossBankOTCServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to CrossBankOTCServiceServer will
+// result in compilation errors.
+type UnsafeCrossBankOTCServiceServer interface {
+	mustEmbedUnimplementedCrossBankOTCServiceServer()
+}
+
+func RegisterCrossBankOTCServiceServer(s grpc.ServiceRegistrar, srv CrossBankOTCServiceServer) {
+	// If the following call panics, it indicates UnimplementedCrossBankOTCServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&CrossBankOTCService_ServiceDesc, srv)
+}
+
+func _CrossBankOTCService_PeerListOffers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PeerListOffersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).PeerListOffers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_PeerListOffers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).PeerListOffers(ctx, req.(*PeerListOffersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CrossBankOTCService_PeerFetchOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PeerFetchOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).PeerFetchOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_PeerFetchOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).PeerFetchOffer(ctx, req.(*PeerFetchOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CrossBankOTCService_PeerReviseOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PeerReviseOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).PeerReviseOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_PeerReviseOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).PeerReviseOffer(ctx, req.(*PeerReviseOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CrossBankOTCService_PeerAcceptIntent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PeerAcceptIntentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).PeerAcceptIntent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_PeerAcceptIntent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).PeerAcceptIntent(ctx, req.(*PeerAcceptIntentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CrossBankOTCService_HandleReserveSellerShares_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReserveSellerSharesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).HandleReserveSellerShares(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_HandleReserveSellerShares_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).HandleReserveSellerShares(ctx, req.(*ReserveSellerSharesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CrossBankOTCService_HandleTransferOwnership_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TransferOwnershipRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).HandleTransferOwnership(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_HandleTransferOwnership_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).HandleTransferOwnership(ctx, req.(*TransferOwnershipRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CrossBankOTCService_HandleFinalize_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FinalizeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).HandleFinalize(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_HandleFinalize_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).HandleFinalize(ctx, req.(*FinalizeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CrossBankOTCService_HandleContractExpire_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContractExpireRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).HandleContractExpire(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_HandleContractExpire_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).HandleContractExpire(ctx, req.(*ContractExpireRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CrossBankOTCService_HandleSagaCheckStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SagaCheckStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).HandleSagaCheckStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_HandleSagaCheckStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).HandleSagaCheckStatus(ctx, req.(*SagaCheckStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CrossBankOTCService_HandleReserveSharesRollback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReserveSharesRollbackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CrossBankOTCServiceServer).HandleReserveSharesRollback(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CrossBankOTCService_HandleReserveSharesRollback_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CrossBankOTCServiceServer).HandleReserveSharesRollback(ctx, req.(*ReserveSharesRollbackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// CrossBankOTCService_ServiceDesc is the grpc.ServiceDesc for CrossBankOTCService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var CrossBankOTCService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.CrossBankOTCService",
+	HandlerType: (*CrossBankOTCServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "PeerListOffers",
+			Handler:    _CrossBankOTCService_PeerListOffers_Handler,
+		},
+		{
+			MethodName: "PeerFetchOffer",
+			Handler:    _CrossBankOTCService_PeerFetchOffer_Handler,
+		},
+		{
+			MethodName: "PeerReviseOffer",
+			Handler:    _CrossBankOTCService_PeerReviseOffer_Handler,
+		},
+		{
+			MethodName: "PeerAcceptIntent",
+			Handler:    _CrossBankOTCService_PeerAcceptIntent_Handler,
+		},
+		{
+			MethodName: "HandleReserveSellerShares",
+			Handler:    _CrossBankOTCService_HandleReserveSellerShares_Handler,
+		},
+		{
+			MethodName: "HandleTransferOwnership",
+			Handler:    _CrossBankOTCService_HandleTransferOwnership_Handler,
+		},
+		{
+			MethodName: "HandleFinalize",
+			Handler:    _CrossBankOTCService_HandleFinalize_Handler,
+		},
+		{
+			MethodName: "HandleContractExpire",
+			Handler:    _CrossBankOTCService_HandleContractExpire_Handler,
+		},
+		{
+			MethodName: "HandleSagaCheckStatus",
+			Handler:    _CrossBankOTCService_HandleSagaCheckStatus_Handler,
+		},
+		{
+			MethodName: "HandleReserveSharesRollback",
+			Handler:    _CrossBankOTCService_HandleReserveSharesRollback_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}

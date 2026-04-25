@@ -159,6 +159,14 @@ func main() {
 		"otc.contract-exercised",
 		"otc.contract-expired",
 		"otc.contract-failed",
+		"otc.crossbank-saga-started",
+		"otc.crossbank-saga-committed",
+		"otc.crossbank-saga-rolled-back",
+		"otc.crossbank-saga-stuck-rollback",
+		"otc.contract-exercised-crossbank",
+		"otc.contract-expired-crossbank",
+		"otc.contract-expiry-stuck",
+		"otc.local-offer-changed",
 	)
 
 	// --- InfluxDB ---

@@ -2137,6 +2137,118 @@ func (x *TransferFeeResponse) GetActive() bool {
 	return false
 }
 
+type ReverseInterBankTransferRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OriginalTxId  string                 `protobuf:"bytes,1,opt,name=original_tx_id,json=originalTxId,proto3" json:"original_tx_id,omitempty"`
+	Memo          string                 `protobuf:"bytes,2,opt,name=memo,proto3" json:"memo,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReverseInterBankTransferRequest) Reset() {
+	*x = ReverseInterBankTransferRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReverseInterBankTransferRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReverseInterBankTransferRequest) ProtoMessage() {}
+
+func (x *ReverseInterBankTransferRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReverseInterBankTransferRequest.ProtoReflect.Descriptor instead.
+func (*ReverseInterBankTransferRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ReverseInterBankTransferRequest) GetOriginalTxId() string {
+	if x != nil {
+		return x.OriginalTxId
+	}
+	return ""
+}
+
+func (x *ReverseInterBankTransferRequest) GetMemo() string {
+	if x != nil {
+		return x.Memo
+	}
+	return ""
+}
+
+type ReverseInterBankTransferResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReverseTxId   string                 `protobuf:"bytes,1,opt,name=reverse_tx_id,json=reverseTxId,proto3" json:"reverse_tx_id,omitempty"`
+	Committed     bool                   `protobuf:"varint,2,opt,name=committed,proto3" json:"committed,omitempty"`
+	FailReason    string                 `protobuf:"bytes,3,opt,name=fail_reason,json=failReason,proto3" json:"fail_reason,omitempty"` // "insufficient-funds-at-responder" possible
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReverseInterBankTransferResponse) Reset() {
+	*x = ReverseInterBankTransferResponse{}
+	mi := &file_transaction_transaction_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReverseInterBankTransferResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReverseInterBankTransferResponse) ProtoMessage() {}
+
+func (x *ReverseInterBankTransferResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReverseInterBankTransferResponse.ProtoReflect.Descriptor instead.
+func (*ReverseInterBankTransferResponse) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ReverseInterBankTransferResponse) GetReverseTxId() string {
+	if x != nil {
+		return x.ReverseTxId
+	}
+	return ""
+}
+
+func (x *ReverseInterBankTransferResponse) GetCommitted() bool {
+	if x != nil {
+		return x.Committed
+	}
+	return false
+}
+
+func (x *ReverseInterBankTransferResponse) GetFailReason() string {
+	if x != nil {
+		return x.FailReason
+	}
+	return ""
+}
+
 type InitiateInterBankRequest struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	SenderAccountNumber   string                 `protobuf:"bytes,1,opt,name=sender_account_number,json=senderAccountNumber,proto3" json:"sender_account_number,omitempty"`
@@ -2150,7 +2262,7 @@ type InitiateInterBankRequest struct {
 
 func (x *InitiateInterBankRequest) Reset() {
 	*x = InitiateInterBankRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[31]
+	mi := &file_transaction_transaction_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2162,7 +2274,7 @@ func (x *InitiateInterBankRequest) String() string {
 func (*InitiateInterBankRequest) ProtoMessage() {}
 
 func (x *InitiateInterBankRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[31]
+	mi := &file_transaction_transaction_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2175,7 +2287,7 @@ func (x *InitiateInterBankRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitiateInterBankRequest.ProtoReflect.Descriptor instead.
 func (*InitiateInterBankRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{31}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *InitiateInterBankRequest) GetSenderAccountNumber() string {
@@ -2224,7 +2336,7 @@ type InitiateInterBankResponse struct {
 
 func (x *InitiateInterBankResponse) Reset() {
 	*x = InitiateInterBankResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[32]
+	mi := &file_transaction_transaction_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2236,7 +2348,7 @@ func (x *InitiateInterBankResponse) String() string {
 func (*InitiateInterBankResponse) ProtoMessage() {}
 
 func (x *InitiateInterBankResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[32]
+	mi := &file_transaction_transaction_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2249,7 +2361,7 @@ func (x *InitiateInterBankResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitiateInterBankResponse.ProtoReflect.Descriptor instead.
 func (*InitiateInterBankResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{32}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *InitiateInterBankResponse) GetTransactionId() string {
@@ -2289,7 +2401,7 @@ type InterBankPrepareRequest struct {
 
 func (x *InterBankPrepareRequest) Reset() {
 	*x = InterBankPrepareRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[33]
+	mi := &file_transaction_transaction_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2301,7 +2413,7 @@ func (x *InterBankPrepareRequest) String() string {
 func (*InterBankPrepareRequest) ProtoMessage() {}
 
 func (x *InterBankPrepareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[33]
+	mi := &file_transaction_transaction_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2314,7 +2426,7 @@ func (x *InterBankPrepareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterBankPrepareRequest.ProtoReflect.Descriptor instead.
 func (*InterBankPrepareRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{33}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *InterBankPrepareRequest) GetTransactionId() string {
@@ -2389,7 +2501,7 @@ type InterBankPrepareResponse struct {
 
 func (x *InterBankPrepareResponse) Reset() {
 	*x = InterBankPrepareResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[34]
+	mi := &file_transaction_transaction_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2401,7 +2513,7 @@ func (x *InterBankPrepareResponse) String() string {
 func (*InterBankPrepareResponse) ProtoMessage() {}
 
 func (x *InterBankPrepareResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[34]
+	mi := &file_transaction_transaction_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2414,7 +2526,7 @@ func (x *InterBankPrepareResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterBankPrepareResponse.ProtoReflect.Descriptor instead.
 func (*InterBankPrepareResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{34}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *InterBankPrepareResponse) GetTransactionId() string {
@@ -2486,7 +2598,7 @@ type InterBankCommitRequest struct {
 
 func (x *InterBankCommitRequest) Reset() {
 	*x = InterBankCommitRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[35]
+	mi := &file_transaction_transaction_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2498,7 +2610,7 @@ func (x *InterBankCommitRequest) String() string {
 func (*InterBankCommitRequest) ProtoMessage() {}
 
 func (x *InterBankCommitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[35]
+	mi := &file_transaction_transaction_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2511,7 +2623,7 @@ func (x *InterBankCommitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterBankCommitRequest.ProtoReflect.Descriptor instead.
 func (*InterBankCommitRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{35}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *InterBankCommitRequest) GetTransactionId() string {
@@ -2564,7 +2676,7 @@ type InterBankCommitResponse struct {
 
 func (x *InterBankCommitResponse) Reset() {
 	*x = InterBankCommitResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[36]
+	mi := &file_transaction_transaction_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2576,7 +2688,7 @@ func (x *InterBankCommitResponse) String() string {
 func (*InterBankCommitResponse) ProtoMessage() {}
 
 func (x *InterBankCommitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[36]
+	mi := &file_transaction_transaction_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2589,7 +2701,7 @@ func (x *InterBankCommitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterBankCommitResponse.ProtoReflect.Descriptor instead.
 func (*InterBankCommitResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{36}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *InterBankCommitResponse) GetTransactionId() string {
@@ -2650,7 +2762,7 @@ type InterBankCheckStatusRequest struct {
 
 func (x *InterBankCheckStatusRequest) Reset() {
 	*x = InterBankCheckStatusRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[37]
+	mi := &file_transaction_transaction_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2662,7 +2774,7 @@ func (x *InterBankCheckStatusRequest) String() string {
 func (*InterBankCheckStatusRequest) ProtoMessage() {}
 
 func (x *InterBankCheckStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[37]
+	mi := &file_transaction_transaction_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2675,7 +2787,7 @@ func (x *InterBankCheckStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterBankCheckStatusRequest.ProtoReflect.Descriptor instead.
 func (*InterBankCheckStatusRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{37}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *InterBankCheckStatusRequest) GetTransactionId() string {
@@ -2700,7 +2812,7 @@ type InterBankCheckStatusResponse struct {
 
 func (x *InterBankCheckStatusResponse) Reset() {
 	*x = InterBankCheckStatusResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[38]
+	mi := &file_transaction_transaction_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2712,7 +2824,7 @@ func (x *InterBankCheckStatusResponse) String() string {
 func (*InterBankCheckStatusResponse) ProtoMessage() {}
 
 func (x *InterBankCheckStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[38]
+	mi := &file_transaction_transaction_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2725,7 +2837,7 @@ func (x *InterBankCheckStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterBankCheckStatusResponse.ProtoReflect.Descriptor instead.
 func (*InterBankCheckStatusResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{38}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *InterBankCheckStatusResponse) GetTransactionId() string {
@@ -2786,7 +2898,7 @@ type GetInterBankTransferRequest struct {
 
 func (x *GetInterBankTransferRequest) Reset() {
 	*x = GetInterBankTransferRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[39]
+	mi := &file_transaction_transaction_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2798,7 +2910,7 @@ func (x *GetInterBankTransferRequest) String() string {
 func (*GetInterBankTransferRequest) ProtoMessage() {}
 
 func (x *GetInterBankTransferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[39]
+	mi := &file_transaction_transaction_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2811,7 +2923,7 @@ func (x *GetInterBankTransferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInterBankTransferRequest.ProtoReflect.Descriptor instead.
 func (*GetInterBankTransferRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{39}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *GetInterBankTransferRequest) GetTransactionId() string {
@@ -2845,7 +2957,7 @@ type GetInterBankTransferResponse struct {
 
 func (x *GetInterBankTransferResponse) Reset() {
 	*x = GetInterBankTransferResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[40]
+	mi := &file_transaction_transaction_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2857,7 +2969,7 @@ func (x *GetInterBankTransferResponse) String() string {
 func (*GetInterBankTransferResponse) ProtoMessage() {}
 
 func (x *GetInterBankTransferResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[40]
+	mi := &file_transaction_transaction_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2870,7 +2982,7 @@ func (x *GetInterBankTransferResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInterBankTransferResponse.ProtoReflect.Descriptor instead.
 func (*GetInterBankTransferResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{40}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *GetInterBankTransferResponse) GetFound() bool {
@@ -3164,7 +3276,15 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\amax_fee\x18\x06 \x01(\tR\x06maxFee\x12)\n" +
 	"\x10transaction_type\x18\a \x01(\tR\x0ftransactionType\x12#\n" +
 	"\rcurrency_code\x18\b \x01(\tR\fcurrencyCode\x12\x16\n" +
-	"\x06active\x18\t \x01(\bR\x06active\"\xce\x01\n" +
+	"\x06active\x18\t \x01(\bR\x06active\"[\n" +
+	"\x1fReverseInterBankTransferRequest\x12$\n" +
+	"\x0eoriginal_tx_id\x18\x01 \x01(\tR\foriginalTxId\x12\x12\n" +
+	"\x04memo\x18\x02 \x01(\tR\x04memo\"\x85\x01\n" +
+	" ReverseInterBankTransferResponse\x12\"\n" +
+	"\rreverse_tx_id\x18\x01 \x01(\tR\vreverseTxId\x12\x1c\n" +
+	"\tcommitted\x18\x02 \x01(\bR\tcommitted\x12\x1f\n" +
+	"\vfail_reason\x18\x03 \x01(\tR\n" +
+	"failReason\"\xce\x01\n" +
 	"\x18InitiateInterBankRequest\x122\n" +
 	"\x15sender_account_number\x18\x01 \x01(\tR\x13senderAccountNumber\x126\n" +
 	"\x17receiver_account_number\x18\x02 \x01(\tR\x15receiverAccountNumber\x12\x16\n" +
@@ -3266,13 +3386,14 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\tCreateFee\x12\x1d.transaction.CreateFeeRequest\x1a .transaction.TransferFeeResponse\x12L\n" +
 	"\tUpdateFee\x12\x1d.transaction.UpdateFeeRequest\x1a .transaction.TransferFeeResponse\x12J\n" +
 	"\tDeleteFee\x12\x1d.transaction.DeleteFeeRequest\x1a\x1e.transaction.DeleteFeeResponse\x12S\n" +
-	"\fCalculateFee\x12 .transaction.CalculateFeeRequest\x1a!.transaction.CalculateFeeResponse2\x8e\x04\n" +
+	"\fCalculateFee\x12 .transaction.CalculateFeeRequest\x1a!.transaction.CalculateFeeResponse2\x87\x05\n" +
 	"\x10InterBankService\x12j\n" +
 	"\x19InitiateInterBankTransfer\x12%.transaction.InitiateInterBankRequest\x1a&.transaction.InitiateInterBankResponse\x12\\\n" +
 	"\rHandlePrepare\x12$.transaction.InterBankPrepareRequest\x1a%.transaction.InterBankPrepareResponse\x12Y\n" +
 	"\fHandleCommit\x12#.transaction.InterBankCommitRequest\x1a$.transaction.InterBankCommitResponse\x12h\n" +
 	"\x11HandleCheckStatus\x12(.transaction.InterBankCheckStatusRequest\x1a).transaction.InterBankCheckStatusResponse\x12k\n" +
-	"\x14GetInterBankTransfer\x12(.transaction.GetInterBankTransferRequest\x1a).transaction.GetInterBankTransferResponseB9Z7github.com/exbanka/contract/transactionpb;transactionpbb\x06proto3"
+	"\x14GetInterBankTransfer\x12(.transaction.GetInterBankTransferRequest\x1a).transaction.GetInterBankTransferResponse\x12w\n" +
+	"\x18ReverseInterBankTransfer\x12,.transaction.ReverseInterBankTransferRequest\x1a-.transaction.ReverseInterBankTransferResponseB9Z7github.com/exbanka/contract/transactionpb;transactionpbb\x06proto3"
 
 var (
 	file_transaction_transaction_proto_rawDescOnce sync.Once
@@ -3286,49 +3407,51 @@ func file_transaction_transaction_proto_rawDescGZIP() []byte {
 	return file_transaction_transaction_proto_rawDescData
 }
 
-var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
 var file_transaction_transaction_proto_goTypes = []any{
-	(*CreatePaymentRequest)(nil),           // 0: transaction.CreatePaymentRequest
-	(*GetPaymentRequest)(nil),              // 1: transaction.GetPaymentRequest
-	(*ListPaymentsByAccountRequest)(nil),   // 2: transaction.ListPaymentsByAccountRequest
-	(*ListPaymentsResponse)(nil),           // 3: transaction.ListPaymentsResponse
-	(*ListPaymentsByClientRequest)(nil),    // 4: transaction.ListPaymentsByClientRequest
-	(*PaymentResponse)(nil),                // 5: transaction.PaymentResponse
-	(*CreateTransferRequest)(nil),          // 6: transaction.CreateTransferRequest
-	(*GetTransferRequest)(nil),             // 7: transaction.GetTransferRequest
-	(*ListTransfersByClientRequest)(nil),   // 8: transaction.ListTransfersByClientRequest
-	(*ListTransfersResponse)(nil),          // 9: transaction.ListTransfersResponse
-	(*TransferResponse)(nil),               // 10: transaction.TransferResponse
-	(*CreatePaymentRecipientRequest)(nil),  // 11: transaction.CreatePaymentRecipientRequest
-	(*GetPaymentRecipientRequest)(nil),     // 12: transaction.GetPaymentRecipientRequest
-	(*ListPaymentRecipientsRequest)(nil),   // 13: transaction.ListPaymentRecipientsRequest
-	(*ListPaymentRecipientsResponse)(nil),  // 14: transaction.ListPaymentRecipientsResponse
-	(*UpdatePaymentRecipientRequest)(nil),  // 15: transaction.UpdatePaymentRecipientRequest
-	(*DeletePaymentRecipientRequest)(nil),  // 16: transaction.DeletePaymentRecipientRequest
-	(*DeletePaymentRecipientResponse)(nil), // 17: transaction.DeletePaymentRecipientResponse
-	(*PaymentRecipientResponse)(nil),       // 18: transaction.PaymentRecipientResponse
-	(*ExecutePaymentRequest)(nil),          // 19: transaction.ExecutePaymentRequest
-	(*ExecuteTransferRequest)(nil),         // 20: transaction.ExecuteTransferRequest
-	(*ListFeesRequest)(nil),                // 21: transaction.ListFeesRequest
-	(*ListFeesResponse)(nil),               // 22: transaction.ListFeesResponse
-	(*CreateFeeRequest)(nil),               // 23: transaction.CreateFeeRequest
-	(*UpdateFeeRequest)(nil),               // 24: transaction.UpdateFeeRequest
-	(*DeleteFeeRequest)(nil),               // 25: transaction.DeleteFeeRequest
-	(*DeleteFeeResponse)(nil),              // 26: transaction.DeleteFeeResponse
-	(*CalculateFeeRequest)(nil),            // 27: transaction.CalculateFeeRequest
-	(*CalculateFeeResponse)(nil),           // 28: transaction.CalculateFeeResponse
-	(*FeeBreakdown)(nil),                   // 29: transaction.FeeBreakdown
-	(*TransferFeeResponse)(nil),            // 30: transaction.TransferFeeResponse
-	(*InitiateInterBankRequest)(nil),       // 31: transaction.InitiateInterBankRequest
-	(*InitiateInterBankResponse)(nil),      // 32: transaction.InitiateInterBankResponse
-	(*InterBankPrepareRequest)(nil),        // 33: transaction.InterBankPrepareRequest
-	(*InterBankPrepareResponse)(nil),       // 34: transaction.InterBankPrepareResponse
-	(*InterBankCommitRequest)(nil),         // 35: transaction.InterBankCommitRequest
-	(*InterBankCommitResponse)(nil),        // 36: transaction.InterBankCommitResponse
-	(*InterBankCheckStatusRequest)(nil),    // 37: transaction.InterBankCheckStatusRequest
-	(*InterBankCheckStatusResponse)(nil),   // 38: transaction.InterBankCheckStatusResponse
-	(*GetInterBankTransferRequest)(nil),    // 39: transaction.GetInterBankTransferRequest
-	(*GetInterBankTransferResponse)(nil),   // 40: transaction.GetInterBankTransferResponse
+	(*CreatePaymentRequest)(nil),             // 0: transaction.CreatePaymentRequest
+	(*GetPaymentRequest)(nil),                // 1: transaction.GetPaymentRequest
+	(*ListPaymentsByAccountRequest)(nil),     // 2: transaction.ListPaymentsByAccountRequest
+	(*ListPaymentsResponse)(nil),             // 3: transaction.ListPaymentsResponse
+	(*ListPaymentsByClientRequest)(nil),      // 4: transaction.ListPaymentsByClientRequest
+	(*PaymentResponse)(nil),                  // 5: transaction.PaymentResponse
+	(*CreateTransferRequest)(nil),            // 6: transaction.CreateTransferRequest
+	(*GetTransferRequest)(nil),               // 7: transaction.GetTransferRequest
+	(*ListTransfersByClientRequest)(nil),     // 8: transaction.ListTransfersByClientRequest
+	(*ListTransfersResponse)(nil),            // 9: transaction.ListTransfersResponse
+	(*TransferResponse)(nil),                 // 10: transaction.TransferResponse
+	(*CreatePaymentRecipientRequest)(nil),    // 11: transaction.CreatePaymentRecipientRequest
+	(*GetPaymentRecipientRequest)(nil),       // 12: transaction.GetPaymentRecipientRequest
+	(*ListPaymentRecipientsRequest)(nil),     // 13: transaction.ListPaymentRecipientsRequest
+	(*ListPaymentRecipientsResponse)(nil),    // 14: transaction.ListPaymentRecipientsResponse
+	(*UpdatePaymentRecipientRequest)(nil),    // 15: transaction.UpdatePaymentRecipientRequest
+	(*DeletePaymentRecipientRequest)(nil),    // 16: transaction.DeletePaymentRecipientRequest
+	(*DeletePaymentRecipientResponse)(nil),   // 17: transaction.DeletePaymentRecipientResponse
+	(*PaymentRecipientResponse)(nil),         // 18: transaction.PaymentRecipientResponse
+	(*ExecutePaymentRequest)(nil),            // 19: transaction.ExecutePaymentRequest
+	(*ExecuteTransferRequest)(nil),           // 20: transaction.ExecuteTransferRequest
+	(*ListFeesRequest)(nil),                  // 21: transaction.ListFeesRequest
+	(*ListFeesResponse)(nil),                 // 22: transaction.ListFeesResponse
+	(*CreateFeeRequest)(nil),                 // 23: transaction.CreateFeeRequest
+	(*UpdateFeeRequest)(nil),                 // 24: transaction.UpdateFeeRequest
+	(*DeleteFeeRequest)(nil),                 // 25: transaction.DeleteFeeRequest
+	(*DeleteFeeResponse)(nil),                // 26: transaction.DeleteFeeResponse
+	(*CalculateFeeRequest)(nil),              // 27: transaction.CalculateFeeRequest
+	(*CalculateFeeResponse)(nil),             // 28: transaction.CalculateFeeResponse
+	(*FeeBreakdown)(nil),                     // 29: transaction.FeeBreakdown
+	(*TransferFeeResponse)(nil),              // 30: transaction.TransferFeeResponse
+	(*ReverseInterBankTransferRequest)(nil),  // 31: transaction.ReverseInterBankTransferRequest
+	(*ReverseInterBankTransferResponse)(nil), // 32: transaction.ReverseInterBankTransferResponse
+	(*InitiateInterBankRequest)(nil),         // 33: transaction.InitiateInterBankRequest
+	(*InitiateInterBankResponse)(nil),        // 34: transaction.InitiateInterBankResponse
+	(*InterBankPrepareRequest)(nil),          // 35: transaction.InterBankPrepareRequest
+	(*InterBankPrepareResponse)(nil),         // 36: transaction.InterBankPrepareResponse
+	(*InterBankCommitRequest)(nil),           // 37: transaction.InterBankCommitRequest
+	(*InterBankCommitResponse)(nil),          // 38: transaction.InterBankCommitResponse
+	(*InterBankCheckStatusRequest)(nil),      // 39: transaction.InterBankCheckStatusRequest
+	(*InterBankCheckStatusResponse)(nil),     // 40: transaction.InterBankCheckStatusResponse
+	(*GetInterBankTransferRequest)(nil),      // 41: transaction.GetInterBankTransferRequest
+	(*GetInterBankTransferResponse)(nil),     // 42: transaction.GetInterBankTransferResponse
 }
 var file_transaction_transaction_proto_depIdxs = []int32{
 	5,  // 0: transaction.ListPaymentsResponse.payments:type_name -> transaction.PaymentResponse
@@ -3355,37 +3478,39 @@ var file_transaction_transaction_proto_depIdxs = []int32{
 	24, // 21: transaction.FeeService.UpdateFee:input_type -> transaction.UpdateFeeRequest
 	25, // 22: transaction.FeeService.DeleteFee:input_type -> transaction.DeleteFeeRequest
 	27, // 23: transaction.FeeService.CalculateFee:input_type -> transaction.CalculateFeeRequest
-	31, // 24: transaction.InterBankService.InitiateInterBankTransfer:input_type -> transaction.InitiateInterBankRequest
-	33, // 25: transaction.InterBankService.HandlePrepare:input_type -> transaction.InterBankPrepareRequest
-	35, // 26: transaction.InterBankService.HandleCommit:input_type -> transaction.InterBankCommitRequest
-	37, // 27: transaction.InterBankService.HandleCheckStatus:input_type -> transaction.InterBankCheckStatusRequest
-	39, // 28: transaction.InterBankService.GetInterBankTransfer:input_type -> transaction.GetInterBankTransferRequest
-	5,  // 29: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
-	5,  // 30: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
-	5,  // 31: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
-	3,  // 32: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
-	3,  // 33: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
-	10, // 34: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
-	10, // 35: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
-	10, // 36: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
-	9,  // 37: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
-	18, // 38: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	18, // 39: transaction.TransactionService.GetPaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	14, // 40: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
-	18, // 41: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	17, // 42: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
-	22, // 43: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
-	30, // 44: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
-	30, // 45: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
-	26, // 46: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
-	28, // 47: transaction.FeeService.CalculateFee:output_type -> transaction.CalculateFeeResponse
-	32, // 48: transaction.InterBankService.InitiateInterBankTransfer:output_type -> transaction.InitiateInterBankResponse
-	34, // 49: transaction.InterBankService.HandlePrepare:output_type -> transaction.InterBankPrepareResponse
-	36, // 50: transaction.InterBankService.HandleCommit:output_type -> transaction.InterBankCommitResponse
-	38, // 51: transaction.InterBankService.HandleCheckStatus:output_type -> transaction.InterBankCheckStatusResponse
-	40, // 52: transaction.InterBankService.GetInterBankTransfer:output_type -> transaction.GetInterBankTransferResponse
-	29, // [29:53] is the sub-list for method output_type
-	5,  // [5:29] is the sub-list for method input_type
+	33, // 24: transaction.InterBankService.InitiateInterBankTransfer:input_type -> transaction.InitiateInterBankRequest
+	35, // 25: transaction.InterBankService.HandlePrepare:input_type -> transaction.InterBankPrepareRequest
+	37, // 26: transaction.InterBankService.HandleCommit:input_type -> transaction.InterBankCommitRequest
+	39, // 27: transaction.InterBankService.HandleCheckStatus:input_type -> transaction.InterBankCheckStatusRequest
+	41, // 28: transaction.InterBankService.GetInterBankTransfer:input_type -> transaction.GetInterBankTransferRequest
+	31, // 29: transaction.InterBankService.ReverseInterBankTransfer:input_type -> transaction.ReverseInterBankTransferRequest
+	5,  // 30: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
+	5,  // 31: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
+	5,  // 32: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
+	3,  // 33: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
+	3,  // 34: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
+	10, // 35: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
+	10, // 36: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
+	10, // 37: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
+	9,  // 38: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
+	18, // 39: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	18, // 40: transaction.TransactionService.GetPaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	14, // 41: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
+	18, // 42: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	17, // 43: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
+	22, // 44: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
+	30, // 45: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
+	30, // 46: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
+	26, // 47: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
+	28, // 48: transaction.FeeService.CalculateFee:output_type -> transaction.CalculateFeeResponse
+	34, // 49: transaction.InterBankService.InitiateInterBankTransfer:output_type -> transaction.InitiateInterBankResponse
+	36, // 50: transaction.InterBankService.HandlePrepare:output_type -> transaction.InterBankPrepareResponse
+	38, // 51: transaction.InterBankService.HandleCommit:output_type -> transaction.InterBankCommitResponse
+	40, // 52: transaction.InterBankService.HandleCheckStatus:output_type -> transaction.InterBankCheckStatusResponse
+	42, // 53: transaction.InterBankService.GetInterBankTransfer:output_type -> transaction.GetInterBankTransferResponse
+	32, // 54: transaction.InterBankService.ReverseInterBankTransfer:output_type -> transaction.ReverseInterBankTransferResponse
+	30, // [30:55] is the sub-list for method output_type
+	5,  // [5:30] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
 	5,  // [5:5] is the sub-list for extension extendee
 	0,  // [0:5] is the sub-list for field type_name
@@ -3403,7 +3528,7 @@ func file_transaction_transaction_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_transaction_transaction_proto_rawDesc), len(file_transaction_transaction_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   41,
+			NumMessages:   43,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

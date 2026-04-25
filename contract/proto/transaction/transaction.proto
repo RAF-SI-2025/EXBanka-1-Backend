@@ -248,6 +248,22 @@ service InterBankService {
   // Read-side helper used by the public GET /api/v1/me/transfers/{id}
   // route to render an inter-bank transfer's state.
   rpc GetInterBankTransfer(GetInterBankTransferRequest) returns (GetInterBankTransferResponse);
+
+  // Spec 4 / Celina 5 addendum: REVERSE_TRANSFER. Reuses the existing
+  // PREPARE/COMMIT machinery on the opposite direction. Used by the
+  // cross-bank OTC accept saga's compensation path when seller-side
+  // ownership transfer fails after the buyer's funds have already moved.
+  rpc ReverseInterBankTransfer(ReverseInterBankTransferRequest) returns (ReverseInterBankTransferResponse);
+}
+
+message ReverseInterBankTransferRequest {
+  string original_tx_id = 1;
+  string memo           = 2;
+}
+message ReverseInterBankTransferResponse {
+  string reverse_tx_id = 1;
+  bool   committed     = 2;
+  string fail_reason   = 3; // "insufficient-funds-at-responder" possible
 }
 
 message InitiateInterBankRequest {
