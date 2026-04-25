@@ -7214,7 +7214,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Employee-only. Gateway verifies the account belongs to the named client; stock-service records acting_employee_id for audit.",
+                "description": "Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client; stock-service records acting_employee_id for audit.",
                 "consumes": [
                     "application/json"
                 ],
@@ -7282,7 +7282,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Employee-only. Gateway verifies the account belongs to the named client.",
+                "description": "Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client.",
                 "consumes": [
                     "application/json"
                 ],

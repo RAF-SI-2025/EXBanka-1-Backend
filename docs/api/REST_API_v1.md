@@ -4797,7 +4797,7 @@ Decline a pending order.
 
 Place a stock/futures/forex/option order on behalf of a named client. The gateway verifies that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. The order is recorded with `acting_employee_id` set to the caller's employee ID.
 
-**Authentication:** Employee JWT + `securities.manage` permission
+**Authentication:** Employee JWT + `orders.place-on-behalf` permission
 
 **Request Body:**
 
@@ -4836,7 +4836,7 @@ Place a stock/futures/forex/option order on behalf of a named client. The gatewa
 | 201 | Order created |
 | 400 | Validation error — including forex direction/`base_account_id` mismatches |
 | 403 | Account (or base account) does not belong to the specified client |
-| 403 | Missing `securities.manage` permission |
+| 403 | Missing `orders.place-on-behalf` permission |
 
 ---
 
@@ -5047,7 +5047,7 @@ Purchase an OTC offer. Ownership is derived from the JWT — the account must be
 
 Purchase an OTC offer on behalf of a named client. The gateway verifies that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. The resulting order is recorded with `acting_employee_id` set to the caller's employee ID.
 
-**Authentication:** Employee JWT + `securities.manage` permission
+**Authentication:** Employee JWT + `orders.place-on-behalf` permission
 
 **Path Parameters:**
 
@@ -5079,7 +5079,7 @@ Purchase an OTC offer on behalf of a named client. The gateway verifies that the
 | 200 | OTC offer purchased |
 | 400 | Validation error |
 | 403 | Account does not belong to the specified client |
-| 403 | Missing `securities.manage` permission |
+| 403 | Missing `orders.place-on-behalf` permission |
 | 404 | Offer not found |
 
 ---

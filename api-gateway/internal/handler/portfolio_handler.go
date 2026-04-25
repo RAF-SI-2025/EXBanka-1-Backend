@@ -197,7 +197,7 @@ func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 
 // BuyOTCOfferOnBehalf godoc
 // @Summary      Buy an OTC offer on behalf of a client
-// @Description  Employee-only. Gateway verifies the account belongs to the named client.
+// @Description  Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client.
 // @Tags         otc
 // @Accept       json
 // @Produce      json

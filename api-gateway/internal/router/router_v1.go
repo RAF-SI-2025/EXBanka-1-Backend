@@ -584,19 +584,19 @@ func RegisterCoreRoutes(
 			adminStockSource.GET("", stockSourceHandler.GetSourceStatus)
 		}
 
-		// Orders (employee on-behalf trading — securities.manage)
+		// Orders (employee on-behalf trading — orders.place-on-behalf)
 		ordersOnBehalf := protected.Group("/orders")
-		ordersOnBehalf.Use(middleware.RequirePermission("securities.manage"))
+		ordersOnBehalf.Use(middleware.RequirePermission("orders.place-on-behalf"))
 		{
 			ordersOnBehalf.POST("", stockOrderHandler.CreateOrderOnBehalf)
 		}
 
-		// OTC (employee on-behalf buying — securities.manage)
+		// OTC (employee on-behalf buying — orders.place-on-behalf)
 		// Uses /otc/admin/offers/:id/buy to avoid a routing conflict with the
 		// client-facing /otc/offers/:id/buy route (different middleware chain but
 		// same URL pattern confuses Gin's router).
 		otcOnBehalf := protected.Group("/otc/admin/offers")
-		otcOnBehalf.Use(middleware.RequirePermission("securities.manage"))
+		otcOnBehalf.Use(middleware.RequirePermission("orders.place-on-behalf"))
 		{
 			otcOnBehalf.POST("/:id/buy", portfolioHandler.BuyOTCOfferOnBehalf)
 		}

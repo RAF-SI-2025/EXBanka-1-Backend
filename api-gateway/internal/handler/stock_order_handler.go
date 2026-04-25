@@ -259,7 +259,7 @@ func (h *StockOrderHandler) CancelOrder(c *gin.Context) {
 
 // CreateOrderOnBehalf godoc
 // @Summary      Place stock/futures/forex/option order on behalf of a client
-// @Description  Employee-only. Gateway verifies the account belongs to the named client; stock-service records acting_employee_id for audit.
+// @Description  Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client; stock-service records acting_employee_id for audit.
 // @Tags         orders
 // @Accept       json
 // @Produce      json

@@ -5541,8 +5541,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Employee-only. Gateway verifies the account belongs to the named
-        client; stock-service records acting_employee_id for audit.
+      description: Employee-only. Requires orders.place-on-behalf permission. Gateway
+        verifies the account belongs to the named client; stock-service records acting_employee_id
+        for audit.
       parameters:
       - description: Order
         in: body
@@ -5587,8 +5588,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Employee-only. Gateway verifies the account belongs to the named
-        client.
+      description: Employee-only. Requires orders.place-on-behalf permission. Gateway
+        verifies the account belongs to the named client.
       parameters:
       - description: Offer ID
         in: path

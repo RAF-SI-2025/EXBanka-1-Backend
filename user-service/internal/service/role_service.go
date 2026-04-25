@@ -60,6 +60,8 @@ var AllPermissions = []struct {
 	{"verification.manage", "Manage verification settings per role", "verification"},
 	// Securities administration
 	{"securities.manage", "Manage securities data sources and market simulator settings", "securities"},
+	// Orders
+	{"orders.place-on-behalf", "Place stock/OTC orders on behalf of a client", "orders"},
 }
 
 // DefaultRolePermissions defines seed data for roles inserted on first startup.
@@ -78,6 +80,7 @@ var DefaultRolePermissions = map[string][]string{
 		"payments.read",
 		"credits.read", "credits.approve",
 		"securities.trade", "securities.read",
+		"orders.place-on-behalf",
 	},
 	"EmployeeSupervisor": {
 		"clients.create", "clients.read", "clients.update",
@@ -86,6 +89,7 @@ var DefaultRolePermissions = map[string][]string{
 		"payments.read",
 		"credits.read", "credits.approve",
 		"securities.trade", "securities.read",
+		"orders.place-on-behalf",
 		"agents.manage", "otc.manage", "funds.manage",
 		"orders.approve", "tax.manage", "exchanges.manage",
 		"verification.skip", "verification.manage",
@@ -97,6 +101,7 @@ var DefaultRolePermissions = map[string][]string{
 		"payments.read",
 		"credits.read", "credits.approve",
 		"securities.trade", "securities.read",
+		"orders.place-on-behalf",
 		"agents.manage", "otc.manage", "funds.manage",
 		"orders.approve", "tax.manage", "exchanges.manage",
 		"employees.create", "employees.update",

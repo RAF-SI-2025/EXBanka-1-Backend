@@ -502,19 +502,21 @@ Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>
 | limits | `limits.manage` |
 | admin | `bank-accounts.manage`, `fees.manage`, `interest-rates.manage` |
 | agent/otc | `agents.manage`, `otc.manage`, `funds.manage` |
+| orders | `orders.place-on-behalf` |
 | verification | `verification.skip`, `verification.manage` |
 
 **Permission notes:**
 - `securities.manage` — manage stock-service data sources and perform destructive source switches. Assigned to `EmployeeAdmin` only.
+- `orders.place-on-behalf` — place stock/OTC orders on behalf of a client (routes `POST /api/v1/orders` and `POST /api/v1/otc/admin/offers/:id/buy`). Seeded on `EmployeeAgent`, `EmployeeSupervisor`, and `EmployeeAdmin`.
 
 ### Role Definitions
 
 | Role | Inherits Permissions |
 |---|---|
 | EmployeeBasic | clients.*, accounts.*, cards.*, payments.read, credits.read |
-| EmployeeAgent | EmployeeBasic + securities.* |
-| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, verification.skip, verification.manage |
-| EmployeeAdmin | All permissions (including `securities.manage`) |
+| EmployeeAgent | EmployeeBasic + securities.*, orders.place-on-behalf |
+| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, verification.skip, verification.manage, orders.place-on-behalf |
+| EmployeeAdmin | All permissions (including `securities.manage`, `orders.place-on-behalf`) |
 
 ### Context Values Set by Middleware
 
@@ -1291,8 +1293,8 @@ api-gateway:
 | PUT | `/api/bank-margins/:id` | interest-rates.manage | creditHandler.UpdateBankMargin | Update margin |
 | POST | `/api/v1/admin/stock-source` | securities.manage | stockSourceHandler.SwitchSource | Switch active stock data source (destructive) |
 | GET | `/api/v1/admin/stock-source` | securities.manage | stockSourceHandler.GetSourceStatus | Get current stock data source and status |
-| POST | `/api/v1/orders` | securities.manage | stockHandler.CreateOrderOnBehalf | Employee places stock order on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
-| POST | `/api/v1/otc/admin/offers/:id/buy` | securities.manage | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| POST | `/api/v1/orders` | orders.place-on-behalf | stockHandler.CreateOrderOnBehalf | Employee places stock order on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| POST | `/api/v1/otc/admin/offers/:id/buy` | orders.place-on-behalf | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
 
 ### Browser Verification (/api/verifications — AnyAuthMiddleware)
 
