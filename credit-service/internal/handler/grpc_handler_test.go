@@ -328,6 +328,16 @@ func TestGetLoanRequest_NotFound_ReturnsNotFoundCode(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
+func TestGetLoanRequest_ServiceError_ReturnsInternal(t *testing.T) {
+	h, lrSvc, _, _, _ := newTestHandler()
+	lrSvc.getFn = func(_ uint64) (*model.LoanRequest, error) {
+		return nil, errors.New("db down")
+	}
+	_, err := h.GetLoanRequest(context.Background(), &pb.GetLoanRequestReq{Id: 1})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+}
+
 // --- ListLoanRequests --------------------------------------------------------
 
 func TestListLoanRequests_Success(t *testing.T) {
@@ -445,6 +455,16 @@ func TestRejectLoanRequest_NotFound(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
+func TestRejectLoanRequest_ServiceError_ReturnsInternal(t *testing.T) {
+	h, lrSvc, _, _, _ := newTestHandler()
+	lrSvc.rejectFn = func(_ uint64, _ int64, _ string) (*model.LoanRequest, error) {
+		return nil, errors.New("db down")
+	}
+	_, err := h.RejectLoanRequest(context.Background(), &pb.RejectLoanRequestReq{RequestId: 99})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
+}
+
 // --- GetLoan / ListLoansByClient / ListAllLoans ------------------------------
 
 func TestGetLoan_Success(t *testing.T) {
@@ -468,6 +488,14 @@ func TestGetLoan_NotFound(t *testing.T) {
 	_, err := h.GetLoan(context.Background(), &pb.GetLoanReq{Id: 1})
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestGetLoan_ServiceError_ReturnsInternal(t *testing.T) {
+	h, _, lSvc, _, _ := newTestHandler()
+	lSvc.getFn = func(_ uint64) (*model.Loan, error) { return nil, errors.New("db down") }
+	_, err := h.GetLoan(context.Background(), &pb.GetLoanReq{Id: 1})
+	require.Error(t, err)
+	assert.Equal(t, codes.Internal, status.Code(err))
 }
 
 func TestListLoansByClient_Success(t *testing.T) {
