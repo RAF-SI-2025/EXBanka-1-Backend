@@ -89,6 +89,15 @@ func (p *Producer) PublishBlueprint(ctx context.Context, msg kafkamsg.BlueprintM
 	return p.publish(ctx, topic, msg)
 }
 
+// PublishRaw writes pre-serialized bytes to a topic. Used by the outbox
+// relay so the relay can avoid double-encoding stored payloads.
+func (p *Producer) PublishRaw(ctx context.Context, topic string, payload []byte) error {
+	return p.writer.WriteMessages(ctx, kafkago.Message{
+		Topic: topic,
+		Value: payload,
+	})
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

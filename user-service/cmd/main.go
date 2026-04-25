@@ -47,6 +47,7 @@ func main() {
 		&model.ActuaryLimit{},
 		&model.LimitBlueprint{},
 		&model.Changelog{},
+		&model.OutboxEvent{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -69,6 +70,7 @@ func main() {
 		"user.blueprint-deleted",
 		"user.blueprint-applied",
 		"user.changelog",
+		"user.supervisor-demoted",
 		"notification.send-email",
 	)
 
@@ -107,6 +109,12 @@ func main() {
 
 	limitCron := service.NewLimitCronService(employeeLimitRepo)
 	limitCron.Start(ctx)
+
+	// Outbox relay (Celina 4) — drains transactionally-written cross-service
+	// events (e.g. user.supervisor-demoted) to Kafka in the background.
+	outboxRepo := repository.NewOutboxRepository(db)
+	outboxRelay := service.NewOutboxRelay(outboxRepo, producer, 2*time.Second)
+	outboxRelay.Start(ctx)
 
 	actuaryRepo := repository.NewActuaryRepository(db)
 	actuarySvc := service.NewActuaryService(actuaryRepo, repo, producer)
