@@ -867,3 +867,275 @@ var FeeService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "transaction/transaction.proto",
 }
+
+const (
+	InterBankService_InitiateInterBankTransfer_FullMethodName = "/transaction.InterBankService/InitiateInterBankTransfer"
+	InterBankService_HandlePrepare_FullMethodName             = "/transaction.InterBankService/HandlePrepare"
+	InterBankService_HandleCommit_FullMethodName              = "/transaction.InterBankService/HandleCommit"
+	InterBankService_HandleCheckStatus_FullMethodName         = "/transaction.InterBankService/HandleCheckStatus"
+	InterBankService_GetInterBankTransfer_FullMethodName      = "/transaction.InterBankService/GetInterBankTransfer"
+)
+
+// InterBankServiceClient is the client API for InterBankService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Inter-bank 2PC transfer service (Spec 3).
+type InterBankServiceClient interface {
+	// Sender side — invoked by api-gateway when a client posts to
+	// /api/v1/transfers with a receiver-account whose 3-digit prefix is not
+	// OWN_BANK_CODE.
+	InitiateInterBankTransfer(ctx context.Context, in *InitiateInterBankRequest, opts ...grpc.CallOption) (*InitiateInterBankResponse, error)
+	// Receiver side — three handlers, one per inbound HTTP route forwarded
+	// from api-gateway after HMAC verification.
+	HandlePrepare(ctx context.Context, in *InterBankPrepareRequest, opts ...grpc.CallOption) (*InterBankPrepareResponse, error)
+	HandleCommit(ctx context.Context, in *InterBankCommitRequest, opts ...grpc.CallOption) (*InterBankCommitResponse, error)
+	HandleCheckStatus(ctx context.Context, in *InterBankCheckStatusRequest, opts ...grpc.CallOption) (*InterBankCheckStatusResponse, error)
+	// Read-side helper used by the public GET /api/v1/me/transfers/{id}
+	// route to render an inter-bank transfer's state.
+	GetInterBankTransfer(ctx context.Context, in *GetInterBankTransferRequest, opts ...grpc.CallOption) (*GetInterBankTransferResponse, error)
+}
+
+type interBankServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewInterBankServiceClient(cc grpc.ClientConnInterface) InterBankServiceClient {
+	return &interBankServiceClient{cc}
+}
+
+func (c *interBankServiceClient) InitiateInterBankTransfer(ctx context.Context, in *InitiateInterBankRequest, opts ...grpc.CallOption) (*InitiateInterBankResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InitiateInterBankResponse)
+	err := c.cc.Invoke(ctx, InterBankService_InitiateInterBankTransfer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *interBankServiceClient) HandlePrepare(ctx context.Context, in *InterBankPrepareRequest, opts ...grpc.CallOption) (*InterBankPrepareResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InterBankPrepareResponse)
+	err := c.cc.Invoke(ctx, InterBankService_HandlePrepare_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *interBankServiceClient) HandleCommit(ctx context.Context, in *InterBankCommitRequest, opts ...grpc.CallOption) (*InterBankCommitResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InterBankCommitResponse)
+	err := c.cc.Invoke(ctx, InterBankService_HandleCommit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *interBankServiceClient) HandleCheckStatus(ctx context.Context, in *InterBankCheckStatusRequest, opts ...grpc.CallOption) (*InterBankCheckStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InterBankCheckStatusResponse)
+	err := c.cc.Invoke(ctx, InterBankService_HandleCheckStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *interBankServiceClient) GetInterBankTransfer(ctx context.Context, in *GetInterBankTransferRequest, opts ...grpc.CallOption) (*GetInterBankTransferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetInterBankTransferResponse)
+	err := c.cc.Invoke(ctx, InterBankService_GetInterBankTransfer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// InterBankServiceServer is the server API for InterBankService service.
+// All implementations must embed UnimplementedInterBankServiceServer
+// for forward compatibility.
+//
+// Inter-bank 2PC transfer service (Spec 3).
+type InterBankServiceServer interface {
+	// Sender side — invoked by api-gateway when a client posts to
+	// /api/v1/transfers with a receiver-account whose 3-digit prefix is not
+	// OWN_BANK_CODE.
+	InitiateInterBankTransfer(context.Context, *InitiateInterBankRequest) (*InitiateInterBankResponse, error)
+	// Receiver side — three handlers, one per inbound HTTP route forwarded
+	// from api-gateway after HMAC verification.
+	HandlePrepare(context.Context, *InterBankPrepareRequest) (*InterBankPrepareResponse, error)
+	HandleCommit(context.Context, *InterBankCommitRequest) (*InterBankCommitResponse, error)
+	HandleCheckStatus(context.Context, *InterBankCheckStatusRequest) (*InterBankCheckStatusResponse, error)
+	// Read-side helper used by the public GET /api/v1/me/transfers/{id}
+	// route to render an inter-bank transfer's state.
+	GetInterBankTransfer(context.Context, *GetInterBankTransferRequest) (*GetInterBankTransferResponse, error)
+	mustEmbedUnimplementedInterBankServiceServer()
+}
+
+// UnimplementedInterBankServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedInterBankServiceServer struct{}
+
+func (UnimplementedInterBankServiceServer) InitiateInterBankTransfer(context.Context, *InitiateInterBankRequest) (*InitiateInterBankResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InitiateInterBankTransfer not implemented")
+}
+func (UnimplementedInterBankServiceServer) HandlePrepare(context.Context, *InterBankPrepareRequest) (*InterBankPrepareResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandlePrepare not implemented")
+}
+func (UnimplementedInterBankServiceServer) HandleCommit(context.Context, *InterBankCommitRequest) (*InterBankCommitResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleCommit not implemented")
+}
+func (UnimplementedInterBankServiceServer) HandleCheckStatus(context.Context, *InterBankCheckStatusRequest) (*InterBankCheckStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleCheckStatus not implemented")
+}
+func (UnimplementedInterBankServiceServer) GetInterBankTransfer(context.Context, *GetInterBankTransferRequest) (*GetInterBankTransferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetInterBankTransfer not implemented")
+}
+func (UnimplementedInterBankServiceServer) mustEmbedUnimplementedInterBankServiceServer() {}
+func (UnimplementedInterBankServiceServer) testEmbeddedByValue()                          {}
+
+// UnsafeInterBankServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to InterBankServiceServer will
+// result in compilation errors.
+type UnsafeInterBankServiceServer interface {
+	mustEmbedUnimplementedInterBankServiceServer()
+}
+
+func RegisterInterBankServiceServer(s grpc.ServiceRegistrar, srv InterBankServiceServer) {
+	// If the following call panics, it indicates UnimplementedInterBankServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&InterBankService_ServiceDesc, srv)
+}
+
+func _InterBankService_InitiateInterBankTransfer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InitiateInterBankRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InterBankServiceServer).InitiateInterBankTransfer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InterBankService_InitiateInterBankTransfer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InterBankServiceServer).InitiateInterBankTransfer(ctx, req.(*InitiateInterBankRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InterBankService_HandlePrepare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InterBankPrepareRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InterBankServiceServer).HandlePrepare(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InterBankService_HandlePrepare_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InterBankServiceServer).HandlePrepare(ctx, req.(*InterBankPrepareRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InterBankService_HandleCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InterBankCommitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InterBankServiceServer).HandleCommit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InterBankService_HandleCommit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InterBankServiceServer).HandleCommit(ctx, req.(*InterBankCommitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InterBankService_HandleCheckStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InterBankCheckStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InterBankServiceServer).HandleCheckStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InterBankService_HandleCheckStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InterBankServiceServer).HandleCheckStatus(ctx, req.(*InterBankCheckStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InterBankService_GetInterBankTransfer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetInterBankTransferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InterBankServiceServer).GetInterBankTransfer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InterBankService_GetInterBankTransfer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InterBankServiceServer).GetInterBankTransfer(ctx, req.(*GetInterBankTransferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// InterBankService_ServiceDesc is the grpc.ServiceDesc for InterBankService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var InterBankService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "transaction.InterBankService",
+	HandlerType: (*InterBankServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "InitiateInterBankTransfer",
+			Handler:    _InterBankService_InitiateInterBankTransfer_Handler,
+		},
+		{
+			MethodName: "HandlePrepare",
+			Handler:    _InterBankService_HandlePrepare_Handler,
+		},
+		{
+			MethodName: "HandleCommit",
+			Handler:    _InterBankService_HandleCommit_Handler,
+		},
+		{
+			MethodName: "HandleCheckStatus",
+			Handler:    _InterBankService_HandleCheckStatus_Handler,
+		},
+		{
+			MethodName: "GetInterBankTransfer",
+			Handler:    _InterBankService_GetInterBankTransfer_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "transaction/transaction.proto",
+}

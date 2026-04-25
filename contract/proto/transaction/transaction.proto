@@ -231,3 +231,107 @@ message TransferFeeResponse {
   string currency_code = 8;
   bool active = 9;
 }
+
+// Inter-bank 2PC transfer service (Spec 3).
+service InterBankService {
+  // Sender side — invoked by api-gateway when a client posts to
+  // /api/v1/transfers with a receiver-account whose 3-digit prefix is not
+  // OWN_BANK_CODE.
+  rpc InitiateInterBankTransfer(InitiateInterBankRequest) returns (InitiateInterBankResponse);
+
+  // Receiver side — three handlers, one per inbound HTTP route forwarded
+  // from api-gateway after HMAC verification.
+  rpc HandlePrepare(InterBankPrepareRequest) returns (InterBankPrepareResponse);
+  rpc HandleCommit(InterBankCommitRequest)   returns (InterBankCommitResponse);
+  rpc HandleCheckStatus(InterBankCheckStatusRequest) returns (InterBankCheckStatusResponse);
+
+  // Read-side helper used by the public GET /api/v1/me/transfers/{id}
+  // route to render an inter-bank transfer's state.
+  rpc GetInterBankTransfer(GetInterBankTransferRequest) returns (GetInterBankTransferResponse);
+}
+
+message InitiateInterBankRequest {
+  string sender_account_number   = 1;
+  string receiver_account_number = 2;
+  string amount                  = 3;  // decimal string
+  string currency                = 4;
+  string memo                    = 5;
+}
+message InitiateInterBankResponse {
+  string transaction_id = 1;
+  string status         = 2;  // "preparing" | "committed" | "rolled_back" | "reconciling"
+  string error_reason   = 3;
+}
+
+message InterBankPrepareRequest {
+  string transaction_id     = 1;
+  string sender_bank_code   = 2;
+  string receiver_bank_code = 3;
+  string sender_account     = 4;
+  string receiver_account   = 5;
+  string amount             = 6;
+  string currency           = 7;
+  string memo               = 8;
+}
+message InterBankPrepareResponse {
+  string transaction_id  = 1;
+  bool   ready           = 2;
+  string final_amount    = 3;
+  string final_currency  = 4;
+  string fx_rate         = 5;
+  string fees            = 6;
+  string valid_until     = 7;
+  string reason          = 8;  // populated when ready = false
+}
+
+message InterBankCommitRequest {
+  string transaction_id  = 1;
+  string final_amount    = 2;
+  string final_currency  = 3;
+  string fx_rate         = 4;
+  string fees            = 5;
+}
+message InterBankCommitResponse {
+  string transaction_id     = 1;
+  bool   committed          = 2;
+  bool   not_found          = 3;
+  string credited_at        = 4;
+  string credited_amount    = 5;
+  string credited_currency  = 6;
+  string mismatch_reason    = 7;
+}
+
+message InterBankCheckStatusRequest {
+  string transaction_id = 1;
+}
+message InterBankCheckStatusResponse {
+  string transaction_id = 1;
+  string role           = 2;
+  string status         = 3;
+  string final_amount   = 4;
+  string final_currency = 5;
+  string updated_at     = 6;
+  bool   not_found      = 7;
+}
+
+message GetInterBankTransferRequest {
+  string transaction_id = 1;
+}
+message GetInterBankTransferResponse {
+  bool   found             = 1;
+  string transaction_id    = 2;
+  string role              = 3;
+  string status            = 4;
+  string remote_bank_code  = 5;
+  string sender_account    = 6;
+  string receiver_account  = 7;
+  string amount_native     = 8;
+  string currency_native   = 9;
+  string amount_final      = 10;
+  string currency_final    = 11;
+  string fx_rate           = 12;
+  string fees_final        = 13;
+  string error_reason      = 14;
+  string created_at        = 15;
+  string updated_at        = 16;
+}
