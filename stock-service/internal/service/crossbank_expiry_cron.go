@@ -17,7 +17,6 @@ import (
 type CrossbankExpiryCron struct {
 	contracts *repository.OptionContractRepository
 	expire    *CrossbankExpireSaga
-	tickEvery time.Duration
 	cronUTC   string
 	batchSize int
 }

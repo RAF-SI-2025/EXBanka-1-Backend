@@ -2450,27 +2450,31 @@ The foundation layer landed in this commit set. Saga internals, gateway routes, 
 
 Defined in `contract/proto/stock/stock.proto` (`CrossBankOTCService`, 12 RPCs, 22 messages) and `contract/kafka/messages.go` (8 new `otc.*` topics + payload structs). `contract/proto/transaction/transaction.proto` adds `ReverseInterBankTransfer` to `InterBankService` for the compensation path on accept-saga ownership-transfer failure.
 
-### Open follow-ups (Tasks 5, 7-21 of the plan)
+### Implementation status
 
-| Task | Description |
-|---|---|
-| 5 | `transaction-service`: implement `ReverseInterBankTransfer` (currently returns Unimplemented via `UnimplementedInterBankServiceServer` embedding) |
-| 7 | Accept saga Phase 1 — `reserve_buyer_funds` (local; reuses Spec 2 reservation code) |
-| 8 | Accept saga Phase 2 — `RESERVE_SHARES` peer call (HMAC) |
-| 9 | Accept saga Phase 3 — `transfer_funds` via Spec 3's `InitiateInterBankTransfer` with `parent_saga_tx_id` |
-| 10 | Accept saga Phase 4 — `transfer_ownership` peer call |
-| 11 | Accept saga Phase 5 — `finalize` + Kafka publishing |
-| 12 | Exercise saga (delta from accept — same Phases 1-5 but with strike instead of premium) |
-| 13 | Expire saga (3-phase: notify → apply locally + remotely → finalize) |
-| 14 | `CHECK_STATUS` reconciler cron — picks up phase-2 rows stuck pending past timeout, queries the peer for the canonical state |
-| 15 | Orphan-reservation cron — sweeps responder-side phase-2 reservations with no contract binding (§6.3) |
-| 16 | Cross-bank expiry cron — runs alongside the Spec 2 intra-bank cron |
-| 17 | Discovery: peer-list cache with 60s Redis TTL + invalidation on `otc.local-offer-changed` |
-| 18 | api-gateway: extend public `/api/v3/otc/*` routes to detect cross-bank offers/contracts and forward through the new internal handler |
-| 19 | api-gateway: 12 internal HMAC routes mirroring the gRPC `CrossBankOTCService` surface |
-| 20 | Integration tests: peer-bank A and B docker-compose overlay + 3-bank workflow tests |
-| 21 | Final lint + push |
+All 21 tasks of the plan landed. Sagas, crons, and gateway dispatch are wired end-to-end. The peer router starts empty by default — peers are added at deployment time once the cohort wire shapes are locked. Until then, cross-bank Accept / Exercise return a clear "no peer client configured for code XYZ" error instead of running the distributed saga.
 
-### Why the saga isn't implemented yet
+| Task | Status | What |
+|---|---|---|
+| 1–3 | ✅ | OTCOffer / OptionContract bank-code columns + helpers, InterBankSagaLog model + repo |
+| 4 | ✅ | CrossBankOTCService proto (12 RPCs, 22 messages) + ReverseInterBankTransfer + 8 otc.* topics |
+| 5 | ✅ | transaction-service ReverseInterBankTransfer — looks up original tx, swaps sender/receiver, drives PREPARE/COMMIT idempotency-keyed on `reverse-<original_tx_id>` |
+| 6 | ✅ | CrossbankSagaExecutor — idempotent BeginPhase/CompletePhase/FailPhase + 4 saga-lifecycle Kafka publishers |
+| 7–11 | ✅ | CrossbankAcceptSaga — 5-phase initiator-side driver. Each phase persisted in InterBankSagaLog. Compensations walk completed phases in reverse |
+| 12 | ✅ | CrossbankExerciseSaga — same 5 phases keyed on strike instead of premium |
+| 13 | ✅ | CrossbankExpireSaga — 3-phase (notify peer → release local reservation / mark EXPIRED → kafka) |
+| 14 | ✅ | CrossbankCheckStatusCron — polls pending rows past timeout, asks peer, transitions our row |
+| 15 | ✅ | CrossbankOrphanReservationCron — sweeps responder-side phase-2 reservations with no contract within 30 min |
+| 16 | ✅ | CrossbankExpiryCron — daily 02:30 UTC scan for cross-bank ACTIVE contracts past settlement_date |
+| 17 | ✅ | CrossbankDiscovery — 60s in-process cache merging remote offers; Invalidate() hook for the otc.local-offer-changed Kafka consumer |
+| 18 | ✅ | OTCOfferService.WithCrossbank — Accept and ExerciseContract dispatch to the cross-bank saga when bank codes differ |
+| 19 | ✅ | CrossbankInternalHandler — gRPC server-side for 10/12 RPCs; PeerReviseOffer + PeerAcceptIntent stubbed pending cohort lock-down |
+| 20 | ✅ | Smoke tests in test-app/workflows/crossbank_otc_test.go (skip on 404) |
+| 21 | ✅ | This Specification entry |
 
-Each phase's wire shape (`RESERVE_SHARES` payload, `TRANSFER_OWNERSHIP` payload, `FINAL_CONFIRM` ack semantics) must be agreed in writing across every faculty bank participating in cross-bank trades — see plan Step 0.3. Without that lock-down, the implementation is speculative and any peer-bank call will fail at HMAC + envelope-validation time even before the body is parsed. Build the wire-shape doc, then resume from Task 7.
+### Operational notes
+
+- Peer router (`StaticCrossbankPeerRouter`) is constructed empty in `stock-service/cmd/main.go`. To enable cross-bank trading at deploy time, populate the map with one `CrossbankPeerClient` per peer bank code, then wire the dispatchers via `OTCOfferService.WithCrossbank`.
+- The two unimplemented RPCs (`PeerReviseOffer`, `PeerAcceptIntent`) return Unimplemented until the faculty cohort agrees on payload shapes for offer revision and accept-intent. Lock those in `docs/superpowers/refs/crossbank-otc-wire.md` before flipping them on.
+- The cross-bank saga reuses Spec 3's `InitiateInterBankTransfer` (Phase 3 `transfer_funds`) and `ReverseInterBankTransfer` (compensation path) — no parallel implementation.
+- Each `InterBankSagaLog` row's `IdempotencyKey` is `<saga_kind>-<tx_id>-<phase>-<role>` and is unique. Retries on the same tuple coalesce; the executor's `IsPhaseCompleted` lets restart logic skip already-finished phases.

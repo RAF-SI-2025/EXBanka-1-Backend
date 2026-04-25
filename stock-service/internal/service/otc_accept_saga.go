@@ -53,6 +53,13 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	if o.IsTerminal() {
 		return nil, errors.New("offer is in a terminal state")
 	}
+
+	// Cross-bank dispatch: if the offer involves a remote bank and a
+	// dispatcher is wired, hand off to the 5-phase distributed saga. Same-
+	// bank offers fall through to the intra-bank flow below.
+	if s.crossbankAccept != nil && s.ownBankCode != "" && model.IsCrossBankOffer(o, s.ownBankCode) {
+		return s.crossbankAccept(ctx, in)
+	}
 	if o.LastModifiedByUserID == in.ActorUserID && o.LastModifiedBySystemType == in.ActorSystemType {
 		return nil, errors.New("you cannot accept your own most recent terms")
 	}

@@ -42,6 +42,31 @@ type OTCOfferService struct {
 	accounts   OTCAccountClient
 	exchange   FundExchangeClient
 	holdingRes *HoldingReservationService
+
+	// cross-bank dispatch (Spec 4 / Celina 5; wired via WithCrossbank).
+	// When non-nil and the offer/contract is cross-bank from this bank's
+	// perspective, Accept / ExerciseContract delegate to these dispatchers
+	// instead of the intra-bank saga.
+	ownBankCode       string
+	crossbankAccept   func(ctx context.Context, in AcceptInput) (*model.OptionContract, error)
+	crossbankExercise func(ctx context.Context, in ExerciseInput) (*model.OptionContract, error)
+}
+
+// WithCrossbank wires the cross-bank dispatch hooks. The supplied
+// `acceptDispatch` is called by Accept when the offer's bank-code columns
+// indicate a cross-bank trade; `exerciseDispatch` is called by
+// ExerciseContract when the contract's bank codes differ. ownBank is the
+// current bank's 3-digit code (e.g. "111").
+func (s *OTCOfferService) WithCrossbank(
+	ownBank string,
+	acceptDispatch func(ctx context.Context, in AcceptInput) (*model.OptionContract, error),
+	exerciseDispatch func(ctx context.Context, in ExerciseInput) (*model.OptionContract, error),
+) *OTCOfferService {
+	cp := *s
+	cp.ownBankCode = ownBank
+	cp.crossbankAccept = acceptDispatch
+	cp.crossbankExercise = exerciseDispatch
+	return &cp
 }
 
 // OTCAccountClient is the account-service surface the accept and exercise
