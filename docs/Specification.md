@@ -2169,3 +2169,82 @@ These endpoints exist only under `/api/v2/` and are not available on v1 or unver
 |---|---|---|---|---|
 | POST | `/api/v2/options/:option_id/orders` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.CreateOrder | Place an order on an option by option ID |
 | POST | `/api/v2/options/:option_id/exercise` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.Exercise | Exercise an option by option ID (optional `holding_id` in body; auto-resolved when omitted) |
+
+### v3-only endpoints
+
+These endpoints exist only under `/api/v3/`. v3 is the home of new feature surfaces; v3 does not re-host v1/v2 routes.
+
+| Method | Path | Middleware | Handler | Description |
+|---|---|---|---|---|
+| POST | `/api/v3/investment-funds` | AuthMiddleware + RequirePermission(`funds.manage`) | InvestmentFundHandler.CreateFund | Create a new investment fund (provisions a bank-side RSD account) |
+| GET | `/api/v3/investment-funds` | AnyAuthMiddleware | InvestmentFundHandler.ListFunds | List funds (page / page_size / search / active_only) |
+| GET | `/api/v3/investment-funds/:id` | AnyAuthMiddleware | InvestmentFundHandler.GetFund | Fund detail |
+| PUT | `/api/v3/investment-funds/:id` | AuthMiddleware + RequirePermission(`funds.manage`) | InvestmentFundHandler.UpdateFund | Update fund (name/description/minimum/active) |
+| POST | `/api/v3/investment-funds/:id/invest` | AnyAuthMiddleware | InvestmentFundHandler.Invest | Invest in fund (RSD or cross-currency via exchange-service) |
+| POST | `/api/v3/investment-funds/:id/redeem` | AnyAuthMiddleware | InvestmentFundHandler.Redeem | Redeem from fund (rejects with `insufficient_fund_cash` when fund cash short — liquidation TODO) |
+| GET | `/api/v3/me/investment-funds` | AnyAuthMiddleware | InvestmentFundHandler.ListMyPositions | Caller's fund positions |
+| GET | `/api/v3/investment-funds/positions` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ListBankPositions | Bank-owned positions |
+| GET | `/api/v3/actuaries/performance` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ActuaryPerformance | Realised profit per acting employee |
+
+## 24. Investment Funds (Celina 4)
+
+### Entities (stock-service)
+
+| Entity | Table | Purpose |
+|---|---|---|
+| `InvestmentFund` | `investment_funds` | Supervisor-managed pool. One bank-owned RSD account, manager_employee_id, minimum contribution. Optimistic locking via Version. |
+| `ClientFundPosition` | `client_fund_positions` | One row per (fund, owner). Owner identified by (UserID, SystemType). Bank's stake uses UserID=1_000_000_000, SystemType="employee". TotalContributedRSD accumulates contributions and decrements on redeem. |
+| `FundContribution` | `fund_contributions` | Append-mostly history of every invest/redeem event. status pending → completed/failed under the saga that produced it. SagaID is a UUID string referencing saga_logs. |
+| `FundHolding` | `fund_holdings` | Fund-side analogue of Holding. Increments on on-behalf-of-fund order fills, decrements on liquidation. FIFO order-by created_at for liquidation. |
+| `Order.FundID` | `orders.fund_id` | New optional column. Non-nil when the order was placed on behalf of a fund — owner_user_id is then 1_000_000_000 (bank sentinel) and fills credit `fund_holdings` instead of `holdings`. |
+
+### Kafka topics
+
+| Topic | Producer | Consumer | Payload |
+|---|---|---|---|
+| `stock.fund-created` | stock-service | (none yet) | StockFundCreatedMessage |
+| `stock.fund-updated` | stock-service | (none yet) | StockFundUpdatedMessage |
+| `stock.fund-invested` | stock-service | (none yet) | StockFundInvestedMessage |
+| `stock.fund-redeemed` | stock-service | (none yet) | StockFundRedeemedMessage |
+| `stock.funds-reassigned` | stock-service | (none yet) | StockFundsReassignedMessage |
+| `user.supervisor-demoted` | user-service (via outbox relay) | stock-service (SupervisorDemotedConsumer) | UserSupervisorDemotedMessage |
+
+### Permissions
+
+- `funds.manage` (existing) — create / update funds. Granted to `EmployeeSupervisor` and `EmployeeAdmin`.
+- `funds.bank-position-read` (new) — view the bank's positions and actuary performance. Granted to `EmployeeSupervisor` and `EmployeeAdmin`.
+
+### gRPC service: `InvestmentFundService`
+
+Defined in `contract/proto/stock/stock.proto`. RPCs:
+- `CreateFund` / `ListFunds` / `GetFund` / `UpdateFund` (CRUD)
+- `InvestInFund` / `RedeemFromFund` (saga-orchestrated money flow)
+- `ListMyPositions` / `ListBankPositions` (per-owner reads)
+- `GetActuaryPerformance` (aggregated realised gains per acting employee)
+
+Shared message: `OnBehalfOf { type: "self"|"bank"|"fund"; fund_id: uint64 }` — used both by InvestInFund/RedeemFromFund (self vs bank) and by `Order.OnBehalfOf` (Task 18, follow-up) for placing orders on behalf of a fund.
+
+### Settings
+
+| Key | Default | Set by | Used by |
+|---|---|---|---|
+| `fund_redemption_fee_pct` | `0.005` (0.5%) | stock-service main.go on first boot | Redeem saga; bank redeems pay 0 |
+
+### Saga shapes
+
+**Invest:** `debit_source` → `credit_fund` → `upsert_position`. Cross-currency invest converts via exchange-service.Convert before the debit. Failure of step 2 reverses step 1; failure of step 3 reverses both.
+
+**Redeem:** `debit_fund` (amount + fee) → `credit_target` → optional `credit_bank_fee` → `decrement_position`. When fund cash is short, returns `ErrInsufficientFundCash` (HTTP 409). Liquidation sub-saga that sells securities to free cash is a follow-up.
+
+### Outbox + cross-service event flow
+
+Permission revoke that drops `funds.manage` → user-service writes a `user.supervisor-demoted` row to its `outbox_events` table inside the same TX → relay goroutine drains to Kafka → stock-service's SupervisorDemotedConsumer reassigns every fund managed by that supervisor to the demoting admin in a single TX, then publishes `stock.funds-reassigned`.
+
+### Open follow-ups
+
+- Task 14: invest-saga compensation matrix tests
+- Tasks 16–17: liquidation sub-saga (FIFO sell-orders + fill polling) wired into Redeem
+- Task 18: extend `POST /me/orders` with `on_behalf_of=fund` (routes order through fund's RSD account; fills credit `fund_holdings`)
+- Task 20: position-reads service (mark-to-market value, profit, percentage_fund)
+- Task 21: actuary-performance aggregation
+- Task 25: integration tests in test-app/workflows
