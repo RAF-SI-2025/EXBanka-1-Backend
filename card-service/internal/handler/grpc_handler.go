@@ -36,7 +36,8 @@ func mapServiceError(err error) codes.Code {
 		strings.Contains(msg, "no remaining uses"),
 		strings.Contains(msg, "insufficient funds"), strings.Contains(msg, "limit exceeded"),
 		strings.Contains(msg, "spending limit"), strings.Contains(msg, "at most"),
-		strings.Contains(msg, "already has a card"):
+		strings.Contains(msg, "already has a card"),
+		strings.Contains(msg, "already approved"), strings.Contains(msg, "already rejected"):
 		return codes.FailedPrecondition
 	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
 		strings.Contains(msg, "failed attempts"), strings.Contains(msg, "too many failed"):
