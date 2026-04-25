@@ -51,10 +51,16 @@ func (c *RedisCache) Delete(ctx context.Context, key string) error {
 
 func (c *RedisCache) DeleteByPattern(ctx context.Context, pattern string) error {
 	iter := c.client.Scan(ctx, 0, pattern, 100).Iterator()
+	var firstErr error
 	for iter.Next(ctx) {
-		c.client.Del(ctx, iter.Val())
+		if err := c.client.Del(ctx, iter.Val()).Err(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	return iter.Err()
+	if err := iter.Err(); err != nil {
+		return err
+	}
+	return firstErr
 }
 
 func (c *RedisCache) Exists(ctx context.Context, key string) (bool, error) {

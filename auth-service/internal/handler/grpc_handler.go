@@ -9,9 +9,48 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/exbanka/auth-service/internal/model"
 	"github.com/exbanka/auth-service/internal/service"
 	pb "github.com/exbanka/contract/authpb"
 )
+
+// authServiceFacade is the minimal subset of *service.AuthService that this
+// handler depends on. Defined as an interface so tests can inject a hand-written
+// stub without standing up a real service + DB + Kafka producer. The concrete
+// *service.AuthService satisfies it.
+type authServiceFacade interface {
+	Login(ctx context.Context, email, password, ipAddress, userAgent string) (string, string, error)
+	ValidateToken(token string) (*service.Claims, error)
+	RefreshToken(ctx context.Context, refreshToken, ipAddress, userAgent string) (string, string, error)
+	RequestPasswordReset(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, token, newPassword, confirmPassword string) error
+	ActivateAccount(ctx context.Context, token, password, confirmPassword string) error
+	Logout(ctx context.Context, refreshToken string) error
+	SetAccountStatus(ctx context.Context, principalType string, principalID int64, active bool) error
+	GetAccountStatus(ctx context.Context, principalType string, principalID int64) (string, bool, error)
+	ResendActivationEmail(ctx context.Context, email string) error
+	CreateAccountAndActivationToken(ctx context.Context, principalID int64, email, firstName, principalType string) error
+	GetAccountStatusBatch(ctx context.Context, principalType string, principalIDs []int64) (map[int64]model.Account, error)
+	RefreshTokenForMobile(ctx context.Context, oldRefreshToken, deviceID string, mobileSvc service.MobileDeviceLookup) (string, string, error)
+	ListSessions(ctx context.Context, userID int64) ([]model.ActiveSession, error)
+	RevokeSession(ctx context.Context, sessionID int64, callerUserID int64) error
+	RevokeAllSessionsExceptCurrent(ctx context.Context, userID int64, currentRefreshToken string) error
+	GetLoginHistory(ctx context.Context, email string, limit int) ([]service.LoginHistoryEntry, error)
+}
+
+// mobileDeviceFacade is the minimal subset of *service.MobileDeviceService
+// that this handler depends on. The concrete service satisfies it.
+type mobileDeviceFacade interface {
+	RequestActivation(ctx context.Context, email string) error
+	ActivateDevice(ctx context.Context, email, code, deviceName string) (string, string, string, string, error)
+	DeactivateDevice(userID int64, deviceID string) error
+	TransferDevice(ctx context.Context, userID int64, email string) error
+	ValidateDeviceSignature(deviceID, timestamp, method, path, bodySHA256, signature string) (bool, error)
+	GetDeviceInfo(userID int64) (*model.MobileDevice, error)
+	SetBiometricsEnabled(userID int64, deviceID string, enabled bool) error
+	GetBiometricsEnabled(userID int64, deviceID string) (bool, error)
+	CheckBiometricsEnabled(deviceID string) (bool, error)
+}
 
 // mapServiceError maps service-layer error messages to appropriate gRPC status codes.
 func mapServiceError(err error) codes.Code {
@@ -41,8 +80,8 @@ func mapServiceError(err error) codes.Code {
 
 type AuthGRPCHandler struct {
 	pb.UnimplementedAuthServiceServer
-	authService *service.AuthService
-	mobileSvc   *service.MobileDeviceService
+	authService authServiceFacade
+	mobileSvc   mobileDeviceFacade
 }
 
 func NewAuthGRPCHandler(authService *service.AuthService, mobileSvc *service.MobileDeviceService) *AuthGRPCHandler {

@@ -383,7 +383,7 @@ func TestAuthRefreshToken_NotFound(t *testing.T) {
 	f := newAuthFlowFixture(t)
 	_, _, err := f.svc.RefreshToken(context.Background(), "missing-token", "ip", "ua")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "revoked")
+	assert.Contains(t, err.Error(), "refresh token has been revoked")
 }
 
 func TestAuthRefreshToken_Expired(t *testing.T) {

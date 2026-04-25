@@ -284,7 +284,7 @@ func (s *MobileDeviceService) GetDeviceInfo(userID int64) (*model.MobileDevice, 
 	device, err := s.deviceRepo.GetActiveByUserID(userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("no active device found")
+			return nil, errors.New("active device not found")
 		}
 		return nil, err
 	}

@@ -114,6 +114,26 @@ func TestRedisCache_DeleteByPattern(t *testing.T) {
 	assert.True(t, other, "non-matching keys should be retained")
 }
 
+// TestRedisCache_DeleteByPattern_PropagatesDelError ensures that per-key Del
+// failures are not silently swallowed: a partial purge must surface as an
+// error so callers can react (e.g. retry, alert). Regression test for the
+// prior implementation that discarded `c.client.Del(...)` return values.
+func TestRedisCache_DeleteByPattern_PropagatesDelError(t *testing.T) {
+	c, mr := newTestCache(t)
+	ctx := context.Background()
+
+	require.NoError(t, c.Set(ctx, "session:1", cacheValue{Foo: "a"}, time.Minute))
+	require.NoError(t, c.Set(ctx, "session:2", cacheValue{Foo: "b"}, time.Minute))
+
+	// Inject a server-side error so each DEL returns it; SCAN succeeds before
+	// SetError is honored on subsequent commands.
+	mr.SetError("simulated redis failure")
+
+	err := c.DeleteByPattern(ctx, "session:*")
+	require.Error(t, err, "DeleteByPattern must propagate per-key Del errors")
+	assert.Contains(t, err.Error(), "simulated redis failure")
+}
+
 func TestRedisCache_GetUnmarshalError(t *testing.T) {
 	c, mr := newTestCache(t)
 	// Inject a non-JSON value directly.

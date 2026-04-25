@@ -270,7 +270,7 @@ func TestGetDeviceInfo_NoActiveDevice(t *testing.T) {
 
 	_, err := svc.GetDeviceInfo(999)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no active device found")
+	assert.Contains(t, err.Error(), "active device not found")
 }
 
 // ============================================================

@@ -490,9 +490,16 @@ func (s *AuthService) ValidateRefreshToken(token string) (*model.RefreshToken, e
 	return rt, nil
 }
 
+// MobileDeviceLookup is the minimal subset of *MobileDeviceService needed by
+// RefreshTokenForMobile. Defined as an interface so handlers and tests can
+// inject a stub without depending on the concrete type.
+type MobileDeviceLookup interface {
+	GetDeviceInfo(userID int64) (*model.MobileDevice, error)
+}
+
 // RefreshTokenForMobile validates the refresh token, verifies the device is active and matches,
 // revokes the old token, and issues a new mobile token pair.
-func (s *AuthService) RefreshTokenForMobile(ctx context.Context, oldRefreshToken, deviceID string, mobileSvc *MobileDeviceService) (string, string, error) {
+func (s *AuthService) RefreshTokenForMobile(ctx context.Context, oldRefreshToken, deviceID string, mobileSvc MobileDeviceLookup) (string, string, error) {
 	rt, err := s.tokenRepo.GetRefreshToken(oldRefreshToken)
 	if err != nil {
 		return "", "", errors.New("invalid refresh token")

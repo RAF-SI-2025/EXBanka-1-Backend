@@ -7,6 +7,8 @@ import (
 	"time"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type spyRevokeCache struct {
@@ -47,35 +49,23 @@ func TestRolePermChangeHandler_SetsEpochAndRevokesRefresh(t *testing.T) {
 		ChangedAt:           1700000000,
 		Source:              "update_role_permissions",
 	}
-	raw, _ := json.Marshal(msg)
+	raw, err := json.Marshal(msg)
+	require.NoError(t, err)
 
-	if err := h.Handle(context.Background(), raw); err != nil {
-		t.Fatalf("handle: %v", err)
-	}
-	if len(cache.calls) != 3 {
-		t.Fatalf("expected 3 cache calls, got %d", len(cache.calls))
-	}
+	require.NoError(t, h.Handle(context.Background(), raw))
+	require.Len(t, cache.calls, 3, "expected 3 cache calls")
 	for i, want := range []int64{10, 11, 12} {
-		if cache.calls[i].userID != want {
-			t.Errorf("call[%d].userID = %d, want %d", i, cache.calls[i].userID, want)
-		}
-		if cache.calls[i].atUnix != 1700000000 {
-			t.Errorf("call[%d].atUnix = %d, want 1700000000", i, cache.calls[i].atUnix)
-		}
-		if cache.calls[i].ttl != 15*time.Minute {
-			t.Errorf("call[%d].ttl = %v, want 15m", i, cache.calls[i].ttl)
-		}
+		assert.Equal(t, want, cache.calls[i].userID, "call[%d].userID", i)
+		assert.Equal(t, int64(1700000000), cache.calls[i].atUnix, "call[%d].atUnix", i)
+		assert.Equal(t, 15*time.Minute, cache.calls[i].ttl, "call[%d].ttl", i)
 	}
-	if len(tokens.revoked) != 3 || tokens.revoked[0] != 10 || tokens.revoked[1] != 11 || tokens.revoked[2] != 12 {
-		t.Errorf("revoked principals: %v", tokens.revoked)
-	}
+	assert.Equal(t, []int64{10, 11, 12}, tokens.revoked)
 }
 
 func TestRolePermChangeHandler_BadJSONReturnsError(t *testing.T) {
 	h := NewRolePermChangeHandler(&spyRevokeCache{}, &spyTokenRepo{}, time.Minute)
-	if err := h.Handle(context.Background(), []byte("not-json")); err == nil {
-		t.Fatal("expected json error, got nil")
-	}
+	err := h.Handle(context.Background(), []byte("not-json"))
+	require.Error(t, err, "expected json error")
 }
 
 func TestRolePermChangeHandler_EmptyAffectedListIsNoop(t *testing.T) {
@@ -89,11 +79,9 @@ func TestRolePermChangeHandler_EmptyAffectedListIsNoop(t *testing.T) {
 		AffectedEmployeeIDs: []int64{},
 		ChangedAt:           1700000000,
 	}
-	raw, _ := json.Marshal(msg)
-	if err := h.Handle(context.Background(), raw); err != nil {
-		t.Fatalf("handle: %v", err)
-	}
-	if len(cache.calls) != 0 || len(tokens.revoked) != 0 {
-		t.Errorf("expected no calls, got cache=%d tokens=%d", len(cache.calls), len(tokens.revoked))
-	}
+	raw, err := json.Marshal(msg)
+	require.NoError(t, err)
+	require.NoError(t, h.Handle(context.Background(), raw))
+	assert.Empty(t, cache.calls)
+	assert.Empty(t, tokens.revoked)
 }
