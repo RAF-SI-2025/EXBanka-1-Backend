@@ -222,3 +222,229 @@ Returns realised capital gains aggregated per acting employee. Currently returns
   "realized_profit_rsd": ""
 }
 ```
+
+---
+
+## Inter-Bank 2PC Transfers (Celina 5 / Spec 3)
+
+v3 hosts the public-facing transfer surface that is aware of cross-bank routing. The handler inspects the first three digits of the receiver account number:
+
+- Prefix equals this bank's code (`OWN_BANK_CODE`, default `111`) → falls through to the existing intra-bank handler. Response is unchanged from v1: `201 Created` with the full transfer record.
+- Prefix is registered as an active peer in the `banks` table on transaction-service → routed through the inter-bank 2PC handler. Response is `202 Accepted` with a poll URL — the caller must follow up with `GET /api/v3/me/transfers/{transactionId}` until `status` reaches `committed` or a terminal failure.
+- Prefix is unknown / inactive → `400 validation_error`.
+
+The intra-bank routes on v1 (`POST /api/v1/me/transfers`) are unchanged and remain intra-bank-only.
+
+### POST /api/v3/me/transfers — Create transfer (intra- or inter-bank aware)
+
+**Auth:** `AnyAuth` (client or employee).
+
+**Request body** (snake_case is canonical; camelCase aliases are accepted for clients that mirror the SI-TX-PROTO 2024/25 wire shape):
+
+```json
+{
+  "from_account_number": "1110000000001234",
+  "to_account_number":   "2220000000005678",
+  "amount":              150,
+  "currency":            "EUR",
+  "memo":                "payment for invoice 42"
+}
+```
+
+| Field                 | Type    | Required | Notes                                                                                       |
+|-----------------------|---------|----------|---------------------------------------------------------------------------------------------|
+| `from_account_number` | string  | yes      | Sender's account on this bank.                                                              |
+| `to_account_number`   | string  | yes      | Receiver's account. First 3 chars determine the destination bank.                            |
+| `amount`              | number  | yes      | Decimal amount in `currency`.                                                               |
+| `currency`            | string  | inter-bank only | ISO 4217 3-letter code. Optional for intra-bank (resolved from sender account).      |
+| `memo`                | string  | no       | ≤140 chars; included in the inter-bank Prepare envelope.                                     |
+
+`senderAccount`, `receiverAccount`, `amountStr` are accepted as camelCase aliases.
+
+**Response — intra-bank** (`201 Created`): identical shape to v1's transfer object.
+
+**Response — inter-bank** (`202 Accepted`):
+```json
+{
+  "transactionId": "f6d4f2a1-9c3e-4f2b-8c3a-1d1e1f1a1b1c",
+  "status":        "preparing",
+  "errorReason":   "",
+  "pollUrl":       "/api/v3/me/transfers/f6d4f2a1-9c3e-4f2b-8c3a-1d1e1f1a1b1c"
+}
+```
+
+`status` reflects the InterBankTransaction at the moment `InitiateInterBankTransfer` returned:
+
+- `preparing` — Prepare in flight or awaiting reconciliation.
+- `committed` — peer accepted Commit; transfer complete.
+- `reconciling` — peer unreachable / 5xx / timeout. Caller should poll the URL.
+- `rolled_back` — peer answered NotReady or reconciliation failed; sender credit-back already applied.
+
+**Errors:**
+- `400 validation_error` — missing fields, non-positive amount, account currency mismatch.
+- `400 validation_error` with `details.code = "unknown_bank"` — `to_account_number` prefix is not in the registry.
+- `403 forbidden` — token lacks `transfers.create`.
+- `502 downstream_error` — peer rejected; gateway forwards as-is.
+
+### GET /api/v3/me/transfers/{id} — Unified transfer lookup
+
+**Auth:** `AnyAuth`.
+
+`{id}` may be a numeric intra-bank transfer id or a UUID inter-bank `transactionId`. The handler tries the intra-bank `transfers` table first, then falls back to `inter_bank_transactions`.
+
+**Response — intra-bank**: same as `/api/v1/me/transfers/{id}`.
+
+**Response — inter-bank**:
+```json
+{
+  "transactionId":   "f6d4f2a1-...",
+  "kind":            "inter_bank_out",
+  "role":            "sender",
+  "status":          "committed",
+  "remoteBankCode":  "222",
+  "senderAccount":   "1110000000001234",
+  "receiverAccount": "2220000000005678",
+  "amount":          "150.0000",
+  "currency":        "EUR",
+  "finalAmount":     "150.0000",
+  "finalCurrency":   "EUR",
+  "fxRate":          "1",
+  "fees":            "0",
+  "errorReason":     "",
+  "createdAt":       "2026-04-24T14:15:22Z",
+  "updatedAt":       "2026-04-24T14:15:24Z"
+}
+```
+
+`kind` is `inter_bank_out` for sender rows, `inter_bank_in` for receiver rows. `status` values are the internal enum from Spec 3 §5.3; clients SHOULD map them to a user-facing state:
+
+| Internal status                                                   | User-facing       |
+|-------------------------------------------------------------------|-------------------|
+| `initiated`, `preparing`                                          | `preparing`       |
+| `ready_received`, `committing`                                    | `processing`      |
+| `committed`                                                       | `completed`       |
+| `notready_received`, `rolled_back`, `abandoned`, `final_notready` | `rejected`        |
+| `reconciling`                                                     | `reconciling`     |
+
+### Internal HMAC-authenticated routes (peer banks only)
+
+Peer banks call into the gateway's `/internal/inter-bank/*` routes per the SI-TX-PROTO 2024/25 wire format. These endpoints live OUTSIDE any `/api/v*` prefix and are HMAC-authenticated, NOT JWT — they are not for end users.
+
+| Route                                            | Body                  | Notes                                                                |
+|--------------------------------------------------|-----------------------|----------------------------------------------------------------------|
+| `POST /internal/inter-bank/transfer/prepare`     | `Prepare` envelope    | Receiver-side validation + reservation. Returns `Ready` / `NotReady`.|
+| `POST /internal/inter-bank/transfer/commit`      | `Commit` envelope     | Receiver-side credit. Returns `Committed`. `409 commit_mismatch` if final terms diverge from the prior `Ready`. |
+| `POST /internal/inter-bank/check-status`         | `CheckStatus` envelope| Returns `Status` envelope; `404` for unknown `transactionId`.        |
+
+Required headers on every request: `X-Bank-Code`, `X-Bank-Signature` (hex HMAC-SHA256 of body), `X-Idempotency-Key` (= `transactionId`), `X-Timestamp` (RFC3339, ±5 min skew), `X-Nonce` (16-byte hex, single-use within a 10-min window). Mismatched signatures or replayed nonces return `401`. Spec 3 §6 defines the envelope and body shapes; `docs/superpowers/refs/si-tx-proto-mapping.md` is the canonical field-name table.
+
+---
+
+## Intra-bank OTC Options (Celina 4 / Spec 2)
+
+Negotiated option contracts between two parties on the same bank. Sellers write call options on stocks they hold; buyers can accept, counter, or reject. On accept the premium is paid immediately and the seller's shares are reserved against the contract. On exercise (any time before settlement_date), strike funds and shares move atomically. On expiry the seller keeps the premium and the reservation releases.
+
+Trading actions (`POST /otc/offers`, counter, accept, reject, exercise) require **both** `securities.trade` and `otc.trade` permissions. Reads (`GET /otc/offers/{id}`, `GET /otc/contracts/{id}`) require auth and that the caller is a participant in the offer/contract.
+
+### POST /api/v3/otc/offers — Create offer
+
+**Auth:** `securities.trade` + `otc.trade`
+
+**Request body:**
+```json
+{
+  "direction": "sell_initiated",
+  "stock_id": 42,
+  "quantity": "100",
+  "strike_price": "5000",
+  "premium": "50000",
+  "settlement_date": "2026-05-30",
+  "counterparty_user_id": 87,
+  "counterparty_system_type": "client"
+}
+```
+
+`direction` ∈ {`sell_initiated`, `buy_initiated`}. `buy_initiated` requires a named counterparty. Sell-initiated offers are validated against the §4.6 seller invariant (held qty ≥ committed across active offers + contracts).
+
+**Responses:**
+- `201 Created` — `{"offer": <OTCOfferResponse>}`
+- `400 validation_error` — quantity/strike non-positive, settlement_date in the past, unknown direction, missing counterparty for buy_initiated
+- `403 forbidden` — caller lacks `securities.trade` + `otc.trade`
+- `409 business_rule_violation` — insufficient available shares for the seller
+
+### POST /api/v3/otc/offers/{id}/counter — Counter
+
+**Request body:** `{ "quantity": "...", "strike_price": "...", "premium": "...", "settlement_date": "..." }`
+
+Quantity changes re-run the seller invariant. Last-mover rule: caller must NOT be the side that last modified the offer.
+
+**Responses:** 200 / 403 (last-mover violation) / 409 (terminal-state offer or insufficient shares).
+
+### POST /api/v3/otc/offers/{id}/accept — Accept (premium-payment saga)
+
+**Request body:**
+```json
+{
+  "buyer_account_id": 5001,
+  "seller_account_id": 6001
+}
+```
+
+Same-currency only at the moment (cross-currency support is a follow-up). Saga: reserve seller's shares + create OptionContract → ReserveFunds(buyer) → PartialSettle(buyer) → CreditAccount(seller) → mark offer ACCEPTED → kafka event.
+
+**Responses:** `201 Created` with `{"offer_id", "contract_id", "status", "saga_id", "contract"}`. `403` for last-mover, `409` for terminal offer / cross-currency.
+
+### POST /api/v3/otc/offers/{id}/reject — Reject
+
+**Responses:** 200 with `{"offer": ...}`, status flips to `REJECTED` and an `otc.offer-rejected` event is published.
+
+### POST /api/v3/otc/contracts/{id}/exercise — Exercise
+
+**Request body:** `{ "buyer_account_id": ..., "seller_account_id": ... }`
+
+Only the contract buyer can exercise, and only while the contract is `ACTIVE` and `settlement_date` is in the future. Saga: ReserveFunds(buyer, strike) → settle → credit seller → ConsumeForOTCContract (seller holding -qty) → upsert buyer's holding (+qty) → mark `EXERCISED` + kafka.
+
+**Responses:** `201 Created` with strike amounts, currencies, and saga_id.
+
+### GET /api/v3/me/otc/offers — Caller's offers
+
+**Query params:** `role` (`initiator`/`counterparty`/`either`, default `either`), `page`, `page_size`.
+
+### GET /api/v3/me/otc/contracts — Caller's contracts
+
+Same shape; role is `buyer`/`seller`/`either`.
+
+### GET /api/v3/otc/offers/{id} — Offer detail + revision history
+
+Returns the offer plus the full append-only revision list. Marks the read-receipt for the caller.
+
+### GET /api/v3/otc/contracts/{id} — Contract detail
+
+Restricted to the buyer or seller.
+
+### Schemas
+
+#### OTCOfferResponse
+```json
+{
+  "id": 1,
+  "direction": "sell_initiated",
+  "stock_id": 42,
+  "stock_ticker": "",
+  "quantity": "100",
+  "strike_price": "5000",
+  "premium": "50000",
+  "settlement_date": "2026-05-30",
+  "status": "PENDING",
+  "initiator": {"user_id": 55, "system_type": "client"},
+  "counterparty": {"user_id": 87, "system_type": "client"},
+  "last_modified_by": {"user_id": 55, "system_type": "client"},
+  "version": 1,
+  "unread": false
+}
+```
+
+`status` ∈ {`PENDING`, `COUNTERED`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `FAILED`}.
+
+#### OptionContractResponse
+Carries `id`, `offer_id`, `stock_id`, `quantity`, `strike_price`, `premium_paid`, `premium_currency`, `strike_currency`, `settlement_date`, `status` ∈ {`ACTIVE`, `EXERCISED`, `EXPIRED`, `FAILED`}, plus `buyer` / `seller` party refs and `premium_paid_at` / `exercised_at` / `expired_at` timestamps.
