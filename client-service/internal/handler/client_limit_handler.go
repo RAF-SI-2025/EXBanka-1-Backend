@@ -13,14 +13,26 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// clientLimitFacade is the subset of *service.ClientLimitService used by the gRPC handler.
+// Extracted as an interface to allow stub-based unit tests.
+type clientLimitFacade interface {
+	GetClientLimits(clientID int64) (*model.ClientLimit, error)
+	SetClientLimits(ctx context.Context, limit model.ClientLimit, changedBy int64) (*model.ClientLimit, error)
+}
+
 // ClientLimitGRPCHandler implements the ClientLimitServiceServer interface.
 type ClientLimitGRPCHandler struct {
 	pb.UnimplementedClientLimitServiceServer
-	limitSvc *service.ClientLimitService
+	limitSvc clientLimitFacade
 }
 
 func NewClientLimitGRPCHandler(limitSvc *service.ClientLimitService) *ClientLimitGRPCHandler {
 	return &ClientLimitGRPCHandler{limitSvc: limitSvc}
+}
+
+// newClientLimitGRPCHandlerForTest constructs a handler with a stub facade, for use in unit tests only.
+func newClientLimitGRPCHandlerForTest(svc clientLimitFacade) *ClientLimitGRPCHandler {
+	return &ClientLimitGRPCHandler{limitSvc: svc}
 }
 
 func (h *ClientLimitGRPCHandler) GetClientLimits(ctx context.Context, req *pb.GetClientLimitRequest) (*pb.ClientLimitResponse, error) {

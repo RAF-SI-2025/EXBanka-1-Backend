@@ -15,6 +15,16 @@ import (
 	pb "github.com/exbanka/contract/clientpb"
 )
 
+// clientFacade is the subset of *service.ClientService used by the gRPC handler.
+// Extracted as an interface to allow stub-based unit tests.
+type clientFacade interface {
+	CreateClient(ctx context.Context, c *model.Client) error
+	GetClient(id uint64) (*model.Client, error)
+	GetByEmail(email string) (*model.Client, error)
+	ListClients(emailFilter, nameFilter string, page, pageSize int) ([]model.Client, int64, error)
+	UpdateClient(id uint64, updates map[string]interface{}, changedBy int64) (*model.Client, error)
+}
+
 // mapServiceError maps service-layer error messages to appropriate gRPC status codes.
 func mapServiceError(err error) codes.Code {
 	msg := strings.ToLower(err.Error())
@@ -41,13 +51,18 @@ func mapServiceError(err error) codes.Code {
 
 type ClientGRPCHandler struct {
 	pb.UnimplementedClientServiceServer
-	clientService *service.ClientService
+	clientService clientFacade
 }
 
 func NewClientGRPCHandler(clientService *service.ClientService) *ClientGRPCHandler {
 	return &ClientGRPCHandler{
 		clientService: clientService,
 	}
+}
+
+// newClientGRPCHandlerForTest constructs a handler with a stub facade, for use in unit tests only.
+func newClientGRPCHandlerForTest(svc clientFacade) *ClientGRPCHandler {
+	return &ClientGRPCHandler{clientService: svc}
 }
 
 func (h *ClientGRPCHandler) CreateClient(ctx context.Context, req *pb.CreateClientRequest) (*pb.ClientResponse, error) {
