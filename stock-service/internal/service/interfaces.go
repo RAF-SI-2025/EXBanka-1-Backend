@@ -154,9 +154,11 @@ type CapitalGainRepo interface {
 	Create(gain *model.CapitalGain) error
 	ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error)
 	SumByUserMonth(userID uint64, systemType string, year, month int) ([]AccountGainSummary, error) // grouped by account_id, currency
+	SumUncollectedByUserMonth(userID uint64, systemType string, year, month int) ([]AccountGainSummary, error)
 	SumByUserYear(userID uint64, systemType string, year int) ([]AccountGainSummary, error)
 	SumByUserAllTime(userID uint64, systemType string) ([]AccountGainSummary, error)
 	CountByUserYear(userID uint64, systemType string, year int) (int64, error)
+	MarkCollected(userID uint64, systemType string, year, month int, accountID uint64, currency string, taxCollectionID uint64) error
 }
 
 type TaxCollectionRepo interface {
@@ -164,6 +166,7 @@ type TaxCollectionRepo interface {
 	SumByUserYear(userID uint64, systemType string, year int) (decimal.Decimal, error) // total RSD collected
 	SumByUserMonth(userID uint64, systemType string, year, month int) (decimal.Decimal, error)
 	SumByUserAllTime(userID uint64, systemType string) (decimal.Decimal, error)
+	CountByKey(userID uint64, systemType string, year, month int, accountID uint64, currency string) (int64, error)
 	GetLastCollection(userID uint64, systemType string) (*model.TaxCollection, error)
 	ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.TaxCollection, int64, error)
 	ListUsersWithGains(year, month int, filter TaxFilter) ([]TaxUserSummary, int64, error)

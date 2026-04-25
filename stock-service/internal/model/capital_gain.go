@@ -24,5 +24,10 @@ type CapitalGain struct {
 	AccountID          uint64          `gorm:"not null" json:"account_id"`
 	TaxYear            int             `gorm:"not null;index:idx_cg_user_month" json:"tax_year"`
 	TaxMonth           int             `gorm:"not null;index:idx_cg_user_month" json:"tax_month"`
-	CreatedAt          time.Time       `json:"created_at"`
+	// TaxCollectionID links this gain to the TaxCollection row that taxed it.
+	// NULL means "not yet taxed" — CollectTax only sums rows where this is NULL
+	// so incremental admin collections within the same month tax only the new,
+	// uncollected profit.
+	TaxCollectionID *uint64   `gorm:"index:idx_cg_tax_collection" json:"tax_collection_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 }

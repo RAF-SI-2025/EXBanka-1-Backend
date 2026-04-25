@@ -213,6 +213,10 @@ func (m *mockCapitalGainRepo) SumByUserMonth(userID uint64, systemType string, y
 	return nil, nil
 }
 
+func (m *mockCapitalGainRepo) SumUncollectedByUserMonth(userID uint64, systemType string, year, month int) ([]repository.AccountGainSummary, error) {
+	return nil, nil
+}
+
 func (m *mockCapitalGainRepo) SumByUserYear(userID uint64, systemType string, year int) ([]repository.AccountGainSummary, error) {
 	return nil, nil
 }
@@ -223,6 +227,10 @@ func (m *mockCapitalGainRepo) SumByUserAllTime(userID uint64, systemType string)
 
 func (m *mockCapitalGainRepo) CountByUserYear(userID uint64, systemType string, year int) (int64, error) {
 	return 0, nil
+}
+
+func (m *mockCapitalGainRepo) MarkCollected(userID uint64, systemType string, year, month int, accountID uint64, currency string, taxCollectionID uint64) error {
+	return nil
 }
 
 // mockStockRepo returns pre-configured stocks.

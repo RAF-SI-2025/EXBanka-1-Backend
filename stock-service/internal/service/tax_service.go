@@ -248,19 +248,27 @@ func (s *TaxService) ListUserTaxCollections(userID uint64, systemType string) ([
 	return rows, err
 }
 
-// CollectTax collects tax from all users for the given month.
+// CollectTax collects tax from all users for the given month. Both the
+// monthly cron and the admin "Collect Tax" button call this method.
 // Returns the number of users collected, total RSD, and failures.
 //
-// F.1 idempotency guard: for every (user_id, system_type, account_id,
-// currency) tuple within the target month, the service first asks the
-// repository if any tax was already collected — if so the tuple is skipped
-// with a WARN log so retries don't double-charge.
+// Incremental semantics: every call taxes ONLY the capital-gain rows whose
+// tax_collection_id is still NULL. On success the rows are stamped with the
+// newly-created TaxCollection ID. An admin who clicks "Collect Tax" twice in
+// the same month taxes the first batch of profit on the first click and only
+// the new profit on the second click (not the old profit re-charged, not
+// silently skipped).
+//
+// F.1 per-(user, account, currency) attempt numbering: the account-service
+// idempotency key for debit/credit includes an "attempt" suffix equal to the
+// count of prior TaxCollection rows for the same tuple + 1. Two successive
+// incremental collections produce distinct keys (so both go through), while a
+// crashed-and-retried single batch produces the same key (so account-service
+// safely deduplicates).
 //
 // F.2 advisory lock: when db is wired (production), CollectTax runs inside a
 // transaction that acquires pg_advisory_xact_lock(year*100 + month) as its
-// first statement. Two concurrent admin invocations for the same month
-// therefore serialize — the second blocks until the first commits, at which
-// point the idempotency guard returns its "already collected" skip.
+// first statement. Two concurrent invocations for the same month serialize.
 func (s *TaxService) CollectTax(year, month int) (collectedCount int64, totalRSD decimal.Decimal, failedCount int64, err error) {
 	if s.db == nil {
 		// No DB handle wired (unit tests). Run without the advisory lock;
@@ -304,19 +312,11 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 			continue
 		}
 
-		// F.1 idempotency guard: if any tax was already collected for this
-		// user this month, skip. The per-account/per-currency inner loop
-		// still runs a finer-grained guard below for mixed-currency users
-		// where one ledger collected but another raced and didn't.
-		if already, ierr := s.taxCollectionRepo.SumByUserMonth(summary.UserID, summary.SystemType, year, month); ierr == nil && already.IsPositive() {
-			log.Printf("WARN: tax: skipping user %d (%s) for %04d-%02d — already collected RSD %s",
-				summary.UserID, summary.SystemType, year, month, already.StringFixed(2))
-			continue
-		}
-
-		// Get detailed gains per account, scoped to this (user_id, system_type)
-		// pair so employee and client bookkeeping stay separate when IDs collide.
-		gainSummaries, gainErr := s.capitalGainRepo.SumByUserMonth(summary.UserID, summary.SystemType, year, month)
+		// Get UNCOLLECTED gains per (account, currency), scoped to this
+		// (user_id, system_type) pair. Rows already linked to a prior
+		// TaxCollection are excluded, so this call returns only the profit
+		// realised since the last collection — exactly what we should tax.
+		gainSummaries, gainErr := s.capitalGainRepo.SumUncollectedByUserMonth(summary.UserID, summary.SystemType, year, month)
 		if gainErr != nil {
 			failedCount++
 			log.Printf("WARN: tax: failed to get gains for user %d (%s): %v", summary.UserID, summary.SystemType, gainErr)
@@ -324,6 +324,7 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 		}
 
 		userFailed := false
+		userDidCollect := false
 		for _, gs := range gainSummaries {
 			if !gs.TotalGain.IsPositive() {
 				continue
@@ -372,8 +373,18 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 				}
 			}
 
+			// Attempt number = 1 + prior collections for this exact tuple.
+			// Keeps each incremental batch's idempotency keys distinct while
+			// letting a crash-and-retry of a single batch reuse the same key.
+			priorAttempts, cntErr := s.taxCollectionRepo.CountByKey(summary.UserID, summary.SystemType, year, month, gs.AccountID, gs.Currency)
+			if cntErr != nil {
+				log.Printf("WARN: tax: CountByKey failed for user %d: %v — assuming 0", summary.UserID, cntErr)
+				priorAttempts = 0
+			}
+			attempt := priorAttempts + 1
+
 			debitMemo := fmt.Sprintf("Capital-gains tax collection %04d-%02d", year, month)
-			debitKey := fmt.Sprintf("tax-debit-%s-%d-%04d-%02d-%d", summary.SystemType, summary.UserID, year, month, gs.AccountID)
+			debitKey := fmt.Sprintf("tax-debit-%s-%d-%04d-%02d-%d-a%d", summary.SystemType, summary.UserID, year, month, gs.AccountID, attempt)
 			_, debitErr := s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 				AccountNumber:   acctResp.AccountNumber,
 				Amount:          debitAmount.Neg().StringFixed(4),
@@ -389,7 +400,7 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 
 			// Credit state's RSD account
 			creditMemo := fmt.Sprintf("Capital-gains tax from %s #%d (%s %s)", summary.SystemType, summary.UserID, gs.Currency, taxInCurrency.StringFixed(2))
-			creditKey := fmt.Sprintf("tax-credit-%s-%d-%04d-%02d-%d", summary.SystemType, summary.UserID, year, month, gs.AccountID)
+			creditKey := fmt.Sprintf("tax-credit-%s-%d-%04d-%02d-%d-a%d", summary.SystemType, summary.UserID, year, month, gs.AccountID, attempt)
 			_, creditErr := s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 				AccountNumber:   s.stateAccountNo,
 				Amount:          taxInRSD.StringFixed(4),
@@ -416,14 +427,24 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 			}
 			if createErr := s.taxCollectionRepo.Create(collection); createErr != nil {
 				log.Printf("WARN: tax: failed to record collection for user %d: %v", summary.UserID, createErr)
+			} else {
+				// Stamp every uncollected capital_gain row that fed this
+				// collection with the new collection's ID so the next
+				// CollectTax run ignores them. Best-effort — a marking
+				// failure logs but doesn't roll back the money move.
+				if markErr := s.capitalGainRepo.MarkCollected(summary.UserID, summary.SystemType, year, month, gs.AccountID, gs.Currency, collection.ID); markErr != nil {
+					log.Printf("WARN: tax: MarkCollected failed for user %d account %d %s: %v — future runs may re-tax these gains", summary.UserID, gs.AccountID, gs.Currency, markErr)
+				}
 			}
 
 			totalRSD = totalRSD.Add(taxInRSD)
+			userDidCollect = true
 		}
 
-		if userFailed {
+		switch {
+		case userFailed:
 			failedCount++
-		} else {
+		case userDidCollect:
 			collectedCount++
 		}
 	}
