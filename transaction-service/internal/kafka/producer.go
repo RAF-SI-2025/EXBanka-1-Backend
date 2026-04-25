@@ -68,6 +68,10 @@ func (p *Producer) PublishGeneralNotification(ctx context.Context, msg kafkamsg.
 	return p.publish(ctx, kafkamsg.TopicGeneralNotification, msg)
 }
 
+func (p *Producer) PublishInterbank(ctx context.Context, topic string, msg kafkamsg.TransferInterbankMessage) error {
+	return p.publish(ctx, topic, msg)
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }
