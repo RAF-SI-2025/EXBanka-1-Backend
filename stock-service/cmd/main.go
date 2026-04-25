@@ -511,7 +511,7 @@ func main() {
 			}
 			return resp.AccountNumber, resp.Id, nil
 		},
-	)
+	).WithPositionReads(listingRepo)
 	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo).
 		WithActuaryDeps(capitalGainRepo, userClient, exchangeClient)
 	pb.RegisterInvestmentFundServiceServer(grpcServer, fundHandler)

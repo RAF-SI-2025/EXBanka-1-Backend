@@ -62,6 +62,9 @@ type FundService struct {
 	holdings  *repository.FundHoldingRepository
 	settings  FundSettings
 	bankRSDAccountFn func(context.Context) (string, uint64, error)
+
+	// position-reads deps (optional; wired via WithPositionReads).
+	listingRepo *repository.ListingRepository
 }
 
 func NewFundService(repo *repository.FundRepository, bankAccountClient BankAccountClient, producer *kafkaprod.Producer) *FundService {
@@ -95,6 +98,16 @@ func (s *FundService) WithSaga(
 }
 
 var errSagaDepsNotWired = errors.New("fund saga dependencies not wired (Invest/Redeem unavailable)")
+
+// WithPositionReads wires the listing repo. The other deps needed for
+// position reads (accounts, exchange, holdings, positions) are already wired
+// by WithSaga. Without WithPositionReads the rich list-positions methods
+// fall back to plain (contribution-only) rows.
+func (s *FundService) WithPositionReads(listingRepo *repository.ListingRepository) *FundService {
+	cp := *s
+	cp.listingRepo = listingRepo
+	return &cp
+}
 
 type CreateFundInput struct {
 	ActorEmployeeID        int64

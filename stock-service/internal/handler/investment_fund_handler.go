@@ -182,38 +182,41 @@ func (h *InvestmentFundHandler) RedeemFromFund(ctx context.Context, in *stockpb.
 	return toContribResponse(out), nil
 }
 
-// ListMyPositions returns the caller's contributions across active funds.
-// Derived value/profit/percentage fields land with Task 20.
+// ListMyPositions returns the caller's contributions across active funds,
+// enriched with derived current value / profit / percentage when the
+// position-reads dependencies are wired (listingRepo + holdings + exchange).
 func (h *InvestmentFundHandler) ListMyPositions(ctx context.Context, in *stockpb.ListMyPositionsRequest) (*stockpb.ListPositionsResponse, error) {
-	if h.positions == nil {
-		return &stockpb.ListPositionsResponse{}, nil
-	}
-	rows, err := h.positions.ListByOwner(in.ActorUserId, in.ActorSystemType)
+	rows, err := h.fundSvc.ListMyPositionsDTO(ctx, in.ActorUserId, in.ActorSystemType)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	out := &stockpb.ListPositionsResponse{Positions: make([]*stockpb.PositionItem, 0, len(rows))}
-	for _, p := range rows {
-		fund, err := h.fundRepo.GetByID(p.FundID)
-		if err != nil {
-			continue
-		}
-		out.Positions = append(out.Positions, &stockpb.PositionItem{
-			FundId:           p.FundID,
-			FundName:         fund.Name,
-			ContributionRsd:  p.TotalContributedRSD.String(),
-			LastChangedAt:    p.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		})
-	}
-	return out, nil
+	return &stockpb.ListPositionsResponse{Positions: positionDTOsToProto(rows)}, nil
 }
 
 // ListBankPositions returns positions where the bank itself is the owner.
 func (h *InvestmentFundHandler) ListBankPositions(ctx context.Context, _ *stockpb.ListBankPositionsRequest) (*stockpb.ListPositionsResponse, error) {
-	return h.ListMyPositions(ctx, &stockpb.ListMyPositionsRequest{
-		ActorUserId:     1_000_000_000,
-		ActorSystemType: "employee",
-	})
+	rows, err := h.fundSvc.ListBankPositionsDTO(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &stockpb.ListPositionsResponse{Positions: positionDTOsToProto(rows)}, nil
+}
+
+func positionDTOsToProto(rows []service.PositionDTO) []*stockpb.PositionItem {
+	out := make([]*stockpb.PositionItem, 0, len(rows))
+	for _, p := range rows {
+		out = append(out, &stockpb.PositionItem{
+			FundId:           p.FundID,
+			FundName:         p.FundName,
+			ManagerFullName:  p.ManagerFullName,
+			ContributionRsd:  p.ContributionRSD.String(),
+			PercentageFund:   p.PercentageFund.String(),
+			CurrentValueRsd:  p.CurrentValueRSD.String(),
+			ProfitRsd:        p.ProfitRSD.String(),
+			LastChangedAt:    p.LastChangedAt.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	return out
 }
 
 // GetActuaryPerformance sums realised capital gains per acting employee,
