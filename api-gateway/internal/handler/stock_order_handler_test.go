@@ -106,7 +106,7 @@ func TestCreateOrder_Forex_SellRejected(t *testing.T) {
 	h := handler.NewStockOrderHandler(ord, acct)
 	router := makeMyOrdersRouter(h)
 
-	body := `{"security_type":"forex","direction":"sell","order_type":"market","quantity":1,"account_id":42,"holding_id":7}`
+	body := `{"security_type":"forex","direction":"sell","order_type":"market","quantity":1,"listing_id":5,"account_id":42,"holding_id":7}`
 	req := httptest.NewRequest("POST", "/api/v1/me/orders", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
