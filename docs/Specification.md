@@ -148,7 +148,8 @@ Client (HTTP/JSON) → API Gateway (Gin, :8080)
 
 | Caller | Calls |
 |---|---|
-| api-gateway | auth, user, client, account, card, transaction, credit, exchange, verification, notification |
+| api-gateway | auth, user, client, account, card, transaction, credit, exchange, verification, notification, stock (StockExchange / Security / Order / Portfolio / OTC / Tax / SourceAdmin / **InvestmentFund** (Celina 4) / **OTCOptions** (Spec 2)) |
+| stock-service | account-service (debit/credit/reservations/bank-account), exchange-service (FX), user-service (employee names + actuary limits), client-service (client name resolution), **transaction-service (Spec 3 InterBankService for cross-bank Phase 3 + ReverseInterBankTransfer)** |
 | auth-service | user-service (employee lookup), client-service (client login) |
 | user-service | auth-service (activation tokens) |
 | client-service | auth-service (activation tokens) |
@@ -501,19 +502,21 @@ Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>
 | employees | `employees.create`, `employees.update`, `employees.read`, `employees.permissions` |
 | limits | `limits.manage` |
 | admin | `bank-accounts.manage`, `fees.manage`, `interest-rates.manage` |
-| agent/otc | `agents.manage`, `otc.manage`, `funds.manage` |
+| agent/otc | `agents.manage`, `otc.manage`, `otc.trade`, `funds.manage`, `funds.bank-position-read` |
 | verification | `verification.skip`, `verification.manage` |
 
 **Permission notes:**
 - `securities.manage` — manage stock-service data sources and perform destructive source switches. Assigned to `EmployeeAdmin` only.
+- `otc.trade` (Spec 2) — required to create/counter/accept/reject/exercise OTC options. Granted to `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin`.
+- `funds.bank-position-read` (Celina 4) — view the bank's positions across investment funds + the actuary-performance leaderboard. Granted to `EmployeeSupervisor` and `EmployeeAdmin`.
 
 ### Role Definitions
 
 | Role | Inherits Permissions |
 |---|---|
 | EmployeeBasic | clients.*, accounts.*, cards.*, payments.read, credits.read |
-| EmployeeAgent | EmployeeBasic + securities.* |
-| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, verification.skip, verification.manage |
+| EmployeeAgent | EmployeeBasic + securities.*, otc.trade |
+| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, funds.bank-position-read, verification.skip, verification.manage |
 | EmployeeAdmin | All permissions (including `securities.manage`) |
 
 ### Context Values Set by Middleware
@@ -812,11 +815,11 @@ An agent extending an existing service needs to know which gRPC services already
 | `client/client.proto` | `ClientService`, `ClientLimitService` | 5 + 2 |
 | `account/account.proto` | `AccountService`, `BankAccountService` | 14 + 6 |
 | `card/card.proto` | `CardService`, `VirtualCardService`, `CardRequestService` | 9 + 5 + 6 |
-| `transaction/transaction.proto` | `TransactionService`, `FeeService` | 13 + 5 |
+| `transaction/transaction.proto` | `TransactionService`, `FeeService`, `InterBankService` (Spec 3 + Spec 4 `ReverseInterBankTransfer`) | 13 + 5 + 5 |
 | `credit/credit.proto` | `CreditService` | 16 |
 | `exchange/exchange.proto` | `ExchangeService` | 4 |
 | `notification/notification.proto` | `NotificationService` | 2 |
-| `stock/stock.proto` | `SecurityGRPCService`, `OrderGRPCService`, `PortfolioGRPCService`, `OTCGRPCService`, `SourceAdminService` | (see below) |
+| `stock/stock.proto` | `SecurityGRPCService`, `OrderGRPCService`, `PortfolioGRPCService`, `OTCGRPCService`, `SourceAdminService`, **`InvestmentFundService`** (Celina 4, 9 RPCs), **`OTCOptionsService`** (Spec 2, 9 RPCs), **`CrossBankOTCService`** (Spec 4, 12 RPCs) | (see below) |
 
 **account-service BankAccountService additions:**
 
@@ -1334,6 +1337,8 @@ api-gateway:
 
 ## 18. Complete Entity Reference
 
+> **New feature entities:** Investment-fund entities are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC option entities (`OTCOffer`, `OTCOfferRevision`, `OptionContract`, `OTCOfferReadReceipt`) are in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank OTC additions (`InterBankSagaLog`; `OTCOffer.Public/Private`; `OptionContract.CrossbankTxID/CrossbankExerciseTxID`; `HoldingReservation.OTCContractID`) are in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation). The `Order` model gained a `FundID *uint64` column for on-behalf-of-fund order placement.
+
 ### Auth Service (auth_db)
 
 **Account** — Unified login record for employees and clients
@@ -1747,6 +1752,8 @@ Key(string, PK, size:64), Value(string)
 
 ## 19. Complete Kafka Topic Reference
 
+> **New feature topics:** Investment-fund topics are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC topics (`otc.offer-created/-countered/-rejected/-expired`, `otc.contract-created/-exercised/-expired/-failed`) live in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank topics (`otc.crossbank-saga-started/-committed/-rolled-back/-stuck-rollback`, `otc.contract-{exercised,expired}-crossbank`, `otc.contract-expiry-stuck`, `otc.local-offer-changed`) live in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation).
+
 ### All Topics
 
 | Topic | Producer | Consumer | Message Type |
@@ -1931,6 +1938,18 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 | `verification_method` | `code_pull` (default), `email` — active; `qr_scan`, `number_match` — planned but not yet active |
 | `verification_status` | `pending`, `verified`, `expired`, `failed` |
 | `mobile_device_status` | `pending`, `active`, `deactivated` |
+| `on_behalf_of_type` (funds invest/redeem) | `self`, `bank` |
+| `on_behalf_of_type` (orders) | `self`, `bank`, `fund` (Celina 4) |
+| `fund_contribution_direction` | `invest`, `redeem` |
+| `fund_contribution_status` | `pending`, `completed`, `failed` |
+| `otc_offer_status` | `PENDING`, `COUNTERED`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `FAILED` |
+| `otc_offer_direction` | `sell_initiated`, `buy_initiated` |
+| `otc_offer_action` (revision history) | `CREATE`, `COUNTER`, `ACCEPT`, `REJECT` |
+| `option_contract_status` | `ACTIVE`, `EXERCISED`, `EXPIRED`, `FAILED` |
+| `inter_bank_saga_kind` | `accept`, `exercise`, `expire` |
+| `inter_bank_saga_role` | `initiator`, `responder` |
+| `inter_bank_saga_phase` | `reserve_buyer_funds`, `reserve_seller_shares`, `transfer_funds`, `transfer_ownership`, `finalize`, `expire_notify`, `expire_apply` |
+| `inter_bank_saga_status` | `pending`, `completed`, `failed`, `compensating`, `compensated` |
 | `mobile_inbox_status` | `pending`, `delivered`, `expired` |
 | `device_type` (JWT) | `mobile` |
 
@@ -2185,6 +2204,15 @@ These endpoints exist only under `/api/v3/`. v3 is the home of new feature surfa
 | GET | `/api/v3/me/investment-funds` | AnyAuthMiddleware | InvestmentFundHandler.ListMyPositions | Caller's fund positions |
 | GET | `/api/v3/investment-funds/positions` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ListBankPositions | Bank-owned positions |
 | GET | `/api/v3/actuaries/performance` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ActuaryPerformance | Realised profit per acting employee |
+| POST | `/api/v3/otc/offers` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.CreateOffer | Create OTC option offer (Spec 2) |
+| POST | `/api/v3/otc/offers/:id/counter` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.CounterOffer | Counter offer terms |
+| POST | `/api/v3/otc/offers/:id/accept` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.AcceptOffer | Accept offer (premium-payment saga; cross-bank dispatches via Spec 4) |
+| POST | `/api/v3/otc/offers/:id/reject` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.RejectOffer | Reject offer |
+| POST | `/api/v3/otc/contracts/:id/exercise` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.ExerciseContract | Exercise option (cross-bank dispatches via Spec 4) |
+| GET | `/api/v3/otc/offers/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetOffer | Offer detail with revisions |
+| GET | `/api/v3/otc/contracts/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetContract | Contract detail |
+| GET | `/api/v3/me/otc/offers` | AnyAuthMiddleware | OTCOptionsHandler.ListMyOffers | Caller's OTC offers |
+| GET | `/api/v3/me/otc/contracts` | AnyAuthMiddleware | OTCOptionsHandler.ListMyContracts | Caller's OTC contracts |
 
 ## 24. Investment Funds (Celina 4)
 

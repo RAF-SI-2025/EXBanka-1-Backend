@@ -44,6 +44,12 @@ type Config struct {
 	// OTC option-contract / offer expiry cron (Celina-4 / Spec 2).
 	OTCExpiryCronUTC   string // "HH:MM" UTC; default 02:00
 	OTCExpiryBatchSize int    // default 500
+	// Spec 3 / Spec 4 cross-bank wiring. TransactionGRPCAddr is dialed by
+	// stock-service's cross-bank accept/exercise sagas to drive Phase 3
+	// transfer_funds + the compensation reverse-transfer. OwnBankCode is
+	// the local 3-digit bank code used for cross-bank routing decisions.
+	TransactionGRPCAddr string // default "localhost:50057"
+	OwnBankCode         string // default "111"
 }
 
 func Load() *Config {
@@ -84,6 +90,8 @@ func Load() *Config {
 		InfluxBucket:             getEnv("INFLUX_BUCKET", "stock_prices"),
 		OTCExpiryCronUTC:         getEnv("OTC_EXPIRY_CRON_UTC", "02:00"),
 		OTCExpiryBatchSize:       getEnvInt("OTC_EXPIRY_BATCH_SIZE", 500),
+		TransactionGRPCAddr:      getEnv("TRANSACTION_GRPC_ADDR", "localhost:50057"),
+		OwnBankCode:              getEnv("OWN_BANK_CODE", "111"),
 	}
 }
 

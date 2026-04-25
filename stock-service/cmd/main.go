@@ -20,6 +20,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	transactionpb "github.com/exbanka/contract/transactionpb"
 	"github.com/exbanka/contract/influx"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
@@ -193,6 +194,19 @@ func main() {
 	}
 	defer exchangeConn.Close()
 	exchangeClient := exchangepb.NewExchangeServiceClient(exchangeConn)
+
+	// Transaction service InterBankService client — used by the cross-bank
+	// OTC accept/exercise sagas for Phase 3 transfer_funds + the
+	// compensation reverse-transfer.
+	transactionConn, err := grpc.NewClient(cfg.TransactionGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Printf("warn: failed to connect to transaction-service: %v (cross-bank OTC sagas disabled)", err)
+	}
+	var interBankClient transactionpb.InterBankServiceClient
+	if transactionConn != nil {
+		defer transactionConn.Close()
+		interBankClient = transactionpb.NewInterBankServiceClient(transactionConn)
+	}
 
 	// User service client (for name resolution + actuary limit enforcement)
 	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -576,15 +590,48 @@ func main() {
 	interBankSagaLogRepo := repository.NewInterBankSagaLogRepository(db)
 	crossbankExec := service.NewCrossbankSagaExecutor(interBankSagaLogRepo, producer)
 	crossbankPeerRouter := service.NewStaticCrossbankPeerRouter(map[string]*service.CrossbankPeerClient{})
-	crossbankExpire := service.NewCrossbankExpireSaga(crossbankExec, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, "111")
+	crossbankExpire := service.NewCrossbankExpireSaga(crossbankExec, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, cfg.OwnBankCode)
 	crossbankExpiryCron := service.NewCrossbankExpiryCron(optionContractRepo, crossbankExpire, "02:30", 200)
 	crossbankExpiryCron.Start(ctx)
 	crossbankCheckStatus := service.NewCrossbankCheckStatusCron(interBankSagaLogRepo, crossbankPeerRouter, producer, 30*time.Second, 30*time.Second)
 	crossbankCheckStatus.Start(ctx)
 	crossbankOrphan := service.NewCrossbankOrphanReservationCron(interBankSagaLogRepo, holdingReservationSvc, 5*time.Minute, 30*time.Minute)
 	crossbankOrphan.Start(ctx)
-	crossbankInternalHandler := handler.NewCrossbankInternalHandler(otcOfferRepo, optionContractRepo, holdingRepo, holdingReservationSvc, interBankSagaLogRepo, "111")
+	crossbankInternalHandler := handler.NewCrossbankInternalHandler(otcOfferRepo, optionContractRepo, holdingRepo, holdingReservationSvc, interBankSagaLogRepo, cfg.OwnBankCode)
 	pb.RegisterCrossBankOTCServiceServer(grpcServer, crossbankInternalHandler)
+
+	// Cross-bank accept + exercise sagas + dispatch hook on OTCOfferService.
+	// When transaction-service is reachable, OTC Accept / ExerciseContract
+	// detect cross-bank trades by the offer/contract's bank-code columns
+	// and delegate to these sagas instead of the intra-bank flow.
+	if interBankClient != nil {
+		interBankAdapter := &interBankTransferAdapter{client: interBankClient}
+		crossbankAccept := service.NewCrossbankAcceptSaga(
+			crossbankExec, crossbankPeerRouter, fundAccountAdapter,
+			optionContractRepo, otcOfferRepo, interBankAdapter, cfg.OwnBankCode,
+		)
+		crossbankExercise := service.NewCrossbankExerciseSaga(
+			crossbankExec, crossbankPeerRouter, fundAccountAdapter,
+			optionContractRepo, interBankAdapter, cfg.OwnBankCode,
+		)
+		otcOfferSvc = otcOfferSvc.WithCrossbank(
+			cfg.OwnBankCode,
+			func(ctx2 context.Context, in service.AcceptInput) (*model.OptionContract, error) {
+				// Look up offer + accounts to map AcceptInput → CrossbankAcceptInput.
+				o, err := otcOfferRepo.GetByID(in.OfferID)
+				if err != nil {
+					return nil, err
+				}
+				return crossbankAccept.Run(ctx2, mapAcceptToCrossbank(o, in, cfg.OwnBankCode))
+			},
+			func(ctx2 context.Context, in service.ExerciseInput) (*model.OptionContract, error) {
+				return crossbankExercise.Run(ctx2, mapExerciseToCrossbank(in))
+			},
+		)
+		// Re-register the OTC handler with the cross-bank-aware service.
+		otcOptionsHandler = handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo)
+		pb.RegisterOTCOptionsServiceServer(grpcServer, otcOptionsHandler)
+	}
 
 	// Source admin handler
 	sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
@@ -754,4 +801,72 @@ func (a *fundSettingsAdapter) GetDecimal(key string) (decimal.Decimal, error) {
 		return decimal.Zero, err
 	}
 	return d, nil
+}
+
+// interBankTransferAdapter wraps transactionpb.InterBankServiceClient so it
+// satisfies service.InterBankTransferer.
+type interBankTransferAdapter struct {
+	client transactionpb.InterBankServiceClient
+}
+
+func (a *interBankTransferAdapter) Initiate(ctx context.Context, sender, receiver, amount, currency, memo string) (string, bool, string, error) {
+	resp, err := a.client.InitiateInterBankTransfer(ctx, &transactionpb.InitiateInterBankRequest{
+		SenderAccountNumber:   sender,
+		ReceiverAccountNumber: receiver,
+		Amount:                amount,
+		Currency:              currency,
+		Memo:                  memo,
+	})
+	if err != nil {
+		return "", false, err.Error(), err
+	}
+	committed := resp.Status == "committed"
+	return resp.TransactionId, committed, resp.ErrorReason, nil
+}
+
+func (a *interBankTransferAdapter) Reverse(ctx context.Context, originalTxID, memo string) error {
+	_, err := a.client.ReverseInterBankTransfer(ctx, &transactionpb.ReverseInterBankTransferRequest{
+		OriginalTxId: originalTxID,
+		Memo:         memo,
+	})
+	return err
+}
+
+// mapAcceptToCrossbank fills in the cross-bank input from the local Accept
+// input + offer row. Best-effort: account numbers and external client ids
+// rely on conventions established by the faculty cohort. Unset fields are
+// left blank — the saga's first peer call surfaces the gap clearly.
+func mapAcceptToCrossbank(o *model.OTCOffer, in service.AcceptInput, ownBank string) service.CrossbankAcceptInput {
+	buyerBank, sellerBank := ownBank, ownBank
+	if o.InitiatorBankCode != nil {
+		sellerBank = *o.InitiatorBankCode
+	}
+	if o.CounterpartyBankCode != nil {
+		buyerBank = *o.CounterpartyBankCode
+	}
+	if o.Direction == model.OTCDirectionBuyInitiated {
+		buyerBank, sellerBank = sellerBank, buyerBank
+	}
+	return service.CrossbankAcceptInput{
+		OfferID:         o.ID,
+		BuyerUserID:     in.ActorUserID,
+		BuyerSystemType: in.ActorSystemType,
+		BuyerBankCode:   buyerBank,
+		BuyerAccountID:  in.BuyerAccountID,
+		SellerUserID:    o.InitiatorUserID,
+		SellerSystemType: o.InitiatorSystemType,
+		SellerBankCode:  sellerBank,
+		Premium:         o.Premium,
+		Currency:        "RSD",
+		Quantity:        o.Quantity,
+		StrikePrice:     o.StrikePrice,
+		SettlementDate:  o.SettlementDate,
+	}
+}
+
+func mapExerciseToCrossbank(in service.ExerciseInput) service.CrossbankExerciseInput {
+	return service.CrossbankExerciseInput{
+		ContractID:     in.ContractID,
+		BuyerAccountID: in.BuyerAccountID,
+	}
 }
