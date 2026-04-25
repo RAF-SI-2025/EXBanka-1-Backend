@@ -15,7 +15,7 @@ import (
 
 type VirtualCardGRPCHandler struct {
 	pb.UnimplementedVirtualCardServiceServer
-	cardService *service.CardService
+	cardService cardServiceFacade
 }
 
 func NewVirtualCardGRPCHandler(cardService *service.CardService) *VirtualCardGRPCHandler {

@@ -15,7 +15,7 @@ import (
 
 type CardRequestGRPCHandler struct {
 	pb.UnimplementedCardRequestServiceServer
-	cardRequestSvc *service.CardRequestService
+	cardRequestSvc cardRequestServiceFacade
 }
 
 func NewCardRequestGRPCHandler(cardRequestSvc *service.CardRequestService) *CardRequestGRPCHandler {

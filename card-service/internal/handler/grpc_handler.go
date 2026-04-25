@@ -50,8 +50,8 @@ func mapServiceError(err error) codes.Code {
 
 type CardGRPCHandler struct {
 	pb.UnimplementedCardServiceServer
-	cardService  *service.CardService
-	producer     *kafkaprod.Producer
+	cardService  cardServiceFacade
+	producer     producerFacade
 	clientClient clientpb.ClientServiceClient
 }
 
