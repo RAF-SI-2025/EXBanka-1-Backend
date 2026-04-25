@@ -139,6 +139,51 @@ func setupSupervisorEmployee(t *testing.T, adminC *client.APIClient) (empID int,
 	return empID, supervisorC, email
 }
 
+// setupBasicEmployee creates an employee with EmployeeBasic role, activates them,
+// and returns the employee ID and an authenticated client. EmployeeBasic does
+// NOT have the orders.place-on-behalf permission and is used in tests that
+// verify forbidden responses.
+func setupBasicEmployee(t *testing.T, adminC *client.APIClient) (empID int, basicC *client.APIClient, email string) {
+	t.Helper()
+	email = helpers.RandomEmail()
+	password := helpers.RandomPassword()
+
+	createResp, err := adminC.POST("/api/v1/employees", map[string]interface{}{
+		"first_name":    helpers.RandomName("Basic"),
+		"last_name":     helpers.RandomName("Emp"),
+		"date_of_birth": helpers.DateOfBirthUnix(),
+		"gender":        "male",
+		"email":         email,
+		"phone":         helpers.RandomPhone(),
+		"address":       "Basic St 1",
+		"username":      helpers.RandomName("basic"),
+		"position":      "teller",
+		"department":    "Branch",
+		"role":          "EmployeeBasic",
+		"jmbg":          helpers.RandomJMBG(),
+	})
+	if err != nil {
+		t.Fatalf("setupBasicEmployee: create: %v", err)
+	}
+	helpers.RequireStatus(t, createResp, 201)
+	empID = int(helpers.GetNumberField(t, createResp, "id"))
+
+	token := scanKafkaForActivationToken(t, email)
+	activateResp, err := newClient().ActivateAccount(token, password)
+	if err != nil {
+		t.Fatalf("setupBasicEmployee: activate: %v", err)
+	}
+	helpers.RequireStatus(t, activateResp, 200)
+
+	basicC = newClient()
+	loginResp, err := basicC.Login(email, password)
+	if err != nil {
+		t.Fatalf("setupBasicEmployee: login: %v", err)
+	}
+	helpers.RequireStatus(t, loginResp, 200)
+	return empID, basicC, email
+}
+
 // getFirstStockListingID fetches stocks and returns the first stock's ID and listing_id.
 // Assumes stock-service has seeded data. Skips stocks that cannot be traded:
 //   - no resolvable listing_id (simulator hasn't seeded it),
