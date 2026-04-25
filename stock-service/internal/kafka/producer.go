@@ -32,6 +32,14 @@ func (p *Producer) Publish(ctx context.Context, topic string, msg any) error {
 	})
 }
 
+// PublishRaw writes pre-serialized bytes to a topic.
+func (p *Producer) PublishRaw(ctx context.Context, topic string, payload []byte) error {
+	return p.writer.WriteMessages(ctx, kafkalib.Message{
+		Topic: topic,
+		Value: payload,
+	})
+}
+
 func (p *Producer) PublishSecuritySynced(ctx context.Context, msg contract.SecuritySyncedMessage) error {
 	return p.Publish(ctx, contract.TopicSecuritySynced, msg)
 }
