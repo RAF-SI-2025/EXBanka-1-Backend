@@ -45,15 +45,57 @@ func mapServiceError(err error) codes.Code {
 	}
 }
 
+// loanRequestFacade is the subset of *service.LoanRequestService that the
+// gRPC handler invokes. Extracted as an interface to allow stub-based tests.
+type loanRequestFacade interface {
+	CreateLoanRequest(req *model.LoanRequest) error
+	GetLoanRequest(id uint64) (*model.LoanRequest, error)
+	ListLoanRequests(loanTypeFilter, accountFilter, statusFilter string, clientID uint64, page, pageSize int) ([]model.LoanRequest, int64, error)
+	ApproveLoanRequest(ctx context.Context, requestID uint64, employeeID uint64) (*model.Loan, error)
+	RejectLoanRequest(requestID uint64, changedBy int64, reason string) (*model.LoanRequest, error)
+}
+
+// loanFacade is the subset of *service.LoanService used by the gRPC handler.
+type loanFacade interface {
+	GetLoan(id uint64) (*model.Loan, error)
+	ListLoansByClient(clientID uint64, page, pageSize int) ([]model.Loan, int64, error)
+	ListAllLoans(loanTypeFilter, accountFilter, statusFilter string, page, pageSize int) ([]model.Loan, int64, error)
+}
+
+// installmentFacade is the subset of *service.InstallmentService used by the gRPC handler.
+type installmentFacade interface {
+	GetInstallmentsByLoan(loanID uint64) ([]model.Installment, error)
+}
+
+// rateConfigFacade is the subset of *service.RateConfigService used by the gRPC handler.
+type rateConfigFacade interface {
+	ListTiers() ([]model.InterestRateTier, error)
+	CreateTier(tier *model.InterestRateTier) error
+	UpdateTier(tier *model.InterestRateTier) error
+	DeleteTier(id uint64) error
+	ListMargins() ([]model.BankMargin, error)
+	UpdateMargin(margin *model.BankMargin) error
+	ApplyVariableRateUpdate(tierID uint64, loanRepo *repository.LoanRepository, installRepo *repository.InstallmentRepository) (int, error)
+}
+
+// creditProducer is the subset of *kafkaprod.Producer used by the gRPC handler.
+type creditProducer interface {
+	PublishLoanRequested(ctx context.Context, msg kafkamsg.LoanStatusMessage) error
+	PublishLoanApproved(ctx context.Context, msg kafkamsg.LoanStatusMessage) error
+	PublishLoanRejected(ctx context.Context, msg kafkamsg.LoanStatusMessage) error
+	PublishLoanDisbursed(ctx context.Context, msg kafkamsg.LoanDisbursedMessage) error
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+}
+
 type CreditGRPCHandler struct {
 	pb.UnimplementedCreditServiceServer
-	loanRequestService *service.LoanRequestService
-	loanService        *service.LoanService
-	installmentService *service.InstallmentService
-	rateConfigService  *service.RateConfigService
+	loanRequestService loanRequestFacade
+	loanService        loanFacade
+	installmentService installmentFacade
+	rateConfigService  rateConfigFacade
 	loanRepo           *repository.LoanRepository
 	installRepo        *repository.InstallmentRepository
-	producer           *kafkaprod.Producer
+	producer           creditProducer
 }
 
 func NewCreditGRPCHandler(
