@@ -310,6 +310,14 @@ func main() {
 			}
 			log.Println("initial stock source: generated (default)")
 		}
+
+		// Seed fund_redemption_fee_pct (Celina 4 — investment funds). Supervisors
+		// acting on the bank position pay 0; clients pay this rate on redeems.
+		if _, err := settingRepo.Get("fund_redemption_fee_pct"); err != nil {
+			if err := settingRepo.Set("fund_redemption_fee_pct", "0.005"); err != nil {
+				log.Printf("WARN: could not seed fund_redemption_fee_pct: %v", err)
+			}
+		}
 	}
 
 	syncSvc := service.NewSecuritySyncService(
