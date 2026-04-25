@@ -15,10 +15,43 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	pb "github.com/exbanka/contract/transactionpb"
 	verificationpb "github.com/exbanka/contract/verificationpb"
-	"github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/service"
 )
+
+// paymentFacade is the subset of *service.PaymentService used by the gRPC handler.
+type paymentFacade interface {
+	CreatePayment(ctx context.Context, payment *model.Payment) error
+	ExecutePayment(ctx context.Context, paymentID uint64) error
+	GetPayment(id uint64) (*model.Payment, error)
+	ListPaymentsByAccount(accountNumber, dateFrom, dateTo, statusFilter string, amountMin, amountMax float64, page, pageSize int) ([]model.Payment, int64, error)
+	ListPaymentsByClient(accountNumbers []string, page, pageSize int) ([]model.Payment, int64, error)
+}
+
+// transferFacade is the subset of *service.TransferService used by the gRPC handler.
+type transferFacade interface {
+	CreateTransfer(ctx context.Context, transfer *model.Transfer) error
+	ExecuteTransfer(ctx context.Context, transferID uint64) error
+	GetTransfer(id uint64) (*model.Transfer, error)
+	ListTransfersByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Transfer, int64, error)
+}
+
+// recipientFacade is the subset of *service.PaymentRecipientService used by the gRPC handler.
+type recipientFacade interface {
+	Create(pr *model.PaymentRecipient) error
+	GetByID(id uint64) (*model.PaymentRecipient, error)
+	ListByClient(clientID uint64) ([]model.PaymentRecipient, error)
+	Update(id uint64, recipientName, accountNumber *string) (*model.PaymentRecipient, error)
+	Delete(id uint64) error
+}
+
+// txProducer is the subset of *kafka.Producer used by the gRPC handler.
+type txProducer interface {
+	PublishPaymentCreated(ctx context.Context, msg kafkamsg.PaymentCompletedMessage) error
+	PublishPaymentCompleted(ctx context.Context, msg kafkamsg.PaymentCompletedMessage) error
+	PublishTransferCreated(ctx context.Context, msg kafkamsg.TransferCompletedMessage) error
+	PublishTransferCompleted(ctx context.Context, msg kafkamsg.TransferCompletedMessage) error
+}
 
 // mapServiceError maps service-layer error messages to appropriate gRPC status codes.
 func mapServiceError(err error) codes.Code {
@@ -55,11 +88,11 @@ func generateIdempotencyKey() string {
 
 type TransactionGRPCHandler struct {
 	pb.UnimplementedTransactionServiceServer
-	paymentSvc         *service.PaymentService
-	transferSvc        *service.TransferService
-	recipientSvc       *service.PaymentRecipientService
+	paymentSvc         paymentFacade
+	transferSvc        transferFacade
+	recipientSvc       recipientFacade
 	verificationClient verificationpb.VerificationGRPCServiceClient
-	producer           *kafka.Producer
+	producer           txProducer
 }
 
 func NewTransactionGRPCHandler(
@@ -67,7 +100,7 @@ func NewTransactionGRPCHandler(
 	transferSvc *service.TransferService,
 	recipientSvc *service.PaymentRecipientService,
 	verificationClient verificationpb.VerificationGRPCServiceClient,
-	producer *kafka.Producer,
+	producer txProducer,
 ) *TransactionGRPCHandler {
 	return &TransactionGRPCHandler{
 		paymentSvc:         paymentSvc,
@@ -75,6 +108,24 @@ func NewTransactionGRPCHandler(
 		recipientSvc:       recipientSvc,
 		verificationClient: verificationClient,
 		producer:           producer,
+	}
+}
+
+// newTransactionGRPCHandlerForTest constructs a TransactionGRPCHandler with interface values
+// for use in unit tests (avoids dependency on concrete service types).
+func newTransactionGRPCHandlerForTest(
+	payment paymentFacade,
+	transfer transferFacade,
+	recipient recipientFacade,
+	verif verificationpb.VerificationGRPCServiceClient,
+	prod txProducer,
+) *TransactionGRPCHandler {
+	return &TransactionGRPCHandler{
+		paymentSvc:         payment,
+		transferSvc:        transfer,
+		recipientSvc:       recipient,
+		verificationClient: verif,
+		producer:           prod,
 	}
 }
 

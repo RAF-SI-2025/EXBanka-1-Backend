@@ -14,13 +14,29 @@ import (
 	"github.com/exbanka/transaction-service/internal/service"
 )
 
+// feeFacade is the subset of *service.FeeService used by the gRPC handler.
+type feeFacade interface {
+	ListFees() ([]model.TransferFee, error)
+	CreateFee(fee *model.TransferFee) error
+	GetFee(id uint64) (*model.TransferFee, error)
+	UpdateFee(fee *model.TransferFee) error
+	DeactivateFee(id uint64) error
+	CalculateFeeDetailed(amount decimal.Decimal, txType, currency string) (decimal.Decimal, []service.FeeDetail, error)
+}
+
 type FeeGRPCHandler struct {
 	pb.UnimplementedFeeServiceServer
-	feeSvc *service.FeeService
+	feeSvc feeFacade
 }
 
 func NewFeeGRPCHandler(feeSvc *service.FeeService) *FeeGRPCHandler {
 	return &FeeGRPCHandler{feeSvc: feeSvc}
+}
+
+// newFeeGRPCHandlerForTest constructs a FeeGRPCHandler with the feeFacade interface
+// for use in unit tests.
+func newFeeGRPCHandlerForTest(svc feeFacade) *FeeGRPCHandler {
+	return &FeeGRPCHandler{feeSvc: svc}
 }
 
 func (h *FeeGRPCHandler) ListFees(ctx context.Context, req *pb.ListFeesRequest) (*pb.ListFeesResponse, error) {
