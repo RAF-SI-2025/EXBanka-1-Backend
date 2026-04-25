@@ -92,6 +92,21 @@ func (h *UserGRPCHandler) GetEmployee(ctx context.Context, req *pb.GetEmployeeRe
 	return toEmployeeResponse(emp, h.empService), nil
 }
 
+func (h *UserGRPCHandler) ListEmployeeFullNames(ctx context.Context, req *pb.ListEmployeeFullNamesRequest) (*pb.ListEmployeeFullNamesResponse, error) {
+	if len(req.EmployeeIds) == 0 {
+		return &pb.ListEmployeeFullNamesResponse{NamesById: map[int64]string{}}, nil
+	}
+	rows, err := h.empService.GetByIDs(req.EmployeeIds)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list employees: %v", err)
+	}
+	out := make(map[int64]string, len(rows))
+	for _, e := range rows {
+		out[e.ID] = strings.TrimSpace(e.FirstName + " " + e.LastName)
+	}
+	return &pb.ListEmployeeFullNamesResponse{NamesById: out}, nil
+}
+
 func (h *UserGRPCHandler) ListEmployees(ctx context.Context, req *pb.ListEmployeesRequest) (*pb.ListEmployeesResponse, error) {
 	employees, total, err := h.empService.ListEmployees(
 		req.EmailFilter, req.NameFilter, req.PositionFilter,

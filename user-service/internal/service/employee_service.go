@@ -110,6 +110,12 @@ func (s *EmployeeService) ListEmployees(emailFilter, nameFilter, positionFilter 
 	return s.repo.List(emailFilter, nameFilter, positionFilter, page, pageSize)
 }
 
+// GetByIDs returns the employees matching the provided IDs. Used by
+// ListEmployeeFullNames for fund / actuary decoration.
+func (s *EmployeeService) GetByIDs(ids []int64) ([]model.Employee, error) {
+	return s.repo.GetByIDs(ids)
+}
+
 func (s *EmployeeService) UpdateEmployee(ctx context.Context, id int64, updates map[string]interface{}, changedBy int64) (*model.Employee, error) {
 	emp, err := s.repo.GetByIDWithRoles(id)
 	if err != nil {

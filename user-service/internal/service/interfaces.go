@@ -26,6 +26,7 @@ type EmployeeRepo interface {
 	GetByEmailWithRoles(email string) (*model.Employee, error)
 	SetEmployeeRoles(employeeID int64, roles []model.Role) error
 	SetAdditionalPermissions(employeeID int64, perms []model.Permission) error
+	GetByIDs(ids []int64) ([]model.Employee, error)
 }
 
 type RoleRepo interface {

@@ -25,6 +25,19 @@ func (r *EmployeeRepository) GetByID(id int64) (*model.Employee, error) {
 	return &emp, nil
 }
 
+// GetByIDs returns the rows matching the given employee IDs, in unspecified
+// order. Used by ListEmployeeFullNames RPC for fund / actuary decoration.
+func (r *EmployeeRepository) GetByIDs(ids []int64) ([]model.Employee, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []model.Employee
+	if err := r.db.Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 func (r *EmployeeRepository) GetByEmail(email string) (*model.Employee, error) {
 	var emp model.Employee
 	if err := r.db.Where("email = ?", email).First(&emp).Error; err != nil {

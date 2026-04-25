@@ -91,6 +91,16 @@ func (m *mockRepo) GetByIDWithRoles(id int64) (*model.Employee, error) {
 	return m.GetByID(id)
 }
 
+func (m *mockRepo) GetByIDs(ids []int64) ([]model.Employee, error) {
+	out := make([]model.Employee, 0, len(ids))
+	for _, id := range ids {
+		if emp, ok := m.employees[id]; ok {
+			out = append(out, *emp)
+		}
+	}
+	return out, nil
+}
+
 func (m *mockRepo) GetByEmail(email string) (*model.Employee, error) {
 	for _, emp := range m.employees {
 		if emp.Email == email {

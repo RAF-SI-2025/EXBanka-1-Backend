@@ -16,6 +16,14 @@ service UserService {
   rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse);
   rpc SetEmployeeRoles(SetEmployeeRolesRequest) returns (EmployeeResponse);
   rpc SetEmployeeAdditionalPermissions(SetEmployeePermissionsRequest) returns (EmployeeResponse);
+  rpc ListEmployeeFullNames(ListEmployeeFullNamesRequest) returns (ListEmployeeFullNamesResponse);
+}
+
+message ListEmployeeFullNamesRequest {
+  repeated int64 employee_ids = 1;
+}
+message ListEmployeeFullNamesResponse {
+  map<int64, string> names_by_id = 1;
 }
 
 message CreateEmployeeRequest {
