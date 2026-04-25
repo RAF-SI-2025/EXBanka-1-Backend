@@ -21,6 +21,14 @@ import (
 	userpb "github.com/exbanka/contract/userpb"
 )
 
+// eventProducer abstracts the Kafka producer methods used by AuthService.
+// The concrete *kafkaprod.Producer satisfies this interface; tests can
+// supply an in-process fake to avoid requiring a live broker.
+type eventProducer interface {
+	SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error
+	Publish(ctx context.Context, topic string, msg any) error
+}
+
 type AuthService struct {
 	tokenRepo        *repository.TokenRepository
 	sessionRepo      *repository.SessionRepository
@@ -30,7 +38,7 @@ type AuthService struct {
 	jwtService       *JWTService
 	accountRepo      *repository.AccountRepository
 	userClient       userpb.UserServiceClient
-	producer         *kafkaprod.Producer
+	producer         eventProducer
 	cache            *cache.RedisCache
 	refreshExp       time.Duration
 	mobileRefreshExp time.Duration
@@ -48,6 +56,42 @@ func NewAuthService(
 	accountRepo *repository.AccountRepository,
 	userClient userpb.UserServiceClient,
 	producer *kafkaprod.Producer,
+	cache *cache.RedisCache,
+	refreshExp time.Duration,
+	mobileRefreshExp time.Duration,
+	frontendBaseURL string,
+	pepper string,
+) *AuthService {
+	return &AuthService{
+		tokenRepo:        tokenRepo,
+		sessionRepo:      sessionRepo,
+		loginAttemptRepo: loginAttemptRepo,
+		totpRepo:         totpRepo,
+		totpSvc:          totpSvc,
+		jwtService:       jwtService,
+		accountRepo:      accountRepo,
+		userClient:       userClient,
+		producer:         producer,
+		cache:            cache,
+		refreshExp:       refreshExp,
+		mobileRefreshExp: mobileRefreshExp,
+		frontendBaseURL:  frontendBaseURL,
+		pepper:           pepper,
+	}
+}
+
+// newAuthServiceForTest constructs an AuthService with a pluggable event
+// producer. Used by package tests to swap in an in-process fake.
+func newAuthServiceForTest(
+	tokenRepo *repository.TokenRepository,
+	sessionRepo *repository.SessionRepository,
+	loginAttemptRepo *repository.LoginAttemptRepository,
+	totpRepo *repository.TOTPRepository,
+	totpSvc *TOTPService,
+	jwtService *JWTService,
+	accountRepo *repository.AccountRepository,
+	userClient userpb.UserServiceClient,
+	producer eventProducer,
 	cache *cache.RedisCache,
 	refreshExp time.Duration,
 	mobileRefreshExp time.Duration,

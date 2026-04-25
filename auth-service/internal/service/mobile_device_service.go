@@ -26,7 +26,7 @@ type MobileDeviceService struct {
 	accountRepo         *repository.AccountRepository
 	tokenRepo           *repository.TokenRepository
 	jwtService          *JWTService
-	producer            *kafkaprod.Producer
+	producer            eventProducer
 	mobileRefreshExp    time.Duration
 	mobileActivationExp time.Duration
 	frontendBaseURL     string
@@ -39,6 +39,33 @@ func NewMobileDeviceService(
 	tokenRepo *repository.TokenRepository,
 	jwtService *JWTService,
 	producer *kafkaprod.Producer,
+	mobileRefreshExp time.Duration,
+	mobileActivationExp time.Duration,
+	frontendBaseURL string,
+) *MobileDeviceService {
+	return &MobileDeviceService{
+		deviceRepo:          deviceRepo,
+		activationRepo:      activationRepo,
+		accountRepo:         accountRepo,
+		tokenRepo:           tokenRepo,
+		jwtService:          jwtService,
+		producer:            producer,
+		mobileRefreshExp:    mobileRefreshExp,
+		mobileActivationExp: mobileActivationExp,
+		frontendBaseURL:     frontendBaseURL,
+	}
+}
+
+// newMobileDeviceServiceForTest constructs a MobileDeviceService with a
+// pluggable event producer. Used by package tests to swap in an in-process
+// fake (no live broker required).
+func newMobileDeviceServiceForTest(
+	deviceRepo *repository.MobileDeviceRepository,
+	activationRepo *repository.MobileActivationRepository,
+	accountRepo *repository.AccountRepository,
+	tokenRepo *repository.TokenRepository,
+	jwtService *JWTService,
+	producer eventProducer,
 	mobileRefreshExp time.Duration,
 	mobileActivationExp time.Duration,
 	frontendBaseURL string,

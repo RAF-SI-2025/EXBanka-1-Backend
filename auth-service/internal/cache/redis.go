@@ -23,6 +23,12 @@ func NewRedisCache(addr string) (*RedisCache, error) {
 	return &RedisCache{client: client}, nil
 }
 
+// newRedisCacheWithClient wraps an existing client. Used by tests to inject a
+// fake (e.g. miniredis-backed) client without requiring a live Redis server.
+func newRedisCacheWithClient(client *redis.Client) *RedisCache {
+	return &RedisCache{client: client}
+}
+
 func (c *RedisCache) Get(ctx context.Context, key string, dest interface{}) error {
 	val, err := c.client.Get(ctx, key).Result()
 	if err != nil {
