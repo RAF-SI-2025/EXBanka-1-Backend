@@ -123,6 +123,7 @@ func main() {
 		kafkamsg.TopicAuthMobileDeviceActivated,
 		kafkamsg.TopicAuthSessionCreated,
 		kafkamsg.TopicAuthSessionRevoked,
+		kafkamsg.TopicUserRolePermissionsChanged,
 	)
 
 	// Start Kafka consumer for employee-created events
@@ -136,6 +137,15 @@ func main() {
 	clientConsumer := consumer.NewClientConsumer(cfg.KafkaBrokers, authService)
 	clientConsumer.Start(ctx)
 	defer clientConsumer.Close()
+
+	if redisCache != nil {
+		rolePermHandler := consumer.NewRolePermChangeHandler(redisCache, tokenRepo, cfg.AccessExpiry)
+		rolePermConsumer := consumer.NewRolePermChangeConsumer(cfg.KafkaBrokers, rolePermHandler)
+		rolePermConsumer.Start(ctx)
+		defer rolePermConsumer.Close()
+	} else {
+		log.Println("WARN: redis unavailable — role-perm-change consumer NOT started; session revocation will be eventually consistent (next refresh / token expiry only)")
+	}
 
 	// Start gRPC server in goroutine
 	markReady()
