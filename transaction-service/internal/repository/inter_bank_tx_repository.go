@@ -60,6 +60,17 @@ func (r *InterBankTxRepository) GetByIdempotencyKey(key string) (*model.InterBan
 	return &t, err
 }
 
+// SetReverseKey overwrites the idempotency_key of a row with the canonical
+// "reverse-<originalTxID>" key so subsequent ReverseInterBankTransfer calls
+// for the same original land on this same row instead of creating a fresh
+// one. Used by the cross-bank OTC accept saga's compensation path.
+func (r *InterBankTxRepository) SetReverseKey(txID, reverseKey string) error {
+	res := r.db.Model(&model.InterBankTransaction{}).
+		Where("tx_id = ?", txID).
+		Update("idempotency_key", reverseKey)
+	return res.Error
+}
+
 // UpdateStatus enforces the transition matrix and uses a `WHERE status =
 // from` clause for compare-and-swap semantics. Returns ErrIllegalTransition
 // if the matrix forbids the move, or ErrConcurrentUpdate if the row's

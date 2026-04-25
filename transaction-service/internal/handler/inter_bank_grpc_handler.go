@@ -189,3 +189,28 @@ func (h *InterBankGRPCHandler) GetInterBankTransfer(ctx context.Context, req *pb
 	}
 	return resp, nil
 }
+
+// ReverseInterBankTransfer drives a reverse-direction transfer over the
+// existing 2PC channel — Spec 4 / Celina 5 addendum. Used by the cross-bank
+// OTC accept saga's compensation path. Returns:
+//   - reverse_tx_id: the new InterBankTransaction's tx_id
+//   - committed: true if the reverse landed COMMITTED end-to-end
+//   - fail_reason: empty on success; "insufficient-funds-at-responder" or
+//     similar when the peer's PREPARE returned NotReady.
+func (h *InterBankGRPCHandler) ReverseInterBankTransfer(ctx context.Context, req *pb.ReverseInterBankTransferRequest) (*pb.ReverseInterBankTransferResponse, error) {
+	if req.OriginalTxId == "" {
+		return nil, status.Error(codes.InvalidArgument, "original_tx_id is required")
+	}
+	out, err := h.svc.ReverseInterBankTransfer(ctx, req.OriginalTxId, req.Memo)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.ReverseInterBankTransferResponse{
+		ReverseTxId: out.ReverseTxID,
+		Committed:   out.Committed,
+		FailReason:  out.FailReason,
+	}, nil
+}
