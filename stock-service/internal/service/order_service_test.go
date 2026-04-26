@@ -312,7 +312,7 @@ func (r *mockSagaRepo) UpdateStatus(id uint64, version int64, newStatus, errMsg 
 // IsForwardCompleted satisfies the SagaLogRepo / FillSagaLogRepo interface.
 // Returns false in tests so shared.Saga's restart-resume always re-runs
 // each step from the start (the in-memory mock has no prior state).
-func (r *mockSagaRepo) IsForwardCompleted(orderID uint64, stepName string) (bool, error) {
+func (r *mockSagaRepo) IsForwardCompleted(sagaID, stepName string) (bool, error) {
 	return false, nil
 }
 

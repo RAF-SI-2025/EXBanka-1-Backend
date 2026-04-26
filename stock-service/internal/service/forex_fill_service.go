@@ -167,7 +167,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	commissionAmount := s.computeCommission(quoteAmount)
 	if commissionAmount.Sign() > 0 && s.bankRecipient != nil {
 		commissionMemo := fmt.Sprintf("Commission for forex order #%d fill #%d", order.ID, txn.ID)
-		commSaga := shared.NewSaga(sagaID+"-comm", stocksaga.NewRecorder(s.sagaRepo)).
+		commSaga := shared.NewSaga(uuid.New().String(), stocksaga.NewRecorder(s.sagaRepo)).
 			Add(shared.Step{
 				Name: "credit_commission",
 				Forward: func(ctx context.Context, _ *shared.State) error {

@@ -60,7 +60,7 @@ func (r *fakeSagaRepo) all() []*model.SagaLog {
 
 // IsForwardCompleted satisfies the SagaLogRepo interface for shared.Saga's
 // restart-resume. Returns false so each test run re-executes every step.
-func (r *fakeSagaRepo) IsForwardCompleted(orderID uint64, stepName string) (bool, error) {
+func (r *fakeSagaRepo) IsForwardCompleted(sagaID, stepName string) (bool, error) {
 	return false, nil
 }
 

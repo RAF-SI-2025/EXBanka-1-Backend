@@ -26,7 +26,7 @@ import (
 type SagaRepoIF interface {
 	RecordStep(log *model.SagaLog) error
 	UpdateStatus(id uint64, version int64, newStatus, errMsg string) error
-	IsForwardCompleted(orderID uint64, stepName string) (bool, error)
+	IsForwardCompleted(sagaID, stepName string) (bool, error)
 }
 
 // recoveryRepoIF extends SagaRepoIF with the queries the RecoveryRunner
@@ -128,12 +128,13 @@ func (r *Recorder) MarkCompensationFailed(ctx context.Context, h shared.StepHand
 }
 
 // IsCompleted reports whether a forward step has already completed for
-// this (order_id, step_name) pair. orderID comes from the saga's State
-// when the runner exposes one; for sagas that aren't order-bound (fund,
-// OTC) IsForwardCompleted is called with orderID=0 which the underlying
-// query treats as "ignore order_id filter".
+// this (saga_id, step_name) pair. Saga-scoped (NOT step-name-only)
+// because two distinct sagas in the same service share step names —
+// without saga scoping, every "persist_order_pending" step from any
+// prior order would silently skip the current order's step, leaving
+// the order unpersisted while the saga reports success.
 func (r *Recorder) IsCompleted(ctx context.Context, sagaID, stepName string) (bool, error) {
-	return r.repo.IsForwardCompleted(0, stepName)
+	return r.repo.IsForwardCompleted(sagaID, stepName)
 }
 
 // ListStuck returns rows in pending or compensating status whose

@@ -94,21 +94,26 @@ func (r *SagaLogRepository) ListStuckSagas(olderThan time.Duration) ([]model.Sag
 	return out, err
 }
 
-// IsForwardCompleted reports whether the given (order_id, step_name)
+// IsForwardCompleted reports whether the given (saga_id, step_name)
 // pair has already reached completed status on a forward step. Used by
 // stocksaga.Recorder.IsCompleted for shared.Saga's restart-resume.
 //
-// orderID == 0 is interpreted as "ignore the order_id filter" so sagas
-// not bound to an order (fund / OTC) can still resume by step name.
-func (r *SagaLogRepository) IsForwardCompleted(orderID uint64, stepName string) (bool, error) {
-	q := r.db.Model(&model.SagaLog{}).
-		Where("step_name = ? AND status = ? AND is_compensation = ?",
-			stepName, model.SagaStatusCompleted, false)
-	if orderID != 0 {
-		q = q.Where("order_id = ?", orderID)
+// MUST be saga-scoped: a global lookup by step_name alone would match
+// ANY prior saga's completed step and incorrectly skip the current
+// saga's same-named step. Every saga gets a unique saga_id (UUID), so
+// scoping by saga_id is precise.
+//
+// stepName ignored when sagaID is empty (returns false): callers that
+// don't know the saga id always re-execute every step from scratch.
+func (r *SagaLogRepository) IsForwardCompleted(sagaID, stepName string) (bool, error) {
+	if sagaID == "" {
+		return false, nil
 	}
 	var count int64
-	err := q.Count(&count).Error
+	err := r.db.Model(&model.SagaLog{}).
+		Where("saga_id = ? AND step_name = ? AND status = ? AND is_compensation = ?",
+			sagaID, stepName, model.SagaStatusCompleted, false).
+		Count(&count).Error
 	return count > 0, err
 }
 

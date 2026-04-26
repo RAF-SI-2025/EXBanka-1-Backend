@@ -18,7 +18,7 @@ type SagaLogRepo interface {
 	// IsForwardCompleted is required by stocksaga.Recorder (shared.Saga's
 	// adapter) for restart-resume. Tests that don't exercise resume can
 	// return false unconditionally.
-	IsForwardCompleted(orderID uint64, stepName string) (bool, error)
+	IsForwardCompleted(sagaID, stepName string) (bool, error)
 }
 
 // SagaExecutor wraps the pending → completed/failed recording pattern for

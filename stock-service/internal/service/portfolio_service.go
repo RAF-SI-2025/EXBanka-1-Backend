@@ -357,7 +357,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 	// this credits the bank-side leg.
 	commissionAmount := s.computeCommission(convertedAmount)
 	if commissionAmount.Sign() > 0 {
-		commSaga := shared.NewSaga(sagaID+"-comm", stocksaga.NewRecorder(s.sagaRepo)).
+		commSaga := shared.NewSaga(uuid.New().String(), stocksaga.NewRecorder(s.sagaRepo)).
 			Add(shared.Step{
 				Name: "credit_commission",
 				Forward: func(ctx context.Context, _ *shared.State) error {
@@ -701,7 +701,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 	// Best-effort commission credit (separate sub-saga).
 	commissionAmount := s.computeCommission(convertedAmount)
 	if commissionAmount.Sign() > 0 {
-		commSaga := shared.NewSaga(sagaID+"-comm", stocksaga.NewRecorder(s.sagaRepo)).
+		commSaga := shared.NewSaga(uuid.New().String(), stocksaga.NewRecorder(s.sagaRepo)).
 			Add(shared.Step{
 				Name: "credit_commission",
 				Forward: func(ctx context.Context, _ *shared.State) error {
