@@ -42,7 +42,7 @@ func main() {
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
 
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers, "exchange.rates-updated")
+	shared.EnsureTopics(cfg.KafkaBrokers, "exchange.rates-updated")
 
 	var redisCache *cache.RedisCache
 	redisCache, err = cache.NewRedisCache(cfg.RedisAddr)

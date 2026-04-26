@@ -46,7 +46,7 @@ func main() {
 
 	// Pre-create Kafka topics before any publishing to avoid
 	// partition assignment race condition for downstream consumers.
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		"client.created",
 		"client.updated",
 		"client.limits-updated",

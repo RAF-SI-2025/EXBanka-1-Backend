@@ -91,7 +91,7 @@ func main() {
 	})
 
 	// 9. Ensure Kafka topics exist (produces to)
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		kafkamsg.TopicVerificationChallengeCreated,
 		kafkamsg.TopicVerificationChallengeVerified,
 		kafkamsg.TopicVerificationChallengeFailed,

@@ -141,7 +141,7 @@ func main() {
 	// --- Kafka ---
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		"stock.exchange-synced",
 		"stock.security-synced",
 		"stock.listing-updated",

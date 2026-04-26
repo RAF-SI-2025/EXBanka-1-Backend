@@ -57,7 +57,7 @@ func main() {
 
 	// Pre-create Kafka topics before starting consumers to avoid
 	// partition assignment race condition on fresh startup.
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		"notification.send-email",
 		"notification.email-sent",
 		"verification.challenge-created",
