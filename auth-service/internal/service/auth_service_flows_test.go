@@ -106,6 +106,9 @@ func (s *stubUserClient) SetEmployeeRoles(ctx context.Context, in *userpb.SetEmp
 func (s *stubUserClient) SetEmployeeAdditionalPermissions(ctx context.Context, in *userpb.SetEmployeePermissionsRequest, opts ...grpc.CallOption) (*userpb.EmployeeResponse, error) {
 	return s.resp, s.err
 }
+func (s *stubUserClient) ListEmployeeFullNames(ctx context.Context, in *userpb.ListEmployeeFullNamesRequest, opts ...grpc.CallOption) (*userpb.ListEmployeeFullNamesResponse, error) {
+	return &userpb.ListEmployeeFullNamesResponse{}, nil
+}
 
 // ----------------------------------------------------------------------------
 // Test fixtures
