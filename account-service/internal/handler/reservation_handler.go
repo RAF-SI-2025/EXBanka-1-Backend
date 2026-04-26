@@ -11,16 +11,30 @@ import (
 	pb "github.com/exbanka/contract/accountpb"
 )
 
+// reservationSvcFacade is the narrow interface of ReservationService used by ReservationHandler.
+type reservationSvcFacade interface {
+	ReserveFunds(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode string) (*service.ReserveFundsResult, error)
+	ReleaseReservation(ctx context.Context, orderID uint64) (*service.ReleaseResult, error)
+	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*service.PartialSettleResult, error)
+	GetReservation(ctx context.Context, orderID uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error)
+}
+
 // ReservationHandler implements the four reservation RPCs on AccountService.
 // It's composed into AccountGRPCHandler so its methods override the
 // UnimplementedAccountServiceServer defaults.
 type ReservationHandler struct {
-	svc *service.ReservationService
+	svc reservationSvcFacade
 }
 
 // NewReservationHandler constructs a ReservationHandler around the given
 // ReservationService.
 func NewReservationHandler(svc *service.ReservationService) *ReservationHandler {
+	return &ReservationHandler{svc: svc}
+}
+
+// newReservationHandlerForTest constructs a ReservationHandler with an
+// interface-typed dependency for use in unit tests.
+func newReservationHandlerForTest(svc reservationSvcFacade) *ReservationHandler {
 	return &ReservationHandler{svc: svc}
 }
 

@@ -138,9 +138,135 @@ func TestReservationHandler_InvalidAmount(t *testing.T) {
 // decimalEqual compares two decimal strings by value (so "100" == "100.0").
 func decimalEqual(a, b string) bool {
 	da, err1 := decimal.NewFromString(a)
-	db, err2 := decimal.NewFromString(b)
+	dbv, err2 := decimal.NewFromString(b)
 	if err1 != nil || err2 != nil {
 		return a == b
 	}
-	return da.Equal(db)
+	return da.Equal(dbv)
+}
+
+// ---------------------------------------------------------------------------
+// Mock-backed unit tests (cover code paths the integration fixture does not).
+// ---------------------------------------------------------------------------
+
+type mockReservationSvc struct {
+	reserveFn func(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode string) (*service.ReserveFundsResult, error)
+	releaseFn func(ctx context.Context, orderID uint64) (*service.ReleaseResult, error)
+	partialFn func(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*service.PartialSettleResult, error)
+	getFn     func(ctx context.Context, orderID uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error)
+}
+
+func (m *mockReservationSvc) ReserveFunds(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode string) (*service.ReserveFundsResult, error) {
+	if m.reserveFn != nil {
+		return m.reserveFn(ctx, orderID, accountID, amount, currencyCode)
+	}
+	return &service.ReserveFundsResult{ReservationID: 1, ReservedBalance: amount, AvailableBalance: decimal.NewFromInt(1000)}, nil
+}
+
+func (m *mockReservationSvc) ReleaseReservation(ctx context.Context, orderID uint64) (*service.ReleaseResult, error) {
+	if m.releaseFn != nil {
+		return m.releaseFn(ctx, orderID)
+	}
+	return &service.ReleaseResult{ReleasedAmount: decimal.NewFromInt(100), ReservedBalance: decimal.Zero}, nil
+}
+
+func (m *mockReservationSvc) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*service.PartialSettleResult, error) {
+	if m.partialFn != nil {
+		return m.partialFn(ctx, orderID, orderTransactionID, amount, memo)
+	}
+	return &service.PartialSettleResult{
+		SettledAmount: amount, RemainingReserved: decimal.Zero,
+		BalanceAfter: decimal.NewFromInt(900), LedgerEntryID: 1,
+	}, nil
+}
+
+func (m *mockReservationSvc) GetReservation(ctx context.Context, orderID uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
+	if m.getFn != nil {
+		return m.getFn(ctx, orderID)
+	}
+	return "active", decimal.NewFromInt(1000), decimal.NewFromInt(500), []uint64{1, 2}, true, nil
+}
+
+func TestReservationHandler_PartialSettle_Success(t *testing.T) {
+	svc := &mockReservationSvc{
+		partialFn: func(_ context.Context, _, _ uint64, amt decimal.Decimal, _ string) (*service.PartialSettleResult, error) {
+			return &service.PartialSettleResult{
+				SettledAmount: amt, RemainingReserved: decimal.NewFromInt(20),
+				BalanceAfter: decimal.NewFromInt(900), LedgerEntryID: 5,
+			}, nil
+		},
+	}
+	h := newReservationHandlerForTest(svc)
+	resp, err := h.PartialSettleReservation(context.Background(), &pb.PartialSettleReservationRequest{
+		OrderId: 1, OrderTransactionId: 100, Amount: "30", Memo: "trade",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.LedgerEntryId != 5 {
+		t.Errorf("expected LedgerEntryId=5, got %d", resp.LedgerEntryId)
+	}
+}
+
+func TestReservationHandler_PartialSettle_InvalidAmount(t *testing.T) {
+	h := newReservationHandlerForTest(&mockReservationSvc{})
+	_, err := h.PartialSettleReservation(context.Background(), &pb.PartialSettleReservationRequest{Amount: "not-a-number"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", status.Code(err))
+	}
+}
+
+func TestReservationHandler_PartialSettle_ServiceError(t *testing.T) {
+	svc := &mockReservationSvc{
+		partialFn: func(_ context.Context, _, _ uint64, _ decimal.Decimal, _ string) (*service.PartialSettleResult, error) {
+			return nil, status.Error(codes.FailedPrecondition, "settle failed")
+		},
+	}
+	h := newReservationHandlerForTest(svc)
+	_, err := h.PartialSettleReservation(context.Background(), &pb.PartialSettleReservationRequest{Amount: "30"})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition, got %v", status.Code(err))
+	}
+}
+
+func TestReservationHandler_GetReservation_Empty(t *testing.T) {
+	svc := &mockReservationSvc{
+		getFn: func(_ context.Context, _ uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
+			return "", decimal.Zero, decimal.Zero, nil, false, nil
+		},
+	}
+	h := newReservationHandlerForTest(svc)
+	resp, err := h.GetReservation(context.Background(), &pb.GetReservationRequest{OrderId: 99})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Exists {
+		t.Error("expected Exists=false")
+	}
+}
+
+func TestReservationHandler_GetReservation_ServiceError(t *testing.T) {
+	svc := &mockReservationSvc{
+		getFn: func(_ context.Context, _ uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
+			return "", decimal.Zero, decimal.Zero, nil, false, status.Error(codes.Internal, "db down")
+		},
+	}
+	h := newReservationHandlerForTest(svc)
+	_, err := h.GetReservation(context.Background(), &pb.GetReservationRequest{OrderId: 1})
+	if status.Code(err) != codes.Internal {
+		t.Errorf("expected Internal, got %v", status.Code(err))
+	}
+}
+
+func TestReservationHandler_ReleaseReservation_ServiceError(t *testing.T) {
+	svc := &mockReservationSvc{
+		releaseFn: func(_ context.Context, _ uint64) (*service.ReleaseResult, error) {
+			return nil, status.Error(codes.Internal, "release failed")
+		},
+	}
+	h := newReservationHandlerForTest(svc)
+	_, err := h.ReleaseReservation(context.Background(), &pb.ReleaseReservationRequest{OrderId: 1})
+	if status.Code(err) != codes.Internal {
+		t.Errorf("expected Internal, got %v", status.Code(err))
+	}
 }

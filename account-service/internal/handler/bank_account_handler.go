@@ -42,6 +42,12 @@ func NewBankAccountGRPCHandler(accountSvc *service.AccountService, producer *kaf
 	return &BankAccountGRPCHandler{accountSvc: accountSvc, producer: producer}
 }
 
+// newBankAccountHandlerForTest constructs a BankAccountGRPCHandler with
+// interface-typed dependencies for use in unit tests.
+func newBankAccountHandlerForTest(accountSvc bankAccountSvcFacade, producer bankProducer) *BankAccountGRPCHandler {
+	return &BankAccountGRPCHandler{accountSvc: accountSvc, producer: producer}
+}
+
 func (h *BankAccountGRPCHandler) CreateBankAccount(ctx context.Context, req *pb.CreateBankAccountRequest) (*pb.AccountResponse, error) {
 	account, err := h.accountSvc.CreateBankAccount(req.CurrencyCode, req.AccountKind, req.AccountName, decimal.Zero)
 	if err != nil {
