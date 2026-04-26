@@ -9,16 +9,39 @@ import (
 	"github.com/shopspring/decimal"
 
 	pb "github.com/exbanka/contract/stockpb"
+	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/repository"
 	"github.com/exbanka/stock-service/internal/service"
 )
 
+// portfolioSvcFacade is the narrow interface of PortfolioService used by PortfolioHandler.
+type portfolioSvcFacade interface {
+	ListHoldings(userID uint64, systemType string, filter service.HoldingFilter) ([]model.Holding, int64, error)
+	GetCurrentPrice(listingID uint64) (decimal.Decimal, error)
+	MakePublic(holdingID, userID uint64, systemType string, quantity int64) (*model.Holding, error)
+	ExerciseOption(holdingID, userID uint64, systemType string) (*service.ExerciseResult, error)
+	ListHoldingTransactions(holdingID, userID uint64, systemType, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
+	ExerciseOptionByOptionID(ctx context.Context, optionID, userID uint64, systemType string, holdingID uint64) (*service.ExerciseResult, error)
+}
+
+// taxSvcFacade is the narrow interface of TaxService used by PortfolioHandler.
+type taxSvcFacade interface {
+	GetUserGainsAndTax(userID uint64, systemType string) (service.UserGainsAndTax, error)
+}
+
 type PortfolioHandler struct {
 	pb.UnimplementedPortfolioGRPCServiceServer
-	portfolioSvc *service.PortfolioService
-	taxSvc       *service.TaxService
+	portfolioSvc portfolioSvcFacade
+	taxSvc       taxSvcFacade
 }
 
 func NewPortfolioHandler(portfolioSvc *service.PortfolioService, taxSvc *service.TaxService) *PortfolioHandler {
+	return &PortfolioHandler{portfolioSvc: portfolioSvc, taxSvc: taxSvc}
+}
+
+// newPortfolioHandlerForTest constructs a PortfolioHandler with interface-typed
+// dependencies for use in unit tests.
+func newPortfolioHandlerForTest(portfolioSvc portfolioSvcFacade, taxSvc taxSvcFacade) *PortfolioHandler {
 	return &PortfolioHandler{portfolioSvc: portfolioSvc, taxSvc: taxSvc}
 }
 

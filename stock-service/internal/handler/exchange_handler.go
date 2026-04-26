@@ -33,12 +33,26 @@ func mapServiceError(err error) codes.Code {
 	}
 }
 
+// exchangeSvcFacade is the narrow interface of ExchangeService used by ExchangeGRPCHandler.
+type exchangeSvcFacade interface {
+	ListExchanges(search string, page, pageSize int) ([]model.StockExchange, int64, error)
+	GetExchange(id uint64) (*model.StockExchange, error)
+	SetTestingMode(enabled bool) error
+	GetTestingMode() bool
+}
+
 type ExchangeGRPCHandler struct {
 	pb.UnimplementedStockExchangeGRPCServiceServer
-	svc *service.ExchangeService
+	svc exchangeSvcFacade
 }
 
 func NewExchangeGRPCHandler(svc *service.ExchangeService) *ExchangeGRPCHandler {
+	return &ExchangeGRPCHandler{svc: svc}
+}
+
+// newExchangeHandlerForTest constructs an ExchangeGRPCHandler with an
+// interface-typed dependency for use in unit tests.
+func newExchangeHandlerForTest(svc exchangeSvcFacade) *ExchangeGRPCHandler {
 	return &ExchangeGRPCHandler{svc: svc}
 }
 

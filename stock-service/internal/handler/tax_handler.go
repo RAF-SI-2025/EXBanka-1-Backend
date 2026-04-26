@@ -4,19 +4,36 @@ import (
 	"context"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/exbanka/contract/stockpb"
+	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/service"
 )
 
+// taxHandlerSvcFacade is the narrow interface of TaxService used by TaxHandler.
+type taxHandlerSvcFacade interface {
+	ListTaxRecords(year, month int, filter service.TaxFilter) ([]service.TaxUserSummary, int64, error)
+	GetUserTaxSummary(userID uint64, systemType string) (decimal.Decimal, decimal.Decimal, error)
+	ListUserTaxRecords(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error)
+	ListUserTaxCollections(userID uint64, systemType string) ([]model.TaxCollection, error)
+	CollectTax(year, month int) (int64, decimal.Decimal, int64, error)
+}
+
 type TaxHandler struct {
 	pb.UnimplementedTaxGRPCServiceServer
-	taxSvc *service.TaxService
+	taxSvc taxHandlerSvcFacade
 }
 
 func NewTaxHandler(taxSvc *service.TaxService) *TaxHandler {
+	return &TaxHandler{taxSvc: taxSvc}
+}
+
+// newTaxHandlerForTest constructs a TaxHandler with an interface-typed
+// dependency for use in unit tests.
+func newTaxHandlerForTest(taxSvc taxHandlerSvcFacade) *TaxHandler {
 	return &TaxHandler{taxSvc: taxSvc}
 }
 
