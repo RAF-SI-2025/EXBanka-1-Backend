@@ -126,18 +126,14 @@ func main() {
 }
 
 // runExpiryLoop runs every 60 seconds to expire old pending challenges.
-// It respects context cancellation for graceful shutdown.
+// Delegates to shared.RunScheduled which honors ctx cancellation.
 func runExpiryLoop(ctx context.Context, svc *service.VerificationService) {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "verification-challenge-expiry",
+		Interval: 1 * time.Minute,
+		OnTick: func(ctx context.Context) error {
 			svc.ExpireOldChallenges(ctx)
-		case <-ctx.Done():
-			log.Println("verification-service: expiry loop stopped")
-			return
-		}
-	}
+			return nil
+		},
+	})
 }

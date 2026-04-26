@@ -77,19 +77,19 @@ func main() {
 	}
 
 	// Periodic sync every N hours.
-	go func() {
-		ticker := time.NewTicker(time.Duration(cfg.SyncIntervalHours) * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			if err := svc.SyncRates(context.Background(), rateProvider); err != nil {
-				log.Printf("WARN: periodic rate sync failed: %v", err)
-			} else {
-				if err := producer.PublishRatesUpdated(context.Background(), provider.SupportedCurrencies, time.Now().UTC().Format(time.RFC3339)); err != nil {
-					log.Printf("WARN: failed to publish rates-updated event: %v", err)
-				}
+	shared.RunScheduled(context.Background(), shared.ScheduledJob{
+		Name:     "exchange-rate-sync",
+		Interval: time.Duration(cfg.SyncIntervalHours) * time.Hour,
+		OnTick: func(ctx context.Context) error {
+			if err := svc.SyncRates(ctx, rateProvider); err != nil {
+				return err
 			}
-		}
-	}()
+			return producer.PublishRatesUpdated(ctx, provider.SupportedCurrencies, time.Now().UTC().Format(time.RFC3339))
+		},
+		OnError: func(err error) {
+			log.Printf("WARN: %v", err)
+		},
+	})
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

@@ -51,23 +51,19 @@ func NewCronService(
 	}
 }
 
-// Start runs the daily installment collection job
+// Start runs the daily installment collection job using the shared
+// scheduled runner. Returns immediately; the loop runs until ctx is
+// cancelled. RunOnStart fires the first collection without waiting a day.
 func (c *CronService) Start(ctx context.Context) {
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-
-	// Run immediately on start
-	c.collectDueInstallments(ctx)
-
-	for {
-		select {
-		case <-ticker.C:
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:       "credit-installment-collection",
+		Interval:   24 * time.Hour,
+		RunOnStart: true,
+		OnTick: func(ctx context.Context) error {
 			c.collectDueInstallments(ctx)
-		case <-ctx.Done():
-			log.Println("CronService: stopping")
-			return
-		}
-	}
+			return nil
+		},
+	})
 }
 
 func (c *CronService) collectDueInstallments(ctx context.Context) {

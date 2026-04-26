@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/notification-service/internal/repository"
 )
 
@@ -46,18 +47,13 @@ func (s *InboxCleanupService) runOnce() (int64, error) {
 
 // StartCleanupCron runs every minute and deletes expired mobile inbox items.
 func (s *InboxCleanupService) StartCleanupCron(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				_, _ = s.runOnce()
-			case <-ctx.Done():
-				log.Println("inbox cleanup: stopped")
-				return
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "inbox-cleanup",
+		Interval: 1 * time.Minute,
+		OnTick: func(ctx context.Context) error {
+			_, err := s.runOnce()
+			return err
+		},
+	})
 	log.Println("inbox cleanup: started (every 1 minute)")
 }

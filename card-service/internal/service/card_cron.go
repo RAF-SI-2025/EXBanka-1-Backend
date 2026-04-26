@@ -8,22 +8,19 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/exbanka/card-service/internal/repository"
+	"github.com/exbanka/contract/shared"
 )
 
 // StartCardCron launches the card maintenance loop. It exits when ctx is cancelled.
 func StartCardCron(ctx context.Context, cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, db *gorm.DB) {
-	ticker := time.NewTicker(1 * time.Minute)
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				runCardCronTick(ctx, cardRepo, blockRepo, db)
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "card-maintenance",
+		Interval: 1 * time.Minute,
+		OnTick: func(ctx context.Context) error {
+			runCardCronTick(ctx, cardRepo, blockRepo, db)
+			return nil
+		},
+	})
 }
 
 func runCardCronTick(ctx context.Context, cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, db *gorm.DB) {

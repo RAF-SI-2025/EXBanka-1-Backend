@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/exbanka/contract/influx"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/provider"
@@ -185,19 +186,14 @@ func (s *SecuritySyncService) StartPeriodicRefresh(ctx context.Context, interval
 	if intervalMins <= 0 {
 		intervalMins = 15
 	}
-	ticker := time.NewTicker(time.Duration(intervalMins) * time.Minute)
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				s.RefreshPrices(ctx)
-			case <-ctx.Done():
-				log.Println("stopping periodic security price refresh")
-				return
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "security-price-refresh",
+		Interval: time.Duration(intervalMins) * time.Minute,
+		OnTick: func(ctx context.Context) error {
+			s.RefreshPrices(ctx)
+			return nil
+		},
+	})
 	log.Printf("periodic security price refresh started (every %d min)", intervalMins)
 }
 
@@ -552,18 +548,14 @@ func (s *SecuritySyncService) StartSimulatorRefreshLoopIfActive() {
 func (s *SecuritySyncService) startSimulatorRefreshLoop() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.refreshCtx = cancel
-	go func() {
-		ticker := time.NewTicker(3 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.refreshSimulatorPrices(ctx)
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "simulator-price-refresh",
+		Interval: 3 * time.Second,
+		OnTick: func(ctx context.Context) error {
+			s.refreshSimulatorPrices(ctx)
+			return nil
+		},
+	})
 }
 
 // refreshSimulatorPrices re-fetches the current Source and updates the
