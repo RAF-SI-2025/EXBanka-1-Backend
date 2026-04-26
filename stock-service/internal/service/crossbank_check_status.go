@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/shared"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -41,20 +42,14 @@ func NewCrossbankCheckStatusCron(
 }
 
 func (c *CrossbankCheckStatusCron) Start(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(c.tickEvery)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := c.RunOnce(ctx); err != nil {
-					log.Printf("WARN: cross-bank CHECK_STATUS run: %v", err)
-				}
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "crossbank-check-status",
+		Interval: c.tickEvery,
+		OnTick:   c.RunOnce,
+		OnError: func(err error) {
+			log.Printf("WARN: cross-bank CHECK_STATUS run: %v", err)
+		},
+	})
 }
 
 // RunOnce queries every peer for the canonical state of every pending row.

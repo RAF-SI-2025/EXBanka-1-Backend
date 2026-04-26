@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -39,20 +40,14 @@ func NewCrossbankOrphanReservationCron(
 }
 
 func (c *CrossbankOrphanReservationCron) Start(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(c.tickEvery)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := c.RunOnce(ctx); err != nil {
-					log.Printf("WARN: cross-bank orphan reservation run: %v", err)
-				}
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "crossbank-orphan-reservation",
+		Interval: c.tickEvery,
+		OnTick:   c.RunOnce,
+		OnError: func(err error) {
+			log.Printf("WARN: cross-bank orphan reservation run: %v", err)
+		},
+	})
 }
 
 // RunOnce releases dangling phase-2-completed reservations whose contract

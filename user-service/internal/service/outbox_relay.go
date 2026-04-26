@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/contract/shared"
 	kafkaprod "github.com/exbanka/user-service/internal/kafka"
 	"github.com/exbanka/user-service/internal/repository"
 )
@@ -26,19 +27,14 @@ func NewOutboxRelay(repo *repository.OutboxRepository, producer *kafkaprod.Produ
 }
 
 func (r *OutboxRelay) Start(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(r.tick)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				log.Println("outbox relay stopping")
-				return
-			case <-ticker.C:
-				r.processBatch(ctx)
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "outbox-relay",
+		Interval: r.tick,
+		OnTick: func(ctx context.Context) error {
+			r.processBatch(ctx)
+			return nil
+		},
+	})
 }
 
 func (r *OutboxRelay) processBatch(ctx context.Context) {

@@ -237,6 +237,53 @@ func TestCancelOrder_ForwardsSystemType(t *testing.T) {
 	require.Equal(t, handler.BankSystemType, ord.lastCancelReq.SystemType)
 }
 
+// TestCreateOrder_Employee_PassesActingEmployeeID is the regression
+// guard for the Phase 3 limit-bypass bug. Phase 3's mePortfolioIdentity
+// rewrites an employee's identity to (BankSentinel, "bank") on
+// /me/orders so the bank's portfolio surfaces — but stock-service still
+// needs to know which employee acted, otherwise the per-actuary
+// EmployeeLimit gate can't fire.
+//
+// Assertion: when an employee posts to /me/orders, the outgoing
+// CreateOrderRequest carries:
+//   - UserId = BankSentinelUserID (the swap from mePortfolioIdentity)
+//   - SystemType = "bank"          (ditto)
+//   - ActingEmployeeId = JWT user_id (the gate keys on this)
+func TestCreateOrder_Employee_PassesActingEmployeeID(t *testing.T) {
+	ord := &stubOrderClient{}
+	acct := &stubAccountClient{
+		getAccountFn: func(_ *accountpb.GetAccountRequest) *accountpb.AccountResponse {
+			// Bank account owned by the bank sentinel — ownership check
+			// passes when the swapped identity matches.
+			return &accountpb.AccountResponse{Id: 42, OwnerId: handler.BankSentinelUserID}
+		},
+	}
+	h := handler.NewStockOrderHandler(ord, acct)
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/api/v1/me/orders", func(c *gin.Context) {
+		c.Set("user_id", int64(11))
+		c.Set("system_type", "employee")
+		h.CreateOrder(c)
+	})
+
+	body := `{"listing_id":5,"direction":"buy","order_type":"limit","quantity":1,"limit_value":"100","account_id":42}`
+	req := httptest.NewRequest("POST", "/api/v1/me/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
+	require.NotNil(t, ord.lastCreateReq, "stock-service must be called")
+	require.Equal(t, handler.BankSentinelUserID, ord.lastCreateReq.UserId,
+		"Phase 3: employee /me/orders should swap to bank sentinel")
+	require.Equal(t, handler.BankSystemType, ord.lastCreateReq.SystemType,
+		"Phase 3: employee /me/orders should swap system_type to bank")
+	require.Equal(t, uint64(11), ord.lastCreateReq.ActingEmployeeId,
+		"per-actuary EmployeeLimit gate keys on this — must be the JWT employee id")
+}
+
 func TestListMyOrders_ForwardsSystemType(t *testing.T) {
 	ord := &stubOrderClient{}
 	acct := &stubAccountClient{}

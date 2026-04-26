@@ -6,6 +6,7 @@ import (
 	"time"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/transaction-service/internal/model"
 )
 
@@ -31,20 +32,14 @@ func NewInterBankTimeoutCron(svc *InterBankService, interval, wait time.Duration
 
 // Start launches the cron. Honors ctx cancellation.
 func (c *InterBankTimeoutCron) Start(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(c.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := c.RunOnce(ctx); err != nil {
-					log.Printf("interbank receiver-timeout cron: tick failed: %v", err)
-				}
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "interbank-receiver-timeout",
+		Interval: c.interval,
+		OnTick:   c.RunOnce,
+		OnError: func(err error) {
+			log.Printf("interbank receiver-timeout cron: tick failed: %v", err)
+		},
+	})
 }
 
 // RunOnce releases incoming reservations whose ready_sent age exceeds

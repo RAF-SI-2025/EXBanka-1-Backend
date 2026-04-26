@@ -7,6 +7,7 @@ import (
 	"time"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/transaction-service/internal/model"
 )
 
@@ -42,20 +43,14 @@ func NewInterBankReconciler(svc *InterBankService, interval, prepareTimeout, sta
 
 // Start launches the reconcile loop. Honors ctx cancellation.
 func (r *InterBankReconciler) Start(ctx context.Context) {
-	go func() {
-		ticker := time.NewTicker(r.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				if err := r.RunOnce(ctx); err != nil {
-					log.Printf("interbank reconciler: tick failed: %v", err)
-				}
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "interbank-reconciler",
+		Interval: r.interval,
+		OnTick:   r.RunOnce,
+		OnError: func(err error) {
+			log.Printf("interbank reconciler: tick failed: %v", err)
+		},
+	})
 }
 
 // RunOnce processes a single batch. Public so tests can drive it directly.

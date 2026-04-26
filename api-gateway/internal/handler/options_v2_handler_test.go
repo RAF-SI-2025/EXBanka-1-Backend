@@ -70,16 +70,18 @@ type stubOrderClient struct {
 	getOrderFn    func(req *stockpb.GetOrderRequest) *stockpb.OrderDetail
 	listMyFn      func(req *stockpb.ListMyOrdersRequest) *stockpb.ListOrdersResponse
 	cancelFn      func(req *stockpb.CancelOrderRequest) *stockpb.Order
+	lastCreateReq *stockpb.CreateOrderRequest
 	lastGetReq    *stockpb.GetOrderRequest
 	lastListReq   *stockpb.ListMyOrdersRequest
 	lastCancelReq *stockpb.CancelOrderRequest
 }
 
 func (s *stubOrderClient) CreateOrder(ctx context.Context, in *stockpb.CreateOrderRequest, opts ...grpc.CallOption) (*stockpb.Order, error) {
+	s.lastCreateReq = in
 	if s.createFn != nil {
 		return s.createFn(in), nil
 	}
-	return nil, nil
+	return &stockpb.Order{Id: 1, Status: "approved"}, nil
 }
 func (s *stubOrderClient) GetOrder(ctx context.Context, in *stockpb.GetOrderRequest, opts ...grpc.CallOption) (*stockpb.OrderDetail, error) {
 	s.lastGetReq = in
