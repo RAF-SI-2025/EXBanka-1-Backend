@@ -16,15 +16,6 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Interface covering only handler-called OTC surface
-// ---------------------------------------------------------------------------
-
-type otcSvcFacade interface {
-	ListOffers(filter service.OTCFilter) ([]model.Holding, int64, error)
-	BuyOffer(offerID, buyerID uint64, buyerSystemType string, quantity int64, buyerAccountID uint64) (*service.OTCBuyResult, error)
-}
-
-// ---------------------------------------------------------------------------
 // Mock
 // ---------------------------------------------------------------------------
 
@@ -51,72 +42,6 @@ func (m *mockOTCSvc) BuyOffer(offerID, buyerID uint64, buyerSystemType string, q
 		PricePerUnit: decimal.NewFromFloat(10),
 		TotalPrice:   decimal.NewFromFloat(10).Mul(decimal.NewFromInt(quantity)),
 		Commission:   decimal.NewFromFloat(0.5),
-	}, nil
-}
-
-// ---------------------------------------------------------------------------
-// Testable OTCHandler variant that accepts the interface
-// ---------------------------------------------------------------------------
-
-type testOTCHandler struct {
-	pb.UnimplementedOTCGRPCServiceServer
-	otcSvc otcSvcFacade
-}
-
-func newOTCHandlerForTest(svc otcSvcFacade) *testOTCHandler {
-	return &testOTCHandler{otcSvc: svc}
-}
-
-func (h *testOTCHandler) ListOffers(ctx context.Context, req *pb.ListOTCOffersRequest) (*pb.ListOTCOffersResponse, error) {
-	filter := service.OTCFilter{
-		SecurityType: req.SecurityType,
-		Ticker:       req.Ticker,
-		Page:         int(req.Page),
-		PageSize:     int(req.PageSize),
-	}
-	holdings, total, err := h.otcSvc.ListOffers(filter)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	offers := make([]*pb.OTCOffer, len(holdings))
-	for i, hld := range holdings {
-		offers[i] = &pb.OTCOffer{
-			Id:           hld.ID,
-			SellerId:     hld.UserID,
-			SellerName:   hld.UserFirstName + " " + hld.UserLastName,
-			SecurityType: hld.SecurityType,
-			Ticker:       hld.Ticker,
-			Name:         hld.Name,
-			Quantity:     hld.PublicQuantity,
-			PricePerUnit: hld.AveragePrice.StringFixed(2),
-			CreatedAt:    hld.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		}
-	}
-	return &pb.ListOTCOffersResponse{Offers: offers, TotalCount: total}, nil
-}
-
-func (h *testOTCHandler) BuyOffer(ctx context.Context, req *pb.BuyOTCOfferRequest) (*pb.OTCTransaction, error) {
-	effectiveBuyerID, effectiveSystemType, rerr := resolveOrderOwner(req.BuyerId, req.SystemType, req.ActingEmployeeId, req.OnBehalfOfClientId)
-	if rerr != nil {
-		return nil, rerr
-	}
-	result, err := h.otcSvc.BuyOffer(
-		req.OfferId,
-		effectiveBuyerID,
-		effectiveSystemType,
-		req.Quantity,
-		req.AccountId,
-	)
-	if err != nil {
-		return nil, mapOTCError(err)
-	}
-	return &pb.OTCTransaction{
-		Id:           result.ID,
-		OfferId:      result.OfferID,
-		Quantity:     result.Quantity,
-		PricePerUnit: result.PricePerUnit.StringFixed(2),
-		TotalPrice:   result.TotalPrice.StringFixed(2),
-		Commission:   result.Commission.StringFixed(2),
 	}, nil
 }
 

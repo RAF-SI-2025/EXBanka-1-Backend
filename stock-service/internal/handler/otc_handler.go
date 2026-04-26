@@ -7,15 +7,28 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/exbanka/contract/stockpb"
+	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/service"
 )
 
+// otcSvcFacade is the narrow interface of OTCService used by OTCHandler.
+type otcSvcFacade interface {
+	ListOffers(filter service.OTCFilter) ([]model.Holding, int64, error)
+	BuyOffer(offerID, buyerID uint64, buyerSystemType string, quantity int64, buyerAccountID uint64) (*service.OTCBuyResult, error)
+}
+
 type OTCHandler struct {
 	pb.UnimplementedOTCGRPCServiceServer
-	otcSvc *service.OTCService
+	otcSvc otcSvcFacade
 }
 
 func NewOTCHandler(otcSvc *service.OTCService) *OTCHandler {
+	return &OTCHandler{otcSvc: otcSvc}
+}
+
+// newOTCHandlerForTest constructs an OTCHandler with an interface-typed
+// dependency for use in unit tests.
+func newOTCHandlerForTest(otcSvc otcSvcFacade) *OTCHandler {
 	return &OTCHandler{otcSvc: otcSvc}
 }
 

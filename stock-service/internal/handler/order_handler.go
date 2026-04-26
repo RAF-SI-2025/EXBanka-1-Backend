@@ -14,13 +14,36 @@ import (
 	"github.com/exbanka/stock-service/internal/service"
 )
 
+// orderSvcFacade is the narrow interface of OrderService used by OrderHandler.
+type orderSvcFacade interface {
+	CreateOrder(ctx context.Context, req service.CreateOrderRequest) (*model.Order, error)
+	GetOrder(orderID, userID uint64, systemType string) (*model.Order, []model.OrderTransaction, error)
+	ListMyOrders(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error)
+	CancelOrder(orderID, userID uint64, systemType string) (*model.Order, error)
+	ListAllOrders(filter repository.OrderFilter) ([]model.Order, int64, error)
+	ApproveOrder(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
+	DeclineOrder(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
+}
+
+// execEngineFacade is the narrow interface of OrderExecutionEngine used by OrderHandler.
+type execEngineFacade interface {
+	StartOrderExecution(ctx context.Context, orderID uint64)
+	StopOrderExecution(orderID uint64)
+}
+
 type OrderHandler struct {
 	pb.UnimplementedOrderGRPCServiceServer
-	orderSvc   *service.OrderService
-	execEngine *service.OrderExecutionEngine
+	orderSvc   orderSvcFacade
+	execEngine execEngineFacade
 }
 
 func NewOrderHandler(orderSvc *service.OrderService, execEngine *service.OrderExecutionEngine) *OrderHandler {
+	return &OrderHandler{orderSvc: orderSvc, execEngine: execEngine}
+}
+
+// newOrderHandlerForTest constructs an OrderHandler with interface-typed
+// dependencies for use in unit tests.
+func newOrderHandlerForTest(orderSvc orderSvcFacade, execEngine execEngineFacade) *OrderHandler {
 	return &OrderHandler{orderSvc: orderSvc, execEngine: execEngine}
 }
 
