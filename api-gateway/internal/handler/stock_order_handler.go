@@ -156,7 +156,7 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		}
 	}
 
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -192,7 +192,7 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 }
 
 func (h *StockOrderHandler) ListMyOrders(c *gin.Context) {
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -221,7 +221,7 @@ func (h *StockOrderHandler) GetMyOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -242,7 +242,7 @@ func (h *StockOrderHandler) CancelOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}

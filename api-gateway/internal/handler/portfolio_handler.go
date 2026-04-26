@@ -24,7 +24,7 @@ func NewPortfolioHandler(
 }
 
 func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -50,7 +50,7 @@ func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
 }
 
 func (h *PortfolioHandler) GetPortfolioSummary(c *gin.Context) {
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -82,7 +82,7 @@ func (h *PortfolioHandler) MakePublic(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "quantity must be positive")
 		return
 	}
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -118,7 +118,7 @@ func (h *PortfolioHandler) ListHoldingTransactions(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid holding id")
 		return
 	}
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -156,7 +156,7 @@ func (h *PortfolioHandler) ExerciseOption(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid holding id")
 		return
 	}
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -292,7 +292,7 @@ func (h *PortfolioHandler) BuyOTCOffer(c *gin.Context) {
 		return
 	}
 
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}

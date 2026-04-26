@@ -100,7 +100,7 @@ func (h *OptionsV2Handler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -159,7 +159,7 @@ func (h *OptionsV2Handler) Exercise(c *gin.Context) {
 	var req exerciseOptionRequest
 	_ = c.ShouldBindJSON(&req) // body is optional
 
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}

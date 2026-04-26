@@ -221,8 +221,11 @@ func TestCancelOrder_ForwardsSystemType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NotNil(t, ord.lastCancelReq)
 	require.Equal(t, uint64(9), ord.lastCancelReq.Id)
-	require.Equal(t, uint64(11), ord.lastCancelReq.UserId)
-	require.Equal(t, "employee", ord.lastCancelReq.SystemType)
+	// Phase 3: employee /me/* ops act on the bank's portfolio, so the
+	// underlying RPC carries the bank sentinel user_id and system_type=bank,
+	// not the employee's own user_id.
+	require.Equal(t, handler.BankSentinelUserID, ord.lastCancelReq.UserId)
+	require.Equal(t, handler.BankSystemType, ord.lastCancelReq.SystemType)
 }
 
 func TestListMyOrders_ForwardsSystemType(t *testing.T) {

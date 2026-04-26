@@ -152,6 +152,42 @@ func meIdentity(c *gin.Context) (userID uint64, systemType string, ok bool) {
 	return uint64(uid), st, true
 }
 
+// BankSentinelUserID is the synthetic user_id for bank-owned orders /
+// holdings / portfolio data. Mirrors the sentinel account-service uses
+// for bank-owned accounts (1_000_000_000) so the bank "owner" is
+// represented consistently across services.
+const BankSentinelUserID uint64 = 1_000_000_000
+
+// BankSystemType is the system_type value for bank-owned trading data.
+// Distinct from "employee" and "client" so stock-service queries can
+// scope to the bank's portfolio without conflating with individual
+// employee or client positions.
+const BankSystemType = "bank"
+
+// mePortfolioIdentity returns the (userID, systemType) pair to use when
+// looking up portfolio / order / holdings data on behalf of the
+// authenticated caller.
+//
+//   - Clients see their own data: returns (client.user_id, "client").
+//   - Employees see the BANK's data: returns (BankSentinelUserID, "bank").
+//     The employee's own user_id has no portfolio of its own; their work
+//     is the bank's work, so /me/* surfaces what they manage.
+//
+// Use this in handlers that read or write trading data scoped by
+// (user_id, system_type). Use plain meIdentity for non-trading /me/*
+// endpoints (profile, permissions, etc.) where the employee's identity
+// is what matters.
+func mePortfolioIdentity(c *gin.Context) (userID uint64, systemType string, ok bool) {
+	uid, st, ok := meIdentity(c)
+	if !ok {
+		return 0, "", false
+	}
+	if st == "employee" {
+		return BankSentinelUserID, BankSystemType, true
+	}
+	return uid, st, true
+}
+
 // ---------------------------------------------------------------------------
 // Standardized error response helpers
 // ---------------------------------------------------------------------------

@@ -71,7 +71,10 @@ func (o *Order) BeforeUpdate(tx *gorm.DB) error {
 }
 
 // IsAutoApproved returns true if this order is auto-approved.
-// Client orders and supervisor orders are auto-approved.
+// Client orders are auto-approved (the client is the order owner).
+// Bank orders are auto-approved (the bank is acting for itself; an
+// employee placed it under their granted permissions and limits).
+// Employee-on-behalf-of-client orders go through manual approval.
 func (o *Order) IsAutoApproved() bool {
-	return o.SystemType == "client"
+	return o.SystemType == "client" || o.SystemType == "bank"
 }

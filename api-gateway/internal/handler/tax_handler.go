@@ -67,7 +67,7 @@ func (h *TaxHandler) ListTaxRecords(c *gin.Context) {
 // @Failure      500  {object}  map[string]string       "internal error"
 // @Router       /api/v2/me/tax [get]
 func (h *TaxHandler) ListMyTaxRecords(c *gin.Context) {
-	userID, systemType, ok := meIdentity(c)
+	userID, systemType, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}

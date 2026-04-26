@@ -899,11 +899,11 @@ func contractSizeForSecurity(securityType string) int64 {
 }
 
 // approvalActor returns the value to store in Order.ApprovedBy at the end of
-// the placement saga. Client self-placed orders are auto-approved with a
-// sentinel string to match pre-Phase-2 semantics; supervisor-placed orders
-// leave this blank so a human approver can be stamped later.
+// the placement saga. Client self-placed orders and bank orders are
+// auto-approved with a sentinel string. Employee-on-behalf-of-client
+// orders leave this blank so a human approver can be stamped later.
 func approvalActor(systemType string) string {
-	if systemType == "client" {
+	if systemType == "client" || systemType == "bank" {
 		return "no need for approval"
 	}
 	return ""
