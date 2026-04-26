@@ -201,6 +201,36 @@ func TestGetEmployee_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestGetEmployeeByEmail_Found(t *testing.T) {
+	repo := newMockRepo()
+	repo.employees[1] = &model.Employee{ID: 1, Email: "alice@example.com", FirstName: "Alice"}
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	emp, err := svc.GetEmployeeByEmail("alice@example.com")
+	assert.NoError(t, err)
+	assert.Equal(t, "Alice", emp.FirstName)
+}
+
+func TestGetEmployeeByEmail_NotFound(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	_, err := svc.GetEmployeeByEmail("missing@example.com")
+	assert.Error(t, err)
+}
+
+func TestListEmployees_ReturnsAll(t *testing.T) {
+	repo := newMockRepo()
+	repo.employees[1] = &model.Employee{ID: 1, Email: "a@x.com"}
+	repo.employees[2] = &model.Employee{ID: 2, Email: "b@x.com"}
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	emps, total, err := svc.ListEmployees("", "", "", 1, 10)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, emps, 2)
+}
+
 func TestUpdateEmployee_InvalidJMBG(t *testing.T) {
 	repo := newMockRepo()
 	repo.employees[1] = &model.Employee{ID: 1, JMBG: "0101990710024"}
