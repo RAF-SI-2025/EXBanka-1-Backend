@@ -298,9 +298,15 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 			return errors.New(reason)
 		}
 
-		bankToAccount, err := findBankAccountByCurrency(bankAccountsResp.GetAccounts(), transfer.ToCurrency)
+		// Cross-currency saga step 3 debits the bank's to-currency account.
+		// findBankAccountByCurrencyWithBalance picks one with sufficient
+		// available balance so we don't pick a 0-balance account (the
+		// gateway POST /bank-accounts path creates accounts with no
+		// initial balance — see findBankAccountByCurrencyWithBalance for
+		// the full rationale).
+		bankToAccount, err := findBankAccountByCurrencyWithBalance(bankAccountsResp.GetAccounts(), transfer.ToCurrency, convertedAmount)
 		if err != nil {
-			reason := fmt.Sprintf("no bank account for to-currency %s: %v", transfer.ToCurrency, err)
+			reason := fmt.Sprintf("no bank account with sufficient balance for to-currency %s: %v", transfer.ToCurrency, err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
 			s.publishTransferFailed(ctx, transfer, reason)
 			return errors.New(reason)
@@ -565,6 +571,41 @@ func findBankAccountByCurrency(accounts []*accountpb.AccountResponse, currency s
 		if a.GetCurrencyCode() == currency {
 			return a.GetAccountNumber(), nil
 		}
+	}
+	return "", fmt.Errorf("no bank account found for currency %s", currency)
+}
+
+// findBankAccountByCurrencyWithBalance returns the first bank account in the
+// list whose currency matches AND whose available balance covers `need`.
+// Falls back to the first matching account if none have enough — preserves
+// the legacy "always return something" behavior so the caller still gets a
+// useful error from the saga's actual debit step rather than a confusing
+// pre-check failure.
+//
+// Why this exists: the gateway's POST /bank-accounts path (admin/test
+// helper) creates bank accounts with no initial balance — the gRPC
+// CreateBankAccountRequest proto has no initial_balance field. Tests
+// using that path leave 0-balance bank accounts in the DB. Without the
+// balance filter, findBankAccountByCurrency would return the first match
+// from ListBankAccounts (insertion order), which can be a 0-balance
+// account, causing every cross-currency transfer to fail with a
+// confusing "insufficient funds on account X" error from a downstream
+// FOR UPDATE check.
+func findBankAccountByCurrencyWithBalance(accounts []*accountpb.AccountResponse, currency string, need decimal.Decimal) (string, error) {
+	var firstMatch string
+	for _, a := range accounts {
+		if a.GetCurrencyCode() != currency {
+			continue
+		}
+		if firstMatch == "" {
+			firstMatch = a.GetAccountNumber()
+		}
+		if avail, err := decimal.NewFromString(a.GetAvailableBalance()); err == nil && avail.GreaterThanOrEqual(need) {
+			return a.GetAccountNumber(), nil
+		}
+	}
+	if firstMatch != "" {
+		return firstMatch, nil
 	}
 	return "", fmt.Errorf("no bank account found for currency %s", currency)
 }
