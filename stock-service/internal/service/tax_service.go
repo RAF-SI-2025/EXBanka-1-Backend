@@ -441,15 +441,9 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 			// Persist the TaxCollection row AND stamp the contributing
 			// capital_gain rows atomically. If we recorded the collection
 			// without stamping the gains, the next CollectTax run would see
-			// the gains as still uncollected (NULL), produce a fresh attempt
-			// number from CountByKey (which would now return 1), generate
-			// distinct idempotency keys, and double-debit the user. Wrapping
-			// both writes in a single transaction means a marking failure
-			// rolls back the collection row too, so the next run safely
-			// retries the whole batch with the same attempt number.
-			//
-			// When s.db is nil (unit tests) we fall back to the original
-			// best-effort sequence so the existing mocks still work.
+			// the gains as still uncollected (NULL) and double-debit. The
+			// transactional path is the production behavior; the s.db == nil
+			// branch keeps the existing test mocks working.
 			if s.db == nil {
 				if createErr := s.taxCollectionRepo.Create(collection); createErr != nil {
 					log.Printf("WARN: tax: failed to record collection for user %d: %v", summary.UserID, createErr)

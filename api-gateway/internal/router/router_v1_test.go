@@ -166,6 +166,9 @@ func (n *noopUserClient) SetEmployeeRoles(_ context.Context, _ *userpb.SetEmploy
 func (n *noopUserClient) SetEmployeeAdditionalPermissions(_ context.Context, _ *userpb.SetEmployeePermissionsRequest, _ ...grpc.CallOption) (*userpb.EmployeeResponse, error) {
 	return &userpb.EmployeeResponse{}, nil
 }
+func (n *noopUserClient) ListEmployeeFullNames(_ context.Context, _ *userpb.ListEmployeeFullNamesRequest, _ ...grpc.CallOption) (*userpb.ListEmployeeFullNamesResponse, error) {
+	return &userpb.ListEmployeeFullNamesResponse{}, nil
+}
 
 type noopClientClient struct{}
 
@@ -243,6 +246,15 @@ func (n *noopAccountClient) PartialSettleReservation(_ context.Context, _ *accou
 }
 func (n *noopAccountClient) GetReservation(_ context.Context, _ *accountpb.GetReservationRequest, _ ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
 	return &accountpb.GetReservationResponse{}, nil
+}
+func (n *noopAccountClient) ReserveIncoming(_ context.Context, _ *accountpb.ReserveIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error) {
+	return &accountpb.ReserveIncomingResponse{}, nil
+}
+func (n *noopAccountClient) CommitIncoming(_ context.Context, _ *accountpb.CommitIncomingRequest, _ ...grpc.CallOption) (*accountpb.CommitIncomingResponse, error) {
+	return &accountpb.CommitIncomingResponse{}, nil
+}
+func (n *noopAccountClient) ReleaseIncoming(_ context.Context, _ *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+	return &accountpb.ReleaseIncomingResponse{}, nil
 }
 
 type noopCardClient struct{}

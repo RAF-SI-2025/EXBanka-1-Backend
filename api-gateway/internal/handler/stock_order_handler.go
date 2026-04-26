@@ -45,8 +45,9 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		StopValue     *string `json:"stop_value"`
 		AllOrNone     bool    `json:"all_or_none"`
 		Margin        bool    `json:"margin"`
-		AccountID     uint64  `json:"account_id"`
-		BaseAccountID *uint64 `json:"base_account_id,omitempty"`
+		AccountID        uint64  `json:"account_id"`
+		BaseAccountID    *uint64 `json:"base_account_id,omitempty"`
+		OnBehalfOfFundID uint64  `json:"on_behalf_of_fund_id,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, 400, ErrValidation, "invalid request body")
@@ -181,6 +182,17 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	}
 	if req.BaseAccountID != nil {
 		grpcReq.BaseAccountId = req.BaseAccountID
+	}
+	if req.OnBehalfOfFundID != 0 {
+		// Reject clients placing fund orders — only employees with the
+		// fund.manage permission may. Stock-service re-validates the manager
+		// binding against the fund.
+		if systemType != "employee" {
+			apiError(c, http.StatusForbidden, ErrForbidden, "on_behalf_of_fund_id requires employee context")
+			return
+		}
+		grpcReq.OnBehalfOfFundId = req.OnBehalfOfFundID
+		grpcReq.ActingEmployeeId = userID
 	}
 
 	resp, err := h.client.CreateOrder(c.Request.Context(), grpcReq)

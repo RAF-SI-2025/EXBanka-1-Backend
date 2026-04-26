@@ -102,6 +102,23 @@ type OrderService struct {
 	// orders behave like pre-fix (always auto-approved). Production wiring in
 	// cmd/main.go always provides a real client.
 	actuaryClient ActuaryClientAPI
+	// fundRepo backs the on_behalf_of=fund branch of CreateOrder. Nil = the
+	// branch rejects with FailedPrecondition. Wired via WithFundSupport.
+	fundRepo FundLookup
+}
+
+// FundLookup is the narrow interface OrderService needs to validate
+// on_behalf_of=fund placements. Implemented by *repository.FundRepository.
+type FundLookup interface {
+	GetByID(id uint64) (*model.InvestmentFund, error)
+}
+
+// WithFundSupport wires the fund repository so on_behalf_of=fund order
+// placements are accepted. Without this builder the branch rejects.
+func (s *OrderService) WithFundSupport(repo FundLookup) *OrderService {
+	cp := *s
+	cp.fundRepo = repo
+	return &cp
 }
 
 // OrderEventPublisher abstracts Kafka event publishing for orders.
@@ -191,6 +208,11 @@ type CreateOrderRequest struct {
 	// forex); points at the user's base-currency account that will be
 	// credited on fill. Must be nil for non-forex orders.
 	BaseAccountID *uint64
+	// OnBehalfOfFundID, when non-zero, places this order against the named
+	// fund's RSD account. The owner becomes the bank sentinel and fills
+	// credit fund_holdings. Caller must be the fund manager and AccountID
+	// must equal fund.RSDAccountID. Requires WithFundSupport on the service.
+	OnBehalfOfFundID uint64
 }
 
 // CreateOrder runs the Phase 2 placement saga. On success the returned
@@ -211,6 +233,41 @@ type CreateOrderRequest struct {
 //
 // Commission and slippage come from the injected OrderSettings.
 func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) (*model.Order, error) {
+	// on_behalf_of=fund: validate + rewrite owner to the bank sentinel before
+	// the saga runs. Resolves the fund and replaces (UserID, SystemType) with
+	// (1_000_000_000, "employee") so reservation, fills, and approval flow as
+	// a bank-side trade. Skipped (Forex base account, holding lookup) and
+	// existing employee on-behalf-of-client logic are unaffected.
+	var fundOrderID *uint64
+	if req.OnBehalfOfFundID != 0 {
+		if s.fundRepo == nil {
+			return nil, status.Error(codes.FailedPrecondition, "fund support not configured")
+		}
+		fund, err := s.fundRepo.GetByID(req.OnBehalfOfFundID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, status.Error(codes.NotFound, "fund not found")
+			}
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		if !fund.Active {
+			return nil, status.Error(codes.FailedPrecondition, "fund is inactive")
+		}
+		if req.ActingEmployeeID == 0 {
+			return nil, status.Error(codes.PermissionDenied, "fund orders require acting_employee_id")
+		}
+		if int64(req.ActingEmployeeID) != fund.ManagerEmployeeID {
+			return nil, status.Error(codes.PermissionDenied, "fund_not_managed_by_actor")
+		}
+		if req.AccountID != fund.RSDAccountID {
+			return nil, status.Error(codes.InvalidArgument, "account_id must equal fund RSD account")
+		}
+		req.UserID = 1_000_000_000
+		req.SystemType = "employee"
+		fid := fund.ID
+		fundOrderID = &fid
+	}
+
 	sagaID := uuid.New().String()
 	// Placement saga's order_id is only known after persist_order_pending. We
 	// create the executor with 0 and rewire it after insert so later steps
@@ -403,6 +460,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		AccountID:         req.AccountID,
 		ActingEmployeeID:  req.ActingEmployeeID,
 		BaseAccountID:     req.BaseAccountID,
+		FundID:            fundOrderID,
 		PlacementRate:     placementRate,
 		SagaID:            sagaID,
 		LastModification:  time.Now(),

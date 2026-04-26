@@ -89,13 +89,14 @@ type accountProducer interface {
 
 type AccountGRPCHandler struct {
 	pb.UnimplementedAccountServiceServer
-	accountService  accountSvcFacade
-	companyService  companySvcFacade
-	currencyService currencySvcFacade
-	ledgerService   ledgerSvcFacade
-	reservation     *ReservationHandler
-	producer        accountProducer
-	clientClient    clientpb.ClientServiceClient
+	accountService      accountSvcFacade
+	companyService      companySvcFacade
+	currencyService     currencySvcFacade
+	ledgerService       ledgerSvcFacade
+	reservation         *ReservationHandler
+	incomingReservation *service.IncomingReservationService
+	producer            accountProducer
+	clientClient        clientpb.ClientServiceClient
 }
 
 func NewAccountGRPCHandler(
@@ -104,17 +105,19 @@ func NewAccountGRPCHandler(
 	currencyService *service.CurrencyService,
 	ledgerService *service.LedgerService,
 	reservation *ReservationHandler,
+	incomingReservation *service.IncomingReservationService,
 	producer *kafkaprod.Producer,
 	clientClient clientpb.ClientServiceClient,
 ) *AccountGRPCHandler {
 	return &AccountGRPCHandler{
-		accountService:  accountService,
-		companyService:  companyService,
-		currencyService: currencyService,
-		ledgerService:   ledgerService,
-		reservation:     reservation,
-		producer:        producer,
-		clientClient:    clientClient,
+		accountService:      accountService,
+		companyService:      companyService,
+		currencyService:     currencyService,
+		ledgerService:       ledgerService,
+		reservation:         reservation,
+		incomingReservation: incomingReservation,
+		producer:            producer,
+		clientClient:        clientClient,
 	}
 }
 
@@ -136,6 +139,51 @@ func (h *AccountGRPCHandler) PartialSettleReservation(ctx context.Context, req *
 // GetReservation forwards to the reservation handler.
 func (h *AccountGRPCHandler) GetReservation(ctx context.Context, req *pb.GetReservationRequest) (*pb.GetReservationResponse, error) {
 	return h.reservation.GetReservation(ctx, req)
+}
+
+// ReserveIncoming creates a pending credit reservation for an inter-bank
+// inbound transfer. Does not change the account balance.
+func (h *AccountGRPCHandler) ReserveIncoming(ctx context.Context, req *pb.ReserveIncomingRequest) (*pb.ReserveIncomingResponse, error) {
+	amt, err := decimal.NewFromString(req.Amount)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "amount: %v", err)
+	}
+	res, err := h.incomingReservation.ReserveIncoming(ctx, req.AccountNumber, amt, req.Currency, req.ReservationKey)
+	if err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, status.Errorf(mapServiceError(err), "reserve_incoming: %v", err)
+	}
+	acct, _ := h.accountService.GetAccountByNumber(res.AccountNumber)
+	balanceAfter := ""
+	if acct != nil {
+		balanceAfter = acct.Balance.StringFixed(4)
+	}
+	return &pb.ReserveIncomingResponse{ReservationKey: res.ReservationKey, BalanceAfter: balanceAfter}, nil
+}
+
+// CommitIncoming finalizes the credit and writes a ledger entry.
+func (h *AccountGRPCHandler) CommitIncoming(ctx context.Context, req *pb.CommitIncomingRequest) (*pb.CommitIncomingResponse, error) {
+	acct, err := h.incomingReservation.CommitIncoming(ctx, req.ReservationKey)
+	if err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, status.Errorf(mapServiceError(err), "commit_incoming: %v", err)
+	}
+	return &pb.CommitIncomingResponse{BalanceAfter: acct.Balance.StringFixed(4)}, nil
+}
+
+// ReleaseIncoming cancels a pending credit reservation.
+func (h *AccountGRPCHandler) ReleaseIncoming(ctx context.Context, req *pb.ReleaseIncomingRequest) (*pb.ReleaseIncomingResponse, error) {
+	if err := h.incomingReservation.ReleaseIncoming(ctx, req.ReservationKey); err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, status.Errorf(mapServiceError(err), "release_incoming: %v", err)
+	}
+	return &pb.ReleaseIncomingResponse{Released: true}, nil
 }
 
 func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.AccountResponse, error) {

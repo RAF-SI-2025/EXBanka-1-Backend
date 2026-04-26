@@ -1,10 +1,19 @@
 package repository
 
 import (
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 
 	"github.com/exbanka/stock-service/internal/model"
 )
+
+// ActuaryGainRow is one (employee, currency) bucket of summed realised gains.
+// Returned by SumByActingEmployee for the Celina-4 actuary-performance read.
+type ActuaryGainRow struct {
+	EmployeeID int64           `gorm:"column:acting_employee_id"`
+	Currency   string          `gorm:"column:currency"`
+	TotalGain  decimal.Decimal `gorm:"column:total_gain"`
+}
 
 type CapitalGainRepository struct {
 	db *gorm.DB
@@ -57,6 +66,19 @@ func (r *CapitalGainRepository) SumUncollectedByUserMonth(userID uint64, systemT
 		Group("account_id, currency").
 		Find(&results).Error
 	return results, err
+}
+
+// SumByActingEmployee groups capital_gains by (acting_employee_id, currency)
+// and returns one row per bucket. Rows where acting_employee_id is 0
+// (self-trades) are excluded — those don't belong to any actuary.
+func (r *CapitalGainRepository) SumByActingEmployee() ([]ActuaryGainRow, error) {
+	var out []ActuaryGainRow
+	err := r.db.Model(&model.CapitalGain{}).
+		Select("acting_employee_id, currency, SUM(total_gain) as total_gain").
+		Where("acting_employee_id <> 0").
+		Group("acting_employee_id, currency").
+		Scan(&out).Error
+	return out, err
 }
 
 // MarkCollected stamps every uncollected capital_gain row matching the tuple

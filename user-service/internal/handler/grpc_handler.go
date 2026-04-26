@@ -44,6 +44,7 @@ func mapServiceError(err error) codes.Code {
 type employeeFacade interface {
 	CreateEmployee(ctx context.Context, emp *model.Employee) error
 	GetEmployee(id int64) (*model.Employee, error)
+	GetByIDs(ids []int64) ([]model.Employee, error)
 	ListEmployees(emailFilter, nameFilter, positionFilter string, page, pageSize int) ([]model.Employee, int64, error)
 	UpdateEmployee(ctx context.Context, id int64, updates map[string]interface{}, changedBy int64) (*model.Employee, error)
 	SetEmployeeRoles(ctx context.Context, employeeID int64, roleNames []string, changedBy int64) error
@@ -116,6 +117,21 @@ func (h *UserGRPCHandler) GetEmployee(ctx context.Context, req *pb.GetEmployeeRe
 		return nil, status.Errorf(codes.NotFound, "employee not found")
 	}
 	return toEmployeeResponse(emp, h.empService), nil
+}
+
+func (h *UserGRPCHandler) ListEmployeeFullNames(ctx context.Context, req *pb.ListEmployeeFullNamesRequest) (*pb.ListEmployeeFullNamesResponse, error) {
+	if len(req.EmployeeIds) == 0 {
+		return &pb.ListEmployeeFullNamesResponse{NamesById: map[int64]string{}}, nil
+	}
+	rows, err := h.empService.GetByIDs(req.EmployeeIds)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list employees: %v", err)
+	}
+	out := make(map[int64]string, len(rows))
+	for _, e := range rows {
+		out[e.ID] = strings.TrimSpace(e.FirstName + " " + e.LastName)
+	}
+	return &pb.ListEmployeeFullNamesResponse{NamesById: out}, nil
 }
 
 func (h *UserGRPCHandler) ListEmployees(ctx context.Context, req *pb.ListEmployeesRequest) (*pb.ListEmployeesResponse, error) {

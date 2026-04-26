@@ -130,7 +130,7 @@ func RequirePermission(permission string) gin.HandlerFunc {
 // of the listed permission codes. Used for routes whose visibility is
 // scoped: e.g. GET /api/orders accepts both `orders.read.all` and
 // `orders.read.own` — the handler then dispatches based on which the
-// caller holds (see permission.HighestScope).
+// caller holds (see HasPermission below).
 func RequireAnyPermission(codes ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		perms, exists := c.Get("permissions")
@@ -152,6 +152,35 @@ func RequireAnyPermission(codes ...string) gin.HandlerFunc {
 			}
 		}
 		abortWithError(c, http.StatusForbidden, "forbidden", "insufficient permissions")
+	}
+}
+
+// RequireAllPermissions returns a middleware that requires every listed
+// permission to be present in the JWT's permissions claim. Use when an
+// action sits at the intersection of multiple capability gates.
+func RequireAllPermissions(perms ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		raw, ok := c.Get("permissions")
+		if !ok {
+			abortWithError(c, http.StatusForbidden, "forbidden", "no permissions")
+			return
+		}
+		have, ok := raw.([]string)
+		if !ok {
+			abortWithError(c, http.StatusForbidden, "forbidden", "invalid permissions format")
+			return
+		}
+		set := make(map[string]bool, len(have))
+		for _, p := range have {
+			set[p] = true
+		}
+		for _, want := range perms {
+			if !set[want] {
+				abortWithError(c, http.StatusForbidden, "forbidden", "missing permission "+want)
+				return
+			}
+		}
+		c.Next()
 	}
 }
 

@@ -26,7 +26,7 @@ func (p *Producer) Publish(ctx context.Context, topic string, msg any) error {
 }
 
 // PublishRaw forwards a pre-serialized payload (e.g., a hand-marshaled
-// JSON envelope from the cross-bank saga executor).
+// JSON envelope from the cross-bank saga executor or outbox relay).
 func (p *Producer) PublishRaw(ctx context.Context, topic string, payload []byte) error {
 	return p.inner.PublishRaw(ctx, topic, payload)
 }

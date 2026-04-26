@@ -11,6 +11,10 @@ import (
 	"github.com/exbanka/stock-service/internal/model"
 )
 
+// uint64Ptr is a one-liner helper for tests that need to set the
+// HoldingReservation OrderID / OTCContractID pointer fields.
+func uint64Ptr(v uint64) *uint64 { return &v }
+
 // newHoldingReservationTestDB opens a fresh in-memory SQLite DB and
 // auto-migrates the tables required by HoldingReservationRepository tests:
 // Holding, HoldingReservation, HoldingReservationSettlement.
@@ -63,7 +67,7 @@ func TestHoldingReservationRepo_InsertAndGetByOrderID(t *testing.T) {
 
 	r := &model.HoldingReservation{
 		HoldingID: h.ID,
-		OrderID:   1001,
+		OrderID:   uint64Ptr(1001),
 		Quantity:  500,
 		Status:    model.HoldingReservationStatusActive,
 	}
@@ -88,7 +92,7 @@ func TestHoldingReservationRepo_InsertIfAbsent_Idempotent(t *testing.T) {
 	h := seedHolding(t, db)
 
 	r := &model.HoldingReservation{
-		HoldingID: h.ID, OrderID: 2001, Quantity: 500,
+		HoldingID: h.ID, OrderID: uint64Ptr(2001), Quantity: 500,
 		Status: model.HoldingReservationStatusActive,
 	}
 	inserted, existing, err := repo.InsertIfAbsent(r)
@@ -105,7 +109,7 @@ func TestHoldingReservationRepo_InsertIfAbsent_Idempotent(t *testing.T) {
 	// Retry with a different quantity but same OrderID: must be a no-op and
 	// return the first row.
 	retry := &model.HoldingReservation{
-		HoldingID: h.ID, OrderID: 2001, Quantity: 999,
+		HoldingID: h.ID, OrderID: uint64Ptr(2001), Quantity: 999,
 		Status: model.HoldingReservationStatusActive,
 	}
 	insertedAgain, existingAgain, err := repo.InsertIfAbsent(retry)
@@ -129,7 +133,7 @@ func TestHoldingReservationRepo_SumSettlements(t *testing.T) {
 	h := seedHolding(t, db)
 
 	r := &model.HoldingReservation{
-		HoldingID: h.ID, OrderID: 3001, Quantity: 1000,
+		HoldingID: h.ID, OrderID: uint64Ptr(3001), Quantity: 1000,
 		Status: model.HoldingReservationStatusActive,
 	}
 	if err := repo.Create(r); err != nil {
@@ -164,7 +168,7 @@ func TestHoldingReservationRepo_CreateSettlement_UniqueOnOrderTransactionID(t *t
 	h := seedHolding(t, db)
 
 	r := &model.HoldingReservation{
-		HoldingID: h.ID, OrderID: 4001, Quantity: 1000,
+		HoldingID: h.ID, OrderID: uint64Ptr(4001), Quantity: 1000,
 		Status: model.HoldingReservationStatusActive,
 	}
 	_ = repo.Create(r)
@@ -190,7 +194,7 @@ func TestHoldingReservationRepo_ListSettlements_Ordered(t *testing.T) {
 	h := seedHolding(t, db)
 
 	r := &model.HoldingReservation{
-		HoldingID: h.ID, OrderID: 5001, Quantity: 1000,
+		HoldingID: h.ID, OrderID: uint64Ptr(5001), Quantity: 1000,
 		Status: model.HoldingReservationStatusActive,
 	}
 	_ = repo.Create(r)

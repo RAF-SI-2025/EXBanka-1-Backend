@@ -40,6 +40,10 @@ func (m *mockEmpSvc) GetEmployee(id int64) (*model.Employee, error) {
 	return nil, nil
 }
 
+func (m *mockEmpSvc) GetByIDs(ids []int64) ([]model.Employee, error) {
+	return nil, nil
+}
+
 func (m *mockEmpSvc) ListEmployees(emailFilter, nameFilter, positionFilter string, page, pageSize int) ([]model.Employee, int64, error) {
 	if m.listFn != nil {
 		return m.listFn(emailFilter, nameFilter, positionFilter, page, pageSize)

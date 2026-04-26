@@ -1213,6 +1213,13 @@ func (s *stubTaxClient) ListUserTaxRecords(_ context.Context, in *stockpb.ListUs
 	return &stockpb.ListUserTaxRecordsResponse{}, nil
 }
 
+// ListEmployeeFullNames was added to UserServiceClient by Celina-4. Stub
+// returns empty by default; tests that exercise this RPC can override
+// the field on stubUserClient.
+func (s *stubUserClient) ListEmployeeFullNames(_ context.Context, _ *userpb.ListEmployeeFullNamesRequest, _ ...grpc.CallOption) (*userpb.ListEmployeeFullNamesResponse, error) {
+	return &userpb.ListEmployeeFullNamesResponse{}, nil
+}
+
 // ---------------------------------------------------------------------------
 // Compile-time interface assertions
 // ---------------------------------------------------------------------------

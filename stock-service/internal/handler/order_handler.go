@@ -103,6 +103,7 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 		AccountID:        req.AccountId,
 		ActingEmployeeID: actingEmployeeID,
 		BaseAccountID:    baseAccountID,
+		OnBehalfOfFundID: req.OnBehalfOfFundId,
 	})
 	if err != nil {
 		return nil, mapOrderError(err)

@@ -58,7 +58,32 @@ const (
 	TopicLoanDisbursed        = "credit.loan-disbursed"
 	TopicInstallmentCollected = "credit.installment-collected"
 	TopicInstallmentFailed    = "credit.installment-failed"
+
+	// Inter-bank 2PC transfer events (Spec 3 §10).
+	TopicTransferInterbankPrepared   = "transfer.interbank-prepared"
+	TopicTransferInterbankCommitted  = "transfer.interbank-committed"
+	TopicTransferInterbankReceived   = "transfer.interbank-received"
+	TopicTransferInterbankRolledBack = "transfer.interbank-rolled-back"
 )
+
+// TransferInterbankMessage is the payload shape published on every
+// transfer.interbank-* topic. Consumed by notification-service for
+// user-facing emails and by any audit subscribers.
+type TransferInterbankMessage struct {
+	MessageID      string `json:"message_id"`
+	OccurredAt     string `json:"occurred_at"`
+	TransactionID  string `json:"transaction_id"`
+	Role           string `json:"role"` // "sender" | "receiver"
+	RemoteBankCode string `json:"remote_bank_code"`
+	Status         string `json:"status"`
+	AmountNative   string `json:"amount_native"`
+	CurrencyNative string `json:"currency_native"`
+	AmountFinal    string `json:"amount_final,omitempty"`
+	CurrencyFinal  string `json:"currency_final,omitempty"`
+	FxRate         string `json:"fx_rate,omitempty"`
+	Fees           string `json:"fees,omitempty"`
+	ErrorReason    string `json:"error_reason,omitempty"`
+}
 
 // Exchange service topics
 const (
@@ -575,4 +600,275 @@ type AuthSessionRevokedMessage struct {
 	SessionID int64  `json:"session_id"`
 	UserID    int64  `json:"user_id"`
 	Reason    string `json:"reason"` // "logout", "force_revoke", "password_reset", "device_deactivation"
+}
+
+// ==================== Investment Funds (Celina 4) ====================
+
+const (
+	TopicStockFundCreated      = "stock.fund-created"
+	TopicStockFundUpdated      = "stock.fund-updated"
+	TopicStockFundInvested     = "stock.fund-invested"
+	TopicStockFundRedeemed     = "stock.fund-redeemed"
+	TopicStockFundsReassigned  = "stock.funds-reassigned"
+	TopicUserSupervisorDemoted = "user.supervisor-demoted"
+)
+
+type StockFundCreatedMessage struct {
+	MessageID         string `json:"message_id"`
+	OccurredAt        string `json:"occurred_at"`
+	FundID            uint64 `json:"fund_id"`
+	Name              string `json:"name"`
+	ManagerEmployeeID int64  `json:"manager_employee_id"`
+	RSDAccountID      uint64 `json:"rsd_account_id"`
+	CreatedAt         string `json:"created_at"`
+}
+
+type StockFundUpdatedMessage struct {
+	MessageID     string   `json:"message_id"`
+	OccurredAt    string   `json:"occurred_at"`
+	FundID        uint64   `json:"fund_id"`
+	ChangedFields []string `json:"changed_fields"`
+	UpdatedAt     string   `json:"updated_at"`
+}
+
+type StockFundInvestedMessage struct {
+	MessageID      string `json:"message_id"`
+	OccurredAt     string `json:"occurred_at"`
+	FundID         uint64 `json:"fund_id"`
+	UserID         uint64 `json:"user_id"`
+	SystemType     string `json:"system_type"`
+	AmountNative   string `json:"amount_native"`
+	NativeCurrency string `json:"native_currency"`
+	AmountRSD      string `json:"amount_rsd"`
+	FxRate         string `json:"fx_rate"`
+	SagaID         string `json:"saga_id"`
+	ContributionID uint64 `json:"contribution_id"`
+}
+
+type StockFundRedeemedMessage struct {
+	MessageID       string `json:"message_id"`
+	OccurredAt      string `json:"occurred_at"`
+	FundID          uint64 `json:"fund_id"`
+	UserID          uint64 `json:"user_id"`
+	SystemType      string `json:"system_type"`
+	AmountRSD       string `json:"amount_rsd"`
+	FeeRSD          string `json:"fee_rsd"`
+	TargetAccountID uint64 `json:"target_account_id"`
+	SagaID          string `json:"saga_id"`
+	ContributionID  uint64 `json:"contribution_id"`
+}
+
+type StockFundsReassignedMessage struct {
+	MessageID    string   `json:"message_id"`
+	OccurredAt   string   `json:"occurred_at"`
+	SupervisorID int64    `json:"supervisor_id"`
+	AdminID      int64    `json:"admin_id"`
+	FundIDs      []uint64 `json:"fund_ids"`
+}
+
+type UserSupervisorDemotedMessage struct {
+	MessageID    string `json:"message_id"`
+	OccurredAt   string `json:"occurred_at"`
+	SupervisorID int64  `json:"supervisor_id"`
+	AdminID      int64  `json:"admin_id"`
+	RevokedAt    string `json:"revoked_at"`
+}
+
+// ==================== Intra-bank OTC Options (Spec 2) ====================
+
+const (
+	TopicOTCOfferCreated      = "otc.offer-created"
+	TopicOTCOfferCountered    = "otc.offer-countered"
+	TopicOTCOfferRejected     = "otc.offer-rejected"
+	TopicOTCOfferExpired      = "otc.offer-expired"
+	TopicOTCContractCreated   = "otc.contract-created"
+	TopicOTCContractExercised = "otc.contract-exercised"
+	TopicOTCContractExpired   = "otc.contract-expired"
+	TopicOTCContractFailed    = "otc.contract-failed"
+)
+
+type OTCParty struct {
+	UserID     int64  `json:"user_id"`
+	SystemType string `json:"system_type"`
+	BankCode   string `json:"bank_code,omitempty"`
+}
+
+type OTCOfferCreatedMessage struct {
+	MessageID      string    `json:"message_id"`
+	OccurredAt     string    `json:"occurred_at"`
+	OfferID        uint64    `json:"offer_id"`
+	Initiator      OTCParty  `json:"initiator"`
+	Counterparty   *OTCParty `json:"counterparty,omitempty"`
+	StockID        uint64    `json:"stock_id"`
+	Quantity       string    `json:"quantity"`
+	StrikePrice    string    `json:"strike_price"`
+	Premium        string    `json:"premium"`
+	SettlementDate string    `json:"settlement_date"`
+}
+
+type OTCOfferCounteredMessage struct {
+	MessageID      string   `json:"message_id"`
+	OccurredAt     string   `json:"occurred_at"`
+	OfferID        uint64   `json:"offer_id"`
+	RevisionNumber int      `json:"revision_number"`
+	ModifiedBy     OTCParty `json:"modified_by"`
+	OtherParty     OTCParty `json:"other_party"`
+	Quantity       string   `json:"quantity"`
+	StrikePrice    string   `json:"strike_price"`
+	Premium        string   `json:"premium"`
+	SettlementDate string   `json:"settlement_date"`
+	UpdatedAt      string   `json:"updated_at"`
+}
+
+type OTCOfferRejectedMessage struct {
+	MessageID  string   `json:"message_id"`
+	OccurredAt string   `json:"occurred_at"`
+	OfferID    uint64   `json:"offer_id"`
+	RejectedBy OTCParty `json:"rejected_by"`
+	OtherParty OTCParty `json:"other_party"`
+	UpdatedAt  string   `json:"updated_at"`
+}
+
+type OTCOfferExpiredMessage struct {
+	MessageID    string    `json:"message_id"`
+	OccurredAt   string    `json:"occurred_at"`
+	OfferID      uint64    `json:"offer_id"`
+	Initiator    OTCParty  `json:"initiator"`
+	Counterparty *OTCParty `json:"counterparty,omitempty"`
+}
+
+type OTCContractCreatedMessage struct {
+	MessageID      string   `json:"message_id"`
+	OccurredAt     string   `json:"occurred_at"`
+	ContractID     uint64   `json:"contract_id"`
+	OfferID        uint64   `json:"offer_id"`
+	Buyer          OTCParty `json:"buyer"`
+	Seller         OTCParty `json:"seller"`
+	Quantity       string   `json:"quantity"`
+	StrikePrice    string   `json:"strike_price"`
+	PremiumPaid    string   `json:"premium_paid"`
+	SettlementDate string   `json:"settlement_date"`
+	PremiumPaidAt  string   `json:"premium_paid_at"`
+}
+
+type OTCContractExercisedMessage struct {
+	MessageID         string   `json:"message_id"`
+	OccurredAt        string   `json:"occurred_at"`
+	ContractID        uint64   `json:"contract_id"`
+	Buyer             OTCParty `json:"buyer"`
+	Seller            OTCParty `json:"seller"`
+	StrikeAmountPaid  string   `json:"strike_amount_paid"`
+	SharesTransferred string   `json:"shares_transferred"`
+	ExercisedAt       string   `json:"exercised_at"`
+}
+
+type OTCContractExpiredMessage struct {
+	MessageID  string   `json:"message_id"`
+	OccurredAt string   `json:"occurred_at"`
+	ContractID uint64   `json:"contract_id"`
+	Buyer      OTCParty `json:"buyer"`
+	Seller     OTCParty `json:"seller"`
+	ExpiredAt  string   `json:"expired_at"`
+}
+
+type OTCContractFailedMessage struct {
+	MessageID          string `json:"message_id"`
+	OccurredAt         string `json:"occurred_at"`
+	ContractID         uint64 `json:"contract_id"`
+	FailureReason      string `json:"failure_reason"`
+	SagaID             string `json:"saga_id"`
+	CompensationStatus string `json:"compensation_status"`
+}
+
+// ==================== Cross-bank OTC Options (Spec 4 / Celina 5) ====================
+
+const (
+	TopicOTCCrossbankSagaStarted       = "otc.crossbank-saga-started"
+	TopicOTCCrossbankSagaCommitted     = "otc.crossbank-saga-committed"
+	TopicOTCCrossbankSagaRolledBack    = "otc.crossbank-saga-rolled-back"
+	TopicOTCCrossbankSagaStuckRollback = "otc.crossbank-saga-stuck-rollback"
+	TopicOTCContractExercisedCrossbank = "otc.contract-exercised-crossbank"
+	TopicOTCContractExpiredCrossbank   = "otc.contract-expired-crossbank"
+	TopicOTCContractExpiryStuck        = "otc.contract-expiry-stuck"
+	TopicOTCLocalOfferChanged          = "otc.local-offer-changed"
+)
+
+type CrossBankSagaStartedMessage struct {
+	MessageID         string `json:"message_id"`
+	OccurredAt        string `json:"occurred_at"`
+	TxID              string `json:"tx_id"`
+	SagaKind          string `json:"saga_kind"`
+	OfferID           uint64 `json:"offer_id,omitempty"`
+	ContractID        uint64 `json:"contract_id,omitempty"`
+	InitiatorBankCode string `json:"initiator_bank_code"`
+	ResponderBankCode string `json:"responder_bank_code"`
+	StartedAt         string `json:"started_at"`
+}
+
+type CrossBankSagaCommittedMessage struct {
+	MessageID   string `json:"message_id"`
+	OccurredAt  string `json:"occurred_at"`
+	TxID        string `json:"tx_id"`
+	SagaKind    string `json:"saga_kind"`
+	ContractID  uint64 `json:"contract_id"`
+	CommittedAt string `json:"committed_at"`
+}
+
+type CrossBankSagaRolledBackMessage struct {
+	MessageID         string   `json:"message_id"`
+	OccurredAt        string   `json:"occurred_at"`
+	TxID              string   `json:"tx_id"`
+	SagaKind          string   `json:"saga_kind"`
+	FailingPhase      string   `json:"failing_phase"`
+	Reason            string   `json:"reason"`
+	CompensatedPhases []string `json:"compensated_phases"`
+	RolledBackAt      string   `json:"rolled_back_at"`
+}
+
+type CrossBankSagaStuckRollbackMessage struct {
+	MessageID  string `json:"message_id"`
+	OccurredAt string `json:"occurred_at"`
+	TxID       string `json:"tx_id"`
+	ContractID uint64 `json:"contract_id"`
+	Reason     string `json:"reason"`
+	AuditLink  string `json:"audit_link"`
+}
+
+type ContractExercisedCrossBankMessage struct {
+	MessageID              string `json:"message_id"`
+	OccurredAt             string `json:"occurred_at"`
+	ContractID             uint64 `json:"contract_id"`
+	TxID                   string `json:"tx_id"`
+	BuyerClientIDExternal  string `json:"buyer_client_id_external"`
+	SellerClientIDExternal string `json:"seller_client_id_external"`
+	StrikePrice            string `json:"strike_price"`
+	Quantity               string `json:"quantity"`
+	Currency               string `json:"currency"`
+	ExercisedAt            string `json:"exercised_at"`
+}
+
+type ContractExpiredCrossBankMessage struct {
+	MessageID      string `json:"message_id"`
+	OccurredAt     string `json:"occurred_at"`
+	ContractID     uint64 `json:"contract_id"`
+	ExpiredAt      string `json:"expired_at"`
+	SellerBankCode string `json:"seller_bank_code"`
+	BuyerBankCode  string `json:"buyer_bank_code"`
+}
+
+type ContractExpiryStuckMessage struct {
+	MessageID    string `json:"message_id"`
+	OccurredAt   string `json:"occurred_at"`
+	ContractID   uint64 `json:"contract_id"`
+	PeerBankCode string `json:"peer_bank_code"`
+	HoursStuck   int    `json:"hours_stuck"`
+}
+
+type LocalOfferChangedMessage struct {
+	MessageID  string `json:"message_id"`
+	OccurredAt string `json:"occurred_at"`
+	OfferID    uint64 `json:"offer_id"`
+	BankCode   string `json:"bank_code"`
+	NewStatus  string `json:"new_status"`
+	UpdatedAt  string `json:"updated_at"`
 }

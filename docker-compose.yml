@@ -476,6 +476,31 @@ services:
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
       VERIFICATION_GRPC_ADDR: "verification-service:50061"
       METRICS_PORT: "9107"
+      # Inter-bank 2PC tuning + per-peer endpoints (Spec 3 §9.1, §8.4).
+      OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
+      # Tightened receiver-wait + reconcile-interval so integration tests
+      # don't have to sit through the production 90s/60s timers. Production
+      # deployments override these via .env to spec defaults.
+      INTERBANK_PREPARE_TIMEOUT: "${INTERBANK_PREPARE_TIMEOUT:-15s}"
+      INTERBANK_COMMIT_TIMEOUT: "${INTERBANK_COMMIT_TIMEOUT:-15s}"
+      INTERBANK_RECEIVER_WAIT: "${INTERBANK_RECEIVER_WAIT:-10s}"
+      INTERBANK_RECONCILE_INTERVAL: "${INTERBANK_RECONCILE_INTERVAL:-5s}"
+      INTERBANK_RECONCILE_MAX_RETRIES: "${INTERBANK_RECONCILE_MAX_RETRIES:-10}"
+      INTERBANK_RECONCILE_STALE_AFTER: "${INTERBANK_RECONCILE_STALE_AFTER:-24h}"
+      # Default peer-bank target points at host.docker.internal:7777 so
+      # the test-app/peerbank mock running on the host is reachable from
+      # this container without any extra orchestration.
+      PEER_222_BASE_URL: "${PEER_222_BASE_URL:-http://host.docker.internal:7777/internal/inter-bank}"
+      PEER_222_INBOUND_KEY: "${PEER_222_INBOUND_KEY:-test-222-key}"
+      PEER_222_OUTBOUND_KEY: "${PEER_222_OUTBOUND_KEY:-test-222-key}"
+      PEER_333_BASE_URL: "${PEER_333_BASE_URL:-}"
+      PEER_333_INBOUND_KEY: "${PEER_333_INBOUND_KEY:-}"
+      PEER_333_OUTBOUND_KEY: "${PEER_333_OUTBOUND_KEY:-}"
+      PEER_444_BASE_URL: "${PEER_444_BASE_URL:-}"
+      PEER_444_INBOUND_KEY: "${PEER_444_INBOUND_KEY:-}"
+      PEER_444_OUTBOUND_KEY: "${PEER_444_OUTBOUND_KEY:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "50057:50057"
       - "9107:9107"
@@ -589,6 +614,10 @@ services:
       INFLUX_ORG: exbanka
       INFLUX_BUCKET: stock_prices
       METRICS_PORT: "9110"
+      OTC_EXPIRY_CRON_UTC: "02:00"
+      OTC_EXPIRY_BATCH_SIZE: "500"
+      TRANSACTION_GRPC_ADDR: "transaction-service:50057"
+      OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
     ports:
       - "50060:50060"
       - "9110:9110"
@@ -606,6 +635,8 @@ services:
       account-service:
         condition: service_started
       exchange-service:
+        condition: service_started
+      transaction-service:
         condition: service_started
       client-service:
         condition: service_started
@@ -661,6 +692,15 @@ services:
       NOTIFICATION_GRPC_ADDR: "notification-service:50053"
       KAFKA_BROKERS: kafka:9092
       METRICS_PORT: "9100"
+      # Inter-bank HMAC verification (Spec 3 §8). Redis backs the nonce
+      # store; per-peer plaintext inbound keys verify HMAC signatures.
+      REDIS_ADDR: "redis:6379"
+      OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
+      PEER_222_INBOUND_KEY: "${PEER_222_INBOUND_KEY:-test-222-key}"
+      PEER_333_INBOUND_KEY: "${PEER_333_INBOUND_KEY:-}"
+      PEER_444_INBOUND_KEY: "${PEER_444_INBOUND_KEY:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8080:8080"
       - "9100:9100"
@@ -685,6 +725,8 @@ services:
         condition: service_started
       verification-service:
         condition: service_started
+      redis:
+        condition: service_healthy
       notification-service:
         condition: service_started
       kafka:

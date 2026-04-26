@@ -72,3 +72,9 @@ func (p *Producer) PublishBlueprint(ctx context.Context, msg kafkamsg.BlueprintM
 func (p *Producer) PublishRolePermissionsChanged(ctx context.Context, msg kafkamsg.RolePermissionsChangedMessage) error {
 	return p.inner.Publish(ctx, kafkamsg.TopicUserRolePermissionsChanged, msg)
 }
+
+// PublishRaw writes pre-serialized bytes to a topic. Used by the outbox
+// relay so the relay can avoid double-encoding stored payloads.
+func (p *Producer) PublishRaw(ctx context.Context, topic string, payload []byte) error {
+	return p.inner.PublishRaw(ctx, topic, payload)
+}

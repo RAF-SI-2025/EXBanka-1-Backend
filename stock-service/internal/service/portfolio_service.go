@@ -103,6 +103,24 @@ type PortfolioService struct {
 	// endpoint. Nil in legacy tests — ListHoldingTransactions degrades to
 	// an empty response in that case.
 	holdingTxRepo HoldingTransactionRepo
+	// fundHoldingRepo backs on-behalf-of-fund order fills (Celina 4 Task 18).
+	// Nil = upsertHoldingForBuy errors when an order has FundID set, which
+	// surfaces as a saga compensation. Wired via WithFundHoldings.
+	fundHoldingRepo FundHoldingUpserter
+}
+
+// FundHoldingUpserter is the narrow surface PortfolioService needs to
+// materialise fund-side fills. Implemented by *repository.FundHoldingRepository.
+type FundHoldingUpserter interface {
+	Upsert(h *model.FundHolding) error
+}
+
+// WithFundHoldings wires the fund-holdings repo. Call this on the same
+// receiver returned by WithFillSaga / WithBankCommissionRecipient builders.
+func (s *PortfolioService) WithFundHoldings(repo FundHoldingUpserter) *PortfolioService {
+	cp := *s
+	cp.fundHoldingRepo = repo
+	return &cp
 }
 
 // NewPortfolioService is the legacy constructor retained for existing call
@@ -356,17 +374,36 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 // upsertHoldingForBuy materialises the Holding row for a buy fill. Called
 // inside the update_holding saga step. Mirrors the legacy path (resolves
 // first/last name via nameResolver, stock name via stockRepo when possible).
+//
+// When order.FundID is set the fill is on behalf of an investment fund: the
+// quantity goes into fund_holdings instead of holdings, keyed by
+// (FundID, SecurityType, SecurityID). The fund-holdings repo applies a
+// weighted-average upsert just like the user-side holdings repo.
 func (s *PortfolioService) upsertHoldingForBuy(order *model.Order, txn *model.OrderTransaction) error {
+	listing, err := s.listingRepo.GetByID(order.ListingID)
+	if err != nil {
+		return err
+	}
+
+	if order.FundID != nil {
+		if s.fundHoldingRepo == nil {
+			return errors.New("fund holding repository not wired — on-behalf-of-fund fills cannot be persisted")
+		}
+		fh := &model.FundHolding{
+			FundID:          *order.FundID,
+			SecurityType:    order.SecurityType,
+			SecurityID:      listing.SecurityID,
+			Quantity:        txn.Quantity,
+			AveragePriceRSD: txn.PricePerUnit,
+		}
+		return s.fundHoldingRepo.Upsert(fh)
+	}
+
 	firstName, lastName := "", ""
 	if s.nameResolver != nil {
 		if fn, ln, err := s.nameResolver(order.UserID, order.SystemType); err == nil {
 			firstName, lastName = fn, ln
 		}
-	}
-
-	listing, err := s.listingRepo.GetByID(order.ListingID)
-	if err != nil {
-		return err
 	}
 
 	securityName := order.Ticker
@@ -711,6 +748,7 @@ func (s *PortfolioService) recordCapitalGain(order *model.Order, txn *model.Orde
 		AccountID:          order.AccountID,
 		TaxYear:            time.Now().Year(),
 		TaxMonth:           int(time.Now().Month()),
+		ActingEmployeeID:   int64(order.ActingEmployeeID),
 	}
 	return s.capitalGainRepo.Create(capitalGain)
 }
@@ -767,6 +805,7 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 		AccountID:          order.AccountID,
 		TaxYear:            time.Now().Year(),
 		TaxMonth:           int(time.Now().Month()),
+		ActingEmployeeID:   int64(order.ActingEmployeeID),
 	}
 	if err := s.capitalGainRepo.Create(capitalGain); err != nil {
 		return err

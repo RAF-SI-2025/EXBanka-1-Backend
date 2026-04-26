@@ -220,6 +220,10 @@ var AllPermissions = []struct {
 	{"exchanges.update", "Update stock exchange settings", "exchanges"},
 	{"exchanges.testing-mode.toggle", "Toggle testing mode for the simulator", "exchanges"},
 
+	// ── OTC umbrella + funds bank-position (Celina-4) ───────────────
+	{"otc.trade", "Trade OTC options (create / counter / accept / exercise — legacy umbrella)", "otc"},
+	{"funds.bank-position-read", "View the bank's positions across investment funds and actuary performance", "funds"},
+
 	// ── Verification ────────────────────────────────────────────────
 	{"verification.skip", "Skip mobile verification (legacy umbrella)", "verification"},
 	{"verification.skip.transaction", "Skip verification for transactions", "verification"},
@@ -306,7 +310,7 @@ func agentPermissions() []string {
 		// funds (agent invests/redeems for bank or on-behalf)
 		"funds.invest", "funds.redeem", "funds.read.all",
 		// otc (accept/exercise on behalf)
-		"otc.trade.accept", "otc.trade.exercise",
+		"otc.trade", "otc.trade.accept", "otc.trade.exercise",
 		"otc.contracts.read.all",
 		// changelog
 		"changelog.read.orders",
@@ -320,6 +324,7 @@ func supervisorPermissions() []string {
 		"agents.manage", "agents.read", "agents.assign", "agents.unassign",
 		"otc.manage", "otc.contracts.cancel", "otc.market-makers.manage",
 		"funds.manage", "funds.create", "funds.update", "funds.suspend",
+		"funds.bank-position-read",
 		"orders.approve", "orders.approve.market", "orders.approve.limit", "orders.approve.stop",
 		"orders.reject",
 		"tax.manage", "tax.read", "tax.collect", "tax.adjust",

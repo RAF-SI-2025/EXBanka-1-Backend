@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
@@ -15,6 +16,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	transactionpb "github.com/exbanka/contract/transactionpb"
 	"github.com/exbanka/contract/influx"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
@@ -22,6 +24,7 @@ import (
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/config"
+	"github.com/exbanka/stock-service/internal/consumer"
 	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/handler"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
@@ -61,6 +64,15 @@ func main() {
 		&model.CapitalGain{},
 		&model.TaxCollection{},
 		&model.SagaLog{},
+		&model.InvestmentFund{},
+		&model.ClientFundPosition{},
+		&model.FundContribution{},
+		&model.FundHolding{},
+		&model.OTCOffer{},
+		&model.OTCOfferRevision{},
+		&model.OptionContract{},
+		&model.OTCOfferReadReceipt{},
+		&model.InterBankSagaLog{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
@@ -101,6 +113,12 @@ func main() {
 	// (user_id, system_type, security_type, security_id) only.
 	db.Exec("DROP INDEX IF EXISTS idx_holding_unique")
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_per_security ON holdings(user_id, system_type, security_type, security_id)")
+
+	// Celina-4 OTC: enforce "exactly one of order_id / otc_contract_id" at DB
+	// level. The model's BeforeCreate hook does the same check application-side,
+	// but the constraint is defense-in-depth against raw SQL inserts.
+	db.Exec(`ALTER TABLE holding_reservations DROP CONSTRAINT IF EXISTS holding_reservation_owner_chk`)
+	db.Exec(`ALTER TABLE holding_reservations ADD CONSTRAINT holding_reservation_owner_chk CHECK ((order_id IS NOT NULL) <> (otc_contract_id IS NOT NULL))`)
 
 	// Durable data-normalization: exchange-service only accepts 8 ISO currency
 	// codes (RSD, EUR, CHF, USD, GBP, JPY, CAD, AUD). Any other code on a
@@ -150,6 +168,28 @@ func main() {
 		"stock.otc-trade-executed",
 		"stock.tax-collected",
 		"stock.option-exercised",
+		"stock.fund-created",
+		"stock.fund-updated",
+		"stock.fund-invested",
+		"stock.fund-redeemed",
+		"stock.funds-reassigned",
+		"user.supervisor-demoted",
+		"otc.offer-created",
+		"otc.offer-countered",
+		"otc.offer-rejected",
+		"otc.offer-expired",
+		"otc.contract-created",
+		"otc.contract-exercised",
+		"otc.contract-expired",
+		"otc.contract-failed",
+		"otc.crossbank-saga-started",
+		"otc.crossbank-saga-committed",
+		"otc.crossbank-saga-rolled-back",
+		"otc.crossbank-saga-stuck-rollback",
+		"otc.contract-exercised-crossbank",
+		"otc.contract-expired-crossbank",
+		"otc.contract-expiry-stuck",
+		"otc.local-offer-changed",
 	)
 
 	// --- InfluxDB ---
@@ -176,6 +216,19 @@ func main() {
 	}
 	defer exchangeConn.Close()
 	exchangeClient := exchangepb.NewExchangeServiceClient(exchangeConn)
+
+	// Transaction service InterBankService client — used by the cross-bank
+	// OTC accept/exercise sagas for Phase 3 transfer_funds + the
+	// compensation reverse-transfer.
+	transactionConn, err := grpc.NewClient(cfg.TransactionGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Printf("warn: failed to connect to transaction-service: %v (cross-bank OTC sagas disabled)", err)
+	}
+	var interBankClient transactionpb.InterBankServiceClient
+	if transactionConn != nil {
+		defer transactionConn.Close()
+		interBankClient = transactionpb.NewInterBankServiceClient(transactionConn)
+	}
 
 	// User service client (for name resolution + actuary limit enforcement)
 	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -222,6 +275,13 @@ func main() {
 	holdingRepo := repository.NewHoldingRepository(db)
 	capitalGainRepo := repository.NewCapitalGainRepository(db)
 	taxCollectionRepo := repository.NewTaxCollectionRepository(db)
+
+	// --- Investment funds (Celina 4) ---
+	fundRepo := repository.NewFundRepository(db)
+	fundContribRepo := repository.NewFundContributionRepository(db)
+	fundPositionRepo := repository.NewClientFundPositionRepository(db)
+	fundHoldingRepo := repository.NewFundHoldingRepository(db)
+
 
 	// --- Name Resolver ---
 	nameResolver := service.UserNameResolver(func(userID uint64, systemType string) (string, string, error) {
@@ -328,6 +388,14 @@ func main() {
 			}
 			log.Println("initial stock source: generated (default)")
 		}
+
+		// Seed fund_redemption_fee_pct (Celina 4 — investment funds). Supervisors
+		// acting on the bank position pay 0; clients pay this rate on redeems.
+		if _, err := settingRepo.Get("fund_redemption_fee_pct"); err != nil {
+			if err := settingRepo.Set("fund_redemption_fee_pct", "0.005"); err != nil {
+				log.Printf("WARN: could not seed fund_redemption_fee_pct: %v", err)
+			}
+		}
 	}
 
 	syncSvc := service.NewSecuritySyncService(
@@ -382,7 +450,7 @@ func main() {
 		orderRepo, orderTxRepo, listingRepo, settingRepo, securityLookup, producer,
 		sagaLogRepo, stockAccountClient, exchangeClient, holdingReservationSvc,
 		forexRepo, nil, // nil settings → uses defaults (5% slippage, 0.25% commission)
-	).WithActuaryClient(stockActuaryClient)
+	).WithActuaryClient(stockActuaryClient).WithFundSupport(fundRepo)
 
 	// Upgrade portfolioSvc with Phase-2 fill-saga deps so ProcessBuyFill and
 	// ProcessSellFill run the saga paths. Buy saga:
@@ -418,6 +486,8 @@ func main() {
 	// Part B: wire the per-holding transaction history repo so
 	// ListHoldingTransactions returns real data.
 	portfolioSvc = portfolioSvc.WithHoldingTxRepo(orderTxRepo)
+	// Celina 4 Task 18: route on-behalf-of-fund buy fills into fund_holdings.
+	portfolioSvc = portfolioSvc.WithFundHoldings(fundHoldingRepo)
 	execEngine := service.NewOrderExecutionEngine(ctx, orderRepo, orderTxRepo, listingRepo, settingRepo, producer, portfolioSvc)
 
 	// --- Seed securities ---
@@ -453,6 +523,92 @@ func main() {
 	// Start tax collection cron
 	taxCronSvc.StartMonthlyCron(ctx)
 
+	// --- Investment Funds (Celina 4) ---
+	rawBankAccountClient := accountpb.NewBankAccountServiceClient(accountConn)
+	fundBankAdapter := &fundBankAccountAdapter{stub: rawBankAccountClient}
+	fundAccountAdapter := &fundAccountAdapter{
+		fillClient: stockAccountClient,
+		stub:       accountClient,
+	}
+	fundExchangeAdapter := &fundExchangeAdapter{client: exchangeClient}
+	fundSettingsAdapter := &fundSettingsAdapter{repo: settingRepo}
+	fundService := service.NewFundService(fundRepo, fundBankAdapter, producer)
+	fundService = fundService.WithSaga(
+		sagaLogRepo, fundAccountAdapter, fundExchangeAdapter,
+		fundContribRepo, fundPositionRepo, fundHoldingRepo,
+		fundSettingsAdapter,
+		func(ctx context.Context) (string, uint64, error) {
+			resp, err := rawBankAccountClient.GetBankRSDAccount(ctx, &accountpb.GetBankRSDAccountRequest{})
+			if err != nil {
+				return "", 0, err
+			}
+			return resp.AccountNumber, resp.Id, nil
+		},
+	).WithPositionReads(listingRepo).WithLiquidation(orderSvc)
+	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo).
+		WithActuaryDeps(capitalGainRepo, userClient, exchangeClient).
+		WithFundDetailDeps(fundHoldingRepo, listingRepo, stockRepo)
+
+	// Supervisor-demoted consumer: reassigns the demoted supervisor's funds
+	// to the admin who demoted them.
+	supervisorDemotedConsumer := consumer.NewSupervisorDemotedConsumer(cfg.KafkaBrokers, fundRepo, producer)
+	supervisorDemotedConsumer.Start(ctx)
+	defer func() { _ = supervisorDemotedConsumer.Close() }()
+
+	// --- Intra-bank OTC Options (Spec 2 / Celina 4) ---
+	otcOfferRepo := repository.NewOTCOfferRepository(db)
+	otcRevisionRepo := repository.NewOTCOfferRevisionRepository(db)
+	optionContractRepo := repository.NewOptionContractRepository(db)
+	otcReadReceiptRepo := repository.NewOTCReadReceiptRepository(db)
+	otcOfferSvc := service.NewOTCOfferService(
+		otcOfferRepo, otcRevisionRepo, optionContractRepo,
+		holdingRepo, otcReadReceiptRepo, producer,
+	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo)
+
+	// OTC expiry cron (daily).
+	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC)
+	otcExpiry.Start(ctx)
+
+	// --- Cross-bank OTC (Spec 4 / Celina 5) ---
+	interBankSagaLogRepo := repository.NewInterBankSagaLogRepository(db)
+	crossbankExec := service.NewCrossbankSagaExecutor(interBankSagaLogRepo, producer)
+	crossbankPeerRouter := service.NewStaticCrossbankPeerRouter(map[string]*service.CrossbankPeerClient{})
+	crossbankExpire := service.NewCrossbankExpireSaga(crossbankExec, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, cfg.OwnBankCode)
+	crossbankExpiryCron := service.NewCrossbankExpiryCron(optionContractRepo, crossbankExpire, "02:30", 200)
+	crossbankExpiryCron.Start(ctx)
+	crossbankCheckStatus := service.NewCrossbankCheckStatusCron(interBankSagaLogRepo, crossbankPeerRouter, producer, 30*time.Second, 30*time.Second)
+	crossbankCheckStatus.Start(ctx)
+	crossbankOrphan := service.NewCrossbankOrphanReservationCron(interBankSagaLogRepo, holdingReservationSvc, 5*time.Minute, 30*time.Minute)
+	crossbankOrphan.Start(ctx)
+	crossbankInternalHandler := handler.NewCrossbankInternalHandler(otcOfferRepo, optionContractRepo, holdingRepo, holdingReservationSvc, interBankSagaLogRepo, cfg.OwnBankCode)
+
+	// Cross-bank accept + exercise sagas + dispatch hook on OTCOfferService.
+	if interBankClient != nil {
+		interBankAdapter := &interBankTransferAdapter{client: interBankClient}
+		crossbankAccept := service.NewCrossbankAcceptSaga(
+			crossbankExec, crossbankPeerRouter, fundAccountAdapter,
+			optionContractRepo, otcOfferRepo, interBankAdapter, cfg.OwnBankCode,
+		)
+		crossbankExercise := service.NewCrossbankExerciseSaga(
+			crossbankExec, crossbankPeerRouter, fundAccountAdapter,
+			optionContractRepo, interBankAdapter, cfg.OwnBankCode,
+		)
+		otcOfferSvc = otcOfferSvc.WithCrossbank(
+			cfg.OwnBankCode,
+			func(ctx2 context.Context, in service.AcceptInput) (*model.OptionContract, error) {
+				o, err := otcOfferRepo.GetByID(in.OfferID)
+				if err != nil {
+					return nil, err
+				}
+				return crossbankAccept.Run(ctx2, mapAcceptToCrossbank(o, in, cfg.OwnBankCode))
+			},
+			func(ctx2 context.Context, in service.ExerciseInput) (*model.OptionContract, error) {
+				return crossbankExercise.Run(ctx2, mapExerciseToCrossbank(in))
+			},
+		)
+	}
+	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).WithListings(listingRepo)
+
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -474,6 +630,9 @@ func main() {
 			pb.RegisterPortfolioGRPCServiceServer(s, handler.NewPortfolioHandler(portfolioSvc, taxSvc))
 			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandler(otcSvc))
 			pb.RegisterTaxGRPCServiceServer(s, handler.NewTaxHandler(taxSvc))
+			pb.RegisterInvestmentFundServiceServer(s, fundHandler)
+			pb.RegisterOTCOptionsServiceServer(s, otcOptionsHandler)
+			pb.RegisterCrossBankOTCServiceServer(s, crossbankInternalHandler)
 			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 				switch name {
 				case "external":
@@ -553,4 +712,146 @@ func (a *bankCommissionAccountAdapter) BankCommissionAccountNumber(ctx context.C
 	a.cachedAt = time.Now()
 	a.mu.Unlock()
 	return resp.AccountNumber, nil
+}
+
+// fundBankAccountAdapter adapts the gRPC BankAccountServiceClient (which has
+// variadic call options) to the narrower BankAccountClient interface used by
+// FundService.Create — the latter omits CallOption to keep test stubs simple.
+type fundBankAccountAdapter struct {
+	stub accountpb.BankAccountServiceClient
+}
+
+func (a *fundBankAccountAdapter) CreateBankAccount(ctx context.Context, in *accountpb.CreateBankAccountRequest) (*accountpb.AccountResponse, error) {
+	return a.stub.CreateBankAccount(ctx, in)
+}
+
+// fundAccountAdapter adapts the existing stockAccountClient (FillAccountClient)
+// + raw AccountServiceClient to the FundAccountClient interface used by the
+// invest/redeem sagas.
+type fundAccountAdapter struct {
+	fillClient *stockgrpc.AccountClient
+	stub       accountpb.AccountServiceClient
+}
+
+func (a *fundAccountAdapter) GetAccount(ctx context.Context, in *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
+	return a.stub.GetAccount(ctx, in)
+}
+
+func (a *fundAccountAdapter) CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	return a.fillClient.CreditAccount(ctx, accountNumber, amount, memo, idempotencyKey)
+}
+
+func (a *fundAccountAdapter) DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	return a.fillClient.DebitAccount(ctx, accountNumber, amount, memo, idempotencyKey)
+}
+
+// Reservation lifecycle methods — added so fundAccountAdapter also satisfies
+// service.OTCAccountClient (Celina-4 OTC accept/exercise sagas).
+func (a *fundAccountAdapter) ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency string) (*accountpb.ReserveFundsResponse, error) {
+	return a.fillClient.ReserveFunds(ctx, accountID, sagaOrderID, amount, currency)
+}
+
+func (a *fundAccountAdapter) ReleaseReservation(ctx context.Context, sagaOrderID uint64) (*accountpb.ReleaseReservationResponse, error) {
+	return a.fillClient.ReleaseReservation(ctx, sagaOrderID)
+}
+
+func (a *fundAccountAdapter) PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error) {
+	return a.fillClient.PartialSettleReservation(ctx, sagaOrderID, settleSeq, amount, memo)
+}
+
+// fundExchangeAdapter narrows the exchange-service gRPC client to the
+// FundExchangeClient interface (just Convert).
+type fundExchangeAdapter struct {
+	client exchangepb.ExchangeServiceClient
+}
+
+func (a *fundExchangeAdapter) Convert(ctx context.Context, in *exchangepb.ConvertRequest) (*exchangepb.ConvertResponse, error) {
+	return a.client.Convert(ctx, in)
+}
+
+// fundSettingsAdapter exposes settings as decimals; falls back to zero on
+// missing-key or parse errors so the saga never blocks on a missing rate
+// (the caller treats that as fee=0).
+type fundSettingsAdapter struct {
+	repo *repository.SystemSettingRepository
+}
+
+func (a *fundSettingsAdapter) GetDecimal(key string) (decimal.Decimal, error) {
+	v, err := a.repo.Get(key)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	d, err := decimal.NewFromString(v)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return d, nil
+}
+
+// interBankTransferAdapter wraps transactionpb.InterBankServiceClient so it
+// satisfies service.InterBankTransferer.
+type interBankTransferAdapter struct {
+	client transactionpb.InterBankServiceClient
+}
+
+func (a *interBankTransferAdapter) Initiate(ctx context.Context, sender, receiver, amount, currency, memo string) (string, bool, string, error) {
+	resp, err := a.client.InitiateInterBankTransfer(ctx, &transactionpb.InitiateInterBankRequest{
+		SenderAccountNumber:   sender,
+		ReceiverAccountNumber: receiver,
+		Amount:                amount,
+		Currency:              currency,
+		Memo:                  memo,
+	})
+	if err != nil {
+		return "", false, err.Error(), err
+	}
+	committed := resp.Status == "committed"
+	return resp.TransactionId, committed, resp.ErrorReason, nil
+}
+
+func (a *interBankTransferAdapter) Reverse(ctx context.Context, originalTxID, memo string) error {
+	_, err := a.client.ReverseInterBankTransfer(ctx, &transactionpb.ReverseInterBankTransferRequest{
+		OriginalTxId: originalTxID,
+		Memo:         memo,
+	})
+	return err
+}
+
+// mapAcceptToCrossbank fills in the cross-bank input from the local Accept
+// input + offer row. Best-effort: account numbers and external client ids
+// rely on conventions established by the faculty cohort. Unset fields are
+// left blank — the saga's first peer call surfaces the gap clearly.
+func mapAcceptToCrossbank(o *model.OTCOffer, in service.AcceptInput, ownBank string) service.CrossbankAcceptInput {
+	buyerBank, sellerBank := ownBank, ownBank
+	if o.InitiatorBankCode != nil {
+		sellerBank = *o.InitiatorBankCode
+	}
+	if o.CounterpartyBankCode != nil {
+		buyerBank = *o.CounterpartyBankCode
+	}
+	if o.Direction == model.OTCDirectionBuyInitiated {
+		buyerBank, sellerBank = sellerBank, buyerBank
+	}
+	return service.CrossbankAcceptInput{
+		OfferID:         o.ID,
+		BuyerUserID:     in.ActorUserID,
+		BuyerSystemType: in.ActorSystemType,
+		BuyerBankCode:   buyerBank,
+		BuyerAccountID:  in.BuyerAccountID,
+		SellerUserID:    o.InitiatorUserID,
+		SellerSystemType: o.InitiatorSystemType,
+		SellerBankCode:  sellerBank,
+		Premium:         o.Premium,
+		Currency:        "RSD",
+		Quantity:        o.Quantity,
+		StrikePrice:     o.StrikePrice,
+		SettlementDate:  o.SettlementDate,
+	}
+}
+
+func mapExerciseToCrossbank(in service.ExerciseInput) service.CrossbankExerciseInput {
+	return service.CrossbankExerciseInput{
+		ContractID:     in.ContractID,
+		BuyerAccountID: in.BuyerAccountID,
+	}
 }

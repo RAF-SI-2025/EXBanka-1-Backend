@@ -127,6 +127,15 @@ func (s *accountFullStub) PartialSettleReservation(_ context.Context, _ *account
 func (s *accountFullStub) GetReservation(_ context.Context, _ *accountpb.GetReservationRequest, _ ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
 	return &accountpb.GetReservationResponse{}, nil
 }
+func (s *accountFullStub) ReserveIncoming(_ context.Context, _ *accountpb.ReserveIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error) {
+	return &accountpb.ReserveIncomingResponse{}, nil
+}
+func (s *accountFullStub) CommitIncoming(_ context.Context, _ *accountpb.CommitIncomingRequest, _ ...grpc.CallOption) (*accountpb.CommitIncomingResponse, error) {
+	return &accountpb.CommitIncomingResponse{}, nil
+}
+func (s *accountFullStub) ReleaseIncoming(_ context.Context, _ *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+	return &accountpb.ReleaseIncomingResponse{}, nil
+}
 
 // Account handler tests
 func accountRouter(h *handler.AccountHandler) *gin.Engine {

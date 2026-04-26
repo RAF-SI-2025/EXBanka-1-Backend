@@ -148,7 +148,8 @@ Client (HTTP/JSON) → API Gateway (Gin, :8080)
 
 | Caller | Calls |
 |---|---|
-| api-gateway | auth, user, client, account, card, transaction, credit, exchange, verification, notification |
+| api-gateway | auth, user, client, account, card, transaction, credit, exchange, verification, notification, stock (StockExchange / Security / Order / Portfolio / OTC / Tax / SourceAdmin / **InvestmentFund** (Celina 4) / **OTCOptions** (Spec 2)) |
+| stock-service | account-service (debit/credit/reservations/bank-account), exchange-service (FX), user-service (employee names + actuary limits), client-service (client name resolution), **transaction-service (Spec 3 InterBankService for cross-bank Phase 3 + ReverseInterBankTransfer)** |
 | auth-service | user-service (employee lookup), client-service (client login) |
 | user-service | auth-service (activation tokens) |
 | client-service | auth-service (activation tokens) |
@@ -501,22 +502,24 @@ Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>
 | employees | `employees.create`, `employees.update`, `employees.read`, `employees.permissions` |
 | limits | `limits.manage` |
 | admin | `bank-accounts.manage`, `fees.manage`, `interest-rates.manage` |
-| agent/otc | `agents.manage`, `otc.manage`, `funds.manage` |
-| orders | `orders.place-on-behalf` |
+| agent/otc | `agents.manage`, `otc.manage`, `otc.trade`, `funds.manage`, `funds.bank-position-read` |
+| orders | `orders.place-on-behalf`, `orders.place.for-bank`, `orders.place.on-behalf-client` |
 | verification | `verification.skip`, `verification.manage` |
 
 **Permission notes:**
 - `securities.manage` — manage stock-service data sources and perform destructive source switches. Assigned to `EmployeeAdmin` only.
-- `orders.place-on-behalf` — place stock/OTC orders on behalf of a client (routes `POST /api/v1/orders` and `POST /api/v1/otc/admin/offers/:id/buy`). Seeded on `EmployeeAgent`, `EmployeeSupervisor`, and `EmployeeAdmin`.
+- `orders.place-on-behalf` (legacy umbrella) / `orders.place.on-behalf-client` (granular) / `orders.place.for-bank` (granular) — place stock/OTC orders on behalf of a client or for the bank. Seeded on `EmployeeAgent`, `EmployeeSupervisor`, and `EmployeeAdmin`.
+- `otc.trade` (Spec 2) — required to create/counter/accept/reject/exercise OTC options. Granted to `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin`.
+- `funds.bank-position-read` (Celina 4) — view the bank's positions across investment funds + the actuary-performance leaderboard. Granted to `EmployeeSupervisor` and `EmployeeAdmin`.
 
 ### Role Definitions
 
 | Role | Inherits Permissions |
 |---|---|
 | EmployeeBasic | clients.*, accounts.*, cards.*, payments.read, credits.read |
-| EmployeeAgent | EmployeeBasic + securities.*, orders.place-on-behalf |
-| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, verification.skip, verification.manage, orders.place-on-behalf |
-| EmployeeAdmin | All permissions (including `securities.manage`, `orders.place-on-behalf`) |
+| EmployeeAgent | EmployeeBasic + securities.*, otc.trade, orders.place-on-behalf, orders.place.on-behalf-client, orders.place.for-bank |
+| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, funds.bank-position-read, verification.skip, verification.manage |
+| EmployeeAdmin | All permissions (including `securities.manage`) |
 
 ### Context Values Set by Middleware
 
@@ -814,11 +817,11 @@ An agent extending an existing service needs to know which gRPC services already
 | `client/client.proto` | `ClientService`, `ClientLimitService` | 5 + 2 |
 | `account/account.proto` | `AccountService`, `BankAccountService` | 14 + 6 |
 | `card/card.proto` | `CardService`, `VirtualCardService`, `CardRequestService` | 9 + 5 + 6 |
-| `transaction/transaction.proto` | `TransactionService`, `FeeService` | 13 + 5 |
+| `transaction/transaction.proto` | `TransactionService`, `FeeService`, `InterBankService` (Spec 3 + Spec 4 `ReverseInterBankTransfer`) | 13 + 5 + 5 |
 | `credit/credit.proto` | `CreditService` | 16 |
 | `exchange/exchange.proto` | `ExchangeService` | 4 |
 | `notification/notification.proto` | `NotificationService` | 2 |
-| `stock/stock.proto` | `SecurityGRPCService`, `OrderGRPCService`, `PortfolioGRPCService`, `OTCGRPCService`, `SourceAdminService` | (see below) |
+| `stock/stock.proto` | `SecurityGRPCService`, `OrderGRPCService`, `PortfolioGRPCService`, `OTCGRPCService`, `SourceAdminService`, **`InvestmentFundService`** (Celina 4, 9 RPCs), **`OTCOptionsService`** (Spec 2, 9 RPCs), **`CrossBankOTCService`** (Spec 4, 12 RPCs) | (see below) |
 
 **account-service BankAccountService additions:**
 
@@ -1336,6 +1339,8 @@ api-gateway:
 
 ## 18. Complete Entity Reference
 
+> **New feature entities:** Investment-fund entities are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC option entities (`OTCOffer`, `OTCOfferRevision`, `OptionContract`, `OTCOfferReadReceipt`) are in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank OTC additions (`InterBankSagaLog`; `OTCOffer.Public/Private`; `OptionContract.CrossbankTxID/CrossbankExerciseTxID`; `HoldingReservation.OTCContractID`) are in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation). The `Order` model gained a `FundID *uint64` column for on-behalf-of-fund order placement.
+
 ### Auth Service (auth_db)
 
 **Account** — Unified login record for employees and clients
@@ -1749,6 +1754,8 @@ Key(string, PK, size:64), Value(string)
 
 ## 19. Complete Kafka Topic Reference
 
+> **New feature topics:** Investment-fund topics are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC topics (`otc.offer-created/-countered/-rejected/-expired`, `otc.contract-created/-exercised/-expired/-failed`) live in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank topics (`otc.crossbank-saga-started/-committed/-rolled-back/-stuck-rollback`, `otc.contract-{exercised,expired}-crossbank`, `otc.contract-expiry-stuck`, `otc.local-offer-changed`) live in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation).
+
 ### All Topics
 
 | Topic | Producer | Consumer | Message Type |
@@ -1945,6 +1952,18 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 | `verification_method` | `code_pull` (default), `email` — active; `qr_scan`, `number_match` — planned but not yet active |
 | `verification_status` | `pending`, `verified`, `expired`, `failed` |
 | `mobile_device_status` | `pending`, `active`, `deactivated` |
+| `on_behalf_of_type` (funds invest/redeem) | `self`, `bank` |
+| `on_behalf_of_type` (orders) | `self`, `bank`, `fund` (Celina 4) |
+| `fund_contribution_direction` | `invest`, `redeem` |
+| `fund_contribution_status` | `pending`, `completed`, `failed` |
+| `otc_offer_status` | `PENDING`, `COUNTERED`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `FAILED` |
+| `otc_offer_direction` | `sell_initiated`, `buy_initiated` |
+| `otc_offer_action` (revision history) | `CREATE`, `COUNTER`, `ACCEPT`, `REJECT` |
+| `option_contract_status` | `ACTIVE`, `EXERCISED`, `EXPIRED`, `FAILED` |
+| `inter_bank_saga_kind` | `accept`, `exercise`, `expire` |
+| `inter_bank_saga_role` | `initiator`, `responder` |
+| `inter_bank_saga_phase` | `reserve_buyer_funds`, `reserve_seller_shares`, `transfer_funds`, `transfer_ownership`, `finalize`, `expire_notify`, `expire_apply` |
+| `inter_bank_saga_status` | `pending`, `completed`, `failed`, `compensating`, `compensated` |
 | `mobile_inbox_status` | `pending`, `delivered`, `expired` |
 | `device_type` (JWT) | `mobile` |
 
@@ -2184,3 +2203,321 @@ These endpoints exist only under `/api/v2/` and are not available on v1 or unver
 |---|---|---|---|---|
 | POST | `/api/v2/options/:option_id/orders` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.CreateOrder | Place an order on an option by option ID |
 | POST | `/api/v2/options/:option_id/exercise` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.Exercise | Exercise an option by option ID (optional `holding_id` in body; auto-resolved when omitted) |
+
+### v3-only endpoints
+
+These endpoints exist only under `/api/v3/`. v3 is the home of new feature surfaces; v3 does not re-host v1/v2 routes.
+
+| Method | Path | Middleware | Handler | Description |
+|---|---|---|---|---|
+| POST | `/api/v3/investment-funds` | AuthMiddleware + RequirePermission(`funds.manage`) | InvestmentFundHandler.CreateFund | Create a new investment fund (provisions a bank-side RSD account) |
+| GET | `/api/v3/investment-funds` | AnyAuthMiddleware | InvestmentFundHandler.ListFunds | List funds (page / page_size / search / active_only) |
+| GET | `/api/v3/investment-funds/:id` | AnyAuthMiddleware | InvestmentFundHandler.GetFund | Fund detail |
+| PUT | `/api/v3/investment-funds/:id` | AuthMiddleware + RequirePermission(`funds.manage`) | InvestmentFundHandler.UpdateFund | Update fund (name/description/minimum/active) |
+| POST | `/api/v3/investment-funds/:id/invest` | AnyAuthMiddleware | InvestmentFundHandler.Invest | Invest in fund (RSD or cross-currency via exchange-service) |
+| POST | `/api/v3/investment-funds/:id/redeem` | AnyAuthMiddleware | InvestmentFundHandler.Redeem | Redeem from fund (rejects with `insufficient_fund_cash` when fund cash short — liquidation TODO) |
+| GET | `/api/v3/me/investment-funds` | AnyAuthMiddleware | InvestmentFundHandler.ListMyPositions | Caller's fund positions |
+| GET | `/api/v3/investment-funds/positions` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ListBankPositions | Bank-owned positions |
+| GET | `/api/v3/actuaries/performance` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ActuaryPerformance | Realised profit per acting employee |
+| POST | `/api/v3/otc/offers` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.CreateOffer | Create OTC option offer (Spec 2) |
+| POST | `/api/v3/otc/offers/:id/counter` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.CounterOffer | Counter offer terms |
+| POST | `/api/v3/otc/offers/:id/accept` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.AcceptOffer | Accept offer (premium-payment saga; cross-bank dispatches via Spec 4) |
+| POST | `/api/v3/otc/offers/:id/reject` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.RejectOffer | Reject offer |
+| POST | `/api/v3/otc/contracts/:id/exercise` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.ExerciseContract | Exercise option (cross-bank dispatches via Spec 4) |
+| GET | `/api/v3/otc/offers/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetOffer | Offer detail with revisions |
+| GET | `/api/v3/otc/contracts/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetContract | Contract detail |
+| GET | `/api/v3/me/otc/offers` | AnyAuthMiddleware | OTCOptionsHandler.ListMyOffers | Caller's OTC offers |
+| GET | `/api/v3/me/otc/contracts` | AnyAuthMiddleware | OTCOptionsHandler.ListMyContracts | Caller's OTC contracts |
+
+## 24. Investment Funds (Celina 4)
+
+### Entities (stock-service)
+
+| Entity | Table | Purpose |
+|---|---|---|
+| `InvestmentFund` | `investment_funds` | Supervisor-managed pool. One bank-owned RSD account, manager_employee_id, minimum contribution. Optimistic locking via Version. |
+| `ClientFundPosition` | `client_fund_positions` | One row per (fund, owner). Owner identified by (UserID, SystemType). Bank's stake uses UserID=1_000_000_000, SystemType="employee". TotalContributedRSD accumulates contributions and decrements on redeem. |
+| `FundContribution` | `fund_contributions` | Append-mostly history of every invest/redeem event. status pending → completed/failed under the saga that produced it. SagaID is a UUID string referencing saga_logs. |
+| `FundHolding` | `fund_holdings` | Fund-side analogue of Holding. Increments on on-behalf-of-fund order fills, decrements on liquidation. FIFO order-by created_at for liquidation. |
+| `Order.FundID` | `orders.fund_id` | New optional column. Non-nil when the order was placed on behalf of a fund — owner_user_id is then 1_000_000_000 (bank sentinel) and fills credit `fund_holdings` instead of `holdings`. |
+
+### Kafka topics
+
+| Topic | Producer | Consumer | Payload |
+|---|---|---|---|
+| `stock.fund-created` | stock-service | (none yet) | StockFundCreatedMessage |
+| `stock.fund-updated` | stock-service | (none yet) | StockFundUpdatedMessage |
+| `stock.fund-invested` | stock-service | (none yet) | StockFundInvestedMessage |
+| `stock.fund-redeemed` | stock-service | (none yet) | StockFundRedeemedMessage |
+| `stock.funds-reassigned` | stock-service | (none yet) | StockFundsReassignedMessage |
+| `user.supervisor-demoted` | user-service (via outbox relay) | stock-service (SupervisorDemotedConsumer) | UserSupervisorDemotedMessage |
+
+### Permissions
+
+- `funds.manage` (existing) — create / update funds. Granted to `EmployeeSupervisor` and `EmployeeAdmin`.
+- `funds.bank-position-read` (new) — view the bank's positions and actuary performance. Granted to `EmployeeSupervisor` and `EmployeeAdmin`.
+
+### gRPC service: `InvestmentFundService`
+
+Defined in `contract/proto/stock/stock.proto`. RPCs:
+- `CreateFund` / `ListFunds` / `GetFund` / `UpdateFund` (CRUD)
+- `InvestInFund` / `RedeemFromFund` (saga-orchestrated money flow)
+- `ListMyPositions` / `ListBankPositions` (per-owner reads)
+- `GetActuaryPerformance` (aggregated realised gains per acting employee)
+
+Shared message: `OnBehalfOf { type: "self"|"bank"|"fund"; fund_id: uint64 }` — used both by InvestInFund/RedeemFromFund (self vs bank) and by `Order.OnBehalfOf` (Task 18, follow-up) for placing orders on behalf of a fund.
+
+### Settings
+
+| Key | Default | Set by | Used by |
+|---|---|---|---|
+| `fund_redemption_fee_pct` | `0.005` (0.5%) | stock-service main.go on first boot | Redeem saga; bank redeems pay 0 |
+
+### Saga shapes
+
+**Invest:** `debit_source` → `credit_fund` → `upsert_position`. Cross-currency invest converts via exchange-service.Convert before the debit. Failure of step 2 reverses step 1; failure of step 3 reverses both.
+
+**Redeem:** `debit_fund` (amount + fee) → `credit_target` → optional `credit_bank_fee` → `decrement_position`. When fund cash is short, returns `ErrInsufficientFundCash` (HTTP 409). Liquidation sub-saga that sells securities to free cash is a follow-up.
+
+### Outbox + cross-service event flow
+
+Permission revoke that drops `funds.manage` → user-service writes a `user.supervisor-demoted` row to its `outbox_events` table inside the same TX → relay goroutine drains to Kafka → stock-service's SupervisorDemotedConsumer reassigns every fund managed by that supervisor to the demoting admin in a single TX, then publishes `stock.funds-reassigned`.
+
+### Open follow-ups
+
+- Task 14: invest-saga compensation matrix tests
+- Tasks 16–17: liquidation sub-saga (FIFO sell-orders + fill polling) wired into Redeem
+- Task 18: extend `POST /me/orders` with `on_behalf_of=fund` (routes order through fund's RSD account; fills credit `fund_holdings`)
+- Task 20: position-reads service (mark-to-market value, profit, percentage_fund)
+- Task 21: actuary-performance aggregation
+- Task 25: integration tests in test-app/workflows
+
+## 25. Inter-Bank 2PC Transfers (Celina 5 / Spec 3)
+
+Cross-bank money movement using a Prepare → Ready/NotReady → Commit → Committed state machine. Sender bank routes transfers whose receiver-account 3-digit prefix is not `OWN_BANK_CODE` to a peer bank over HMAC-authenticated HTTP. Spec source: `docs/superpowers/specs/2026-04-24-interbank-2pc-transfers-design.md`. Wire-protocol field-name table: `docs/superpowers/refs/si-tx-proto-mapping.md`.
+
+### Public REST routes (api-gateway)
+
+| Method | Path | Auth | Handler | Notes |
+|---|---|---|---|---|
+| POST | `/api/v3/me/transfers` | `AnyAuth` | `InterBankPublicHandler.CreateTransfer` | Detects inter-bank by receiver-account prefix. Intra-bank → forwards to existing v1 path; inter-bank → `202 Accepted` with `pollUrl`. |
+| GET | `/api/v3/me/transfers/{id}` | `AnyAuth` | `InterBankPublicHandler.GetTransferByID` | Looks up `transfers` first, falls back to `inter_bank_transactions`. Numeric ids → intra; UUID ids → inter. |
+
+### Internal HMAC-authenticated routes (api-gateway, peer-bank only)
+
+NOT under any `/api/v*` prefix; secured by `middleware.HMACMiddleware` + Redis nonce store.
+
+| Method | Path | Auth | Handler | Body |
+|---|---|---|---|---|
+| POST | `/internal/inter-bank/transfer/prepare` | `HMACMiddleware` | `InterBankInternalHandler.Prepare` | Prepare envelope → forwards to gRPC `HandlePrepare`. |
+| POST | `/internal/inter-bank/transfer/commit` | `HMACMiddleware` | `InterBankInternalHandler.Commit` | Commit envelope → forwards to gRPC `HandleCommit`. |
+| POST | `/internal/inter-bank/check-status` | `HMACMiddleware` | `InterBankInternalHandler.CheckStatus` | CheckStatus envelope → forwards to gRPC `HandleCheckStatus`. |
+
+### gRPC service: `InterBankService`
+
+Defined in `contract/proto/transaction/transaction.proto`. Hosted on transaction-service.
+
+| RPC | Caller | Purpose |
+|---|---|---|
+| `InitiateInterBankTransfer` | api-gateway (POST `/api/v3/me/transfers`) | Sender-side entry point. Validates, debits, sends Prepare, follows through to commit or reconciling. |
+| `HandlePrepare` | api-gateway (`/internal/inter-bank/transfer/prepare`) | Receiver-side validation, FX + fees, ReserveIncoming. |
+| `HandleCommit` | api-gateway (`/internal/inter-bank/transfer/commit`) | Receiver-side commit; CommitIncoming; idempotent on transactionId. |
+| `HandleCheckStatus` | api-gateway (`/internal/inter-bank/check-status`) | Bidirectional status probe used by both sides' reconcilers. |
+| `GetInterBankTransfer` | api-gateway (GET `/api/v3/me/transfers/{id}`) | Read-side helper for the unified transfer view. |
+
+### account-service additions
+
+New gRPC RPCs (`contract/proto/account/account.proto`):
+
+| RPC | Purpose |
+|---|---|
+| `ReserveIncoming` | Creates a pending credit reservation (no balance change). Idempotent on `reservation_key`. |
+| `CommitIncoming` | Finalizes the credit; locks the account, adds to Balance + AvailableBalance, writes a credit ledger entry, marks the reservation committed. Idempotent. |
+| `ReleaseIncoming` | Cancels a pending reservation; no ledger impact. Idempotent. |
+
+### New entities
+
+| Entity | Service | Table | Purpose |
+|---|---|---|---|
+| `IncomingReservation` | account-service | `incoming_reservations` | Credit-side reservation for inter-bank inbound transfers. Lifecycle: `pending → committed | released`. Keyed off the inter-bank `transactionId` via `reservation_key`. Optimistic locking via Version. |
+| `Bank` | transaction-service | `banks` | Peer-bank registry. `code` is the 3-digit prefix, `base_url` is the peer's `/internal/inter-bank` root, `api_key_bcrypted` and `inbound_api_key_bcrypted` hold bcrypt hashes of the outbound and inbound HMAC keys (plaintext lives in env). Seeded at startup from per-peer env vars. |
+| `InterBankTransaction` | transaction-service | `inter_bank_transactions` | Durable 2PC state. Composite key `(tx_id, role)` — same `tx_id` may have a sender row on this side and (in local-loopback testing) a receiver row. `phase`, `status`, `error_reason`, `retry_count`, `payload_json`, FX/fees columns. Enforces transition matrix in `InterBankTxRepository.UpdateStatus`. Optimistic locking via Version. |
+
+### Status enum (Spec 3 §5.3)
+
+Sender side: `initiated`, `preparing`, `ready_received`, `notready_received`, `committing`, `committed`, `rolled_back`, `reconciling`.
+
+Receiver side: `prepare_received`, `validated`, `ready_sent`, `notready_sent`, `final_notready`, `commit_received`, `committed`, `abandoned`.
+
+Terminal: `committed`, `rolled_back`, `final_notready`, `abandoned`.
+
+Roles: `sender`, `receiver`. Phases: `prepare`, `commit`, `reconcile`, `done`.
+
+Action enums (wire format, case-sensitive): `Prepare`, `Ready`, `NotReady`, `Commit`, `Committed`, `CheckStatus`, `Status`.
+
+NotReady reasons: `account_not_found`, `account_inactive`, `currency_not_supported`, `limit_exceeded`, `fees_exceed_amount`, `bank_inactive`, `commit_mismatch`, `unknown`.
+
+### Kafka topics
+
+| Topic | Producer | Consumer | Payload | When published |
+|---|---|---|---|---|
+| `transfer.interbank-prepared` | transaction-service | (notification + audit) | `TransferInterbankMessage` | Sender: after Ready received. Receiver: after Ready sent. |
+| `transfer.interbank-committed` | transaction-service | (notification + audit) | `TransferInterbankMessage` | Sender: after local debit + peer 200. |
+| `transfer.interbank-received` | transaction-service | (notification + audit) | `TransferInterbankMessage` | Receiver: after CommitIncoming. |
+| `transfer.interbank-rolled-back` | transaction-service | (notification + audit) | `TransferInterbankMessage` | Any side, on terminal failure / reconciled rollback / receiver abandon. |
+
+### Crons (transaction-service)
+
+| Cron | Interval | Purpose |
+|---|---|---|
+| `InterBankReconciler` | `INTERBANK_RECONCILE_INTERVAL` (60s default) | Probes peers for sender rows in `reconciling`. Branches per Spec 3 §9.4. Gives up after `INTERBANK_RECONCILE_MAX_RETRIES` (10) or `INTERBANK_RECONCILE_STALE_AFTER` (24h). |
+| `InterBankTimeoutCron` | `INTERBANK_RECONCILE_INTERVAL` | Releases incoming reservations whose `ready_sent` age exceeds `INTERBANK_RECEIVER_WAIT` (90s). |
+| `InterBankRecovery` | once at startup | Sender rows in `preparing` / `committing` past timeout → `reconciling`. Receiver rows in `commit_received` → re-run CommitIncoming. |
+
+### Authentication (Spec 3 §8)
+
+Every inbound `/internal/inter-bank/*` request carries: `X-Bank-Code`, `X-Bank-Signature` (hex HMAC-SHA256 of body), `X-Idempotency-Key` (= `transactionId`), `X-Timestamp` (RFC3339, ±5 min skew), `X-Nonce` (16 random bytes hex). The middleware verifies the bank code is registered + active, the timestamp is within window, the nonce is single-use within a 10-minute window in Redis (`inter_bank_nonce:<code>:<nonce>`), and the HMAC matches when computed with the plaintext inbound key from env (`PEER_<CODE>_INBOUND_KEY`). Constant-time comparison via `crypto/hmac.Equal`.
+
+Outbound traffic uses the symmetric outbound key (`PEER_<CODE>_OUTBOUND_KEY`) and sets the same five headers. Bcrypt hashes in `banks.api_key_bcrypted` / `inbound_api_key_bcrypted` exist for audit + rotation only — runtime verification uses the plaintext keys held in env.
+
+### Sender debit semantics
+
+Inter-bank sender-side reservations use direct `UpdateBalance` on account-service rather than the existing AccountReservation table (which is keyed on numeric OrderID and used by stock-trading). On Initiate, the sender is debited immediately via `UpdateBalance(amount=-X, idempotency_key="interbank-out-debit-<txID>")`. On rollback (NotReady or reconciler-initiated), credit-back uses `idempotency_key="interbank-out-credit-back-<txID>"` — a different key so the credit is not deduplicated against the original debit. Both calls land idempotent ledger entries.
+
+### Configuration
+
+transaction-service env vars:
+
+| Var | Default | Notes |
+|---|---|---|
+| `OWN_BANK_CODE` | `111` | This bank's 3-digit prefix. |
+| `INTERBANK_PREPARE_TIMEOUT` | `30s` | HTTP client timeout for outbound Prepare. |
+| `INTERBANK_COMMIT_TIMEOUT` | `30s` | HTTP client timeout for outbound Commit. |
+| `INTERBANK_RECEIVER_WAIT` | `90s` | Receiver gives up on Commit and abandons after this. |
+| `INTERBANK_RECONCILE_INTERVAL` | `60s` | Reconciler + receiver-timeout cron tick interval. |
+| `INTERBANK_RECONCILE_MAX_RETRIES` | `10` | Per-row CheckStatus attempts before give-up. |
+| `INTERBANK_RECONCILE_STALE_AFTER` | `24h` | Wallclock cap on a row in `reconciling`. |
+| `PEER_<CODE>_BASE_URL` | (unset) | Per-peer `/internal/inter-bank` root, e.g. `http://peer-222/internal/inter-bank`. |
+| `PEER_<CODE>_INBOUND_KEY` | (unset) | Plaintext HMAC key the peer signs requests TO us with. |
+| `PEER_<CODE>_OUTBOUND_KEY` | (unset) | Plaintext HMAC key WE sign requests TO that peer with. |
+
+api-gateway env vars (in addition to existing): `REDIS_ADDR`, `OWN_BANK_CODE`, `PEER_<CODE>_INBOUND_KEY` (one per peer).
+
+### Permissions
+
+No new permissions. `transfers.create` (existing) gates POST `/api/v3/me/transfers` for both intra and inter cases. The `/internal/inter-bank/*` routes are HMAC-only — not permission-gated. Authorization of the destination side is the peer bank's responsibility once Prepare leaves this bank.
+
+### Business rules
+
+- Receiver bank computes FX rate + fees at Prepare time; those terms are locked for Commit. Any drift on Commit → `409 commit_mismatch` and sender transitions to `reconciling`.
+- Sender debit is immediate (not a reservation hold) — the user's balance drops at Initiate; rollback credits it back via a different idempotency key.
+- All status transitions go through `InterBankTxRepository.UpdateStatus(from, to)`, which validates against the `validTransitions` matrix and uses `WHERE status = from` for compare-and-swap.
+- Kafka events are published AFTER the relevant DB transaction commits (CLAUDE.md §Concurrency requirement).
+- HMAC verification is fail-closed in production: missing or mismatched signature → 401 with no information leaked. Unknown or inactive bank also returns 401 (not 503) so peers cannot probe for activity.
+
+## 26. Intra-bank OTC Options (Celina 4 / Spec 2)
+
+### Entities (stock-service)
+
+| Entity | Table | Purpose |
+|---|---|---|
+| `OTCOffer` | `otc_offers` | One negotiation thread between two parties on a stock-option contract. Carries direction, stock_id, qty, strike, premium, settlement_date, status, last_modified_by. Optimistic-locked. |
+| `OTCOfferRevision` | `otc_offer_revisions` | Append-only history of every CREATE/COUNTER/ACCEPT/REJECT action on an offer. (offer_id, revision_number) is unique. |
+| `OptionContract` | `option_contracts` | The premium-paid executed option produced by the accept saga. status ∈ {ACTIVE, EXERCISED, EXPIRED, FAILED}. |
+| `OTCOfferReadReceipt` | `otc_offer_read_receipts` | Composite-PK row tracking the most recent updated_at the user has seen for an offer. Drives the `unread` flag. |
+| `HoldingReservation.OTCContractID` | `holding_reservations.otc_contract_id` | New nullable column. Either OrderID or OTCContractID is set; CHECK constraint enforces the XOR. |
+
+### Permissions
+
+- `otc.trade` (new) — required for create/counter/accept/reject/exercise. Granted to `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin` (which already have `securities.trade`).
+
+### gRPC service: `OTCOptionsService`
+
+Defined in `contract/proto/stock/stock.proto`. RPCs: CreateOffer, ListMyOffers, GetOffer, CounterOffer, AcceptOffer, RejectOffer, ListMyContracts, GetContract, ExerciseContract.
+
+### Kafka topics
+
+| Topic | Producer | Payload |
+|---|---|---|
+| `otc.offer-created` | stock-service | OTCOfferCreatedMessage |
+| `otc.offer-countered` | stock-service | OTCOfferCounteredMessage |
+| `otc.offer-rejected` | stock-service | OTCOfferRejectedMessage |
+| `otc.offer-expired` | stock-service (cron) | OTCOfferExpiredMessage |
+| `otc.contract-created` | stock-service | OTCContractCreatedMessage |
+| `otc.contract-exercised` | stock-service | OTCContractExercisedMessage |
+| `otc.contract-expired` | stock-service (cron) | OTCContractExpiredMessage |
+| `otc.contract-failed` | stock-service | OTCContractFailedMessage |
+
+### Sagas
+
+**Accept saga** (premium-payment, §6.1 of design): reserve_seller_shares + create OptionContract → ReserveFunds(buyer) → PartialSettle(buyer) → CreditAccount(seller) → mark_offer_accepted → kafka. On post-step-1 failure compensations reverse the prior side effects.
+
+**Exercise saga** (§6.2 of design): ReserveFunds(buyer, strike) → settle → credit seller → ConsumeForOTCContract → upsert buyer's holding → mark EXERCISED + kafka.
+
+**Expiry cron**: daily 02:00 UTC. Pass A: ACTIVE contracts past settlement_date → release seller's reservation, mark EXPIRED, publish event. Pass B: PENDING/COUNTERED offers past settlement_date → mark EXPIRED, publish event.
+
+### Cross-currency support
+
+Both Accept and Exercise convert through `exchange-service.Convert` when buyer + seller account currencies differ:
+
+- Premium / strike are denominated in the seller's currency
+- Buyer-side reserve, settle, and compensation legs run in the buyer's currency at the live rate
+- Seller is credited in their currency
+
+Same-currency flows skip the conversion call entirely.
+
+## 27. Cross-bank OTC Options (Celina 5 / Spec 4) — Foundation
+
+### Status
+
+The foundation layer landed in this commit set. Saga internals, gateway routes, and crons are deferred — they need the faculty-cohort wire shapes locked in writing (`docs/superpowers/refs/crossbank-otc-wire.md`) before the final implementation can be built and tested against real peer banks.
+
+### Foundation entities (stock-service)
+
+| Entity | Table | Purpose |
+|---|---|---|
+| `OTCOffer.Public` / `Private` / `PrivateToBankCode` | `otc_offers` | Visibility flags for peer discovery — public offers fan out, private offers are restricted to a named bank |
+| `OptionContract.CrossbankTxID` / `CrossbankExerciseTxID` | `option_contracts` | Saga-id linkage so the contract row can be traced back to its accept / exercise saga |
+| `InterBankSagaLog` | `inter_bank_saga_logs` | Durable per-step audit. One row per `(TxID, Phase, Role)`. Optimistic-locked. Idempotency key is `<saga_kind>-<tx_id>-<phase>-<role>` (unique). |
+
+### Helpers
+
+- `model.IsCrossBankOffer(o, selfBankCode)` — true if either side's bank code is set and not the self code
+- `OptionContract.IsCrossBank()` — true if buyer + seller bank codes differ
+
+### Saga executor
+
+`service.CrossbankSagaExecutor` provides idempotent `BeginPhase` / `CompletePhase` / `FailPhase` / `IsPhaseCompleted` plus Kafka publishers for the four saga lifecycle topics (`otc.crossbank-saga-{started, committed, rolled-back, stuck-rollback}`).
+
+### gRPC + Kafka contract
+
+Defined in `contract/proto/stock/stock.proto` (`CrossBankOTCService`, 12 RPCs, 22 messages) and `contract/kafka/messages.go` (8 new `otc.*` topics + payload structs). `contract/proto/transaction/transaction.proto` adds `ReverseInterBankTransfer` to `InterBankService` for the compensation path on accept-saga ownership-transfer failure.
+
+### Implementation status
+
+All 21 tasks of the plan landed. Sagas, crons, and gateway dispatch are wired end-to-end. The peer router starts empty by default — peers are added at deployment time once the cohort wire shapes are locked. Until then, cross-bank Accept / Exercise return a clear "no peer client configured for code XYZ" error instead of running the distributed saga.
+
+| Task | Status | What |
+|---|---|---|
+| 1–3 | ✅ | OTCOffer / OptionContract bank-code columns + helpers, InterBankSagaLog model + repo |
+| 4 | ✅ | CrossBankOTCService proto (12 RPCs, 22 messages) + ReverseInterBankTransfer + 8 otc.* topics |
+| 5 | ✅ | transaction-service ReverseInterBankTransfer — looks up original tx, swaps sender/receiver, drives PREPARE/COMMIT idempotency-keyed on `reverse-<original_tx_id>` |
+| 6 | ✅ | CrossbankSagaExecutor — idempotent BeginPhase/CompletePhase/FailPhase + 4 saga-lifecycle Kafka publishers |
+| 7–11 | ✅ | CrossbankAcceptSaga — 5-phase initiator-side driver. Each phase persisted in InterBankSagaLog. Compensations walk completed phases in reverse |
+| 12 | ✅ | CrossbankExerciseSaga — same 5 phases keyed on strike instead of premium |
+| 13 | ✅ | CrossbankExpireSaga — 3-phase (notify peer → release local reservation / mark EXPIRED → kafka) |
+| 14 | ✅ | CrossbankCheckStatusCron — polls pending rows past timeout, asks peer, transitions our row |
+| 15 | ✅ | CrossbankOrphanReservationCron — sweeps responder-side phase-2 reservations with no contract within 30 min |
+| 16 | ✅ | CrossbankExpiryCron — daily 02:30 UTC scan for cross-bank ACTIVE contracts past settlement_date |
+| 17 | ✅ | CrossbankDiscovery — 60s in-process cache merging remote offers; Invalidate() hook for the otc.local-offer-changed Kafka consumer |
+| 18 | ✅ | OTCOfferService.WithCrossbank — Accept and ExerciseContract dispatch to the cross-bank saga when bank codes differ |
+| 19 | ✅ | CrossbankInternalHandler — gRPC server-side for 10/12 RPCs; PeerReviseOffer + PeerAcceptIntent stubbed pending cohort lock-down |
+| 20 | ✅ | Smoke tests in test-app/workflows/crossbank_otc_test.go (skip on 404) |
+| 21 | ✅ | This Specification entry |
+
+### Operational notes
+
+- Peer router (`StaticCrossbankPeerRouter`) is constructed empty in `stock-service/cmd/main.go`. To enable cross-bank trading at deploy time, populate the map with one `CrossbankPeerClient` per peer bank code, then wire the dispatchers via `OTCOfferService.WithCrossbank`.
+- The two unimplemented RPCs (`PeerReviseOffer`, `PeerAcceptIntent`) return Unimplemented until the faculty cohort agrees on payload shapes for offer revision and accept-intent. Lock those in `docs/superpowers/refs/crossbank-otc-wire.md` before flipping them on.
+- The cross-bank saga reuses Spec 3's `InitiateInterBankTransfer` (Phase 3 `transfer_funds`) and `ReverseInterBankTransfer` (compensation path) — no parallel implementation.
+- Each `InterBankSagaLog` row's `IdempotencyKey` is `<saga_kind>-<tx_id>-<phase>-<role>` and is unique. Retries on the same tuple coalesce; the executor's `IsPhaseCompleted` lets restart logic skip already-finished phases.

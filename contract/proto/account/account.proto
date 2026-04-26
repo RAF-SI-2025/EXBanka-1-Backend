@@ -27,6 +27,12 @@ service AccountService {
   rpc ReleaseReservation(ReleaseReservationRequest) returns (ReleaseReservationResponse);
   rpc PartialSettleReservation(PartialSettleReservationRequest) returns (PartialSettleReservationResponse);
   rpc GetReservation(GetReservationRequest) returns (GetReservationResponse);
+
+  // Credit-side reservation lifecycle for inter-bank inbound transfers
+  // (Spec 3 / docs/superpowers/specs/2026-04-24-interbank-2pc-transfers-design.md §4.3).
+  rpc ReserveIncoming(ReserveIncomingRequest) returns (ReserveIncomingResponse);
+  rpc CommitIncoming(CommitIncomingRequest)   returns (CommitIncomingResponse);
+  rpc ReleaseIncoming(ReleaseIncomingRequest) returns (ReleaseIncomingResponse);
 }
 
 message CreateAccountRequest {
@@ -280,3 +286,20 @@ message GetReservationResponse {
     string settled_total = 4;
     repeated uint64 settled_transaction_ids = 5;
 }
+
+message ReserveIncomingRequest {
+    string account_number  = 1;
+    string amount          = 2;  // decimal string
+    string currency        = 3;
+    string reservation_key = 4;  // idempotency key (typically "interbank-in-<txID>")
+}
+message ReserveIncomingResponse {
+    string reservation_key = 1;
+    string balance_after   = 2;  // unchanged at reserve time, echoed for caller
+}
+
+message CommitIncomingRequest  { string reservation_key = 1; }
+message CommitIncomingResponse { string balance_after   = 1; }
+
+message ReleaseIncomingRequest  { string reservation_key = 1; }
+message ReleaseIncomingResponse { bool   released        = 1; }

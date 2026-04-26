@@ -11,11 +11,14 @@ import (
 	"time"
 
 	_ "github.com/exbanka/api-gateway/docs"
+	"github.com/exbanka/api-gateway/internal/cache"
 	"github.com/exbanka/api-gateway/internal/config"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
 	"github.com/exbanka/api-gateway/internal/handler"
+	"github.com/exbanka/api-gateway/internal/middleware"
 	"github.com/exbanka/api-gateway/internal/router"
 	"github.com/exbanka/contract/metrics"
+	"github.com/redis/go-redis/v9"
 )
 
 // @title           EXBanka API
@@ -162,6 +165,18 @@ func main() {
 	}
 	defer sourceAdminConn.Close()
 
+	fundClient, fundConn, err := grpcclients.NewInvestmentFundClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to investment fund service: %v", err)
+	}
+	defer fundConn.Close()
+
+	otcOptionsClient, otcOptionsConn, err := grpcclients.NewOTCOptionsClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to OTC options service: %v", err)
+	}
+	defer otcOptionsConn.Close()
+
 	// Blueprint service reuses the user-service connection
 	blueprintClient, blueprintConn, err := grpcclients.NewBlueprintClient(cfg.UserGRPCAddr)
 	if err != nil {
@@ -196,10 +211,47 @@ func main() {
 	markReady, _, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
+	// Inter-bank wiring (Spec 3): InterBankService gRPC client, Redis nonce
+	// store, peer-key resolver, internal HMAC-authenticated routes.
+	interBankClient, interBankConn, err := grpcclients.NewInterBankServiceClient(cfg.TransactionGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to inter-bank service: %v", err)
+	}
+	defer interBankConn.Close()
+
+	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Printf("warn: redis ping failed (%s) — inter-bank nonce store unavailable: %v", cfg.RedisAddr, err)
+	}
+	nonceStore := cache.NewNonceStore(redisClient, 10*time.Minute)
+	peerKeys := map[string]string{
+		"222": cfg.Peer222InboundKey,
+		"333": cfg.Peer333InboundKey,
+		"444": cfg.Peer444InboundKey,
+	}
+	peerKeyResolver := func(code string) (string, bool) {
+		k, ok := peerKeys[code]
+		if !ok || k == "" {
+			return "", false
+		}
+		return k, true
+	}
+	interBankInternalHandler := handler.NewInterBankInternalHandler(interBankClient)
+
 	r := router.NewRouter()
 	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
 	router.SetupV2Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
-	router.SetupV3Routes(r)
+	router.SetupV3Routes(r, authClient, fundClient, interBankClient, accountClient, txClient, otcOptionsClient)
+
+	// Internal HMAC-authenticated inter-bank routes (Spec 3 §7.2). NOT under
+	// any /api/v* prefix — peer banks talk straight to /internal/inter-bank/*.
+	internal := r.Group("/internal/inter-bank")
+	internal.Use(middleware.HMACMiddleware(peerKeyResolver, nonceStore, 5*time.Minute))
+	{
+		internal.POST("/transfer/prepare", interBankInternalHandler.Prepare)
+		internal.POST("/transfer/commit", interBankInternalHandler.Commit)
+		internal.POST("/check-status", interBankInternalHandler.CheckStatus)
+	}
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,

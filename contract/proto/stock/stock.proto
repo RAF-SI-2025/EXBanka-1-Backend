@@ -424,6 +424,11 @@ message CreateOrderRequest {
   // base-currency account that will be credited when the order fills. Ignored
   // for non-forex orders.
   optional uint64 base_account_id = 15;
+  // on_behalf_of_fund_id, when non-zero, places the order against the fund's
+  // RSD account; owner becomes the bank sentinel and fills credit
+  // fund_holdings instead of the user's holdings. Caller must be the fund's
+  // manager (or an admin). account_id must equal the fund's RSD account id.
+  uint64 on_behalf_of_fund_id = 16;
 }
 
 message GetOrderRequest {
@@ -804,3 +809,464 @@ message SourceStatus {
   string started_at = 3; // RFC3339 timestamp of the last switch
   string last_error = 4; // populated when status=failed
 }
+
+// ==================== Investment Funds (Celina 4) ====================
+
+service InvestmentFundService {
+  rpc CreateFund(CreateFundRequest) returns (FundResponse);
+  rpc ListFunds(ListFundsRequest) returns (ListFundsResponse);
+  rpc GetFund(GetFundRequest) returns (FundDetailResponse);
+  rpc UpdateFund(UpdateFundRequest) returns (FundResponse);
+
+  rpc InvestInFund(InvestInFundRequest) returns (ContributionResponse);
+  rpc RedeemFromFund(RedeemFromFundRequest) returns (ContributionResponse);
+
+  rpc ListMyPositions(ListMyPositionsRequest) returns (ListPositionsResponse);
+  rpc ListBankPositions(ListBankPositionsRequest) returns (ListPositionsResponse);
+  rpc GetActuaryPerformance(GetActuaryPerformanceRequest) returns (GetActuaryPerformanceResponse);
+}
+
+message OnBehalfOf {
+  string type = 1;        // "self" | "bank" | "fund"
+  uint64 fund_id = 2;     // required when type == "fund"
+}
+
+message CreateFundRequest {
+  int64 actor_employee_id = 1;
+  string name = 2;
+  string description = 3;
+  string minimum_contribution_rsd = 4;
+}
+
+message FundResponse {
+  uint64 id = 1;
+  string name = 2;
+  string description = 3;
+  int64  manager_employee_id = 4;
+  string manager_full_name = 5;
+  string minimum_contribution_rsd = 6;
+  uint64 rsd_account_id = 7;
+  string rsd_account_number = 8;
+  bool   active = 9;
+  string created_at = 10;
+  string updated_at = 11;
+  string value_rsd = 12;
+  string liquid_rsd = 13;
+  string profit_rsd = 14;
+}
+
+message ListFundsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string search = 3;
+  bool   active_only = 4;
+}
+message ListFundsResponse {
+  repeated FundResponse funds = 1;
+  int64 total = 2;
+}
+
+message GetFundRequest { uint64 fund_id = 1; }
+message FundDetailResponse {
+  FundResponse fund = 1;
+  repeated FundHoldingItem holdings = 2;
+}
+message FundHoldingItem {
+  string security_type = 1;
+  uint64 security_id = 2;
+  string ticker = 3;
+  int64  quantity = 4;
+  string average_price_rsd = 5;
+  string current_price_rsd = 6;
+  string acquired_at = 7;
+}
+
+message UpdateFundRequest {
+  int64  actor_employee_id = 1;
+  uint64 fund_id = 2;
+  string name = 3;
+  string description = 4;
+  string minimum_contribution_rsd = 5;
+  bool   active = 6;
+  bool   active_set = 7;
+}
+
+message InvestInFundRequest {
+  uint64 fund_id = 1;
+  uint64 actor_user_id = 2;
+  string actor_system_type = 3;
+  uint64 source_account_id = 4;
+  string amount = 5;
+  string currency = 6;
+  OnBehalfOf on_behalf_of = 7;
+}
+message RedeemFromFundRequest {
+  uint64 fund_id = 1;
+  uint64 actor_user_id = 2;
+  string actor_system_type = 3;
+  string amount_rsd = 4;
+  uint64 target_account_id = 5;
+  OnBehalfOf on_behalf_of = 6;
+}
+
+message ContributionResponse {
+  uint64 id = 1;
+  uint64 fund_id = 2;
+  string direction = 3;
+  string amount_native = 4;
+  string native_currency = 5;
+  string amount_rsd = 6;
+  string fx_rate = 7;
+  string fee_rsd = 8;
+  string status = 9;
+  uint64 saga_id = 10;
+}
+
+message ListMyPositionsRequest {
+  uint64 actor_user_id = 1;
+  string actor_system_type = 2;
+}
+message ListBankPositionsRequest {}
+message ListPositionsResponse {
+  repeated PositionItem positions = 1;
+}
+message PositionItem {
+  uint64 fund_id = 1;
+  string fund_name = 2;
+  string manager_full_name = 3;
+  string contribution_rsd = 4;
+  string percentage_fund = 5;
+  string current_value_rsd = 6;
+  string profit_rsd = 7;
+  string last_changed_at = 8;
+}
+
+message GetActuaryPerformanceRequest {}
+message GetActuaryPerformanceResponse {
+  repeated ActuaryPerformance actuaries = 1;
+}
+message ActuaryPerformance {
+  int64  employee_id = 1;
+  string full_name = 2;
+  string role = 3;
+  string realized_profit_rsd = 4;
+}
+
+// ==================== Intra-bank OTC Options (Spec 2) ====================
+
+service OTCOptionsService {
+  rpc CreateOffer(CreateOTCOfferRequest)   returns (OTCOfferResponse);
+  rpc ListMyOffers(ListMyOTCOffersRequest) returns (ListMyOTCOffersResponse);
+  rpc GetOffer(GetOTCOfferRequest)         returns (OTCOfferDetailResponse);
+  rpc CounterOffer(CounterOTCOfferRequest) returns (OTCOfferResponse);
+  rpc AcceptOffer(AcceptOTCOfferRequest)   returns (AcceptOfferResponse);
+  rpc RejectOffer(RejectOTCOfferRequest)   returns (OTCOfferResponse);
+
+  rpc ListMyContracts(ListMyContractsRequest)   returns (ListContractsResponse);
+  rpc GetContract(GetContractRequest)           returns (OptionContractResponse);
+  rpc ExerciseContract(ExerciseContractRequest) returns (ExerciseResponse);
+}
+
+message PartyRef {
+  int64  user_id = 1;
+  string system_type = 2;
+  string display_name = 3;
+  string bank_code = 4;
+}
+
+message CreateOTCOfferRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string direction = 3;
+  uint64 stock_id = 4;
+  string quantity = 5;
+  string strike_price = 6;
+  string premium = 7;
+  string settlement_date = 8;
+  PartyRef counterparty = 9;
+}
+
+message OTCOfferResponse {
+  uint64  id = 1;
+  string  direction = 2;
+  uint64  stock_id = 3;
+  string  stock_ticker = 4;
+  string  quantity = 5;
+  string  strike_price = 6;
+  string  premium = 7;
+  string  settlement_date = 8;
+  string  status = 9;
+  PartyRef initiator = 10;
+  PartyRef counterparty = 11;
+  PartyRef last_modified_by = 12;
+  string  market_reference_price = 13;
+  string  created_at = 14;
+  string  updated_at = 15;
+  int64   version = 16;
+  bool    unread = 17;
+}
+
+message OTCOfferRevisionItem {
+  int32  revision_number = 1;
+  string quantity = 2;
+  string strike_price = 3;
+  string premium = 4;
+  string settlement_date = 5;
+  string action = 6;
+  PartyRef modified_by = 7;
+  string created_at = 8;
+}
+
+message OTCOfferDetailResponse {
+  OTCOfferResponse offer = 1;
+  repeated OTCOfferRevisionItem revisions = 2;
+}
+
+message ListMyOTCOffersRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string role = 3;
+  repeated string statuses = 4;
+  uint64 stock_id = 5;
+  int32  page = 6;
+  int32  page_size = 7;
+}
+message ListMyOTCOffersResponse {
+  repeated OTCOfferResponse offers = 1;
+  int64 total = 2;
+}
+
+message GetOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message CounterOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  string quantity = 4;
+  string strike_price = 5;
+  string premium = 6;
+  string settlement_date = 7;
+}
+
+message AcceptOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  // Buyer's account that pays the premium.
+  uint64 buyer_account_id = 4;
+  // Seller's account that receives the premium.
+  uint64 seller_account_id = 5;
+}
+message AcceptOfferResponse {
+  uint64 offer_id = 1;
+  uint64 contract_id = 2;
+  string status = 3;
+  string saga_id = 4;
+  OptionContractResponse contract = 5;
+}
+
+message RejectOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message OptionContractResponse {
+  uint64  id = 1;
+  uint64  offer_id = 2;
+  uint64  stock_id = 3;
+  string  stock_ticker = 4;
+  string  quantity = 5;
+  string  strike_price = 6;
+  string  premium_paid = 7;
+  string  premium_currency = 8;
+  string  strike_currency = 9;
+  string  settlement_date = 10;
+  string  status = 11;
+  PartyRef buyer = 12;
+  PartyRef seller = 13;
+  string  market_reference_price = 14;
+  string  premium_paid_at = 15;
+  string  exercised_at = 16;
+  string  expired_at = 17;
+  string  created_at = 18;
+  string  updated_at = 19;
+  int64   version = 20;
+}
+
+message ListMyContractsRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string role = 3;
+  repeated string statuses = 4;
+  int32  page = 5;
+  int32  page_size = 6;
+}
+message ListContractsResponse {
+  repeated OptionContractResponse contracts = 1;
+  int64 total = 2;
+}
+
+message GetContractRequest {
+  uint64 contract_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message ExerciseContractRequest {
+  uint64 contract_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  // Buyer's account that pays the strike (and gets the shares).
+  uint64 buyer_account_id = 4;
+  // Seller's account that receives the strike funds.
+  uint64 seller_account_id = 5;
+}
+message ExerciseResponse {
+  uint64 contract_id = 1;
+  string status = 2;
+  string saga_id = 3;
+  string strike_amount_seller_ccy = 4;
+  string strike_amount_buyer_ccy = 5;
+  string ccy_rate_used = 6;
+  string seller_currency = 7;
+  string buyer_currency = 8;
+  string shares_transferred = 9;
+}
+
+// ==================== Cross-bank OTC Options (Spec 4 / Celina 5) ====================
+
+service CrossBankOTCService {
+  // Discovery
+  rpc PeerListOffers(PeerListOffersRequest) returns (PeerListOffersResponse);
+  rpc PeerFetchOffer(PeerFetchOfferRequest) returns (OTCOfferResponse);
+
+  // Negotiation
+  rpc PeerReviseOffer(PeerReviseOfferRequest) returns (OTCOfferResponse);
+  rpc PeerAcceptIntent(PeerAcceptIntentRequest) returns (PeerAcceptIntentResponse);
+
+  // Saga phases (responder side)
+  rpc HandleReserveSellerShares(ReserveSellerSharesRequest) returns (ReserveSellerSharesResponse);
+  rpc HandleTransferOwnership(TransferOwnershipRequest)     returns (TransferOwnershipResponse);
+  rpc HandleFinalize(FinalizeRequest)                       returns (FinalizeResponse);
+  rpc HandleContractExpire(ContractExpireRequest)           returns (ContractExpireResponse);
+  rpc HandleSagaCheckStatus(SagaCheckStatusRequest)         returns (SagaCheckStatusResponse);
+
+  // Compensation
+  rpc HandleReserveSharesRollback(ReserveSharesRollbackRequest) returns (ReserveSharesRollbackResponse);
+}
+
+message PeerListOffersRequest {
+  string since = 1;
+  string requester_role = 2;
+  string self_bank_code = 3;
+}
+message PeerListOffersResponse {
+  repeated OTCOfferResponse offers = 1;
+}
+
+message PeerFetchOfferRequest {
+  uint64 offer_id = 1;
+  string requester_bank_code = 2;
+}
+
+message PeerReviseOfferRequest {
+  uint64 offer_id = 1;
+  string requester_bank_code = 2;
+  string requester_client_id_external = 3;
+  string quantity = 4;
+  string strike_price = 5;
+  string premium = 6;
+  string settlement_date = 7;
+}
+
+message PeerAcceptIntentRequest {
+  uint64 offer_id = 1;
+  string buyer_bank_code = 2;
+  string buyer_client_id_external = 3;
+}
+message PeerAcceptIntentResponse {
+  string tx_id = 1;
+}
+
+message ReserveSellerSharesRequest {
+  string tx_id = 1;
+  string saga_kind = 2;
+  uint64 offer_id = 3;
+  uint64 contract_id = 4;
+  uint64 asset_listing_id = 5;
+  string quantity = 6;
+  string buyer_bank_code = 7;
+  string seller_bank_code = 8;
+}
+message ReserveSellerSharesResponse {
+  bool   confirmed = 1;
+  string reservation_id = 2;
+  string fail_reason = 3;
+}
+
+message TransferOwnershipRequest {
+  string tx_id = 1;
+  uint64 contract_id = 2;
+  uint64 asset_listing_id = 3;
+  string quantity = 4;
+  string from_bank_code = 5;
+  string from_client_id_external = 6;
+  string to_bank_code = 7;
+  string to_client_id_external = 8;
+}
+message TransferOwnershipResponse {
+  bool   confirmed = 1;
+  string assigned_at = 2;
+  string serial = 3;
+  string fail_reason = 4;
+}
+
+message FinalizeRequest {
+  string tx_id = 1;
+  uint64 contract_id = 2;
+  uint64 offer_id = 3;
+  string buyer_bank_code = 4;
+  string seller_bank_code = 5;
+  string buyer_client_id_external = 6;
+  string seller_client_id_external = 7;
+  string strike_price = 8;
+  string quantity = 9;
+  string premium = 10;
+  string currency = 11;
+  string settlement_date = 12;
+  string saga_kind = 13;
+}
+message FinalizeResponse { bool ok = 1; }
+
+message ContractExpireRequest {
+  string tx_id = 1;
+  uint64 contract_id = 2;
+}
+message ContractExpireResponse {
+  bool   ok = 1;
+  string reason = 2;
+}
+
+message SagaCheckStatusRequest {
+  string tx_id = 1;
+  string phase = 2;
+}
+message SagaCheckStatusResponse {
+  string tx_id = 1;
+  string phase = 2;
+  string role = 3;
+  string status = 4;
+  string error_reason = 5;
+  bool   not_found = 6;
+}
+
+message ReserveSharesRollbackRequest {
+  string tx_id = 1;
+  uint64 contract_id = 2;
+}
+message ReserveSharesRollbackResponse { bool ok = 1; }

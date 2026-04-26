@@ -104,9 +104,10 @@ func (s *HoldingReservationService) Reserve(
 			return status.Errorf(codes.FailedPrecondition,
 				"insufficient available quantity: have %d, need %d", available, qty)
 		}
+		oid := orderID
 		res := &model.HoldingReservation{
 			HoldingID: holding.ID,
-			OrderID:   orderID,
+			OrderID:   &oid,
 			Quantity:  qty,
 			Status:    model.HoldingReservationStatusActive,
 			CreatedAt: time.Now(),
@@ -282,6 +283,215 @@ func (s *HoldingReservationService) PartialSettle(
 			}
 		}
 
+		out = &PartialSettleHoldingResult{
+			SettledQuantity:   qty,
+			RemainingReserved: holding.ReservedQuantity,
+			QuantityAfter:     holding.Quantity,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// OTC option-contract variants of Reserve / Release / Consume
+// ---------------------------------------------------------------------------
+
+// ReserveForOTCContract locks `qty` shares of the seller's stock holding
+// under an OTC option contract. Mirror of Reserve, keyed on OTCContractID
+// instead of OrderID; idempotent on contract ID.
+func (s *HoldingReservationService) ReserveForOTCContract(
+	ctx context.Context,
+	sellerUserID uint64, systemType, securityType string,
+	securityID, otcContractID uint64,
+	qty int64,
+) (*ReserveHoldingResult, error) {
+	if qty <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "qty must be > 0")
+	}
+	var out *ReserveHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var holding model.Holding
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ?",
+				sellerUserID, systemType, securityType, securityID).
+			First(&holding).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.FailedPrecondition, "holding not found")
+			}
+			return err
+		}
+		available := holding.Quantity - holding.ReservedQuantity
+		if available < qty {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: have %d, need %d", available, qty)
+		}
+		cid := otcContractID
+		res := &model.HoldingReservation{
+			HoldingID:     holding.ID,
+			OTCContractID: &cid,
+			Quantity:      qty,
+			Status:        model.HoldingReservationStatusActive,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
+		}
+		inserted, existing, err := s.resRepo.WithTx(tx).InsertIfAbsent(res)
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			out = &ReserveHoldingResult{
+				ReservationID:     existing.ID,
+				ReservedQuantity:  holding.ReservedQuantity,
+				AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+			}
+			return nil
+		}
+		holding.ReservedQuantity += qty
+		if err := tx.Save(&holding).Error; err != nil {
+			return err
+		}
+		out = &ReserveHoldingResult{
+			ReservationID:     res.ID,
+			ReservedQuantity:  holding.ReservedQuantity,
+			AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ReleaseForOTCContract releases an OTC reservation. Used on contract expiry
+// (seller keeps premium, shares unlock) and on accept-saga compensation paths.
+func (s *HoldingReservationService) ReleaseForOTCContract(ctx context.Context, otcContractID uint64) (*ReleaseHoldingResult, error) {
+	var out *ReleaseHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		res, err := s.resRepo.WithTx(tx).GetByOTCContractIDForUpdate(otcContractID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				out = &ReleaseHoldingResult{ReleasedQuantity: 0, ReservedQuantity: 0}
+				return nil
+			}
+			return err
+		}
+		if res.Status != model.HoldingReservationStatusActive {
+			out = &ReleaseHoldingResult{ReleasedQuantity: 0, ReservedQuantity: 0}
+			return nil
+		}
+		settled, err := s.resRepo.WithTx(tx).SumSettlements(res.ID)
+		if err != nil {
+			return err
+		}
+		remaining := res.Quantity - settled
+		if remaining < 0 {
+			remaining = 0
+		}
+		var holding model.Holding
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+			return err
+		}
+		holding.ReservedQuantity -= remaining
+		if holding.ReservedQuantity < 0 {
+			holding.ReservedQuantity = 0
+		}
+		if err := tx.Save(&holding).Error; err != nil {
+			return err
+		}
+		res.Status = model.HoldingReservationStatusReleased
+		res.UpdatedAt = time.Now()
+		if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
+			return err
+		}
+		out = &ReleaseHoldingResult{ReleasedQuantity: remaining, ReservedQuantity: holding.ReservedQuantity}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ConsumeForOTCContract physically transfers `qty` shares from the seller's
+// holding (same shape as PartialSettle) under the OTC contract. Used by the
+// exercise saga after the buyer's strike-funds debit lands. Idempotent via
+// the existing settlements table (synthetic order_transaction_id derived
+// from the contract ID).
+func (s *HoldingReservationService) ConsumeForOTCContract(
+	ctx context.Context,
+	otcContractID uint64,
+	qty int64,
+	syntheticTxnID uint64,
+) (*PartialSettleHoldingResult, error) {
+	if qty <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "qty must be > 0")
+	}
+	var out *PartialSettleHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		res, err := s.resRepo.WithTx(tx).GetByOTCContractIDForUpdate(otcContractID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.FailedPrecondition, "OTC reservation not found")
+			}
+			return err
+		}
+		if res.Status != model.HoldingReservationStatusActive {
+			return status.Errorf(codes.FailedPrecondition, "reservation status=%s", res.Status)
+		}
+		var holding model.Holding
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, res.HoldingID).Error; err != nil {
+			return err
+		}
+		settled, err := s.resRepo.WithTx(tx).SumSettlements(res.ID)
+		if err != nil {
+			return err
+		}
+		if settled+qty > res.Quantity {
+			return status.Errorf(codes.FailedPrecondition,
+				"settlement %d would exceed reservation %d", settled+qty, res.Quantity)
+		}
+		settlement := &model.HoldingReservationSettlement{
+			HoldingReservationID: res.ID,
+			OrderTransactionID:   syntheticTxnID,
+			Quantity:             qty,
+			CreatedAt:            time.Now(),
+		}
+		createResult := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "order_transaction_id"}},
+			DoNothing: true,
+		}).Create(settlement)
+		if createResult.Error != nil {
+			return createResult.Error
+		}
+		if createResult.RowsAffected == 0 {
+			out = &PartialSettleHoldingResult{
+				SettledQuantity:   qty,
+				RemainingReserved: holding.ReservedQuantity,
+				QuantityAfter:     holding.Quantity,
+			}
+			return nil
+		}
+		holding.ReservedQuantity -= qty
+		if holding.ReservedQuantity < 0 {
+			holding.ReservedQuantity = 0
+		}
+		holding.Quantity -= qty
+		if err := tx.Save(&holding).Error; err != nil {
+			return err
+		}
+		if settled+qty == res.Quantity {
+			res.Status = model.HoldingReservationStatusSettled
+			res.UpdatedAt = time.Now()
+			if err := s.resRepo.WithTx(tx).UpdateStatus(res); err != nil {
+				return err
+			}
+		}
 		out = &PartialSettleHoldingResult{
 			SettledQuantity:   qty,
 			RemainingReserved: holding.ReservedQuantity,

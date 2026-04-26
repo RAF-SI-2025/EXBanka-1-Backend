@@ -417,6 +417,15 @@ func (m *mockTaxAccountClient) PartialSettleReservation(context.Context, *accoun
 func (m *mockTaxAccountClient) GetReservation(context.Context, *accountpb.GetReservationRequest, ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
 	return nil, nil
 }
+func (m *mockTaxAccountClient) ReserveIncoming(context.Context, *accountpb.ReserveIncomingRequest, ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error) {
+	return nil, nil
+}
+func (m *mockTaxAccountClient) CommitIncoming(context.Context, *accountpb.CommitIncomingRequest, ...grpc.CallOption) (*accountpb.CommitIncomingResponse, error) {
+	return nil, nil
+}
+func (m *mockTaxAccountClient) ReleaseIncoming(context.Context, *accountpb.ReleaseIncomingRequest, ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+	return nil, nil
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build TaxService with mocks
