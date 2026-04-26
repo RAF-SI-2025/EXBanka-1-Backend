@@ -286,7 +286,7 @@ func RegisterCoreRoutes(
 	}
 	otcTrade := group.Group("/otc/offers")
 	otcTrade.Use(middleware.AuthMiddleware(authClient))
-	otcTrade.Use(middleware.RequirePermission("securities.trade"))
+	otcTrade.Use(middleware.RequireAnyPermission("otc.trade.accept", "securities.trade"))
 	{
 		otcTrade.POST("/:id/buy", portfolioHandler.BuyOTCOffer)
 	}
@@ -357,7 +357,7 @@ func RegisterCoreRoutes(
 	{
 		// Employees
 		employees := protected.Group("/employees")
-		employees.Use(middleware.RequirePermission("employees.read"))
+		employees.Use(middleware.RequireAnyPermission("employees.read.all", "employees.read"))
 		{
 			employees.GET("", empHandler.ListEmployees)
 			employees.GET("/:id", empHandler.GetEmployee)
@@ -368,52 +368,101 @@ func RegisterCoreRoutes(
 			adminEmployees.POST("", empHandler.CreateEmployee)
 		}
 		updateEmployees := protected.Group("/employees")
-		updateEmployees.Use(middleware.RequirePermission("employees.update"))
+		updateEmployees.Use(middleware.RequireAnyPermission("employees.update.profile", "employees.update"))
 		{
 			updateEmployees.PUT("/:id", empHandler.UpdateEmployee)
 		}
 
-		// Role and permission management
-		permManagement := protected.Group("/")
-		permManagement.Use(middleware.RequirePermission("employees.permissions"))
+		// Role catalog (read)
+		roleRead := protected.Group("/")
+		roleRead.Use(middleware.RequireAnyPermission("roles.read", "permissions.read", "employees.permissions"))
 		{
-			permManagement.GET("/roles", roleHandler.ListRoles)
-			permManagement.GET("/roles/:id", roleHandler.GetRole)
-			permManagement.POST("/roles", roleHandler.CreateRole)
-			permManagement.PUT("/roles/:id/permissions", roleHandler.UpdateRolePermissions)
-			permManagement.GET("/permissions", roleHandler.ListPermissions)
-			permManagement.PUT("/employees/:id/roles", roleHandler.SetEmployeeRoles)
-			permManagement.PUT("/employees/:id/permissions", roleHandler.SetEmployeeAdditionalPermissions)
+			roleRead.GET("/roles", roleHandler.ListRoles)
+			roleRead.GET("/roles/:id", roleHandler.GetRole)
+			roleRead.GET("/permissions", roleHandler.ListPermissions)
+		}
+		// Role mutation
+		roleCreate := protected.Group("/")
+		roleCreate.Use(middleware.RequireAnyPermission("roles.create", "employees.permissions"))
+		{
+			roleCreate.POST("/roles", roleHandler.CreateRole)
+		}
+		roleUpdate := protected.Group("/")
+		roleUpdate.Use(middleware.RequireAnyPermission("roles.update", "employees.permissions"))
+		{
+			roleUpdate.PUT("/roles/:id/permissions", roleHandler.UpdateRolePermissions)
+		}
+		// Per-employee role/permission assignment
+		empPermAssign := protected.Group("/")
+		empPermAssign.Use(middleware.RequireAnyPermission("employees.roles.assign", "employees.permissions.assign", "employees.permissions"))
+		{
+			empPermAssign.PUT("/employees/:id/roles", roleHandler.SetEmployeeRoles)
+			empPermAssign.PUT("/employees/:id/permissions", roleHandler.SetEmployeeAdditionalPermissions)
 		}
 
-		// Employee limit management
-		limitsEmployee := protected.Group("/")
-		limitsEmployee.Use(middleware.RequirePermission("limits.manage"))
+		// Employee limit read
+		empLimitsRead := protected.Group("/")
+		empLimitsRead.Use(middleware.RequireAnyPermission("limits.employee.read", "limits.manage"))
 		{
-			limitsEmployee.GET("/employees/:id/limits", limitHandler.GetEmployeeLimits)
-			limitsEmployee.PUT("/employees/:id/limits", limitHandler.SetEmployeeLimits)
-			limitsEmployee.POST("/employees/:id/limits/template", limitHandler.ApplyLimitTemplate)
-			limitsEmployee.GET("/limits/templates", limitHandler.ListLimitTemplates)
-			limitsEmployee.POST("/limits/templates", limitHandler.CreateLimitTemplate)
-			limitsEmployee.GET("/clients/:id/limits", limitHandler.GetClientLimits)
-			limitsEmployee.PUT("/clients/:id/limits", limitHandler.SetClientLimits)
+			empLimitsRead.GET("/employees/:id/limits", limitHandler.GetEmployeeLimits)
+		}
+		// Employee limit update
+		empLimitsUpdate := protected.Group("/")
+		empLimitsUpdate.Use(middleware.RequireAnyPermission("limits.employee.update", "limits.manage"))
+		{
+			empLimitsUpdate.PUT("/employees/:id/limits", limitHandler.SetEmployeeLimits)
+			empLimitsUpdate.POST("/employees/:id/limits/template", limitHandler.ApplyLimitTemplate)
+		}
+		// Limit-template management
+		limitTemplatesRead := protected.Group("/limits/templates")
+		limitTemplatesRead.Use(middleware.RequireAnyPermission("limit-templates.read", "limits.manage"))
+		{
+			limitTemplatesRead.GET("", limitHandler.ListLimitTemplates)
+		}
+		limitTemplatesCreate := protected.Group("/limits/templates")
+		limitTemplatesCreate.Use(middleware.RequireAnyPermission("limit-templates.create", "limits.manage"))
+		{
+			limitTemplatesCreate.POST("", limitHandler.CreateLimitTemplate)
+		}
+		// Client limits
+		clientLimitsRead := protected.Group("/")
+		clientLimitsRead.Use(middleware.RequireAnyPermission("limits.client.read", "limits.manage"))
+		{
+			clientLimitsRead.GET("/clients/:id/limits", limitHandler.GetClientLimits)
+		}
+		clientLimitsUpdate := protected.Group("/")
+		clientLimitsUpdate.Use(middleware.RequireAnyPermission("limits.client.update", "limits.manage"))
+		{
+			clientLimitsUpdate.PUT("/clients/:id/limits", limitHandler.SetClientLimits)
 		}
 
-		// Limit blueprint management
-		blueprintsAdmin := protected.Group("/blueprints")
-		blueprintsAdmin.Use(middleware.RequirePermission("limits.manage"))
+		// Limit blueprint management — split per CRUD verb
+		blueprintsRead := protected.Group("/blueprints")
+		blueprintsRead.Use(middleware.RequireAnyPermission("limit-templates.read", "limits.manage"))
 		{
-			blueprintsAdmin.GET("", blueprintHandler.ListBlueprints)
-			blueprintsAdmin.POST("", blueprintHandler.CreateBlueprint)
-			blueprintsAdmin.GET("/:id", blueprintHandler.GetBlueprint)
-			blueprintsAdmin.PUT("/:id", blueprintHandler.UpdateBlueprint)
-			blueprintsAdmin.DELETE("/:id", blueprintHandler.DeleteBlueprint)
-			blueprintsAdmin.POST("/:id/apply", blueprintHandler.ApplyBlueprint)
+			blueprintsRead.GET("", blueprintHandler.ListBlueprints)
+			blueprintsRead.GET("/:id", blueprintHandler.GetBlueprint)
+		}
+		blueprintsCreate := protected.Group("/blueprints")
+		blueprintsCreate.Use(middleware.RequireAnyPermission("limit-templates.create", "limits.manage"))
+		{
+			blueprintsCreate.POST("", blueprintHandler.CreateBlueprint)
+		}
+		blueprintsUpdate := protected.Group("/blueprints")
+		blueprintsUpdate.Use(middleware.RequireAnyPermission("limit-templates.update", "limits.manage"))
+		{
+			blueprintsUpdate.PUT("/:id", blueprintHandler.UpdateBlueprint)
+			blueprintsUpdate.POST("/:id/apply", blueprintHandler.ApplyBlueprint)
+		}
+		blueprintsDelete := protected.Group("/blueprints")
+		blueprintsDelete.Use(middleware.RequireAnyPermission("limit-templates.delete", "limits.manage"))
+		{
+			blueprintsDelete.DELETE("/:id", blueprintHandler.DeleteBlueprint)
 		}
 
 		// Client management
 		clientsRead := protected.Group("/clients")
-		clientsRead.Use(middleware.RequirePermission("clients.read"))
+		clientsRead.Use(middleware.RequireAnyPermission("clients.read.all", "clients.read"))
 		{
 			clientsRead.GET("", clientHandler.ListClients)
 			clientsRead.GET("/:id", clientHandler.GetClient)
@@ -424,7 +473,7 @@ func RegisterCoreRoutes(
 			clientsCreate.POST("", clientHandler.CreateClient)
 		}
 		clientsUpdate := protected.Group("/clients")
-		clientsUpdate.Use(middleware.RequirePermission("clients.update"))
+		clientsUpdate.Use(middleware.RequireAnyPermission("clients.update.profile", "clients.update"))
 		{
 			clientsUpdate.PUT("/:id", clientHandler.UpdateClient)
 		}
@@ -434,75 +483,107 @@ func RegisterCoreRoutes(
 
 		// Account management
 		accountsRead := protected.Group("/accounts")
-		accountsRead.Use(middleware.RequirePermission("accounts.read"))
+		accountsRead.Use(middleware.RequireAnyPermission("accounts.read.all", "accounts.read"))
 		{
 			accountsRead.GET("", accountHandler.ListAllAccounts)
 			accountsRead.GET("/:id", accountHandler.GetAccount)
 			accountsRead.GET("/by-number/:account_number", accountHandler.GetAccountByNumber)
 		}
 		accountsCreate := protected.Group("/accounts")
-		accountsCreate.Use(middleware.RequirePermission("accounts.create"))
+		accountsCreate.Use(middleware.RequireAnyPermission("accounts.create.current", "accounts.create.foreign", "accounts.create"))
 		{
 			accountsCreate.POST("", accountHandler.CreateAccount)
 		}
-		accountsUpdate := protected.Group("/accounts")
-		accountsUpdate.Use(middleware.RequirePermission("accounts.update"))
+		accountsName := protected.Group("/accounts")
+		accountsName.Use(middleware.RequireAnyPermission("accounts.update.name", "accounts.update"))
 		{
-			accountsUpdate.PUT("/:id/name", accountHandler.UpdateAccountName)
-			accountsUpdate.PUT("/:id/limits", accountHandler.UpdateAccountLimits)
-			accountsUpdate.PUT("/:id/status", accountHandler.UpdateAccountStatus)
+			accountsName.PUT("/:id/name", accountHandler.UpdateAccountName)
+		}
+		accountsLimits := protected.Group("/accounts")
+		accountsLimits.Use(middleware.RequireAnyPermission("accounts.update.limits", "accounts.update"))
+		{
+			accountsLimits.PUT("/:id/limits", accountHandler.UpdateAccountLimits)
+		}
+		accountsStatus := protected.Group("/accounts")
+		accountsStatus.Use(middleware.RequireAnyPermission("accounts.update.status", "accounts.update"))
+		{
+			accountsStatus.PUT("/:id/status", accountHandler.UpdateAccountStatus)
 		}
 
 		// Companies
 		companiesEmployee := protected.Group("/companies")
-		companiesEmployee.Use(middleware.RequirePermission("accounts.create"))
+		companiesEmployee.Use(middleware.RequireAnyPermission("accounts.create.current", "accounts.create.foreign", "accounts.create"))
 		{
 			companiesEmployee.POST("", accountHandler.CreateCompany)
 		}
 
-		// Bank account management (admin only)
-		bankAccountsAdmin := protected.Group("/bank-accounts")
-		bankAccountsAdmin.Use(middleware.RequirePermission("bank-accounts.manage"))
+		// Bank account management — split per CRUD verb
+		bankAccountsRead := protected.Group("/bank-accounts")
+		bankAccountsRead.Use(middleware.RequireAnyPermission("bank-accounts.read", "bank-accounts.manage"))
 		{
-			bankAccountsAdmin.GET("", accountHandler.ListBankAccounts)
-			bankAccountsAdmin.POST("", accountHandler.CreateBankAccount)
-			bankAccountsAdmin.DELETE("/:id", accountHandler.DeleteBankAccount)
+			bankAccountsRead.GET("", accountHandler.ListBankAccounts)
+		}
+		bankAccountsCreate := protected.Group("/bank-accounts")
+		bankAccountsCreate.Use(middleware.RequireAnyPermission("bank-accounts.create", "bank-accounts.manage"))
+		{
+			bankAccountsCreate.POST("", accountHandler.CreateBankAccount)
+		}
+		bankAccountsDeactivate := protected.Group("/bank-accounts")
+		bankAccountsDeactivate.Use(middleware.RequireAnyPermission("bank-accounts.deactivate", "bank-accounts.manage"))
+		{
+			bankAccountsDeactivate.DELETE("/:id", accountHandler.DeleteBankAccount)
 		}
 
 		// Cards management
 		cardsRead := protected.Group("/cards")
-		cardsRead.Use(middleware.RequirePermission("cards.read"))
+		cardsRead.Use(middleware.RequireAnyPermission("cards.read.all", "cards.read"))
 		{
 			cardsRead.GET("", cardHandler.ListCards)
 			cardsRead.GET("/:id", cardHandler.GetCard)
 		}
 		cardsCreate := protected.Group("/cards")
-		cardsCreate.Use(middleware.RequirePermission("cards.create"))
+		cardsCreate.Use(middleware.RequireAnyPermission("cards.create.physical", "cards.create.virtual", "cards.create"))
 		{
 			cardsCreate.POST("", cardHandler.CreateCard)
 			cardsCreate.POST("/authorized-person", cardHandler.CreateAuthorizedPerson)
 		}
-		cardsUpdate := protected.Group("/cards")
-		cardsUpdate.Use(middleware.RequirePermission("cards.update"))
+		cardsBlock := protected.Group("/cards")
+		cardsBlock.Use(middleware.RequireAnyPermission("cards.block", "cards.update"))
 		{
-			cardsUpdate.POST("/:id/block", cardHandler.BlockCard)
-			cardsUpdate.POST("/:id/unblock", cardHandler.UnblockCard)
-			cardsUpdate.POST("/:id/deactivate", cardHandler.DeactivateCard)
+			cardsBlock.POST("/:id/block", cardHandler.BlockCard)
+		}
+		cardsUnblock := protected.Group("/cards")
+		cardsUnblock.Use(middleware.RequireAnyPermission("cards.unblock", "cards.update"))
+		{
+			cardsUnblock.POST("/:id/unblock", cardHandler.UnblockCard)
+		}
+		cardsDeactivate := protected.Group("/cards")
+		cardsDeactivate.Use(middleware.RequireAnyPermission("cards.deactivate", "cards.update"))
+		{
+			cardsDeactivate.POST("/:id/deactivate", cardHandler.DeactivateCard)
 		}
 
-		// Card requests (cards.approve)
-		cardsApprove := protected.Group("/cards/requests")
-		cardsApprove.Use(middleware.RequirePermission("cards.approve"))
+		// Card requests — read/approve/reject split
+		cardsRequestsRead := protected.Group("/cards/requests")
+		cardsRequestsRead.Use(middleware.RequireAnyPermission("cards.approve", "cards.read.all"))
 		{
-			cardsApprove.GET("", cardHandler.ListCardRequests)
-			cardsApprove.GET("/:id", cardHandler.GetCardRequest)
-			cardsApprove.POST("/:id/approve", cardHandler.ApproveCardRequest)
-			cardsApprove.POST("/:id/reject", cardHandler.RejectCardRequest)
+			cardsRequestsRead.GET("", cardHandler.ListCardRequests)
+			cardsRequestsRead.GET("/:id", cardHandler.GetCardRequest)
+		}
+		cardsRequestsApprove := protected.Group("/cards/requests")
+		cardsRequestsApprove.Use(middleware.RequireAnyPermission("cards.approve.physical", "cards.approve.virtual", "cards.approve"))
+		{
+			cardsRequestsApprove.POST("/:id/approve", cardHandler.ApproveCardRequest)
+		}
+		cardsRequestsReject := protected.Group("/cards/requests")
+		cardsRequestsReject.Use(middleware.RequireAnyPermission("cards.reject", "cards.approve"))
+		{
+			cardsRequestsReject.POST("/:id/reject", cardHandler.RejectCardRequest)
 		}
 
 		// Payments (employee read)
 		paymentsRead := protected.Group("/payments")
-		paymentsRead.Use(middleware.RequirePermission("payments.read"))
+		paymentsRead.Use(middleware.RequireAnyPermission("payments.read.all", "payments.read"))
 		{
 			paymentsRead.GET("", txHandler.ListPayments)
 			paymentsRead.GET("/:id", txHandler.GetPayment)
@@ -510,25 +591,37 @@ func RegisterCoreRoutes(
 
 		// Transfers (employee read)
 		transfersRead := protected.Group("/transfers")
-		transfersRead.Use(middleware.RequirePermission("payments.read"))
+		transfersRead.Use(middleware.RequireAnyPermission("transfers.read.all", "payments.read"))
 		{
 			transfersRead.GET("", txHandler.ListTransfers)
 			transfersRead.GET("/:id", txHandler.GetTransfer)
 		}
 
-		// Transfer fee management (admin only)
-		feesAdmin := protected.Group("/fees")
-		feesAdmin.Use(middleware.RequirePermission("fees.manage"))
+		// Transfer fee management — split per CRUD verb
+		feesRead := protected.Group("/fees")
+		feesRead.Use(middleware.RequireAnyPermission("fees.read", "fees.manage"))
 		{
-			feesAdmin.GET("", txHandler.ListFees)
-			feesAdmin.POST("", txHandler.CreateFee)
-			feesAdmin.PUT("/:id", txHandler.UpdateFee)
-			feesAdmin.DELETE("/:id", txHandler.DeleteFee)
+			feesRead.GET("", txHandler.ListFees)
+		}
+		feesCreate := protected.Group("/fees")
+		feesCreate.Use(middleware.RequireAnyPermission("fees.create", "fees.manage"))
+		{
+			feesCreate.POST("", txHandler.CreateFee)
+		}
+		feesUpdate := protected.Group("/fees")
+		feesUpdate.Use(middleware.RequireAnyPermission("fees.update", "fees.manage"))
+		{
+			feesUpdate.PUT("/:id", txHandler.UpdateFee)
+		}
+		feesDelete := protected.Group("/fees")
+		feesDelete.Use(middleware.RequireAnyPermission("fees.delete", "fees.manage"))
+		{
+			feesDelete.DELETE("/:id", txHandler.DeleteFee)
 		}
 
 		// Loans (employee read)
 		loansRead := protected.Group("/loans")
-		loansRead.Use(middleware.RequirePermission("credits.read"))
+		loansRead.Use(middleware.RequireAnyPermission("credits.read.all", "credits.read"))
 		{
 			loansRead.GET("", creditHandler.ListAllLoans)
 			loansRead.GET("/:id", creditHandler.GetLoan)
@@ -537,121 +630,159 @@ func RegisterCoreRoutes(
 
 		// Loan requests
 		loanRequestsRead := protected.Group("/loan-requests")
-		loanRequestsRead.Use(middleware.RequirePermission("credits.read"))
+		loanRequestsRead.Use(middleware.RequireAnyPermission("credits.read.all", "credits.read"))
 		{
 			loanRequestsRead.GET("", creditHandler.ListLoanRequests)
 			loanRequestsRead.GET("/:id", creditHandler.GetLoanRequest)
 		}
 		loanRequestsApprove := protected.Group("/loan-requests")
-		loanRequestsApprove.Use(middleware.RequirePermission("credits.approve"))
+		loanRequestsApprove.Use(middleware.RequireAnyPermission(
+			"credits.approve.cash", "credits.approve.housing", "credits.approve.auto",
+			"credits.approve.refinancing", "credits.approve.student", "credits.approve"))
 		{
 			loanRequestsApprove.POST("/:id/approve", creditHandler.ApproveLoanRequest)
-			loanRequestsApprove.POST("/:id/reject", creditHandler.RejectLoanRequest)
 		}
-
-		// Interest rate tier management (admin only)
-		rateTiersAdmin := protected.Group("/interest-rate-tiers")
-		rateTiersAdmin.Use(middleware.RequirePermission("interest-rates.manage"))
+		loanRequestsReject := protected.Group("/loan-requests")
+		loanRequestsReject.Use(middleware.RequireAnyPermission("credits.reject", "credits.approve"))
 		{
-			rateTiersAdmin.GET("", creditHandler.ListInterestRateTiers)
-			rateTiersAdmin.POST("", creditHandler.CreateInterestRateTier)
-			rateTiersAdmin.PUT("/:id", creditHandler.UpdateInterestRateTier)
-			rateTiersAdmin.DELETE("/:id", creditHandler.DeleteInterestRateTier)
-			rateTiersAdmin.POST("/:id/apply", creditHandler.ApplyVariableRateUpdate)
+			loanRequestsReject.POST("/:id/reject", creditHandler.RejectLoanRequest)
 		}
 
-		// Bank margin management (admin only)
-		bankMarginsAdmin := protected.Group("/bank-margins")
-		bankMarginsAdmin.Use(middleware.RequirePermission("interest-rates.manage"))
+		// Interest rate tier management — split read/update
+		rateTiersRead := protected.Group("/interest-rate-tiers")
+		rateTiersRead.Use(middleware.RequireAnyPermission("interest-rates.tiers.read", "interest-rates.manage"))
 		{
-			bankMarginsAdmin.GET("", creditHandler.ListBankMargins)
-			bankMarginsAdmin.PUT("/:id", creditHandler.UpdateBankMargin)
+			rateTiersRead.GET("", creditHandler.ListInterestRateTiers)
 		}
-
-		// Stock exchange management (supervisor)
-		stockExchangeAdmin := protected.Group("/stock-exchanges")
-		stockExchangeAdmin.Use(middleware.RequirePermission("exchanges.manage"))
+		rateTiersUpdate := protected.Group("/interest-rate-tiers")
+		rateTiersUpdate.Use(middleware.RequireAnyPermission("interest-rates.tiers.update", "interest-rates.manage"))
 		{
-			stockExchangeAdmin.POST("/testing-mode", stockExchangeHandler.SetTestingMode)
-			stockExchangeAdmin.GET("/testing-mode", stockExchangeHandler.GetTestingMode)
+			rateTiersUpdate.POST("", creditHandler.CreateInterestRateTier)
+			rateTiersUpdate.PUT("/:id", creditHandler.UpdateInterestRateTier)
+			rateTiersUpdate.DELETE("/:id", creditHandler.DeleteInterestRateTier)
+			rateTiersUpdate.POST("/:id/apply", creditHandler.ApplyVariableRateUpdate)
 		}
 
-		// Admin stock-source management (securities.manage)
+		// Bank margin management — split read/update
+		bankMarginsRead := protected.Group("/bank-margins")
+		bankMarginsRead.Use(middleware.RequireAnyPermission("interest-rates.bank-margins.read", "interest-rates.manage"))
+		{
+			bankMarginsRead.GET("", creditHandler.ListBankMargins)
+		}
+		bankMarginsUpdate := protected.Group("/bank-margins")
+		bankMarginsUpdate.Use(middleware.RequireAnyPermission("interest-rates.bank-margins.update", "interest-rates.manage"))
+		{
+			bankMarginsUpdate.PUT("/:id", creditHandler.UpdateBankMargin)
+		}
+
+		// Stock exchange management
+		stockExchangeRead := protected.Group("/stock-exchanges")
+		stockExchangeRead.Use(middleware.RequireAnyPermission("exchanges.read", "exchanges.manage"))
+		{
+			stockExchangeRead.GET("/testing-mode", stockExchangeHandler.GetTestingMode)
+		}
+		stockExchangeToggle := protected.Group("/stock-exchanges")
+		stockExchangeToggle.Use(middleware.RequireAnyPermission("exchanges.testing-mode.toggle", "exchanges.manage"))
+		{
+			stockExchangeToggle.POST("/testing-mode", stockExchangeHandler.SetTestingMode)
+		}
+
+		// Admin stock-source management
 		adminStockSource := protected.Group("/admin/stock-source")
-		adminStockSource.Use(middleware.RequirePermission("securities.manage"))
+		adminStockSource.Use(middleware.RequireAnyPermission("securities.manage.market-simulator", "securities.manage"))
 		{
 			adminStockSource.POST("", stockSourceHandler.SwitchSource)
 			adminStockSource.GET("", stockSourceHandler.GetSourceStatus)
 		}
 
-		// Orders (employee on-behalf trading — orders.place-on-behalf)
+		// Orders — on-behalf-of-client (and bank by default — see CreateOrderOnBehalf handler)
 		ordersOnBehalf := protected.Group("/orders")
-		ordersOnBehalf.Use(middleware.RequirePermission("orders.place-on-behalf"))
+		ordersOnBehalf.Use(middleware.RequireAnyPermission(
+			"orders.place.on-behalf-client", "orders.place.for-bank", "orders.place-on-behalf"))
 		{
 			ordersOnBehalf.POST("", stockOrderHandler.CreateOrderOnBehalf)
 		}
 
-		// OTC (employee on-behalf buying — orders.place-on-behalf)
-		// Uses /otc/admin/offers/:id/buy to avoid a routing conflict with the
-		// client-facing /otc/offers/:id/buy route (different middleware chain but
-		// same URL pattern confuses Gin's router).
+		// OTC — employee on-behalf buying
 		otcOnBehalf := protected.Group("/otc/admin/offers")
-		otcOnBehalf.Use(middleware.RequirePermission("orders.place-on-behalf"))
+		otcOnBehalf.Use(middleware.RequireAnyPermission(
+			"otc.trade.accept", "orders.place.on-behalf-client", "orders.place-on-behalf"))
 		{
 			otcOnBehalf.POST("/:id/buy", portfolioHandler.BuyOTCOfferOnBehalf)
 		}
 
-		// Order management (supervisor)
-		ordersAdmin := protected.Group("/orders")
-		ordersAdmin.Use(middleware.RequirePermission("orders.approve"))
+		// Order management (supervisor) — read split from approve/reject
+		ordersRead := protected.Group("/orders")
+		ordersRead.Use(middleware.RequireAnyPermission(
+			"orders.read.all", "orders.read.bank", "orders.approve"))
 		{
-			ordersAdmin.GET("", stockOrderHandler.ListOrders)
-			ordersAdmin.POST("/:id/approve", stockOrderHandler.ApproveOrder)
-			ordersAdmin.POST("/:id/decline", stockOrderHandler.DeclineOrder)
+			ordersRead.GET("", stockOrderHandler.ListOrders)
+		}
+		ordersApprove := protected.Group("/orders")
+		ordersApprove.Use(middleware.RequireAnyPermission(
+			"orders.approve.market", "orders.approve.limit", "orders.approve.stop", "orders.approve"))
+		{
+			ordersApprove.POST("/:id/approve", stockOrderHandler.ApproveOrder)
+		}
+		ordersReject := protected.Group("/orders")
+		ordersReject.Use(middleware.RequireAnyPermission("orders.reject", "orders.approve"))
+		{
+			ordersReject.POST("/:id/decline", stockOrderHandler.DeclineOrder)
 		}
 
-		// Actuary management (supervisor)
-		actuariesAdmin := protected.Group("/actuaries")
-		actuariesAdmin.Use(middleware.RequirePermission("agents.manage"))
+		// Actuary (agent) management — split read/assign/unassign
+		actuariesRead := protected.Group("/actuaries")
+		actuariesRead.Use(middleware.RequireAnyPermission("agents.read", "agents.manage"))
 		{
-			actuariesAdmin.GET("", actuaryHandler.ListActuaries)
-			actuariesAdmin.PUT("/:id/limit", actuaryHandler.SetActuaryLimit)
-			actuariesAdmin.POST("/:id/reset-limit", actuaryHandler.ResetActuaryLimit)
-			actuariesAdmin.PUT("/:id/approval", actuaryHandler.SetNeedApproval)
+			actuariesRead.GET("", actuaryHandler.ListActuaries)
+		}
+		actuariesAssign := protected.Group("/actuaries")
+		actuariesAssign.Use(middleware.RequireAnyPermission("agents.assign", "agents.manage"))
+		{
+			actuariesAssign.PUT("/:id/limit", actuaryHandler.SetActuaryLimit)
+			actuariesAssign.PUT("/:id/approval", actuaryHandler.SetNeedApproval)
+		}
+		actuariesUnassign := protected.Group("/actuaries")
+		actuariesUnassign.Use(middleware.RequireAnyPermission("agents.unassign", "agents.manage"))
+		{
+			actuariesUnassign.POST("/:id/reset-limit", actuaryHandler.ResetActuaryLimit)
 		}
 
-		// Tax management (supervisor)
-		taxAdmin := protected.Group("/tax")
-		taxAdmin.Use(middleware.RequirePermission("tax.manage"))
+		// Tax management — split read/collect
+		taxRead := protected.Group("/tax")
+		taxRead.Use(middleware.RequireAnyPermission("tax.read", "tax.manage"))
 		{
-			taxAdmin.GET("", taxHandler.ListTaxRecords)
-			taxAdmin.POST("/collect", taxHandler.CollectTax)
+			taxRead.GET("", taxHandler.ListTaxRecords)
+		}
+		taxCollect := protected.Group("/tax")
+		taxCollect.Use(middleware.RequireAnyPermission("tax.collect", "tax.manage"))
+		{
+			taxCollect.POST("/collect", taxHandler.CollectTax)
 		}
 
-		// ── Changelog endpoints (Plan 2) ────────────────────────
-		// These require the same permission as the parent resource's read.
+		// ── Changelog endpoints — granular per-resource changelog perms ──
 		changelogAccounts := protected.Group("/accounts")
-		changelogAccounts.Use(middleware.RequirePermission("accounts.read"))
+		changelogAccounts.Use(middleware.RequireAnyPermission("changelog.read.accounts", "accounts.read.all", "accounts.read"))
 		{
 			changelogAccounts.GET("/:id/changelog", v1GetAccountChangelog)
 		}
 		changelogEmployees := protected.Group("/employees")
-		changelogEmployees.Use(middleware.RequirePermission("employees.read"))
+		changelogEmployees.Use(middleware.RequireAnyPermission("changelog.read.employees", "employees.read.all", "employees.read"))
 		{
 			changelogEmployees.GET("/:id/changelog", v1GetEmployeeChangelog)
 		}
 		changelogClients := protected.Group("/clients")
-		changelogClients.Use(middleware.RequirePermission("clients.read"))
+		changelogClients.Use(middleware.RequireAnyPermission("changelog.read.clients", "clients.read.all", "clients.read"))
 		{
 			changelogClients.GET("/:id/changelog", v1GetClientChangelog)
 		}
 		changelogCards := protected.Group("/cards")
-		changelogCards.Use(middleware.RequirePermission("cards.read"))
+		changelogCards.Use(middleware.RequireAnyPermission("changelog.read.cards", "cards.read.all", "cards.read"))
 		{
 			changelogCards.GET("/:id/changelog", v1GetCardChangelog)
 		}
 		changelogLoans := protected.Group("/loans")
-		changelogLoans.Use(middleware.RequirePermission("credits.read"))
+		changelogLoans.Use(middleware.RequireAnyPermission("changelog.read.loans", "credits.read.all", "credits.read"))
 		{
 			changelogLoans.GET("/:id/changelog", v1GetLoanChangelog)
 		}

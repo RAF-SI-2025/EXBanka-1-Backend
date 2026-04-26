@@ -75,7 +75,7 @@ func SetupV2Routes(
 	{
 		opts := v2.Group("/options")
 		opts.Use(middleware.AnyAuthMiddleware(authClient))
-		opts.Use(middleware.RequirePermission("securities.trade"))
+		opts.Use(middleware.RequireAnyPermission("otc.trade.accept", "otc.trade.exercise", "securities.trade"))
 		{
 			opts.POST("/:option_id/orders", optionsV2.CreateOrder)
 			opts.POST("/:option_id/exercise", optionsV2.Exercise)
