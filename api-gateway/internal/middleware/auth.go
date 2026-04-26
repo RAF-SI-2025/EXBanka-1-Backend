@@ -125,3 +125,53 @@ func RequirePermission(permission string) gin.HandlerFunc {
 		abortWithError(c, http.StatusForbidden, "forbidden", "insufficient permissions")
 	}
 }
+
+// RequireAnyPermission admits the request if the caller holds at least one
+// of the listed permission codes. Used for routes whose visibility is
+// scoped: e.g. GET /api/orders accepts both `orders.read.all` and
+// `orders.read.own` — the handler then dispatches based on which the
+// caller holds (see permission.HighestScope).
+func RequireAnyPermission(codes ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		perms, exists := c.Get("permissions")
+		if !exists {
+			abortWithError(c, http.StatusForbidden, "forbidden", "no permissions")
+			return
+		}
+		permList, ok := perms.([]string)
+		if !ok {
+			abortWithError(c, http.StatusForbidden, "forbidden", "invalid permissions format")
+			return
+		}
+		for _, want := range codes {
+			for _, have := range permList {
+				if have == want {
+					c.Next()
+					return
+				}
+			}
+		}
+		abortWithError(c, http.StatusForbidden, "forbidden", "insufficient permissions")
+	}
+}
+
+// HasPermission reports whether the caller holds the given permission
+// code. Useful inside handlers that need to dispatch by scope (e.g.,
+// returning all orders if the caller has orders.read.all, otherwise
+// filtering to their own).
+func HasPermission(c *gin.Context, code string) bool {
+	perms, exists := c.Get("permissions")
+	if !exists {
+		return false
+	}
+	list, ok := perms.([]string)
+	if !ok {
+		return false
+	}
+	for _, p := range list {
+		if p == code {
+			return true
+		}
+	}
+	return false
+}
