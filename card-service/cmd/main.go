@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -91,20 +87,6 @@ func main() {
 	defer cronCancel()
 	service.StartCardCron(cronCtx, cardRepo, blockRepo, db)
 
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	pb.RegisterCardServiceServer(s, grpcHandler)
-	pb.RegisterVirtualCardServiceServer(s, virtualCardHandler)
-	pb.RegisterCardRequestServiceServer(s, cardRequestHandler)
-	shared.RegisterHealthCheck(s, "card-service")
-	metrics.InitializeGRPCMetrics(s)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -113,21 +95,25 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// Start gRPC server in goroutine
-	markReady()
-	go func() {
-		fmt.Printf("card service listening on %s\n", cfg.GRPCAddr)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("gRPC server failed: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down gracefully...")
-	s.GracefulStop()
-	log.Println("Server stopped")
+	if err := shared.RunGRPCServer(cronCtx, shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			pb.RegisterCardServiceServer(s, grpcHandler)
+			pb.RegisterVirtualCardServiceServer(s, virtualCardHandler)
+			pb.RegisterCardRequestServiceServer(s, cardRequestHandler)
+			shared.RegisterHealthCheck(s, "card-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			fmt.Printf("card service listening on %s\n", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
+	}
 }

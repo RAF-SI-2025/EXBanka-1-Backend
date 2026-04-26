@@ -4,11 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -457,66 +453,6 @@ func main() {
 	// Start tax collection cron
 	taxCronSvc.StartMonthlyCron(ctx)
 
-	// --- gRPC Server ---
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-
-	// Register handlers
-	exchangeHandler := handler.NewExchangeGRPCHandler(exchangeSvc)
-	pb.RegisterStockExchangeGRPCServiceServer(grpcServer, exchangeHandler)
-
-	securityHandler := handler.NewSecurityHandler(secSvc, listingSvc, candleSvc, listingRepo)
-	pb.RegisterSecurityGRPCServiceServer(grpcServer, securityHandler)
-
-	orderHandler := handler.NewOrderHandler(orderSvc, execEngine)
-	pb.RegisterOrderGRPCServiceServer(grpcServer, orderHandler)
-
-	// Portfolio handler
-	portfolioHandler := handler.NewPortfolioHandler(portfolioSvc, taxSvc)
-	pb.RegisterPortfolioGRPCServiceServer(grpcServer, portfolioHandler)
-
-	// OTC handler
-	otcHandler := handler.NewOTCHandler(otcSvc)
-	pb.RegisterOTCGRPCServiceServer(grpcServer, otcHandler)
-
-	// Tax handler
-	taxHandler := handler.NewTaxHandler(taxSvc)
-	pb.RegisterTaxGRPCServiceServer(grpcServer, taxHandler)
-
-	// Source admin handler
-	sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
-		switch name {
-		case "external":
-			return extSource, nil
-		case "generated":
-			return source.NewGeneratedSource().WithExchangeResolver(func(acronym string) (uint64, error) {
-				ex, err := exchangeRepo.GetByAcronym(acronym)
-				if err != nil {
-					return 0, err
-				}
-				return ex.ID, nil
-			}), nil
-		case "simulator":
-			simClient := source.NewSimulatorClient(cfg.MarketSimulatorURL, cfg.BankName, settingRepo)
-			if err := simClient.EnsureRegistered(); err != nil {
-				return nil, fmt.Errorf("simulator registration: %w", err)
-			}
-			return source.NewSimulatorSource(simClient), nil
-		default:
-			return nil, fmt.Errorf("unknown source %q", name)
-		}
-	})
-	pb.RegisterSourceAdminServiceServer(grpcServer, sourceAdminHandler)
-
-	shared.RegisterHealthCheck(grpcServer, "stock-service")
-	metrics.InitializeGRPCMetrics(grpcServer)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -525,21 +461,54 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// --- Graceful shutdown ---
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		log.Println("shutting down stock-service...")
-		cancel()
-		grpcServer.GracefulStop()
-	}()
-
-	markReady()
-	log.Printf("stock-service listening on %s", cfg.GRPCAddr)
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("gRPC server failed: %v", err)
+	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			pb.RegisterStockExchangeGRPCServiceServer(s, handler.NewExchangeGRPCHandler(exchangeSvc))
+			pb.RegisterSecurityGRPCServiceServer(s, handler.NewSecurityHandler(secSvc, listingSvc, candleSvc, listingRepo))
+			pb.RegisterOrderGRPCServiceServer(s, handler.NewOrderHandler(orderSvc, execEngine))
+			pb.RegisterPortfolioGRPCServiceServer(s, handler.NewPortfolioHandler(portfolioSvc, taxSvc))
+			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandler(otcSvc))
+			pb.RegisterTaxGRPCServiceServer(s, handler.NewTaxHandler(taxSvc))
+			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
+				switch name {
+				case "external":
+					return extSource, nil
+				case "generated":
+					return source.NewGeneratedSource().WithExchangeResolver(func(acronym string) (uint64, error) {
+						ex, err := exchangeRepo.GetByAcronym(acronym)
+						if err != nil {
+							return 0, err
+						}
+						return ex.ID, nil
+					}), nil
+				case "simulator":
+					simClient := source.NewSimulatorClient(cfg.MarketSimulatorURL, cfg.BankName, settingRepo)
+					if err := simClient.EnsureRegistered(); err != nil {
+						return nil, fmt.Errorf("simulator registration: %w", err)
+					}
+					return source.NewSimulatorSource(simClient), nil
+				default:
+					return nil, fmt.Errorf("unknown source %q", name)
+				}
+			})
+			pb.RegisterSourceAdminServiceServer(s, sourceAdminHandler)
+			shared.RegisterHealthCheck(s, "stock-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			log.Printf("stock-service listening on %s", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
 	}
+	cancel()
 }
 
 // bankCommissionAccountAdapter satisfies service.BankCommissionRecipient by

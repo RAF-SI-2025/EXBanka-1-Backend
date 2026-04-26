@@ -3,10 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -91,18 +87,6 @@ func main() {
 		},
 	})
 
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	pb.RegisterExchangeServiceServer(s, handler.NewExchangeGRPCHandler(svc))
-	shared.RegisterHealthCheck(s, "exchange-service")
-	metrics.InitializeGRPCMetrics(s)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -111,19 +95,23 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	markReady()
-	go func() {
-		log.Printf("exchange-service listening on %s", cfg.GRPCAddr)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down exchange-service gracefully...")
-	s.GracefulStop()
-	log.Println("Server stopped")
+	if err := shared.RunGRPCServer(context.Background(), shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			pb.RegisterExchangeServiceServer(s, handler.NewExchangeGRPCHandler(svc))
+			shared.RegisterHealthCheck(s, "exchange-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			log.Printf("exchange-service listening on %s", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
+	}
 }

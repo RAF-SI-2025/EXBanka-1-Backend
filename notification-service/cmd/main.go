@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/exbanka/contract/metrics"
@@ -88,20 +84,6 @@ func main() {
 	cleanupSvc := service.NewInboxCleanupService(inboxRepo)
 	cleanupSvc.StartCleanupCron(ctx)
 
-	// gRPC server
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	notifpb.RegisterNotificationServiceServer(grpcServer, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo))
-	shared.RegisterHealthCheck(grpcServer, "notification-service")
-	reflection.Register(grpcServer)
-	metrics.InitializeGRPCMetrics(grpcServer)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -110,19 +92,25 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// Graceful shutdown
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
-		log.Println("shutting down notification-service...")
-		cancel()
-		grpcServer.GracefulStop()
-	}()
-
-	markReady()
-	fmt.Printf("Notification service listening on %s\n", cfg.GRPCAddr)
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			notifpb.RegisterNotificationServiceServer(s, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo))
+			shared.RegisterHealthCheck(s, "notification-service")
+			reflection.Register(s)
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			fmt.Printf("Notification service listening on %s\n", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
 	}
+	cancel()
 }

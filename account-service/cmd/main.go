@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -181,19 +177,6 @@ func main() {
 	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, reservationHandler, producer, clientClient)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	pb.RegisterAccountServiceServer(s, grpcHandler)
-	pb.RegisterBankAccountServiceServer(s, bankAccountHandler)
-	shared.RegisterHealthCheck(s, "account-service")
-	metrics.InitializeGRPCMetrics(s)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -202,21 +185,24 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// Start gRPC server in goroutine
-	markReady()
-	go func() {
-		fmt.Printf("account service listening on %s\n", cfg.GRPCAddr)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("gRPC server failed: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down gracefully...")
-	s.GracefulStop()
-	log.Println("Server stopped")
+	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			pb.RegisterAccountServiceServer(s, grpcHandler)
+			pb.RegisterBankAccountServiceServer(s, bankAccountHandler)
+			shared.RegisterHealthCheck(s, "account-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			fmt.Printf("account service listening on %s\n", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
+	}
 }
