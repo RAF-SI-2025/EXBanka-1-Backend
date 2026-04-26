@@ -13,13 +13,28 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// limitServiceFacade is the narrow interface of LimitService used by LimitGRPCHandler.
+type limitServiceFacade interface {
+	GetEmployeeLimits(employeeID int64) (*model.EmployeeLimit, error)
+	SetEmployeeLimits(ctx context.Context, limit model.EmployeeLimit, changedBy int64) (*model.EmployeeLimit, error)
+	ApplyTemplate(ctx context.Context, employeeID int64, templateName string, changedBy int64) (*model.EmployeeLimit, error)
+	ListTemplates() ([]model.LimitTemplate, error)
+	CreateTemplate(ctx context.Context, t model.LimitTemplate) (*model.LimitTemplate, error)
+}
+
 // LimitGRPCHandler implements the EmployeeLimitServiceServer interface.
 type LimitGRPCHandler struct {
 	pb.UnimplementedEmployeeLimitServiceServer
-	limitSvc *service.LimitService
+	limitSvc limitServiceFacade
 }
 
 func NewLimitGRPCHandler(limitSvc *service.LimitService) *LimitGRPCHandler {
+	return &LimitGRPCHandler{limitSvc: limitSvc}
+}
+
+// newLimitHandlerForTest constructs a LimitGRPCHandler with an interface-typed
+// dependency for use in unit tests.
+func newLimitHandlerForTest(limitSvc limitServiceFacade) *LimitGRPCHandler {
 	return &LimitGRPCHandler{limitSvc: limitSvc}
 }
 

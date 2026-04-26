@@ -14,12 +14,28 @@ import (
 	"github.com/exbanka/user-service/internal/service"
 )
 
+// blueprintServiceFacade is the narrow interface of BlueprintService used by BlueprintGRPCHandler.
+type blueprintServiceFacade interface {
+	CreateBlueprint(ctx context.Context, bp model.LimitBlueprint) (*model.LimitBlueprint, error)
+	GetBlueprint(id uint64) (*model.LimitBlueprint, error)
+	ListBlueprints(bpType string) ([]model.LimitBlueprint, error)
+	UpdateBlueprint(ctx context.Context, id uint64, name, description string, values json.RawMessage) (*model.LimitBlueprint, error)
+	DeleteBlueprint(ctx context.Context, id uint64) error
+	ApplyBlueprint(ctx context.Context, blueprintID uint64, targetID int64, appliedBy int64) error
+}
+
 type BlueprintGRPCHandler struct {
 	pb.UnimplementedBlueprintServiceServer
-	svc *service.BlueprintService
+	svc blueprintServiceFacade
 }
 
 func NewBlueprintGRPCHandler(svc *service.BlueprintService) *BlueprintGRPCHandler {
+	return &BlueprintGRPCHandler{svc: svc}
+}
+
+// newBlueprintHandlerForTest constructs a BlueprintGRPCHandler with an interface-typed
+// dependency for use in unit tests.
+func newBlueprintHandlerForTest(svc blueprintServiceFacade) *BlueprintGRPCHandler {
 	return &BlueprintGRPCHandler{svc: svc}
 }
 

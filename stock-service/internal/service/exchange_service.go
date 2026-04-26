@@ -8,17 +8,23 @@ import (
 
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/provider"
-	"github.com/exbanka/stock-service/internal/repository"
 )
 
+// ExchangeSeedRepo is the repository surface required only for seeding exchanges
+// from CSV. It extends the read-only ExchangeRepo with the upsert method.
+type ExchangeSeedRepo interface {
+	ExchangeRepo
+	UpsertByMICCode(exchange *model.StockExchange) error
+}
+
 type ExchangeService struct {
-	exchangeRepo *repository.ExchangeRepository
-	settingRepo  *repository.SystemSettingRepository
+	exchangeRepo ExchangeSeedRepo
+	settingRepo  SettingRepo
 }
 
 func NewExchangeService(
-	exchangeRepo *repository.ExchangeRepository,
-	settingRepo *repository.SystemSettingRepository,
+	exchangeRepo ExchangeSeedRepo,
+	settingRepo SettingRepo,
 ) *ExchangeService {
 	return &ExchangeService{
 		exchangeRepo: exchangeRepo,

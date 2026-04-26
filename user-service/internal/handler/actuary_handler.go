@@ -13,12 +13,28 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// actuaryServiceFacade is the narrow interface of ActuaryService used by ActuaryGRPCHandler.
+type actuaryServiceFacade interface {
+	ListActuaries(search, position string, page, pageSize int) ([]model.ActuaryRow, int64, error)
+	GetActuaryInfo(employeeID int64) (*model.ActuaryLimit, *model.Employee, error)
+	SetActuaryLimit(ctx context.Context, employeeID int64, limitAmount decimal.Decimal, changedBy int64) (*model.ActuaryLimit, error)
+	ResetUsedLimit(ctx context.Context, employeeID int64, changedBy int64) (*model.ActuaryLimit, error)
+	SetNeedApproval(ctx context.Context, employeeID int64, needApproval bool, changedBy int64) (*model.ActuaryLimit, error)
+	UpdateUsedLimit(ctx context.Context, id int64, amount decimal.Decimal) (*model.ActuaryLimit, error)
+}
+
 type ActuaryGRPCHandler struct {
 	pb.UnimplementedActuaryServiceServer
-	svc *service.ActuaryService
+	svc actuaryServiceFacade
 }
 
 func NewActuaryGRPCHandler(svc *service.ActuaryService) *ActuaryGRPCHandler {
+	return &ActuaryGRPCHandler{svc: svc}
+}
+
+// newActuaryHandlerForTest constructs an ActuaryGRPCHandler with an interface-typed
+// dependency for use in unit tests.
+func newActuaryHandlerForTest(svc actuaryServiceFacade) *ActuaryGRPCHandler {
 	return &ActuaryGRPCHandler{svc: svc}
 }
 
