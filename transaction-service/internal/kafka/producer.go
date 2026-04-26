@@ -2,72 +2,55 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
-	kafkago "github.com/segmentio/kafka-go"
+	"github.com/exbanka/contract/shared"
 )
 
+// Producer wraps the shared Kafka producer with transaction-service typed
+// publish methods.
 type Producer struct {
-	writer *kafkago.Writer
+	inner *shared.Producer
 }
 
 func NewProducer(brokers string) *Producer {
-	return &Producer{
-		writer: &kafkago.Writer{
-			Addr:     kafkago.TCP(brokers),
-			Balancer: &kafkago.LeastBytes{},
-		},
-	}
+	return &Producer{inner: shared.NewProducer(brokers)}
 }
 
-func (p *Producer) publish(ctx context.Context, topic string, payload interface{}) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return p.writer.WriteMessages(ctx, kafkago.Message{
-		Topic: topic,
-		Value: data,
-	})
-}
+func (p *Producer) Close() error { return p.inner.Close() }
 
 func (p *Producer) PublishPaymentCreated(ctx context.Context, msg kafkamsg.PaymentCompletedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicPaymentCreated, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicPaymentCreated, msg)
 }
 
 func (p *Producer) PublishPaymentCompleted(ctx context.Context, msg kafkamsg.PaymentCompletedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicPaymentCompleted, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicPaymentCompleted, msg)
 }
 
 func (p *Producer) PublishTransferCreated(ctx context.Context, msg kafkamsg.TransferCompletedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicTransferCreated, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicTransferCreated, msg)
 }
 
 func (p *Producer) PublishTransferCompleted(ctx context.Context, msg kafkamsg.TransferCompletedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicTransferCompleted, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicTransferCompleted, msg)
 }
 
 func (p *Producer) PublishPaymentFailed(ctx context.Context, msg kafkamsg.PaymentFailedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicPaymentFailed, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicPaymentFailed, msg)
 }
 
 func (p *Producer) PublishTransferFailed(ctx context.Context, msg kafkamsg.TransferFailedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicTransferFailed, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicTransferFailed, msg)
 }
 
 func (p *Producer) PublishSagaDeadLetter(ctx context.Context, msg kafkamsg.SagaDeadLetterMessage) error {
-	return p.publish(ctx, kafkamsg.TopicSagaDeadLetter, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicSagaDeadLetter, msg)
 }
 
 func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error {
-	return p.publish(ctx, kafkamsg.TopicSendEmail, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicSendEmail, msg)
 }
 
 func (p *Producer) PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error {
-	return p.publish(ctx, kafkamsg.TopicGeneralNotification, msg)
-}
-
-func (p *Producer) Close() error {
-	return p.writer.Close()
+	return p.inner.Publish(ctx, kafkamsg.TopicGeneralNotification, msg)
 }
