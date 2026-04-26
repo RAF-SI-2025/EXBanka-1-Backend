@@ -821,6 +821,25 @@ func TestDisable2FA_NotSetUp(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestVerify2FA_InvalidCode(t *testing.T) {
+	f := newAuthFlowFixture(t)
+	// Setup a TOTP record but don't generate a valid code.
+	_, _, err := f.svc.Setup2FA(context.Background(), 42, "user@test.com")
+	require.NoError(t, err)
+	ok, err := f.svc.Verify2FA(context.Background(), 42, "000000")
+	require.NoError(t, err) // ValidateCode returns false, no error
+	assert.False(t, ok)
+}
+
+func TestDisable2FA_InvalidCode(t *testing.T) {
+	f := newAuthFlowFixture(t)
+	_, _, err := f.svc.Setup2FA(context.Background(), 42, "user@test.com")
+	require.NoError(t, err)
+	ok, err := f.svc.Disable2FA(context.Background(), 42, "000000")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 // ----------------------------------------------------------------------------
 // Sessions / RevokeSession tests
 // ----------------------------------------------------------------------------
