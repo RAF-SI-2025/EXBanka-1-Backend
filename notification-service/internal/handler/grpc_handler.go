@@ -7,20 +7,46 @@ import (
 
 	kafkamsg "github.com/exbanka/contract/kafka"
 	notifpb "github.com/exbanka/contract/notificationpb"
+	"github.com/exbanka/notification-service/internal/model"
 	"github.com/exbanka/notification-service/internal/repository"
 	"github.com/exbanka/notification-service/internal/sender"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+// emailSenderFacade is the narrow interface of *sender.EmailSender used by GRPCHandler.
+type emailSenderFacade interface {
+	Send(to, subject, body string) error
+}
+
+// inboxRepoFacade is the narrow interface of *repository.MobileInboxRepository used by GRPCHandler.
+type inboxRepoFacade interface {
+	GetPendingByUser(userID uint64) ([]model.MobileInboxItem, error)
+	MarkDelivered(id uint64) error
+}
+
+// notifRepoFacade is the narrow interface of *repository.GeneralNotificationRepository used by GRPCHandler.
+type notifRepoFacade interface {
+	ListByUser(userID uint64, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error)
+	UnreadCount(userID uint64) (int64, error)
+	MarkRead(id, userID uint64) error
+	MarkAllRead(userID uint64) (int64, error)
+}
+
 type GRPCHandler struct {
 	notifpb.UnimplementedNotificationServiceServer
-	emailSender *sender.EmailSender
-	inboxRepo   *repository.MobileInboxRepository
-	notifRepo   *repository.GeneralNotificationRepository
+	emailSender emailSenderFacade
+	inboxRepo   inboxRepoFacade
+	notifRepo   notifRepoFacade
 }
 
 func NewGRPCHandler(emailSender *sender.EmailSender, inboxRepo *repository.MobileInboxRepository, notifRepo *repository.GeneralNotificationRepository) *GRPCHandler {
+	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo}
+}
+
+// newGRPCHandlerForTest constructs a GRPCHandler with interface-typed
+// dependencies for use in unit tests.
+func newGRPCHandlerForTest(emailSender emailSenderFacade, inboxRepo inboxRepoFacade, notifRepo notifRepoFacade) *GRPCHandler {
 	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo}
 }
 
