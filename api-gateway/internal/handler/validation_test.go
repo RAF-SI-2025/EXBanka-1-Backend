@@ -172,3 +172,57 @@ func TestEnforceOwnership_MissingSystemType_ReturnsNil(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 200, w.Code)
 }
+
+// TestMePortfolioIdentity_EmployeeSwapsToBank locks in the Phase 3 contract:
+// an employee caller resolves to the bank sentinel + system_type="bank" so
+// /me/* portfolio handlers see the bank's data. Without this, every
+// employee-driven trading endpoint would silently look up the employee's
+// (empty) personal portfolio instead of the bank's. Regression guard for
+// the same shape as the actuary-limit-bypass bug.
+func TestMePortfolioIdentity_EmployeeSwapsToBank(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set("user_id", int64(42))
+	c.Set("system_type", "employee")
+
+	uid, st, ok := mePortfolioIdentity(c)
+	require.True(t, ok)
+	require.Equal(t, BankSentinelUserID, uid, "employee /me/* must resolve to bank sentinel")
+	require.Equal(t, BankSystemType, st, "employee /me/* must resolve to system_type=bank")
+}
+
+func TestMePortfolioIdentity_ClientPassesThrough(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set("user_id", int64(7))
+	c.Set("system_type", "client")
+
+	uid, st, ok := mePortfolioIdentity(c)
+	require.True(t, ok)
+	require.Equal(t, uint64(7), uid, "client /me/* uses the client's own user_id")
+	require.Equal(t, "client", st)
+}
+
+func TestActingEmployeeID_EmployeeReturnsJWTUserID(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set("user_id", int64(11))
+	c.Set("system_type", "employee")
+
+	require.Equal(t, uint64(11), actingEmployeeID(c),
+		"actingEmployeeID must return the JWT user_id even when mePortfolioIdentity swaps to bank")
+}
+
+func TestActingEmployeeID_ClientReturnsZero(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/", nil)
+	c.Set("user_id", int64(7))
+	c.Set("system_type", "client")
+
+	require.Zero(t, actingEmployeeID(c),
+		"actingEmployeeID returns 0 for clients so per-actuary limits never fire on client trades")
+}

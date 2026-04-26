@@ -54,7 +54,7 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "stock_id, quantity, strike_price and settlement_date are required")
 		return
 	}
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -88,7 +88,7 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 // @Success      200 {object} map[string]interface{}
 // @Router       /api/v3/me/otc/offers [get]
 func (h *OTCOptionsHandler) ListMyOffers(c *gin.Context) {
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -120,7 +120,7 @@ func (h *OTCOptionsHandler) GetOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
 		return
 	}
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -162,7 +162,7 @@ func (h *OTCOptionsHandler) CounterOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
 		return
 	}
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -208,7 +208,7 @@ func (h *OTCOptionsHandler) AcceptOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "buyer_account_id and seller_account_id are required")
 		return
 	}
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -237,7 +237,7 @@ func (h *OTCOptionsHandler) RejectOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
 		return
 	}
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -259,7 +259,7 @@ func (h *OTCOptionsHandler) RejectOffer(c *gin.Context) {
 // @Success      200 {object} map[string]interface{}
 // @Router       /api/v3/me/otc/contracts [get]
 func (h *OTCOptionsHandler) ListMyContracts(c *gin.Context) {
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -291,7 +291,7 @@ func (h *OTCOptionsHandler) GetContract(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
 		return
 	}
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -335,7 +335,7 @@ func (h *OTCOptionsHandler) ExerciseContract(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "buyer_account_id and seller_account_id are required")
 		return
 	}
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}

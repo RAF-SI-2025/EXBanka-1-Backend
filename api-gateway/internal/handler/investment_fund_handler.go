@@ -200,7 +200,7 @@ func (h *InvestmentFundHandler) Invest(c *gin.Context) {
 	if req.OnBehalfOfType == "" {
 		req.OnBehalfOfType = "self"
 	}
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -256,7 +256,7 @@ func (h *InvestmentFundHandler) Redeem(c *gin.Context) {
 	if req.OnBehalfOfType == "" {
 		req.OnBehalfOfType = "self"
 	}
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
@@ -283,7 +283,7 @@ func (h *InvestmentFundHandler) Redeem(c *gin.Context) {
 // @Success      200 {object} map[string]interface{}
 // @Router       /api/v1/me/investment-funds [get]
 func (h *InvestmentFundHandler) ListMyPositions(c *gin.Context) {
-	uid, st, ok := meIdentity(c)
+	uid, st, ok := mePortfolioIdentity(c)
 	if !ok {
 		return
 	}
