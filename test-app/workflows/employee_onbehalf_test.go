@@ -71,17 +71,29 @@ func TestEmployeeOnBehalf_CreateOrder(t *testing.T) {
 		t.Error("acting_employee_id is zero — on-behalf audit info not recorded")
 	}
 
-	// Wait for the order to fill (best-effort — same pattern as wf_full_day).
-	tryWaitForOrderFill(t, adminC, orderID, 15*time.Second)
+	// Wait for the order to fill. Poll under the client's session because
+	// the order's user_id is the client (admin only acted on behalf), so
+	// the order is invisible on the admin's /me/orders route.
+	tryWaitForOrderFill(t, clientC, orderID, 60*time.Second)
 
 	// Confirm the holding shows up in the CLIENT's portfolio (not the
-	// employee's). The clientC was returned authenticated by setupActivatedClient.
-	portResp, err := clientC.GET("/api/v1/me/portfolio")
-	if err != nil {
-		t.Fatalf("client portfolio: %v", err)
+	// employee's). is_done flips on the order row in the same instant the
+	// saga's update_holding step commits, so a one-shot read can race the
+	// fill commit; poll for up to 5s.
+	var holdings []interface{}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		portResp, err := clientC.GET("/api/v1/me/portfolio")
+		if err != nil {
+			t.Fatalf("client portfolio: %v", err)
+		}
+		helpers.RequireStatus(t, portResp, 200)
+		holdings, _ = portResp.Body["holdings"].([]interface{})
+		if len(holdings) > 0 {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
-	helpers.RequireStatus(t, portResp, 200)
-	holdings, _ := portResp.Body["holdings"].([]interface{})
 	if len(holdings) == 0 {
 		t.Errorf("client %d portfolio is empty after on-behalf buy", clientID)
 	}

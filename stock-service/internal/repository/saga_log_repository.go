@@ -62,11 +62,17 @@ func (r *SagaLogRepository) GetByStepName(orderID uint64, stepName string) (*mod
 	return &log, nil
 }
 
-// UpdateStatus uses a WHERE version clause (manual optimistic-lock check)
-// because GORM's BeforeUpdate hook only fires for full-row updates via Save.
-// Updating a subset of columns via Updates+where keeps the transition atomic.
+// UpdateStatus uses a WHERE version clause (manual optimistic-lock check).
+// Skips the SagaLog.BeforeUpdate hook: that hook reads l.Version off the
+// receiver struct, but Updates(map) on a typed Model leaves the receiver as
+// a zero-value, so the hook would append `AND version = 0` and combine with
+// our explicit `AND version = ?` into an impossible WHERE that matches
+// nothing for any row whose version != 0. The forward path happens to work
+// only because rows start with version=0; the recovery path (calling with
+// the live version) hit a permanent optimistic-lock conflict before this.
 func (r *SagaLogRepository) UpdateStatus(id uint64, version int64, newStatus, errMsg string) error {
-	result := r.db.Model(&model.SagaLog{}).
+	result := r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.SagaLog{}).
 		Where("id = ? AND version = ?", id, version).
 		Updates(map[string]any{
 			"status":        newStatus,
