@@ -288,3 +288,114 @@ func TestAuthMiddleware_RejectsClientToken(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "forbidden", errObj["code"])
 }
+
+// ---------------------------------------------------------------------------
+// RequireClientToken
+// ---------------------------------------------------------------------------
+
+func TestRequireClientToken_AllowsClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("system_type", "client")
+		c.Next()
+	})
+	r.Use(RequireClientToken())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRequireClientToken_RejectsEmployee(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("system_type", "employee")
+		c.Next()
+	})
+	r.Use(RequireClientToken())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRequireClientToken_RejectsMissingType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequireClientToken())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// ---------------------------------------------------------------------------
+// RequirePermission additional branches
+// ---------------------------------------------------------------------------
+
+func TestRequirePermission_PermissionsKeyMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequirePermission("foo.bar"))
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRequirePermission_WrongType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("permissions", "not-a-slice")
+		c.Next()
+	})
+	r.Use(RequirePermission("foo.bar"))
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRequirePermission_Insufficient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("permissions", []string{"other.perm"})
+		c.Next()
+	})
+	r.Use(RequirePermission("foo.bar"))
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRequirePermission_Allowed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("permissions", []string{"foo.bar", "baz.qux"})
+		c.Next()
+	})
+	r.Use(RequirePermission("foo.bar"))
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+}
