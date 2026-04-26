@@ -177,6 +177,11 @@ const BankSystemType = "bank"
 // (user_id, system_type). Use plain meIdentity for non-trading /me/*
 // endpoints (profile, permissions, etc.) where the employee's identity
 // is what matters.
+//
+// Pair this with actingEmployeeID(c) when CREATING an order — without
+// the employee's real id propagated as acting_employee_id, stock-service
+// cannot enforce per-actuary limits (it would key the lookup on the
+// bank sentinel user_id, which has no actuary row).
 func mePortfolioIdentity(c *gin.Context) (userID uint64, systemType string, ok bool) {
 	uid, st, ok := meIdentity(c)
 	if !ok {
@@ -186,6 +191,25 @@ func mePortfolioIdentity(c *gin.Context) (userID uint64, systemType string, ok b
 		return BankSentinelUserID, BankSystemType, true
 	}
 	return uid, st, true
+}
+
+// actingEmployeeID returns the JWT user_id when the caller is an employee,
+// 0 otherwise. Use this to populate Order.ActingEmployeeID on order
+// creation: stock-service's actuary-limit gate fires when this is non-zero
+// regardless of whether the order ends up system_type="employee" (legacy),
+// "bank" (employee acting for the bank, Phase 3), or "client" (employee
+// on behalf of a client). Without this hook, Phase 3's identity swap
+// would silently bypass the EmployeeLimit gate for every employee buy.
+func actingEmployeeID(c *gin.Context) uint64 {
+	uid := c.GetInt64("user_id")
+	if uid <= 0 {
+		return 0
+	}
+	raw, _ := c.Get("system_type")
+	if st, _ := raw.(string); st != "employee" {
+		return 0
+	}
+	return uint64(uid)
 }
 
 // ---------------------------------------------------------------------------

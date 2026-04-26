@@ -533,8 +533,18 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 	needsApproval := false
 	var limitAmountRSD decimal.Decimal
 	var actuaryLimitID uint64
-	if req.SystemType == "employee" && s.actuaryClient != nil && req.Direction == "buy" {
-		info, aerr := s.actuaryClient.GetActuaryLimit(ctx, req.UserID)
+	// Per-actuary EmployeeLimit gate. Fires whenever an employee is the
+	// acting party — regardless of whether the resulting order's
+	// system_type is "employee" (legacy direct), "bank" (Phase 3
+	// employee→bank), or "client" (employee on-behalf). The lookup keys
+	// on ActingEmployeeID when set, falling back to UserID for the legacy
+	// system_type=="employee" path that pre-dates ActingEmployeeID.
+	actingForLimit := req.ActingEmployeeID
+	if actingForLimit == 0 && req.SystemType == "employee" {
+		actingForLimit = req.UserID
+	}
+	if actingForLimit != 0 && s.actuaryClient != nil && req.Direction == "buy" {
+		info, aerr := s.actuaryClient.GetActuaryLimit(ctx, actingForLimit)
 		switch {
 		case aerr == nil:
 			// Convert reservation amount to RSD for limit accounting.

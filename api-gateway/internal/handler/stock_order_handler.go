@@ -162,17 +162,25 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
+	// Acting employee id is the JWT user_id when an employee placed this
+	// order; 0 for client-self orders. Stock-service uses this (NOT
+	// system_type) to fire the per-actuary EmployeeLimit gate, so it must
+	// be set even when the resulting order's system_type is "bank" or
+	// "client" — both cases mean the acting employee is responsible.
+	actingEmpID := actingEmployeeID(c)
+
 	grpcReq := &stockpb.CreateOrderRequest{
-		UserId:     userID,
-		SystemType: systemType,
-		ListingId:  req.ListingID,
-		HoldingId:  req.HoldingID,
-		Direction:  direction,
-		OrderType:  orderType,
-		Quantity:   req.Quantity,
-		AllOrNone:  req.AllOrNone,
-		Margin:     req.Margin,
-		AccountId:  req.AccountID,
+		UserId:           userID,
+		SystemType:       systemType,
+		ListingId:        req.ListingID,
+		HoldingId:        req.HoldingID,
+		Direction:        direction,
+		OrderType:        orderType,
+		Quantity:         req.Quantity,
+		AllOrNone:        req.AllOrNone,
+		Margin:           req.Margin,
+		AccountId:        req.AccountID,
+		ActingEmployeeId: actingEmpID,
 	}
 	if req.LimitValue != nil {
 		grpcReq.LimitValue = req.LimitValue
@@ -186,13 +194,14 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	if req.OnBehalfOfFundID != 0 {
 		// Reject clients placing fund orders — only employees with the
 		// fund.manage permission may. Stock-service re-validates the manager
-		// binding against the fund.
-		if systemType != "employee" {
+		// binding against the fund. The JWT system_type (not the swapped
+		// portfolio identity) is what matters for this gate.
+		jwtSt, _ := c.Get("system_type")
+		if jwtSt != "employee" {
 			apiError(c, http.StatusForbidden, ErrForbidden, "on_behalf_of_fund_id requires employee context")
 			return
 		}
 		grpcReq.OnBehalfOfFundId = req.OnBehalfOfFundID
-		grpcReq.ActingEmployeeId = userID
 	}
 
 	resp, err := h.client.CreateOrder(c.Request.Context(), grpcReq)
