@@ -13,8 +13,10 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
+	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
 // FillAccountClient is the subset of grpc.AccountClient the fill saga needs.
@@ -227,7 +229,12 @@ func (s *PortfolioService) ProcessBuyFill(order *model.Order, txn *model.OrderTr
 	return s.processBuyFillSaga(order, txn)
 }
 
-// processBuyFillSaga is the Phase-2 fill-saga implementation.
+// processBuyFillSaga is the Phase-2 fill-saga implementation, driven by
+// shared.Saga: each step declares Forward + Backward; on any forward
+// failure the executor walks completed steps in reverse running their
+// Backward. The commission step runs as a separate best-effort sub-saga
+// AFTER the main saga completes so its failure doesn't unwind a valid
+// trade.
 func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.OrderTransaction) error {
 	ctx := context.Background()
 
@@ -235,136 +242,142 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 	if sagaID == "" {
 		sagaID = uuid.New().String()
 	}
-	txnID := txn.ID
-	exec := NewSagaExecutor(s.sagaRepo, sagaID, order.ID, &txnID)
 
-	// --- Step 1: record_transaction (no-op; caller already persisted the txn) ---
-	// The saga row gives recovery/reconciliation visibility over fills that
-	// crash between commit and saga rows landing.
-	if err := exec.RunStep(ctx, "record_transaction", txn.TotalPrice, order.ReservationCurrency, nil, func() error {
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// --- Step 2: convert_amount ---
+	// Captured shared state — the convert step writes these for later steps.
 	var convertedAmount decimal.Decimal
 	var accountCurrency string
-	var listingCurrency string
-	if err := exec.RunStep(ctx, "convert_amount", txn.TotalPrice, "", nil, func() error {
-		listing, err := s.listingRepo.GetByID(order.ListingID)
-		if err != nil {
-			return fmt.Errorf("listing lookup: %w", err)
-		}
-		listingCurrency = listing.Exchange.Currency
 
-		acctCcy, err := s.accountCurrency(ctx, order.AccountID)
-		if err != nil {
-			return err
-		}
-		accountCurrency = acctCcy
+	state := shared.NewState()
+	state.Set("order_id", order.ID)
+	state.Set("order_transaction_id", txn.ID)
+	state.Set("step:record_transaction:amount", txn.TotalPrice)
+	state.Set("step:record_transaction:currency", order.ReservationCurrency)
+	state.Set("step:convert_amount:amount", txn.TotalPrice)
+	// settle_reservation:amount is set inside its Forward (depends on convert).
+	// update_holding:amount is zero (informational); set by the recorder anyway.
 
-		native := txn.TotalPrice
-		txn.NativeAmount = &native
-		txn.NativeCurrency = listingCurrency
-		txn.AccountCurrency = accountCurrency
-
-		if listingCurrency == accountCurrency || accountCurrency == "" {
-			// Same currency (or legacy account with no currency code)
-			// — no conversion required.
-			convertedAmount = txn.TotalPrice
-			c := convertedAmount
-			txn.ConvertedAmount = &c
-			return s.txRepo.Update(txn)
-		}
-
-		// Cross-currency: route through exchange-service.
-		resp, cerr := s.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
-			FromCurrency: listingCurrency,
-			ToCurrency:   accountCurrency,
-			Amount:       txn.TotalPrice.String(),
-		})
-		if cerr != nil {
-			return fmt.Errorf("exchange convert: %w", cerr)
-		}
-		conv, perr := decimal.NewFromString(resp.ConvertedAmount)
-		if perr != nil {
-			return fmt.Errorf("parse converted amount: %w", perr)
-		}
-		convertedAmount = conv
-		c := conv
-		txn.ConvertedAmount = &c
-		if rate, rerr := decimal.NewFromString(resp.EffectiveRate); rerr == nil {
-			r := rate
-			txn.FxRate = &r
-		}
-		return s.txRepo.Update(txn)
-	}); err != nil {
-		return err
-	}
-
-	// --- Step 3: settle_reservation (idempotent on txn ID) ---
-	// Settle trade + commission from the reservation. The reservation was sized
-	// to cover both at placement (reserveAmount = base × (1+slippage) × (1+commission)),
-	// so there is always enough held. Without adding commission here, the bank
-	// credit below would have no user-side source and money would be minted.
-	commissionAmount := s.computeCommission(convertedAmount)
-	settleAmount := convertedAmount.Add(commissionAmount)
-	memo := fmt.Sprintf("Order #%d partial fill (txn #%d)", order.ID, txn.ID)
-	if err := exec.RunStep(ctx, "settle_reservation", settleAmount, accountCurrency,
-		map[string]any{"account_id": order.AccountID, "txn_id": txn.ID}, func() error {
-			_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, settleAmount, memo)
-			return serr
-		}); err != nil {
-		return err
-	}
-
-	// --- Step 4: update_holding (idempotent on PK; weighted-average upsert) ---
-	if err := exec.RunStep(ctx, "update_holding", decimal.Zero, "",
-		map[string]any{"security_type": order.SecurityType, "ticker": order.Ticker}, func() error {
-			return s.upsertHoldingForBuy(order, txn)
-		}); err != nil {
-		// Compensation: reverse-credit the settle amount to the user's account.
-		var forwardID uint64
-		if step, lerr := s.sagaRepo.GetByStepName(order.ID, "settle_reservation"); lerr == nil && step != nil {
-			forwardID = step.ID
-		}
-		_ = exec.RunCompensation(ctx, forwardID, "compensate_settle_via_credit", func() error {
-			reverseMemo := fmt.Sprintf("Compensating order #%d fill #%d", order.ID, txn.ID)
-			acct, gerr := s.fillClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: order.AccountID})
-			if gerr != nil {
-				return gerr
-			}
-			_, cerr := s.fillClient.CreditAccount(ctx, acct.AccountNumber, settleAmount, reverseMemo, recoveryKeyFor("compensate_settle_via_credit", txn.ID))
-			return cerr
-		})
-		return err
-	}
-
-	// --- Step 5: credit_commission (best-effort; do NOT fail the trade on error) ---
-	// User has already been debited commission via the settle step above; this
-	// step completes the transfer by crediting the bank's commission account.
-	// Double-entry: user debit = convertedAmount + commission; bank credit =
-	// commission; "market" (simulated) absorbs the trade value.
-	if commissionAmount.Sign() > 0 {
-		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, accountCurrency,
-			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
-				// Commission goes to the bank's RSD account (resolved dynamically
-				// via GetBankRSDAccount when a recipient is wired). Taxes go to
-				// the state account (handled separately by tax_service). The
-				// deterministic idempotency key makes the saga recovery retry
-				// path safe: a replayed credit is a no-op on account-service.
-				feeAcct, raErr := s.commissionRecipientAccount(ctx)
-				if raErr != nil {
-					return raErr
+	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(shared.Step{
+			Name: "record_transaction",
+			// Caller already persisted the txn; this step exists for
+			// recovery visibility only.
+			Forward: func(ctx context.Context, _ *shared.State) error { return nil },
+		}).
+		Add(shared.Step{
+			Name: "convert_amount",
+			Forward: func(ctx context.Context, st *shared.State) error {
+				listing, err := s.listingRepo.GetByID(order.ListingID)
+				if err != nil {
+					return fmt.Errorf("listing lookup: %w", err)
 				}
-				memo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
-				_, ferr := s.fillClient.CreditAccount(ctx, feeAcct, commissionAmount, memo, recoveryKeyFor("credit_commission", txn.ID))
-				return ferr
-			}); cerr != nil {
+				listingCurrency := listing.Exchange.Currency
+
+				acctCcy, err := s.accountCurrency(ctx, order.AccountID)
+				if err != nil {
+					return err
+				}
+				accountCurrency = acctCcy
+
+				native := txn.TotalPrice
+				txn.NativeAmount = &native
+				txn.NativeCurrency = listingCurrency
+				txn.AccountCurrency = accountCurrency
+
+				if listingCurrency == accountCurrency || accountCurrency == "" {
+					convertedAmount = txn.TotalPrice
+					c := convertedAmount
+					txn.ConvertedAmount = &c
+					return s.txRepo.Update(txn)
+				}
+
+				resp, cerr := s.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
+					FromCurrency: listingCurrency,
+					ToCurrency:   accountCurrency,
+					Amount:       txn.TotalPrice.String(),
+				})
+				if cerr != nil {
+					return fmt.Errorf("exchange convert: %w", cerr)
+				}
+				conv, perr := decimal.NewFromString(resp.ConvertedAmount)
+				if perr != nil {
+					return fmt.Errorf("parse converted amount: %w", perr)
+				}
+				convertedAmount = conv
+				c := conv
+				txn.ConvertedAmount = &c
+				if rate, rerr := decimal.NewFromString(resp.EffectiveRate); rerr == nil {
+					r := rate
+					txn.FxRate = &r
+				}
+				return s.txRepo.Update(txn)
+			},
+			// Pure compute + audit-field writes; nothing to roll back.
+		}).
+		Add(shared.Step{
+			Name: "settle_reservation",
+			Forward: func(ctx context.Context, st *shared.State) error {
+				commissionAmount := s.computeCommission(convertedAmount)
+				settleAmount := convertedAmount.Add(commissionAmount)
+				memo := fmt.Sprintf("Order #%d partial fill (txn #%d)", order.ID, txn.ID)
+				st.Set("step:settle_reservation:amount", settleAmount)
+				st.Set("step:settle_reservation:currency", accountCurrency)
+				_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, settleAmount, memo)
+				return serr
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				// Reverse-credit the settle amount to the user's account.
+				commissionAmount := s.computeCommission(convertedAmount)
+				settleAmount := convertedAmount.Add(commissionAmount)
+				reverseMemo := fmt.Sprintf("Compensating order #%d fill #%d", order.ID, txn.ID)
+				acct, gerr := s.fillClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: order.AccountID})
+				if gerr != nil {
+					return gerr
+				}
+				_, cerr := s.fillClient.CreditAccount(ctx, acct.AccountNumber, settleAmount, reverseMemo, recoveryKeyFor("compensate_settle_via_credit", txn.ID))
+				return cerr
+			},
+		}).
+		Add(shared.Step{
+			Name: "update_holding",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				return s.upsertHoldingForBuy(order, txn)
+			},
+			// Holdings upsert is idempotent on PK (weighted-average); leaving
+			// the row in place after a later-step failure is harmless.
+			// No later step exists in the saga itself (commission runs
+			// outside), so this Backward is unreachable in practice.
+		})
+
+	if err := saga.Execute(ctx, state); err != nil {
+		return err
+	}
+
+	// Best-effort commission credit. Failure here logs but does NOT unwind
+	// the trade — the user already paid commission via the settle step;
+	// this credits the bank-side leg.
+	commissionAmount := s.computeCommission(convertedAmount)
+	if commissionAmount.Sign() > 0 {
+		commSaga := shared.NewSaga(sagaID+"-comm", stocksaga.NewRecorder(s.sagaRepo)).
+			Add(shared.Step{
+				Name: "credit_commission",
+				Forward: func(ctx context.Context, _ *shared.State) error {
+					feeAcct, raErr := s.commissionRecipientAccount(ctx)
+					if raErr != nil {
+						return raErr
+					}
+					memo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
+					_, ferr := s.fillClient.CreditAccount(ctx, feeAcct, commissionAmount, memo, recoveryKeyFor("credit_commission", txn.ID))
+					return ferr
+				},
+			})
+		commState := shared.NewState()
+		commState.Set("order_id", order.ID)
+		commState.Set("order_transaction_id", txn.ID)
+		commState.Set("step:credit_commission:amount", commissionAmount)
+		commState.Set("step:credit_commission:currency", accountCurrency)
+		if cerr := commSaga.Execute(ctx, commState); cerr != nil {
 			log.Printf("WARN: commission credit failed for order %d fill %d: %v (recovery will retry)",
 				order.ID, txn.ID, cerr)
-			// Deliberately do not return — the trade is valid.
 		}
 	}
 
@@ -567,6 +580,10 @@ func (s *PortfolioService) ProcessSellFill(order *model.Order, txn *model.OrderT
 // processSellFillSaga is the Phase-2 sell-fill saga implementation. Credits
 // the seller first, then consumes the holding reservation; on
 // holding-decrement failure the credit is reversed via DebitAccount.
+// processSellFillSaga is the sell-side fill saga, driven by shared.Saga.
+// On any post-credit failure, the executor walks back to credit_proceeds
+// and reverses it via DebitAccount. Commission runs as a separate
+// best-effort sub-saga so its failure cannot unwind a valid trade.
 func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.OrderTransaction) error {
 	ctx := context.Background()
 
@@ -574,135 +591,137 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 	if sagaID == "" {
 		sagaID = uuid.New().String()
 	}
-	txnID := txn.ID
-	exec := NewSagaExecutor(s.sagaRepo, sagaID, order.ID, &txnID)
 
-	// --- Step 1: record_transaction (no-op; caller already persisted the txn) ---
-	if err := exec.RunStep(ctx, "record_transaction", txn.TotalPrice, "", nil, func() error {
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// --- Step 2: convert_amount ---
 	var convertedAmount decimal.Decimal
-	var accountCurrency, accountNumber, listingCurrency string
+	var accountCurrency, accountNumber string
 	var listing *model.Listing
-	if err := exec.RunStep(ctx, "convert_amount", txn.TotalPrice, "", nil, func() error {
-		l, err := s.listingRepo.GetByID(order.ListingID)
-		if err != nil {
-			return fmt.Errorf("listing lookup: %w", err)
-		}
-		listing = l
-		listingCurrency = l.Exchange.Currency
 
-		acct, err := s.fillClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: order.AccountID})
-		if err != nil {
-			return fmt.Errorf("get account: %w", err)
-		}
-		accountCurrency = acct.CurrencyCode
-		accountNumber = acct.AccountNumber
+	state := shared.NewState()
+	state.Set("order_id", order.ID)
+	state.Set("order_transaction_id", txn.ID)
+	state.Set("step:record_transaction:amount", txn.TotalPrice)
+	state.Set("step:convert_amount:amount", txn.TotalPrice)
 
-		native := txn.TotalPrice
-		txn.NativeAmount = &native
-		txn.NativeCurrency = listingCurrency
-		txn.AccountCurrency = accountCurrency
-
-		if listingCurrency == accountCurrency || accountCurrency == "" {
-			// Same currency (or legacy account with no currency code).
-			convertedAmount = txn.TotalPrice
-			c := convertedAmount
-			txn.ConvertedAmount = &c
-			return s.txRepo.Update(txn)
-		}
-
-		resp, cerr := s.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
-			FromCurrency: listingCurrency,
-			ToCurrency:   accountCurrency,
-			Amount:       txn.TotalPrice.String(),
-		})
-		if cerr != nil {
-			return fmt.Errorf("exchange convert: %w", cerr)
-		}
-		conv, perr := decimal.NewFromString(resp.ConvertedAmount)
-		if perr != nil {
-			return fmt.Errorf("parse converted amount: %w", perr)
-		}
-		convertedAmount = conv
-		c := conv
-		txn.ConvertedAmount = &c
-		if rate, rerr := decimal.NewFromString(resp.EffectiveRate); rerr == nil {
-			r := rate
-			txn.FxRate = &r
-		}
-		return s.txRepo.Update(txn)
-	}); err != nil {
-		return err
-	}
-
-	// --- Step 3: credit_proceeds ---
-	// Seller receives NET proceeds (gross − commission). The bank collects the
-	// commission separately below. Without subtracting commission here the
-	// bank credit would have no user-side source and funds would be minted.
-	commissionAmount := s.computeCommission(convertedAmount)
-	netProceeds := convertedAmount.Sub(commissionAmount)
-	creditMemo := fmt.Sprintf("Sell fill for order #%d (txn #%d) — net of commission", order.ID, txn.ID)
-	if err := exec.RunStep(ctx, "credit_proceeds", netProceeds, accountCurrency,
-		map[string]any{"account_id": order.AccountID, "txn_id": txn.ID}, func() error {
-			_, cerr := s.fillClient.CreditAccount(ctx, accountNumber, netProceeds, creditMemo, recoveryKeyFor("credit_proceeds", txn.ID))
-			return cerr
-		}); err != nil {
-		return err
-	}
-
-	// --- Step 4: decrement_holding (via HoldingReservationService.PartialSettle) ---
-	// PartialSettle is idempotent on orderTransactionID and atomically
-	// decrements both Holding.ReservedQuantity and Holding.Quantity. On
-	// failure we compensate by reverse-debiting the credit_proceeds amount.
-	if err := exec.RunStep(ctx, "decrement_holding", decimal.NewFromInt(txn.Quantity), "",
-		map[string]any{"security_type": order.SecurityType, "ticker": order.Ticker}, func() error {
-			_, perr := s.holdingReservationSvc.PartialSettle(ctx, order.ID, txn.ID, txn.Quantity)
-			if perr != nil {
-				return perr
-			}
-			// Capital gain is part of the logical holding transition, so
-			// record it inside the same saga step. A failure here is
-			// treated the same as PartialSettle failure — the credit
-			// must be reversed.
-			return s.recordCapitalGain(order, txn, listing)
-		}); err != nil {
-		// Compensate: reverse the credit via DebitAccount.
-		var forwardID uint64
-		if step, lerr := s.sagaRepo.GetByStepName(order.ID, "credit_proceeds"); lerr == nil && step != nil {
-			forwardID = step.ID
-		}
-		_ = exec.RunCompensation(ctx, forwardID, "compensate_credit_via_debit", func() error {
-			reverseMemo := fmt.Sprintf("Compensating sell order #%d fill #%d", order.ID, txn.ID)
-			_, derr := s.fillClient.DebitAccount(ctx, accountNumber, netProceeds, reverseMemo, recoveryKeyFor("compensate_credit_via_debit", txn.ID))
-			return derr
-		})
-		return err
-	}
-
-	// --- Step 5: credit_commission (best-effort; do NOT fail the trade on error) ---
-	// Double-entry: seller gave up `commission` via the netted credit above;
-	// this step completes the transfer by crediting the bank's commission
-	// account. Total debit from user = commission; total credit to bank =
-	// commission. Balanced.
-	if commissionAmount.Sign() > 0 {
-		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, accountCurrency,
-			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
-				feeAcct, raErr := s.commissionRecipientAccount(ctx)
-				if raErr != nil {
-					return raErr
+	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(shared.Step{
+			Name:    "record_transaction",
+			Forward: func(ctx context.Context, _ *shared.State) error { return nil },
+		}).
+		Add(shared.Step{
+			Name: "convert_amount",
+			Forward: func(ctx context.Context, st *shared.State) error {
+				l, err := s.listingRepo.GetByID(order.ListingID)
+				if err != nil {
+					return fmt.Errorf("listing lookup: %w", err)
 				}
-				commissionMemo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
-				_, ferr := s.fillClient.CreditAccount(ctx, feeAcct, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
-				return ferr
-			}); cerr != nil {
+				listing = l
+				listingCurrency := l.Exchange.Currency
+
+				acct, err := s.fillClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: order.AccountID})
+				if err != nil {
+					return fmt.Errorf("get account: %w", err)
+				}
+				accountCurrency = acct.CurrencyCode
+				accountNumber = acct.AccountNumber
+
+				native := txn.TotalPrice
+				txn.NativeAmount = &native
+				txn.NativeCurrency = listingCurrency
+				txn.AccountCurrency = accountCurrency
+
+				if listingCurrency == accountCurrency || accountCurrency == "" {
+					convertedAmount = txn.TotalPrice
+					c := convertedAmount
+					txn.ConvertedAmount = &c
+					return s.txRepo.Update(txn)
+				}
+
+				resp, cerr := s.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
+					FromCurrency: listingCurrency,
+					ToCurrency:   accountCurrency,
+					Amount:       txn.TotalPrice.String(),
+				})
+				if cerr != nil {
+					return fmt.Errorf("exchange convert: %w", cerr)
+				}
+				conv, perr := decimal.NewFromString(resp.ConvertedAmount)
+				if perr != nil {
+					return fmt.Errorf("parse converted amount: %w", perr)
+				}
+				convertedAmount = conv
+				c := conv
+				txn.ConvertedAmount = &c
+				if rate, rerr := decimal.NewFromString(resp.EffectiveRate); rerr == nil {
+					r := rate
+					txn.FxRate = &r
+				}
+				return s.txRepo.Update(txn)
+			},
+		}).
+		Add(shared.Step{
+			Name: "credit_proceeds",
+			Forward: func(ctx context.Context, st *shared.State) error {
+				commissionAmount := s.computeCommission(convertedAmount)
+				netProceeds := convertedAmount.Sub(commissionAmount)
+				st.Set("step:credit_proceeds:amount", netProceeds)
+				st.Set("step:credit_proceeds:currency", accountCurrency)
+				creditMemo := fmt.Sprintf("Sell fill for order #%d (txn #%d) — net of commission", order.ID, txn.ID)
+				_, cerr := s.fillClient.CreditAccount(ctx, accountNumber, netProceeds, creditMemo, recoveryKeyFor("credit_proceeds", txn.ID))
+				return cerr
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				commissionAmount := s.computeCommission(convertedAmount)
+				netProceeds := convertedAmount.Sub(commissionAmount)
+				reverseMemo := fmt.Sprintf("Compensating sell order #%d fill #%d", order.ID, txn.ID)
+				_, derr := s.fillClient.DebitAccount(ctx, accountNumber, netProceeds, reverseMemo, recoveryKeyFor("compensate_credit_via_debit", txn.ID))
+				return derr
+			},
+		}).
+		Add(shared.Step{
+			Name: "decrement_holding",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, perr := s.holdingReservationSvc.PartialSettle(ctx, order.ID, txn.ID, txn.Quantity)
+				if perr != nil {
+					return perr
+				}
+				// Capital gain is part of the logical holding transition, so
+				// record it inside the same saga step. A failure here is
+				// treated the same as PartialSettle failure — credit_proceeds
+				// gets reversed via its Backward.
+				return s.recordCapitalGain(order, txn, listing)
+			},
+			// Holding decrement is the last step before commission (which
+			// runs outside the saga). No Backward needed.
+		})
+
+	if err := saga.Execute(ctx, state); err != nil {
+		return err
+	}
+
+	// Best-effort commission credit (separate sub-saga).
+	commissionAmount := s.computeCommission(convertedAmount)
+	if commissionAmount.Sign() > 0 {
+		commSaga := shared.NewSaga(sagaID+"-comm", stocksaga.NewRecorder(s.sagaRepo)).
+			Add(shared.Step{
+				Name: "credit_commission",
+				Forward: func(ctx context.Context, _ *shared.State) error {
+					feeAcct, raErr := s.commissionRecipientAccount(ctx)
+					if raErr != nil {
+						return raErr
+					}
+					commissionMemo := fmt.Sprintf("Commission for order #%d fill #%d", order.ID, txn.ID)
+					_, ferr := s.fillClient.CreditAccount(ctx, feeAcct, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
+					return ferr
+				},
+			})
+		commState := shared.NewState()
+		commState.Set("order_id", order.ID)
+		commState.Set("order_transaction_id", txn.ID)
+		commState.Set("step:credit_commission:amount", commissionAmount)
+		commState.Set("step:credit_commission:currency", accountCurrency)
+		if cerr := commSaga.Execute(ctx, commState); cerr != nil {
 			log.Printf("WARN: commission credit failed for sell order %d fill %d: %v (recovery will retry)",
 				order.ID, txn.ID, cerr)
-			// Deliberately do not return — the trade is valid.
 		}
 	}
 

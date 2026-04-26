@@ -9,7 +9,9 @@ import (
 	"github.com/shopspring/decimal"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/model"
+	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
 // BankCommissionRecipient resolves the bank's commission account number so
@@ -28,19 +30,16 @@ type BankCommissionRecipient interface {
 // account. No holding row is touched, no exchange-service.Convert call is
 // made — the forex listing's own price is the conversion rate.
 //
-// Saga shape for a forex buy:
+// Saga shape for a forex buy (driven by shared.Saga):
 //
-//	record_transaction          (no-op; caller persisted the txn)
+//	record_transaction          (audit only)
 //	settle_reservation_quote    (PartialSettleReservation on quote account)
 //	credit_base                 (CreditAccount on base account)
-//	credit_commission           (best-effort, on the quote/state account)
 //
-// Compensation matrix:
-//
-//	record_transaction   → none
-//	settle_reservation   → none (reservation stays; fill loop retries)
-//	credit_base          → reverse-credit the quote account (refund the user)
-//	credit_commission    → log only, trade remains valid
+// On credit_base failure the executor walks back to settle_reservation_quote
+// and runs its Backward (reverse-credit the quote account, refunding the
+// user). The commission step runs AFTER the saga as best-effort — its
+// failure must not unwind a valid trade.
 type ForexFillService struct {
 	sagaRepo      FillSagaLogRepo
 	accountClient FillAccountClient
@@ -73,15 +72,6 @@ func NewForexFillService(
 // account (where funds were reserved at placement) and crediting the
 // base-currency account. Commission is credited to the bank's state
 // account on a best-effort basis.
-//
-// For a forex pair BASE/QUOTE with contract_size C and execution price p on
-// a fill of quantity q:
-//   - quoteAmount = txn.TotalPrice  (= p × q × C, in QUOTE currency)
-//   - baseAmount  = q × C            (in BASE currency)
-//
-// The order.BaseAccountID field (populated at placement time) identifies
-// the base-currency account to credit; order.AccountID / order.ReservationAccountID
-// identifies the quote-currency account where funds were reserved.
 func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Order, txn *model.OrderTransaction) error {
 	if order.SecurityType != "forex" {
 		return fmt.Errorf("forex fill: unexpected security_type %q", order.SecurityType)
@@ -94,21 +84,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	if sagaID == "" {
 		sagaID = uuid.New().String()
 	}
-	txnID := txn.ID
-	exec := NewSagaExecutor(s.sagaRepo, sagaID, order.ID, &txnID)
 
-	// --- Step 1: record_transaction (no-op; caller already persisted the txn) ---
-	if err := exec.RunStep(ctx, "record_transaction", txn.TotalPrice, order.ReservationCurrency, nil, func() error {
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	// Compute the base-currency amount. For forex the "quantity" on the txn is
-	// the number of lots; the settlement converts the quote total back to
-	// baseAmount = quantity × contract_size. No exchange-service call — the
-	// forex listing's own price is the conversion rate (already baked into
-	// txn.TotalPrice at execution time).
 	contractSize := order.ContractSize
 	if contractSize <= 0 {
 		contractSize = 1
@@ -129,86 +105,92 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 		return fmt.Errorf("persist txn audit fields: %w", err)
 	}
 
-	// --- Step 2: settle_reservation_quote ---
 	quoteMemo := fmt.Sprintf("Forex buy order #%d fill #%d — debit quote", order.ID, txn.ID)
-	if err := exec.RunStep(ctx, "settle_reservation_quote", quoteAmount, order.ReservationCurrency,
-		map[string]any{"account_id": order.AccountID, "txn_id": txn.ID}, func() error {
-			_, serr := s.accountClient.PartialSettleReservation(ctx, order.ID, txn.ID, quoteAmount, quoteMemo)
-			return serr
-		}); err != nil {
-		return err
-	}
-	// Look up the forward step ID for compensation linking below.
-	var quoteStepID uint64
-	if step, lerr := s.sagaRepo.GetByStepName(order.ID, "settle_reservation_quote"); lerr == nil && step != nil {
-		quoteStepID = step.ID
-	}
-
-	// --- Step 3: credit_base ---
-	// Look up the base account's number (the user's base-currency account).
-	baseAcct, err := s.accountClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: *order.BaseAccountID})
-	if err != nil {
-		// The quote account has already been debited — compensate by
-		// reverse-crediting the same amount back to the quote account so
-		// the user is made whole.
-		s.compensateQuote(ctx, exec, order, txn, quoteStepID, quoteAmount)
-		return fmt.Errorf("base account lookup: %w", err)
-	}
 	baseMemo := fmt.Sprintf("Forex buy order #%d fill #%d — credit base", order.ID, txn.ID)
-	if err := exec.RunStep(ctx, "credit_base", baseAmount, baseAcct.CurrencyCode,
-		map[string]any{"base_account_id": *order.BaseAccountID}, func() error {
-			_, cerr := s.accountClient.CreditAccount(ctx, baseAcct.AccountNumber, baseAmount, baseMemo, recoveryKeyFor("credit_base", txn.ID))
-			return cerr
-		}); err != nil {
-		// Compensate: reverse-credit the quote account for the settled amount.
-		s.compensateQuote(ctx, exec, order, txn, quoteStepID, quoteAmount)
+
+	state := shared.NewState()
+	state.Set("order_id", order.ID)
+	state.Set("order_transaction_id", txn.ID)
+	state.Set("step:record_transaction:amount", txn.TotalPrice)
+	state.Set("step:record_transaction:currency", order.ReservationCurrency)
+	state.Set("step:settle_reservation_quote:amount", quoteAmount)
+	state.Set("step:settle_reservation_quote:currency", order.ReservationCurrency)
+	state.Set("step:credit_base:amount", baseAmount)
+	// credit_base's currency is set inside its Forward once we resolve baseAcct.
+
+	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(shared.Step{
+			Name: "record_transaction",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				// Audit-only step; the txn was already persisted above. The
+				// row exists so saga recovery can replay from this point.
+				return nil
+			},
+		}).
+		Add(shared.Step{
+			Name: "settle_reservation_quote",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accountClient.PartialSettleReservation(ctx, order.ID, txn.ID, quoteAmount, quoteMemo)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				// Reverse-credit the quote account so the user is made whole.
+				quoteAcct, gerr := s.accountClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: order.AccountID})
+				if gerr != nil {
+					return gerr
+				}
+				reverseMemo := fmt.Sprintf("Compensating forex order #%d fill #%d — refund quote", order.ID, txn.ID)
+				_, cerr := s.accountClient.CreditAccount(ctx, quoteAcct.AccountNumber, quoteAmount, reverseMemo, recoveryKeyFor("compensate_quote_settle", txn.ID))
+				return cerr
+			},
+		}).
+		Add(shared.Step{
+			Name: "credit_base",
+			Forward: func(ctx context.Context, st *shared.State) error {
+				baseAcct, err := s.accountClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: *order.BaseAccountID})
+				if err != nil {
+					return fmt.Errorf("base account lookup: %w", err)
+				}
+				st.Set("step:credit_base:currency", baseAcct.CurrencyCode)
+				_, cerr := s.accountClient.CreditAccount(ctx, baseAcct.AccountNumber, baseAmount, baseMemo, recoveryKeyFor("credit_base", txn.ID))
+				return cerr
+			},
+			// Last money step in the saga. Nothing after, so no Backward.
+		})
+
+	if err := saga.Execute(ctx, state); err != nil {
 		return err
 	}
 
-	// --- Step 4: credit_commission (best-effort; do NOT fail the trade on error) ---
+	// Best-effort commission credit. Failure here logs but does not unwind
+	// the trade — it's recovered by the background saga recovery loop.
 	commissionAmount := s.computeCommission(quoteAmount)
 	if commissionAmount.Sign() > 0 && s.bankRecipient != nil {
-		if cerr := exec.RunStep(ctx, "credit_commission", commissionAmount, order.ReservationCurrency,
-			map[string]any{"memo_key": fmt.Sprintf("commission-%d", txn.ID)}, func() error {
-				bankAcctNo, aerr := s.bankRecipient.BankCommissionAccountNumber(ctx)
-				if aerr != nil {
-					return aerr
-				}
-				commissionMemo := fmt.Sprintf("Commission for forex order #%d fill #%d", order.ID, txn.ID)
-				_, ferr := s.accountClient.CreditAccount(ctx, bankAcctNo, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
-				return ferr
-			}); cerr != nil {
+		commissionMemo := fmt.Sprintf("Commission for forex order #%d fill #%d", order.ID, txn.ID)
+		commSaga := shared.NewSaga(sagaID+"-comm", stocksaga.NewRecorder(s.sagaRepo)).
+			Add(shared.Step{
+				Name: "credit_commission",
+				Forward: func(ctx context.Context, _ *shared.State) error {
+					bankAcctNo, aerr := s.bankRecipient.BankCommissionAccountNumber(ctx)
+					if aerr != nil {
+						return aerr
+					}
+					_, ferr := s.accountClient.CreditAccount(ctx, bankAcctNo, commissionAmount, commissionMemo, recoveryKeyFor("credit_commission", txn.ID))
+					return ferr
+				},
+			})
+		commState := shared.NewState()
+		commState.Set("order_id", order.ID)
+		commState.Set("order_transaction_id", txn.ID)
+		commState.Set("step:credit_commission:amount", commissionAmount)
+		commState.Set("step:credit_commission:currency", order.ReservationCurrency)
+		if cerr := commSaga.Execute(ctx, commState); cerr != nil {
 			log.Printf("WARN: forex commission credit failed for order %d fill %d: %v (recovery will retry)",
 				order.ID, txn.ID, cerr)
-			// Deliberately do not return — the trade is valid.
 		}
 	}
 
 	return nil
-}
-
-// compensateQuote reverse-credits the user's quote account for the amount
-// that was debited during settle_reservation_quote. Used when a later step
-// (base-account lookup or credit_base) fails after the debit already
-// happened. Failure here is logged only: compensation is retried by the
-// background saga recovery job if wired.
-func (s *ForexFillService) compensateQuote(
-	ctx context.Context,
-	exec *SagaExecutor,
-	order *model.Order,
-	txn *model.OrderTransaction,
-	forwardStepID uint64,
-	quoteAmount decimal.Decimal,
-) {
-	_ = exec.RunCompensation(ctx, forwardStepID, "compensate_quote_settle", func() error {
-		quoteAcct, gerr := s.accountClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: order.AccountID})
-		if gerr != nil {
-			return gerr
-		}
-		reverseMemo := fmt.Sprintf("Compensating forex order #%d fill #%d — refund quote", order.ID, txn.ID)
-		_, cerr := s.accountClient.CreditAccount(ctx, quoteAcct.AccountNumber, quoteAmount, reverseMemo, recoveryKeyFor("compensate_quote_settle", txn.ID))
-		return cerr
-	})
 }
 
 // computeCommission mirrors PortfolioService.computeCommission so forex

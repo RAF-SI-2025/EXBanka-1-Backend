@@ -237,18 +237,17 @@ func TestProcessForexBuy_BaseCreditFails_CompensatesQuote(t *testing.T) {
 	// (recorded as pending then failed). The compensation call fails
 	// the same way but that's OK — the compensation is best-effort and
 	// the test in question only verifies "compensation was attempted".
+	// shared.Saga writes the compensation row with step_name matching the
+	// forward step (settle_reservation_quote) and IsCompensation=true.
 	var compRow *model.SagaLog
 	for _, r := range mocks.sagaRepo.rows {
-		if r.StepName == "compensate_quote_settle" {
+		if r.StepName == "settle_reservation_quote" && r.IsCompensation {
 			compRow = r
 			break
 		}
 	}
 	if compRow == nil {
-		t.Fatal("expected a compensate_quote_settle saga row after base credit failure")
-	}
-	if !compRow.IsCompensation {
-		t.Error("compensate_quote_settle should be marked IsCompensation=true")
+		t.Fatal("expected a compensation row for settle_reservation_quote after base credit failure")
 	}
 }
 
@@ -269,28 +268,34 @@ func TestProcessForexBuy_BaseCreditFails_CompensationLinksForwardStep(t *testing
 		t.Fatal("expected error when credit_base fails")
 	}
 
+	// shared.Saga writes the compensation row with step_name matching the
+	// forward step (settle_reservation_quote) and IsCompensation=true.
+	// settleRow is the forward (IsCompensation=false), compRow is the
+	// reverse (IsCompensation=true).
 	var baseRow, compRow, settleRow *model.SagaLog
 	for _, r := range mocks.sagaRepo.rows {
 		switch r.StepName {
 		case "credit_base":
 			baseRow = r
-		case "compensate_quote_settle":
-			compRow = r
 		case "settle_reservation_quote":
-			settleRow = r
+			if r.IsCompensation {
+				compRow = r
+			} else {
+				settleRow = r
+			}
 		}
 	}
 	if baseRow == nil || baseRow.Status != model.SagaStatusFailed {
 		t.Errorf("credit_base saga row status: got %+v, want failed", baseRow)
 	}
 	if settleRow == nil {
-		t.Fatal("missing settle_reservation_quote saga row")
+		t.Fatal("missing forward settle_reservation_quote saga row")
 	}
 	if compRow == nil {
-		t.Fatal("missing compensate_quote_settle saga row")
+		t.Fatal("missing compensation row for settle_reservation_quote")
 	}
 	if compRow.CompensationOf == nil || *compRow.CompensationOf != settleRow.ID {
-		t.Errorf("compensate_quote_settle must link to settle_reservation_quote (id=%d), got CompensationOf=%v",
+		t.Errorf("compensation row must link to settle_reservation_quote (id=%d), got CompensationOf=%v",
 			settleRow.ID, compRow.CompensationOf)
 	}
 }
