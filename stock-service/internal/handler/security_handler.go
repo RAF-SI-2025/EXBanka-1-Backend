@@ -25,15 +25,43 @@ type SecurityListingRepo interface {
 	ListBySecurityIDsAndType(securityIDs []uint64, securityType string) ([]model.Listing, error)
 }
 
+// securitySvcFacade is the narrow interface of SecurityService used by SecurityHandler.
+type securitySvcFacade interface {
+	ListStocks(filter repository.StockFilter) ([]model.Stock, int64, error)
+	GetStockWithOptions(id uint64) (*model.Stock, []model.Option, error)
+	ListFutures(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error)
+	GetFutures(id uint64) (*model.FuturesContract, error)
+	ListForexPairs(filter repository.ForexFilter) ([]model.ForexPair, int64, error)
+	GetForexPair(id uint64) (*model.ForexPair, error)
+	ListOptions(filter repository.OptionFilter) ([]model.Option, int64, error)
+	GetOption(id uint64) (*model.Option, error)
+}
+
+// listingSvcFacade is the narrow interface of ListingService used by SecurityHandler.
+type listingSvcFacade interface {
+	GetPriceHistoryForSecurity(securityID uint64, securityType, period string, page, pageSize int) ([]model.ListingDailyPriceInfo, int64, error)
+}
+
+// candleSvcFacade is the narrow interface of CandleService used by SecurityHandler.
+type candleSvcFacade interface {
+	GetCandles(ctx context.Context, listingID uint64, interval string, from, to time.Time) ([]service.CandlePoint, error)
+}
+
 type SecurityHandler struct {
 	pb.UnimplementedSecurityGRPCServiceServer
-	secSvc      *service.SecurityService
-	listingSvc  *service.ListingService
-	candleSvc   *service.CandleService
+	secSvc      securitySvcFacade
+	listingSvc  listingSvcFacade
+	candleSvc   candleSvcFacade
 	listingRepo SecurityListingRepo
 }
 
 func NewSecurityHandler(secSvc *service.SecurityService, listingSvc *service.ListingService, candleSvc *service.CandleService, listingRepo SecurityListingRepo) *SecurityHandler {
+	return &SecurityHandler{secSvc: secSvc, listingSvc: listingSvc, candleSvc: candleSvc, listingRepo: listingRepo}
+}
+
+// newSecurityHandlerForTest constructs a SecurityHandler with interface-typed
+// dependencies for use in unit tests.
+func newSecurityHandlerForTest(secSvc securitySvcFacade, listingSvc listingSvcFacade, candleSvc candleSvcFacade, listingRepo SecurityListingRepo) *SecurityHandler {
 	return &SecurityHandler{secSvc: secSvc, listingSvc: listingSvc, candleSvc: candleSvc, listingRepo: listingRepo}
 }
 
