@@ -6,7 +6,7 @@ require (
 	github.com/exbanka/contract v0.0.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/prometheus/client_golang v1.23.2
-	github.com/segmentio/kafka-go v0.4.50
+	github.com/segmentio/kafka-go v0.4.51
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.79.2
 	gorm.io/datatypes v1.2.7
