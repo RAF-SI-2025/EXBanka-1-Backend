@@ -493,3 +493,196 @@ func TestDeletePaymentRecipient_Error(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, codes.NotFound, st.Code())
 }
+
+// ---------------------------------------------------------------------------
+// ExecutePayment
+// ---------------------------------------------------------------------------
+
+func TestExecutePayment_Success(t *testing.T) {
+	pm := &mockPaymentFacade{
+		executePaymentFn: func(_ context.Context, _ uint64) error { return nil },
+		getPaymentFn: func(id uint64) (*model.Payment, error) {
+			return &model.Payment{ID: id, Status: "completed", InitialAmount: decimal.NewFromInt(100)}, nil
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(pm, &mockTransferFacade{}, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	resp, err := h.ExecutePayment(context.Background(), &pb.ExecutePaymentRequest{PaymentId: 5})
+	require.NoError(t, err)
+	assert.Equal(t, "completed", resp.Status)
+}
+
+func TestExecutePayment_VerificationFailed(t *testing.T) {
+	verif := &mockVerificationClient{
+		getChallengeStatusFn: func(_ context.Context, _ *verificationpb.GetChallengeStatusRequest, _ ...grpc.CallOption) (*verificationpb.GetChallengeStatusResponse, error) {
+			return &verificationpb.GetChallengeStatusResponse{Status: "failed"}, nil
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, &mockTransferFacade{}, &mockRecipientFacade{}, verif, &mockTxProducer{})
+	_, err := h.ExecutePayment(context.Background(), &pb.ExecutePaymentRequest{PaymentId: 5, ChallengeId: 100})
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+func TestExecutePayment_ServiceError(t *testing.T) {
+	pm := &mockPaymentFacade{
+		executePaymentFn: func(_ context.Context, _ uint64) error { return errors.New("payment not found") },
+	}
+	h := newTransactionGRPCHandlerForTest(pm, &mockTransferFacade{}, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	_, err := h.ExecutePayment(context.Background(), &pb.ExecutePaymentRequest{PaymentId: 99})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+// ---------------------------------------------------------------------------
+// ListPaymentsByAccount / ListPaymentsByClient
+// ---------------------------------------------------------------------------
+
+func TestListPaymentsByAccount_Success(t *testing.T) {
+	pm := &mockPaymentFacade{
+		listPaymentsByAccountFn: func(_ string, _, _, _ string, _, _ float64, _, _ int) ([]model.Payment, int64, error) {
+			return []model.Payment{{ID: 1, Status: "completed", InitialAmount: decimal.NewFromInt(50)}}, 1, nil
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(pm, &mockTransferFacade{}, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	resp, err := h.ListPaymentsByAccount(context.Background(), &pb.ListPaymentsByAccountRequest{AccountNumber: "ACC-1", Page: 1, PageSize: 10})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resp.Total)
+	assert.Len(t, resp.Payments, 1)
+}
+
+func TestListPaymentsByAccount_Error(t *testing.T) {
+	pm := &mockPaymentFacade{
+		listPaymentsByAccountFn: func(_ string, _, _, _ string, _, _ float64, _, _ int) ([]model.Payment, int64, error) {
+			return nil, 0, errors.New("invalid date range")
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(pm, &mockTransferFacade{}, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	_, err := h.ListPaymentsByAccount(context.Background(), &pb.ListPaymentsByAccountRequest{AccountNumber: "ACC-1"})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestListPaymentsByClient_Success(t *testing.T) {
+	pm := &mockPaymentFacade{
+		listPaymentsByClientFn: func(_ []string, _, _ int) ([]model.Payment, int64, error) {
+			return []model.Payment{{ID: 1, InitialAmount: decimal.NewFromInt(75)}}, 1, nil
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(pm, &mockTransferFacade{}, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	resp, err := h.ListPaymentsByClient(context.Background(), &pb.ListPaymentsByClientRequest{
+		AccountNumbers: []string{"ACC-1", "ACC-2"}, Page: 1, PageSize: 10,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resp.Total)
+}
+
+func TestListPaymentsByClient_Error(t *testing.T) {
+	pm := &mockPaymentFacade{
+		listPaymentsByClientFn: func(_ []string, _, _ int) ([]model.Payment, int64, error) {
+			return nil, 0, errors.New("db down")
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(pm, &mockTransferFacade{}, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	_, err := h.ListPaymentsByClient(context.Background(), &pb.ListPaymentsByClientRequest{AccountNumbers: []string{"ACC-1"}})
+	require.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// ExecuteTransfer
+// ---------------------------------------------------------------------------
+
+func TestExecuteTransfer_Success(t *testing.T) {
+	tm := &mockTransferFacade{
+		executeTransferFn: func(_ context.Context, _ uint64) error { return nil },
+		getTransferFn: func(id uint64) (*model.Transfer, error) {
+			return &model.Transfer{ID: id, Status: "completed", InitialAmount: decimal.NewFromInt(200)}, nil
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, tm, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	resp, err := h.ExecuteTransfer(context.Background(), &pb.ExecuteTransferRequest{TransferId: 7})
+	require.NoError(t, err)
+	assert.Equal(t, "completed", resp.Status)
+}
+
+func TestExecuteTransfer_VerificationFailed(t *testing.T) {
+	verif := &mockVerificationClient{
+		getChallengeStatusFn: func(_ context.Context, _ *verificationpb.GetChallengeStatusRequest, _ ...grpc.CallOption) (*verificationpb.GetChallengeStatusResponse, error) {
+			return &verificationpb.GetChallengeStatusResponse{Status: "failed"}, nil
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, &mockTransferFacade{}, &mockRecipientFacade{}, verif, &mockTxProducer{})
+	_, err := h.ExecuteTransfer(context.Background(), &pb.ExecuteTransferRequest{TransferId: 7, ChallengeId: 100})
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+func TestExecuteTransfer_ServiceError(t *testing.T) {
+	tm := &mockTransferFacade{
+		executeTransferFn: func(_ context.Context, _ uint64) error { return errors.New("transfer not found") },
+	}
+	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, tm, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	_, err := h.ExecuteTransfer(context.Background(), &pb.ExecuteTransferRequest{TransferId: 99})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+// ---------------------------------------------------------------------------
+// ListTransfersByClient
+// ---------------------------------------------------------------------------
+
+func TestListTransfersByClient_Success(t *testing.T) {
+	tm := &mockTransferFacade{
+		listTransfersByAccountNumbersFn: func(_ []string, _, _ int) ([]model.Transfer, int64, error) {
+			return []model.Transfer{{ID: 1, InitialAmount: decimal.NewFromInt(100)}}, 1, nil
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, tm, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	resp, err := h.ListTransfersByClient(context.Background(), &pb.ListTransfersByClientRequest{
+		AccountNumbers: []string{"ACC-1"}, Page: 1, PageSize: 10,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resp.Total)
+}
+
+func TestListTransfersByClient_Error(t *testing.T) {
+	tm := &mockTransferFacade{
+		listTransfersByAccountNumbersFn: func(_ []string, _, _ int) ([]model.Transfer, int64, error) {
+			return nil, 0, errors.New("db down")
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, tm, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
+	_, err := h.ListTransfersByClient(context.Background(), &pb.ListTransfersByClientRequest{AccountNumbers: []string{"ACC-1"}})
+	require.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// UpdatePaymentRecipient
+// ---------------------------------------------------------------------------
+
+func TestUpdatePaymentRecipient_Success(t *testing.T) {
+	rm := &mockRecipientFacade{
+		updateFn: func(id uint64, name, acct *string) (*model.PaymentRecipient, error) {
+			return &model.PaymentRecipient{ID: id, RecipientName: "Updated"}, nil
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, &mockTransferFacade{}, rm, &mockVerificationClient{}, &mockTxProducer{})
+	name := "Updated"
+	acct := "265-9-00"
+	resp, err := h.UpdatePaymentRecipient(context.Background(), &pb.UpdatePaymentRecipientRequest{
+		Id: 5, RecipientName: &name, AccountNumber: &acct,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Updated", resp.RecipientName)
+}
+
+func TestUpdatePaymentRecipient_NotFound(t *testing.T) {
+	rm := &mockRecipientFacade{
+		updateFn: func(_ uint64, _, _ *string) (*model.PaymentRecipient, error) {
+			return nil, errors.New("recipient not found")
+		},
+	}
+	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, &mockTransferFacade{}, rm, &mockVerificationClient{}, &mockTxProducer{})
+	_, err := h.UpdatePaymentRecipient(context.Background(), &pb.UpdatePaymentRecipientRequest{Id: 99})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+}
