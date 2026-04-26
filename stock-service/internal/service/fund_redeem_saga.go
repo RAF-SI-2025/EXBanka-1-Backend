@@ -13,7 +13,9 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/model"
+	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
 // RedeemInput captures the parameters of a single Redeem call.
@@ -30,16 +32,16 @@ type RedeemInput struct {
 //  1. Validates the caller's position can cover the requested AmountRSD.
 //  2. Computes a redemption fee (bank pays 0; clients pay fund_redemption_fee_pct).
 //  3. Requires fund RSD account balance >= AmountRSD + Fee. Liquidation
-//     (selling securities to free cash) is a follow-up — until it lands,
-//     this method rejects with ErrInsufficientFundCash.
+//     (selling securities to free cash) is invoked when the fund is short.
 //  4. Debits the fund RSD account by AmountRSD + Fee.
-//  5. Credits the target account by AmountRSD - 0 (full amount; fee comes off
-//     the fund, not the target — matches the design of "user receives the net
-//     value of their share, fee is the fund's cost").
+//  5. Credits the target account by AmountRSD.
 //  6. Credits the bank's RSD account by Fee (when fee > 0).
-//  7. Decrements the position by AmountRSD.
+//  7. Decrements the position by AmountRSD (best-effort, post-saga).
 //
-// On any post-debit failure, compensations reverse the prior credits/debits.
+// Steps 4-6 run inside shared.Saga so any post-debit failure auto-reverses
+// prior steps. Step 7 runs outside the saga because position bookkeeping
+// failure must NOT reverse the money flow that already settled — money is
+// not recoverable, position rows are.
 func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundContribution, error) {
 	if s.sagaRepo == nil || s.accounts == nil || s.contribs == nil || s.positions == nil {
 		return nil, errSagaDepsNotWired
@@ -113,7 +115,6 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	}
 
 	sagaID := uuid.NewString()
-	exec := NewSagaExecutor(s.sagaRepo, sagaID, 0, nil)
 
 	contrib := &model.FundContribution{
 		FundID:                  in.FundID,
@@ -133,65 +134,71 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	}
 
 	debitTotal := in.AmountRSD.Add(feeRSD)
+
+	// Pre-compute idempotency keys + memos shared by forward and backward.
 	debitMemo := fmt.Sprintf("Redeem fund #%d (saga=%s)", in.FundID, sagaID)
 	debitKey := fmt.Sprintf("redeem-%s-debit-fund", sagaID)
-	if err := exec.RunStep(ctx, "debit_fund", debitTotal, "RSD", nil, func() error {
-		_, e := s.accounts.DebitAccount(ctx, fundAcct.AccountNumber, debitTotal, debitMemo, debitKey)
-		return e
-	}); err != nil {
-		_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
-		return nil, err
-	}
-
 	creditMemo := fmt.Sprintf("Redemption from fund #%d (saga=%s)", in.FundID, sagaID)
 	creditKey := fmt.Sprintf("redeem-%s-credit-target", sagaID)
-	if err := exec.RunStep(ctx, "credit_target", in.AmountRSD, "RSD", nil, func() error {
-		_, e := s.accounts.CreditAccount(ctx, targetAcct.AccountNumber, in.AmountRSD, creditMemo, creditKey)
-		return e
-	}); err != nil {
-		_ = exec.RunCompensation(ctx, 0, "comp_credit_fund", func() error {
-			_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, debitTotal,
-				fmt.Sprintf("Comp redeem fund saga=%s", sagaID),
-				fmt.Sprintf("redeem-%s-comp-fund", sagaID))
-			return e
+	compFundMemo := fmt.Sprintf("Comp redeem fund saga=%s", sagaID)
+	compFundKey := fmt.Sprintf("redeem-%s-comp-fund", sagaID)
+	compTargetMemo := fmt.Sprintf("Comp redeem target saga=%s", sagaID)
+	compTargetKey := fmt.Sprintf("redeem-%s-comp-target", sagaID)
+	feeKey := fmt.Sprintf("redeem-%s-fee", sagaID)
+	feeMemo := fmt.Sprintf("Fund redemption fee saga=%s", sagaID)
+
+	state := shared.NewState()
+	state.Set("step:debit_fund:amount", debitTotal)
+	state.Set("step:debit_fund:currency", "RSD")
+	state.Set("step:credit_target:amount", in.AmountRSD)
+	state.Set("step:credit_target:currency", "RSD")
+	if !feeRSD.IsZero() {
+		state.Set("step:credit_bank_fee:amount", feeRSD)
+		state.Set("step:credit_bank_fee:currency", "RSD")
+	}
+
+	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(shared.Step{
+			Name: "debit_fund",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.DebitAccount(ctx, fundAcct.AccountNumber, debitTotal, debitMemo, debitKey)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, debitTotal, compFundMemo, compFundKey)
+				return e
+			},
+		}).
+		Add(shared.Step{
+			Name: "credit_target",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.CreditAccount(ctx, targetAcct.AccountNumber, in.AmountRSD, creditMemo, creditKey)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.DebitAccount(ctx, targetAcct.AccountNumber, in.AmountRSD, compTargetMemo, compTargetKey)
+				return e
+			},
+		}).
+		AddIf(!feeRSD.IsZero(), shared.Step{
+			Name: "credit_bank_fee",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.CreditAccount(ctx, bankRSDAcctNo, feeRSD, feeMemo, feeKey)
+				return e
+			},
+			// Last money step. Nothing after it to fail, so no Backward needed.
 		})
+
+	if err := saga.Execute(ctx, state); err != nil {
 		_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
 		return nil, err
 	}
 
-	if !feeRSD.IsZero() {
-		feeKey := fmt.Sprintf("redeem-%s-fee", sagaID)
-		if err := exec.RunStep(ctx, "credit_bank_fee", feeRSD, "RSD", nil, func() error {
-			_, e := s.accounts.CreditAccount(ctx, bankRSDAcctNo, feeRSD,
-				fmt.Sprintf("Fund redemption fee saga=%s", sagaID), feeKey)
-			return e
-		}); err != nil {
-			// Best-effort rollback of target credit + fund debit. If any
-			// compensation fails we leave breadcrumbs in saga_logs for
-			// recovery and mark contribution failed.
-			_ = exec.RunCompensation(ctx, 0, "comp_debit_target", func() error {
-				_, e := s.accounts.DebitAccount(ctx, targetAcct.AccountNumber, in.AmountRSD,
-					fmt.Sprintf("Comp redeem target saga=%s", sagaID),
-					fmt.Sprintf("redeem-%s-comp-target", sagaID))
-				return e
-			})
-			_ = exec.RunCompensation(ctx, 0, "comp_credit_fund", func() error {
-				_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, debitTotal,
-					fmt.Sprintf("Comp redeem fund saga=%s", sagaID),
-					fmt.Sprintf("redeem-%s-comp-fund", sagaID))
-				return e
-			})
-			_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
-			return nil, err
-		}
-	}
-
-	if err := exec.RunStep(ctx, "decrement_position", in.AmountRSD, "RSD", nil, func() error {
-		return s.positions.DecrementContribution(in.FundID, posUserID, posSystemType, in.AmountRSD)
-	}); err != nil {
+	// Position decrement is best-effort: money already moved, and position
+	// rows are recoverable from the saga log if this fails. Do NOT include
+	// in the saga — a decrement failure must not reverse the redemption.
+	if err := s.positions.DecrementContribution(in.FundID, posUserID, posSystemType, in.AmountRSD); err != nil {
 		log.Printf("WARN: redeem position decrement failed for saga %s: %v (money already moved)", sagaID, err)
-		// Don't reverse money flow — position bookkeeping is recoverable;
-		// money is not. Mark contribution complete with a note.
 	}
 
 	if err := s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusCompleted); err != nil {

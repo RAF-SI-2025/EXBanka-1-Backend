@@ -94,6 +94,24 @@ func (r *SagaLogRepository) ListStuckSagas(olderThan time.Duration) ([]model.Sag
 	return out, err
 }
 
+// IsForwardCompleted reports whether the given (order_id, step_name)
+// pair has already reached completed status on a forward step. Used by
+// stocksaga.Recorder.IsCompleted for shared.Saga's restart-resume.
+//
+// orderID == 0 is interpreted as "ignore the order_id filter" so sagas
+// not bound to an order (fund / OTC) can still resume by step name.
+func (r *SagaLogRepository) IsForwardCompleted(orderID uint64, stepName string) (bool, error) {
+	q := r.db.Model(&model.SagaLog{}).
+		Where("step_name = ? AND status = ? AND is_compensation = ?",
+			stepName, model.SagaStatusCompleted, false)
+	if orderID != 0 {
+		q = q.Where("order_id = ?", orderID)
+	}
+	var count int64
+	err := q.Count(&count).Error
+	return count > 0, err
+}
+
 // IncrementRetryCount bumps retry_count + updated_at on a saga row without
 // changing status or version. Used by the recovery reconciler after each
 // failed retry attempt so repeated failures can be detected and the row left

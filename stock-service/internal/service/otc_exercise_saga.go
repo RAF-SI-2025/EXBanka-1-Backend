@@ -14,12 +14,13 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/model"
+	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
 // ExerciseInput captures the parameters of an Exercise call. The caller
-// (always the buyer) supplies the buyer-side and seller-side account IDs;
-// same-currency-only flow.
+// (always the buyer) supplies the buyer-side and seller-side account IDs.
 type ExerciseInput struct {
 	ContractID      uint64
 	ActorUserID     int64
@@ -30,15 +31,16 @@ type ExerciseInput struct {
 
 // ExerciseContract runs the exercise saga (§6.2 of spec):
 //
-//  1. validate (caller is buyer; status=ACTIVE; settlement_date in future)
-//  2. ReserveFunds on buyer for strike_amount = quantity × strike_price
-//  3. PartialSettle on buyer (debit strike from buyer's account)
-//  4. CreditAccount on seller (proceeds)
-//  5. ConsumeForOTCContract (decrement seller's holding)
-//  6. Upsert buyer's holding (+qty)
-//  7. Mark contract EXERCISED + publish kafka
+//  1. reserve_strike — ReserveFunds on buyer for strike_amount.
+//  2. settle_strike_buyer — PartialSettle on buyer (debit strike).
+//  3. credit_strike_seller — CreditAccount on seller (proceeds).
+//  4. consume_seller_holding — decrement seller's holding.
 //
-// Compensations on each post-step failure roll back the prior side effects.
+// Driven by shared.Saga: each step's Backward handles its own rollback
+// when a later step fails. The buyer-holding upsert + contract.Save +
+// kafka publish run AFTER the saga because their failure must NOT
+// reverse the seller's already-decremented holding (shares moved, money
+// settled — only operational reconciliation can recover).
 func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput) (*model.OptionContract, error) {
 	if s.sagaRepo == nil || s.accounts == nil || s.holdingRes == nil || s.holdingRepo == nil {
 		return nil, errOTCSagaDepsNotWired
@@ -64,7 +66,6 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		return nil, errors.New("only the contract buyer can exercise")
 	}
 
-	// Resolve accounts.
 	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.BuyerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get buyer account: %w", err)
@@ -100,71 +101,83 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	}
 
 	sagaID := uuid.NewString()
-	exec := NewSagaExecutor(s.sagaRepo, sagaID, 0, nil)
 	// Synthetic txn ID for ConsumeForOTCContract idempotency: derived from
 	// the contract ID so retries land in the same row.
 	syntheticTxnID := c.ID + 1_000_000_000_000
+	qty := c.Quantity.IntPart()
 
-	// Step 2: reserve buyer strike funds (in buyer's currency).
-	if err := exec.RunStep(ctx, "reserve_strike", strikeBuyerCcy, buyerCcy, nil, func() error {
-		_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy)
-		return e
-	}); err != nil {
-		return nil, err
-	}
-
-	// Step 3: settle buyer debit (in buyer's currency).
-	memo := fmt.Sprintf("OTC strike for contract #%d", c.ID)
-	if err := exec.RunStep(ctx, "settle_strike_buyer", strikeBuyerCcy, buyerCcy, nil, func() error {
-		_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, memo)
-		return e
-	}); err != nil {
-		_ = exec.RunCompensation(ctx, 0, "release_strike", func() error {
-			_, e := s.accounts.ReleaseReservation(ctx, syntheticTxnID)
-			return e
-		})
-		return nil, err
-	}
-
-	// Step 4: credit seller in their currency.
+	settleMemo := fmt.Sprintf("OTC strike for contract #%d", c.ID)
 	idemSeller := fmt.Sprintf("otc-exercise-%d-seller", c.ID)
 	creditMemo := fmt.Sprintf("OTC strike credit for contract #%d", c.ID)
-	if err := exec.RunStep(ctx, "credit_strike_seller", strikeSellerCcy, strikeCcy, nil, func() error {
-		_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, strikeSellerCcy, creditMemo, idemSeller)
-		return e
-	}); err != nil {
-		// Reverse buyer debit (credit it back in buyer's currency).
-		_ = exec.RunCompensation(ctx, 0, "compensate_buyer_credit", func() error {
-			_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, strikeBuyerCcy,
-				fmt.Sprintf("Compensating OTC strike #%d", c.ID),
-				fmt.Sprintf("otc-exercise-%d-comp-buyer", c.ID))
-			return e
+	compBuyerMemo := fmt.Sprintf("Compensating OTC strike #%d", c.ID)
+	compBuyerKey := fmt.Sprintf("otc-exercise-%d-comp-buyer", c.ID)
+	compSellerMemo := fmt.Sprintf("Compensating OTC strike credit #%d", c.ID)
+	compSellerKey := fmt.Sprintf("otc-exercise-%d-comp-seller", c.ID)
+
+	state := shared.NewState()
+	state.Set("step:reserve_strike:amount", strikeBuyerCcy)
+	state.Set("step:reserve_strike:currency", buyerCcy)
+	state.Set("step:settle_strike_buyer:amount", strikeBuyerCcy)
+	state.Set("step:settle_strike_buyer:currency", buyerCcy)
+	state.Set("step:credit_strike_seller:amount", strikeSellerCcy)
+	state.Set("step:credit_strike_seller:currency", strikeCcy)
+	state.Set("step:consume_seller_holding:amount", c.Quantity)
+	state.Set("step:consume_seller_holding:currency", "shares")
+
+	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(shared.Step{
+			Name: "reserve_strike",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.ReleaseReservation(ctx, syntheticTxnID)
+				return e
+			},
+		}).
+		Add(shared.Step{
+			Name: "settle_strike_buyer",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, settleMemo)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				// Reverse buyer debit (credit it back in buyer's currency).
+				_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, strikeBuyerCcy, compBuyerMemo, compBuyerKey)
+				return e
+			},
+		}).
+		Add(shared.Step{
+			Name: "credit_strike_seller",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, strikeSellerCcy, creditMemo, idemSeller)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.DebitAccount(ctx, sellerAcct.AccountNumber, strikeSellerCcy, compSellerMemo, compSellerKey)
+				return e
+			},
+		}).
+		Add(shared.Step{
+			Name: "consume_seller_holding",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.holdingRes.ConsumeForOTCContract(ctx, c.ID, qty, syntheticTxnID)
+				return e
+			},
+			// Pivot: shares physically moved between portfolios. The
+			// post-saga buyer-holding upsert + contract.Save are
+			// best-effort and must NOT trigger a rollback past this step.
+			Pivot: true,
 		})
+
+	if err := saga.Execute(ctx, state); err != nil {
 		return nil, err
 	}
 
-	// Step 5: consume seller's holding reservation (transfer shares out).
-	qty := c.Quantity.IntPart()
-	if _, err := s.holdingRes.ConsumeForOTCContract(ctx, c.ID, qty, syntheticTxnID); err != nil {
-		// Best-effort reverse the seller credit + buyer debit.
-		_ = exec.RunCompensation(ctx, 0, "compensate_seller_credit", func() error {
-			_, e := s.accounts.DebitAccount(ctx, sellerAcct.AccountNumber, strikeSellerCcy,
-				fmt.Sprintf("Compensating OTC strike credit #%d", c.ID),
-				fmt.Sprintf("otc-exercise-%d-comp-seller", c.ID))
-			return e
-		})
-		_ = exec.RunCompensation(ctx, 0, "compensate_buyer_credit", func() error {
-			_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, strikeBuyerCcy,
-				fmt.Sprintf("Compensating OTC strike #%d", c.ID),
-				fmt.Sprintf("otc-exercise-%d-comp-buyer", c.ID))
-			return e
-		})
-		return nil, fmt.Errorf("consume seller holding: %w", err)
-	}
-
-	// Step 6: upsert buyer's holding (+qty). Best-effort — at this point
-	// money + seller-side shares have moved; if the buyer-holding upsert
-	// fails we log loud and leave the state for manual reconciliation.
+	// Post-saga best-effort: buyer holding upsert + contract.Save + publish.
+	// At this point money + seller-side shares have moved; failure here is
+	// logged loud and left for manual reconciliation.
 	if err := s.holdingRepo.Upsert(&model.Holding{
 		UserID:       uint64(c.BuyerUserID),
 		SystemType:   c.BuyerSystemType,
@@ -177,7 +190,6 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		log.Printf("CRITICAL: OTC exercise saga=%s: buyer holding upsert failed (money moved, shares left seller): %v", sagaID, err)
 	}
 
-	// Step 7: mark contract EXERCISED + publish kafka.
 	now := time.Now().UTC()
 	c.Status = model.OptionContractStatusExercised
 	c.ExercisedAt = &now

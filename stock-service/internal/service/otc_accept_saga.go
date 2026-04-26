@@ -14,12 +14,14 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/model"
+	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
 // AcceptInput captures the parameters of an Accept call. AccountIDs are
 // passed in by the caller (the gateway resolves them from the user's session
-// or from request body); same-currency-only flow until cross-currency lands.
+// or from request body).
 type AcceptInput struct {
 	OfferID         uint64
 	ActorUserID     int64
@@ -30,17 +32,16 @@ type AcceptInput struct {
 
 // Accept runs the premium-payment saga (§6.1 of spec):
 //
-//  1. validate_offer (status, last-mover, settlement-date in future)
-//  2. reserve_seller_shares + create OptionContract (single tx)
-//  3. ReserveFunds on buyer for the premium
-//  4. PartialSettleReservation on buyer (debits the premium)
-//  5. CreditAccount on seller for the same premium
-//  6. mark_offer_accepted + append revision
-//  7. publish kafka
+//  1. reserve_and_contract — single tx: create OptionContract + reserve
+//     seller's holding.
+//  2. reserve_premium — ReserveFunds on buyer for the premium.
+//  3. settle_premium_buyer — PartialSettleReservation (debits the premium).
+//  4. credit_premium_seller — CreditAccount on seller for the premium.
 //
-// On failure of step N, compensations reverse steps N-1..2. Same-currency
-// only: if buyer and seller account currencies differ this returns an error
-// for now (TODO: hook in exchange-service.Convert).
+// Driven by shared.Saga: each step's Backward handles its own rollback
+// when a later step fails. Steps 5 (mark offer accepted) and 6 (publish
+// kafka) run AFTER the saga since their failure must not reverse the
+// money flow that already settled.
 func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.OptionContract, error) {
 	if s.sagaRepo == nil || s.accounts == nil || s.holdingRes == nil {
 		return nil, errOTCSagaDepsNotWired
@@ -69,7 +70,6 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 
 	buyerID, buyerType, sellerID, sellerType := identifyOTCBuyerSeller(o, in.ActorUserID, in.ActorSystemType)
 
-	// Resolve accounts.
 	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.BuyerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get buyer account: %w", err)
@@ -106,10 +106,8 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	}
 
 	sagaID := uuid.NewString()
-	exec := NewSagaExecutor(s.sagaRepo, sagaID, 0, nil)
 	qty := o.Quantity.IntPart()
 
-	// Step 2: create contract + reserve seller's holding.
 	contract := &model.OptionContract{
 		OfferID: o.ID, BuyerUserID: buyerID, BuyerSystemType: buyerType,
 		SellerUserID: sellerID, SellerSystemType: sellerType,
@@ -118,70 +116,89 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		SettlementDate: o.SettlementDate, Status: model.OptionContractStatusActive,
 		SagaID: sagaID, PremiumPaidAt: time.Now().UTC(),
 	}
-	_ = premiumSellerCcy // alias used for clarity in the cross-currency math
-	if err := exec.RunStep(ctx, "reserve_and_contract", o.Quantity, "shares", nil, func() error {
-		if err := s.contracts.Create(contract); err != nil {
-			return err
-		}
-		if _, err := s.holdingRes.ReserveForOTCContract(ctx, uint64(sellerID), sellerType, "stock", o.StockID, contract.ID, qty); err != nil {
-			_ = s.contracts.Delete(contract.ID)
-			return err
-		}
-		return nil
-	}); err != nil {
+
+	// Pre-compute idempotency keys + memos. The contract.ID is unknown
+	// until step 1 runs; capture it via a local var the later closures
+	// reference. Step 1 always runs first so subsequent forwards/backwards
+	// see the populated id.
+	settleMemo := fmt.Sprintf("OTC premium for contract")
+	idemSeller := ""
+	creditMemo := ""
+
+	state := shared.NewState()
+	state.Set("step:reserve_and_contract:amount", o.Quantity)
+	state.Set("step:reserve_and_contract:currency", "shares")
+	state.Set("step:reserve_premium:amount", premiumBuyerCcy)
+	state.Set("step:reserve_premium:currency", buyerCcy)
+	state.Set("step:settle_premium_buyer:amount", premiumBuyerCcy)
+	state.Set("step:settle_premium_buyer:currency", buyerCcy)
+	state.Set("step:credit_premium_seller:amount", premiumSellerCcy)
+	state.Set("step:credit_premium_seller:currency", premiumCcy)
+
+	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(shared.Step{
+			Name: "reserve_and_contract",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				if err := s.contracts.Create(contract); err != nil {
+					return err
+				}
+				if _, err := s.holdingRes.ReserveForOTCContract(ctx, uint64(sellerID), sellerType, "stock", o.StockID, contract.ID, qty); err != nil {
+					_ = s.contracts.Delete(contract.ID)
+					return err
+				}
+				// Re-derive memos that depend on contract.ID now that we have it.
+				settleMemo = fmt.Sprintf("OTC premium for contract #%d", contract.ID)
+				idemSeller = fmt.Sprintf("otc-accept-%d-seller", contract.ID)
+				creditMemo = fmt.Sprintf("OTC premium credit for contract #%d", contract.ID)
+				return nil
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				_, _ = s.holdingRes.ReleaseForOTCContract(ctx, contract.ID)
+				return s.contracts.Delete(contract.ID)
+			},
+		}).
+		Add(shared.Step{
+			Name: "reserve_premium",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.ReleaseReservation(ctx, contract.ID)
+				return e
+			},
+		}).
+		Add(shared.Step{
+			Name: "settle_premium_buyer",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				// Settlement debited buyer; reverse with a credit back to
+				// the buyer's account (the reservation row is already
+				// consumed, so ReleaseReservation no-ops).
+				_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, premiumBuyerCcy,
+					fmt.Sprintf("Compensating OTC premium #%d", contract.ID),
+					fmt.Sprintf("otc-accept-%d-comp-buyer", contract.ID))
+				return e
+			},
+		}).
+		Add(shared.Step{
+			Name: "credit_premium_seller",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy, creditMemo, idemSeller)
+				return e
+			},
+			// Last money step in the saga. No Backward needed.
+		})
+
+	if err := saga.Execute(ctx, state); err != nil {
 		return nil, err
 	}
 
-	// Step 3: reserve premium on buyer (in buyer's currency).
-	if err := exec.RunStep(ctx, "reserve_premium", premiumBuyerCcy, buyerCcy, nil, func() error {
-		_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy)
-		return e
-	}); err != nil {
-		_ = exec.RunCompensation(ctx, 0, "drop_contract", func() error {
-			_, _ = s.holdingRes.ReleaseForOTCContract(ctx, contract.ID)
-			return s.contracts.Delete(contract.ID)
-		})
-		return nil, err
-	}
-
-	// Step 4: settle premium debit on buyer (in buyer's currency).
-	memo := fmt.Sprintf("OTC premium for contract #%d", contract.ID)
-	if err := exec.RunStep(ctx, "settle_premium_buyer", premiumBuyerCcy, buyerCcy, nil, func() error {
-		_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, memo)
-		return e
-	}); err != nil {
-		_ = exec.RunCompensation(ctx, 0, "release_premium", func() error {
-			_, e := s.accounts.ReleaseReservation(ctx, contract.ID)
-			return e
-		})
-		_ = exec.RunCompensation(ctx, 0, "drop_contract", func() error {
-			_, _ = s.holdingRes.ReleaseForOTCContract(ctx, contract.ID)
-			return s.contracts.Delete(contract.ID)
-		})
-		return nil, err
-	}
-
-	// Step 5: credit seller in their currency.
-	idemSeller := fmt.Sprintf("otc-accept-%d-seller", contract.ID)
-	creditMemo := fmt.Sprintf("OTC premium credit for contract #%d", contract.ID)
-	if err := exec.RunStep(ctx, "credit_premium_seller", premiumSellerCcy, premiumCcy, nil, func() error {
-		_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy, creditMemo, idemSeller)
-		return e
-	}); err != nil {
-		_ = exec.RunCompensation(ctx, 0, "compensate_buyer_credit", func() error {
-			_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, premiumBuyerCcy,
-				fmt.Sprintf("Compensating OTC premium #%d", contract.ID),
-				fmt.Sprintf("otc-accept-%d-comp-buyer", contract.ID))
-			return e
-		})
-		_ = exec.RunCompensation(ctx, 0, "drop_contract", func() error {
-			_, _ = s.holdingRes.ReleaseForOTCContract(ctx, contract.ID)
-			return s.contracts.Delete(contract.ID)
-		})
-		return nil, err
-	}
-
-	// Step 6: mark offer accepted + append revision.
+	// Post-saga: mark offer accepted + append revision + publish kafka.
+	// These are best-effort because money already moved.
 	revNum, _ := s.revisions.NextRevisionNumber(o.ID)
 	o.Status = model.OTCOfferStatusAccepted
 	o.LastModifiedByUserID = in.ActorUserID
@@ -195,7 +212,6 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		ModifiedByUserID: in.ActorUserID, ModifiedBySystemType: in.ActorSystemType, Action: model.OTCActionAccept,
 	})
 
-	// Step 7: publish kafka.
 	if s.producer != nil {
 		payload := kafkamsg.OTCContractCreatedMessage{
 			MessageID:      uuid.NewString(),

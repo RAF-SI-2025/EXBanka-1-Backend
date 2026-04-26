@@ -309,6 +309,13 @@ func (r *mockSagaRepo) UpdateStatus(id uint64, version int64, newStatus, errMsg 
 	return errors.New("not found")
 }
 
+// IsForwardCompleted satisfies the SagaLogRepo / FillSagaLogRepo interface.
+// Returns false in tests so shared.Saga's restart-resume always re-runs
+// each step from the start (the in-memory mock has no prior state).
+func (r *mockSagaRepo) IsForwardCompleted(orderID uint64, stepName string) (bool, error) {
+	return false, nil
+}
+
 // GetByStepName returns the most recent saga row matching (orderID, stepName).
 // Satisfies the FillSagaLogRepo interface the fill saga's compensation path
 // uses to link its compensation row to the forward settle_reservation step.

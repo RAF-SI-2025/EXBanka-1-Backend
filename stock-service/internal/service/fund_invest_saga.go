@@ -14,7 +14,9 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/model"
+	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
 // InvestInput captures the parameters of a single Invest call. ActorUserID +
@@ -39,7 +41,9 @@ type InvestInput struct {
 //  5. Upserts the (fund, owner) position by +AmountRSD.
 //
 // Failure of step (4) reverses (3). Failure of step (5) reverses (4) and (3).
-// All money side effects use deterministic idempotency keys derived from the
+// Driven by shared.Saga: each step declares its Forward + Backward; the
+// executor walks completed steps in reverse on any forward failure. All
+// money side effects use deterministic idempotency keys derived from the
 // saga ID so retries after a crash are safe.
 func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundContribution, error) {
 	if s.sagaRepo == nil || s.accounts == nil || s.contribs == nil || s.positions == nil {
@@ -91,10 +95,9 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 	}
 
 	sagaID := uuid.NewString()
-	exec := NewSagaExecutor(s.sagaRepo, sagaID, 0, nil)
 
-	// Insert pending contribution row up-front so we can flip its status as
-	// the saga progresses.
+	// Pending contribution row up-front so we can flip its status as the
+	// saga progresses.
 	contrib := &model.FundContribution{
 		FundID:                  in.FundID,
 		UserID:                  posUserID,
@@ -113,49 +116,57 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 		return nil, err
 	}
 
+	// Pre-compute deterministic memos / idempotency keys so forward and
+	// backward closures share them (account-service dedups by key).
 	debitMemo := fmt.Sprintf("Invest in fund #%d (saga=%s)", in.FundID, sagaID)
 	debitKey := fmt.Sprintf("invest-%s-debit-source", sagaID)
-	if err := exec.RunStep(ctx, "debit_source", in.Amount, in.Currency, nil, func() error {
-		_, e := s.accounts.DebitAccount(ctx, srcAcct.AccountNumber, in.Amount, debitMemo, debitKey)
-		return e
-	}); err != nil {
-		_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
-		return nil, err
-	}
-
 	creditMemo := fmt.Sprintf("Contribution from %s #%d (saga=%s)", in.ActorSystemType, in.ActorUserID, sagaID)
 	creditKey := fmt.Sprintf("invest-%s-credit-fund", sagaID)
-	if err := exec.RunStep(ctx, "credit_fund", amountRSD, "RSD", nil, func() error {
-		_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, amountRSD, creditMemo, creditKey)
-		return e
-	}); err != nil {
-		// Reverse step 1.
-		_ = exec.RunCompensation(ctx, 0, "comp_credit_source", func() error {
-			_, e := s.accounts.CreditAccount(ctx, srcAcct.AccountNumber, in.Amount,
-				fmt.Sprintf("Comp invest src saga=%s", sagaID),
-				fmt.Sprintf("invest-%s-comp-source", sagaID))
-			return e
-		})
-		_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
-		return nil, err
-	}
+	compSrcMemo := fmt.Sprintf("Comp invest src saga=%s", sagaID)
+	compSrcKey := fmt.Sprintf("invest-%s-comp-source", sagaID)
+	compFundMemo := fmt.Sprintf("Comp invest fund saga=%s", sagaID)
+	compFundKey := fmt.Sprintf("invest-%s-comp-fund", sagaID)
 
-	if err := exec.RunStep(ctx, "upsert_position", amountRSD, "RSD", nil, func() error {
-		return s.positions.IncrementContribution(in.FundID, posUserID, posSystemType, amountRSD)
-	}); err != nil {
-		// Reverse steps 2 and 1.
-		_ = exec.RunCompensation(ctx, 0, "comp_debit_fund", func() error {
-			_, e := s.accounts.DebitAccount(ctx, fundAcct.AccountNumber, amountRSD,
-				fmt.Sprintf("Comp invest fund saga=%s", sagaID),
-				fmt.Sprintf("invest-%s-comp-fund", sagaID))
-			return e
+	state := shared.NewState()
+	state.Set("step:debit_source:amount", in.Amount)
+	state.Set("step:debit_source:currency", in.Currency)
+	state.Set("step:credit_fund:amount", amountRSD)
+	state.Set("step:credit_fund:currency", "RSD")
+	state.Set("step:upsert_position:amount", amountRSD)
+	state.Set("step:upsert_position:currency", "RSD")
+
+	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(shared.Step{
+			Name: "debit_source",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.DebitAccount(ctx, srcAcct.AccountNumber, in.Amount, debitMemo, debitKey)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.CreditAccount(ctx, srcAcct.AccountNumber, in.Amount, compSrcMemo, compSrcKey)
+				return e
+			},
+		}).
+		Add(shared.Step{
+			Name: "credit_fund",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, amountRSD, creditMemo, creditKey)
+				return e
+			},
+			Backward: func(ctx context.Context, _ *shared.State) error {
+				_, e := s.accounts.DebitAccount(ctx, fundAcct.AccountNumber, amountRSD, compFundMemo, compFundKey)
+				return e
+			},
+		}).
+		Add(shared.Step{
+			Name: "upsert_position",
+			Forward: func(ctx context.Context, _ *shared.State) error {
+				return s.positions.IncrementContribution(in.FundID, posUserID, posSystemType, amountRSD)
+			},
+			// Last step: nothing to roll back to, so no Backward needed.
 		})
-		_ = exec.RunCompensation(ctx, 0, "comp_credit_source", func() error {
-			_, e := s.accounts.CreditAccount(ctx, srcAcct.AccountNumber, in.Amount,
-				fmt.Sprintf("Comp invest src saga=%s", sagaID),
-				fmt.Sprintf("invest-%s-comp-source", sagaID))
-			return e
-		})
+
+	if err := saga.Execute(ctx, state); err != nil {
 		_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
 		return nil, err
 	}

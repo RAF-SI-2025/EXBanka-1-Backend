@@ -18,16 +18,41 @@ import (
 	"github.com/exbanka/stock-service/internal/repository"
 )
 
-// Recorder implements shared.Recorder + shared.RecoveryRecorder over the
-// existing stock-service SagaLogRepository. The on-disk row uses Version
-// optimistic locking; the recorder threads version through StepHandle so
-// updates honor it.
+// SagaRepoIF is the minimal subset of *repository.SagaLogRepository that
+// Recorder needs for the saga-runner path (RecordForward, MarkCompleted,
+// MarkFailed, RecordCompensation, MarkCompensated, IsCompleted). Callers
+// pass either the concrete *repository.SagaLogRepository or a test mock
+// satisfying this interface.
+type SagaRepoIF interface {
+	RecordStep(log *model.SagaLog) error
+	UpdateStatus(id uint64, version int64, newStatus, errMsg string) error
+	IsForwardCompleted(orderID uint64, stepName string) (bool, error)
+}
+
+// recoveryRepoIF extends SagaRepoIF with the queries the RecoveryRunner
+// needs. The concrete *repository.SagaLogRepository implements both;
+// when the RecoveryRecorder methods are called against a test mock that
+// only satisfies SagaRepoIF the assertion fails fast (panic) — which is
+// fine because tests that don't exercise recovery shouldn't call those
+// methods.
+type recoveryRepoIF interface {
+	SagaRepoIF
+	ListStuckSagas(olderThan time.Duration) ([]model.SagaLog, error)
+	IncrementRetryCount(id uint64) error
+}
+
+// Recorder implements shared.Recorder over a SagaRepoIF, and
+// shared.RecoveryRecorder when the underlying repo also satisfies the
+// recoveryRepoIF surface (the concrete *repository.SagaLogRepository
+// always does).
 type Recorder struct {
-	repo *repository.SagaLogRepository
+	repo SagaRepoIF
 }
 
 // NewRecorder constructs a recorder bound to the given repository.
-func NewRecorder(repo *repository.SagaLogRepository) *Recorder {
+// The argument is typed as the interface so service-layer code that uses
+// SagaLogRepo (the legacy interface) can hand it through unchanged.
+func NewRecorder(repo SagaRepoIF) *Recorder {
 	return &Recorder{repo: repo}
 }
 
@@ -35,6 +60,7 @@ func NewRecorder(repo *repository.SagaLogRepository) *Recorder {
 var (
 	_ shared.Recorder         = (*Recorder)(nil)
 	_ shared.RecoveryRecorder = (*Recorder)(nil)
+	_ recoveryRepoIF          = (*repository.SagaLogRepository)(nil)
 )
 
 // State key conventions. The saga executor populates these per-saga
@@ -102,21 +128,25 @@ func (r *Recorder) MarkCompensationFailed(ctx context.Context, h shared.StepHand
 }
 
 // IsCompleted reports whether a forward step has already completed for
-// this (order_id, step_name) pair.
+// this (order_id, step_name) pair. orderID comes from the saga's State
+// when the runner exposes one; for sagas that aren't order-bound (fund,
+// OTC) IsForwardCompleted is called with orderID=0 which the underlying
+// query treats as "ignore order_id filter".
 func (r *Recorder) IsCompleted(ctx context.Context, sagaID, stepName string) (bool, error) {
-	// stock-service's saga_logs are scoped per-order, not per-saga-id, so
-	// IsCompleted is approximate without an order_id. The shared.Saga
-	// runner can pass it via the State if available; otherwise this
-	// returns false (the safe default — re-running a step that already
-	// completed is at most a duplicate ledger entry the idempotency_key
-	// absorbs).
-	return false, nil
+	return r.repo.IsForwardCompleted(0, stepName)
 }
 
 // ListStuck returns rows in pending or compensating status whose
-// updated_at is older than olderThan.
+// updated_at is older than olderThan. Requires the underlying repo to
+// satisfy recoveryRepoIF — the concrete *repository.SagaLogRepository
+// always does. Returns an empty slice if the assertion fails (callers
+// using a minimal mock for tests aren't exercising recovery anyway).
 func (r *Recorder) ListStuck(ctx context.Context, olderThan time.Duration) ([]shared.StuckStep, error) {
-	rows, err := r.repo.ListStuckSagas(olderThan)
+	rec, ok := r.repo.(recoveryRepoIF)
+	if !ok {
+		return nil, nil
+	}
+	rows, err := rec.ListStuckSagas(olderThan)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +186,13 @@ func (r *Recorder) ListStuck(ctx context.Context, olderThan time.Duration) ([]sh
 }
 
 // IncrementRetry bumps retry_count without changing status/version.
+// No-ops if the underlying repo doesn't satisfy recoveryRepoIF.
 func (r *Recorder) IncrementRetry(ctx context.Context, h shared.StepHandle) error {
-	return r.repo.IncrementRetryCount(h.ID)
+	rec, ok := r.repo.(recoveryRepoIF)
+	if !ok {
+		return nil
+	}
+	return rec.IncrementRetryCount(h.ID)
 }
 
 // MarkDeadLetter transitions a stuck row to dead_letter.
