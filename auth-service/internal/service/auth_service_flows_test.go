@@ -261,14 +261,16 @@ func TestAuthLogin_WrongPassword(t *testing.T) {
 
 	_, _, err := f.svc.Login(context.Background(), "emp@test.com", "WrongPass99", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "incorrect password")
+	// Wrong-password collapses to ErrInvalidCredentials (codes.Unauthenticated).
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
 }
 
 func TestAuthLogin_UnknownEmail(t *testing.T) {
 	f := newAuthFlowFixture(t)
 	_, _, err := f.svc.Login(context.Background(), "ghost@test.com", "Abcdef12", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no account found")
+	// Email-not-found collapses to ErrInvalidCredentials to prevent enumeration.
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
 }
 
 func TestAuthLogin_PendingAccount(t *testing.T) {
@@ -284,7 +286,7 @@ func TestAuthLogin_PendingAccount(t *testing.T) {
 
 	_, _, err := f.svc.Login(context.Background(), "pending@test.com", "Abcdef12", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not yet activated")
+	assert.ErrorIs(t, err, ErrAccountPending)
 }
 
 func TestAuthLogin_DisabledAccount(t *testing.T) {
@@ -300,7 +302,7 @@ func TestAuthLogin_DisabledAccount(t *testing.T) {
 
 	_, _, err := f.svc.Login(context.Background(), "disabled@test.com", "Abcdef12", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disabled")
+	assert.ErrorIs(t, err, ErrAccountDisabled)
 }
 
 func TestAuthLogin_AccountLocked(t *testing.T) {
@@ -317,7 +319,7 @@ func TestAuthLogin_AccountLocked(t *testing.T) {
 
 	_, _, err := f.svc.Login(context.Background(), "emp@test.com", "Abcdef12", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "account locked")
+	assert.ErrorIs(t, err, ErrAccountLocked)
 }
 
 // ----------------------------------------------------------------------------

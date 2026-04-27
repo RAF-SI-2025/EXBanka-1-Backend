@@ -214,7 +214,7 @@ func TestHandler_ValidateToken_Valid(t *testing.T) {
 func TestHandler_Login_BadCredentials(t *testing.T) {
 	auth := &stubAuthService{
 		loginFn: func(context.Context, string, string, string, string) (string, string, error) {
-			return "", "", errors.New("invalid credentials")
+			return "", "", fmt.Errorf("Login(ghost@test.com): %w", service.ErrInvalidCredentials)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
@@ -222,6 +222,46 @@ func TestHandler_Login_BadCredentials(t *testing.T) {
 	_, err := h.Login(context.Background(), &pb.LoginRequest{Email: "ghost@test.com", Password: "Abcdef12"})
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
+	assert.ErrorIs(t, err, service.ErrInvalidCredentials)
+}
+
+func TestHandler_Login_AccountLocked(t *testing.T) {
+	auth := &stubAuthService{
+		loginFn: func(context.Context, string, string, string, string) (string, string, error) {
+			return "", "", fmt.Errorf("Login(bob@test.com): %w", service.ErrAccountLocked)
+		},
+	}
+	h := newHandlerForTest(auth, &stubMobileService{})
+
+	_, err := h.Login(context.Background(), &pb.LoginRequest{Email: "bob@test.com", Password: "Abcdef12"})
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+}
+
+func TestHandler_Login_AccountPending(t *testing.T) {
+	auth := &stubAuthService{
+		loginFn: func(context.Context, string, string, string, string) (string, string, error) {
+			return "", "", fmt.Errorf("Login(carol@test.com): %w", service.ErrAccountPending)
+		},
+	}
+	h := newHandlerForTest(auth, &stubMobileService{})
+
+	_, err := h.Login(context.Background(), &pb.LoginRequest{Email: "carol@test.com", Password: "Abcdef12"})
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+}
+
+func TestHandler_Login_EmployeeRPCDown(t *testing.T) {
+	auth := &stubAuthService{
+		loginFn: func(context.Context, string, string, string, string) (string, string, error) {
+			return "", "", fmt.Errorf("Login(emp@test.com) get employee: %w", service.ErrEmployeeRPCFailed)
+		},
+	}
+	h := newHandlerForTest(auth, &stubMobileService{})
+
+	_, err := h.Login(context.Background(), &pb.LoginRequest{Email: "emp@test.com", Password: "Abcdef12"})
+	require.Error(t, err)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
 }
 
 func TestHandler_Login_Success(t *testing.T) {

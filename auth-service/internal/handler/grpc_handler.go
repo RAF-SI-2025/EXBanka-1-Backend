@@ -92,7 +92,10 @@ func (h *AuthGRPCHandler) Login(ctx context.Context, req *pb.LoginRequest) (*pb.
 	meta := extractRequestMeta(ctx)
 	access, refresh, err := h.authService.Login(ctx, req.Email, req.Password, meta.IPAddress, meta.UserAgent)
 	if err != nil {
-		return nil, status.Errorf(codes.Unauthenticated, "invalid credentials")
+		// Service returns wrapped sentinel errors that carry their own
+		// gRPC status via the GRPCStatus interface (see service/errors.go).
+		// The unary logging interceptor records the wrap chain.
+		return nil, err
 	}
 	return &pb.LoginResponse{
 		AccessToken:  access,

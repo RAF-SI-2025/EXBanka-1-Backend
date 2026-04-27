@@ -23,6 +23,7 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	userpb "github.com/exbanka/contract/userpb"
 )
 
@@ -134,7 +135,10 @@ func main() {
 	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
 		Address: cfg.GRPCAddr,
 		Options: []grpc.ServerOption{
-			grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("auth-service"),
+			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},
 		Register: func(s *grpc.Server) {
