@@ -45,19 +45,26 @@ func (r *OTCOfferRepository) Save(o *model.OTCOffer) error {
 	return nil
 }
 
-// ListByOwner returns offers where the user appears as initiator,
+// ListByOwner returns offers where the owner appears as initiator,
 // counterparty, or either, optionally filtered by status (variadic) and
-// stock_id (zero = no filter).
-func (r *OTCOfferRepository) ListByOwner(userID int64, systemType, role string, statuses []string, stockID uint64, page, pageSize int) ([]model.OTCOffer, int64, error) {
+// stock_id (zero = no filter). owner_id may be nil for OwnerType=bank.
+func (r *OTCOfferRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, role string, statuses []string, stockID uint64, page, pageSize int) ([]model.OTCOffer, int64, error) {
 	q := r.db.Model(&model.OTCOffer{})
 	switch role {
 	case "initiator":
-		q = q.Where("initiator_user_id = ? AND initiator_system_type = ?", userID, systemType)
+		q = scopeOwner(q, "initiator_owner_type", "initiator_owner_id", ownerType, ownerID)
 	case "counterparty":
-		q = q.Where("counterparty_user_id = ? AND counterparty_system_type = ?", userID, systemType)
+		q = scopeOwner(q, "counterparty_owner_type", "counterparty_owner_id", ownerType, ownerID)
 	default:
-		q = q.Where("(initiator_user_id = ? AND initiator_system_type = ?) OR (counterparty_user_id = ? AND counterparty_system_type = ?)",
-			userID, systemType, userID, systemType)
+		// Match owner as either initiator OR counterparty. Inline the scopeOwner
+		// expansion since we need an OR over two column-pair predicates.
+		if ownerID == nil {
+			q = q.Where("(initiator_owner_type = ? AND initiator_owner_id IS NULL) OR (counterparty_owner_type = ? AND counterparty_owner_id IS NULL)",
+				ownerType, ownerType)
+		} else {
+			q = q.Where("(initiator_owner_type = ? AND initiator_owner_id = ?) OR (counterparty_owner_type = ? AND counterparty_owner_id = ?)",
+				ownerType, *ownerID, ownerType, *ownerID)
+		}
 	}
 	if len(statuses) > 0 {
 		q = q.Where("status IN ?", statuses)
@@ -94,30 +101,59 @@ func (r *OTCOfferRepository) ListExpiringOffers(today string, limit int) ([]mode
 // where the seller matches, plus (b) PENDING/COUNTERED sell-initiated
 // offers where the initiator is the seller, plus (c) PENDING/COUNTERED
 // buy-initiated offers where the counterparty is the seller. Used by the
-// seller-invariant check (§4.6 of spec).
-func (r *OTCOfferRepository) SumActiveQuantityForSeller(sellerID int64, systemType string, stockID uint64) (decimal.Decimal, error) {
+// seller-invariant check (§4.6 of spec). owner_id may be nil for bank
+// owners; predicates emit IS NULL in that case.
+func (r *OTCOfferRepository) SumActiveQuantityForSeller(sellerOwnerType model.OwnerType, sellerOwnerID *uint64, stockID uint64) (decimal.Decimal, error) {
 	var rows []struct{ Sum decimal.Decimal }
+	if sellerOwnerID == nil {
+		err := r.db.Raw(`
+			SELECT COALESCE(SUM(q), 0) AS sum FROM (
+				SELECT quantity AS q FROM option_contracts
+				 WHERE seller_owner_type = ? AND seller_owner_id IS NULL
+				   AND stock_id = ? AND status = ?
+				UNION ALL
+				SELECT quantity AS q FROM otc_offers
+				 WHERE direction = ? AND status IN (?, ?)
+				   AND initiator_owner_type = ? AND initiator_owner_id IS NULL
+				   AND stock_id = ?
+				UNION ALL
+				SELECT quantity AS q FROM otc_offers
+				 WHERE direction = ? AND status IN (?, ?)
+				   AND counterparty_owner_type = ? AND counterparty_owner_id IS NULL
+				   AND stock_id = ?
+			) AS t`,
+			sellerOwnerType, stockID, model.OptionContractStatusActive,
+			model.OTCDirectionSellInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
+			sellerOwnerType, stockID,
+			model.OTCDirectionBuyInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
+			sellerOwnerType, stockID,
+		).Scan(&rows).Error
+		if err != nil || len(rows) == 0 {
+			return decimal.Zero, err
+		}
+		return rows[0].Sum, nil
+	}
 	err := r.db.Raw(`
 		SELECT COALESCE(SUM(q), 0) AS sum FROM (
 			SELECT quantity AS q FROM option_contracts
-			 WHERE seller_user_id = ? AND seller_system_type = ?
+			 WHERE seller_owner_type = ? AND seller_owner_id = ?
 			   AND stock_id = ? AND status = ?
 			UNION ALL
 			SELECT quantity AS q FROM otc_offers
 			 WHERE direction = ? AND status IN (?, ?)
-			   AND initiator_user_id = ? AND initiator_system_type = ?
+			   AND initiator_owner_type = ? AND initiator_owner_id = ?
 			   AND stock_id = ?
 			UNION ALL
 			SELECT quantity AS q FROM otc_offers
 			 WHERE direction = ? AND status IN (?, ?)
-			   AND counterparty_user_id = ? AND counterparty_system_type = ?
+			   AND counterparty_owner_type = ? AND counterparty_owner_id = ?
 			   AND stock_id = ?
 		) AS t`,
-		sellerID, systemType, stockID, model.OptionContractStatusActive,
+		sellerOwnerType, *sellerOwnerID, stockID, model.OptionContractStatusActive,
 		model.OTCDirectionSellInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
-		sellerID, systemType, stockID,
+		sellerOwnerType, *sellerOwnerID, stockID,
 		model.OTCDirectionBuyInitiated, model.OTCOfferStatusPending, model.OTCOfferStatusCountered,
-		sellerID, systemType, stockID,
+		sellerOwnerType, *sellerOwnerID, stockID,
 	).Scan(&rows).Error
 	if err != nil || len(rows) == 0 {
 		return decimal.Zero, err

@@ -73,13 +73,14 @@ type PartialSettleHoldingResult struct {
 // without double-counting. Returns codes.FailedPrecondition when the holding
 // does not exist or available quantity is insufficient.
 //
-// Post-rollup (Part A): holdings aggregate per (user_id, system_type,
+// Post-rollup (Part A): holdings aggregate per (owner_type, owner_id,
 // security_type, security_id). The lookup no longer filters by account_id;
 // proceeds on a sell fill are credited to the order's AccountID independently.
 func (s *HoldingReservationService) Reserve(
 	ctx context.Context,
-	userID uint64,
-	systemType, securityType string,
+	ownerType model.OwnerType,
+	ownerID *uint64,
+	securityType string,
 	securityID, orderID uint64,
 	qty int64,
 ) (*ReserveHoldingResult, error) {
@@ -89,10 +90,14 @@ func (s *HoldingReservationService) Reserve(
 	var out *ReserveHoldingResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var holding model.Holding
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ?",
-				userID, systemType, securityType, securityID).
-			First(&holding).Error
+		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("security_type = ? AND security_id = ?", securityType, securityID)
+		if ownerID == nil {
+			q = q.Where("owner_type = ? AND owner_id IS NULL", ownerType)
+		} else {
+			q = q.Where("owner_type = ? AND owner_id = ?", ownerType, *ownerID)
+		}
+		err := q.First(&holding).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return status.Error(codes.FailedPrecondition, "holding not found")
@@ -305,7 +310,9 @@ func (s *HoldingReservationService) PartialSettle(
 // instead of OrderID; idempotent on contract ID.
 func (s *HoldingReservationService) ReserveForOTCContract(
 	ctx context.Context,
-	sellerUserID uint64, systemType, securityType string,
+	sellerOwnerType model.OwnerType,
+	sellerOwnerID *uint64,
+	securityType string,
 	securityID, otcContractID uint64,
 	qty int64,
 ) (*ReserveHoldingResult, error) {
@@ -315,10 +322,14 @@ func (s *HoldingReservationService) ReserveForOTCContract(
 	var out *ReserveHoldingResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var holding model.Holding
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ?",
-				sellerUserID, systemType, securityType, securityID).
-			First(&holding).Error
+		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("security_type = ? AND security_id = ?", securityType, securityID)
+		if sellerOwnerID == nil {
+			q = q.Where("owner_type = ? AND owner_id IS NULL", sellerOwnerType)
+		} else {
+			q = q.Where("owner_type = ? AND owner_id = ?", sellerOwnerType, *sellerOwnerID)
+		}
+		err := q.First(&holding).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return status.Error(codes.FailedPrecondition, "holding not found")

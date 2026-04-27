@@ -89,13 +89,21 @@ func (cr *OTCExpiryCron) expireContract(ctx context.Context, c *model.OptionCont
 		return err
 	}
 	if cr.producer != nil {
+		// Kafka payload still uses the legacy OTCParty(user_id, system_type)
+		// shape pending Task 9 of plan 2026-04-27-owner-type-schema.md.
 		payload := kafkamsg.OTCContractExpiredMessage{
 			MessageID:  uuid.NewString(),
 			OccurredAt: now.Format(time.RFC3339),
 			ContractID: c.ID,
-			Buyer:      kafkamsg.OTCParty{UserID: c.BuyerUserID, SystemType: c.BuyerSystemType},
-			Seller:     kafkamsg.OTCParty{UserID: c.SellerUserID, SystemType: c.SellerSystemType},
-			ExpiredAt:  now.Format(time.RFC3339),
+			Buyer: kafkamsg.OTCParty{
+				UserID:     int64(model.OwnerToLegacyUserID(c.BuyerOwnerType, c.BuyerOwnerID)),
+				SystemType: model.OwnerToLegacySystemType(c.BuyerOwnerType),
+			},
+			Seller: kafkamsg.OTCParty{
+				UserID:     int64(model.OwnerToLegacyUserID(c.SellerOwnerType, c.SellerOwnerID)),
+				SystemType: model.OwnerToLegacySystemType(c.SellerOwnerType),
+			},
+			ExpiredAt: now.Format(time.RFC3339),
 		}
 		if data, err := json.Marshal(payload); err == nil {
 			_ = cr.producer.PublishRaw(ctx, kafkamsg.TopicOTCContractExpired, data)
@@ -110,11 +118,16 @@ func (cr *OTCExpiryCron) expireOffer(ctx context.Context, o *model.OTCOffer) err
 		return err
 	}
 	if cr.producer != nil {
+		// Kafka payload still uses the legacy OTCParty(user_id, system_type)
+		// shape pending Task 9 of plan 2026-04-27-owner-type-schema.md.
 		payload := kafkamsg.OTCOfferExpiredMessage{
-			MessageID:    uuid.NewString(),
-			OccurredAt:   time.Now().UTC().Format(time.RFC3339),
-			OfferID:      o.ID,
-			Initiator:    kafkamsg.OTCParty{UserID: o.InitiatorUserID, SystemType: o.InitiatorSystemType},
+			MessageID:  uuid.NewString(),
+			OccurredAt: time.Now().UTC().Format(time.RFC3339),
+			OfferID:    o.ID,
+			Initiator: kafkamsg.OTCParty{
+				UserID:     int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)),
+				SystemType: model.OwnerToLegacySystemType(o.InitiatorOwnerType),
+			},
 			Counterparty: ptrCounterparty(o),
 		}
 		if data, err := json.Marshal(payload); err == nil {

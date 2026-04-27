@@ -2,6 +2,18 @@ syntax = "proto3";
 package stock;
 option go_package = "github.com/exbanka/contract/stockpb;stockpb";
 
+import "google/protobuf/wrappers.proto";
+
+// OwnerType discriminates resource ownership: clients have a non-null owner_id;
+// the bank as owner has owner_id == NULL. Replaces the legacy
+// (user_id, system_type) ownership pair. See plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md (Spec C).
+enum OwnerType {
+    OWNER_TYPE_UNSPECIFIED = 0;
+    OWNER_TYPE_CLIENT      = 1;
+    OWNER_TYPE_BANK        = 2;
+}
+
 // ==================== Exchange (Stock Exchanges) ====================
 
 service StockExchangeGRPCService {

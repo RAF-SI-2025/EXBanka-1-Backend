@@ -57,30 +57,30 @@ func (s *TaxService) WithDB(db *gorm.DB) *TaxService {
 
 // ListTaxRecords returns users with their tax debt for supervisor portal.
 func (s *TaxService) ListTaxRecords(year, month int, filter TaxFilter) ([]TaxUserSummary, int64, error) {
-	return s.taxCollectionRepo.ListUsersWithGains(year, month, filter)
+	return s.taxCollectionRepo.ListOwnersWithGains(year, month, filter)
 }
 
-// GetUserTaxSummary returns tax summary for a (user_id, system_type) owner's
+// GetUserTaxSummary returns tax summary for an (owner_type, owner_id) owner's
 // portfolio page.
-func (s *TaxService) GetUserTaxSummary(userID uint64, systemType string) (taxPaidThisYear, taxUnpaidThisMonth decimal.Decimal, err error) {
+func (s *TaxService) GetUserTaxSummary(ownerType model.OwnerType, ownerID *uint64) (taxPaidThisYear, taxUnpaidThisMonth decimal.Decimal, err error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
 	// Tax paid this year
-	taxPaidThisYear, err = s.taxCollectionRepo.SumByUserYear(userID, systemType, year)
+	taxPaidThisYear, err = s.taxCollectionRepo.SumByOwnerYear(ownerType, ownerID, year)
 	if err != nil {
 		return decimal.Zero, decimal.Zero, err
 	}
 
 	// Tax owed this month (uncollected)
-	gainSummaries, err := s.capitalGainRepo.SumByUserMonth(userID, systemType, year, month)
+	gainSummaries, err := s.capitalGainRepo.SumByOwnerMonth(ownerType, ownerID, year, month)
 	if err != nil {
 		return decimal.Zero, decimal.Zero, err
 	}
 
 	// Already collected this month
-	collectedThisMonth, err := s.taxCollectionRepo.SumByUserMonth(userID, systemType, year, month)
+	collectedThisMonth, err := s.taxCollectionRepo.SumByOwnerMonth(ownerType, ownerID, year, month)
 	if err != nil {
 		return decimal.Zero, decimal.Zero, err
 	}
@@ -110,9 +110,9 @@ func (s *TaxService) GetUserTaxSummary(userID uint64, systemType string) (taxPai
 }
 
 // ListUserTaxRecords returns paginated capital gain records for a single
-// (user_id, system_type) owner.
-func (s *TaxService) ListUserTaxRecords(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error) {
-	return s.capitalGainRepo.ListByUser(userID, systemType, page, pageSize)
+// (owner_type, owner_id) owner.
+func (s *TaxService) ListUserTaxRecords(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
+	return s.capitalGainRepo.ListByOwner(ownerType, ownerID, page, pageSize)
 }
 
 // UserGainsAndTax aggregates realized gain + tax figures for a user across
@@ -133,44 +133,44 @@ type UserGainsAndTax struct {
 // GetUserGainsAndTax powers the rich portfolio summary endpoint. It composes
 // existing repo queries and the same convertToRSD helper the tax-collection
 // path already uses, so numbers here match what CollectTax will actually move.
-func (s *TaxService) GetUserGainsAndTax(userID uint64, systemType string) (UserGainsAndTax, error) {
+func (s *TaxService) GetUserGainsAndTax(ownerType model.OwnerType, ownerID *uint64) (UserGainsAndTax, error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
 	out := UserGainsAndTax{}
 
-	monthGains, err := s.capitalGainRepo.SumByUserMonth(userID, systemType, year, month)
+	monthGains, err := s.capitalGainRepo.SumByOwnerMonth(ownerType, ownerID, year, month)
 	if err != nil {
 		return out, err
 	}
 	out.RealizedGainThisMonthRSD = s.sumGainsInRSD(monthGains)
 
-	yearGains, err := s.capitalGainRepo.SumByUserYear(userID, systemType, year)
+	yearGains, err := s.capitalGainRepo.SumByOwnerYear(ownerType, ownerID, year)
 	if err != nil {
 		return out, err
 	}
 	out.RealizedGainThisYearRSD = s.sumGainsInRSD(yearGains)
 
-	lifeGains, err := s.capitalGainRepo.SumByUserAllTime(userID, systemType)
+	lifeGains, err := s.capitalGainRepo.SumByOwnerAllTime(ownerType, ownerID)
 	if err != nil {
 		return out, err
 	}
 	out.RealizedGainLifetimeRSD = s.sumGainsInRSD(lifeGains)
 
-	paidYear, err := s.taxCollectionRepo.SumByUserYear(userID, systemType, year)
+	paidYear, err := s.taxCollectionRepo.SumByOwnerYear(ownerType, ownerID, year)
 	if err != nil {
 		return out, err
 	}
 	out.TaxPaidThisYearRSD = paidYear
 
-	paidLife, err := s.taxCollectionRepo.SumByUserAllTime(userID, systemType)
+	paidLife, err := s.taxCollectionRepo.SumByOwnerAllTime(ownerType, ownerID)
 	if err != nil {
 		return out, err
 	}
 
 	// Tax unpaid (this month): same formula the existing GetUserTaxSummary uses.
-	collectedThisMonth, err := s.taxCollectionRepo.SumByUserMonth(userID, systemType, year, month)
+	collectedThisMonth, err := s.taxCollectionRepo.SumByOwnerMonth(ownerType, ownerID, year, month)
 	if err != nil {
 		return out, err
 	}
@@ -182,7 +182,7 @@ func (s *TaxService) GetUserGainsAndTax(userID uint64, systemType string) (UserG
 	// display and always ≥ 0.
 	out.TaxUnpaidTotalRSD = s.computeUnpaidTax(lifeGains, paidLife)
 
-	count, err := s.capitalGainRepo.CountByUserYear(userID, systemType, year)
+	count, err := s.capitalGainRepo.CountByOwnerYear(ownerType, ownerID, year)
 	if err != nil {
 		return out, err
 	}
@@ -241,10 +241,10 @@ func (s *TaxService) computeUnpaidTax(gains []AccountGainSummary, alreadyCollect
 }
 
 // ListUserTaxCollections returns the full collection history for a single
-// (user_id, system_type) owner so they can see when tax was actually taken.
+// (owner_type, owner_id) owner so they can see when tax was actually taken.
 // Capped to 200 most recent rows — that covers 16+ years of monthly collections.
-func (s *TaxService) ListUserTaxCollections(userID uint64, systemType string) ([]model.TaxCollection, error) {
-	rows, _, err := s.taxCollectionRepo.ListByUser(userID, systemType, 1, 200)
+func (s *TaxService) ListUserTaxCollections(ownerType model.OwnerType, ownerID *uint64) ([]model.TaxCollection, error) {
+	rows, _, err := s.taxCollectionRepo.ListByOwner(ownerType, ownerID, 1, 200)
 	return rows, err
 }
 
@@ -297,7 +297,7 @@ func (s *TaxService) CollectTax(year, month int) (collectedCount int64, totalRSD
 func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, totalRSD decimal.Decimal, failedCount int64, err error) {
 	StockTaxCollectedTotal.Inc()
 	// Get all users with gains this month (broad filter, all pages)
-	summaries, _, err := s.taxCollectionRepo.ListUsersWithGains(year, month, TaxFilter{
+	summaries, _, err := s.taxCollectionRepo.ListOwnersWithGains(year, month, TaxFilter{
 		Page:     1,
 		PageSize: 10000, // collect all
 	})
@@ -312,14 +312,24 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 			continue
 		}
 
+		// Resolve the owner pair for this summary row. Repository surfaces it
+		// as (OwnerType string, OwnerID *uint64); cast to the model type.
+		summaryOwnerType := model.OwnerType(summary.OwnerType)
+		summaryOwnerID := summary.OwnerID
+		// Legacy logging key — Kafka payloads + log lines still surface the
+		// (user_id, system_type) form pending Task 9 of plan
+		// 2026-04-27-owner-type-schema.md.
+		legacyUserID := model.OwnerToLegacyUserID(summaryOwnerType, summaryOwnerID)
+		legacySystemType := model.OwnerToLegacySystemType(summaryOwnerType)
+
 		// Get UNCOLLECTED gains per (account, currency), scoped to this
-		// (user_id, system_type) pair. Rows already linked to a prior
+		// (owner_type, owner_id) pair. Rows already linked to a prior
 		// TaxCollection are excluded, so this call returns only the profit
 		// realised since the last collection — exactly what we should tax.
-		gainSummaries, gainErr := s.capitalGainRepo.SumUncollectedByUserMonth(summary.UserID, summary.SystemType, year, month)
+		gainSummaries, gainErr := s.capitalGainRepo.SumUncollectedByOwnerMonth(summaryOwnerType, summaryOwnerID, year, month)
 		if gainErr != nil {
 			failedCount++
-			log.Printf("WARN: tax: failed to get gains for user %d (%s): %v", summary.UserID, summary.SystemType, gainErr)
+			log.Printf("WARN: tax: failed to get gains for owner %s/%d: %v", legacySystemType, legacyUserID, gainErr)
 			continue
 		}
 
@@ -337,7 +347,7 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 			if gs.Currency != "RSD" {
 				converted, convErr := s.convertToRSD(gs.Currency, taxInCurrency)
 				if convErr != nil {
-					log.Printf("WARN: tax: currency conversion failed for user %d: %v", summary.UserID, convErr)
+					log.Printf("WARN: tax: currency conversion failed for owner %s/%d: %v", legacySystemType, legacyUserID, convErr)
 					userFailed = true
 					continue
 				}
@@ -347,7 +357,7 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 			// Debit user's account
 			acctResp, acctErr := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: gs.AccountID})
 			if acctErr != nil {
-				log.Printf("WARN: tax: account lookup failed for user %d account %d: %v", summary.UserID, gs.AccountID, acctErr)
+				log.Printf("WARN: tax: account lookup failed for owner %s/%d account %d: %v", legacySystemType, legacyUserID, gs.AccountID, acctErr)
 				userFailed = true
 				continue
 			}
@@ -365,8 +375,8 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 				} else {
 					converted, convErr := s.convertCurrency(gs.Currency, acctResp.CurrencyCode, taxInCurrency)
 					if convErr != nil {
-						log.Printf("WARN: tax: FX convert %s->%s failed for user %d: %v — falling back to native-currency debit (may mismatch state credit)",
-							gs.Currency, acctResp.CurrencyCode, summary.UserID, convErr)
+						log.Printf("WARN: tax: FX convert %s->%s failed for owner %s/%d: %v — falling back to native-currency debit (may mismatch state credit)",
+							gs.Currency, acctResp.CurrencyCode, legacySystemType, legacyUserID, convErr)
 					} else {
 						debitAmount = converted
 					}
@@ -376,15 +386,15 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 			// Attempt number = 1 + prior collections for this exact tuple.
 			// Keeps each incremental batch's idempotency keys distinct while
 			// letting a crash-and-retry of a single batch reuse the same key.
-			priorAttempts, cntErr := s.taxCollectionRepo.CountByKey(summary.UserID, summary.SystemType, year, month, gs.AccountID, gs.Currency)
+			priorAttempts, cntErr := s.taxCollectionRepo.CountByKey(summaryOwnerType, summaryOwnerID, year, month, gs.AccountID, gs.Currency)
 			if cntErr != nil {
-				log.Printf("WARN: tax: CountByKey failed for user %d: %v — assuming 0", summary.UserID, cntErr)
+				log.Printf("WARN: tax: CountByKey failed for owner %s/%d: %v — assuming 0", legacySystemType, legacyUserID, cntErr)
 				priorAttempts = 0
 			}
 			attempt := priorAttempts + 1
 
 			debitMemo := fmt.Sprintf("Capital-gains tax collection %04d-%02d", year, month)
-			debitKey := fmt.Sprintf("tax-debit-%s-%d-%04d-%02d-%d-a%d", summary.SystemType, summary.UserID, year, month, gs.AccountID, attempt)
+			debitKey := fmt.Sprintf("tax-debit-%s-%d-%04d-%02d-%d-a%d", legacySystemType, legacyUserID, year, month, gs.AccountID, attempt)
 			_, debitErr := s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 				AccountNumber:   acctResp.AccountNumber,
 				Amount:          debitAmount.Neg().StringFixed(4),
@@ -393,14 +403,14 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 				IdempotencyKey:  debitKey,
 			})
 			if debitErr != nil {
-				log.Printf("WARN: tax: debit failed for user %d account %s: %v", summary.UserID, acctResp.AccountNumber, debitErr)
+				log.Printf("WARN: tax: debit failed for owner %s/%d account %s: %v", legacySystemType, legacyUserID, acctResp.AccountNumber, debitErr)
 				userFailed = true
 				continue
 			}
 
 			// Credit state's RSD account
-			creditMemo := fmt.Sprintf("Capital-gains tax from %s #%d (%s %s)", summary.SystemType, summary.UserID, gs.Currency, taxInCurrency.StringFixed(2))
-			creditKey := fmt.Sprintf("tax-credit-%s-%d-%04d-%02d-%d-a%d", summary.SystemType, summary.UserID, year, month, gs.AccountID, attempt)
+			creditMemo := fmt.Sprintf("Capital-gains tax from %s #%d (%s %s)", legacySystemType, legacyUserID, gs.Currency, taxInCurrency.StringFixed(2))
+			creditKey := fmt.Sprintf("tax-credit-%s-%d-%04d-%02d-%d-a%d", legacySystemType, legacyUserID, year, month, gs.AccountID, attempt)
 			_, creditErr := s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 				AccountNumber:   s.stateAccountNo,
 				Amount:          taxInRSD.StringFixed(4),
@@ -420,15 +430,15 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 				// dedups the user-debit (same idempotency key) and the credit
 				// is re-issued with the same key — so we eventually land both
 				// halves of the double-entry without double-charging the user.
-				log.Printf("WARN: tax: credit state account failed for user %d account %d %s: %v — skipping collection record so retry can re-issue the credit (user-debit will safely dedup)", summary.UserID, gs.AccountID, gs.Currency, creditErr)
+				log.Printf("WARN: tax: credit state account failed for owner %s/%v account %d %s: %v — skipping collection record so retry can re-issue the credit (user-debit will safely dedup)", summary.OwnerType, summary.OwnerID, gs.AccountID, gs.Currency, creditErr)
 				userFailed = true
 				continue
 			}
 
 			// Record collection
 			collection := &model.TaxCollection{
-				UserID:       summary.UserID,
-				SystemType:   summary.SystemType,
+				OwnerType:    model.OwnerType(summary.OwnerType),
+				OwnerID:      summary.OwnerID,
 				Year:         year,
 				Month:        month,
 				AccountID:    gs.AccountID,
@@ -446,9 +456,9 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 			// branch keeps the existing test mocks working.
 			if s.db == nil {
 				if createErr := s.taxCollectionRepo.Create(collection); createErr != nil {
-					log.Printf("WARN: tax: failed to record collection for user %d: %v", summary.UserID, createErr)
-				} else if markErr := s.capitalGainRepo.MarkCollected(summary.UserID, summary.SystemType, year, month, gs.AccountID, gs.Currency, collection.ID); markErr != nil {
-					log.Printf("WARN: tax: MarkCollected failed for user %d account %d %s: %v", summary.UserID, gs.AccountID, gs.Currency, markErr)
+					log.Printf("WARN: tax: failed to record collection for owner %s/%v: %v", summary.OwnerType, summary.OwnerID, createErr)
+				} else if markErr := s.capitalGainRepo.MarkCollected(model.OwnerType(summary.OwnerType), summary.OwnerID, year, month, gs.AccountID, gs.Currency, collection.ID); markErr != nil {
+					log.Printf("WARN: tax: MarkCollected failed for owner %s/%v account %d %s: %v", summary.OwnerType, summary.OwnerID, gs.AccountID, gs.Currency, markErr)
 				}
 			} else {
 				if persistErr := s.db.Transaction(func(tx *gorm.DB) error {
@@ -456,11 +466,11 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 						return err
 					}
 					return tx.Model(&model.CapitalGain{}).
-						Where("user_id = ? AND system_type = ? AND tax_year = ? AND tax_month = ? AND account_id = ? AND currency = ? AND tax_collection_id IS NULL",
-							summary.UserID, summary.SystemType, year, month, gs.AccountID, gs.Currency).
+						Where("owner_type = ? AND owner_id IS NOT DISTINCT FROM ? AND tax_year = ? AND tax_month = ? AND account_id = ? AND currency = ? AND tax_collection_id IS NULL",
+							summary.OwnerType, summary.OwnerID, year, month, gs.AccountID, gs.Currency).
 						Update("tax_collection_id", collection.ID).Error
 				}); persistErr != nil {
-					log.Printf("WARN: tax: failed to atomically record+stamp collection for user %d account %d %s: %v — money was moved; next run will retry under the same attempt number", summary.UserID, gs.AccountID, gs.Currency, persistErr)
+					log.Printf("WARN: tax: failed to atomically record+stamp collection for owner %s/%v account %d %s: %v — money was moved; next run will retry under the same attempt number", summary.OwnerType, summary.OwnerID, gs.AccountID, gs.Currency, persistErr)
 				}
 			}
 

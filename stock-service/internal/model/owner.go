@@ -56,3 +56,39 @@ func OwnerIDOrZero(id *uint64) uint64 {
 	}
 	return *id
 }
+
+// OwnerFromLegacy converts the legacy (user_id, system_type) ownership pair —
+// still carried by gRPC requests / api-gateway shims pending Task 7 of plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md — into the new
+// (OwnerType, *uint64) representation used by repositories and models.
+//
+// Convention: system_type "bank" (legacy) maps to OwnerBank with a nil owner_id;
+// any other value (typically "client" or "employee") maps to OwnerClient with
+// owner_id = userID. Employees acting on behalf of a client must already have
+// rewritten userID/systemType to the client's identity at the handler layer
+// (resolveOrderOwner pattern); this helper does not perform that rewrite.
+func OwnerFromLegacy(userID uint64, systemType string) (OwnerType, *uint64) {
+	if systemType == string(OwnerBank) {
+		return OwnerBank, nil
+	}
+	uid := userID
+	return OwnerClient, &uid
+}
+
+// OwnerToLegacyUserID returns the uint64 representation of an owner for legacy
+// proto fields (Order.user_id, etc.). Bank owners surface as 0 — the api-
+// gateway / consumer side is responsible for treating 0 as "bank" until Task 7
+// rolls out the OwnerType enum on the wire.
+func OwnerToLegacyUserID(t OwnerType, id *uint64) uint64 {
+	if id == nil {
+		return 0
+	}
+	return *id
+}
+
+// OwnerToLegacySystemType returns the legacy system_type string for an owner.
+// Used by handlers to populate proto fields whose schema still names the
+// column system_type.
+func OwnerToLegacySystemType(t OwnerType) string {
+	return string(t)
+}

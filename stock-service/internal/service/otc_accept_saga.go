@@ -61,14 +61,17 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	if s.crossbankAccept != nil && s.ownBankCode != "" && model.IsCrossBankOffer(o, s.ownBankCode) {
 		return s.crossbankAccept(ctx, in)
 	}
-	if o.LastModifiedByUserID == in.ActorUserID && o.LastModifiedBySystemType == in.ActorSystemType {
+	// Self-accept guard: compare on the principal who last modified the offer.
+	// LastModifiedByPrincipal is the audit field carrying the acting user/
+	// employee for both same-bank and on-behalf paths.
+	if int64(o.LastModifiedByPrincipalID) == in.ActorUserID && o.LastModifiedByPrincipalType == in.ActorSystemType {
 		return nil, errors.New("you cannot accept your own most recent terms")
 	}
 	if !o.SettlementDate.After(time.Now().UTC().Truncate(24 * time.Hour)) {
 		return nil, errors.New("settlement_date is not in the future")
 	}
 
-	buyerID, buyerType, sellerID, sellerType := identifyOTCBuyerSeller(o, in.ActorUserID, in.ActorSystemType)
+	buyerOwnerType, buyerOwnerID, sellerOwnerType, sellerOwnerID := identifyOTCBuyerSellerOwners(o, in.ActorUserID, in.ActorSystemType)
 
 	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.BuyerAccountID})
 	if err != nil {
@@ -109,9 +112,12 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	qty := o.Quantity.IntPart()
 
 	contract := &model.OptionContract{
-		OfferID: o.ID, BuyerUserID: buyerID, BuyerSystemType: buyerType,
-		SellerUserID: sellerID, SellerSystemType: sellerType,
-		StockID: o.StockID, Quantity: o.Quantity, StrikePrice: o.StrikePrice,
+		OfferID:         o.ID,
+		BuyerOwnerType:  buyerOwnerType,
+		BuyerOwnerID:    buyerOwnerID,
+		SellerOwnerType: sellerOwnerType,
+		SellerOwnerID:   sellerOwnerID,
+		StockID:         o.StockID, Quantity: o.Quantity, StrikePrice: o.StrikePrice,
 		PremiumPaid: o.Premium, PremiumCurrency: premiumCcy, StrikeCurrency: premiumCcy,
 		SettlementDate: o.SettlementDate, Status: model.OptionContractStatusActive,
 		SagaID: sagaID, PremiumPaidAt: time.Now().UTC(),
@@ -142,7 +148,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 				if err := s.contracts.Create(contract); err != nil {
 					return err
 				}
-				if _, err := s.holdingRes.ReserveForOTCContract(ctx, uint64(sellerID), sellerType, "stock", o.StockID, contract.ID, qty); err != nil {
+				if _, err := s.holdingRes.ReserveForOTCContract(ctx, sellerOwnerType, sellerOwnerID, "stock", o.StockID, contract.ID, qty); err != nil {
 					_ = s.contracts.Delete(contract.ID)
 					return err
 				}
@@ -201,25 +207,31 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	// These are best-effort because money already moved.
 	revNum, _ := s.revisions.NextRevisionNumber(o.ID)
 	o.Status = model.OTCOfferStatusAccepted
-	o.LastModifiedByUserID = in.ActorUserID
-	o.LastModifiedBySystemType = in.ActorSystemType
+	// Audit trail: record the principal who accepted (matches the
+	// LastModifiedByPrincipal* convention used elsewhere in this service).
+	o.LastModifiedByPrincipalType = in.ActorSystemType
+	o.LastModifiedByPrincipalID = uint64(in.ActorUserID)
 	if err := s.offers.Save(o); err != nil {
 		log.Printf("WARN: OTC accept saga=%s: offer.Save failed (money already moved): %v", sagaID, err)
 	}
 	_ = s.revisions.Append(&model.OTCOfferRevision{
 		OfferID: o.ID, RevisionNumber: revNum,
 		Quantity: o.Quantity, StrikePrice: o.StrikePrice, Premium: o.Premium, SettlementDate: o.SettlementDate,
-		ModifiedByUserID: in.ActorUserID, ModifiedBySystemType: in.ActorSystemType, Action: model.OTCActionAccept,
+		ModifiedByPrincipalType: in.ActorSystemType,
+		ModifiedByPrincipalID:   uint64(in.ActorUserID),
+		Action:                  model.OTCActionAccept,
 	})
 
 	if s.producer != nil {
+		// Kafka payload still uses the legacy OTCParty(user_id, system_type)
+		// shape pending Task 9 of plan 2026-04-27-owner-type-schema.md.
 		payload := kafkamsg.OTCContractCreatedMessage{
 			MessageID:      uuid.NewString(),
 			OccurredAt:     time.Now().UTC().Format(time.RFC3339),
 			ContractID:     contract.ID,
 			OfferID:        o.ID,
-			Buyer:          kafkamsg.OTCParty{UserID: buyerID, SystemType: buyerType},
-			Seller:         kafkamsg.OTCParty{UserID: sellerID, SystemType: sellerType},
+			Buyer:          kafkamsg.OTCParty{UserID: int64(model.OwnerToLegacyUserID(buyerOwnerType, buyerOwnerID)), SystemType: model.OwnerToLegacySystemType(buyerOwnerType)},
+			Seller:         kafkamsg.OTCParty{UserID: int64(model.OwnerToLegacyUserID(sellerOwnerType, sellerOwnerID)), SystemType: model.OwnerToLegacySystemType(sellerOwnerType)},
 			Quantity:       contract.Quantity.String(),
 			StrikePrice:    contract.StrikePrice.String(),
 			PremiumPaid:    contract.PremiumPaid.String(),
@@ -233,13 +245,17 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	return contract, nil
 }
 
-func identifyOTCBuyerSeller(o *model.OTCOffer, actorID int64, actorType string) (buyerID int64, buyerType string, sellerID int64, sellerType string) {
+// identifyOTCBuyerSellerOwners maps a triggering actor (the principal who
+// called Accept) plus the offer's initiator role to the buyer and seller
+// owners of the resulting option contract.
+func identifyOTCBuyerSellerOwners(o *model.OTCOffer, actorID int64, actorType string) (buyerOwnerType model.OwnerType, buyerOwnerID *uint64, sellerOwnerType model.OwnerType, sellerOwnerID *uint64) {
+	actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(actorID), actorType)
 	if o.Direction == model.OTCDirectionSellInitiated {
-		sellerID, sellerType = o.InitiatorUserID, o.InitiatorSystemType
-		buyerID, buyerType = actorID, actorType
+		sellerOwnerType, sellerOwnerID = o.InitiatorOwnerType, o.InitiatorOwnerID
+		buyerOwnerType, buyerOwnerID = actorOwnerType, actorOwnerID
 	} else {
-		buyerID, buyerType = o.InitiatorUserID, o.InitiatorSystemType
-		sellerID, sellerType = actorID, actorType
+		buyerOwnerType, buyerOwnerID = o.InitiatorOwnerType, o.InitiatorOwnerID
+		sellerOwnerType, sellerOwnerID = actorOwnerType, actorOwnerID
 	}
 	return
 }

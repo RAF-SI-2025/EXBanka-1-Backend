@@ -59,11 +59,13 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 		return nil, fmt.Errorf("amount_rsd must be positive: %w", ErrFundInvalidInput)
 	}
 
-	posUserID, posSystemType := in.ActorUserID, in.ActorSystemType
+	// Resolve the position owner. Self-redeem is the actor (client owner);
+	// bank-on-behalf is the bank owner (OwnerType=bank, owner_id=NULL).
+	posOwnerType, posOwnerID := model.OwnerFromLegacy(in.ActorUserID, in.ActorSystemType)
 	if in.OnBehalfOfType == "bank" {
-		posUserID, posSystemType = bankSentinelUserID, "employee"
+		posOwnerType, posOwnerID = model.OwnerBank, nil
 	}
-	pos, err := s.positions.GetByOwner(in.FundID, posUserID, posSystemType)
+	pos, err := s.positions.GetByFundAndOwner(in.FundID, posOwnerType, posOwnerID)
 	if err != nil {
 		return nil, fmt.Errorf("no position: %w", err)
 	}
@@ -72,7 +74,8 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	}
 
 	feeRSD := decimal.Zero
-	if posSystemType == "client" && s.settings != nil {
+	// Only client owners pay redemption fees; the bank as owner exits free.
+	if posOwnerType == model.OwnerClient && s.settings != nil {
 		feePct, err := s.settings.GetDecimal("fund_redemption_fee_pct")
 		if err == nil && !feePct.IsZero() {
 			feeRSD = in.AmountRSD.Mul(feePct).Round(4)
@@ -120,8 +123,8 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 
 	contrib := &model.FundContribution{
 		FundID:                  in.FundID,
-		UserID:                  posUserID,
-		SystemType:              posSystemType,
+		OwnerType:               posOwnerType,
+		OwnerID:                 posOwnerID,
 		Direction:               model.FundDirectionRedeem,
 		AmountNative:            in.AmountRSD,
 		NativeCurrency:          "RSD",
@@ -199,7 +202,7 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	// Position decrement is best-effort: money already moved, and position
 	// rows are recoverable from the saga log if this fails. Do NOT include
 	// in the saga — a decrement failure must not reverse the redemption.
-	if err := s.positions.DecrementContribution(in.FundID, posUserID, posSystemType, in.AmountRSD); err != nil {
+	if err := s.positions.DecrementContribution(in.FundID, posOwnerType, posOwnerID, in.AmountRSD); err != nil {
 		log.Printf("WARN: redeem position decrement failed for saga %s: %v (money already moved)", sagaID, err)
 	}
 
@@ -213,8 +216,10 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 			MessageID:       uuid.NewString(),
 			OccurredAt:      time.Now().UTC().Format(time.RFC3339),
 			FundID:          in.FundID,
-			UserID:          posUserID,
-			SystemType:      posSystemType,
+			// Kafka payload still uses the legacy (user_id, system_type) pair
+			// pending Task 9 of plan 2026-04-27-owner-type-schema.md.
+			UserID:          model.OwnerToLegacyUserID(posOwnerType, posOwnerID),
+			SystemType:      model.OwnerToLegacySystemType(posOwnerType),
 			AmountRSD:       in.AmountRSD.String(),
 			FeeRSD:          feeRSD.String(),
 			TargetAccountID: in.TargetAccountID,

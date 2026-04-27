@@ -62,7 +62,10 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	if !c.SettlementDate.After(time.Now().UTC().Truncate(24 * time.Hour)) {
 		return nil, errors.New("contract has expired (settlement_date <= today)")
 	}
-	if c.BuyerUserID != in.ActorUserID || c.BuyerSystemType != in.ActorSystemType {
+	// Only the contract buyer may exercise. Comparison runs through the
+	// (owner_type, owner_id) identity, derived from the actor's legacy pair.
+	actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(in.ActorUserID), in.ActorSystemType)
+	if c.BuyerOwnerType != actorOwnerType || !ownerIDEqual(c.BuyerOwnerID, actorOwnerID) {
 		return nil, errors.New("only the contract buyer can exercise")
 	}
 
@@ -179,8 +182,8 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	// At this point money + seller-side shares have moved; failure here is
 	// logged loud and left for manual reconciliation.
 	if err := s.holdingRepo.Upsert(&model.Holding{
-		UserID:       uint64(c.BuyerUserID),
-		SystemType:   c.BuyerSystemType,
+		OwnerType:    c.BuyerOwnerType,
+		OwnerID:      c.BuyerOwnerID,
 		SecurityType: "stock",
 		SecurityID:   c.StockID,
 		Quantity:     qty,
@@ -198,12 +201,20 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	}
 
 	if s.producer != nil {
+		// Kafka payload still uses the legacy OTCParty(user_id, system_type)
+		// shape pending Task 9 of plan 2026-04-27-owner-type-schema.md.
 		payload := kafkamsg.OTCContractExercisedMessage{
-			MessageID:         uuid.NewString(),
-			OccurredAt:        now.Format(time.RFC3339),
-			ContractID:        c.ID,
-			Buyer:             kafkamsg.OTCParty{UserID: c.BuyerUserID, SystemType: c.BuyerSystemType},
-			Seller:            kafkamsg.OTCParty{UserID: c.SellerUserID, SystemType: c.SellerSystemType},
+			MessageID:  uuid.NewString(),
+			OccurredAt: now.Format(time.RFC3339),
+			ContractID: c.ID,
+			Buyer: kafkamsg.OTCParty{
+				UserID:     int64(model.OwnerToLegacyUserID(c.BuyerOwnerType, c.BuyerOwnerID)),
+				SystemType: model.OwnerToLegacySystemType(c.BuyerOwnerType),
+			},
+			Seller: kafkamsg.OTCParty{
+				UserID:     int64(model.OwnerToLegacyUserID(c.SellerOwnerType, c.SellerOwnerID)),
+				SystemType: model.OwnerToLegacySystemType(c.SellerOwnerType),
+			},
 			StrikeAmountPaid:  strikeSellerCcy.String(),
 			SharesTransferred: decimal.NewFromInt(qty).String(),
 			ExercisedAt:       now.Format(time.RFC3339),

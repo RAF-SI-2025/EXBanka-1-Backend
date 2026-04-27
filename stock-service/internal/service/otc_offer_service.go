@@ -20,7 +20,7 @@ import (
 // OTCHoldingLookup is the minimal Holding read the offer service needs to
 // run the seller-invariant check. Implemented by *repository.HoldingRepository.
 type OTCHoldingLookup interface {
-	GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64) (*model.Holding, error)
+	GetByOwnerAndSecurity(ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error)
 }
 
 // OTCOfferService owns negotiation flows: create, counter, reject, list, get.
@@ -157,49 +157,64 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 	}
 
 	if in.Direction == model.OTCDirectionSellInitiated {
-		if err := s.assertSellerHasShares(in.ActorUserID, in.ActorSystemType, in.StockID, in.Quantity); err != nil {
+		actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(in.ActorUserID), in.ActorSystemType)
+		if err := s.assertSellerHasShares(actorOwnerType, actorOwnerID, in.StockID, in.Quantity); err != nil {
 			return nil, err
 		}
 	}
 
+	initOwnerType, initOwnerID := model.OwnerFromLegacy(uint64(in.ActorUserID), in.ActorSystemType)
+	var cpOwnerType *model.OwnerType
+	var cpOwnerID *uint64
+	if in.CounterpartyUserID != nil {
+		t, id := model.OwnerFromLegacy(uint64(*in.CounterpartyUserID), *in.CounterpartySystemType)
+		cpOwnerType = &t
+		cpOwnerID = id
+	}
+
 	o := &model.OTCOffer{
-		InitiatorUserID:          in.ActorUserID,
-		InitiatorSystemType:      in.ActorSystemType,
-		CounterpartyUserID:       in.CounterpartyUserID,
-		CounterpartySystemType:   in.CounterpartySystemType,
-		Direction:                in.Direction,
-		StockID:                  in.StockID,
-		Quantity:                 in.Quantity,
-		StrikePrice:              in.StrikePrice,
-		Premium:                  in.Premium,
-		SettlementDate:           in.SettlementDate,
-		Status:                   model.OTCOfferStatusPending,
-		LastModifiedByUserID:     in.ActorUserID,
-		LastModifiedBySystemType: in.ActorSystemType,
+		InitiatorOwnerType:          initOwnerType,
+		InitiatorOwnerID:            initOwnerID,
+		CounterpartyOwnerType:       cpOwnerType,
+		CounterpartyOwnerID:         cpOwnerID,
+		Direction:                   in.Direction,
+		StockID:                     in.StockID,
+		Quantity:                    in.Quantity,
+		StrikePrice:                 in.StrikePrice,
+		Premium:                     in.Premium,
+		SettlementDate:              in.SettlementDate,
+		Status:                      model.OTCOfferStatusPending,
+		LastModifiedByPrincipalType: in.ActorSystemType,
+		LastModifiedByPrincipalID:   uint64(in.ActorUserID),
 	}
 	if err := s.offers.Create(o); err != nil {
 		return nil, err
 	}
 	if err := s.revisions.Append(&model.OTCOfferRevision{
-		OfferID:              o.ID,
-		RevisionNumber:       1,
-		Quantity:             o.Quantity,
-		StrikePrice:          o.StrikePrice,
-		Premium:              o.Premium,
-		SettlementDate:       o.SettlementDate,
-		ModifiedByUserID:     o.LastModifiedByUserID,
-		ModifiedBySystemType: o.LastModifiedBySystemType,
-		Action:               model.OTCActionCreate,
+		OfferID:                 o.ID,
+		RevisionNumber:          1,
+		Quantity:                o.Quantity,
+		StrikePrice:             o.StrikePrice,
+		Premium:                 o.Premium,
+		SettlementDate:          o.SettlementDate,
+		ModifiedByPrincipalType: o.LastModifiedByPrincipalType,
+		ModifiedByPrincipalID:   o.LastModifiedByPrincipalID,
+		Action:                  model.OTCActionCreate,
 	}); err != nil {
 		return nil, err
 	}
 
 	if s.producer != nil {
+		// Kafka payload still uses the legacy OTCParty(user_id, system_type)
+		// shape pending Task 9 of plan 2026-04-27-owner-type-schema.md.
 		payload := kafkamsg.OTCOfferCreatedMessage{
-			MessageID:      uuid.NewString(),
-			OccurredAt:     time.Now().UTC().Format(time.RFC3339),
-			OfferID:        o.ID,
-			Initiator:      kafkamsg.OTCParty{UserID: o.InitiatorUserID, SystemType: o.InitiatorSystemType},
+			MessageID:  uuid.NewString(),
+			OccurredAt: time.Now().UTC().Format(time.RFC3339),
+			OfferID:    o.ID,
+			Initiator: kafkamsg.OTCParty{
+				UserID:     int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)),
+				SystemType: model.OwnerToLegacySystemType(o.InitiatorOwnerType),
+			},
 			Counterparty:   ptrCounterparty(o),
 			StockID:        o.StockID,
 			Quantity:       o.Quantity.String(),
@@ -233,20 +248,23 @@ func (s *OTCOfferService) Counter(ctx context.Context, in CounterInput) (*model.
 	if o.IsTerminal() {
 		return nil, errors.New("offer is in a terminal state")
 	}
-	if o.LastModifiedByUserID == in.ActorUserID && o.LastModifiedBySystemType == in.ActorSystemType {
+	if o.LastModifiedByPrincipalType == in.ActorSystemType && o.LastModifiedByPrincipalID == uint64(in.ActorUserID) {
 		return nil, errors.New("you cannot counter your own most recent terms")
 	}
 	if !in.Quantity.Equal(o.Quantity) {
-		var sellerID int64
-		var sellerType string
+		// Identify the seller's owner pair from the offer to validate share
+		// availability. Seller is the initiator on sell_initiated offers,
+		// otherwise the (required) counterparty.
+		var sellerOwnerType model.OwnerType
+		var sellerOwnerID *uint64
 		if o.Direction == model.OTCDirectionSellInitiated {
-			sellerID, sellerType = o.InitiatorUserID, o.InitiatorSystemType
-		} else if o.CounterpartyUserID != nil {
-			sellerID, sellerType = *o.CounterpartyUserID, *o.CounterpartySystemType
+			sellerOwnerType, sellerOwnerID = o.InitiatorOwnerType, o.InitiatorOwnerID
+		} else if o.CounterpartyOwnerType != nil {
+			sellerOwnerType, sellerOwnerID = *o.CounterpartyOwnerType, o.CounterpartyOwnerID
 		} else {
 			return nil, errors.New("cannot determine seller for invariant check")
 		}
-		if err := s.assertSellerHasShares(sellerID, sellerType, o.StockID, in.Quantity); err != nil {
+		if err := s.assertSellerHasShares(sellerOwnerType, sellerOwnerID, o.StockID, in.Quantity); err != nil {
 			return nil, err
 		}
 	}
@@ -261,8 +279,8 @@ func (s *OTCOfferService) Counter(ctx context.Context, in CounterInput) (*model.
 	o.Premium = in.Premium
 	o.SettlementDate = in.SettlementDate
 	o.Status = model.OTCOfferStatusCountered
-	o.LastModifiedByUserID = in.ActorUserID
-	o.LastModifiedBySystemType = in.ActorSystemType
+	o.LastModifiedByPrincipalType = in.ActorSystemType
+	o.LastModifiedByPrincipalID = uint64(in.ActorUserID)
 	if err := s.offers.Save(o); err != nil {
 		return nil, err
 	}
@@ -270,8 +288,9 @@ func (s *OTCOfferService) Counter(ctx context.Context, in CounterInput) (*model.
 	if err := s.revisions.Append(&model.OTCOfferRevision{
 		OfferID: o.ID, RevisionNumber: revNum,
 		Quantity: o.Quantity, StrikePrice: o.StrikePrice, Premium: o.Premium, SettlementDate: o.SettlementDate,
-		ModifiedByUserID: in.ActorUserID, ModifiedBySystemType: in.ActorSystemType,
-		Action: model.OTCActionCounter,
+		ModifiedByPrincipalType: in.ActorSystemType,
+		ModifiedByPrincipalID:   uint64(in.ActorUserID),
+		Action:                  model.OTCActionCounter,
 	}); err != nil {
 		return nil, err
 	}
@@ -317,15 +336,17 @@ func (s *OTCOfferService) Reject(ctx context.Context, in RejectInput) (*model.OT
 		return nil, err
 	}
 	o.Status = model.OTCOfferStatusRejected
-	o.LastModifiedByUserID = in.ActorUserID
-	o.LastModifiedBySystemType = in.ActorSystemType
+	o.LastModifiedByPrincipalType = in.ActorSystemType
+	o.LastModifiedByPrincipalID = uint64(in.ActorUserID)
 	if err := s.offers.Save(o); err != nil {
 		return nil, err
 	}
 	_ = s.revisions.Append(&model.OTCOfferRevision{
 		OfferID: o.ID, RevisionNumber: revNum,
 		Quantity: o.Quantity, StrikePrice: o.StrikePrice, Premium: o.Premium, SettlementDate: o.SettlementDate,
-		ModifiedByUserID: in.ActorUserID, ModifiedBySystemType: in.ActorSystemType, Action: model.OTCActionReject,
+		ModifiedByPrincipalType: in.ActorSystemType,
+		ModifiedByPrincipalID:   uint64(in.ActorUserID),
+		Action:                  model.OTCActionReject,
 	})
 	if s.producer != nil {
 		payload := kafkamsg.OTCOfferRejectedMessage{
@@ -345,7 +366,8 @@ func (s *OTCOfferService) Reject(ctx context.Context, in RejectInput) (*model.OT
 
 // ListMyOffers returns offers where the user is initiator/counterparty/either.
 func (s *OTCOfferService) ListMyOffers(userID int64, systemType, role string, statuses []string, stockID uint64, page, pageSize int) ([]model.OTCOffer, int64, error) {
-	return s.offers.ListByOwner(userID, systemType, role, statuses, stockID, page, pageSize)
+	ownerType, ownerID := model.OwnerFromLegacy(uint64(userID), systemType)
+	return s.offers.ListByOwner(ownerType, ownerID, role, statuses, stockID, page, pageSize)
 }
 
 // LastReadReceipt returns the read-receipt for (userID, systemType, offerID),
@@ -355,7 +377,8 @@ func (s *OTCOfferService) LastReadReceipt(userID int64, systemType string, offer
 	if s.receipts == nil {
 		return nil, nil
 	}
-	return s.receipts.GetReceipt(userID, systemType, offerID)
+	ownerType, ownerID := model.OwnerFromLegacy(uint64(userID), systemType)
+	return s.receipts.GetReceipt(ownerType, model.OwnerIDOrZero(ownerID), offerID)
 }
 
 // GetOffer returns the offer + its revisions, scoped to participants only.
@@ -373,32 +396,34 @@ func (s *OTCOfferService) GetOffer(offerID uint64, actorUserID int64, actorSyste
 	}
 	// Mark read.
 	if s.receipts != nil {
-		_ = s.receipts.Upsert(actorUserID, actorSystemType, o.ID, o.UpdatedAt)
+		actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(actorUserID), actorSystemType)
+		_ = s.receipts.Upsert(actorOwnerType, model.OwnerIDOrZero(actorOwnerID), o.ID, o.UpdatedAt)
 	}
 	return o, revs, nil
 }
 
 func (s *OTCOfferService) isParticipant(o *model.OTCOffer, userID int64, systemType string) bool {
-	if o.InitiatorUserID == userID && o.InitiatorSystemType == systemType {
+	actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(userID), systemType)
+	if o.InitiatorOwnerType == actorOwnerType && ownerIDEqual(o.InitiatorOwnerID, actorOwnerID) {
 		return true
 	}
-	if o.CounterpartyUserID != nil && *o.CounterpartyUserID == userID &&
-		o.CounterpartySystemType != nil && *o.CounterpartySystemType == systemType {
+	if o.CounterpartyOwnerType != nil && *o.CounterpartyOwnerType == actorOwnerType &&
+		ownerIDEqual(o.CounterpartyOwnerID, actorOwnerID) {
 		return true
 	}
 	return false
 }
 
-func (s *OTCOfferService) assertSellerHasShares(userID int64, systemType string, stockID uint64, requested decimal.Decimal) error {
+func (s *OTCOfferService) assertSellerHasShares(ownerType model.OwnerType, ownerID *uint64, stockID uint64, requested decimal.Decimal) error {
 	if s.holdings == nil {
 		return errors.New("holding lookup not configured")
 	}
-	holding, err := s.holdings.GetByUserAndSecurity(uint64(userID), systemType, "stock", stockID)
+	holding, err := s.holdings.GetByOwnerAndSecurity(ownerType, ownerID, "stock", stockID)
 	if err != nil {
 		return fmt.Errorf("seller has no holding for stock %d: %w", stockID, err)
 	}
 	heldQty := decimal.NewFromInt(holding.Quantity)
-	committed, err := s.offers.SumActiveQuantityForSeller(userID, systemType, stockID)
+	committed, err := s.offers.SumActiveQuantityForSeller(ownerType, ownerID, stockID)
 	if err != nil {
 		return err
 	}
@@ -409,19 +434,36 @@ func (s *OTCOfferService) assertSellerHasShares(userID int64, systemType string,
 	return nil
 }
 
+// ptrCounterparty maps the offer's counterparty owner pair to the legacy
+// OTCParty Kafka shape, returning nil when there is no counterparty yet.
+// Kafka payloads remain on the legacy schema pending Task 9 of plan
+// 2026-04-27-owner-type-schema.md.
 func ptrCounterparty(o *model.OTCOffer) *kafkamsg.OTCParty {
-	if o.CounterpartyUserID == nil {
+	if o.CounterpartyOwnerType == nil {
 		return nil
 	}
-	return &kafkamsg.OTCParty{UserID: *o.CounterpartyUserID, SystemType: *o.CounterpartySystemType}
+	return &kafkamsg.OTCParty{
+		UserID:     int64(model.OwnerToLegacyUserID(*o.CounterpartyOwnerType, o.CounterpartyOwnerID)),
+		SystemType: model.OwnerToLegacySystemType(*o.CounterpartyOwnerType),
+	}
 }
 
+// otcOtherParty returns the OTCParty representation of the participant on
+// the offer who is NOT the supplied actor. Used to populate Kafka counterparty
+// fields after a counter / reject event.
 func otcOtherParty(o *model.OTCOffer, actorID int64, actorType string) kafkamsg.OTCParty {
-	if o.InitiatorUserID == actorID && o.InitiatorSystemType == actorType {
-		if o.CounterpartyUserID != nil {
-			return kafkamsg.OTCParty{UserID: *o.CounterpartyUserID, SystemType: *o.CounterpartySystemType}
+	actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(actorID), actorType)
+	if o.InitiatorOwnerType == actorOwnerType && ownerIDEqual(o.InitiatorOwnerID, actorOwnerID) {
+		if o.CounterpartyOwnerType != nil {
+			return kafkamsg.OTCParty{
+				UserID:     int64(model.OwnerToLegacyUserID(*o.CounterpartyOwnerType, o.CounterpartyOwnerID)),
+				SystemType: model.OwnerToLegacySystemType(*o.CounterpartyOwnerType),
+			}
 		}
 		return kafkamsg.OTCParty{}
 	}
-	return kafkamsg.OTCParty{UserID: o.InitiatorUserID, SystemType: o.InitiatorSystemType}
+	return kafkamsg.OTCParty{
+		UserID:     int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)),
+		SystemType: model.OwnerToLegacySystemType(o.InitiatorOwnerType),
+	}
 }

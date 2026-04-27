@@ -53,16 +53,25 @@ func (r *OptionContractRepository) Save(c *model.OptionContract) error {
 	return nil
 }
 
-func (r *OptionContractRepository) ListByOwner(userID int64, systemType, role string, statuses []string, page, pageSize int) ([]model.OptionContract, int64, error) {
+// ListByOwner returns option contracts where the owner appears as buyer,
+// seller, or either. owner_id may be nil for OwnerType=bank.
+func (r *OptionContractRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, role string, statuses []string, page, pageSize int) ([]model.OptionContract, int64, error) {
 	q := r.db.Model(&model.OptionContract{})
 	switch role {
 	case "buyer":
-		q = q.Where("buyer_user_id = ? AND buyer_system_type = ?", userID, systemType)
+		q = scopeOwner(q, "buyer_owner_type", "buyer_owner_id", ownerType, ownerID)
 	case "seller":
-		q = q.Where("seller_user_id = ? AND seller_system_type = ?", userID, systemType)
+		q = scopeOwner(q, "seller_owner_type", "seller_owner_id", ownerType, ownerID)
 	default:
-		q = q.Where("(buyer_user_id = ? AND buyer_system_type = ?) OR (seller_user_id = ? AND seller_system_type = ?)",
-			userID, systemType, userID, systemType)
+		// OR over the buyer and seller owner-pair predicates. Inline since
+		// scopeOwner is single-pair.
+		if ownerID == nil {
+			q = q.Where("(buyer_owner_type = ? AND buyer_owner_id IS NULL) OR (seller_owner_type = ? AND seller_owner_id IS NULL)",
+				ownerType, ownerType)
+		} else {
+			q = q.Where("(buyer_owner_type = ? AND buyer_owner_id = ?) OR (seller_owner_type = ? AND seller_owner_id = ?)",
+				ownerType, *ownerID, ownerType, *ownerID)
+		}
 	}
 	if len(statuses) > 0 {
 		q = q.Where("status IN ?", statuses)
