@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	authpb "github.com/exbanka/contract/authpb"
+	perms "github.com/exbanka/contract/permissions"
 )
 
 // abortWithError sends a structured error and aborts the middleware chain.
@@ -104,20 +105,25 @@ func RequireClientToken() gin.HandlerFunc {
 	}
 }
 
-func RequirePermission(permission string) gin.HandlerFunc {
+// RequirePermission admits the request only if the caller holds the given
+// typed permission. Accepting a typed value (rather than a magic string) means
+// router authors can no longer typo a permission code: anything not in the
+// generated catalog fails to compile.
+func RequirePermission(p perms.Permission) gin.HandlerFunc {
+	want := string(p)
 	return func(c *gin.Context) {
-		perms, exists := c.Get("permissions")
+		raw, exists := c.Get("permissions")
 		if !exists {
 			abortWithError(c, http.StatusForbidden, "forbidden", "no permissions")
 			return
 		}
-		permList, ok := perms.([]string)
+		permList, ok := raw.([]string)
 		if !ok {
 			abortWithError(c, http.StatusForbidden, "forbidden", "invalid permissions format")
 			return
 		}
-		for _, p := range permList {
-			if p == permission {
+		for _, h := range permList {
+			if h == want {
 				c.Next()
 				return
 			}
@@ -127,23 +133,27 @@ func RequirePermission(permission string) gin.HandlerFunc {
 }
 
 // RequireAnyPermission admits the request if the caller holds at least one
-// of the listed permission codes. Used for routes whose visibility is
+// of the listed typed permissions. Used for routes whose visibility is
 // scoped: e.g. GET /api/orders accepts both `orders.read.all` and
 // `orders.read.own` — the handler then dispatches based on which the
 // caller holds (see HasPermission below).
-func RequireAnyPermission(codes ...string) gin.HandlerFunc {
+func RequireAnyPermission(ps ...perms.Permission) gin.HandlerFunc {
+	wants := make([]string, len(ps))
+	for i, p := range ps {
+		wants[i] = string(p)
+	}
 	return func(c *gin.Context) {
-		perms, exists := c.Get("permissions")
+		raw, exists := c.Get("permissions")
 		if !exists {
 			abortWithError(c, http.StatusForbidden, "forbidden", "no permissions")
 			return
 		}
-		permList, ok := perms.([]string)
+		permList, ok := raw.([]string)
 		if !ok {
 			abortWithError(c, http.StatusForbidden, "forbidden", "invalid permissions format")
 			return
 		}
-		for _, want := range codes {
+		for _, want := range wants {
 			for _, have := range permList {
 				if have == want {
 					c.Next()
@@ -156,9 +166,13 @@ func RequireAnyPermission(codes ...string) gin.HandlerFunc {
 }
 
 // RequireAllPermissions returns a middleware that requires every listed
-// permission to be present in the JWT's permissions claim. Use when an
+// typed permission to be present in the JWT's permissions claim. Use when an
 // action sits at the intersection of multiple capability gates.
-func RequireAllPermissions(perms ...string) gin.HandlerFunc {
+func RequireAllPermissions(ps ...perms.Permission) gin.HandlerFunc {
+	wants := make([]string, len(ps))
+	for i, p := range ps {
+		wants[i] = string(p)
+	}
 	return func(c *gin.Context) {
 		raw, ok := c.Get("permissions")
 		if !ok {
@@ -174,7 +188,7 @@ func RequireAllPermissions(perms ...string) gin.HandlerFunc {
 		for _, p := range have {
 			set[p] = true
 		}
-		for _, want := range perms {
+		for _, want := range wants {
 			if !set[want] {
 				abortWithError(c, http.StatusForbidden, "forbidden", "missing permission "+want)
 				return

@@ -7,6 +7,7 @@ import (
 	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	authpb "github.com/exbanka/contract/authpb"
+	perms "github.com/exbanka/contract/permissions"
 	stockpb "github.com/exbanka/contract/stockpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 )
@@ -54,19 +55,20 @@ func SetupV3Routes(
 		fundsAny.POST("/:id/redeem", fundHandler.Redeem)
 	}
 
-	// Manage (create / update) → funds.manage permission.
+	// Manage (create / update) → funds.manage.catalog.
 	fundsManage := v3.Group("/investment-funds")
 	fundsManage.Use(middleware.AuthMiddleware(authClient))
-	fundsManage.Use(middleware.RequirePermission("funds.manage"))
+	fundsManage.Use(middleware.RequirePermission(perms.Funds.Manage.Catalog))
 	{
 		fundsManage.POST("", fundHandler.CreateFund)
 		fundsManage.PUT("/:id", fundHandler.UpdateFund)
 	}
 
-	// Bank-position read + actuary performance → funds.bank-position-read.
+	// Bank-position read + actuary performance → funds.read.all (the catalog
+	// supervisor-class read perm; no separate bank-position perm exists).
 	fundsBank := v3.Group("/")
 	fundsBank.Use(middleware.AuthMiddleware(authClient))
-	fundsBank.Use(middleware.RequirePermission("funds.bank-position-read"))
+	fundsBank.Use(middleware.RequirePermission(perms.Funds.Read.All))
 	{
 		fundsBank.GET("/investment-funds/positions", fundHandler.ListBankPositions)
 		fundsBank.GET("/actuaries/performance", fundHandler.ActuaryPerformance)
@@ -88,7 +90,7 @@ func SetupV3Routes(
 	// Trading actions require both securities.trade AND otc.trade.
 	otcTrade := v3.Group("/otc")
 	otcTrade.Use(middleware.AnyAuthMiddleware(authClient))
-	otcTrade.Use(middleware.RequireAllPermissions("securities.trade", "otc.trade"))
+	otcTrade.Use(middleware.RequireAllPermissions(perms.Securities.Trade.Any, perms.Otc.Trade.Accept))
 	{
 		otcTrade.POST("/offers", otcHandler.CreateOffer)
 		otcTrade.POST("/offers/:id/counter", otcHandler.CounterOffer)

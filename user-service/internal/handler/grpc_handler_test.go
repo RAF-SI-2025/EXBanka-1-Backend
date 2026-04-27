@@ -83,11 +83,13 @@ func (m *mockEmpSvc) ResolvePermissions(emp *model.Employee) []string {
 // ---------------------------------------------------------------------------
 
 type mockRoleSvc struct {
-	listRolesFn  func() ([]model.Role, error)
-	getRoleFn    func(id int64) (*model.Role, error)
-	createRoleFn func(name, description string, perms []string) (*model.Role, error)
-	updateRoleFn func(roleID int64, perms []string) error
-	listPermsFn  func() ([]model.Permission, error)
+	listRolesFn          func() ([]model.Role, error)
+	getRoleFn            func(id int64) (*model.Role, error)
+	createRoleFn         func(name, description string, perms []string) (*model.Role, error)
+	updateRoleFn         func(roleID int64, perms []string) error
+	assignPermFn         func(roleName, perm string) error
+	revokePermFn         func(roleName, perm string) error
+	listPermsFn          func() ([]model.Permission, error)
 }
 
 func (m *mockRoleSvc) ListRoles() ([]model.Role, error) {
@@ -114,6 +116,20 @@ func (m *mockRoleSvc) CreateRole(name, description string, permissionCodes []str
 func (m *mockRoleSvc) UpdateRolePermissions(roleID int64, permissionCodes []string) error {
 	if m.updateRoleFn != nil {
 		return m.updateRoleFn(roleID, permissionCodes)
+	}
+	return nil
+}
+
+func (m *mockRoleSvc) AssignPermissionToRole(roleName, perm string) error {
+	if m.assignPermFn != nil {
+		return m.assignPermFn(roleName, perm)
+	}
+	return nil
+}
+
+func (m *mockRoleSvc) RevokePermissionFromRole(roleName, perm string) error {
+	if m.revokePermFn != nil {
+		return m.revokePermFn(roleName, perm)
 	}
 	return nil
 }
@@ -755,5 +771,125 @@ func TestCreateEmployee_WithRole_Success(t *testing.T) {
 	}
 	if len(resp.Roles) == 0 {
 		t.Error("expected at least one role in response")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// AssignPermissionToRole / RevokePermissionFromRole
+// ---------------------------------------------------------------------------
+
+func TestAssignPermissionToRole_Success(t *testing.T) {
+	calls := 0
+	roleSvc := &mockRoleSvc{
+		assignPermFn: func(roleName, perm string) error {
+			calls++
+			if roleName != "EmployeeBasic" || perm != "clients.read.all" {
+				t.Errorf("unexpected args: role=%q perm=%q", roleName, perm)
+			}
+			return nil
+		},
+	}
+	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
+
+	resp, err := h.AssignPermissionToRole(context.Background(), &pb.AssignPermissionToRoleRequest{
+		RoleName:   "EmployeeBasic",
+		Permission: "clients.read.all",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if calls != 1 {
+		t.Errorf("expected service called once, got %d", calls)
+	}
+}
+
+func TestAssignPermissionToRole_PermissionNotInCatalog(t *testing.T) {
+	roleSvc := &mockRoleSvc{
+		assignPermFn: func(roleName, perm string) error {
+			return service.ErrPermissionNotInCatalog
+		},
+	}
+	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
+
+	_, err := h.AssignPermissionToRole(context.Background(), &pb.AssignPermissionToRoleRequest{
+		RoleName:   "EmployeeBasic",
+		Permission: "totally.fake.permission",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if got := grpcCode(err); got != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", got)
+	}
+}
+
+func TestAssignPermissionToRole_RoleNotFound(t *testing.T) {
+	roleSvc := &mockRoleSvc{
+		assignPermFn: func(roleName, perm string) error {
+			return service.ErrRoleNotFound
+		},
+	}
+	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
+
+	_, err := h.AssignPermissionToRole(context.Background(), &pb.AssignPermissionToRoleRequest{
+		RoleName:   "NoSuchRole",
+		Permission: "clients.read.all",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if got := grpcCode(err); got != codes.NotFound {
+		t.Errorf("expected NotFound, got %v", got)
+	}
+}
+
+func TestRevokePermissionFromRole_Success(t *testing.T) {
+	calls := 0
+	roleSvc := &mockRoleSvc{
+		revokePermFn: func(roleName, perm string) error {
+			calls++
+			if roleName != "EmployeeBasic" || perm != "clients.read.all" {
+				t.Errorf("unexpected args: role=%q perm=%q", roleName, perm)
+			}
+			return nil
+		},
+	}
+	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
+
+	resp, err := h.RevokePermissionFromRole(context.Background(), &pb.RevokePermissionFromRoleRequest{
+		RoleName:   "EmployeeBasic",
+		Permission: "clients.read.all",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response")
+	}
+	if calls != 1 {
+		t.Errorf("expected service called once, got %d", calls)
+	}
+}
+
+func TestRevokePermissionFromRole_RoleNotFound(t *testing.T) {
+	roleSvc := &mockRoleSvc{
+		revokePermFn: func(roleName, perm string) error {
+			return service.ErrRoleNotFound
+		},
+	}
+	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
+
+	_, err := h.RevokePermissionFromRole(context.Background(), &pb.RevokePermissionFromRoleRequest{
+		RoleName:   "NoSuchRole",
+		Permission: "clients.read.all",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if got := grpcCode(err); got != codes.NotFound {
+		t.Errorf("expected NotFound, got %v", got)
 	}
 }

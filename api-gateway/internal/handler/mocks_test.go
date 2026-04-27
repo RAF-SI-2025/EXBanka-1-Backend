@@ -267,6 +267,8 @@ type stubUserClient struct {
 	getRoleFn          func(*userpb.GetRoleRequest) (*userpb.RoleResponse, error)
 	createRoleFn       func(*userpb.CreateRoleRequest) (*userpb.RoleResponse, error)
 	updateRolePermsFn  func(*userpb.UpdateRolePermissionsRequest) (*userpb.RoleResponse, error)
+	assignRolePermFn   func(*userpb.AssignPermissionToRoleRequest) (*userpb.AssignPermissionToRoleResponse, error)
+	revokeRolePermFn   func(*userpb.RevokePermissionFromRoleRequest) (*userpb.RevokePermissionFromRoleResponse, error)
 	listPermissionsFn  func(*userpb.ListPermissionsRequest) (*userpb.ListPermissionsResponse, error)
 	setEmployeeRolesFn func(*userpb.SetEmployeeRolesRequest) (*userpb.EmployeeResponse, error)
 	setEmployeePermsFn func(*userpb.SetEmployeePermissionsRequest) (*userpb.EmployeeResponse, error)
@@ -319,6 +321,18 @@ func (s *stubUserClient) UpdateRolePermissions(_ context.Context, in *userpb.Upd
 		return s.updateRolePermsFn(in)
 	}
 	return &userpb.RoleResponse{}, nil
+}
+func (s *stubUserClient) AssignPermissionToRole(_ context.Context, in *userpb.AssignPermissionToRoleRequest, _ ...grpc.CallOption) (*userpb.AssignPermissionToRoleResponse, error) {
+	if s.assignRolePermFn != nil {
+		return s.assignRolePermFn(in)
+	}
+	return &userpb.AssignPermissionToRoleResponse{}, nil
+}
+func (s *stubUserClient) RevokePermissionFromRole(_ context.Context, in *userpb.RevokePermissionFromRoleRequest, _ ...grpc.CallOption) (*userpb.RevokePermissionFromRoleResponse, error) {
+	if s.revokeRolePermFn != nil {
+		return s.revokeRolePermFn(in)
+	}
+	return &userpb.RevokePermissionFromRoleResponse{}, nil
 }
 func (s *stubUserClient) ListPermissions(_ context.Context, in *userpb.ListPermissionsRequest, _ ...grpc.CallOption) (*userpb.ListPermissionsResponse, error) {
 	if s.listPermissionsFn != nil {

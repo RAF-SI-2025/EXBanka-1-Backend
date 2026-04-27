@@ -268,8 +268,8 @@ func TestSetEmployeeRoles(t *testing.T) {
 	}
 	_ = repo.Create(emp)
 
-	// Seed roles
-	_ = roleSvc.SeedRolesAndPermissions()
+	// Seed roles into the mock repos using the codegened catalog.
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
 
 	err := svc.SetEmployeeRoles(context.Background(), emp.ID, []string{"EmployeeAgent"}, 0)
 	assert.NoError(t, err)
@@ -297,10 +297,11 @@ func TestSetEmployeeAdditionalPermissions(t *testing.T) {
 	}
 	_ = repo.Create(emp)
 
-	// Seed permissions
-	_ = roleSvc.SeedRolesAndPermissions()
+	// Seed permissions into the mock repos using the codegened catalog.
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
 
-	err := svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID, []string{"clients.read", "securities.trade"}, 0)
+	err := svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID,
+		[]string{"clients.read.all", "securities.trade.any"}, 0)
 	assert.NoError(t, err)
 
 	updated, err := repo.GetByID(emp.ID)

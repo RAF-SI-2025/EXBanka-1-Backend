@@ -27,6 +27,8 @@ const (
 	UserService_GetRole_FullMethodName                          = "/user.UserService/GetRole"
 	UserService_CreateRole_FullMethodName                       = "/user.UserService/CreateRole"
 	UserService_UpdateRolePermissions_FullMethodName            = "/user.UserService/UpdateRolePermissions"
+	UserService_AssignPermissionToRole_FullMethodName           = "/user.UserService/AssignPermissionToRole"
+	UserService_RevokePermissionFromRole_FullMethodName         = "/user.UserService/RevokePermissionFromRole"
 	UserService_ListPermissions_FullMethodName                  = "/user.UserService/ListPermissions"
 	UserService_SetEmployeeRoles_FullMethodName                 = "/user.UserService/SetEmployeeRoles"
 	UserService_SetEmployeeAdditionalPermissions_FullMethodName = "/user.UserService/SetEmployeeAdditionalPermissions"
@@ -45,6 +47,8 @@ type UserServiceClient interface {
 	GetRole(ctx context.Context, in *GetRoleRequest, opts ...grpc.CallOption) (*RoleResponse, error)
 	CreateRole(ctx context.Context, in *CreateRoleRequest, opts ...grpc.CallOption) (*RoleResponse, error)
 	UpdateRolePermissions(ctx context.Context, in *UpdateRolePermissionsRequest, opts ...grpc.CallOption) (*RoleResponse, error)
+	AssignPermissionToRole(ctx context.Context, in *AssignPermissionToRoleRequest, opts ...grpc.CallOption) (*AssignPermissionToRoleResponse, error)
+	RevokePermissionFromRole(ctx context.Context, in *RevokePermissionFromRoleRequest, opts ...grpc.CallOption) (*RevokePermissionFromRoleResponse, error)
 	ListPermissions(ctx context.Context, in *ListPermissionsRequest, opts ...grpc.CallOption) (*ListPermissionsResponse, error)
 	SetEmployeeRoles(ctx context.Context, in *SetEmployeeRolesRequest, opts ...grpc.CallOption) (*EmployeeResponse, error)
 	SetEmployeeAdditionalPermissions(ctx context.Context, in *SetEmployeePermissionsRequest, opts ...grpc.CallOption) (*EmployeeResponse, error)
@@ -139,6 +143,26 @@ func (c *userServiceClient) UpdateRolePermissions(ctx context.Context, in *Updat
 	return out, nil
 }
 
+func (c *userServiceClient) AssignPermissionToRole(ctx context.Context, in *AssignPermissionToRoleRequest, opts ...grpc.CallOption) (*AssignPermissionToRoleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AssignPermissionToRoleResponse)
+	err := c.cc.Invoke(ctx, UserService_AssignPermissionToRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) RevokePermissionFromRole(ctx context.Context, in *RevokePermissionFromRoleRequest, opts ...grpc.CallOption) (*RevokePermissionFromRoleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RevokePermissionFromRoleResponse)
+	err := c.cc.Invoke(ctx, UserService_RevokePermissionFromRole_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *userServiceClient) ListPermissions(ctx context.Context, in *ListPermissionsRequest, opts ...grpc.CallOption) (*ListPermissionsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListPermissionsResponse)
@@ -191,6 +215,8 @@ type UserServiceServer interface {
 	GetRole(context.Context, *GetRoleRequest) (*RoleResponse, error)
 	CreateRole(context.Context, *CreateRoleRequest) (*RoleResponse, error)
 	UpdateRolePermissions(context.Context, *UpdateRolePermissionsRequest) (*RoleResponse, error)
+	AssignPermissionToRole(context.Context, *AssignPermissionToRoleRequest) (*AssignPermissionToRoleResponse, error)
+	RevokePermissionFromRole(context.Context, *RevokePermissionFromRoleRequest) (*RevokePermissionFromRoleResponse, error)
 	ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error)
 	SetEmployeeRoles(context.Context, *SetEmployeeRolesRequest) (*EmployeeResponse, error)
 	SetEmployeeAdditionalPermissions(context.Context, *SetEmployeePermissionsRequest) (*EmployeeResponse, error)
@@ -228,6 +254,12 @@ func (UnimplementedUserServiceServer) CreateRole(context.Context, *CreateRoleReq
 }
 func (UnimplementedUserServiceServer) UpdateRolePermissions(context.Context, *UpdateRolePermissionsRequest) (*RoleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateRolePermissions not implemented")
+}
+func (UnimplementedUserServiceServer) AssignPermissionToRole(context.Context, *AssignPermissionToRoleRequest) (*AssignPermissionToRoleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AssignPermissionToRole not implemented")
+}
+func (UnimplementedUserServiceServer) RevokePermissionFromRole(context.Context, *RevokePermissionFromRoleRequest) (*RevokePermissionFromRoleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokePermissionFromRole not implemented")
 }
 func (UnimplementedUserServiceServer) ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListPermissions not implemented")
@@ -406,6 +438,42 @@ func _UserService_UpdateRolePermissions_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_AssignPermissionToRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AssignPermissionToRoleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).AssignPermissionToRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_AssignPermissionToRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).AssignPermissionToRole(ctx, req.(*AssignPermissionToRoleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_RevokePermissionFromRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokePermissionFromRoleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).RevokePermissionFromRole(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_RevokePermissionFromRole_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).RevokePermissionFromRole(ctx, req.(*RevokePermissionFromRoleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _UserService_ListPermissions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListPermissionsRequest)
 	if err := dec(in); err != nil {
@@ -516,6 +584,14 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateRolePermissions",
 			Handler:    _UserService_UpdateRolePermissions_Handler,
+		},
+		{
+			MethodName: "AssignPermissionToRole",
+			Handler:    _UserService_AssignPermissionToRole_Handler,
+		},
+		{
+			MethodName: "RevokePermissionFromRole",
+			Handler:    _UserService_RevokePermissionFromRole_Handler,
 		},
 		{
 			MethodName: "ListPermissions",

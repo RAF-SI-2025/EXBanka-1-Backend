@@ -491,28 +491,46 @@ Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>
 | `/api/verify/*` | `MobileAuthMiddleware` + `RequireDeviceSignature` | Mobile device with valid JWT + HMAC |
 | `/ws/mobile` | WebSocket auth (JWT + X-Device-ID) | Mobile device |
 
-### Permission Codes
+### Permission Catalog (codegened, Plan D)
 
-| Category | Permissions |
+Permissions are defined in `contract/permissions/catalog.yaml` and code-generated to `contract/permissions/perms.gen.go`. Naming convention: `<resource>.<verb>.<scope>` — three dotted segments, snake_case lowercase (e.g. `clients.read.all`, `roles.permissions.assign`).
+
+The codegen tool (`tools/perm-codegen/`) is invoked via `make permissions` and produces typed Go constants like `perms.Clients.Read.All`. Router gates use these constants directly: `middleware.RequirePermission(perms.Clients.Read.All)`. Drift between handler code and the catalog is caught at `go build` (unknown constant ⇒ compile error).
+
+The catalog is the source of truth for what permissions EXIST. Default role-permission mappings (also in `catalog.yaml` under `default_roles`) are seeded into the `role_permissions` DB table on FIRST startup only — when `role_permissions` is empty. After first startup, the DB is authoritative; admins manage role grants via the runtime API and the seed never re-runs.
+
+**Admin runtime API (granular, one permission per call):**
+
+| Method | Path | Required Permission |
+|---|---|---|
+| `POST` | `/api/v1/roles/:role_name/permissions` | `roles.permissions.assign` |
+| `DELETE` | `/api/v1/roles/:role_name/permissions/:permission` | `roles.permissions.revoke` |
+
+The `POST` body is `{"permission": "<code>"}`. The handler validates `<code>` against the catalog — unknown codes return HTTP 400 (`InvalidArgument`). A missing role returns HTTP 404. Both verbs are idempotent and return HTTP 204 No Content on success. Both publish `RolePermissionsChangedMessage` to Kafka so auth-service can revoke active sessions for affected employees.
+
+For bulk replacement (set all permissions on a role at once) the legacy `PUT /api/v1/roles/:id/permissions` endpoint remains available (gated by `roles.update.any`).
+
+**Catalog drift check:** at startup, user-service scans `role_permissions` and logs `WARN: orphan permission in role_permissions: role_id=… perm=…` for any DB row referencing a permission no longer in the catalog. Orphans are NOT auto-cleaned (silent revocation of admin grants would be unsafe); operators clean them manually after reviewing the warning.
+
+**Permission category overview** (truncated — see `contract/permissions/catalog.yaml` for the full 140-permission list):
+
+| Category | Example Permissions |
 |---|---|
-| clients | `clients.create`, `clients.read`, `clients.update` |
-| accounts | `accounts.create`, `accounts.read`, `accounts.update` |
-| cards | `cards.create`, `cards.read`, `cards.update`, `cards.approve` |
-| payments | `payments.read` |
-| credits | `credits.read`, `credits.approve` |
-| securities | `securities.trade`, `securities.read`, `securities.manage` |
-| employees | `employees.create`, `employees.update`, `employees.read`, `employees.permissions` |
-| limits | `limits.manage` |
-| admin | `bank-accounts.manage`, `fees.manage`, `interest-rates.manage` |
-| agent/otc | `agents.manage`, `otc.manage`, `otc.trade`, `funds.manage`, `funds.bank-position-read` |
-| orders | `orders.place-on-behalf`, `orders.place.for-bank`, `orders.place.on-behalf-client` |
+| clients | `clients.create.any`, `clients.read.all`, `clients.update.profile`, `clients.update.contact`, `clients.update.limits` |
+| accounts | `accounts.create.current`, `accounts.create.foreign`, `accounts.read.all`, `accounts.update.name`, `accounts.update.limits`, `accounts.deactivate.any` |
+| cards | `cards.create.physical`, `cards.create.virtual`, `cards.read.all`, `cards.block.any`, `cards.unblock.any`, `cards.approve.physical`, `cards.approve.virtual` |
+| credits | `credits.read.all`, `credits.approve.cash`, `credits.approve.housing`, `credits.disburse.any` |
+| securities | `securities.trade.any`, `securities.read.holdings_all`, `securities.manage.catalog` |
+| employees | `employees.create.any`, `employees.update.any`, `employees.read.all`, `employees.roles.assign`, `employees.permissions.assign` |
+| roles | `roles.read.all`, `roles.update.any`, `roles.permissions.assign`, `roles.permissions.revoke` |
+| limit_templates | `limit_templates.create.any`, `limit_templates.update.any` |
+| limits | `limits.employee.read`, `limits.employee.update` |
+| bank_accounts | `bank_accounts.manage.any` |
+| fees | `fees.create.any`, `fees.update.any` |
+| otc | `otc.trade.accept` |
+| funds | `funds.read.all`, `funds.manage.catalog` |
+| orders | `orders.place.on_behalf_client`, `orders.place.on_behalf_bank`, `orders.read.all`, `orders.cancel.all` |
 | verification | `verification.skip`, `verification.manage` |
-
-**Permission notes:**
-- `securities.manage` — manage stock-service data sources and perform destructive source switches. Assigned to `EmployeeAdmin` only.
-- `orders.place-on-behalf` (legacy umbrella) / `orders.place.on-behalf-client` (granular) / `orders.place.for-bank` (granular) — place stock/OTC orders on behalf of a client or for the bank. Seeded on `EmployeeAgent`, `EmployeeSupervisor`, and `EmployeeAdmin`.
-- `otc.trade` (Spec 2) — required to create/counter/accept/reject/exercise OTC options. Granted to `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin`.
-- `funds.bank-position-read` (Celina 4) — view the bank's positions across investment funds + the actuary-performance leaderboard. Granted to `EmployeeSupervisor` and `EmployeeAdmin`.
 
 ### Role Definitions
 

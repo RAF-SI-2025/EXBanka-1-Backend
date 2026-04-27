@@ -558,6 +558,56 @@ Replace all permissions for a role.
 
 ---
 
+### POST /api/v1/roles/:role_name/permissions
+
+Grant a single permission to a role (granular). The permission code is validated against the codegened catalog (`contract/permissions/catalog.yaml`); unknown codes are rejected with 400. Idempotent — granting a permission already held is a no-op success.
+
+**Authentication:** Employee JWT + `roles.permissions.assign` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `role_name` | string | Role name (e.g. `EmployeeBasic`, `EmployeeAgent`) |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `permission` | string | Yes | Permission code to grant (e.g. `clients.read.all`) |
+
+**Response 204:** No content
+
+**Error Responses:**
+- `400` — `permission` missing from request body, or permission not found in catalog
+- `401` — missing or invalid JWT
+- `403` — caller lacks `roles.permissions.assign`
+- `404` — role with the given name does not exist
+
+---
+
+### DELETE /api/v1/roles/:role_name/permissions/:permission
+
+Revoke a single permission grant from a role (granular). Idempotent — revoking a permission not currently held is a no-op success.
+
+**Authentication:** Employee JWT + `roles.permissions.revoke` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `role_name` | string | Role name (e.g. `EmployeeBasic`) |
+| `permission` | string | Permission code to revoke (e.g. `clients.read.all`) |
+
+**Response 204:** No content
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — caller lacks `roles.permissions.revoke`
+- `404` — role with the given name does not exist
+
+---
+
 ### GET /api/v1/permissions
 
 List all available permission codes in the system.
