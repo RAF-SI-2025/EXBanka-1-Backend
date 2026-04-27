@@ -9,7 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	accountpb "github.com/exbanka/contract/accountpb"
-	"github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
@@ -30,7 +30,7 @@ type BankCommissionRecipient interface {
 // account. No holding row is touched, no exchange-service.Convert call is
 // made — the forex listing's own price is the conversion rate.
 //
-// Saga shape for a forex buy (driven by shared.Saga):
+// Saga shape for a forex buy (driven by saga.Saga):
 //
 //	record_transaction          (audit only)
 //	settle_reservation_quote    (PartialSettleReservation on quote account)
@@ -108,7 +108,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	quoteMemo := fmt.Sprintf("Forex buy order #%d fill #%d — debit quote", order.ID, txn.ID)
 	baseMemo := fmt.Sprintf("Forex buy order #%d fill #%d — credit base", order.ID, txn.ID)
 
-	state := shared.NewState()
+	state := saga.NewState()
 	state.Set("order_id", order.ID)
 	state.Set("order_transaction_id", txn.ID)
 	state.Set("step:record_transaction:amount", txn.TotalPrice)
@@ -118,22 +118,22 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	state.Set("step:credit_base:amount", baseAmount)
 	// credit_base's currency is set inside its Forward once we resolve baseAcct.
 
-	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(shared.Step{
-			Name: "record_transaction",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(saga.Step{
+			Name: saga.StepRecordTransaction,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				// Audit-only step; the txn was already persisted above. The
 				// row exists so saga recovery can replay from this point.
 				return nil
 			},
 		}).
-		Add(shared.Step{
-			Name: "settle_reservation_quote",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+		Add(saga.Step{
+			Name: saga.StepSettleReservationQuote,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accountClient.PartialSettleReservation(ctx, order.ID, txn.ID, quoteAmount, quoteMemo)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				// Reverse-credit the quote account so the user is made whole.
 				quoteAcct, gerr := s.accountClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: order.AccountID})
 				if gerr != nil {
@@ -144,9 +144,9 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 				return cerr
 			},
 		}).
-		Add(shared.Step{
-			Name: "credit_base",
-			Forward: func(ctx context.Context, st *shared.State) error {
+		Add(saga.Step{
+			Name: saga.StepCreditBase,
+			Forward: func(ctx context.Context, st *saga.State) error {
 				baseAcct, err := s.accountClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: *order.BaseAccountID})
 				if err != nil {
 					return fmt.Errorf("base account lookup: %w", err)
@@ -158,7 +158,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 			// Last money step in the saga. Nothing after, so no Backward.
 		})
 
-	if err := saga.Execute(ctx, state); err != nil {
+	if err := sg.Execute(ctx, state); err != nil {
 		return err
 	}
 
@@ -167,10 +167,10 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	commissionAmount := s.computeCommission(quoteAmount)
 	if commissionAmount.Sign() > 0 && s.bankRecipient != nil {
 		commissionMemo := fmt.Sprintf("Commission for forex order #%d fill #%d", order.ID, txn.ID)
-		commSaga := shared.NewSaga(uuid.New().String(), stocksaga.NewRecorder(s.sagaRepo)).
-			Add(shared.Step{
-				Name: "credit_commission",
-				Forward: func(ctx context.Context, _ *shared.State) error {
+		commSaga := sg.NewSubSaga("commission").
+			Add(saga.Step{
+				Name: saga.StepCreditCommission,
+				Forward: func(ctx context.Context, _ *saga.State) error {
 					bankAcctNo, aerr := s.bankRecipient.BankCommissionAccountNumber(ctx)
 					if aerr != nil {
 						return aerr
@@ -179,7 +179,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 					return ferr
 				},
 			})
-		commState := shared.NewState()
+		commState := saga.NewState()
 		commState.Set("order_id", order.ID)
 		commState.Set("order_transaction_id", txn.ID)
 		commState.Set("step:credit_commission:amount", commissionAmount)

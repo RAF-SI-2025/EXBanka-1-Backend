@@ -13,6 +13,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
+	sharedsaga "github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -222,7 +223,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 	if s.accountClient != nil {
 		steps := []sagaStep{
 			{
-				name:          "debit_sender",
+				name:          sharedsaga.StepDebitSender,
 				accountNumber: payment.FromAccountNumber,
 				amount:        totalDebit.Neg(),
 				execute: func(ctx context.Context) error {
@@ -235,7 +236,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 				},
 			},
 			{
-				name:          "credit_recipient",
+				name:          sharedsaga.StepCreditRecipient,
 				accountNumber: payment.ToAccountNumber,
 				amount:        payment.InitialAmount,
 				execute: func(ctx context.Context) error {
@@ -254,7 +255,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 			commAmt := payment.Commission
 			bankAcct := s.bankRSDAccount
 			steps = append(steps, sagaStep{
-				name:          "credit_bank_commission",
+				name:          sharedsaga.StepCreditBankCommission,
 				accountNumber: bankAcct,
 				amount:        commAmt,
 				execute: func(ctx context.Context) error {

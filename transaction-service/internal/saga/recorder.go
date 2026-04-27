@@ -1,7 +1,8 @@
 // Package saga adapts transaction-service's saga_logs table to the
-// shared.Recorder and shared.RecoveryRecorder interfaces. The adapter is
-// thin: read the per-step metadata (account_number, amount, transaction_id,
-// transaction_type) from *shared.State and persist a model.SagaLog row.
+// saga.Recorder and saga.RecoveryRecorder interfaces from contract/shared/saga.
+// The adapter is thin: read the per-step metadata (account_number, amount,
+// transaction_id, transaction_type) from *saga.State and persist a
+// model.SagaLog row.
 //
 // Per-step metadata convention: the saga executor pre-populates the state
 // with keys of the form "step:<name>:account_number" and "step:<name>:amount"
@@ -17,12 +18,12 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/exbanka/contract/shared"
+	sharedsaga "github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
 )
 
-// Recorder implements shared.Recorder + shared.RecoveryRecorder over the
+// Recorder implements sharedsaga.Recorder + sharedsaga.RecoveryRecorder over the
 // existing SagaLogRepository.
 type Recorder struct {
 	repo *repository.SagaLogRepository
@@ -35,8 +36,8 @@ func NewRecorder(repo *repository.SagaLogRepository) *Recorder {
 
 // Compile-time guards.
 var (
-	_ shared.Recorder         = (*Recorder)(nil)
-	_ shared.RecoveryRecorder = (*Recorder)(nil)
+	_ sharedsaga.Recorder         = (*Recorder)(nil)
+	_ sharedsaga.RecoveryRecorder = (*Recorder)(nil)
 )
 
 // State key helpers — the saga executor sets these per step before
@@ -49,34 +50,38 @@ const (
 	keyAmount     = ":amount"
 )
 
-func stepAccountKey(name string) string { return keyStepPrefix + name + keyAccount }
-func stepAmountKey(name string) string  { return keyStepPrefix + name + keyAmount }
+func stepAccountKey(name sharedsaga.StepKind) string {
+	return keyStepPrefix + string(name) + keyAccount
+}
+func stepAmountKey(name sharedsaga.StepKind) string {
+	return keyStepPrefix + string(name) + keyAmount
+}
 
 // RecordForward writes a pending saga step row and returns its handle.
-func (r *Recorder) RecordForward(ctx context.Context, sagaID, stepName string, stepNumber int, st *shared.State) (shared.StepHandle, error) {
+func (r *Recorder) RecordForward(ctx context.Context, sagaID string, stepName sharedsaga.StepKind, stepNumber int, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
 	row := r.buildRow(sagaID, stepName, stepNumber, st)
-	row.Status = string(shared.SagaStatusPending)
+	row.Status = string(sharedsaga.SagaStatusPending)
 	row.IsCompensation = false
 	if err := r.repo.RecordStep(row); err != nil {
-		return shared.StepHandle{}, err
+		return sharedsaga.StepHandle{}, err
 	}
-	return shared.StepHandle{ID: row.ID}, nil
+	return sharedsaga.StepHandle{ID: row.ID}, nil
 }
 
 // MarkCompleted transitions a pending row to completed.
-func (r *Recorder) MarkCompleted(ctx context.Context, h shared.StepHandle) error {
+func (r *Recorder) MarkCompleted(ctx context.Context, h sharedsaga.StepHandle) error {
 	return r.repo.CompleteStep(h.ID)
 }
 
 // MarkFailed transitions a pending row to failed with a reason.
-func (r *Recorder) MarkFailed(ctx context.Context, h shared.StepHandle, errMsg string) error {
+func (r *Recorder) MarkFailed(ctx context.Context, h sharedsaga.StepHandle, errMsg string) error {
 	return r.repo.FailStep(h.ID, errMsg)
 }
 
 // RecordCompensation writes a compensating saga step row.
-func (r *Recorder) RecordCompensation(ctx context.Context, sagaID, stepName string, stepNumber int, forward shared.StepHandle, st *shared.State) (shared.StepHandle, error) {
+func (r *Recorder) RecordCompensation(ctx context.Context, sagaID string, stepName sharedsaga.StepKind, stepNumber int, forward sharedsaga.StepHandle, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
 	row := r.buildRow(sagaID, stepName, stepNumber, st)
-	row.Status = string(shared.SagaStatusCompensating)
+	row.Status = string(sharedsaga.SagaStatusCompensating)
 	row.IsCompensation = true
 	if forward.ID != 0 {
 		fid := forward.ID
@@ -86,46 +91,46 @@ func (r *Recorder) RecordCompensation(ctx context.Context, sagaID, stepName stri
 	// can replay UpdateBalance directly without re-deriving the sign.
 	row.Amount = row.Amount.Neg()
 	if err := r.repo.RecordStep(row); err != nil {
-		return shared.StepHandle{}, err
+		return sharedsaga.StepHandle{}, err
 	}
-	return shared.StepHandle{ID: row.ID}, nil
+	return sharedsaga.StepHandle{ID: row.ID}, nil
 }
 
 // MarkCompensated transitions a compensation row to its successful end state.
 // SagaLogRepository's CompleteStep writes status="completed" — same convention
 // the existing code uses for both forward and compensation success.
-func (r *Recorder) MarkCompensated(ctx context.Context, h shared.StepHandle) error {
+func (r *Recorder) MarkCompensated(ctx context.Context, h sharedsaga.StepHandle) error {
 	return r.repo.CompleteStep(h.ID)
 }
 
 // MarkCompensationFailed leaves the row in compensating status with an
 // error message; the recovery loop picks it up on the next tick.
-func (r *Recorder) MarkCompensationFailed(ctx context.Context, h shared.StepHandle, errMsg string) error {
+func (r *Recorder) MarkCompensationFailed(ctx context.Context, h sharedsaga.StepHandle, errMsg string) error {
 	return r.repo.SetErrorMessage(h.ID, errMsg)
 }
 
 // IsCompleted reports whether a forward step with the given saga_id+step_name
-// has already reached completed status. Used by shared.Saga's restart-resume.
-func (r *Recorder) IsCompleted(ctx context.Context, sagaID, stepName string) (bool, error) {
-	return r.repo.IsForwardCompleted(sagaID, stepName)
+// has already reached completed status. Used by sharedsaga.Saga's restart-resume.
+func (r *Recorder) IsCompleted(ctx context.Context, sagaID string, stepName sharedsaga.StepKind) (bool, error) {
+	return r.repo.IsForwardCompleted(sagaID, string(stepName))
 }
 
 // ListStuck returns rows in pending or compensating status whose
 // created_at (proxy for "last touched") is older than olderThan.
-func (r *Recorder) ListStuck(ctx context.Context, olderThan time.Duration) ([]shared.StuckStep, error) {
+func (r *Recorder) ListStuck(ctx context.Context, olderThan time.Duration) ([]sharedsaga.StuckStep, error) {
 	cutoff := time.Now().Add(-olderThan)
 	rows, err := r.repo.ListStuckOlderThan(cutoff)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]shared.StuckStep, 0, len(rows))
+	out := make([]sharedsaga.StuckStep, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, shared.StuckStep{
-			Handle:       shared.StepHandle{ID: r.ID},
+		out = append(out, sharedsaga.StuckStep{
+			Handle:       sharedsaga.StepHandle{ID: r.ID},
 			SagaID:       r.SagaID,
 			StepName:     stripCompensationSuffix(r.StepName),
 			StepNumber:   r.StepNumber,
-			Status:       shared.SagaStatus(r.Status),
+			Status:       sharedsaga.SagaStatus(r.Status),
 			RetryCount:   r.RetryCount,
 			UpdatedAt:    r.CreatedAt,
 			Compensation: r.IsCompensation,
@@ -141,23 +146,23 @@ func (r *Recorder) ListStuck(ctx context.Context, olderThan time.Duration) ([]sh
 }
 
 // IncrementRetry bumps retry_count on a stuck row.
-func (r *Recorder) IncrementRetry(ctx context.Context, h shared.StepHandle) error {
+func (r *Recorder) IncrementRetry(ctx context.Context, h sharedsaga.StepHandle) error {
 	return r.repo.IncrementRetryCount(h.ID)
 }
 
 // MarkDeadLetter transitions a stuck row to dead_letter terminal state.
-func (r *Recorder) MarkDeadLetter(ctx context.Context, h shared.StepHandle, reason string) error {
+func (r *Recorder) MarkDeadLetter(ctx context.Context, h sharedsaga.StepHandle, reason string) error {
 	return r.repo.MarkDeadLetter(h.ID, reason)
 }
 
 // buildRow assembles a SagaLog row from saga-level keys + per-step keys
 // in the State. Missing keys default to zero values (which the underlying
 // model accepts) so a partially-populated state still records.
-func (r *Recorder) buildRow(sagaID, stepName string, stepNumber int, st *shared.State) *model.SagaLog {
+func (r *Recorder) buildRow(sagaID string, stepName sharedsaga.StepKind, stepNumber int, st *sharedsaga.State) *model.SagaLog {
 	row := &model.SagaLog{
 		SagaID:     sagaID,
 		StepNumber: stepNumber,
-		StepName:   stepName,
+		StepName:   string(stepName),
 		CreatedAt:  time.Now(),
 	}
 	if v, ok := st.Get(keyTxID); ok {

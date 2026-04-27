@@ -14,7 +14,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
-	"github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
@@ -38,7 +38,7 @@ type AcceptInput struct {
 //  3. settle_premium_buyer — PartialSettleReservation (debits the premium).
 //  4. credit_premium_seller — CreditAccount on seller for the premium.
 //
-// Driven by shared.Saga: each step's Backward handles its own rollback
+// Driven by saga.Saga: each step's Backward handles its own rollback
 // when a later step fails. Steps 5 (mark offer accepted) and 6 (publish
 // kafka) run AFTER the saga since their failure must not reverse the
 // money flow that already settled.
@@ -125,7 +125,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	idemSeller := ""
 	creditMemo := ""
 
-	state := shared.NewState()
+	state := saga.NewState()
 	state.Set("step:reserve_and_contract:amount", o.Quantity)
 	state.Set("step:reserve_and_contract:currency", "shares")
 	state.Set("step:reserve_premium:amount", premiumBuyerCcy)
@@ -135,10 +135,10 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	state.Set("step:credit_premium_seller:amount", premiumSellerCcy)
 	state.Set("step:credit_premium_seller:currency", premiumCcy)
 
-	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(shared.Step{
-			Name: "reserve_and_contract",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(saga.Step{
+			Name: saga.StepReserveAndContract,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				if err := s.contracts.Create(contract); err != nil {
 					return err
 				}
@@ -152,29 +152,29 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 				creditMemo = fmt.Sprintf("OTC premium credit for contract #%d", contract.ID)
 				return nil
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, _ = s.holdingRes.ReleaseForOTCContract(ctx, contract.ID)
 				return s.contracts.Delete(contract.ID)
 			},
 		}).
-		Add(shared.Step{
-			Name: "reserve_premium",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+		Add(saga.Step{
+			Name: saga.StepReservePremium,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReleaseReservation(ctx, contract.ID)
 				return e
 			},
 		}).
-		Add(shared.Step{
-			Name: "settle_premium_buyer",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+		Add(saga.Step{
+			Name: saga.StepSettlePremiumBuyer,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				// Settlement debited buyer; reverse with a credit back to
 				// the buyer's account (the reservation row is already
 				// consumed, so ReleaseReservation no-ops).
@@ -184,16 +184,16 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 				return e
 			},
 		}).
-		Add(shared.Step{
-			Name: "credit_premium_seller",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+		Add(saga.Step{
+			Name: saga.StepCreditPremiumSeller,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy, creditMemo, idemSeller)
 				return e
 			},
 			// Last money step in the saga. No Backward needed.
 		})
 
-	if err := saga.Execute(ctx, state); err != nil {
+	if err := sg.Execute(ctx, state); err != nil {
 		return nil, err
 	}
 

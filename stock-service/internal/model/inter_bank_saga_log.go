@@ -7,7 +7,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// Saga kind constants — one row per (TxID, Phase, Role) triplet.
+// Saga kind constants — one row per (TxID, Phase, Role) triplet. Phase
+// strings themselves are no longer enumerated here: post-shared.Saga
+// migration the wire-level phase identifier comes from
+// contract/shared/saga.StepKind, so handlers and crons reference
+// string(saga.StepXxx) directly. Keeping a parallel set of Phase*
+// aliases here would let the two drift; deleting the aliases forces
+// the single canonical source.
 const (
 	SagaKindAccept   = "accept"
 	SagaKindExercise = "exercise"
@@ -15,14 +21,6 @@ const (
 
 	SagaRoleInitiator = "initiator"
 	SagaRoleResponder = "responder"
-
-	PhaseReserveBuyerFunds   = "reserve_buyer_funds"
-	PhaseReserveSellerShares = "reserve_seller_shares"
-	PhaseTransferFunds       = "transfer_funds"
-	PhaseTransferOwnership   = "transfer_ownership"
-	PhaseFinalize            = "finalize"
-	PhaseExpireNotify        = "expire_notify"
-	PhaseExpireApply         = "expire_apply"
 
 	IBSagaStatusPending      = "pending"
 	IBSagaStatusCompleted    = "completed"

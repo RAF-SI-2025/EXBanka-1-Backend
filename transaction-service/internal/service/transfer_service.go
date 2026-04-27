@@ -13,6 +13,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
+	sharedsaga "github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -314,7 +315,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 
 		steps := []sagaStep{
 			{
-				name:          "debit_user_from",
+				name:          sharedsaga.StepDebitUserFrom,
 				accountNumber: transfer.FromAccountNumber,
 				amount:        totalDebit.Neg(),
 				execute: func(ctx context.Context) error {
@@ -327,7 +328,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 				},
 			},
 			{
-				name:          "credit_bank_from",
+				name:          sharedsaga.StepCreditBankFrom,
 				accountNumber: bankFromAccount,
 				amount:        totalDebit,
 				execute: func(ctx context.Context) error {
@@ -340,7 +341,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 				},
 			},
 			{
-				name:          "debit_bank_to",
+				name:          sharedsaga.StepDebitBankTo,
 				accountNumber: bankToAccount,
 				amount:        convertedAmount.Neg(),
 				execute: func(ctx context.Context) error {
@@ -353,7 +354,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 				},
 			},
 			{
-				name:          "credit_user_to",
+				name:          sharedsaga.StepCreditUserTo,
 				accountNumber: transfer.ToAccountNumber,
 				amount:        convertedAmount,
 				execute: func(ctx context.Context) error {
@@ -378,7 +379,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		if s.accountClient != nil {
 			steps := []sagaStep{
 				{
-					name:          "debit_sender",
+					name:          sharedsaga.StepDebitSender,
 					accountNumber: transfer.FromAccountNumber,
 					amount:        totalDebit.Neg(),
 					execute: func(ctx context.Context) error {
@@ -391,7 +392,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 					},
 				},
 				{
-					name:          "credit_recipient",
+					name:          sharedsaga.StepCreditRecipient,
 					accountNumber: transfer.ToAccountNumber,
 					amount:        convertedAmount,
 					execute: func(ctx context.Context) error {

@@ -14,7 +14,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
-	"github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
@@ -36,7 +36,7 @@ type ExerciseInput struct {
 //  3. credit_strike_seller — CreditAccount on seller (proceeds).
 //  4. consume_seller_holding — decrement seller's holding.
 //
-// Driven by shared.Saga: each step's Backward handles its own rollback
+// Driven by saga.Saga: each step's Backward handles its own rollback
 // when a later step fails. The buyer-holding upsert + contract.Save +
 // kafka publish run AFTER the saga because their failure must NOT
 // reverse the seller's already-decremented holding (shares moved, money
@@ -114,7 +114,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	compSellerMemo := fmt.Sprintf("Compensating OTC strike credit #%d", c.ID)
 	compSellerKey := fmt.Sprintf("otc-exercise-%d-comp-seller", c.ID)
 
-	state := shared.NewState()
+	state := saga.NewState()
 	state.Set("step:reserve_strike:amount", strikeBuyerCcy)
 	state.Set("step:reserve_strike:currency", buyerCcy)
 	state.Set("step:settle_strike_buyer:amount", strikeBuyerCcy)
@@ -124,44 +124,44 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	state.Set("step:consume_seller_holding:amount", c.Quantity)
 	state.Set("step:consume_seller_holding:currency", "shares")
 
-	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(shared.Step{
-			Name: "reserve_strike",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(saga.Step{
+			Name: saga.StepReserveStrike,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReleaseReservation(ctx, syntheticTxnID)
 				return e
 			},
 		}).
-		Add(shared.Step{
-			Name: "settle_strike_buyer",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+		Add(saga.Step{
+			Name: saga.StepSettleStrikeBuyer,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, settleMemo)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				// Reverse buyer debit (credit it back in buyer's currency).
 				_, e := s.accounts.CreditAccount(ctx, buyerAcct.AccountNumber, strikeBuyerCcy, compBuyerMemo, compBuyerKey)
 				return e
 			},
 		}).
-		Add(shared.Step{
-			Name: "credit_strike_seller",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+		Add(saga.Step{
+			Name: saga.StepCreditStrikeSeller,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, strikeSellerCcy, creditMemo, idemSeller)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.DebitAccount(ctx, sellerAcct.AccountNumber, strikeSellerCcy, compSellerMemo, compSellerKey)
 				return e
 			},
 		}).
-		Add(shared.Step{
-			Name: "consume_seller_holding",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+		Add(saga.Step{
+			Name: saga.StepConsumeSellerHolding,
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.holdingRes.ConsumeForOTCContract(ctx, c.ID, qty, syntheticTxnID)
 				return e
 			},
@@ -171,7 +171,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			Pivot: true,
 		})
 
-	if err := saga.Execute(ctx, state); err != nil {
+	if err := sg.Execute(ctx, state); err != nil {
 		return nil, err
 	}
 

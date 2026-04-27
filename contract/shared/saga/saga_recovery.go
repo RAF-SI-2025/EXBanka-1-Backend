@@ -1,23 +1,23 @@
-// Package shared — saga_recovery.go provides the crash-recovery loop that
-// reconciles stuck saga steps after an unexpected process exit.
+// saga_recovery.go provides the crash-recovery loop that reconciles stuck
+// saga steps after an unexpected process exit.
 //
 // The flow:
 //
-//   1. RecoveryRunner.Run starts a background goroutine that ticks every
-//      Interval, calling Reconcile.
-//   2. Reconcile asks the RecoveryRecorder for steps stuck longer than
-//      StuckAfter (i.e., pending or compensating with an old updated_at).
-//   3. For each stuck step, the runner asks the per-service Classifier what
-//      to do: ActionRetry, ActionSkip, ActionDeadLetter, or ActionLeave
-//      (human review).
-//   4. ActionRetry calls Classifier.Retry, which is the only service-specific
-//      logic. The runner handles status transitions, retry counting, and
-//      dead-letter escalation.
+//  1. RecoveryRunner.Run starts a background goroutine that ticks every
+//     Interval, calling Reconcile.
+//  2. Reconcile asks the RecoveryRecorder for steps stuck longer than
+//     StuckAfter (i.e., pending or compensating with an old updated_at).
+//  3. For each stuck step, the runner asks the per-service Classifier what
+//     to do: ActionRetry, ActionSkip, ActionDeadLetter, or ActionLeave
+//     (human review).
+//  4. ActionRetry calls Classifier.Retry, which is the only service-specific
+//     logic. The runner handles status transitions, retry counting, and
+//     dead-letter escalation.
 //
 // This file owns the loop, the action vocabulary, and the retry budget; each
 // service still owns "what does step X mean" via its Classifier
 // implementation.
-package shared
+package saga
 
 import (
 	"context"
@@ -69,15 +69,15 @@ func (a RecoveryAction) String() string {
 // needs reconciliation. Each service maps its own saga_logs row into this
 // shape inside its adapter.
 type StuckStep struct {
-	Handle      StepHandle
-	SagaID      string
-	StepName    string
-	StepNumber  int
-	Status      SagaStatus // pending or compensating
-	RetryCount  int
-	UpdatedAt   time.Time
-	Payload     map[string]any // optional snapshot of saga state at record time
-	Compensation bool          // true = this row is a compensation step (was rolling back)
+	Handle       StepHandle
+	SagaID       string
+	StepName     string
+	StepNumber   int
+	Status       SagaStatus // pending or compensating
+	RetryCount   int
+	UpdatedAt    time.Time
+	Payload      map[string]any // optional snapshot of saga state at record time
+	Compensation bool           // true = this row is a compensation step (was rolling back)
 }
 
 // RecoveryRecorder extends Recorder with the queries the recovery loop
@@ -312,7 +312,7 @@ type noopRecoveryRecorder struct{ NoopRecorder }
 func (noopRecoveryRecorder) ListStuck(context.Context, time.Duration) ([]StuckStep, error) {
 	return nil, nil
 }
-func (noopRecoveryRecorder) IncrementRetry(context.Context, StepHandle) error  { return nil }
+func (noopRecoveryRecorder) IncrementRetry(context.Context, StepHandle) error { return nil }
 func (noopRecoveryRecorder) MarkDeadLetter(context.Context, StepHandle, string) error {
 	return nil
 }
