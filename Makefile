@@ -1,7 +1,10 @@
-.PHONY: proto permissions clean build tidy docker-up docker-down docker-logs test swagger test-integration lint
+.PHONY: proto permissions proto-check clean build tidy docker-up docker-down docker-logs test swagger test-integration lint
 
 permissions:
 	go run ./tools/perm-codegen
+
+proto-check:
+	go run ./tools/proto-idempotency-check
 
 proto:
 	protoc -I contract/proto \

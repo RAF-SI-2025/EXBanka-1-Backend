@@ -241,7 +241,9 @@ service InterBankService {
 
   // Receiver side — three handlers, one per inbound HTTP route forwarded
   // from api-gateway after HMAC verification.
+  // idempotent
   rpc HandlePrepare(InterBankPrepareRequest) returns (InterBankPrepareResponse);
+  // idempotent
   rpc HandleCommit(InterBankCommitRequest)   returns (InterBankCommitResponse);
   rpc HandleCheckStatus(InterBankCheckStatusRequest) returns (InterBankCheckStatusResponse);
 
@@ -253,12 +255,14 @@ service InterBankService {
   // PREPARE/COMMIT machinery on the opposite direction. Used by the
   // cross-bank OTC accept saga's compensation path when seller-side
   // ownership transfer fails after the buyer's funds have already moved.
+  // idempotent
   rpc ReverseInterBankTransfer(ReverseInterBankTransferRequest) returns (ReverseInterBankTransferResponse);
 }
 
 message ReverseInterBankTransferRequest {
   string original_tx_id = 1;
   string memo           = 2;
+  string idempotency_key = 3;  // saga step idempotency
 }
 message ReverseInterBankTransferResponse {
   string reverse_tx_id = 1;
@@ -288,6 +292,7 @@ message InterBankPrepareRequest {
   string amount             = 6;
   string currency           = 7;
   string memo               = 8;
+  string idempotency_key    = 9;  // saga step idempotency
 }
 message InterBankPrepareResponse {
   string transaction_id  = 1;
@@ -306,6 +311,7 @@ message InterBankCommitRequest {
   string final_currency  = 3;
   string fx_rate         = 4;
   string fees            = 5;
+  string idempotency_key = 6;  // saga step idempotency
 }
 message InterBankCommitResponse {
   string transaction_id     = 1;

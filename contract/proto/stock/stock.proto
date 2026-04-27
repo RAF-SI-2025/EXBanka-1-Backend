@@ -1150,13 +1150,18 @@ service CrossBankOTCService {
   rpc PeerAcceptIntent(PeerAcceptIntentRequest) returns (PeerAcceptIntentResponse);
 
   // Saga phases (responder side)
+  // idempotent
   rpc HandleReserveSellerShares(ReserveSellerSharesRequest) returns (ReserveSellerSharesResponse);
+  // idempotent
   rpc HandleTransferOwnership(TransferOwnershipRequest)     returns (TransferOwnershipResponse);
+  // idempotent
   rpc HandleFinalize(FinalizeRequest)                       returns (FinalizeResponse);
+  // idempotent
   rpc HandleContractExpire(ContractExpireRequest)           returns (ContractExpireResponse);
   rpc HandleSagaCheckStatus(SagaCheckStatusRequest)         returns (SagaCheckStatusResponse);
 
   // Compensation
+  // idempotent
   rpc HandleReserveSharesRollback(ReserveSharesRollbackRequest) returns (ReserveSharesRollbackResponse);
 }
 
@@ -1202,6 +1207,7 @@ message ReserveSellerSharesRequest {
   string quantity = 6;
   string buyer_bank_code = 7;
   string seller_bank_code = 8;
+  string idempotency_key = 9;  // saga step idempotency
 }
 message ReserveSellerSharesResponse {
   bool   confirmed = 1;
@@ -1218,6 +1224,7 @@ message TransferOwnershipRequest {
   string from_client_id_external = 6;
   string to_bank_code = 7;
   string to_client_id_external = 8;
+  string idempotency_key = 9;  // saga step idempotency
 }
 message TransferOwnershipResponse {
   bool   confirmed = 1;
@@ -1240,12 +1247,14 @@ message FinalizeRequest {
   string currency = 11;
   string settlement_date = 12;
   string saga_kind = 13;
+  string idempotency_key = 14;  // saga step idempotency
 }
 message FinalizeResponse { bool ok = 1; }
 
 message ContractExpireRequest {
   string tx_id = 1;
   uint64 contract_id = 2;
+  string idempotency_key = 3;  // saga step idempotency
 }
 message ContractExpireResponse {
   bool   ok = 1;
@@ -1268,5 +1277,6 @@ message SagaCheckStatusResponse {
 message ReserveSharesRollbackRequest {
   string tx_id = 1;
   uint64 contract_id = 2;
+  string idempotency_key = 3;  // saga step idempotency
 }
 message ReserveSharesRollbackResponse { bool ok = 1; }

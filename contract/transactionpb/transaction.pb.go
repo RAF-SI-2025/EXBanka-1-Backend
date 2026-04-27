@@ -2138,11 +2138,12 @@ func (x *TransferFeeResponse) GetActive() bool {
 }
 
 type ReverseInterBankTransferRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OriginalTxId  string                 `protobuf:"bytes,1,opt,name=original_tx_id,json=originalTxId,proto3" json:"original_tx_id,omitempty"`
-	Memo          string                 `protobuf:"bytes,2,opt,name=memo,proto3" json:"memo,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	OriginalTxId   string                 `protobuf:"bytes,1,opt,name=original_tx_id,json=originalTxId,proto3" json:"original_tx_id,omitempty"`
+	Memo           string                 `protobuf:"bytes,2,opt,name=memo,proto3" json:"memo,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,3,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ReverseInterBankTransferRequest) Reset() {
@@ -2185,6 +2186,13 @@ func (x *ReverseInterBankTransferRequest) GetOriginalTxId() string {
 func (x *ReverseInterBankTransferRequest) GetMemo() string {
 	if x != nil {
 		return x.Memo
+	}
+	return ""
+}
+
+func (x *ReverseInterBankTransferRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
 	}
 	return ""
 }
@@ -2395,6 +2403,7 @@ type InterBankPrepareRequest struct {
 	Amount           string                 `protobuf:"bytes,6,opt,name=amount,proto3" json:"amount,omitempty"`
 	Currency         string                 `protobuf:"bytes,7,opt,name=currency,proto3" json:"currency,omitempty"`
 	Memo             string                 `protobuf:"bytes,8,opt,name=memo,proto3" json:"memo,omitempty"`
+	IdempotencyKey   string                 `protobuf:"bytes,9,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2481,6 +2490,13 @@ func (x *InterBankPrepareRequest) GetCurrency() string {
 func (x *InterBankPrepareRequest) GetMemo() string {
 	if x != nil {
 		return x.Memo
+	}
+	return ""
+}
+
+func (x *InterBankPrepareRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
 	}
 	return ""
 }
@@ -2586,14 +2602,15 @@ func (x *InterBankPrepareResponse) GetReason() string {
 }
 
 type InterBankCommitRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TransactionId string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
-	FinalAmount   string                 `protobuf:"bytes,2,opt,name=final_amount,json=finalAmount,proto3" json:"final_amount,omitempty"`
-	FinalCurrency string                 `protobuf:"bytes,3,opt,name=final_currency,json=finalCurrency,proto3" json:"final_currency,omitempty"`
-	FxRate        string                 `protobuf:"bytes,4,opt,name=fx_rate,json=fxRate,proto3" json:"fx_rate,omitempty"`
-	Fees          string                 `protobuf:"bytes,5,opt,name=fees,proto3" json:"fees,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TransactionId  string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	FinalAmount    string                 `protobuf:"bytes,2,opt,name=final_amount,json=finalAmount,proto3" json:"final_amount,omitempty"`
+	FinalCurrency  string                 `protobuf:"bytes,3,opt,name=final_currency,json=finalCurrency,proto3" json:"final_currency,omitempty"`
+	FxRate         string                 `protobuf:"bytes,4,opt,name=fx_rate,json=fxRate,proto3" json:"fx_rate,omitempty"`
+	Fees           string                 `protobuf:"bytes,5,opt,name=fees,proto3" json:"fees,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *InterBankCommitRequest) Reset() {
@@ -2657,6 +2674,13 @@ func (x *InterBankCommitRequest) GetFxRate() string {
 func (x *InterBankCommitRequest) GetFees() string {
 	if x != nil {
 		return x.Fees
+	}
+	return ""
+}
+
+func (x *InterBankCommitRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
 	}
 	return ""
 }
@@ -3276,10 +3300,11 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\amax_fee\x18\x06 \x01(\tR\x06maxFee\x12)\n" +
 	"\x10transaction_type\x18\a \x01(\tR\x0ftransactionType\x12#\n" +
 	"\rcurrency_code\x18\b \x01(\tR\fcurrencyCode\x12\x16\n" +
-	"\x06active\x18\t \x01(\bR\x06active\"[\n" +
+	"\x06active\x18\t \x01(\bR\x06active\"\x84\x01\n" +
 	"\x1fReverseInterBankTransferRequest\x12$\n" +
 	"\x0eoriginal_tx_id\x18\x01 \x01(\tR\foriginalTxId\x12\x12\n" +
-	"\x04memo\x18\x02 \x01(\tR\x04memo\"\x85\x01\n" +
+	"\x04memo\x18\x02 \x01(\tR\x04memo\x12'\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"\x85\x01\n" +
 	" ReverseInterBankTransferResponse\x12\"\n" +
 	"\rreverse_tx_id\x18\x01 \x01(\tR\vreverseTxId\x12\x1c\n" +
 	"\tcommitted\x18\x02 \x01(\bR\tcommitted\x12\x1f\n" +
@@ -3294,7 +3319,7 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x19InitiateInterBankResponse\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12!\n" +
-	"\ferror_reason\x18\x03 \x01(\tR\verrorReason\"\xb2\x02\n" +
+	"\ferror_reason\x18\x03 \x01(\tR\verrorReason\"\xdb\x02\n" +
 	"\x17InterBankPrepareRequest\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12(\n" +
 	"\x10sender_bank_code\x18\x02 \x01(\tR\x0esenderBankCode\x12,\n" +
@@ -3303,7 +3328,8 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x10receiver_account\x18\x05 \x01(\tR\x0freceiverAccount\x12\x16\n" +
 	"\x06amount\x18\x06 \x01(\tR\x06amount\x12\x1a\n" +
 	"\bcurrency\x18\a \x01(\tR\bcurrency\x12\x12\n" +
-	"\x04memo\x18\b \x01(\tR\x04memo\"\x87\x02\n" +
+	"\x04memo\x18\b \x01(\tR\x04memo\x12'\n" +
+	"\x0fidempotency_key\x18\t \x01(\tR\x0eidempotencyKey\"\x87\x02\n" +
 	"\x18InterBankPrepareResponse\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x14\n" +
 	"\x05ready\x18\x02 \x01(\bR\x05ready\x12!\n" +
@@ -3313,13 +3339,14 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x04fees\x18\x06 \x01(\tR\x04fees\x12\x1f\n" +
 	"\vvalid_until\x18\a \x01(\tR\n" +
 	"validUntil\x12\x16\n" +
-	"\x06reason\x18\b \x01(\tR\x06reason\"\xb6\x01\n" +
+	"\x06reason\x18\b \x01(\tR\x06reason\"\xdf\x01\n" +
 	"\x16InterBankCommitRequest\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12!\n" +
 	"\ffinal_amount\x18\x02 \x01(\tR\vfinalAmount\x12%\n" +
 	"\x0efinal_currency\x18\x03 \x01(\tR\rfinalCurrency\x12\x17\n" +
 	"\afx_rate\x18\x04 \x01(\tR\x06fxRate\x12\x12\n" +
-	"\x04fees\x18\x05 \x01(\tR\x04fees\"\x9b\x02\n" +
+	"\x04fees\x18\x05 \x01(\tR\x04fees\x12'\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\"\x9b\x02\n" +
 	"\x17InterBankCommitResponse\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x1c\n" +
 	"\tcommitted\x18\x02 \x01(\bR\tcommitted\x12\x1b\n" +

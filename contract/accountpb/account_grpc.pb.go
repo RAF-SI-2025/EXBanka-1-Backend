@@ -55,6 +55,7 @@ type AccountServiceClient interface {
 	UpdateAccountName(ctx context.Context, in *UpdateAccountNameRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	UpdateAccountLimits(ctx context.Context, in *UpdateAccountLimitsRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	UpdateAccountStatus(ctx context.Context, in *UpdateAccountStatusRequest, opts ...grpc.CallOption) (*AccountResponse, error)
+	// idempotent
 	UpdateBalance(ctx context.Context, in *UpdateBalanceRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	CreateCompany(ctx context.Context, in *CreateCompanyRequest, opts ...grpc.CallOption) (*CompanyResponse, error)
 	GetCompany(ctx context.Context, in *GetCompanyRequest, opts ...grpc.CallOption) (*CompanyResponse, error)
@@ -63,14 +64,20 @@ type AccountServiceClient interface {
 	GetCurrency(ctx context.Context, in *GetCurrencyRequest, opts ...grpc.CallOption) (*CurrencyResponse, error)
 	GetLedgerEntries(ctx context.Context, in *GetLedgerEntriesRequest, opts ...grpc.CallOption) (*GetLedgerEntriesResponse, error)
 	// Reservation lifecycle for order placement → fill → release flow (bank-safe settlement).
+	// idempotent
 	ReserveFunds(ctx context.Context, in *ReserveFundsRequest, opts ...grpc.CallOption) (*ReserveFundsResponse, error)
+	// idempotent
 	ReleaseReservation(ctx context.Context, in *ReleaseReservationRequest, opts ...grpc.CallOption) (*ReleaseReservationResponse, error)
+	// idempotent
 	PartialSettleReservation(ctx context.Context, in *PartialSettleReservationRequest, opts ...grpc.CallOption) (*PartialSettleReservationResponse, error)
 	GetReservation(ctx context.Context, in *GetReservationRequest, opts ...grpc.CallOption) (*GetReservationResponse, error)
 	// Credit-side reservation lifecycle for inter-bank inbound transfers
 	// (Spec 3 / docs/superpowers/specs/2026-04-24-interbank-2pc-transfers-design.md §4.3).
+	// idempotent
 	ReserveIncoming(ctx context.Context, in *ReserveIncomingRequest, opts ...grpc.CallOption) (*ReserveIncomingResponse, error)
+	// idempotent
 	CommitIncoming(ctx context.Context, in *CommitIncomingRequest, opts ...grpc.CallOption) (*CommitIncomingResponse, error)
+	// idempotent
 	ReleaseIncoming(ctx context.Context, in *ReleaseIncomingRequest, opts ...grpc.CallOption) (*ReleaseIncomingResponse, error)
 }
 
@@ -314,6 +321,7 @@ type AccountServiceServer interface {
 	UpdateAccountName(context.Context, *UpdateAccountNameRequest) (*AccountResponse, error)
 	UpdateAccountLimits(context.Context, *UpdateAccountLimitsRequest) (*AccountResponse, error)
 	UpdateAccountStatus(context.Context, *UpdateAccountStatusRequest) (*AccountResponse, error)
+	// idempotent
 	UpdateBalance(context.Context, *UpdateBalanceRequest) (*AccountResponse, error)
 	CreateCompany(context.Context, *CreateCompanyRequest) (*CompanyResponse, error)
 	GetCompany(context.Context, *GetCompanyRequest) (*CompanyResponse, error)
@@ -322,14 +330,20 @@ type AccountServiceServer interface {
 	GetCurrency(context.Context, *GetCurrencyRequest) (*CurrencyResponse, error)
 	GetLedgerEntries(context.Context, *GetLedgerEntriesRequest) (*GetLedgerEntriesResponse, error)
 	// Reservation lifecycle for order placement → fill → release flow (bank-safe settlement).
+	// idempotent
 	ReserveFunds(context.Context, *ReserveFundsRequest) (*ReserveFundsResponse, error)
+	// idempotent
 	ReleaseReservation(context.Context, *ReleaseReservationRequest) (*ReleaseReservationResponse, error)
+	// idempotent
 	PartialSettleReservation(context.Context, *PartialSettleReservationRequest) (*PartialSettleReservationResponse, error)
 	GetReservation(context.Context, *GetReservationRequest) (*GetReservationResponse, error)
 	// Credit-side reservation lifecycle for inter-bank inbound transfers
 	// (Spec 3 / docs/superpowers/specs/2026-04-24-interbank-2pc-transfers-design.md §4.3).
+	// idempotent
 	ReserveIncoming(context.Context, *ReserveIncomingRequest) (*ReserveIncomingResponse, error)
+	// idempotent
 	CommitIncoming(context.Context, *CommitIncomingRequest) (*CommitIncomingResponse, error)
+	// idempotent
 	ReleaseIncoming(context.Context, *ReleaseIncomingRequest) (*ReleaseIncomingResponse, error)
 	mustEmbedUnimplementedAccountServiceServer()
 }

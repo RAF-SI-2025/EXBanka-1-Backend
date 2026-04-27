@@ -2027,13 +2027,14 @@ func (x *BankAccountOpResponse) GetReplayed() bool {
 }
 
 type ReserveFundsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AccountId     uint64                 `protobuf:"varint,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
-	OrderId       uint64                 `protobuf:"varint,2,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
-	Amount        string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`                                 // decimal string
-	CurrencyCode  string                 `protobuf:"bytes,4,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"` // must equal account currency
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AccountId      uint64                 `protobuf:"varint,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	OrderId        uint64                 `protobuf:"varint,2,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	Amount         string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`                                       // decimal string
+	CurrencyCode   string                 `protobuf:"bytes,4,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`       // must equal account currency
+	IdempotencyKey string                 `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ReserveFundsRequest) Reset() {
@@ -2090,6 +2091,13 @@ func (x *ReserveFundsRequest) GetAmount() string {
 func (x *ReserveFundsRequest) GetCurrencyCode() string {
 	if x != nil {
 		return x.CurrencyCode
+	}
+	return ""
+}
+
+func (x *ReserveFundsRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
 	}
 	return ""
 }
@@ -2155,10 +2163,11 @@ func (x *ReserveFundsResponse) GetAvailableBalance() string {
 }
 
 type ReleaseReservationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	OrderId       uint64                 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	OrderId        uint64                 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ReleaseReservationRequest) Reset() {
@@ -2196,6 +2205,13 @@ func (x *ReleaseReservationRequest) GetOrderId() uint64 {
 		return x.OrderId
 	}
 	return 0
+}
+
+func (x *ReleaseReservationRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
 }
 
 type ReleaseReservationResponse struct {
@@ -2253,9 +2269,10 @@ func (x *ReleaseReservationResponse) GetReservedBalance() string {
 type PartialSettleReservationRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	OrderId            uint64                 `protobuf:"varint,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
-	OrderTransactionId uint64                 `protobuf:"varint,2,opt,name=order_transaction_id,json=orderTransactionId,proto3" json:"order_transaction_id,omitempty"` // idempotency key
+	OrderTransactionId uint64                 `protobuf:"varint,2,opt,name=order_transaction_id,json=orderTransactionId,proto3" json:"order_transaction_id,omitempty"` // domain dedup key (per-reservation settle sequence)
 	Amount             string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`
-	Memo               string                 `protobuf:"bytes,4,opt,name=memo,proto3" json:"memo,omitempty"` // written to ledger_entries
+	Memo               string                 `protobuf:"bytes,4,opt,name=memo,proto3" json:"memo,omitempty"`                                           // written to ledger_entries
+	IdempotencyKey     string                 `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -2314,6 +2331,13 @@ func (x *PartialSettleReservationRequest) GetAmount() string {
 func (x *PartialSettleReservationRequest) GetMemo() string {
 	if x != nil {
 		return x.Memo
+	}
+	return ""
+}
+
+func (x *PartialSettleReservationRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
 	}
 	return ""
 }
@@ -2511,7 +2535,8 @@ type ReserveIncomingRequest struct {
 	AccountNumber  string                 `protobuf:"bytes,1,opt,name=account_number,json=accountNumber,proto3" json:"account_number,omitempty"`
 	Amount         string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"` // decimal string
 	Currency       string                 `protobuf:"bytes,3,opt,name=currency,proto3" json:"currency,omitempty"`
-	ReservationKey string                 `protobuf:"bytes,4,opt,name=reservation_key,json=reservationKey,proto3" json:"reservation_key,omitempty"` // idempotency key (typically "interbank-in-<txID>")
+	ReservationKey string                 `protobuf:"bytes,4,opt,name=reservation_key,json=reservationKey,proto3" json:"reservation_key,omitempty"` // domain dedup key (typically "interbank-in-<txID>")
+	IdempotencyKey string                 `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2574,6 +2599,13 @@ func (x *ReserveIncomingRequest) GetReservationKey() string {
 	return ""
 }
 
+func (x *ReserveIncomingRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
 type ReserveIncomingResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ReservationKey string                 `protobuf:"bytes,1,opt,name=reservation_key,json=reservationKey,proto3" json:"reservation_key,omitempty"`
@@ -2629,6 +2661,7 @@ func (x *ReserveIncomingResponse) GetBalanceAfter() string {
 type CommitIncomingRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ReservationKey string                 `protobuf:"bytes,1,opt,name=reservation_key,json=reservationKey,proto3" json:"reservation_key,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2666,6 +2699,13 @@ func (*CommitIncomingRequest) Descriptor() ([]byte, []int) {
 func (x *CommitIncomingRequest) GetReservationKey() string {
 	if x != nil {
 		return x.ReservationKey
+	}
+	return ""
+}
+
+func (x *CommitIncomingRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
 	}
 	return ""
 }
@@ -2717,6 +2757,7 @@ func (x *CommitIncomingResponse) GetBalanceAfter() string {
 type ReleaseIncomingRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ReservationKey string                 `protobuf:"bytes,1,opt,name=reservation_key,json=reservationKey,proto3" json:"reservation_key,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2754,6 +2795,13 @@ func (*ReleaseIncomingRequest) Descriptor() ([]byte, []int) {
 func (x *ReleaseIncomingRequest) GetReservationKey() string {
 	if x != nil {
 		return x.ReservationKey
+	}
+	return ""
+}
+
+func (x *ReleaseIncomingRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
 	}
 	return ""
 }
@@ -2982,27 +3030,30 @@ const file_account_account_proto_rawDesc = "" +
 	"\x0eaccount_number\x18\x01 \x01(\tR\raccountNumber\x12\x1f\n" +
 	"\vnew_balance\x18\x02 \x01(\tR\n" +
 	"newBalance\x12\x1a\n" +
-	"\breplayed\x18\x03 \x01(\bR\breplayed\"\x8c\x01\n" +
+	"\breplayed\x18\x03 \x01(\bR\breplayed\"\xb5\x01\n" +
 	"\x13ReserveFundsRequest\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\x04R\taccountId\x12\x19\n" +
 	"\border_id\x18\x02 \x01(\x04R\aorderId\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\tR\x06amount\x12#\n" +
-	"\rcurrency_code\x18\x04 \x01(\tR\fcurrencyCode\"\x95\x01\n" +
+	"\rcurrency_code\x18\x04 \x01(\tR\fcurrencyCode\x12'\n" +
+	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\"\x95\x01\n" +
 	"\x14ReserveFundsResponse\x12%\n" +
 	"\x0ereservation_id\x18\x01 \x01(\x04R\rreservationId\x12)\n" +
 	"\x10reserved_balance\x18\x02 \x01(\tR\x0freservedBalance\x12+\n" +
-	"\x11available_balance\x18\x03 \x01(\tR\x10availableBalance\"6\n" +
+	"\x11available_balance\x18\x03 \x01(\tR\x10availableBalance\"_\n" +
 	"\x19ReleaseReservationRequest\x12\x19\n" +
-	"\border_id\x18\x01 \x01(\x04R\aorderId\"p\n" +
+	"\border_id\x18\x01 \x01(\x04R\aorderId\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"p\n" +
 	"\x1aReleaseReservationResponse\x12'\n" +
 	"\x0freleased_amount\x18\x01 \x01(\tR\x0ereleasedAmount\x12)\n" +
-	"\x10reserved_balance\x18\x02 \x01(\tR\x0freservedBalance\"\x9a\x01\n" +
+	"\x10reserved_balance\x18\x02 \x01(\tR\x0freservedBalance\"\xc3\x01\n" +
 	"\x1fPartialSettleReservationRequest\x12\x19\n" +
 	"\border_id\x18\x01 \x01(\x04R\aorderId\x120\n" +
 	"\x14order_transaction_id\x18\x02 \x01(\x04R\x12orderTransactionId\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x12\n" +
-	"\x04memo\x18\x04 \x01(\tR\x04memo\"\xc5\x01\n" +
+	"\x04memo\x18\x04 \x01(\tR\x04memo\x12'\n" +
+	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\"\xc5\x01\n" +
 	" PartialSettleReservationResponse\x12%\n" +
 	"\x0esettled_amount\x18\x01 \x01(\tR\rsettledAmount\x12-\n" +
 	"\x12remaining_reserved\x18\x02 \x01(\tR\x11remainingReserved\x12#\n" +
@@ -3015,21 +3066,24 @@ const file_account_account_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x16\n" +
 	"\x06amount\x18\x03 \x01(\tR\x06amount\x12#\n" +
 	"\rsettled_total\x18\x04 \x01(\tR\fsettledTotal\x126\n" +
-	"\x17settled_transaction_ids\x18\x05 \x03(\x04R\x15settledTransactionIds\"\x9c\x01\n" +
+	"\x17settled_transaction_ids\x18\x05 \x03(\x04R\x15settledTransactionIds\"\xc5\x01\n" +
 	"\x16ReserveIncomingRequest\x12%\n" +
 	"\x0eaccount_number\x18\x01 \x01(\tR\raccountNumber\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x1a\n" +
 	"\bcurrency\x18\x03 \x01(\tR\bcurrency\x12'\n" +
-	"\x0freservation_key\x18\x04 \x01(\tR\x0ereservationKey\"g\n" +
+	"\x0freservation_key\x18\x04 \x01(\tR\x0ereservationKey\x12'\n" +
+	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\"g\n" +
 	"\x17ReserveIncomingResponse\x12'\n" +
 	"\x0freservation_key\x18\x01 \x01(\tR\x0ereservationKey\x12#\n" +
-	"\rbalance_after\x18\x02 \x01(\tR\fbalanceAfter\"@\n" +
+	"\rbalance_after\x18\x02 \x01(\tR\fbalanceAfter\"i\n" +
 	"\x15CommitIncomingRequest\x12'\n" +
-	"\x0freservation_key\x18\x01 \x01(\tR\x0ereservationKey\"=\n" +
+	"\x0freservation_key\x18\x01 \x01(\tR\x0ereservationKey\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"=\n" +
 	"\x16CommitIncomingResponse\x12#\n" +
-	"\rbalance_after\x18\x01 \x01(\tR\fbalanceAfter\"A\n" +
+	"\rbalance_after\x18\x01 \x01(\tR\fbalanceAfter\"j\n" +
 	"\x16ReleaseIncomingRequest\x12'\n" +
-	"\x0freservation_key\x18\x01 \x01(\tR\x0ereservationKey\"5\n" +
+	"\x0freservation_key\x18\x01 \x01(\tR\x0ereservationKey\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"5\n" +
 	"\x17ReleaseIncomingResponse\x12\x1a\n" +
 	"\breleased\x18\x01 \x01(\bR\breleased2\xa4\x0e\n" +
 	"\x0eAccountService\x12H\n" +

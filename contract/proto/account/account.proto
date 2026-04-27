@@ -11,6 +11,7 @@ service AccountService {
   rpc UpdateAccountName(UpdateAccountNameRequest) returns (AccountResponse);
   rpc UpdateAccountLimits(UpdateAccountLimitsRequest) returns (AccountResponse);
   rpc UpdateAccountStatus(UpdateAccountStatusRequest) returns (AccountResponse);
+  // idempotent
   rpc UpdateBalance(UpdateBalanceRequest) returns (AccountResponse);
 
   rpc CreateCompany(CreateCompanyRequest) returns (CompanyResponse);
@@ -23,15 +24,21 @@ service AccountService {
   rpc GetLedgerEntries(GetLedgerEntriesRequest) returns (GetLedgerEntriesResponse);
 
   // Reservation lifecycle for order placement → fill → release flow (bank-safe settlement).
+  // idempotent
   rpc ReserveFunds(ReserveFundsRequest) returns (ReserveFundsResponse);
+  // idempotent
   rpc ReleaseReservation(ReleaseReservationRequest) returns (ReleaseReservationResponse);
+  // idempotent
   rpc PartialSettleReservation(PartialSettleReservationRequest) returns (PartialSettleReservationResponse);
   rpc GetReservation(GetReservationRequest) returns (GetReservationResponse);
 
   // Credit-side reservation lifecycle for inter-bank inbound transfers
   // (Spec 3 / docs/superpowers/specs/2026-04-24-interbank-2pc-transfers-design.md §4.3).
+  // idempotent
   rpc ReserveIncoming(ReserveIncomingRequest) returns (ReserveIncomingResponse);
+  // idempotent
   rpc CommitIncoming(CommitIncomingRequest)   returns (CommitIncomingResponse);
+  // idempotent
   rpc ReleaseIncoming(ReleaseIncomingRequest) returns (ReleaseIncomingResponse);
 }
 
@@ -248,6 +255,7 @@ message ReserveFundsRequest {
     uint64 order_id = 2;
     string amount = 3;         // decimal string
     string currency_code = 4;  // must equal account currency
+    string idempotency_key = 5;  // saga step idempotency
 }
 message ReserveFundsResponse {
     uint64 reservation_id = 1;
@@ -257,6 +265,7 @@ message ReserveFundsResponse {
 
 message ReleaseReservationRequest {
     uint64 order_id = 1;
+    string idempotency_key = 2;  // saga step idempotency
 }
 message ReleaseReservationResponse {
     string released_amount = 1;
@@ -265,9 +274,10 @@ message ReleaseReservationResponse {
 
 message PartialSettleReservationRequest {
     uint64 order_id = 1;
-    uint64 order_transaction_id = 2;   // idempotency key
+    uint64 order_transaction_id = 2;   // domain dedup key (per-reservation settle sequence)
     string amount = 3;
     string memo = 4;                    // written to ledger_entries
+    string idempotency_key = 5;        // saga step idempotency
 }
 message PartialSettleReservationResponse {
     string settled_amount = 1;
@@ -291,15 +301,22 @@ message ReserveIncomingRequest {
     string account_number  = 1;
     string amount          = 2;  // decimal string
     string currency        = 3;
-    string reservation_key = 4;  // idempotency key (typically "interbank-in-<txID>")
+    string reservation_key = 4;  // domain dedup key (typically "interbank-in-<txID>")
+    string idempotency_key = 5;  // saga step idempotency
 }
 message ReserveIncomingResponse {
     string reservation_key = 1;
     string balance_after   = 2;  // unchanged at reserve time, echoed for caller
 }
 
-message CommitIncomingRequest  { string reservation_key = 1; }
+message CommitIncomingRequest  {
+    string reservation_key = 1;
+    string idempotency_key = 2;  // saga step idempotency
+}
 message CommitIncomingResponse { string balance_after   = 1; }
 
-message ReleaseIncomingRequest  { string reservation_key = 1; }
+message ReleaseIncomingRequest  {
+    string reservation_key = 1;
+    string idempotency_key = 2;  // saga step idempotency
+}
 message ReleaseIncomingResponse { bool   released        = 1; }
