@@ -46,6 +46,19 @@ func (r *InterBankSagaLogRepository) Get(txID, phase, role string) (*model.Inter
 	return &row, err
 }
 
+// Save persists a loaded-then-mutated row through GORM's Save (UPDATE by
+// primary key). The InterBankSagaLog.BeforeUpdate hook attaches the
+// optimistic-lock WHERE version=? clause and increments Version on the
+// caller's struct. Callers that need to detect a stale write should
+// inspect the row's Version after Save.
+//
+// This is intentionally a thin pass-through so the CrossBankRecorder (and
+// any future status-flipping caller) can update existing rows without
+// duplicating GORM session boilerplate.
+func (r *InterBankSagaLogRepository) Save(row *model.InterBankSagaLog) error {
+	return r.db.Save(row).Error
+}
+
 // ListByTxID returns every row for a saga, ordered chronologically.
 func (r *InterBankSagaLogRepository) ListByTxID(txID string) ([]model.InterBankSagaLog, error) {
 	var out []model.InterBankSagaLog
