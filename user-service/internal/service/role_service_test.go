@@ -8,6 +8,7 @@ import (
 	"time"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/permissions"
 	"github.com/exbanka/user-service/internal/model"
 	"github.com/stretchr/testify/assert"
 )
@@ -205,51 +206,44 @@ func TestRoleService_ValidRole(t *testing.T) {
 	assert.False(t, svc.ValidRole(""))
 }
 
-func TestRoleService_SeedRolesAndPermissions(t *testing.T) {
-	roleRepo := newMockRoleRepo()
-	permRepo := newMockPermRepo()
-	svc := NewRoleService(roleRepo, permRepo)
-
-	err := svc.SeedRolesAndPermissions()
-	assert.NoError(t, err)
-
-	// Check some permissions were created
-	p, err := permRepo.GetByCode("clients.read")
-	assert.NoError(t, err)
-	assert.Equal(t, "clients.read", p.Code)
-
-	// Check roles were created
-	r, err := roleRepo.GetByName("EmployeeBasic")
-	assert.NoError(t, err)
-	assert.Equal(t, "EmployeeBasic", r.Name)
-
-	adminRole, err := roleRepo.GetByName("EmployeeAdmin")
-	assert.NoError(t, err)
-	assert.NotNil(t, adminRole)
-
-	// Seeding again should be idempotent (no errors)
-	err = svc.SeedRolesAndPermissions()
-	assert.NoError(t, err)
-}
-
 func TestRoleService_GetPermissionsForRoles(t *testing.T) {
 	roleRepo := newMockRoleRepo()
 	permRepo := newMockPermRepo()
 	svc := NewRoleService(roleRepo, permRepo)
 
-	// Seed
-	_ = svc.SeedRolesAndPermissions()
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
 
 	codes, err := svc.GetPermissionsForRoles([]string{"EmployeeBasic"})
 	assert.NoError(t, err)
-	assert.Contains(t, codes, "clients.read")
-	assert.Contains(t, codes, "accounts.read")
+	assert.Contains(t, codes, string(permissions.Clients.Read.Assigned))
+	assert.Contains(t, codes, string(permissions.Accounts.Read.Own))
 
-	// Admin should have all permissions
 	adminCodes, err := svc.GetPermissionsForRoles([]string{"EmployeeAdmin"})
 	assert.NoError(t, err)
-	assert.Contains(t, adminCodes, "employees.permissions")
-	assert.Contains(t, adminCodes, "limits.manage")
+	assert.Contains(t, adminCodes, string(permissions.Employees.Permissions.Assign))
+	assert.Contains(t, adminCodes, string(permissions.Limits.Employee.Update))
+}
+
+// seedDefaultRolesIntoMocks populates the mock repos with roles and
+// permissions from the codegened catalog so legacy unit tests that used to
+// call SeedRolesAndPermissions on mocks still have realistic state.
+func seedDefaultRolesIntoMocks(t *testing.T, roleRepo *mockRoleRepo, permRepo *mockPermRepo) {
+	t.Helper()
+	for _, p := range permissions.Catalog {
+		if _, err := permRepo.GetByCode(string(p)); err != nil {
+			_ = permRepo.Create(&model.Permission{Code: string(p)})
+		}
+	}
+	for roleName, perms := range permissions.DefaultRoles {
+		var permModels []model.Permission
+		for _, p := range perms {
+			pm, err := permRepo.GetByCode(string(p))
+			if err == nil {
+				permModels = append(permModels, *pm)
+			}
+		}
+		_ = roleRepo.Create(&model.Role{Name: roleName, Permissions: permModels})
+	}
 }
 
 func TestRoleService_CreateRole(t *testing.T) {
@@ -288,13 +282,13 @@ func TestRoleService_ListPermissions(t *testing.T) {
 	permRepo := newMockPermRepo()
 	svc := NewRoleService(roleRepo, permRepo)
 
-	_ = svc.SeedRolesAndPermissions()
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
 
 	perms, err := svc.ListPermissions()
 	assert.NoError(t, err)
 	assert.NotEmpty(t, perms)
-	// Should have all 15 permission codes from AllPermissions
-	assert.Equal(t, len(AllPermissions), len(perms))
+	// Should match the codegened catalog size.
+	assert.Equal(t, len(permissions.Catalog), len(perms))
 }
 
 func TestRoleService_GetRolesByNames(t *testing.T) {
@@ -302,7 +296,7 @@ func TestRoleService_GetRolesByNames(t *testing.T) {
 	permRepo := newMockPermRepo()
 	svc := NewRoleService(roleRepo, permRepo)
 
-	_ = svc.SeedRolesAndPermissions()
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
 
 	roles, err := svc.GetRolesByNames([]string{"EmployeeBasic", "EmployeeAdmin"})
 	assert.NoError(t, err)
@@ -321,18 +315,19 @@ func TestRoleService_GetPermissionsByCodes(t *testing.T) {
 	permRepo := newMockPermRepo()
 	svc := NewRoleService(roleRepo, permRepo)
 
-	_ = svc.SeedRolesAndPermissions()
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
 
-	perms, err := svc.GetPermissionsByCodes([]string{"clients.read", "accounts.read"})
+	codes := []string{string(permissions.Clients.Read.All), string(permissions.Accounts.Read.All)}
+	perms, err := svc.GetPermissionsByCodes(codes)
 	assert.NoError(t, err)
 	assert.Len(t, perms, 2)
 
-	codes := make(map[string]bool)
+	got := make(map[string]bool)
 	for _, p := range perms {
-		codes[p.Code] = true
+		got[p.Code] = true
 	}
-	assert.True(t, codes["clients.read"])
-	assert.True(t, codes["accounts.read"])
+	assert.True(t, got[string(permissions.Clients.Read.All)])
+	assert.True(t, got[string(permissions.Accounts.Read.All)])
 }
 
 func TestSeedRoles_EmployeeAdminHasSecuritiesManage(t *testing.T) {
@@ -340,20 +335,20 @@ func TestSeedRoles_EmployeeAdminHasSecuritiesManage(t *testing.T) {
 	permRepo := newMockPermRepo()
 	svc := NewRoleService(roleRepo, permRepo)
 
-	err := svc.SeedRolesAndPermissions()
-	assert.NoError(t, err)
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
 
 	adminCodes, err := svc.GetPermissionsForRoles([]string{"EmployeeAdmin"})
 	assert.NoError(t, err)
-	assert.Contains(t, adminCodes, "securities.manage",
-		"EmployeeAdmin should have the securities.manage permission")
+	assert.Contains(t, adminCodes, string(permissions.Securities.Manage.Catalog),
+		"EmployeeAdmin should have the securities.manage.catalog permission")
 
-	// Also verify other roles do NOT have this permission
-	for _, roleName := range []string{"EmployeeBasic", "EmployeeAgent", "EmployeeSupervisor"} {
+	// Also verify Basic + Agent do NOT have this permission. (Supervisor
+	// inherits it from the catalog so it's expected to have it too.)
+	for _, roleName := range []string{"EmployeeBasic", "EmployeeAgent"} {
 		codes, err2 := svc.GetPermissionsForRoles([]string{roleName})
 		assert.NoError(t, err2)
-		assert.NotContains(t, codes, "securities.manage",
-			"%s should NOT have the securities.manage permission", roleName)
+		assert.NotContains(t, codes, string(permissions.Securities.Manage.Catalog),
+			"%s should NOT have the securities.manage.catalog permission", roleName)
 	}
 }
 
