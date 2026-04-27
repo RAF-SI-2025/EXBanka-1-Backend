@@ -571,9 +571,8 @@ func main() {
 
 	// --- Cross-bank OTC (Spec 4 / Celina 5) ---
 	interBankSagaLogRepo := repository.NewInterBankSagaLogRepository(db)
-	crossbankExec := service.NewCrossbankSagaExecutor(interBankSagaLogRepo, producer)
 	crossbankPeerRouter := service.NewStaticCrossbankPeerRouter(map[string]*service.CrossbankPeerClient{})
-	crossbankExpire := service.NewCrossbankExpireSaga(crossbankExec, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, cfg.OwnBankCode)
+	crossbankExpire := service.NewCrossbankExpireSaga(interBankSagaLogRepo, producer, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, cfg.OwnBankCode)
 	crossbankExpiryCron := service.NewCrossbankExpiryCron(optionContractRepo, crossbankExpire, "02:30", 200)
 	crossbankExpiryCron.Start(ctx)
 	crossbankCheckStatus := service.NewCrossbankCheckStatusCron(interBankSagaLogRepo, crossbankPeerRouter, producer, 30*time.Second, 30*time.Second)

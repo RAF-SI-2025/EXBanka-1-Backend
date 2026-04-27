@@ -23,6 +23,9 @@ import (
 // fakeCrossbankPeer implements crossbankPeerOps so the saga's step
 // closures can hit it directly via the withPeerOps test seam, without
 // running an httptest server. Records every call for assertions.
+//
+// Also implements crossbankExpireOps (ContractExpire) so the expire
+// saga's withPeerOps seam can use this same fake.
 type fakeCrossbankPeer struct {
 	mu sync.Mutex
 
@@ -36,13 +39,32 @@ type fakeCrossbankPeer struct {
 	transferOwnerErr     error
 	finalizeCalls        int
 	rollbackSharesCalls  int
+
+	// ContractExpire knobs (used by crossbank expire saga tests).
+	contractExpireCalls  int
+	contractExpireOK     bool
+	contractExpireReason string
+	contractExpireErr    error
 }
 
 func newFakeCrossbankPeer() *fakeCrossbankPeer {
 	return &fakeCrossbankPeer{
 		reserveConfirmed:     true,
 		transferOwnerConfirm: true,
+		contractExpireOK:     true,
 	}
+}
+
+// ContractExpire satisfies crossbankExpireOps so the same fake can be
+// reused by the crossbank expire saga tests.
+func (p *fakeCrossbankPeer) ContractExpire(_ context.Context, _ PeerContractExpireRequest) (*PeerContractExpireResponse, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.contractExpireCalls++
+	if p.contractExpireErr != nil {
+		return nil, p.contractExpireErr
+	}
+	return &PeerContractExpireResponse{OK: p.contractExpireOK, Reason: p.contractExpireReason}, nil
 }
 
 func (p *fakeCrossbankPeer) ReserveShares(_ context.Context, _ PeerReserveSharesRequest) (*PeerReserveSharesResponse, error) {
