@@ -295,7 +295,7 @@ func (s *CrossbankExerciseSaga) Run(ctx context.Context, in CrossbankExerciseInp
 	// Past the pivot. No Backward — the rollback walk stops at step 4.
 	// We retain StepKind = StepTransferOwnership (string "transfer_ownership")
 	// because the responder side persists rows under this exact phase
-	// string (model.PhaseTransferOwnership) and the CHECK_STATUS reconciler
+	// string (saga.StepTransferOwnership) and the CHECK_STATUS reconciler
 	// queries the peer with row.Phase as the wire identifier; using
 	// StepDeliverShares ("deliver_shares") would break that lookup.
 	saga.Add(sharedsaga.Step{

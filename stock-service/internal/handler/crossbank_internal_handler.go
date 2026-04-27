@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	stockpb "github.com/exbanka/contract/stockpb"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 	"github.com/exbanka/stock-service/internal/service"
@@ -112,13 +113,13 @@ func (h *CrossbankInternalHandler) HandleReserveSellerShares(ctx context.Context
 	}
 	// Idempotency: if we've already completed this row, return the cached
 	// success.
-	if existing, err := h.logs.Get(in.TxId, model.PhaseReserveSellerShares, model.SagaRoleResponder); err == nil && existing.Status == model.IBSagaStatusCompleted {
+	if existing, err := h.logs.Get(in.TxId, string(saga.StepReserveSellerShares), model.SagaRoleResponder); err == nil && existing.Status == model.IBSagaStatusCompleted {
 		return &stockpb.ReserveSellerSharesResponse{Confirmed: true, ReservationId: existing.ID}, nil
 	}
 	// Record begin.
 	cid := in.ContractId
 	row := &model.InterBankSagaLog{
-		TxID: in.TxId, Phase: model.PhaseReserveSellerShares, Role: model.SagaRoleResponder,
+		TxID: in.TxId, Phase: string(saga.StepReserveSellerShares), Role: model.SagaRoleResponder,
 		RemoteBankCode: in.BuyerBankCode,
 		Status:         model.IBSagaStatusPending,
 		OfferID:        &in.OfferId,
@@ -163,12 +164,12 @@ func (h *CrossbankInternalHandler) HandleTransferOwnership(ctx context.Context, 
 		return nil, status.Error(codes.Unimplemented, "responder deps not wired")
 	}
 	// Idempotency.
-	if existing, err := h.logs.Get(in.TxId, model.PhaseTransferOwnership, model.SagaRoleResponder); err == nil && existing.Status == model.IBSagaStatusCompleted {
+	if existing, err := h.logs.Get(in.TxId, string(saga.StepTransferOwnership), model.SagaRoleResponder); err == nil && existing.Status == model.IBSagaStatusCompleted {
 		return &stockpb.TransferOwnershipResponse{Confirmed: true}, nil
 	}
 	cid := in.ContractId
 	row := &model.InterBankSagaLog{
-		TxID: in.TxId, Phase: model.PhaseTransferOwnership, Role: model.SagaRoleResponder,
+		TxID: in.TxId, Phase: string(saga.StepTransferOwnership), Role: model.SagaRoleResponder,
 		RemoteBankCode: in.ToBankCode,
 		Status:         model.IBSagaStatusPending,
 		ContractID:     &cid,
@@ -205,12 +206,12 @@ func (h *CrossbankInternalHandler) HandleFinalize(ctx context.Context, in *stock
 	if h.contractRepo == nil || h.logs == nil {
 		return nil, status.Error(codes.Unimplemented, "responder deps not wired")
 	}
-	if existing, err := h.logs.Get(in.TxId, model.PhaseFinalize, model.SagaRoleResponder); err == nil && existing.Status == model.IBSagaStatusCompleted {
+	if existing, err := h.logs.Get(in.TxId, string(saga.StepFinalizeAccept), model.SagaRoleResponder); err == nil && existing.Status == model.IBSagaStatusCompleted {
 		return &stockpb.FinalizeResponse{Ok: true}, nil
 	}
 	cid := in.ContractId
 	row := &model.InterBankSagaLog{
-		TxID: in.TxId, Phase: model.PhaseFinalize, Role: model.SagaRoleResponder,
+		TxID: in.TxId, Phase: string(saga.StepFinalizeAccept), Role: model.SagaRoleResponder,
 		RemoteBankCode: in.BuyerBankCode,
 		Status:         model.IBSagaStatusCompleted,
 		ContractID:     &cid,
@@ -239,7 +240,7 @@ func (h *CrossbankInternalHandler) HandleSagaCheckStatus(ctx context.Context, in
 	}
 	phase := in.Phase
 	if phase == "" {
-		phase = model.PhaseReserveSellerShares
+		phase = string(saga.StepReserveSellerShares)
 	}
 	row, err := h.logs.Get(in.TxId, phase, model.SagaRoleResponder)
 	if err != nil {

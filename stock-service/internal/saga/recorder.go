@@ -1,7 +1,8 @@
 // Package saga adapts stock-service's saga_logs table to the saga.Recorder +
-// saga.RecoveryRecorder interfaces from contract/shared/saga. Available for
-// new sagas that want the shared executor; the existing SagaExecutor
-// (RunStep / RunCompensation) keeps working unchanged in parallel.
+// saga.RecoveryRecorder interfaces from contract/shared/saga. All
+// stock-service sagas (placement, fill, OTC, fund, crossbank-via-shared)
+// route step bookkeeping through this recorder; the legacy SagaExecutor
+// helper has been removed.
 package saga
 
 import (

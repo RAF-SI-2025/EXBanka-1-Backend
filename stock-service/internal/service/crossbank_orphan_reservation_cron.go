@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -62,7 +63,7 @@ func (c *CrossbankOrphanReservationCron) RunOnce(ctx context.Context) error {
 		return err
 	}
 	for _, row := range rows {
-		if row.Phase != model.PhaseReserveSellerShares || row.Role != model.SagaRoleResponder {
+		if row.Phase != string(saga.StepReserveSellerShares) || row.Role != model.SagaRoleResponder {
 			continue
 		}
 		// Try releasing — idempotent on already-released reservations.
