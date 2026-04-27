@@ -74,6 +74,7 @@ func main() {
 		&model.OptionContract{},
 		&model.OTCOfferReadReceipt{},
 		&model.InterBankSagaLog{},
+		&model.IdempotencyRecord{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
