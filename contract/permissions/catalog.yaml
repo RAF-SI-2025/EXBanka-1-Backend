@@ -1,0 +1,175 @@
+# contract/permissions/catalog.yaml
+# Single source of truth for permission existence. Admin can grant/revoke
+# role↔permission mappings via the API, but cannot add or remove permissions
+# from this catalog at runtime.
+#
+# Naming rule (enforced by codegen):
+#   <resource>.<verb>.<scope>
+#   - all segments: [a-z][a-z0-9_]* (snake_case, no hyphens)
+#   - exactly three segments
+#   - scope vocabulary: any | all | own | assigned (extension allowed but flagged)
+
+permissions:
+  # clients
+  - clients.create.any
+  - clients.read.all
+  - clients.read.assigned
+  - clients.read.own
+  - clients.update.profile
+  - clients.update.contact
+  - clients.update.limits
+
+  # accounts
+  - accounts.create.current
+  - accounts.create.foreign
+  - accounts.read.all
+  - accounts.read.own
+  - accounts.update.name
+  - accounts.update.limits
+  - accounts.deactivate.any
+
+  # bank accounts
+  - bank_accounts.manage.any
+
+  # cards
+  - cards.create.physical
+  - cards.create.virtual
+  - cards.read.all
+  - cards.read.own
+  - cards.block.any
+  - cards.unblock.any
+  - cards.approve.physical
+  - cards.approve.virtual
+
+  # credits
+  - credits.read.all
+  - credits.read.own
+  - credits.approve.cash
+  - credits.approve.housing
+  - credits.disburse.any
+
+  # orders
+  - orders.read.all
+  - orders.read.own
+  - orders.place.own
+  - orders.place.on_behalf_client
+  - orders.place.on_behalf_bank
+  - orders.cancel.own
+  - orders.cancel.all
+
+  # securities
+  - securities.read.holdings_all
+  - securities.read.holdings_own
+  - securities.manage.catalog
+  - securities.trade.any
+
+  # OTC
+  - otc.trade.accept
+  - otc.trade.exercise
+  - otc.trade.expire
+  - otc.read.all
+
+  # funds
+  - funds.invest.own
+  - funds.invest.on_behalf_client
+  - funds.invest.on_behalf_bank
+  - funds.redeem.own
+  - funds.read.all
+  - funds.manage.catalog
+
+  # employees
+  - employees.create.any
+  - employees.read.all
+  - employees.update.any
+  - employees.roles.assign
+  - employees.permissions.assign
+  - employees.deactivate.any
+
+  # roles
+  - roles.read.all
+  - roles.update.any
+  - roles.permissions.assign
+  - roles.permissions.revoke
+
+  # limits
+  - limits.employee.read
+  - limits.employee.update
+  - limit_templates.create.any
+  - limit_templates.update.any
+
+  # fees
+  - fees.create.any
+  - fees.update.any
+
+  # verification
+  - verification.skip.any
+  - verification.manage.any
+
+  # exchange
+  - exchange_rates.read.any
+  - exchange_rates.update.any
+
+default_roles:
+  EmployeeBasic:
+    grants:
+      - clients.read.assigned
+      - accounts.read.own
+      - cards.create.virtual
+      - cards.block.any
+      - cards.unblock.any
+      - cards.read.own
+      - orders.read.own
+
+  EmployeeAgent:
+    inherits: [EmployeeBasic]
+    grants:
+      - clients.create.any
+      - clients.update.profile
+      - clients.update.contact
+      - accounts.create.current
+      - accounts.create.foreign
+      - cards.create.physical
+      - orders.place.own
+      - orders.place.on_behalf_client
+      - securities.trade.any
+      - securities.read.holdings_own
+      - otc.trade.accept
+      - otc.trade.exercise
+      - funds.invest.own
+      - funds.invest.on_behalf_client
+      - funds.redeem.own
+
+  EmployeeSupervisor:
+    inherits: [EmployeeAgent]
+    grants:
+      - clients.read.all
+      - clients.update.limits
+      - accounts.read.all
+      - accounts.update.name
+      - accounts.update.limits
+      - accounts.deactivate.any
+      - orders.read.all
+      - orders.place.on_behalf_bank
+      - orders.cancel.all
+      - cards.read.all
+      - cards.approve.physical
+      - cards.approve.virtual
+      - credits.read.all
+      - credits.approve.cash
+      - credits.approve.housing
+      - credits.disburse.any
+      - securities.read.holdings_all
+      - securities.manage.catalog
+      - bank_accounts.manage.any
+      - otc.read.all
+      - otc.trade.expire
+      - funds.invest.on_behalf_bank
+      - funds.read.all
+      - funds.manage.catalog
+      - verification.skip.any
+      - verification.manage.any
+
+  EmployeeAdmin:
+    inherits: [EmployeeSupervisor]
+    grants:
+      - "*"   # special: every permission in the catalog
