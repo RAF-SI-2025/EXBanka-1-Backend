@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/exbanka/contract/shared"
 	sharedsaga "github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -291,6 +292,66 @@ func TestCrossBankRecorder_MarkCompensationFailedKeepsCompensating(t *testing.T)
 
 // Compile-time guard: CrossBankRecorder implements sharedsaga.Recorder.
 var _ sharedsaga.Recorder = (*CrossBankRecorder)(nil)
+
+// TestCrossBankRecorder_OptimisticLockConflict exercises the optimistic-lock
+// path through the recorder's MarkCompleted -> repo.Save chain.
+//
+// Setup:
+//  1. Recorder writes a forward row (version=0).
+//  2. We load a separate in-memory copy of the row (version=0).
+//  3. The recorder's MarkCompleted runs end-to-end, bumping the row in-DB
+//     to version=1.
+//  4. We mutate the stale copy and call repo.Save directly. The
+//     BeforeUpdate hook attaches WHERE version=0, which matches no row
+//     because the DB version is now 1. RowsAffected==0 must surface as
+//     shared.ErrOptimisticLock — the bank-grade safety contract called out
+//     in CLAUDE.md's Optimistic Locking section.
+//
+// The "stale copy" step models the realistic concurrent-modification
+// scenario: two recorders each loaded the row at version=0, one wrote
+// first (winning the race), the other now holds a stale snapshot. The
+// recorder's updateStatus atomically does Get-then-Save under one ctx, so
+// the only way to inject a concurrent winner is via a separate snapshot
+// path — which is what every cron-driven retry would do anyway when it
+// re-loads a row mid-flight.
+func TestCrossBankRecorder_OptimisticLockConflict(t *testing.T) {
+	db := newCrossBankTestDB(t)
+	repo := repository.NewInterBankSagaLogRepository(db)
+	rec := NewCrossBankRecorder(repo, model.SagaRoleInitiator, model.SagaKindAccept,
+		"123", nil, nil)
+
+	ctx := context.Background()
+	st := payloadState(sharedsaga.StepReserveBuyerFunds, []byte("payload"))
+	h, err := rec.RecordForward(ctx, "tx-lock", sharedsaga.StepReserveBuyerFunds, 1, st)
+	if err != nil {
+		t.Fatalf("RecordForward: %v", err)
+	}
+
+	// Snapshot the row at version=0 — this is the "loser" of the race.
+	stale, err := repo.Get("tx-lock", string(sharedsaga.StepReserveBuyerFunds), model.SagaRoleInitiator)
+	if err != nil {
+		t.Fatalf("get stale snapshot: %v", err)
+	}
+	if stale.Version != 0 {
+		t.Fatalf("snapshot version: got %d, want 0", stale.Version)
+	}
+
+	// "Concurrent" winner: recorder's MarkCompleted bumps in-DB version to 1.
+	if err := rec.MarkCompleted(ctx, h); err != nil {
+		t.Fatalf("MarkCompleted (winner): %v", err)
+	}
+
+	// Now save the stale snapshot — must surface optimistic-lock.
+	stale.Status = model.IBSagaStatusFailed
+	stale.ErrorReason = "stale write"
+	err = repo.Save(stale)
+	if err == nil {
+		t.Fatal("expected optimistic-lock error, got nil")
+	}
+	if !errors.Is(err, shared.ErrOptimisticLock) {
+		t.Fatalf("expected shared.ErrOptimisticLock, got %v", err)
+	}
+}
 
 // Sanity check that gorm's NotFound error path returns (false, nil) from
 // IsCompleted (no underlying error leaks).

@@ -140,7 +140,7 @@ func extractPayload(st *sharedsaga.State, step sharedsaga.StepKind) []byte {
 func (r *CrossBankRecorder) RecordForward(ctx context.Context, sagaID string, step sharedsaga.StepKind, _ int, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
 	phase := string(step)
 	row := r.buildRow(sagaID, phase, model.IBSagaStatusPending, st, step)
-	if err := r.repo.UpsertByTxPhaseRole(row); err != nil {
+	if err := r.repo.WithContext(ctx).UpsertByTxPhaseRole(row); err != nil {
 		return sharedsaga.StepHandle{}, err
 	}
 	return r.issueHandle(sagaID, phase), nil
@@ -152,7 +152,7 @@ func (r *CrossBankRecorder) RecordForward(ctx context.Context, sagaID string, st
 func (r *CrossBankRecorder) RecordCompensation(ctx context.Context, sagaID string, step sharedsaga.StepKind, _ int, _ sharedsaga.StepHandle, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
 	phase := crossbankCompensationPhase(step)
 	row := r.buildRow(sagaID, phase, model.IBSagaStatusCompensating, st, step)
-	if err := r.repo.UpsertByTxPhaseRole(row); err != nil {
+	if err := r.repo.WithContext(ctx).UpsertByTxPhaseRole(row); err != nil {
 		return sharedsaga.StepHandle{}, err
 	}
 	return r.issueHandle(sagaID, phase), nil
@@ -162,18 +162,18 @@ func (r *CrossBankRecorder) RecordCompensation(ctx context.Context, sagaID strin
 // flips status to completed, and saves it. Optimistic-locked via the
 // model's BeforeUpdate hook.
 func (r *CrossBankRecorder) MarkCompleted(ctx context.Context, h sharedsaga.StepHandle) error {
-	return r.updateStatus(h, model.IBSagaStatusCompleted, "")
+	return r.updateStatus(ctx, h, model.IBSagaStatusCompleted, "")
 }
 
 // MarkFailed flips the row to failed and stores the reason.
 func (r *CrossBankRecorder) MarkFailed(ctx context.Context, h sharedsaga.StepHandle, errMsg string) error {
-	return r.updateStatus(h, model.IBSagaStatusFailed, errMsg)
+	return r.updateStatus(ctx, h, model.IBSagaStatusFailed, errMsg)
 }
 
 // MarkCompensated flips the compensation row from compensating to
 // compensated, the terminal "rolled back cleanly" state.
 func (r *CrossBankRecorder) MarkCompensated(ctx context.Context, h sharedsaga.StepHandle) error {
-	return r.updateStatus(h, model.IBSagaStatusCompensated, "")
+	return r.updateStatus(ctx, h, model.IBSagaStatusCompensated, "")
 }
 
 // MarkCompensationFailed leaves the compensation row in compensating
@@ -181,7 +181,7 @@ func (r *CrossBankRecorder) MarkCompensated(ctx context.Context, h sharedsaga.St
 // it up. The status doesn't transition out of compensating until either
 // MarkCompensated is called or the cron resolves it.
 func (r *CrossBankRecorder) MarkCompensationFailed(ctx context.Context, h sharedsaga.StepHandle, errMsg string) error {
-	return r.updateStatus(h, model.IBSagaStatusCompensating, errMsg)
+	return r.updateStatus(ctx, h, model.IBSagaStatusCompensating, errMsg)
 }
 
 // IsCompleted reports whether the forward row for (sagaID, step, role) is
@@ -191,7 +191,7 @@ func (r *CrossBankRecorder) MarkCompensationFailed(ctx context.Context, h shared
 // Saga-scoped (NOT step-name-only) by virtue of (tx_id, phase, role) being
 // the row's unique key: two distinct sagas cannot collide on this lookup.
 func (r *CrossBankRecorder) IsCompleted(ctx context.Context, sagaID string, step sharedsaga.StepKind) (bool, error) {
-	row, err := r.repo.Get(sagaID, string(step), r.role)
+	row, err := r.repo.WithContext(ctx).Get(sagaID, string(step), r.role)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return false, nil
@@ -234,19 +234,25 @@ func (r *CrossBankRecorder) issueHandle(txID, phase string) sharedsaga.StepHandl
 // updateStatus loads the row referenced by h via the stashed (txID, phase,
 // role), updates status + error reason, and saves it. The model's
 // BeforeUpdate hook supplies the optimistic-lock guard so concurrent
-// recorder writes against the same row will surface as RowsAffected==0.
-func (r *CrossBankRecorder) updateStatus(h sharedsaga.StepHandle, status, reason string) error {
+// recorder writes against the same row will surface as
+// shared.ErrOptimisticLock from the repository layer (callers typically
+// retry or compensate).
+//
+// ctx is threaded into both the read and the write so saga-step deadlines
+// and cancellations reach the SQL driver.
+func (r *CrossBankRecorder) updateStatus(ctx context.Context, h sharedsaga.StepHandle, status, reason string) error {
 	r.mu.Lock()
 	key, ok := r.handles[h.ID]
 	r.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("crossbank recorder: unknown step handle %d", h.ID)
 	}
-	row, err := r.repo.Get(key.txID, key.phase, key.role)
+	repo := r.repo.WithContext(ctx)
+	row, err := repo.Get(key.txID, key.phase, key.role)
 	if err != nil {
 		return err
 	}
 	row.Status = status
 	row.ErrorReason = reason
-	return r.repo.Save(row)
+	return repo.Save(row)
 }

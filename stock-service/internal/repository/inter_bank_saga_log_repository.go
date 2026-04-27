@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/model"
 )
 
@@ -15,6 +17,13 @@ type InterBankSagaLogRepository struct{ db *gorm.DB }
 
 func NewInterBankSagaLogRepository(db *gorm.DB) *InterBankSagaLogRepository {
 	return &InterBankSagaLogRepository{db: db}
+}
+
+// WithContext returns a shallow copy of the repository whose underlying
+// *gorm.DB is bound to ctx. Used by callers (e.g., the CrossBankRecorder)
+// that need saga-step timeout / cancellation to reach the SQL driver.
+func (r *InterBankSagaLogRepository) WithContext(ctx context.Context) *InterBankSagaLogRepository {
+	return &InterBankSagaLogRepository{db: r.db.WithContext(ctx)}
 }
 
 // UpsertByTxPhaseRole creates or updates the row keyed by (tx_id, phase, role).
@@ -49,14 +58,29 @@ func (r *InterBankSagaLogRepository) Get(txID, phase, role string) (*model.Inter
 // Save persists a loaded-then-mutated row through GORM's Save (UPDATE by
 // primary key). The InterBankSagaLog.BeforeUpdate hook attaches the
 // optimistic-lock WHERE version=? clause and increments Version on the
-// caller's struct. Callers that need to detect a stale write should
-// inspect the row's Version after Save.
+// caller's struct.
 //
-// This is intentionally a thin pass-through so the CrossBankRecorder (and
-// any future status-flipping caller) can update existing rows without
-// duplicating GORM session boilerplate.
+// Callers MUST surface optimistic-lock conflicts: when the BeforeUpdate
+// WHERE version=? clause matches no row (because another transaction
+// already incremented Version), the UPDATE returns RowsAffected==0 and we
+// translate that to shared.ErrOptimisticLock so callers can retry or
+// compensate per the bank-grade concurrency rules in CLAUDE.md.
+//
+// We use Select("*").Save(...) intentionally: bare db.Save in GORM
+// v1.31.1 falls back to INSERT...ON CONFLICT(id) DO UPDATE when the
+// initial UPDATE matches zero rows (finisher_api.go:109-110), which
+// would silently overwrite the winner of an optimistic-lock race and
+// hide the conflict. Selecting "*" sets the `selectedUpdate` flag in
+// GORM's Save and disables that fallback path.
 func (r *InterBankSagaLogRepository) Save(row *model.InterBankSagaLog) error {
-	return r.db.Save(row).Error
+	res := r.db.Select("*").Save(row)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return shared.ErrOptimisticLock
+	}
+	return nil
 }
 
 // ListByTxID returns every row for a saga, ordered chronologically.
