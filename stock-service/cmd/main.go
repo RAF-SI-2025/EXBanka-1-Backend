@@ -581,7 +581,8 @@ func main() {
 	crossbankCheckStatus.Start(ctx)
 	crossbankOrphan := service.NewCrossbankOrphanReservationCron(interBankSagaLogRepo, holdingReservationSvc, 5*time.Minute, 30*time.Minute)
 	crossbankOrphan.Start(ctx)
-	crossbankInternalHandler := handler.NewCrossbankInternalHandler(otcOfferRepo, optionContractRepo, holdingRepo, holdingReservationSvc, interBankSagaLogRepo, cfg.OwnBankCode)
+	idemRepo := repository.NewIdempotencyRepository(db)
+	crossbankInternalHandler := handler.NewCrossbankInternalHandler(otcOfferRepo, optionContractRepo, holdingRepo, holdingReservationSvc, interBankSagaLogRepo, cfg.OwnBankCode, db, idemRepo)
 
 	// Cross-bank accept + exercise sagas + dispatch hook on OTCOfferService.
 	if interBankClient != nil {
