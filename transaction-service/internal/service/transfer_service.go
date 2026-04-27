@@ -313,6 +313,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 			return errors.New(reason)
 		}
 
+		// sagaID for cross-currency transfer steps — derived from transfer.ID
+		// so retries within the same transfer share idempotency keys.
+		xcSagaID := fmt.Sprintf("transfer-xc-%d", transfer.ID)
 		steps := []sagaStep{
 			{
 				name:          sharedsaga.StepDebitUserFrom,
@@ -322,6 +325,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: transfer.FromAccountNumber, Amount: totalDebit.Neg().StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepDebitUserFrom),
 						})
 						return e
 					})
@@ -335,6 +339,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: bankFromAccount, Amount: totalDebit.StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepCreditBankFrom),
 						})
 						return e
 					})
@@ -348,6 +353,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: bankToAccount, Amount: convertedAmount.Neg().StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepDebitBankTo),
 						})
 						return e
 					})
@@ -361,6 +367,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: transfer.ToAccountNumber, Amount: convertedAmount.StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepCreditUserTo),
 						})
 						return e
 					})
@@ -377,6 +384,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 	} else {
 		// Same-currency: direct debit/credit, no bank intermediate.
 		if s.accountClient != nil {
+			scSagaID := fmt.Sprintf("transfer-sc-%d", transfer.ID)
 			steps := []sagaStep{
 				{
 					name:          sharedsaga.StepDebitSender,
@@ -386,6 +394,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 						return shared.Retry(ctx, s.retryConfig, func() error {
 							_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 								AccountNumber: transfer.FromAccountNumber, Amount: totalDebit.Neg().StringFixed(4), UpdateAvailable: true,
+								IdempotencyKey: sharedsaga.IdempotencyKey(scSagaID, sharedsaga.StepDebitSender),
 							})
 							return e
 						})
@@ -399,6 +408,7 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 						return shared.Retry(ctx, s.retryConfig, func() error {
 							_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 								AccountNumber: transfer.ToAccountNumber, Amount: convertedAmount.StringFixed(4), UpdateAvailable: true,
+								IdempotencyKey: sharedsaga.IdempotencyKey(scSagaID, sharedsaga.StepCreditRecipient),
 							})
 							return e
 						})
@@ -478,10 +488,15 @@ func (s *TransferService) runRecoveryTick(ctx context.Context) {
 	for _, comp := range pending {
 		comp := comp
 		retryErr := shared.Retry(ctx, s.retryConfig, func() error {
+			// Per-compensation-row stable key — repeated retries collapse
+			// through the cache, and the account-side ledger
+			// idempotency_key index keeps double-execution out.
+			compKey := fmt.Sprintf("compensate-%d", comp.ID)
 			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 				AccountNumber:   comp.AccountNumber,
 				Amount:          comp.Amount.StringFixed(4),
 				UpdateAvailable: true,
+				IdempotencyKey:  compKey,
 			})
 			return e
 		})

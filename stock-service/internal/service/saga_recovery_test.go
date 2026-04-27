@@ -108,7 +108,7 @@ func newFakeRecoveryFillClient(stub *fakeRecoveryAccountStub) *fakeRecoveryFillC
 	return &fakeRecoveryFillClient{stub: stub}
 }
 
-func (c *fakeRecoveryFillClient) PartialSettleReservation(_ context.Context, orderID, txnID uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error) {
+func (c *fakeRecoveryFillClient) PartialSettleReservation(_ context.Context, orderID, txnID uint64, amount decimal.Decimal, memo, _ string) (*accountpb.PartialSettleReservationResponse, error) {
 	if c.partialSettleErr != nil {
 		return nil, c.partialSettleErr
 	}
@@ -140,7 +140,7 @@ func (c *fakeRecoveryFillClient) DebitAccount(_ context.Context, accountNumber s
 
 func (c *fakeRecoveryFillClient) Stub() accountpb.AccountServiceClient { return c.stub }
 
-func (c *fakeRecoveryFillClient) ReleaseReservation(_ context.Context, _ uint64) (*accountpb.ReleaseReservationResponse, error) {
+func (c *fakeRecoveryFillClient) ReleaseReservation(_ context.Context, _ uint64, _ string) (*accountpb.ReleaseReservationResponse, error) {
 	return &accountpb.ReleaseReservationResponse{ReleasedAmount: "0", ReservedBalance: "0"}, nil
 }
 

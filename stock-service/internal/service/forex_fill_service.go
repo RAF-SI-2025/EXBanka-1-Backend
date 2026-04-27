@@ -130,7 +130,8 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 		Add(saga.Step{
 			Name: saga.StepSettleReservationQuote,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accountClient.PartialSettleReservation(ctx, order.ID, txn.ID, quoteAmount, quoteMemo)
+				_, e := s.accountClient.PartialSettleReservation(ctx, order.ID, txn.ID, quoteAmount, quoteMemo,
+					saga.IdempotencyKey(sagaID, saga.StepSettleReservationQuote))
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {

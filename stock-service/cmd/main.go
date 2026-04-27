@@ -754,16 +754,16 @@ func (a *fundAccountAdapter) DebitAccount(ctx context.Context, accountNumber str
 
 // Reservation lifecycle methods — added so fundAccountAdapter also satisfies
 // service.OTCAccountClient (Celina-4 OTC accept/exercise sagas).
-func (a *fundAccountAdapter) ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency string) (*accountpb.ReserveFundsResponse, error) {
-	return a.fillClient.ReserveFunds(ctx, accountID, sagaOrderID, amount, currency)
+func (a *fundAccountAdapter) ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency, idempotencyKey string) (*accountpb.ReserveFundsResponse, error) {
+	return a.fillClient.ReserveFunds(ctx, accountID, sagaOrderID, amount, currency, idempotencyKey)
 }
 
-func (a *fundAccountAdapter) ReleaseReservation(ctx context.Context, sagaOrderID uint64) (*accountpb.ReleaseReservationResponse, error) {
-	return a.fillClient.ReleaseReservation(ctx, sagaOrderID)
+func (a *fundAccountAdapter) ReleaseReservation(ctx context.Context, sagaOrderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error) {
+	return a.fillClient.ReleaseReservation(ctx, sagaOrderID, idempotencyKey)
 }
 
-func (a *fundAccountAdapter) PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error) {
-	return a.fillClient.PartialSettleReservation(ctx, sagaOrderID, settleSeq, amount, memo)
+func (a *fundAccountAdapter) PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error) {
+	return a.fillClient.PartialSettleReservation(ctx, sagaOrderID, settleSeq, amount, memo, idempotencyKey)
 }
 
 // fundExchangeAdapter narrows the exchange-service gRPC client to the

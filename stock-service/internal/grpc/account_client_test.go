@@ -61,7 +61,7 @@ func TestAccountClient_ReserveFunds_MapsFieldsAndReturnsResponse(t *testing.T) {
 	}
 	c := NewAccountClient(stub)
 
-	resp, err := c.ReserveFunds(context.Background(), 7, 123, decimal.NewFromFloat(100.0), "RSD")
+	resp, err := c.ReserveFunds(context.Background(), 7, 123, decimal.NewFromFloat(100.0), "RSD", "idem-key-rf")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestAccountClient_ReserveFunds_PropagatesErrors(t *testing.T) {
 	stub := &stubAccountServiceClient{reserveErr: sentinel}
 	c := NewAccountClient(stub)
 
-	_, err := c.ReserveFunds(context.Background(), 1, 2, decimal.NewFromInt(10), "RSD")
+	_, err := c.ReserveFunds(context.Background(), 1, 2, decimal.NewFromInt(10), "RSD", "idem-key-rf-err")
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("expected sentinel error to be propagated, got %v", err)
 	}
@@ -101,7 +101,7 @@ func TestAccountClient_ReleaseReservation_PassesOrderID(t *testing.T) {
 	stub := &stubAccountServiceClient{}
 	c := NewAccountClient(stub)
 
-	if _, err := c.ReleaseReservation(context.Background(), 555); err != nil {
+	if _, err := c.ReleaseReservation(context.Background(), 555, "idem-key-rr"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if stub.releaseReq == nil || stub.releaseReq.OrderId != 555 {
@@ -113,7 +113,7 @@ func TestAccountClient_PartialSettleReservation_MapsFields(t *testing.T) {
 	stub := &stubAccountServiceClient{}
 	c := NewAccountClient(stub)
 
-	if _, err := c.PartialSettleReservation(context.Background(), 10, 20, decimal.NewFromFloat(12.5), "fill"); err != nil {
+	if _, err := c.PartialSettleReservation(context.Background(), 10, 20, decimal.NewFromFloat(12.5), "fill", "idem-key-ps"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	req := stub.partialSettleReq

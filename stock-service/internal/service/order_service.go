@@ -55,8 +55,8 @@ type OrderSettings interface {
 // for placement. Defined as an interface so tests can stub it without
 // constructing the real wrapper.
 type AccountClientAPI interface {
-	ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode string) (*accountpb.ReserveFundsResponse, error)
-	ReleaseReservation(ctx context.Context, orderID uint64) (*accountpb.ReleaseReservationResponse, error)
+	ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey string) (*accountpb.ReserveFundsResponse, error)
+	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
 	Stub() accountpb.AccountServiceClient
 }
 
@@ -514,11 +514,13 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		AddIf(req.Direction == "buy", saga.Step{
 			Name: saga.StepReserveFunds,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, rerr := s.accountClient.ReserveFunds(ctx, req.AccountID, order.ID, reserveAmount, reserveCurrency)
+				_, rerr := s.accountClient.ReserveFunds(ctx, req.AccountID, order.ID, reserveAmount, reserveCurrency,
+					saga.IdempotencyKey(sagaID, saga.StepReserveFunds))
 				return rerr
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID)
+				_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID,
+					saga.IdempotencyKey(sagaID, saga.StepReserveFunds)+":compensate")
 				return rerr
 			},
 		}).
@@ -774,7 +776,10 @@ func (s *OrderService) CancelOrder(orderID, userID uint64, systemType string) (*
 	// reservation was already released or fully settled.
 	cancelCtx := context.Background()
 	if order.Direction == "buy" && s.accountClient != nil {
-		if _, relErr := s.accountClient.ReleaseReservation(cancelCtx, order.ID); relErr != nil {
+		// CancelOrder is outside the placement saga, so we synthesize a
+		// stable key from the order id — retries of CancelOrder remain safe.
+		cancelKey := fmt.Sprintf("cancel-order-%d", order.ID)
+		if _, relErr := s.accountClient.ReleaseReservation(cancelCtx, order.ID, cancelKey); relErr != nil {
 			log.Printf("WARN: cancel order %d: ReleaseReservation failed: %v", order.ID, relErr)
 		}
 	}

@@ -222,6 +222,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 	// Debit sender, credit recipient, and (when commission applies) credit bank — all
 	// as saga-logged steps so compensation is automatic if any step fails.
 	if s.accountClient != nil {
+		paySagaID := fmt.Sprintf("payment-%d", payment.ID)
 		steps := []sagaStep{
 			{
 				name:          sharedsaga.StepDebitSender,
@@ -231,6 +232,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: payment.FromAccountNumber, Amount: totalDebit.Neg().StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(paySagaID, sharedsaga.StepDebitSender),
 						})
 						return e
 					})
@@ -244,6 +246,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: payment.ToAccountNumber, Amount: payment.InitialAmount.StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(paySagaID, sharedsaga.StepCreditRecipient),
 						})
 						return e
 					})
@@ -265,6 +268,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 							AccountNumber:   bankAcct,
 							Amount:          commAmt.StringFixed(4),
 							UpdateAvailable: true,
+							IdempotencyKey:  sharedsaga.IdempotencyKey(paySagaID, sharedsaga.StepCreditBankCommission),
 						})
 						return e
 					})

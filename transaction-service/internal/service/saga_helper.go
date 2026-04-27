@@ -72,11 +72,15 @@ func executeWithSaga(
 					return nil
 				}
 				compAmount := step.amount.Neg()
+				// Compensation key derived from the saga step — retries
+				// of the same compensation collapse through the cache.
+				compKey := sharedsaga.IdempotencyKey(sagaID, step.name) + ":compensate"
 				return shared.Retry(ctx, retryConfig, func() error {
 					_, e := accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 						AccountNumber:   step.accountNumber,
 						Amount:          compAmount.StringFixed(4),
 						UpdateAvailable: true,
+						IdempotencyKey:  compKey,
 					})
 					return e
 				})

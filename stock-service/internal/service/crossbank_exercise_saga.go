@@ -174,13 +174,15 @@ func (s *CrossbankExerciseSaga) Run(ctx context.Context, in CrossbankExerciseInp
 		Name: sharedsaga.MustStep(sharedsaga.StepReserveBuyerFunds),
 		Forward: func(ctx context.Context, st *sharedsaga.State) error {
 			stashExercisePayload(st, sharedsaga.StepReserveBuyerFunds, in)
-			if _, err := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, txIDtoUint64(txID), strikeAmt, currency); err != nil {
+			if _, err := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, txIDtoUint64(txID), strikeAmt, currency,
+				sharedsaga.IdempotencyKey(txID, sharedsaga.StepReserveBuyerFunds)); err != nil {
 				return fmt.Errorf("reserve_buyer_funds: %w", err)
 			}
 			return nil
 		},
 		Backward: func(ctx context.Context, _ *sharedsaga.State) error {
-			if _, err := s.accounts.ReleaseReservation(ctx, txIDtoUint64(txID)); err != nil {
+			if _, err := s.accounts.ReleaseReservation(ctx, txIDtoUint64(txID),
+				sharedsaga.IdempotencyKey(txID, sharedsaga.StepReserveBuyerFunds)+":compensate"); err != nil {
 				log.Printf("WARN: cross-bank exercise saga=%s: release_reservation compensation: %v", txID, err)
 				return err
 			}

@@ -128,18 +128,21 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		Add(saga.Step{
 			Name: saga.StepReserveStrike,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy)
+				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy,
+					saga.IdempotencyKey(sagaID, saga.StepReserveStrike))
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReleaseReservation(ctx, syntheticTxnID)
+				_, e := s.accounts.ReleaseReservation(ctx, syntheticTxnID,
+					saga.IdempotencyKey(sagaID, saga.StepReserveStrike)+":compensate")
 				return e
 			},
 		}).
 		Add(saga.Step{
 			Name: saga.StepSettleStrikeBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, settleMemo)
+				_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, settleMemo,
+					saga.IdempotencyKey(sagaID, saga.StepSettleStrikeBuyer))
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {

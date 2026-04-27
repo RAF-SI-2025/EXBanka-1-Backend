@@ -30,7 +30,7 @@ import (
 //   - Stub() for direct GetAccount/UpdateBalance access on paths that predate
 //     Phase 2 (stateAccountNo-based commission, legacy helpers, exercise-option).
 type FillAccountClient interface {
-	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error)
+	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error)
 	// CreditAccount and DebitAccount take an idempotencyKey (empty string
 	// opts out). Callers driven by the fill/compensation saga pass a
 	// deterministic key derived from the order-transaction ID so a retried
@@ -42,7 +42,7 @@ type FillAccountClient interface {
 	// on top of the expected fill amount; settlement only consumes the actual
 	// fill, leaving the buffer stuck on the user's account until this is
 	// called. Safe to call when nothing is reserved.
-	ReleaseReservation(ctx context.Context, orderID uint64) (*accountpb.ReleaseReservationResponse, error)
+	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
 	Stub() accountpb.AccountServiceClient
 }
 
@@ -321,7 +321,8 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 				memo := fmt.Sprintf("Order #%d partial fill (txn #%d)", order.ID, txn.ID)
 				st.Set("step:settle_reservation:amount", settleAmount)
 				st.Set("step:settle_reservation:currency", accountCurrency)
-				_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, settleAmount, memo)
+				_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, settleAmount, memo,
+					saga.IdempotencyKey(sagaID, saga.StepSettleReservation))
 				return serr
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
@@ -784,7 +785,9 @@ func (s *PortfolioService) ReleaseResidualReservation(ctx context.Context, order
 	if s.fillClient == nil {
 		return nil
 	}
-	_, err := s.fillClient.ReleaseReservation(ctx, orderID)
+	// Stable per-order key — repeated calls hit the cache and become no-ops.
+	releaseKey := fmt.Sprintf("release-residual-%d", orderID)
+	_, err := s.fillClient.ReleaseReservation(ctx, orderID, releaseKey)
 	return err
 }
 

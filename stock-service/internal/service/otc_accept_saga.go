@@ -160,18 +160,21 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		Add(saga.Step{
 			Name: saga.StepReservePremium,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy)
+				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy,
+					saga.IdempotencyKey(sagaID, saga.StepReservePremium))
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReleaseReservation(ctx, contract.ID)
+				_, e := s.accounts.ReleaseReservation(ctx, contract.ID,
+					saga.IdempotencyKey(sagaID, saga.StepReservePremium)+":compensate")
 				return e
 			},
 		}).
 		Add(saga.Step{
 			Name: saga.StepSettlePremiumBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo)
+				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo,
+					saga.IdempotencyKey(sagaID, saga.StepSettlePremiumBuyer))
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
