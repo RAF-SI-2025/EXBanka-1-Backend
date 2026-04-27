@@ -68,7 +68,7 @@ func TestLogin_Pending_Account_Returns_409_BusinessRule(t *testing.T) {
 func postLoginRaw(t *testing.T, email, password string) *client.Response {
 	t.Helper()
 	c := newClient()
-	resp, err := c.POST("/api/v1/auth/login", map[string]string{
+	resp, err := c.POST("/api/v3/auth/login", map[string]string{
 		"email":    email,
 		"password": password,
 	})
@@ -99,7 +99,7 @@ func assertHTTP(t *testing.T, resp *client.Response, status int, errCode string)
 	}
 }
 
-// createUnactivatedClient creates a bank client via POST /api/v1/clients but
+// createUnactivatedClient creates a bank client via POST /api/v3/clients but
 // deliberately does NOT pull the activation token from Kafka. The auth-service
 // Account row is created with status=pending; logging in will surface
 // ErrAccountPending → FailedPrecondition → 409 business_rule_violation.
@@ -108,7 +108,7 @@ func assertHTTP(t *testing.T, resp *client.Response, status int, errCode string)
 func createUnactivatedClient(t *testing.T, adminC *client.APIClient) string {
 	t.Helper()
 	email := helpers.RandomEmail()
-	resp, err := adminC.POST("/api/v1/clients", map[string]interface{}{
+	resp, err := adminC.POST("/api/v3/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("Pen"),
 		"last_name":     helpers.RandomName("Ding"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -119,7 +119,7 @@ func createUnactivatedClient(t *testing.T, adminC *client.APIClient) string {
 		"jmbg":          helpers.RandomJMBG(),
 	})
 	if err != nil {
-		t.Fatalf("createUnactivatedClient: POST /api/v1/clients: %v", err)
+		t.Fatalf("createUnactivatedClient: POST /api/v3/clients: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 201)
 	return email

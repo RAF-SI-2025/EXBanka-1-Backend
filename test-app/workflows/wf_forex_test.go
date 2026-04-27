@@ -38,7 +38,7 @@ func TestWF_Forex_BuyDebitsQuoteCreditsBase(t *testing.T) {
 	// rate ≈ 1.08 needs ≈ 1134 USD of reservation (1000 × 1.08 × slippage ×
 	// commission). Fund USD generously so the reservation passes.
 	clientID, _, clientC, _ := setupActivatedClient(t, adminC)
-	usdResp, err := adminC.POST("/api/v1/accounts", map[string]interface{}{
+	usdResp, err := adminC.POST("/api/v3/accounts", map[string]interface{}{
 		"owner_id":        clientID,
 		"account_kind":    "foreign",
 		"account_type":    "personal",
@@ -50,7 +50,7 @@ func TestWF_Forex_BuyDebitsQuoteCreditsBase(t *testing.T) {
 	}
 
 	// EUR starts at 0 so any positive EUR delta is from the forex fill.
-	eurResp, err := adminC.POST("/api/v1/accounts", map[string]interface{}{
+	eurResp, err := adminC.POST("/api/v3/accounts", map[string]interface{}{
 		"owner_id":        clientID,
 		"account_kind":    "foreign",
 		"account_type":    "personal",
@@ -73,7 +73,7 @@ func TestWF_Forex_BuyDebitsQuoteCreditsBase(t *testing.T) {
 
 	const quantity = 1 // ⇒ 1000 EUR contract (contract_size=1000)
 
-	resp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
+	resp, err := clientC.POST("/api/v3/me/orders", map[string]interface{}{
 		"security_type":   "forex",
 		"listing_id":      listingID,
 		"direction":       "buy",
@@ -121,7 +121,7 @@ func TestWF_Forex_BuyDebitsQuoteCreditsBase(t *testing.T) {
 	// operation, not an instrument purchase. The portfolio list endpoint
 	// doesn't accept security_type=forex (gateway validator), so we query
 	// without a filter and assert no row has security_type=forex.
-	portfolioResp, err := clientC.GET("/api/v1/me/portfolio")
+	portfolioResp, err := clientC.GET("/api/v3/me/portfolio")
 	if err != nil {
 		t.Fatalf("get portfolio: %v", err)
 	}

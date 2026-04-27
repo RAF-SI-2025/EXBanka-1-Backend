@@ -30,7 +30,7 @@ func TestWF_FullClientOnboardingToFirstTransaction(t *testing.T) {
 	_, bankBalBefore := getBankRSDAccount(t, adminC)
 
 	// Step 3: Sender adds receiver as a payment recipient
-	recipientResp, err := senderC.POST("/api/v1/me/payment-recipients", map[string]interface{}{
+	recipientResp, err := senderC.POST("/api/v3/me/payment-recipients", map[string]interface{}{
 		"client_id":      senderID,
 		"account_number": receiverAcct,
 		"recipient_name": "Test Receiver",
@@ -74,7 +74,7 @@ func TestWF_FullClientOnboardingToFirstTransaction(t *testing.T) {
 	}
 
 	// Step 6: Verify admin can view the payment
-	adminPaymentResp, err := adminC.GET(fmt.Sprintf("/api/v1/payments/%d", paymentID))
+	adminPaymentResp, err := adminC.GET(fmt.Sprintf("/api/v3/payments/%d", paymentID))
 	if err != nil {
 		t.Fatalf("WF-1: admin get payment: %v", err)
 	}

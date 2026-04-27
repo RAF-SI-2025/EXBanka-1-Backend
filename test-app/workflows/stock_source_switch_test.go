@@ -11,8 +11,8 @@ import (
 
 // TestStockSource_SwitchToGenerated exercises the admin stock-source switch flow:
 //
-//	POST /api/v1/admin/stock-source {"source":"generated"} →
-//	poll GET /api/v1/admin/stock-source until status=idle →
+//	POST /api/v3/admin/stock-source {"source":"generated"} →
+//	poll GET /api/v3/admin/stock-source until status=idle →
 //	verify 20 generated stocks including AAPL →
 //	verify options exist for the first stock.
 //
@@ -25,7 +25,7 @@ func TestStockSource_SwitchToGenerated(t *testing.T) {
 
 	// Restore source to "external" when the test finishes so later tests see live data.
 	t.Cleanup(func() {
-		restoreResp, err := adminC.POST("/api/v1/admin/stock-source", map[string]string{
+		restoreResp, err := adminC.POST("/api/v3/admin/stock-source", map[string]string{
 			"source": "external",
 		})
 		if err != nil {
@@ -38,11 +38,11 @@ func TestStockSource_SwitchToGenerated(t *testing.T) {
 	})
 
 	// Switch to generated source.
-	switchResp, err := adminC.POST("/api/v1/admin/stock-source", map[string]string{
+	switchResp, err := adminC.POST("/api/v3/admin/stock-source", map[string]string{
 		"source": "generated",
 	})
 	if err != nil {
-		t.Fatalf("POST /api/v1/admin/stock-source: %v", err)
+		t.Fatalf("POST /api/v3/admin/stock-source: %v", err)
 	}
 	helpers.RequireStatus(t, switchResp, 202)
 
@@ -50,9 +50,9 @@ func TestStockSource_SwitchToGenerated(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	finalStatus := ""
 	for time.Now().Before(deadline) {
-		statusResp, err := adminC.GET("/api/v1/admin/stock-source")
+		statusResp, err := adminC.GET("/api/v3/admin/stock-source")
 		if err != nil {
-			t.Fatalf("GET /api/v1/admin/stock-source: %v", err)
+			t.Fatalf("GET /api/v3/admin/stock-source: %v", err)
 		}
 		helpers.RequireStatus(t, statusResp, 200)
 		if s, ok := statusResp.Body["status"].(string); ok && s == "idle" {
@@ -66,9 +66,9 @@ func TestStockSource_SwitchToGenerated(t *testing.T) {
 	}
 
 	// Verify 20 generated stocks were seeded.
-	stocksResp, err := adminC.GET("/api/v1/securities/stocks?page=1&page_size=50")
+	stocksResp, err := adminC.GET("/api/v3/securities/stocks?page=1&page_size=50")
 	if err != nil {
-		t.Fatalf("GET /api/v1/securities/stocks: %v", err)
+		t.Fatalf("GET /api/v3/securities/stocks: %v", err)
 	}
 	helpers.RequireStatus(t, stocksResp, 200)
 
@@ -105,9 +105,9 @@ func TestStockSource_SwitchToGenerated(t *testing.T) {
 	t.Logf("generated source: %d stocks seeded, AAPL present, first stock id=%d", len(stocks), firstStockID)
 
 	// Verify options exist for the first stock.
-	optsResp, err := adminC.GET("/api/v1/securities/options?stock_id=" + helpers.FormatID(firstStockID))
+	optsResp, err := adminC.GET("/api/v3/securities/options?stock_id=" + helpers.FormatID(firstStockID))
 	if err != nil {
-		t.Fatalf("GET /api/v1/securities/options?stock_id=%d: %v", firstStockID, err)
+		t.Fatalf("GET /api/v3/securities/options?stock_id=%d: %v", firstStockID, err)
 	}
 	helpers.RequireStatus(t, optsResp, 200)
 

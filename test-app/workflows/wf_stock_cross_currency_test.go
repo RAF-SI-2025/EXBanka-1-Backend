@@ -35,7 +35,7 @@ func TestWF_StockBuy_CrossCurrency_ConvertedDebit(t *testing.T) {
 	before := getAccountBalancesByNumber(t, adminC, acctNum)
 	t.Logf("before: balance=%.4f available=%.4f", before.Balance, before.Available)
 
-	resp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
+	resp, err := clientC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -74,10 +74,10 @@ func TestWF_StockBuy_CrossCurrency_ConvertedDebit(t *testing.T) {
 	t.Logf("total RSD debited: %.4f", debit)
 
 	// Invariant 3: debit matches the order's reported converted_amount (when
-	// present in the GET /api/v1/me/orders/{id} response). This is the core
+	// present in the GET /api/v3/me/orders/{id} response). This is the core
 	// "no double-debit, no mis-convert" guard. We read the order and its
 	// transactions and sum converted_amount across fills.
-	orderResp, err := clientC.GET("/api/v1/me/orders/" + helpers.FormatID(orderID))
+	orderResp, err := clientC.GET("/api/v3/me/orders/" + helpers.FormatID(orderID))
 	if err != nil {
 		t.Fatalf("get order: %v", err)
 	}

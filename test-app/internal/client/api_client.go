@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// APIBasePath is the only live API version prefix. v1 and v2 were retired
+// by plan E (2026-04-27); the gateway returns 404 for any /api/v1/* or
+// /api/v2/* request. New tests must use this constant or hard-code
+// "/api/v3/...".
+const APIBasePath = "/api/v3"
+
 // Response wraps an HTTP response with parsed body.
 type Response struct {
 	StatusCode int
@@ -109,7 +115,7 @@ func (c *APIClient) do(method, path string, body interface{}) (*Response, error)
 
 // Login authenticates and stores the access token.
 func (c *APIClient) Login(email, password string) (*Response, error) {
-	resp, err := c.POST("/api/v1/auth/login", map[string]string{
+	resp, err := c.POST("/api/v3/auth/login", map[string]string{
 		"email":    email,
 		"password": password,
 	})
@@ -126,7 +132,7 @@ func (c *APIClient) Login(email, password string) (*Response, error) {
 
 // ActivateAccount activates a pending account with the given token and password.
 func (c *APIClient) ActivateAccount(activationToken, password string) (*Response, error) {
-	return c.POST("/api/v1/auth/activate", map[string]string{
+	return c.POST("/api/v3/auth/activate", map[string]string{
 		"token":            activationToken,
 		"password":         password,
 		"confirm_password": password,
@@ -135,7 +141,7 @@ func (c *APIClient) ActivateAccount(activationToken, password string) (*Response
 
 // RefreshToken exchanges a refresh token for new token pair.
 func (c *APIClient) RefreshToken(refreshToken string) (*Response, error) {
-	return c.POST("/api/v1/auth/refresh", map[string]string{
+	return c.POST("/api/v3/auth/refresh", map[string]string{
 		"refresh_token": refreshToken,
 	})
 }

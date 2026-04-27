@@ -40,7 +40,7 @@ func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
 	_, listingID := getFirstStockListingID(t, senderC)
 	t.Logf("WF-11: using listing_id=%d", listingID)
 
-	buyResp, err := senderC.POST("/api/v1/me/orders", map[string]interface{}{
+	buyResp, err := senderC.POST("/api/v3/me/orders", map[string]interface{}{
 		"security_type": "stock",
 		"listing_id":    listingID,
 		"direction":     "buy",
@@ -94,7 +94,7 @@ func TestWF_ClientTradesStockAfterBanking(t *testing.T) {
 	}
 
 	// Step 6: The order is persisted and has reservation metadata.
-	orderResp, err := senderC.GET("/api/v1/me/orders/" + helpers.FormatID(buyOrderID))
+	orderResp, err := senderC.GET("/api/v3/me/orders/" + helpers.FormatID(buyOrderID))
 	if err != nil {
 		t.Fatalf("WF-11: get order: %v", err)
 	}

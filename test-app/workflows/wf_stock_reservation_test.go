@@ -39,7 +39,7 @@ func TestWF_StockBuy_CancelReleasesReservation(t *testing.T) {
 	// Limit buy at 0.01 (absurdly low) so it reserves funds but stays pending.
 	// We reserve at the limit_value; quantity × 0.01 == very small → well under
 	// 100 000 RSD starting balance.
-	resp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
+	resp, err := clientC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "limit",
@@ -77,7 +77,7 @@ func TestWF_StockBuy_CancelReleasesReservation(t *testing.T) {
 	}
 
 	// Cancel the still-pending order.
-	cancelResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/orders/%d/cancel", orderID), nil)
+	cancelResp, err := clientC.POST(fmt.Sprintf("/api/v3/me/orders/%d/cancel", orderID), nil)
 	if err != nil {
 		t.Fatalf("cancel: %v", err)
 	}

@@ -18,10 +18,10 @@ import "testing"
 //
 // SKIPPED with TODO below until one of:
 //
-//   - POST /api/v1/admin/stock/expire-stale-orders is added and invokes the
+//   - POST /api/v3/admin/stock/expire-stale-orders is added and invokes the
 //     reservation-release path directly, OR
 //   - simulator time advancement is exposed via a new admin endpoint (e.g.,
-//     POST /api/v1/admin/sim/advance-hours?hours=25), OR
+//     POST /api/v3/admin/sim/advance-hours?hours=25), OR
 //   - stop-limit orders gain an explicit expires_at config that tests can
 //     set short enough to observe expiry within a test timeout.
 //

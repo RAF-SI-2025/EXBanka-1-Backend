@@ -175,7 +175,7 @@ func peerSignedPost(t *testing.T, gatewayURL, path, txID, action string, body an
 // `balance` matches `want` to 4 decimal places.
 func requireBalanceEquals(t *testing.T, adminC *client.APIClient, accountNumber, want string) {
 	t.Helper()
-	resp, err := adminC.GET("/api/v1/accounts?account_number=" + accountNumber)
+	resp, err := adminC.GET("/api/v3/accounts?account_number=" + accountNumber)
 	if err != nil {
 		t.Fatalf("get account: %v", err)
 	}

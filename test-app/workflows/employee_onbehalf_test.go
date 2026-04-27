@@ -18,7 +18,7 @@ func TestEmployeeOnBehalf_CreateOrder(t *testing.T) {
 	clientID, _, clientC, _ := setupActivatedClient(t, adminC)
 
 	// Look up the client's account ID.
-	acctsResp, err := adminC.GET("/api/v1/accounts?client_id=" + strconv.Itoa(clientID))
+	acctsResp, err := adminC.GET("/api/v3/accounts?client_id=" + strconv.Itoa(clientID))
 	if err != nil {
 		t.Fatalf("list accounts: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestEmployeeOnBehalf_CreateOrder(t *testing.T) {
 	accountID := int(first["id"].(float64))
 
 	// Pick a listing to trade — any stock listing will do.
-	listResp, err := adminC.GET("/api/v1/securities/stocks?page=1&page_size=1")
+	listResp, err := adminC.GET("/api/v3/securities/stocks?page=1&page_size=1")
 	if err != nil {
 		t.Fatalf("list listings: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestEmployeeOnBehalf_CreateOrder(t *testing.T) {
 	listingID := int(listing["id"].(float64))
 
 	// Place the on-behalf order via the employee route.
-	resp, err := adminC.POST("/api/v1/orders", map[string]interface{}{
+	resp, err := adminC.POST("/api/v3/orders", map[string]interface{}{
 		"client_id":  clientID,
 		"account_id": accountID,
 		"listing_id": listingID,
@@ -83,7 +83,7 @@ func TestEmployeeOnBehalf_CreateOrder(t *testing.T) {
 	var holdings []interface{}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		portResp, err := clientC.GET("/api/v1/me/portfolio")
+		portResp, err := clientC.GET("/api/v3/me/portfolio")
 		if err != nil {
 			t.Fatalf("client portfolio: %v", err)
 		}
@@ -108,7 +108,7 @@ func TestEmployeeOnBehalf_AccountNotOwnedByClient_Returns403(t *testing.T) {
 	bobID, _, _, _ := setupActivatedClient(t, adminC)
 
 	// Look up Bob's account ID.
-	acctsResp, err := adminC.GET("/api/v1/accounts?client_id=" + strconv.Itoa(bobID))
+	acctsResp, err := adminC.GET("/api/v3/accounts?client_id=" + strconv.Itoa(bobID))
 	if err != nil {
 		t.Fatalf("list accounts: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestEmployeeOnBehalf_AccountNotOwnedByClient_Returns403(t *testing.T) {
 	bobAccountID := int(bobFirst["id"].(float64))
 
 	// Get any listing.
-	listResp, err := adminC.GET("/api/v1/securities/stocks?page=1&page_size=1")
+	listResp, err := adminC.GET("/api/v3/securities/stocks?page=1&page_size=1")
 	if err != nil {
 		t.Fatalf("list listings: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestEmployeeOnBehalf_AccountNotOwnedByClient_Returns403(t *testing.T) {
 	listingID := int(listing["id"].(float64))
 
 	// Admin tries to place an order for Alice using Bob's account → 403.
-	resp, err := adminC.POST("/api/v1/orders", map[string]interface{}{
+	resp, err := adminC.POST("/api/v3/orders", map[string]interface{}{
 		"client_id":  aliceID,
 		"account_id": bobAccountID,
 		"listing_id": listingID,
@@ -166,7 +166,7 @@ func TestEmployeeOnBehalf_AsBasic_Forbidden(t *testing.T) {
 	_, basicC, _ := setupBasicEmployee(t, adminC)
 	clientID, _, _, _ := setupActivatedClient(t, adminC)
 
-	acctsResp, err := adminC.GET("/api/v1/accounts?client_id=" + strconv.Itoa(clientID))
+	acctsResp, err := adminC.GET("/api/v3/accounts?client_id=" + strconv.Itoa(clientID))
 	if err != nil {
 		t.Fatalf("list accounts: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestEmployeeOnBehalf_AsBasic_Forbidden(t *testing.T) {
 	first, _ := accts[0].(map[string]interface{})
 	accountID := int(first["id"].(float64))
 
-	listResp, err := adminC.GET("/api/v1/securities/stocks?page=1&page_size=1")
+	listResp, err := adminC.GET("/api/v3/securities/stocks?page=1&page_size=1")
 	if err != nil {
 		t.Fatalf("list listings: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestEmployeeOnBehalf_AsBasic_Forbidden(t *testing.T) {
 	}
 	listingID := int(listing["id"].(float64))
 
-	resp, err := basicC.POST("/api/v1/orders", map[string]interface{}{
+	resp, err := basicC.POST("/api/v3/orders", map[string]interface{}{
 		"client_id":  clientID,
 		"account_id": accountID,
 		"listing_id": listingID,

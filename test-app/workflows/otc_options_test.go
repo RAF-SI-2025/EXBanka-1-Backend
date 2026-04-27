@@ -18,7 +18,7 @@ func TestOTCOptions_CreateAndListMyOffers_HappyPath(t *testing.T) {
 	adminC := loginAsAdmin(t)
 
 	// Pick any stock listing so the offer references something seeded.
-	stocksResp, err := adminC.GET("/api/v1/securities/stocks?page=1&page_size=1")
+	stocksResp, err := adminC.GET("/api/v3/securities/stocks?page=1&page_size=1")
 	if err != nil {
 		t.Fatalf("list stocks: %v", err)
 	}

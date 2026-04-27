@@ -32,7 +32,7 @@ func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
 	// Step 3: Set agent's actuary limit very low (e.g., 1 RSD)
-	setLimitResp, err := supervisorC.PUT(fmt.Sprintf("/api/v1/actuaries/%d/limit", agentID), map[string]interface{}{
+	setLimitResp, err := supervisorC.PUT(fmt.Sprintf("/api/v3/actuaries/%d/limit", agentID), map[string]interface{}{
 		"limit": "1.00",
 	})
 	if err != nil {
@@ -42,7 +42,7 @@ func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
 	t.Logf("WF-12: agent actuary limit set to 1.00 RSD")
 
 	// Also set employee limits low for completeness
-	setEmpLimitResp, err := adminC.PUT(fmt.Sprintf("/api/v1/employees/%d/limits", agentID), map[string]interface{}{
+	setEmpLimitResp, err := adminC.PUT(fmt.Sprintf("/api/v3/employees/%d/limits", agentID), map[string]interface{}{
 		"max_loan_approval_amount": "100.00",
 		"max_single_transaction":   "100.00",
 		"max_daily_transaction":    "200.00",
@@ -64,7 +64,7 @@ func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
 
 	// Step 5: Agent tries a stock order with the low limit
 	// Depending on enforcement, this may be rejected (403/400) or accepted
-	lowLimitOrderResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
+	lowLimitOrderResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"security_type": "stock",
 		"listing_id":    listingID,
 		"direction":     "buy",
@@ -89,7 +89,7 @@ func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
 	}
 
 	// Step 6: Supervisor increases the actuary limit to a high value
-	increaseLimitResp, err := supervisorC.PUT(fmt.Sprintf("/api/v1/actuaries/%d/limit", agentID), map[string]interface{}{
+	increaseLimitResp, err := supervisorC.PUT(fmt.Sprintf("/api/v3/actuaries/%d/limit", agentID), map[string]interface{}{
 		"limit": "10000000.00",
 	})
 	if err != nil {
@@ -99,7 +99,7 @@ func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
 	t.Logf("WF-12: agent actuary limit increased to 10,000,000 RSD")
 
 	// Also increase employee limits
-	increaseEmpLimitResp, err := adminC.PUT(fmt.Sprintf("/api/v1/employees/%d/limits", agentID), map[string]interface{}{
+	increaseEmpLimitResp, err := adminC.PUT(fmt.Sprintf("/api/v3/employees/%d/limits", agentID), map[string]interface{}{
 		"max_loan_approval_amount": "5000000.00",
 		"max_single_transaction":   "5000000.00",
 		"max_daily_transaction":    "10000000.00",
@@ -113,7 +113,7 @@ func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
 	t.Logf("WF-12: employee limits increased to high values")
 
 	// Step 7: Agent retries with higher limit — should succeed
-	retryOrderResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
+	retryOrderResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"security_type": "stock",
 		"listing_id":    listingID,
 		"direction":     "buy",
@@ -136,7 +136,7 @@ func TestWF_LimitEnforcementAcrossDomains(t *testing.T) {
 	t.Logf("WF-12: order settled=%v (high-limit placement verified regardless)", settled)
 
 	// Step 8: Verify agent's limits can be read back
-	getLimitsResp, err := adminC.GET(fmt.Sprintf("/api/v1/employees/%d/limits", agentID))
+	getLimitsResp, err := adminC.GET(fmt.Sprintf("/api/v3/employees/%d/limits", agentID))
 	if err != nil {
 		t.Fatalf("WF-12: get employee limits: %v", err)
 	}

@@ -40,7 +40,7 @@ func TestWF_CrossCurrencyTradingAndTransfer(t *testing.T) {
 
 	rsdAcctID := getAccountIDByNumber(t, adminC, rsdAcct)
 
-	buyResp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
+	buyResp, err := clientC.POST("/api/v3/me/orders", map[string]interface{}{
 		"security_type": "stock",
 		"listing_id":    listingID,
 		"direction":     "buy",

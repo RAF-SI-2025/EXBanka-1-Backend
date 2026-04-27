@@ -26,7 +26,7 @@ func TestLoanDisbursement_Saga_HappyPath(t *testing.T) {
 	loanRequestID := submitLoanRequest(t, clientC, accountNumber, 50000, 12)
 
 	// Admin approves the loan request.
-	approveResp, err := adminC.POST(fmt.Sprintf("/api/v1/loan-requests/%d/approve", loanRequestID), nil)
+	approveResp, err := adminC.POST(fmt.Sprintf("/api/v3/loan-requests/%d/approve", loanRequestID), nil)
 	if err != nil {
 		t.Fatalf("approve loan: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestLoanDisbursement_BankInsufficientLiquidity_Returns409(t *testing.T) {
 // Uses /api/me/loan-requests — the client_id is extracted from the JWT by the gateway.
 func submitLoanRequest(t *testing.T, c *client.APIClient, accountNumber string, amount float64, months int) int {
 	t.Helper()
-	resp, err := c.POST("/api/v1/me/loan-requests", map[string]interface{}{
+	resp, err := c.POST("/api/v3/me/loan-requests", map[string]interface{}{
 		"loan_type":        "cash",
 		"interest_type":    "fixed",
 		"amount":           amount,
