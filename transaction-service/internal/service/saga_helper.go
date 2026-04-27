@@ -9,6 +9,7 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	shared "github.com/exbanka/contract/shared"
+	sharedsaga "github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/transaction-service/internal/repository"
 	tsaga "github.com/exbanka/transaction-service/internal/saga"
 )
@@ -49,31 +50,31 @@ func executeWithSaga(
 ) error {
 	sagaID := fmt.Sprintf("%s-%d-%d", txType, transactionID, time.Now().UnixNano())
 
-	var recorder shared.Recorder = shared.NoopRecorder{}
+	var recorder sharedsaga.Recorder = sharedsaga.NoopRecorder{}
 	if sagaRepo != nil {
 		recorder = tsaga.NewRecorder(sagaRepo)
 	}
 
-	state := shared.NewState()
+	state := sharedsaga.NewState()
 	state.Set("transaction_id", transactionID)
 	state.Set("transaction_type", txType)
 
-	saga := shared.NewSaga(sagaID, recorder)
+	sg := sharedsaga.NewSaga(sagaID, recorder)
 
 	failed := false
 	for _, step := range steps {
 		step := step
 		// Pre-populate per-step audit metadata so the recorder can persist
-		// the right account/amount when shared.Saga writes the row.
+		// the right account/amount when sharedsaga.Saga writes the row.
 		state.Set("step:"+step.name+":account_number", step.accountNumber)
 		state.Set("step:"+step.name+":amount", step.amount)
 
-		saga.Add(shared.Step{
+		sg.Add(sharedsaga.Step{
 			Name: step.name,
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *sharedsaga.State) error {
 				return step.execute(ctx)
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *sharedsaga.State) error {
 				if accountClient == nil {
 					return nil
 				}
@@ -90,7 +91,7 @@ func executeWithSaga(
 		})
 	}
 
-	if err := saga.Execute(ctx, state); err != nil {
+	if err := sg.Execute(ctx, state); err != nil {
 		// Match legacy metric semantics: increment once when the saga as a
 		// whole fails (not once per compensation step).
 		if !failed {

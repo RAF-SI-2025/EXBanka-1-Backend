@@ -14,7 +14,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
-	"github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
@@ -41,7 +41,7 @@ type InvestInput struct {
 //  5. Upserts the (fund, owner) position by +AmountRSD.
 //
 // Failure of step (4) reverses (3). Failure of step (5) reverses (4) and (3).
-// Driven by shared.Saga: each step declares its Forward + Backward; the
+// Driven by saga.Saga: each step declares its Forward + Backward; the
 // executor walks completed steps in reverse on any forward failure. All
 // money side effects use deterministic idempotency keys derived from the
 // saga ID so retries after a crash are safe.
@@ -127,7 +127,7 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 	compFundMemo := fmt.Sprintf("Comp invest fund saga=%s", sagaID)
 	compFundKey := fmt.Sprintf("invest-%s-comp-fund", sagaID)
 
-	state := shared.NewState()
+	state := saga.NewState()
 	state.Set("step:debit_source:amount", in.Amount)
 	state.Set("step:debit_source:currency", in.Currency)
 	state.Set("step:credit_fund:amount", amountRSD)
@@ -135,38 +135,38 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 	state.Set("step:upsert_position:amount", amountRSD)
 	state.Set("step:upsert_position:currency", "RSD")
 
-	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(shared.Step{
+	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(saga.Step{
 			Name: "debit_source",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.DebitAccount(ctx, srcAcct.AccountNumber, in.Amount, debitMemo, debitKey)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, srcAcct.AccountNumber, in.Amount, compSrcMemo, compSrcKey)
 				return e
 			},
 		}).
-		Add(shared.Step{
+		Add(saga.Step{
 			Name: "credit_fund",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, amountRSD, creditMemo, creditKey)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.DebitAccount(ctx, fundAcct.AccountNumber, amountRSD, compFundMemo, compFundKey)
 				return e
 			},
 		}).
-		Add(shared.Step{
+		Add(saga.Step{
 			Name: "upsert_position",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				return s.positions.IncrementContribution(in.FundID, posUserID, posSystemType, amountRSD)
 			},
 			// Last step: nothing to roll back to, so no Backward needed.
 		})
 
-	if err := saga.Execute(ctx, state); err != nil {
+	if err := sg.Execute(ctx, state); err != nil {
 		_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
 		return nil, err
 	}

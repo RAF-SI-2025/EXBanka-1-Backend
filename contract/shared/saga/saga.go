@@ -1,35 +1,37 @@
-// Package shared — saga.go provides a generic, service-agnostic saga
-// abstraction used by every service in this monorepo. It captures the common
-// pattern: run a sequence of reversible steps; on failure, roll back the
-// completed steps in reverse order; persist each transition to a per-service
-// audit log so a recovery loop can reconcile crash survivors.
+// Package saga provides a generic, service-agnostic saga abstraction used by
+// every service in this monorepo. It captures the common pattern: run a
+// sequence of reversible steps; on failure, roll back the completed steps in
+// reverse order; persist each transition to a per-service audit log so a
+// recovery loop can reconcile crash survivors.
 //
-// The shared file owns the *vocabulary* (status strings, the Step / State
-// types, the Recorder port, the lifecycle hook) and the *executor* (Saga).
-// It does not own *persistence* — each service plugs in its own Recorder
+// The package owns the *vocabulary* (status strings, the Step / State types,
+// the Recorder port, the lifecycle hook) and the *executor* (Saga). It does
+// not own *persistence* — each service plugs in its own Recorder
 // implementation backed by its own saga_logs table, which keeps this file
 // free of GORM, decimal, or domain-specific schemas.
 //
 // Typical use:
 //
-//	saga := shared.NewSaga(sagaID, recorder).
+//	s := saga.NewSaga(recorder).
 //	    WithRetry(shared.DefaultRetryConfig).
-//	    Add(s.reserveBuyerFunds()).
-//	    Add(s.createContract()).
-//	    AddIf(in.Premium.GreaterThan(threshold), s.complianceReview()).
-//	    Add(s.transferFunds()).
-//	    Add(s.finalize())
+//	    Add(svc.reserveBuyerFunds()).
+//	    Add(svc.createContract()).
+//	    AddIf(in.Premium.GreaterThan(threshold), svc.complianceReview()).
+//	    Add(svc.transferFunds()).
+//	    Add(svc.finalize())
 //
-//	if err := saga.Execute(ctx, state); err != nil {
+//	if err := s.Execute(ctx, state); err != nil {
 //	    return err
 //	}
-package shared
+package saga
 
 import (
 	"context"
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/exbanka/contract/shared"
 )
 
 // SagaStatus is the typed lifecycle state of a saga step row. Stored as
@@ -159,14 +161,14 @@ type NoopRecorder struct{}
 func (NoopRecorder) RecordForward(context.Context, string, string, int, *State) (StepHandle, error) {
 	return StepHandle{}, nil
 }
-func (NoopRecorder) MarkCompleted(context.Context, StepHandle) error          { return nil }
-func (NoopRecorder) MarkFailed(context.Context, StepHandle, string) error     { return nil }
+func (NoopRecorder) MarkCompleted(context.Context, StepHandle) error      { return nil }
+func (NoopRecorder) MarkFailed(context.Context, StepHandle, string) error { return nil }
 func (NoopRecorder) RecordCompensation(context.Context, string, string, int, StepHandle, *State) (StepHandle, error) {
 	return StepHandle{}, nil
 }
-func (NoopRecorder) MarkCompensated(context.Context, StepHandle) error              { return nil }
+func (NoopRecorder) MarkCompensated(context.Context, StepHandle) error                { return nil }
 func (NoopRecorder) MarkCompensationFailed(context.Context, StepHandle, string) error { return nil }
-func (NoopRecorder) IsCompleted(context.Context, string, string) (bool, error)      { return false, nil }
+func (NoopRecorder) IsCompleted(context.Context, string, string) (bool, error)        { return false, nil }
 
 // LifecyclePublisher is the optional hook a saga calls at top-level
 // transitions: started, committed, rolled back, or stuck (compensation
@@ -183,10 +185,10 @@ type LifecyclePublisher interface {
 // NoopPublisher is the zero-cost default when a saga has no lifecycle hook.
 type NoopPublisher struct{}
 
-func (NoopPublisher) OnStarted(context.Context, string)                            {}
-func (NoopPublisher) OnCommitted(context.Context, string)                          {}
+func (NoopPublisher) OnStarted(context.Context, string)                              {}
+func (NoopPublisher) OnCommitted(context.Context, string)                            {}
 func (NoopPublisher) OnRolledBack(context.Context, string, string, string, []string) {}
-func (NoopPublisher) OnStuck(context.Context, string, string, string)              {}
+func (NoopPublisher) OnStuck(context.Context, string, string, string)                {}
 
 // LogFunc is the minimal logger contract used by the executor for warnings
 // (recorder write failures, skipped steps on resume, compensation errors).
@@ -206,7 +208,7 @@ type Saga struct {
 	steps     []Step
 	recorder  Recorder
 	publisher LifecyclePublisher
-	retry     RetryConfig // zero-value means "no retry"
+	retry     shared.RetryConfig // zero-value means "no retry"
 	logf      LogFunc
 }
 
@@ -228,7 +230,7 @@ func NewSaga(id string, recorder Recorder) *Saga {
 // given config. The zero value (default) means each step is invoked exactly
 // once. Use this for transient gRPC failures that shouldn't trigger a full
 // compensation cascade.
-func (s *Saga) WithRetry(cfg RetryConfig) *Saga {
+func (s *Saga) WithRetry(cfg shared.RetryConfig) *Saga {
 	s.retry = cfg
 	return s
 }
@@ -373,7 +375,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 // runForward invokes a step's Forward, optionally wrapped in Retry.
 func (s *Saga) runForward(ctx context.Context, step Step, state *State) error {
 	if s.retry.MaxAttempts > 0 {
-		return Retry(ctx, s.retry, func() error { return step.Forward(ctx, state) })
+		return shared.Retry(ctx, s.retry, func() error { return step.Forward(ctx, state) })
 	}
 	return step.Forward(ctx, state)
 }
@@ -385,7 +387,7 @@ func (s *Saga) runBackward(ctx context.Context, step Step, state *State) error {
 		return nil
 	}
 	if s.retry.MaxAttempts > 0 {
-		return Retry(ctx, s.retry, func() error { return step.Backward(ctx, state) })
+		return shared.Retry(ctx, s.retry, func() error { return step.Backward(ctx, state) })
 	}
 	return step.Backward(ctx, state)
 }

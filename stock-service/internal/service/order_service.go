@@ -14,7 +14,7 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
-	"github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/saga"
 	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -87,18 +87,18 @@ type ActuaryClientAPI interface {
 }
 
 type OrderService struct {
-	orderRepo            OrderRepo
-	txRepo               OrderTransactionRepo
-	listingRepo          ListingRepo
-	settingRepo          SettingRepo
-	securityRepo         SecurityLookupRepo
-	producer             OrderEventPublisher
-	sagaRepo             SagaLogRepo
-	accountClient        AccountClientAPI
-	exchangeClient       exchangepb.ExchangeServiceClient
+	orderRepo             OrderRepo
+	txRepo                OrderTransactionRepo
+	listingRepo           ListingRepo
+	settingRepo           SettingRepo
+	securityRepo          SecurityLookupRepo
+	producer              OrderEventPublisher
+	sagaRepo              SagaLogRepo
+	accountClient         AccountClientAPI
+	exchangeClient        exchangepb.ExchangeServiceClient
 	holdingReservationSvc HoldingReservationAPI
-	forexRepo            ForexPairLookup
-	settings             OrderSettings
+	forexRepo             ForexPairLookup
+	settings              OrderSettings
 	// actuaryClient enforces per-actuary limits for employee-placed orders.
 	// When nil (e.g., in older tests) limit enforcement is skipped — employee
 	// orders behave like pre-fix (always auto-approved). Production wiring in
@@ -164,18 +164,18 @@ func NewOrderService(
 		settings = defaultOrderSettings{}
 	}
 	return &OrderService{
-		orderRepo:            orderRepo,
-		txRepo:               txRepo,
-		listingRepo:          listingRepo,
-		settingRepo:          settingRepo,
-		securityRepo:         securityRepo,
-		producer:             producer,
-		sagaRepo:             sagaRepo,
-		accountClient:        accountClient,
-		exchangeClient:       exchangeClient,
+		orderRepo:             orderRepo,
+		txRepo:                txRepo,
+		listingRepo:           listingRepo,
+		settingRepo:           settingRepo,
+		securityRepo:          securityRepo,
+		producer:              producer,
+		sagaRepo:              sagaRepo,
+		accountClient:         accountClient,
+		exchangeClient:        exchangeClient,
 		holdingReservationSvc: holdingReservationSvc,
-		forexRepo:            forexRepo,
-		settings:             settings,
+		forexRepo:             forexRepo,
+		settings:              settings,
 	}
 }
 
@@ -277,13 +277,13 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 	// is only known after persist_order_pending; that step writes it into
 	// `state` so subsequent steps' saga_log rows carry the real order_id.
 	var (
-		listing       *model.Listing
-		reserveAmount decimal.Decimal
+		listing         *model.Listing
+		reserveAmount   decimal.Decimal
 		reserveCurrency string
-		placementRate *decimal.Decimal
+		placementRate   *decimal.Decimal
 	)
 
-	state := shared.NewState()
+	state := saga.NewState()
 	state.Set("order_id", uint64(0))
 
 	// --- pre-saga validation (no side effects, so kept out of the saga) ---
@@ -476,8 +476,8 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		order.ReservationAccountID = &acct
 	}
 
-	// shared.Saga drives the side-effecting steps. Each step's Backward
-	// undoes its forward effect; on any failure shared.Saga walks
+	// saga.Saga drives the side-effecting steps. Each step's Backward
+	// undoes its forward effect; on any failure saga.Saga walks
 	// completed steps in reverse and runs them automatically.
 	//
 	// The actuary-limit gate is computed inside the finalize step so the
@@ -490,15 +490,15 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 	}
 
 	var (
-		needsApproval   bool
-		limitAmountRSD  decimal.Decimal
-		actuaryLimitID  uint64
+		needsApproval  bool
+		limitAmountRSD decimal.Decimal
+		actuaryLimitID uint64
 	)
 
-	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(shared.Step{
+	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(saga.Step{
 			Name: "persist_order_pending",
-			Forward: func(ctx context.Context, st *shared.State) error {
+			Forward: func(ctx context.Context, st *saga.State) error {
 				if err := s.orderRepo.Create(order); err != nil {
 					return err
 				}
@@ -506,24 +506,24 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 				StockOrderTotal.WithLabelValues(req.OrderType, "pending").Inc()
 				return nil
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				return s.orderRepo.Delete(order.ID)
 			},
 		}).
-		AddIf(req.Direction == "buy", shared.Step{
+		AddIf(req.Direction == "buy", saga.Step{
 			Name: "reserve_funds",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, rerr := s.accountClient.ReserveFunds(ctx, req.AccountID, order.ID, reserveAmount, reserveCurrency)
 				return rerr
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID)
 				return rerr
 			},
 		}).
-		AddIf(req.Direction == "sell" && listing.SecurityType != "forex", shared.Step{
+		AddIf(req.Direction == "sell" && listing.SecurityType != "forex", saga.Step{
 			Name: "reserve_holding",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				if s.holdingReservationSvc == nil {
 					return status.Error(codes.Internal, "holding reservation service not configured")
 				}
@@ -531,7 +531,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 					listing.SecurityType, listing.SecurityID, order.ID, req.Quantity)
 				return herr
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				if s.holdingReservationSvc == nil {
 					return nil
 				}
@@ -539,9 +539,9 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 				return rerr
 			},
 		}).
-		Add(shared.Step{
+		Add(saga.Step{
 			Name: "finalize_order",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				// Per-actuary EmployeeLimit gate. Fires whenever an employee
 				// is the acting party — regardless of whether the resulting
 				// order's system_type is "employee" (legacy direct), "bank"
@@ -596,7 +596,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 			// runs their Backwards in reverse.
 		})
 
-	if err := saga.Execute(ctx, state); err != nil {
+	if err := sg.Execute(ctx, state); err != nil {
 		return nil, err
 	}
 
@@ -1039,4 +1039,3 @@ func parseTimezoneOffsetSafe(tz string) int {
 	}
 	return val
 }
-

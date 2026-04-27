@@ -10,6 +10,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/shared"
+	sharedsaga "github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/transaction-service/internal/repository"
 )
 
@@ -19,7 +20,7 @@ type DeadLetterPublisher interface {
 	PublishSagaDeadLetter(ctx context.Context, msg kafkamsg.SagaDeadLetterMessage) error
 }
 
-// Classifier implements shared.Classifier for transaction-service saga
+// Classifier implements sharedsaga.Classifier for transaction-service saga
 // recovery. The retry strategy mirrors what the legacy
 // runRecoveryTick does: replay UpdateBalance with the recorded amount
 // and account number; on success the runner marks the row terminal; on
@@ -45,29 +46,29 @@ func NewClassifier(client accountpb.AccountServiceClient, retryCfg shared.RetryC
 }
 
 // Compile-time guard.
-var _ shared.Classifier = (*Classifier)(nil)
+var _ sharedsaga.Classifier = (*Classifier)(nil)
 
 // Classify routes every stuck step to ActionRetry as long as we have an
 // account client + amount/account in the payload. Forward steps in
 // pending status are also retryable because the legacy executor treated
 // them the same way: replay UpdateBalance, idempotency_key on the
 // account-service ledger absorbs duplicates.
-func (c *Classifier) Classify(ctx context.Context, step shared.StuckStep) shared.RecoveryAction {
+func (c *Classifier) Classify(ctx context.Context, step sharedsaga.StuckStep) sharedsaga.RecoveryAction {
 	if c.accountClient == nil {
-		return shared.ActionLeave
+		return sharedsaga.ActionLeave
 	}
 	acct, _ := step.Payload["account_number"].(string)
 	if acct == "" {
-		return shared.ActionLeave
+		return sharedsaga.ActionLeave
 	}
 	if _, ok := step.Payload["amount"]; !ok {
-		return shared.ActionLeave
+		return sharedsaga.ActionLeave
 	}
-	return shared.ActionRetry
+	return sharedsaga.ActionRetry
 }
 
 // Retry replays UpdateBalance for the row's recorded account+amount.
-func (c *Classifier) Retry(ctx context.Context, step shared.StuckStep) error {
+func (c *Classifier) Retry(ctx context.Context, step sharedsaga.StuckStep) error {
 	if c.accountClient == nil {
 		return errors.New("classifier: nil account client")
 	}
@@ -96,9 +97,9 @@ func (c *Classifier) Retry(ctx context.Context, step shared.StuckStep) error {
 
 // PublishDeadLetter sends the saga.dead-letter Kafka event for a row
 // that's exhausted its retry budget. Called by the recovery runner via
-// a side-channel hook because shared.Classifier doesn't model
+// a side-channel hook because sharedsaga.Classifier doesn't model
 // dead-lettering itself.
-func (c *Classifier) PublishDeadLetter(ctx context.Context, step shared.StuckStep, reason string) {
+func (c *Classifier) PublishDeadLetter(ctx context.Context, step sharedsaga.StuckStep, reason string) {
 	if c.dlPublisher == nil {
 		return
 	}

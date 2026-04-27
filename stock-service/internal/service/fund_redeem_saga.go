@@ -13,7 +13,7 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
-	"github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
@@ -38,7 +38,7 @@ type RedeemInput struct {
 //  6. Credits the bank's RSD account by Fee (when fee > 0).
 //  7. Decrements the position by AmountRSD (best-effort, post-saga).
 //
-// Steps 4-6 run inside shared.Saga so any post-debit failure auto-reverses
+// Steps 4-6 run inside saga.Saga so any post-debit failure auto-reverses
 // prior steps. Step 7 runs outside the saga because position bookkeeping
 // failure must NOT reverse the money flow that already settled — money is
 // not recoverable, position rows are.
@@ -147,7 +147,7 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	feeKey := fmt.Sprintf("redeem-%s-fee", sagaID)
 	feeMemo := fmt.Sprintf("Fund redemption fee saga=%s", sagaID)
 
-	state := shared.NewState()
+	state := saga.NewState()
 	state.Set("step:debit_fund:amount", debitTotal)
 	state.Set("step:debit_fund:currency", "RSD")
 	state.Set("step:credit_target:amount", in.AmountRSD)
@@ -157,39 +157,39 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 		state.Set("step:credit_bank_fee:currency", "RSD")
 	}
 
-	saga := shared.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
-		Add(shared.Step{
+	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+		Add(saga.Step{
 			Name: "debit_fund",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.DebitAccount(ctx, fundAcct.AccountNumber, debitTotal, debitMemo, debitKey)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, debitTotal, compFundMemo, compFundKey)
 				return e
 			},
 		}).
-		Add(shared.Step{
+		Add(saga.Step{
 			Name: "credit_target",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, targetAcct.AccountNumber, in.AmountRSD, creditMemo, creditKey)
 				return e
 			},
-			Backward: func(ctx context.Context, _ *shared.State) error {
+			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.DebitAccount(ctx, targetAcct.AccountNumber, in.AmountRSD, compTargetMemo, compTargetKey)
 				return e
 			},
 		}).
-		AddIf(!feeRSD.IsZero(), shared.Step{
+		AddIf(!feeRSD.IsZero(), saga.Step{
 			Name: "credit_bank_fee",
-			Forward: func(ctx context.Context, _ *shared.State) error {
+			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, bankRSDAcctNo, feeRSD, feeMemo, feeKey)
 				return e
 			},
 			// Last money step. Nothing after it to fail, so no Backward needed.
 		})
 
-	if err := saga.Execute(ctx, state); err != nil {
+	if err := sg.Execute(ctx, state); err != nil {
 		_ = s.contribs.UpdateStatus(contrib.ID, model.FundContributionStatusFailed)
 		return nil, err
 	}
