@@ -130,22 +130,26 @@
 
 ### F15. `db.Save` optimistic-lock gap across 6 repositories
 
+**Status:** **RESOLVED** (commits `7536b57` + `84b0795`).
+
 **Evidence:** During B1 Task 3 implementation, found that GORM v1.31.1's `db.Save(versioned_row)` silently defeats optimistic locking — the initial UPDATE matches zero rows on a version conflict, then GORM falls back to `INSERT ... ON CONFLICT(id) DO UPDATE`, which clobbers the winner and returns `RowsAffected=1`. The standard `RowsAffected==0 → ErrOptimisticLock` check never fires.
 
 Fix: use `db.Select("*").Save(row)` instead — `Select("*")` sets GORM's internal `selectedUpdate` flag, disabling the fallback path.
 
-The B1 fix was applied to `inter_bank_saga_log_repository.go.Save` only. The same pattern is used unguarded in:
-- `stock-service/internal/repository/listing_repository.go:57-66` (`Update`)
-- `stock-service/internal/repository/card_repository.go`
-- `stock-service/internal/repository/option_contract_repository.go`
-- `stock-service/internal/repository/holding_reservation_repository.go`
-- `stock-service/internal/repository/stock_repository.go`
-- `stock-service/internal/repository/account_reservation_repository.go`
+**Repositories fixed:**
+- `stock-service/internal/repository/listing_repository.go` `Update`
+- `stock-service/internal/repository/option_contract_repository.go` `Save`
+- `stock-service/internal/repository/holding_reservation_repository.go` `UpdateStatus`
+- `stock-service/internal/repository/stock_repository.go` `Update`
+- `account-service/internal/repository/account_reservation_repository.go` `UpdateStatus`
+- `card-service/internal/repository/card_repository.go` `SetStatus` + `Update`
 
-None have tests covering the conflict path. **Latent concurrency bug in production-quality banking code.**
+Each fix has a regression test in `optimistic_lock_save_test.go` (or equivalent) that asserts ErrOptimisticLock surfaces on concurrent modification. Test efficacy verified: temporarily reverting one fix made its test fail with the bug pattern, confirming the test catches the F15 issue.
 
-**Severity:** **High** (silent data corruption under concurrent writes)
-**Effort:** Small per file — mechanical `db.Save(row)` → `db.Select("*").Save(row)` + `RowsAffected` check + add a regression test per repository.
+**Not fixed (don't have the bug):**
+- `account-service/internal/repository/ledger_repository.go` `DebitWithLock`/`CreditWithLock` — db.Save inside SELECT FOR UPDATE; the version-mismatch race can't fire here (pessimistic lock makes it impossible). Select("*") would still be a defense-in-depth hardening but isn't required.
+- `account-service/internal/repository/bank_account_repository.go` — also inside FOR UPDATE.
+- `account-service/internal/repository/company_repository.go` — uses bare db.Save without a RowsAffected check; F15 bug doesn't apply (different pattern; no optimistic-lock contract to defeat).
 
 ### F16. Forward-recovery driver for past-pivot crossbank failures
 
@@ -176,10 +180,12 @@ If the peer never received the call (network drop), the local row stays `pending
 
 When capacity becomes available:
 
-1. **F4 (AutoMigrate → explicit tool)** and **F15 (`db.Save` optimistic-lock gap)** are High-severity. F4 blocks any move to production; F15 is a latent concurrency bug in 6 production-path repositories.
+1. **F4 (AutoMigrate → explicit tool)** is the only remaining High-severity item — blocks any move to production.
 2. **F2 (cross-service contract tests)** and **F3 (structured logging)** pay back quickly on any further refactor.
 3. **F1 (fixture pool)** pays back per CI cycle but requires careful test-isolation design.
 4. **F8 (Kafka DLQ)** matters if/when message loss appears in incident reports.
-5. **F16 (crossbank forward-recovery)** correctness gap from B1.
-6. **F17, F18, F11, F12** — cleanup and ergonomics, pick when convenient.
+5. **F16-active-driver** (deferred from F16's docstring resolution) — only pick up if the rare "peer never received" class fires in incident reports.
+6. **F11, F12** — cleanup and ergonomics, pick when convenient.
 7. The rest are quality-of-life — pick when convenient.
+
+**Resolved this round (2026-04-28):** F15 (db.Save), F16 (docstring tightened), F17 (annotated), F18 (annotated EXPERIMENTAL).
