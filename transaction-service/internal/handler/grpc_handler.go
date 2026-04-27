@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"log"
 	"strconv"
-	"strings"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -51,33 +50,6 @@ type txProducer interface {
 	PublishPaymentCompleted(ctx context.Context, msg kafkamsg.PaymentCompletedMessage) error
 	PublishTransferCreated(ctx context.Context, msg kafkamsg.TransferCompletedMessage) error
 	PublishTransferCompleted(ctx context.Context, msg kafkamsg.TransferCompletedMessage) error
-}
-
-// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
-func mapServiceError(err error) codes.Code {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "not found"):
-		return codes.NotFound
-	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"):
-		return codes.InvalidArgument
-	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
-		return codes.AlreadyExists
-	case strings.Contains(msg, "insufficient funds"), strings.Contains(msg, "limit exceeded"),
-		strings.Contains(msg, "spending limit"), strings.Contains(msg, "already used"),
-		strings.Contains(msg, "already blocked"), strings.Contains(msg, "already deactivated"),
-		strings.Contains(msg, "already "):
-		return codes.FailedPrecondition
-	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
-		strings.Contains(msg, "failed attempts"):
-		return codes.ResourceExhausted
-	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
-		return codes.PermissionDenied
-	case strings.Contains(msg, "expired"):
-		return codes.DeadlineExceeded
-	default:
-		return codes.Internal
-	}
 }
 
 func generateIdempotencyKey() string {
@@ -147,7 +119,7 @@ func (h *TransactionGRPCHandler) CreatePayment(ctx context.Context, req *pb.Crea
 	}
 
 	if err := h.paymentSvc.CreatePayment(ctx, payment); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "create payment: %v", err)
+		return nil, err
 	}
 
 	// Publish payment-created Kafka event
@@ -183,7 +155,7 @@ func (h *TransactionGRPCHandler) ExecutePayment(ctx context.Context, req *pb.Exe
 
 	// 2. Execute the payment (balance changes)
 	if err := h.paymentSvc.ExecutePayment(ctx, req.GetPaymentId()); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "execute payment: %v", err)
+		return nil, err
 	}
 
 	// 3. Get updated payment and return
@@ -232,7 +204,7 @@ func (h *TransactionGRPCHandler) ListPaymentsByAccount(ctx context.Context, req 
 		int(req.GetPageSize()),
 	)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "list payments: %v", err)
+		return nil, err
 	}
 
 	pbPayments := make([]*pb.PaymentResponse, 0, len(payments))
@@ -249,7 +221,7 @@ func (h *TransactionGRPCHandler) ListPaymentsByClient(ctx context.Context, req *
 		int(req.GetPageSize()),
 	)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "list payments by client: %v", err)
+		return nil, err
 	}
 
 	pbPayments := make([]*pb.PaymentResponse, 0, len(payments))
@@ -276,7 +248,7 @@ func (h *TransactionGRPCHandler) CreateTransfer(ctx context.Context, req *pb.Cre
 	}
 
 	if err := h.transferSvc.CreateTransfer(ctx, transfer); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "create transfer: %v", err)
+		return nil, err
 	}
 
 	// Publish transfer-created Kafka event
@@ -313,7 +285,7 @@ func (h *TransactionGRPCHandler) ExecuteTransfer(ctx context.Context, req *pb.Ex
 
 	// 2. Execute the transfer (balance changes)
 	if err := h.transferSvc.ExecuteTransfer(ctx, req.GetTransferId()); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "execute transfer: %v", err)
+		return nil, err
 	}
 
 	// 3. Get updated transfer and return
@@ -356,7 +328,7 @@ func (h *TransactionGRPCHandler) ListTransfersByClient(ctx context.Context, req 
 		int(req.GetPageSize()),
 	)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "list transfers: %v", err)
+		return nil, err
 	}
 
 	pbTransfers := make([]*pb.TransferResponse, 0, len(transfers))
@@ -375,7 +347,7 @@ func (h *TransactionGRPCHandler) CreatePaymentRecipient(ctx context.Context, req
 		AccountNumber: req.GetAccountNumber(),
 	}
 	if err := h.recipientSvc.Create(pr); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "create recipient: %v", err)
+		return nil, err
 	}
 	return recipientToProto(pr), nil
 }
@@ -383,7 +355,7 @@ func (h *TransactionGRPCHandler) CreatePaymentRecipient(ctx context.Context, req
 func (h *TransactionGRPCHandler) GetPaymentRecipient(ctx context.Context, req *pb.GetPaymentRecipientRequest) (*pb.PaymentRecipientResponse, error) {
 	pr, err := h.recipientSvc.GetByID(req.GetId())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "get recipient: %v", err)
+		return nil, err
 	}
 	return recipientToProto(pr), nil
 }
@@ -391,7 +363,7 @@ func (h *TransactionGRPCHandler) GetPaymentRecipient(ctx context.Context, req *p
 func (h *TransactionGRPCHandler) ListPaymentRecipients(ctx context.Context, req *pb.ListPaymentRecipientsRequest) (*pb.ListPaymentRecipientsResponse, error) {
 	recipients, err := h.recipientSvc.ListByClient(req.GetClientId())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "list recipients: %v", err)
+		return nil, err
 	}
 
 	pbRecipients := make([]*pb.PaymentRecipientResponse, 0, len(recipients))
@@ -404,14 +376,14 @@ func (h *TransactionGRPCHandler) ListPaymentRecipients(ctx context.Context, req 
 func (h *TransactionGRPCHandler) UpdatePaymentRecipient(ctx context.Context, req *pb.UpdatePaymentRecipientRequest) (*pb.PaymentRecipientResponse, error) {
 	pr, err := h.recipientSvc.Update(req.GetId(), req.RecipientName, req.AccountNumber)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "update recipient: %v", err)
+		return nil, err
 	}
 	return recipientToProto(pr), nil
 }
 
 func (h *TransactionGRPCHandler) DeletePaymentRecipient(ctx context.Context, req *pb.DeletePaymentRecipientRequest) (*pb.DeletePaymentRecipientResponse, error) {
 	if err := h.recipientSvc.Delete(req.GetId()); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "delete recipient: %v", err)
+		return nil, err
 	}
 	return &pb.DeletePaymentRecipientResponse{Success: true}, nil
 }

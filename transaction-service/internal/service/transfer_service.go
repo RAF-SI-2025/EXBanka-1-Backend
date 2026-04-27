@@ -92,10 +92,10 @@ func (s *TransferService) publishTransferFailed(ctx context.Context, transfer *m
 // ValidateTransfer checks that a transfer has distinct accounts and a positive amount.
 func ValidateTransfer(from, to string, amount decimal.Decimal) error {
 	if from == to {
-		return fmt.Errorf("from and to accounts must be different, both are %s", from)
+		return fmt.Errorf("ValidateTransfer: from and to accounts must be different, both are %s: %w", from, ErrSameAccount)
 	}
 	if amount.IsNegative() || amount.IsZero() {
-		return fmt.Errorf("transfer amount must be positive, got %s", amount.StringFixed(4))
+		return fmt.Errorf("ValidateTransfer: amount must be positive, got %s: %w", amount.StringFixed(4), ErrInvalidTransfer)
 	}
 	return nil
 }

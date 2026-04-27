@@ -107,9 +107,9 @@ func TestListFees_Error(t *testing.T) {
 	_, err := h.ListFees(context.Background(), &pb.ListFeesRequest{})
 
 	require.Error(t, err)
-	st, ok := status.FromError(err)
-	require.True(t, ok)
-	assert.Equal(t, codes.Internal, st.Code())
+	// Untyped errors now pass through as Unknown — see
+	// TestSentinel_Passthrough_TransactionHandler for the typed contract.
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 func TestCreateFee_Success(t *testing.T) {

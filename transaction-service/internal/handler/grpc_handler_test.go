@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -16,6 +17,7 @@ import (
 	pb "github.com/exbanka/contract/transactionpb"
 	verificationpb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/transaction-service/internal/model"
+	"github.com/exbanka/transaction-service/internal/service"
 )
 
 // ---------------------------------------------------------------------------
@@ -270,7 +272,7 @@ func TestCreatePayment_Success(t *testing.T) {
 func TestCreatePayment_ServiceError(t *testing.T) {
 	h := newTestHandler(func(pm *mockPaymentFacade) {
 		pm.createPaymentFn = func(ctx context.Context, payment *model.Payment) error {
-			return errors.New("insufficient funds")
+			return service.ErrInsufficientBalance
 		}
 	}, nil, nil)
 
@@ -380,7 +382,7 @@ func TestCreateTransfer_Success(t *testing.T) {
 func TestCreateTransfer_ServiceError(t *testing.T) {
 	h := newTestHandler(nil, func(tm *mockTransferFacade) {
 		tm.createTransferFn = func(ctx context.Context, transfer *model.Transfer) error {
-			return errors.New("account not found")
+			return service.ErrTransferNotFound
 		}
 	}, nil)
 
@@ -482,7 +484,7 @@ func TestDeletePaymentRecipient_Success(t *testing.T) {
 func TestDeletePaymentRecipient_Error(t *testing.T) {
 	h := newTestHandler(nil, nil, func(rm *mockRecipientFacade) {
 		rm.deleteFn = func(id uint64) error {
-			return errors.New("recipient not found")
+			return service.ErrRecipientNotFound
 		}
 	})
 
@@ -525,7 +527,7 @@ func TestExecutePayment_VerificationFailed(t *testing.T) {
 
 func TestExecutePayment_ServiceError(t *testing.T) {
 	pm := &mockPaymentFacade{
-		executePaymentFn: func(_ context.Context, _ uint64) error { return errors.New("payment not found") },
+		executePaymentFn: func(_ context.Context, _ uint64) error { return service.ErrPaymentNotFound },
 	}
 	h := newTransactionGRPCHandlerForTest(pm, &mockTransferFacade{}, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
 	_, err := h.ExecutePayment(context.Background(), &pb.ExecutePaymentRequest{PaymentId: 99})
@@ -553,7 +555,7 @@ func TestListPaymentsByAccount_Success(t *testing.T) {
 func TestListPaymentsByAccount_Error(t *testing.T) {
 	pm := &mockPaymentFacade{
 		listPaymentsByAccountFn: func(_ string, _, _, _ string, _, _ float64, _, _ int) ([]model.Payment, int64, error) {
-			return nil, 0, errors.New("invalid date range")
+			return nil, 0, service.ErrInvalidPayment
 		},
 	}
 	h := newTransactionGRPCHandlerForTest(pm, &mockTransferFacade{}, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
@@ -618,7 +620,7 @@ func TestExecuteTransfer_VerificationFailed(t *testing.T) {
 
 func TestExecuteTransfer_ServiceError(t *testing.T) {
 	tm := &mockTransferFacade{
-		executeTransferFn: func(_ context.Context, _ uint64) error { return errors.New("transfer not found") },
+		executeTransferFn: func(_ context.Context, _ uint64) error { return service.ErrTransferNotFound },
 	}
 	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, tm, &mockRecipientFacade{}, &mockVerificationClient{}, &mockTxProducer{})
 	_, err := h.ExecuteTransfer(context.Background(), &pb.ExecuteTransferRequest{TransferId: 99})
@@ -678,11 +680,48 @@ func TestUpdatePaymentRecipient_Success(t *testing.T) {
 func TestUpdatePaymentRecipient_NotFound(t *testing.T) {
 	rm := &mockRecipientFacade{
 		updateFn: func(_ uint64, _, _ *string) (*model.PaymentRecipient, error) {
-			return nil, errors.New("recipient not found")
+			return nil, service.ErrRecipientNotFound
 		},
 	}
 	h := newTransactionGRPCHandlerForTest(&mockPaymentFacade{}, &mockTransferFacade{}, rm, &mockVerificationClient{}, &mockTxProducer{})
 	_, err := h.UpdatePaymentRecipient(context.Background(), &pb.UpdatePaymentRecipientRequest{Id: 99})
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+// ---------------------------------------------------------------------------
+// Sentinel passthrough — typed sentinels reach the wire intact
+// ---------------------------------------------------------------------------
+
+func TestSentinel_Passthrough_TransactionHandler(t *testing.T) {
+	cases := []struct {
+		name     string
+		sentinel error
+		code     codes.Code
+	}{
+		{"ErrTransferNotFound", service.ErrTransferNotFound, codes.NotFound},
+		{"ErrPaymentNotFound", service.ErrPaymentNotFound, codes.NotFound},
+		{"ErrInsufficientBalance", service.ErrInsufficientBalance, codes.FailedPrecondition},
+		{"ErrAccountInactive", service.ErrAccountInactive, codes.FailedPrecondition},
+		{"ErrSameAccount", service.ErrSameAccount, codes.InvalidArgument},
+		{"ErrTransferLimitExceeded", service.ErrTransferLimitExceeded, codes.ResourceExhausted},
+		{"ErrFeeLookupFailed", service.ErrFeeLookupFailed, codes.Unavailable},
+		{"ErrVerificationRequired", service.ErrVerificationRequired, codes.PermissionDenied},
+		{"ErrIdempotencyMissing", service.ErrIdempotencyMissing, codes.InvalidArgument},
+		{"ErrInvalidPayment", service.ErrInvalidPayment, codes.InvalidArgument},
+		{"ErrInvalidTransfer", service.ErrInvalidTransfer, codes.InvalidArgument},
+		{"ErrRecipientNotFound", service.ErrRecipientNotFound, codes.NotFound},
+		{"ErrFeeNotFound", service.ErrFeeNotFound, codes.NotFound},
+		{"ErrInvalidFee", service.ErrInvalidFee, codes.InvalidArgument},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			s, ok := status.FromError(tc.sentinel)
+			require.True(t, ok)
+			assert.Equal(t, tc.code, s.Code())
+			wrapped := fmt.Errorf("op: %w", tc.sentinel)
+			assert.True(t, errors.Is(wrapped, tc.sentinel))
+		})
+	}
 }
