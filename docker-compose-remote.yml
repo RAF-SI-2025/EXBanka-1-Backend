@@ -688,7 +688,7 @@ services:
       AUTH_GRPC_ADDR: "auth-service:50051"
       CLIENT_GRPC_ADDR: "client-service:50054"
       KAFKA_BROKERS: "kafka:9092"
-      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@admin.com}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin+testadmin@admin.com}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-AdminAdmin2026!.}"
       SEEDER_COOLDOWN: "10s"
     depends_on:

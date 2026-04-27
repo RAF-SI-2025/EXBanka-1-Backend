@@ -20,7 +20,7 @@
 //	AUTH_GRPC_ADDR   — auth-service gRPC address    (default: auth-service:50051)
 //	CLIENT_GRPC_ADDR — client-service gRPC address  (default: client-service:50054)
 //	KAFKA_BROKERS    — comma-separated broker list  (default: kafka:9092)
-//	ADMIN_EMAIL      — admin email                  (default: admin@admin.com)
+//	ADMIN_EMAIL      — admin email                  (default: admin+testadmin@admin.com)
 //	ADMIN_PASSWORD   — admin password               (default: Admin1234!)
 package main
 
@@ -69,10 +69,11 @@ func main() {
 	authAddr := getenv("AUTH_GRPC_ADDR", "auth-service:50051")
 	clientAddr := getenv("CLIENT_GRPC_ADDR", "client-service:50054")
 	kafka := getenv("KAFKA_BROKERS", "kafka:9092")
-	email := getenv("ADMIN_EMAIL", "admin@admin.com")
+	email := getenv("ADMIN_EMAIL", "admin+testadmin@admin.com")
 	password := getenv("ADMIN_PASSWORD", "Admin1234!")
 
 	log.Printf("seeder: admin email=%s", email)
+	log.Printf("seeder: will also seed test agent + supervisor + client (same password)")
 
 	// ── 0. Initial cooldown — in Kubernetes, services may be starting simultaneously ──
 	cooldown := getenv("SEEDER_COOLDOWN", "30s")
@@ -97,95 +98,161 @@ func main() {
 
 	ctx := context.Background()
 
-	// ── 2. Try Login — already bootstrapped? ──────────────────────────────────
+	// ── 2. Seed the four standard test accounts ───────────────────────────────
+	//
+	// All four share ADMIN_PASSWORD. Each has a deterministic JMBG / username /
+	// phone derived from the suffix so re-runs are idempotent (CreateEmployee
+	// returns AlreadyExists, which we treat as success).
 
-	loginCtx, loginCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer loginCancel()
-	_, loginErr := authClient.Login(loginCtx, &authpb.LoginRequest{
-		Email:    email,
-		Password: password,
+	seedEmployee(ctx, userClient, authClient, kafka, employeeSpec{
+		Email:     email,
+		Password:  password,
+		FirstName: "System",
+		LastName:  "Admin",
+		Phone:     "+381000000000",
+		Jmbg:      "0101990000000",
+		Username:  "testadmin",
+		Position:  "System Administrator",
+		Role:      "EmployeeAdmin",
 	})
-	if loginErr == nil {
-		log.Println("seeder: admin already active — skipping admin bootstrap")
-	} else {
-		// ── 3. Look up existing employee by email (may already exist) ────────────
 
-		principalID := findEmployeeByEmail(ctx, userClient, email)
+	seedEmployee(ctx, userClient, authClient, kafka, employeeSpec{
+		Email:     deriveTestEmail(email, "testagent"),
+		Password:  password,
+		FirstName: "Test",
+		LastName:  "Agent",
+		Phone:     "+381000000002",
+		Jmbg:      "0101990000002",
+		Username:  "testagent",
+		Position:  "Customer Service Agent",
+		Role:      "EmployeeAgent",
+	})
 
-		// ── 4. Create employee if not found ───────────────────────────────────────
+	seedEmployee(ctx, userClient, authClient, kafka, employeeSpec{
+		Email:     deriveTestEmail(email, "testsupervisor"),
+		Password:  password,
+		FirstName: "Test",
+		LastName:  "Supervisor",
+		Phone:     "+381000000003",
+		Jmbg:      "0101990000003",
+		Username:  "testsupervisor",
+		Position:  "Supervisor",
+		Role:      "EmployeeSupervisor",
+	})
 
-		if principalID == 0 {
-			createCtx, createCancel := context.WithTimeout(ctx, 15*time.Second)
-			defer createCancel()
-			_, createErr := userClient.CreateEmployee(createCtx, &userpb.CreateEmployeeRequest{
-				FirstName:   "System",
-				LastName:    "Admin",
-				DateOfBirth: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC).Unix(),
-				Gender:      "other",
-				Email:       email,
-				Phone:       "+381000000000",
-				Address:     "System Account",
-				Jmbg:        "0101990000000",
-				Username:    "admin",
-				Position:    "System Administrator",
-				Department:  "IT",
-				Role:        "EmployeeAdmin",
-			})
-			if createErr != nil {
-				st, _ := status.FromError(createErr)
-				if st.Code() != codes.AlreadyExists {
-					log.Fatalf("seeder: CreateEmployee failed: %v", createErr)
-				}
-			}
-			log.Println("seeder: employee created")
-			principalID = findEmployeeByEmail(ctx, userClient, email)
-			if principalID == 0 {
-				log.Fatalf("seeder: admin employee not found after create (email=%s)", email)
-			}
-		} else {
-			log.Println("seeder: employee already exists, continuing")
-		}
-		log.Printf("seeder: principal_id=%d", principalID)
-
-		// ── 5. Wait for auth-service to pick up user.employee-created and publish activation token ──
-		// auth-service's EmployeeConsumer does this automatically via Kafka.
-
-		log.Println("seeder: employee created, waiting for activation token on Kafka…")
-
-		// ── 6. Read activation token from Kafka ───────────────────────────────────
-
-		token := readActivationToken(kafka, email, authClient)
-		log.Printf("seeder: got activation token (len=%d)", len(token))
-
-		// ── 7. Activate account with desired password ─────────────────────────────
-
-		actCtx, actCancel := context.WithTimeout(ctx, 15*time.Second)
-		defer actCancel()
-		_, err := authClient.ActivateAccount(actCtx, &authpb.ActivateAccountRequest{
-			Token:           token,
-			Password:        password,
-			ConfirmPassword: password,
-		})
-		if err != nil {
-			log.Fatalf("seeder: ActivateAccount failed: %v", err)
-		}
-
-		log.Printf("seeder: admin account active — email=%s", email)
-	}
-
-	// ── Client bootstrapping ──────────────────────────────────────────────────
-	clientEmail := deriveClientEmail(email)
-	seedClient(ctx, authClient, clientSvcClient, kafka, clientEmail, password)
+	// ── 3. Client bootstrapping ───────────────────────────────────────────────
+	seedClient(ctx, authClient, clientSvcClient, kafka, deriveTestEmail(email, "testclient"), password)
 	log.Println("seeder: all bootstrapping complete")
 }
 
-// deriveClientEmail inserts "+testclient" before the "@" in the admin email.
-func deriveClientEmail(adminEmail string) string {
+// employeeSpec captures the per-employee parameters for seedEmployee.
+type employeeSpec struct {
+	Email     string
+	Password  string
+	FirstName string
+	LastName  string
+	Phone     string
+	Jmbg      string
+	Username  string
+	Position  string
+	Role      string // EmployeeAdmin | EmployeeAgent | EmployeeSupervisor | EmployeeBasic
+}
+
+// seedEmployee is a reusable bootstrap that mirrors the original admin flow:
+// login check → create (idempotent on AlreadyExists) → read activation token
+// from Kafka → activate. Department is hard-coded to "IT" since seeded test
+// accounts are infra concerns; change if the seeder grows other roles.
+func seedEmployee(
+	ctx context.Context,
+	userClient userpb.UserServiceClient,
+	authClient authpb.AuthServiceClient,
+	kafkaBrokers string,
+	spec employeeSpec,
+) {
+	log.Printf("seeder: employee email=%s role=%s", spec.Email, spec.Role)
+
+	// 1. Login probe — already active?
+	loginCtx, loginCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer loginCancel()
+	if _, err := authClient.Login(loginCtx, &authpb.LoginRequest{
+		Email:    spec.Email,
+		Password: spec.Password,
+	}); err == nil {
+		log.Printf("seeder: %s already active — skipping", spec.Email)
+		return
+	}
+
+	// 2. Look up existing employee by email.
+	principalID := findEmployeeByEmail(ctx, userClient, spec.Email)
+
+	// 3. Create employee if not found.
+	if principalID == 0 {
+		createCtx, createCancel := context.WithTimeout(ctx, 15*time.Second)
+		defer createCancel()
+		_, createErr := userClient.CreateEmployee(createCtx, &userpb.CreateEmployeeRequest{
+			FirstName:   spec.FirstName,
+			LastName:    spec.LastName,
+			DateOfBirth: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC).Unix(),
+			Gender:      "other",
+			Email:       spec.Email,
+			Phone:       spec.Phone,
+			Address:     "Seeded Account",
+			Jmbg:        spec.Jmbg,
+			Username:    spec.Username,
+			Position:    spec.Position,
+			Department:  "IT",
+			Role:        spec.Role,
+		})
+		if createErr != nil {
+			st, _ := status.FromError(createErr)
+			if st.Code() != codes.AlreadyExists {
+				log.Fatalf("seeder: CreateEmployee(%s) failed: %v", spec.Email, createErr)
+			}
+		}
+		log.Printf("seeder: employee created — %s", spec.Email)
+		principalID = findEmployeeByEmail(ctx, userClient, spec.Email)
+		if principalID == 0 {
+			log.Fatalf("seeder: employee not found after create (email=%s)", spec.Email)
+		}
+	} else {
+		log.Printf("seeder: %s already exists, continuing to activation", spec.Email)
+	}
+	log.Printf("seeder: principal_id=%d", principalID)
+
+	// 4. Wait for activation token on Kafka.
+	log.Printf("seeder: waiting for activation token for %s…", spec.Email)
+	token := readActivationToken(kafkaBrokers, spec.Email, authClient)
+	log.Printf("seeder: got activation token for %s (len=%d)", spec.Email, len(token))
+
+	// 5. Activate.
+	actCtx, actCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer actCancel()
+	if _, err := authClient.ActivateAccount(actCtx, &authpb.ActivateAccountRequest{
+		Token:           token,
+		Password:        spec.Password,
+		ConfirmPassword: spec.Password,
+	}); err != nil {
+		log.Fatalf("seeder: ActivateAccount(%s) failed: %v", spec.Email, err)
+	}
+	log.Printf("seeder: %s account active", spec.Email)
+}
+
+// deriveTestEmail produces a sibling test-account email by stripping any
+// existing "+suffix" tag from the admin email's local part and inserting
+// the new suffix before the "@".
+//
+//	deriveTestEmail("admin+testadmin@admin.com", "testagent") → "admin+testagent@admin.com"
+//	deriveTestEmail("admin@admin.com",            "testclient") → "admin+testclient@admin.com"
+func deriveTestEmail(adminEmail, suffix string) string {
 	parts := strings.SplitN(adminEmail, "@", 2)
 	if len(parts) != 2 {
-		return "testclient@admin.com"
+		return suffix + "@admin.com"
 	}
-	return parts[0] + "+testclient@" + parts[1]
+	local := parts[0]
+	if i := strings.Index(local, "+"); i != -1 {
+		local = local[:i]
+	}
+	return local + "+" + suffix + "@" + parts[1]
 }
 
 // seedClient provisions a default test client account, mirroring the admin flow:
