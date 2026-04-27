@@ -44,15 +44,15 @@ const (
 )
 
 var allSteps = map[StepKind]struct{}{
-	StepReserveBuyerFunds:   {}, StepCreateContract: {}, StepReserveSellerShares: {},
-	StepDebitBuyer:         {}, StepCreditSeller: {}, StepTransferOwnership: {},
-	StepFinalizeAccept:     {}, StepDebitStrike: {}, StepCreditStrike: {},
-	StepDeliverShares:      {}, StepRefundReservation: {}, StepMarkExpired: {},
+	StepReserveBuyerFunds: {}, StepCreateContract: {}, StepReserveSellerShares: {},
+	StepDebitBuyer: {}, StepCreditSeller: {}, StepTransferOwnership: {},
+	StepFinalizeAccept: {}, StepDebitStrike: {}, StepCreditStrike: {},
+	StepDeliverShares: {}, StepRefundReservation: {}, StepMarkExpired: {},
 	StepReserveAndContract: {}, StepReservePremium: {}, StepReserveStrike: {},
 	StepSettlePremiumBuyer: {}, StepSettleStrikeBuyer: {}, StepConsumeSellerHolding: {},
-	StepDebitSource:        {}, StepCreditTarget: {}, StepDebitFund: {},
-	StepCreditFund:         {}, StepCreditPremiumSeller: {}, StepCreditStrikeSeller: {},
-	StepUpsertPosition:     {},
+	StepDebitSource: {}, StepCreditTarget: {}, StepDebitFund: {},
+	StepCreditFund: {}, StepCreditPremiumSeller: {}, StepCreditStrikeSeller: {},
+	StepUpsertPosition: {},
 }
 
 // MustStep returns k if k is a registered StepKind. Otherwise it panics.
