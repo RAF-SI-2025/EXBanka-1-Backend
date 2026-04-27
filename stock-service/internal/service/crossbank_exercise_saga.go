@@ -54,11 +54,16 @@ import (
 // `transfers.Reverse + peer.RollbackShares + releaseStrike` to undo
 // phases 1-3. Under the shared.Saga model, putting the pivot at step 4
 // (credit_strike) means failures of steps 5-6 do NOT trigger that
-// reversal — funds stay moved, ownership transfer is retried by the
-// recovery cron. This is the documented behavior of the new model
-// (per design doc) and intentional: once Spec 3 commits the inter-bank
-// transfer there is no clean way to atomically reverse it AND the
-// share-ownership change, so we forward-recover instead.
+// reversal — funds stay moved. CrossbankCheckStatusCron mirrors peer
+// status into the local row, so a transient peer failure that the peer
+// did persist eventually reconciles to completed | failed without
+// re-driving the peer RPC. The narrow gap: if the peer never received
+// the original call (network drop before arrival), the cron sees
+// not_found and transitions our row to failed; manual operator review
+// is required for that case (tracked as F16 in future-ideas backlog).
+// This is intentional: once Spec 3 commits the inter-bank transfer
+// there is no clean way to atomically reverse it AND the
+// share-ownership change.
 type CrossbankExerciseSaga struct {
 	logsRepo    *repository.InterBankSagaLogRepository
 	producer    *kafkaprod.Producer

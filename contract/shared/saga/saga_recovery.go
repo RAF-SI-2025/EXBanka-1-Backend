@@ -160,6 +160,12 @@ type RecoveryRunner struct {
 
 // NewRecoveryRunner constructs a runner. The recorder must be the same one
 // the service's sagas write to — this loop reconciles its rows.
+//
+// EXPERIMENTAL: this generic runner is not yet wired into any service's
+// cmd/main.go. Stock-service runs its own SagaRecovery loop today; the
+// migration path is to swap that for a NewRecoveryRunner instance plus
+// a per-service Classifier (see transaction-service/internal/saga.NewClassifier
+// for the template). Tracked as F18 in the future-ideas backlog.
 func NewRecoveryRunner(recorder RecoveryRecorder, classifier Classifier, cfg RecoveryConfig) *RecoveryRunner {
 	if cfg.Interval <= 0 {
 		cfg.Interval = DefaultRecoveryConfig.Interval

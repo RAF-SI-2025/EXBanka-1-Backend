@@ -19,8 +19,16 @@ const (
 	StepFinalizeAccept      StepKind = "finalize"
 
 	// Crossbank exercise.
-	StepDebitStrike   StepKind = "debit_strike"
-	StepCreditStrike  StepKind = "credit_strike"
+	StepDebitStrike  StepKind = "debit_strike"
+	StepCreditStrike StepKind = "credit_strike"
+	// StepDeliverShares is RESERVED — defined for completeness of the typed
+	// enum but NOT used as a Step.Name in any current saga. Crossbank
+	// exercise reuses StepTransferOwnership ("transfer_ownership") for the
+	// share-delivery step because the responder side + CHECK_STATUS
+	// reconciler key on that exact phase string. See
+	// stock-service/internal/service/crossbank_exercise_saga.go for the
+	// full rationale. The recovery switch in saga_recovery.go has a case
+	// for StepDeliverShares anyway so future use needs no recovery wiring.
 	StepDeliverShares StepKind = "deliver_shares"
 
 	// Crossbank expire.

@@ -149,26 +149,28 @@ None have tests covering the conflict path. **Latent concurrency bug in producti
 
 ### F16. Forward-recovery driver for past-pivot crossbank failures
 
-**Evidence:** B1's crossbank sagas mark `StepReserveSellerShares` (accept) and `StepCreditStrike` (exercise) as `Pivot: true`. Failures past the pivot are documented as "forward-recovered, not rolled back." But `CrossbankCheckStatusCron.RunOnce` (`crossbank_check_status.go:55-88`) only mirrors peer status into local rows — it does NOT re-issue the failed peer RPC.
+**Status:** **PARTIALLY RESOLVED — docstring tightened.** Active forward-driver cron remains a TODO if the rare "peer never received" class shows up in incident reports.
 
-If the peer never received the call (network drop), the local row stays `pending`, the peer reports `not_found`, and the local row gets transitioned to `failed` — divergence from "forward-recover," not active drive-to-completion.
+**Evidence:** B1's crossbank sagas mark `StepReserveSellerShares` (accept) and `StepCreditStrike` (exercise) as `Pivot: true`. Failures past the pivot are documented as "forward-recovered, not rolled back." But `CrossbankCheckStatusCron.RunOnce` only mirrors peer status into local rows — it does NOT re-issue the failed peer RPC.
 
-**Severity:** Medium (correctness gap; rare but real)
-**Effort:** Medium — add an active forward-driver cron OR tighten the docstring to describe the actual "stale rows reconciled to peer status; peer-never-received cases require human review" behavior.
+If the peer never received the call (network drop), the local row stays `pending`, the peer reports `not_found`, and the local row gets transitioned to `failed` — manual operator review required.
+
+**Resolution:** docstrings in `crossbank_accept_saga.go` and `crossbank_exercise_saga.go` now describe the actual reconciliation behavior + flag the narrow gap (peer-never-received). Operators reading the saga code will know what to expect.
+
+**Remaining (deferred):** Implement an active forward-driver cron that re-issues the original peer RPC for stale `pending` rows when the peer reports `not_found`. Requires deciding the dedup model (idempotency_key on the peer RPC, etc.). Pick up if incident reports show this gap firing.
+
+**Severity:** Medium → Low after docstring fix
+**Effort (active driver):** Medium
 
 ### F17. `StepDeliverShares` dead code
 
-**Evidence:** `contract/shared/saga/steps.go:24` defines `StepDeliverShares`, registered in `allSteps`, included as a recovery switch arm in `saga_recovery.go:244` — but never used as a `Step.Name` anywhere. The exercise saga deliberately uses `StepTransferOwnership` instead (wire-protocol compatibility).
-
-**Severity:** Low (cleanup hygiene)
-**Effort:** Tiny — delete the constant + switch arm, OR add a doc comment on the constant explaining why it's reserved.
+**Status:** **RESOLVED — annotated.** Doc comment added to the constant in `contract/shared/saga/steps.go` explaining it is RESERVED (defined for completeness but not used as a Step.Name; exercise saga reuses `StepTransferOwnership` for wire-protocol compatibility).
 
 ### F18. `RecoveryRunner` / `Classifier` infrastructure unused
 
-**Evidence:** `contract/shared/saga/saga_recovery.go.NewRecoveryRunner` and `transaction-service/internal/saga/classifier.go.NewClassifier` are exported but never wired in any `cmd/main.go`.
+**Status:** **RESOLVED — annotated EXPERIMENTAL.** `NewRecoveryRunner` carries a doc comment noting it's not yet wired into any service's cmd/main.go and pointing at the migration path (swap stock-service's existing SagaRecovery loop for `NewRecoveryRunner` + a per-service Classifier; transaction-service's `NewClassifier` is the template).
 
-**Severity:** Low (dead infrastructure)
-**Effort:** Small — wire it in B2 (planned), OR move to an unexported staging package until then.
+**Remaining (deferred):** Actually wire it. Pick up when the next saga-heavy service ships.
 
 ## How to prioritize this list
 

@@ -35,9 +35,18 @@ import (
 //  2. create_contract       — local: persist OptionContract row.
 //  3. reserve_seller_shares — peer call: ask seller's bank to reserve shares.
 //                             PIVOT: rollback walks stop here. Past this
-//                             point both sides have committed; failures
-//                             upstream are forward-recovered, not rolled
-//                             back to the buyer's funds reservation.
+//                             point both sides have committed and any
+//                             local transient failure is recoverable: the
+//                             CrossbankCheckStatusCron polls the peer for
+//                             ground truth and reconciles our row to match
+//                             (completed | failed). NOTE: the cron only
+//                             MIRRORS peer status — it does not actively
+//                             re-issue the original peer RPC. If the peer
+//                             never received the call (network drop before
+//                             arrival), it will report not_found and our
+//                             row transitions to failed; manual operator
+//                             review is required for that rare class.
+//                             Tracked as F16 in future-ideas backlog.
 //  4. debit_buyer           — Spec 3 inter-bank transfer (initiate).
 //  5. credit_seller         — Spec 3 inter-bank transfer (finalized via the
 //                             same Initiate call result; this step's
