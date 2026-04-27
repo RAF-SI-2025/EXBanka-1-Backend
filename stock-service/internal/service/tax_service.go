@@ -316,11 +316,12 @@ func (s *TaxService) collectTaxInner(year, month int) (collectedCount int64, tot
 		// as (OwnerType string, OwnerID *uint64); cast to the model type.
 		summaryOwnerType := model.OwnerType(summary.OwnerType)
 		summaryOwnerID := summary.OwnerID
-		// Legacy logging key — Kafka payloads + log lines still surface the
-		// (user_id, system_type) form pending Task 9 of plan
-		// 2026-04-27-owner-type-schema.md.
-		legacyUserID := model.OwnerToLegacyUserID(summaryOwnerType, summaryOwnerID)
-		legacySystemType := model.OwnerToLegacySystemType(summaryOwnerType)
+		// Idempotency keys + log identifiers preserve the legacy
+		// (user_id, system_type) projection so retries after the Task 9
+		// rename in plan 2026-04-27-owner-type-schema.md still match
+		// previously persisted keys.
+		legacyUserID := model.OwnerIDOrZero(summaryOwnerID)
+		legacySystemType := string(summaryOwnerType)
 
 		// Get UNCOLLECTED gains per (account, currency), scoped to this
 		// (owner_type, owner_id) pair. Rows already linked to a prior

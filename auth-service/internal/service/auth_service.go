@@ -309,12 +309,12 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 	// Publish session created event
 	if session.ID != 0 {
 		_ = s.producer.Publish(ctx, kafkamsg.TopicAuthSessionCreated, kafkamsg.AuthSessionCreatedMessage{
-			SessionID:  session.ID,
-			UserID:     account.PrincipalID,
-			SystemType: account.PrincipalType,
-			IPAddress:  ipAddress,
-			UserAgent:  userAgent,
-			DeviceType: deviceType,
+			SessionID:     session.ID,
+			PrincipalType: account.PrincipalType,
+			PrincipalID:   account.PrincipalID,
+			IPAddress:     ipAddress,
+			UserAgent:     userAgent,
+			DeviceType:    deviceType,
 		})
 	}
 

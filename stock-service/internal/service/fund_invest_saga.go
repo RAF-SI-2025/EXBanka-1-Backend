@@ -188,10 +188,8 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 			MessageID:      uuid.NewString(),
 			OccurredAt:     time.Now().UTC().Format(time.RFC3339),
 			FundID:         in.FundID,
-			// Kafka payload still carries the legacy (user_id, system_type)
-			// pair pending Task 9 of plan 2026-04-27-owner-type-schema.md.
-			UserID:         model.OwnerToLegacyUserID(posOwnerType, posOwnerID),
-			SystemType:     model.OwnerToLegacySystemType(posOwnerType),
+			OwnerType:      string(posOwnerType),
+			OwnerID:        posOwnerID,
 			AmountNative:   in.Amount.String(),
 			NativeCurrency: in.Currency,
 			AmountRSD:      amountRSD.String(),

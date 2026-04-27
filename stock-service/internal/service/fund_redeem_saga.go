@@ -216,10 +216,8 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 			MessageID:       uuid.NewString(),
 			OccurredAt:      time.Now().UTC().Format(time.RFC3339),
 			FundID:          in.FundID,
-			// Kafka payload still uses the legacy (user_id, system_type) pair
-			// pending Task 9 of plan 2026-04-27-owner-type-schema.md.
-			UserID:          model.OwnerToLegacyUserID(posOwnerType, posOwnerID),
-			SystemType:      model.OwnerToLegacySystemType(posOwnerType),
+			OwnerType:       string(posOwnerType),
+			OwnerID:         posOwnerID,
 			AmountRSD:       in.AmountRSD.String(),
 			FeeRSD:          feeRSD.String(),
 			TargetAccountID: in.TargetAccountID,

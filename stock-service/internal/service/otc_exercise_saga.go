@@ -201,19 +201,17 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	}
 
 	if s.producer != nil {
-		// Kafka payload still uses the legacy OTCParty(user_id, system_type)
-		// shape pending Task 9 of plan 2026-04-27-owner-type-schema.md.
 		payload := kafkamsg.OTCContractExercisedMessage{
 			MessageID:  uuid.NewString(),
 			OccurredAt: now.Format(time.RFC3339),
 			ContractID: c.ID,
 			Buyer: kafkamsg.OTCParty{
-				UserID:     int64(model.OwnerToLegacyUserID(c.BuyerOwnerType, c.BuyerOwnerID)),
-				SystemType: model.OwnerToLegacySystemType(c.BuyerOwnerType),
+				OwnerType: string(c.BuyerOwnerType),
+				OwnerID:   c.BuyerOwnerID,
 			},
 			Seller: kafkamsg.OTCParty{
-				UserID:     int64(model.OwnerToLegacyUserID(c.SellerOwnerType, c.SellerOwnerID)),
-				SystemType: model.OwnerToLegacySystemType(c.SellerOwnerType),
+				OwnerType: string(c.SellerOwnerType),
+				OwnerID:   c.SellerOwnerID,
 			},
 			StrikeAmountPaid:  strikeSellerCcy.String(),
 			SharesTransferred: decimal.NewFromInt(qty).String(),

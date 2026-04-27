@@ -236,7 +236,7 @@ func toOrderProto(o *model.Order) *pb.Order {
 	filledQty := o.Quantity - o.RemainingPortions
 	order := &pb.Order{
 		Id:                o.ID,
-		UserId:            model.OwnerToLegacyUserID(o.OwnerType, o.OwnerID),
+		UserId:            model.OwnerIDOrZero(o.OwnerID),
 		ListingId:         o.ListingID,
 		SecurityType:      o.SecurityType,
 		Ticker:            o.Ticker,

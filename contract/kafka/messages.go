@@ -586,13 +586,18 @@ type AuthAccountStatusChangedMessage struct {
 }
 
 // AuthSessionCreatedMessage is published when a new login session is created.
+//
+// PrincipalType + PrincipalID identify the authenticated subject of the session.
+// Renamed from (UserID, SystemType) by Task 9 of plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md to align with the
+// JWT claim names introduced by Tasks 1-2.
 type AuthSessionCreatedMessage struct {
-	SessionID  int64  `json:"session_id"`
-	UserID     int64  `json:"user_id"`
-	SystemType string `json:"system_type"`
-	IPAddress  string `json:"ip_address"`
-	UserAgent  string `json:"user_agent"`
-	DeviceType string `json:"device_type"`
+	SessionID     int64  `json:"session_id"`
+	PrincipalType string `json:"principal_type"`
+	PrincipalID   int64  `json:"principal_id"`
+	IPAddress     string `json:"ip_address"`
+	UserAgent     string `json:"user_agent"`
+	DeviceType    string `json:"device_type"`
 }
 
 // AuthSessionRevokedMessage is published when a session is revoked (logout/force-revoke).
@@ -631,31 +636,41 @@ type StockFundUpdatedMessage struct {
 	UpdatedAt     string   `json:"updated_at"`
 }
 
+// StockFundInvestedMessage is published when a fund position is contributed to.
+//
+// OwnerType + OwnerID identify the position holder. OwnerID is nil iff
+// OwnerType == "bank". Renamed from (UserID, SystemType) by Task 9 of plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md.
 type StockFundInvestedMessage struct {
-	MessageID      string `json:"message_id"`
-	OccurredAt     string `json:"occurred_at"`
-	FundID         uint64 `json:"fund_id"`
-	UserID         uint64 `json:"user_id"`
-	SystemType     string `json:"system_type"`
-	AmountNative   string `json:"amount_native"`
-	NativeCurrency string `json:"native_currency"`
-	AmountRSD      string `json:"amount_rsd"`
-	FxRate         string `json:"fx_rate"`
-	SagaID         string `json:"saga_id"`
-	ContributionID uint64 `json:"contribution_id"`
+	MessageID      string  `json:"message_id"`
+	OccurredAt     string  `json:"occurred_at"`
+	FundID         uint64  `json:"fund_id"`
+	OwnerType      string  `json:"owner_type"`
+	OwnerID        *uint64 `json:"owner_id"`
+	AmountNative   string  `json:"amount_native"`
+	NativeCurrency string  `json:"native_currency"`
+	AmountRSD      string  `json:"amount_rsd"`
+	FxRate         string  `json:"fx_rate"`
+	SagaID         string  `json:"saga_id"`
+	ContributionID uint64  `json:"contribution_id"`
 }
 
+// StockFundRedeemedMessage is published when a fund position is redeemed.
+//
+// OwnerType + OwnerID identify the position holder. OwnerID is nil iff
+// OwnerType == "bank". Renamed from (UserID, SystemType) by Task 9 of plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md.
 type StockFundRedeemedMessage struct {
-	MessageID       string `json:"message_id"`
-	OccurredAt      string `json:"occurred_at"`
-	FundID          uint64 `json:"fund_id"`
-	UserID          uint64 `json:"user_id"`
-	SystemType      string `json:"system_type"`
-	AmountRSD       string `json:"amount_rsd"`
-	FeeRSD          string `json:"fee_rsd"`
-	TargetAccountID uint64 `json:"target_account_id"`
-	SagaID          string `json:"saga_id"`
-	ContributionID  uint64 `json:"contribution_id"`
+	MessageID       string  `json:"message_id"`
+	OccurredAt      string  `json:"occurred_at"`
+	FundID          uint64  `json:"fund_id"`
+	OwnerType       string  `json:"owner_type"`
+	OwnerID         *uint64 `json:"owner_id"`
+	AmountRSD       string  `json:"amount_rsd"`
+	FeeRSD          string  `json:"fee_rsd"`
+	TargetAccountID uint64  `json:"target_account_id"`
+	SagaID          string  `json:"saga_id"`
+	ContributionID  uint64  `json:"contribution_id"`
 }
 
 type StockFundsReassignedMessage struct {
@@ -687,10 +702,18 @@ const (
 	TopicOTCContractFailed    = "otc.contract-failed"
 )
 
+// OTCParty identifies a participant on an OTC offer/contract event.
+//
+// OwnerType + OwnerID describe the resource owner: "client" with a non-nil
+// OwnerID, or "bank" with a nil OwnerID. Renamed from (UserID, SystemType)
+// by Task 9 of plan docs/superpowers/plans/2026-04-27-owner-type-schema.md.
+//
+// BankCode is only set for cross-bank OTC events to disambiguate which
+// foreign bank the counterparty belongs to.
 type OTCParty struct {
-	UserID     int64  `json:"user_id"`
-	SystemType string `json:"system_type"`
-	BankCode   string `json:"bank_code,omitempty"`
+	OwnerType string  `json:"owner_type"`
+	OwnerID   *uint64 `json:"owner_id"`
+	BankCode  string  `json:"bank_code,omitempty"`
 }
 
 type OTCOfferCreatedMessage struct {

@@ -49,7 +49,7 @@ func (h *OTCHandler) ListOffers(ctx context.Context, req *pb.ListOTCOffersReques
 	for i, hld := range holdings {
 		offers[i] = &pb.OTCOffer{
 			Id:           hld.ID,
-			SellerId:     model.OwnerToLegacyUserID(hld.OwnerType, hld.OwnerID),
+			SellerId:     model.OwnerIDOrZero(hld.OwnerID),
 			SellerName:   hld.UserFirstName + " " + hld.UserLastName,
 			SecurityType: hld.SecurityType,
 			Ticker:       hld.Ticker,

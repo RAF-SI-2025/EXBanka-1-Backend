@@ -847,7 +847,7 @@ func mapAcceptToCrossbank(o *model.OTCOffer, in service.AcceptInput, ownBank str
 		BuyerSystemType:  in.ActorSystemType,
 		BuyerBankCode:    buyerBank,
 		BuyerAccountID:   in.BuyerAccountID,
-		SellerUserID:     int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)),
+		SellerUserID:     int64(model.OwnerIDOrZero(o.InitiatorOwnerID)),
 		SellerSystemType: string(o.InitiatorOwnerType),
 		SellerBankCode:   sellerBank,
 		Premium:          o.Premium,

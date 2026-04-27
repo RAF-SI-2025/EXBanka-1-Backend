@@ -271,8 +271,8 @@ func toContractProto(c *model.OptionContract) *stockpb.OptionContractResponse {
 		StrikeCurrency:  c.StrikeCurrency,
 		SettlementDate:  c.SettlementDate.Format("2006-01-02"),
 		Status:          c.Status,
-		Buyer:           &stockpb.PartyRef{UserId: int64(model.OwnerToLegacyUserID(c.BuyerOwnerType, c.BuyerOwnerID)), SystemType: string(c.BuyerOwnerType)},
-		Seller:          &stockpb.PartyRef{UserId: int64(model.OwnerToLegacyUserID(c.SellerOwnerType, c.SellerOwnerID)), SystemType: string(c.SellerOwnerType)},
+		Buyer:           &stockpb.PartyRef{UserId: int64(model.OwnerIDOrZero(c.BuyerOwnerID)), SystemType: string(c.BuyerOwnerType)},
+		Seller:          &stockpb.PartyRef{UserId: int64(model.OwnerIDOrZero(c.SellerOwnerID)), SystemType: string(c.SellerOwnerType)},
 		PremiumPaidAt:   c.PremiumPaidAt.Format(time.RFC3339),
 		CreatedAt:       c.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:       c.UpdatedAt.Format(time.RFC3339),
@@ -312,7 +312,7 @@ func toOTCOfferProto(o *model.OTCOffer, unread bool) *stockpb.OTCOfferResponse {
 		SettlementDate: o.SettlementDate.Format("2006-01-02"),
 		Status:         o.Status,
 		Initiator: &stockpb.PartyRef{
-			UserId: int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)), SystemType: string(o.InitiatorOwnerType),
+			UserId: int64(model.OwnerIDOrZero(o.InitiatorOwnerID)), SystemType: string(o.InitiatorOwnerType),
 		},
 		LastModifiedBy: &stockpb.PartyRef{
 			UserId: int64(o.LastModifiedByPrincipalID), SystemType: o.LastModifiedByPrincipalType,
@@ -324,7 +324,7 @@ func toOTCOfferProto(o *model.OTCOffer, unread bool) *stockpb.OTCOfferResponse {
 	}
 	if o.CounterpartyOwnerType != nil {
 		resp.Counterparty = &stockpb.PartyRef{
-			UserId:     int64(model.OwnerToLegacyUserID(*o.CounterpartyOwnerType, o.CounterpartyOwnerID)),
+			UserId:     int64(model.OwnerIDOrZero(o.CounterpartyOwnerID)),
 			SystemType: string(*o.CounterpartyOwnerType),
 		}
 	}

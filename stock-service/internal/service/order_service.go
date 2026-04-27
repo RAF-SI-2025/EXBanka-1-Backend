@@ -1021,14 +1021,15 @@ func (s *OrderService) isSettlementExpired(order *model.Order) bool {
 
 // buildOrderEvent creates a Kafka event message from an order.
 //
-// Kafka payloads still publish the legacy "user_id" key pending Task 9 of
-// plan 2026-04-27-owner-type-schema.md. Bank-owned orders surface user_id=0;
-// downstream consumers must treat owner_type==bank as the source of truth.
+// buildOrderEvent emits the order lifecycle payload. owner_type+owner_id are
+// the canonical identity; the legacy "user_id" key is retained as a
+// compatibility shim for older consumers (bank-owned orders surface user_id=0).
 func buildOrderEvent(order *model.Order) map[string]interface{} {
 	return map[string]interface{}{
 		"order_id":      order.ID,
-		"user_id":       model.OwnerToLegacyUserID(order.OwnerType, order.OwnerID),
+		"user_id":       model.OwnerIDOrZero(order.OwnerID),
 		"owner_type":    string(order.OwnerType),
+		"owner_id":      order.OwnerID,
 		"direction":     order.Direction,
 		"order_type":    order.OrderType,
 		"security_type": order.SecurityType,

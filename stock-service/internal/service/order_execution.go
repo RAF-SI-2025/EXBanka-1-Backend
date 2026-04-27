@@ -221,10 +221,11 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 				"saga_id":          order.SagaID,
 				"order_id":         orderID,
 				"order_txn_id":     txn.ID,
-				// Kafka payload still publishes the legacy "user_id" pending
-				// Task 9 of plan 2026-04-27-owner-type-schema.md.
-				"user_id":          model.OwnerToLegacyUserID(order.OwnerType, order.OwnerID),
+				// Legacy "user_id" key retained for downstream compatibility;
+				// owner_type/owner_id are the source of truth.
+				"user_id":          model.OwnerIDOrZero(order.OwnerID),
 				"owner_type":       string(order.OwnerType),
+				"owner_id":         order.OwnerID,
 				"direction":        order.Direction,
 				"security_type":    order.SecurityType,
 				"ticker":           order.Ticker,

@@ -89,19 +89,17 @@ func (cr *OTCExpiryCron) expireContract(ctx context.Context, c *model.OptionCont
 		return err
 	}
 	if cr.producer != nil {
-		// Kafka payload still uses the legacy OTCParty(user_id, system_type)
-		// shape pending Task 9 of plan 2026-04-27-owner-type-schema.md.
 		payload := kafkamsg.OTCContractExpiredMessage{
 			MessageID:  uuid.NewString(),
 			OccurredAt: now.Format(time.RFC3339),
 			ContractID: c.ID,
 			Buyer: kafkamsg.OTCParty{
-				UserID:     int64(model.OwnerToLegacyUserID(c.BuyerOwnerType, c.BuyerOwnerID)),
-				SystemType: model.OwnerToLegacySystemType(c.BuyerOwnerType),
+				OwnerType: string(c.BuyerOwnerType),
+				OwnerID:   c.BuyerOwnerID,
 			},
 			Seller: kafkamsg.OTCParty{
-				UserID:     int64(model.OwnerToLegacyUserID(c.SellerOwnerType, c.SellerOwnerID)),
-				SystemType: model.OwnerToLegacySystemType(c.SellerOwnerType),
+				OwnerType: string(c.SellerOwnerType),
+				OwnerID:   c.SellerOwnerID,
 			},
 			ExpiredAt: now.Format(time.RFC3339),
 		}
@@ -118,15 +116,13 @@ func (cr *OTCExpiryCron) expireOffer(ctx context.Context, o *model.OTCOffer) err
 		return err
 	}
 	if cr.producer != nil {
-		// Kafka payload still uses the legacy OTCParty(user_id, system_type)
-		// shape pending Task 9 of plan 2026-04-27-owner-type-schema.md.
 		payload := kafkamsg.OTCOfferExpiredMessage{
 			MessageID:  uuid.NewString(),
 			OccurredAt: time.Now().UTC().Format(time.RFC3339),
 			OfferID:    o.ID,
 			Initiator: kafkamsg.OTCParty{
-				UserID:     int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)),
-				SystemType: model.OwnerToLegacySystemType(o.InitiatorOwnerType),
+				OwnerType: string(o.InitiatorOwnerType),
+				OwnerID:   o.InitiatorOwnerID,
 			},
 			Counterparty: ptrCounterparty(o),
 		}

@@ -205,15 +205,13 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 	}
 
 	if s.producer != nil {
-		// Kafka payload still uses the legacy OTCParty(user_id, system_type)
-		// shape pending Task 9 of plan 2026-04-27-owner-type-schema.md.
 		payload := kafkamsg.OTCOfferCreatedMessage{
 			MessageID:  uuid.NewString(),
 			OccurredAt: time.Now().UTC().Format(time.RFC3339),
 			OfferID:    o.ID,
 			Initiator: kafkamsg.OTCParty{
-				UserID:     int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)),
-				SystemType: model.OwnerToLegacySystemType(o.InitiatorOwnerType),
+				OwnerType: string(o.InitiatorOwnerType),
+				OwnerID:   o.InitiatorOwnerID,
 			},
 			Counterparty:   ptrCounterparty(o),
 			StockID:        o.StockID,
@@ -296,12 +294,13 @@ func (s *OTCOfferService) Counter(ctx context.Context, in CounterInput) (*model.
 	}
 
 	if s.producer != nil {
+		actorOwnerType, actorOwnerID := actorToOwnerParty(in.ActorUserID, in.ActorSystemType)
 		payload := kafkamsg.OTCOfferCounteredMessage{
 			MessageID:      uuid.NewString(),
 			OccurredAt:     time.Now().UTC().Format(time.RFC3339),
 			OfferID:        o.ID,
 			RevisionNumber: revNum,
-			ModifiedBy:     kafkamsg.OTCParty{UserID: in.ActorUserID, SystemType: in.ActorSystemType},
+			ModifiedBy:     kafkamsg.OTCParty{OwnerType: actorOwnerType, OwnerID: actorOwnerID},
 			OtherParty:     otcOtherParty(o, in.ActorUserID, in.ActorSystemType),
 			Quantity:       o.Quantity.String(),
 			StrikePrice:    o.StrikePrice.String(),
@@ -349,11 +348,12 @@ func (s *OTCOfferService) Reject(ctx context.Context, in RejectInput) (*model.OT
 		Action:                  model.OTCActionReject,
 	})
 	if s.producer != nil {
+		actorOwnerType, actorOwnerID := actorToOwnerParty(in.ActorUserID, in.ActorSystemType)
 		payload := kafkamsg.OTCOfferRejectedMessage{
 			MessageID:  uuid.NewString(),
 			OccurredAt: time.Now().UTC().Format(time.RFC3339),
 			OfferID:    o.ID,
-			RejectedBy: kafkamsg.OTCParty{UserID: in.ActorUserID, SystemType: in.ActorSystemType},
+			RejectedBy: kafkamsg.OTCParty{OwnerType: actorOwnerType, OwnerID: actorOwnerID},
 			OtherParty: otcOtherParty(o, in.ActorUserID, in.ActorSystemType),
 			UpdatedAt:  o.UpdatedAt.Format(time.RFC3339),
 		}
@@ -434,17 +434,15 @@ func (s *OTCOfferService) assertSellerHasShares(ownerType model.OwnerType, owner
 	return nil
 }
 
-// ptrCounterparty maps the offer's counterparty owner pair to the legacy
-// OTCParty Kafka shape, returning nil when there is no counterparty yet.
-// Kafka payloads remain on the legacy schema pending Task 9 of plan
-// 2026-04-27-owner-type-schema.md.
+// ptrCounterparty maps the offer's counterparty owner pair to the OTCParty
+// Kafka shape, returning nil when there is no counterparty yet.
 func ptrCounterparty(o *model.OTCOffer) *kafkamsg.OTCParty {
 	if o.CounterpartyOwnerType == nil {
 		return nil
 	}
 	return &kafkamsg.OTCParty{
-		UserID:     int64(model.OwnerToLegacyUserID(*o.CounterpartyOwnerType, o.CounterpartyOwnerID)),
-		SystemType: model.OwnerToLegacySystemType(*o.CounterpartyOwnerType),
+		OwnerType: string(*o.CounterpartyOwnerType),
+		OwnerID:   o.CounterpartyOwnerID,
 	}
 }
 
@@ -456,14 +454,29 @@ func otcOtherParty(o *model.OTCOffer, actorID int64, actorType string) kafkamsg.
 	if o.InitiatorOwnerType == actorOwnerType && ownerIDEqual(o.InitiatorOwnerID, actorOwnerID) {
 		if o.CounterpartyOwnerType != nil {
 			return kafkamsg.OTCParty{
-				UserID:     int64(model.OwnerToLegacyUserID(*o.CounterpartyOwnerType, o.CounterpartyOwnerID)),
-				SystemType: model.OwnerToLegacySystemType(*o.CounterpartyOwnerType),
+				OwnerType: string(*o.CounterpartyOwnerType),
+				OwnerID:   o.CounterpartyOwnerID,
 			}
 		}
 		return kafkamsg.OTCParty{}
 	}
 	return kafkamsg.OTCParty{
-		UserID:     int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)),
-		SystemType: model.OwnerToLegacySystemType(o.InitiatorOwnerType),
+		OwnerType: string(o.InitiatorOwnerType),
+		OwnerID:   o.InitiatorOwnerID,
+	}
+}
+
+// actorToOwnerParty maps an OTC actor (the JWT principal who issued a
+// counter/reject) onto the (OwnerType, OwnerID) pair that the Kafka payload
+// describes. Employee principals are recorded as OwnerBank with a nil OwnerID;
+// client principals carry their own user id. Bank actors (already encoded as
+// systemType=="bank") map straight through.
+func actorToOwnerParty(actorID int64, actorSystemType string) (string, *uint64) {
+	switch actorSystemType {
+	case "employee", string(model.OwnerBank):
+		return string(model.OwnerBank), nil
+	default:
+		uid := uint64(actorID)
+		return string(model.OwnerClient), &uid
 	}
 }
