@@ -79,8 +79,14 @@ func (r *AccountReservationRepository) GetByOrderIDForUpdate(orderID uint64) (*m
 // UpdateStatus persists the row via db.Save, relying on the BeforeUpdate hook
 // to enforce optimistic-lock version matching. Returns shared.ErrOptimisticLock
 // (wrapped) if another transaction modified the row first.
+//
+// db.Select("*").Save(res) instead of bare db.Save: the bare form silently
+// upserts on UPDATE-mismatch (RowsAffected==1, lock conflict masked).
+// Select("*") sets GORM's selectedUpdate flag which disables the upsert
+// fallback so RowsAffected==0 correctly surfaces. See F15 in
+// docs/superpowers/specs/2026-04-27-future-ideas-backlog.md.
 func (r *AccountReservationRepository) UpdateStatus(res *model.AccountReservation) error {
-	result := r.db.Save(res)
+	result := r.db.Select("*").Save(res)
 	if result.Error != nil {
 		return result.Error
 	}
