@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/gin-gonic/gin"
@@ -157,21 +158,17 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		}
 	}
 
-	userID, systemType, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
-	// Acting employee id is the JWT principal_id when an employee placed
-	// this order; 0 for client-self orders. Stock-service uses this (NOT
-	// system_type) to fire the per-actuary EmployeeLimit gate, so it must
-	// be set even when the resulting order's system_type is "bank" or
-	// "client" — both cases mean the acting employee is responsible.
-	actingEmpID := actingEmployeeID(c)
-
+	// Acting employee id (carried on the request via ResolvedIdentity) keys
+	// stock-service's per-actuary EmployeeLimit gate. It must be set even
+	// when the resulting order's owner is "bank" (employee acting for the
+	// bank) or "client" (employee on behalf of a client) — in both cases
+	// the acting employee is responsible. ResolveIdentity sets this iff
+	// the principal is an employee.
 	grpcReq := &stockpb.CreateOrderRequest{
-		UserId:           userID,
-		SystemType:       systemType,
+		UserId:           ownerToLegacyUserID(identity.OwnerID),
+		SystemType:       ownerToLegacySystemType(identity.OwnerType),
 		ListingId:        req.ListingID,
 		HoldingId:        req.HoldingID,
 		Direction:        direction,
@@ -180,7 +177,7 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		AllOrNone:        req.AllOrNone,
 		Margin:           req.Margin,
 		AccountId:        req.AccountID,
-		ActingEmployeeId: actingEmpID,
+		ActingEmployeeId: derefU64Ptr(identity.ActingEmployeeID),
 	}
 	if req.LimitValue != nil {
 		grpcReq.LimitValue = req.LimitValue
@@ -194,10 +191,9 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	if req.OnBehalfOfFundID != 0 {
 		// Reject clients placing fund orders — only employees with the
 		// fund.manage permission may. Stock-service re-validates the manager
-		// binding against the fund. The JWT principal_type (not the swapped
-		// portfolio identity) is what matters for this gate.
-		jwtPt, _ := c.Get("principal_type")
-		if jwtPt != "employee" {
+		// binding against the fund. PrincipalType (not the resolved owner
+		// type) is what matters: the gate is about who's logged in.
+		if identity.PrincipalType != "employee" {
 			apiError(c, http.StatusForbidden, ErrForbidden, "on_behalf_of_fund_id requires employee context")
 			return
 		}
@@ -213,16 +209,13 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 }
 
 func (h *StockOrderHandler) ListMyOrders(c *gin.Context) {
-	userID, systemType, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
 
 	resp, err := h.client.ListMyOrders(c.Request.Context(), &stockpb.ListMyOrdersRequest{
-		UserId:     userID,
-		SystemType: systemType,
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
 		Status:     c.Query("status"),
 		Direction:  c.Query("direction"),
 		OrderType:  c.Query("order_type"),
@@ -242,13 +235,12 @@ func (h *StockOrderHandler) GetMyOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	userID, systemType, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
 	resp, err := h.client.GetOrder(c.Request.Context(), &stockpb.GetOrderRequest{
-		Id: id, UserId: userID, SystemType: systemType,
+		Id:         id,
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -263,13 +255,12 @@ func (h *StockOrderHandler) CancelOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	userID, systemType, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
 	resp, err := h.client.CancelOrder(c.Request.Context(), &stockpb.CancelOrderRequest{
-		Id: id, UserId: userID, SystemType: systemType,
+		Id:         id,
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -406,7 +397,7 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 		}
 	}
 
-	employeeID := uint64(c.GetInt64("principal_id"))
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	grpcReq := &stockpb.CreateOrderRequest{
 		UserId:             req.ClientID,
 		SystemType:         "employee",
@@ -418,7 +409,7 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 		AllOrNone:          req.AllOrNone,
 		Margin:             req.Margin,
 		AccountId:          req.AccountID,
-		ActingEmployeeId:   employeeID,
+		ActingEmployeeId:   derefU64Ptr(identity.ActingEmployeeID),
 		OnBehalfOfClientId: req.ClientID,
 	}
 	if req.LimitValue != nil {
@@ -464,10 +455,11 @@ func (h *StockOrderHandler) ApproveOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	supervisorID := c.GetInt64("principal_id")
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
 	resp, err := h.client.ApproveOrder(c.Request.Context(), &stockpb.ApproveOrderRequest{
-		Id: id, SupervisorId: uint64(supervisorID),
+		Id:           id,
+		SupervisorId: derefU64Ptr(identity.ActingEmployeeID),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -482,10 +474,11 @@ func (h *StockOrderHandler) DeclineOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	supervisorID := c.GetInt64("principal_id")
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
 	resp, err := h.client.DeclineOrder(c.Request.Context(), &stockpb.DeclineOrderRequest{
-		Id: id, SupervisorId: uint64(supervisorID),
+		Id:           id,
+		SupervisorId: derefU64Ptr(identity.ActingEmployeeID),
 	})
 	if err != nil {
 		handleGRPCError(c, err)

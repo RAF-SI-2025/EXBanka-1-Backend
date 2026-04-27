@@ -222,21 +222,27 @@ func RegisterCoreRoutes(
 		me.GET("/loans/:id/installments", creditHandler.GetMyInstallments)
 
 		// Stock orders
-		me.POST("/orders", stockOrderHandler.CreateOrder)
-		me.GET("/orders", stockOrderHandler.ListMyOrders)
-		me.GET("/orders/:id", stockOrderHandler.GetMyOrder)
-		me.POST("/orders/:id/cancel", stockOrderHandler.CancelOrder)
+		// ResolveIdentity(OwnerIsBankIfEmployee) wires the per-route
+		// owner: client principals own their own portfolio data; employees
+		// act for the bank (OwnerType="bank", OwnerID=nil) but their
+		// JWT id is carried as ActingEmployeeID for per-actuary limits.
+		// (Spec C Task 7 / 8 — replaces the deleted mePortfolioIdentity.)
+		bankIfEmp := middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee)
+		me.POST("/orders", bankIfEmp, stockOrderHandler.CreateOrder)
+		me.GET("/orders", bankIfEmp, stockOrderHandler.ListMyOrders)
+		me.GET("/orders/:id", bankIfEmp, stockOrderHandler.GetMyOrder)
+		me.POST("/orders/:id/cancel", bankIfEmp, stockOrderHandler.CancelOrder)
 
 		// Portfolio
-		me.GET("/portfolio", portfolioHandler.ListHoldings)
-		me.GET("/portfolio/summary", portfolioHandler.GetPortfolioSummary)
-		me.POST("/portfolio/:id/make-public", portfolioHandler.MakePublic)
-		me.POST("/portfolio/:id/exercise", portfolioHandler.ExerciseOption)
+		me.GET("/portfolio", bankIfEmp, portfolioHandler.ListHoldings)
+		me.GET("/portfolio/summary", bankIfEmp, portfolioHandler.GetPortfolioSummary)
+		me.POST("/portfolio/:id/make-public", bankIfEmp, portfolioHandler.MakePublic)
+		me.POST("/portfolio/:id/exercise", bankIfEmp, portfolioHandler.ExerciseOption)
 		// Part B: per-holding transaction history.
-		me.GET("/holdings/:id/transactions", portfolioHandler.ListHoldingTransactions)
+		me.GET("/holdings/:id/transactions", bankIfEmp, portfolioHandler.ListHoldingTransactions)
 
 		// Tax
-		me.GET("/tax", taxHandler.ListMyTaxRecords)
+		me.GET("/tax", bankIfEmp, taxHandler.ListMyTaxRecords)
 
 		// Sessions
 		me.GET("/sessions", sessionHandler.ListMySessions)
@@ -288,6 +294,7 @@ func RegisterCoreRoutes(
 	otcTrade := group.Group("/otc/offers")
 	otcTrade.Use(middleware.AuthMiddleware(authClient))
 	otcTrade.Use(middleware.RequireAnyPermission(perms.Otc.Trade.Accept, perms.Securities.Trade.Any))
+	otcTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
 		otcTrade.POST("/:id/buy", portfolioHandler.BuyOTCOffer)
 	}
@@ -727,18 +734,22 @@ func RegisterCoreRoutes(
 			adminStockSource.GET("", stockSourceHandler.GetSourceStatus)
 		}
 
-		// Orders — on-behalf-of-client (and bank by default — see CreateOrderOnBehalf handler)
+		// Orders — on-behalf-of-client (and bank by default — see CreateOrderOnBehalf handler).
+		// OwnerIsBankIfEmployee → handler reads identity.ActingEmployeeID;
+		// the on-behalf client_id comes from the request body.
 		ordersOnBehalf := protected.Group("/orders")
 		ordersOnBehalf.Use(middleware.RequireAnyPermission(
 			perms.Orders.Place.OnBehalfClient, perms.Orders.Place.OnBehalfBank))
+		ordersOnBehalf.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
 			ordersOnBehalf.POST("", stockOrderHandler.CreateOrderOnBehalf)
 		}
 
-		// OTC — employee on-behalf buying
+		// OTC — employee on-behalf buying. Same rule.
 		otcOnBehalf := protected.Group("/otc/admin/offers")
 		otcOnBehalf.Use(middleware.RequireAnyPermission(
 			perms.Otc.Trade.Accept, perms.Orders.Place.OnBehalfClient))
+		otcOnBehalf.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
 			otcOnBehalf.POST("/:id/buy", portfolioHandler.BuyOTCOfferOnBehalf)
 		}
@@ -746,6 +757,8 @@ func RegisterCoreRoutes(
 		// Order management (supervisor) — read split from approve/reject.
 		// Approve/reject cluster under orders.cancel.all (the supervisor-class
 		// order mutation perm); the catalog has no separate orders.approve.
+		// ResolveIdentity wires identity.ActingEmployeeID for the supervisor
+		// audit trail on Approve/Decline.
 		ordersRead := protected.Group("/orders")
 		ordersRead.Use(middleware.RequirePermission(perms.Orders.Read.All))
 		{
@@ -753,11 +766,13 @@ func RegisterCoreRoutes(
 		}
 		ordersApprove := protected.Group("/orders")
 		ordersApprove.Use(middleware.RequirePermission(perms.Orders.Cancel.All))
+		ordersApprove.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
 			ordersApprove.POST("/:id/approve", stockOrderHandler.ApproveOrder)
 		}
 		ordersReject := protected.Group("/orders")
 		ordersReject.Use(middleware.RequirePermission(perms.Orders.Cancel.All))
+		ordersReject.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
 			ordersReject.POST("/:id/decline", stockOrderHandler.DeclineOrder)
 		}

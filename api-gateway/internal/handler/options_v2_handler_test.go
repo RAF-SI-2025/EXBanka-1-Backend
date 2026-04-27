@@ -150,8 +150,10 @@ func makeOptionsV2Router(h *handler.OptionsV2Handler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v2/options/:option_id/orders", func(c *gin.Context) {
-		c.Set("principal_id", int64(1))
-		c.Set("principal_type", "client")
+		clientIdentity(1)(c)
+		if c.IsAborted() {
+			return
+		}
 		h.CreateOrder(c)
 	})
 	return router
@@ -236,11 +238,7 @@ func TestOptionsV2_Exercise_HappyPath(t *testing.T) {
 	h := handler.NewOptionsV2Handler(&stubSecurityClient{}, &stubOrderClient{}, port)
 
 	router := gin.New()
-	router.POST("/api/v2/options/:option_id/exercise", func(c *gin.Context) {
-		c.Set("principal_id", int64(1))
-		c.Set("principal_type", "client")
-		h.Exercise(c)
-	})
+	router.POST("/api/v2/options/:option_id/exercise", clientIdentity(1), h.Exercise)
 
 	body := `{"holding_id":0}`
 	req := httptest.NewRequest("POST", "/api/v2/options/5/exercise", strings.NewReader(body))
@@ -254,11 +252,7 @@ func TestOptionsV2_Exercise_HappyPath(t *testing.T) {
 func TestOptionsV2_Exercise_InvalidOptionID(t *testing.T) {
 	h := handler.NewOptionsV2Handler(&stubSecurityClient{}, &stubOrderClient{}, &stubPortfolioClient{})
 	router := gin.New()
-	router.POST("/api/v2/options/:option_id/exercise", func(c *gin.Context) {
-		c.Set("principal_id", int64(1))
-		c.Set("principal_type", "client")
-		h.Exercise(c)
-	})
+	router.POST("/api/v2/options/:option_id/exercise", clientIdentity(1), h.Exercise)
 	req := httptest.NewRequest("POST", "/api/v2/options/0/exercise", strings.NewReader(`{}`))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

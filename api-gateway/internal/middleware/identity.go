@@ -62,8 +62,12 @@ func ResolveIdentity(rule IdentityRule, args ...string) gin.HandlerFunc {
 		// "principal_id" upstream. The legacy keys "system_type" /
 		// "user_id" were dropped in Spec C Task 3 and are no longer
 		// populated by any middleware.
+		//
+		// principal_id may be set as int64 (real auth middleware writes
+		// the protobuf int64 PrincipalId directly) or uint64 (test setups
+		// in identity_test.go use uint64 for ergonomics). Coerce both.
 		principalType := c.GetString("principal_type")
-		principalID := c.GetUint64("principal_id")
+		principalID := readPrincipalID(c)
 
 		if principalType == "" || principalID == 0 {
 			abortWithError(c, http.StatusUnauthorized, "unauthorized", "principal not set")
@@ -118,5 +122,32 @@ func ResolveIdentity(rule IdentityRule, args ...string) gin.HandlerFunc {
 
 		c.Set("identity", id)
 		c.Next()
+	}
+}
+
+// readPrincipalID extracts principal_id from the gin context regardless of
+// whether it was stored as int64 (real AuthMiddleware path, since the
+// protobuf field is int64) or uint64 (test helpers). Negative or missing
+// values yield 0 — the caller then 401s.
+func readPrincipalID(c *gin.Context) uint64 {
+	raw, ok := c.Get("principal_id")
+	if !ok {
+		return 0
+	}
+	switch v := raw.(type) {
+	case uint64:
+		return v
+	case int64:
+		if v <= 0 {
+			return 0
+		}
+		return uint64(v)
+	case int:
+		if v <= 0 {
+			return 0
+		}
+		return uint64(v)
+	default:
+		return 0
 	}
 }

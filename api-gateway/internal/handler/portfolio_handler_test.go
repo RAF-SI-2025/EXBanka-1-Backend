@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/exbanka/api-gateway/internal/handler"
+	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 )
@@ -67,13 +68,48 @@ func (s *portfolioStub) ExerciseOptionByOptionID(_ context.Context, in *stockpb.
 	return &stockpb.ExerciseResult{}, nil
 }
 
+// setClientIdentity mimics what AuthMiddleware + ResolveIdentity(OwnerIsBankIfEmployee)
+// install for a logged-in client (post-Spec-C-Task-7 schema). It writes both
+// principal_* keys (read by helpers that still consume them) AND the
+// "identity" key that handlers now read directly.
+func setClientIdentity(uid uint64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := uid
+		c.Set("principal_id", int64(uid))
+		c.Set("principal_type", "client")
+		c.Set("identity", &middleware.ResolvedIdentity{
+			PrincipalType: "client",
+			PrincipalID:   uid,
+			OwnerType:     "client",
+			OwnerID:       &id,
+		})
+		c.Next()
+	}
+}
+
+// setEmployeeBankIdentity mimics ResolveIdentity(OwnerIsBankIfEmployee) for an
+// employee principal — owner becomes "bank" with nil OwnerID, and
+// ActingEmployeeID carries the JWT principal_id.
+func setEmployeeBankIdentity(empID uint64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := empID
+		c.Set("principal_id", int64(empID))
+		c.Set("principal_type", "employee")
+		c.Set("identity", &middleware.ResolvedIdentity{
+			PrincipalType:    "employee",
+			PrincipalID:      empID,
+			OwnerType:        "bank",
+			OwnerID:          nil,
+			ActingEmployeeID: &id,
+		})
+		c.Next()
+	}
+}
+
 func portfolioRouter(h *handler.PortfolioHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	withCtx := func(c *gin.Context) {
-		c.Set("principal_id", int64(42))
-		c.Set("principal_type", "client")
-	}
+	withCtx := setClientIdentity(42)
 	r.GET("/api/v2/me/holdings", withCtx, h.ListHoldings)
 	r.GET("/api/v2/me/portfolio/summary", withCtx, h.GetPortfolioSummary)
 	r.POST("/api/v2/me/holdings/:id/make-public", withCtx, h.MakePublic)
@@ -372,11 +408,9 @@ func TestPortfolio_BuyOTCOfferOnBehalf_BadID(t *testing.T) {
 	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v2/otc/admin/offers/:id/buy", func(c *gin.Context) {
-		c.Set("principal_id", int64(1))
-		c.Set("principal_type", "employee")
-		h.BuyOTCOfferOnBehalf(c)
-	})
+	r.POST("/api/v2/otc/admin/offers/:id/buy",
+		setEmployeeBankIdentity(1),
+		h.BuyOTCOfferOnBehalf)
 	body := `{"client_id":7,"account_id":3,"quantity":2}`
 	req := httptest.NewRequest("POST", "/api/v2/otc/admin/offers/x/buy", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -389,11 +423,9 @@ func TestPortfolio_BuyOTCOfferOnBehalf_MissingFields(t *testing.T) {
 	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v2/otc/admin/offers/:id/buy", func(c *gin.Context) {
-		c.Set("principal_id", int64(1))
-		c.Set("principal_type", "employee")
-		h.BuyOTCOfferOnBehalf(c)
-	})
+	r.POST("/api/v2/otc/admin/offers/:id/buy",
+		setEmployeeBankIdentity(1),
+		h.BuyOTCOfferOnBehalf)
 	body := `{"quantity":2}`
 	req := httptest.NewRequest("POST", "/api/v2/otc/admin/offers/3/buy", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -412,11 +444,9 @@ func TestPortfolio_BuyOTCOfferOnBehalf_AccountClientMismatch(t *testing.T) {
 	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, acct)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v2/otc/admin/offers/:id/buy", func(c *gin.Context) {
-		c.Set("principal_id", int64(1))
-		c.Set("principal_type", "employee")
-		h.BuyOTCOfferOnBehalf(c)
-	})
+	r.POST("/api/v2/otc/admin/offers/:id/buy",
+		setEmployeeBankIdentity(1),
+		h.BuyOTCOfferOnBehalf)
 	body := `{"client_id":7,"account_id":3,"quantity":2}`
 	req := httptest.NewRequest("POST", "/api/v2/otc/admin/offers/3/buy", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -443,11 +473,9 @@ func TestPortfolio_BuyOTCOfferOnBehalf_Success(t *testing.T) {
 	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, acct)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v2/otc/admin/offers/:id/buy", func(c *gin.Context) {
-		c.Set("principal_id", int64(1))
-		c.Set("principal_type", "employee")
-		h.BuyOTCOfferOnBehalf(c)
-	})
+	r.POST("/api/v2/otc/admin/offers/:id/buy",
+		setEmployeeBankIdentity(1),
+		h.BuyOTCOfferOnBehalf)
 	body := `{"client_id":7,"account_id":3,"quantity":2}`
 	req := httptest.NewRequest("POST", "/api/v2/otc/admin/offers/3/buy", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

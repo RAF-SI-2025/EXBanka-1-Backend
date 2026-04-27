@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/gin-gonic/gin"
 )
@@ -67,15 +68,15 @@ func (h *TaxHandler) ListTaxRecords(c *gin.Context) {
 // @Failure      500  {object}  map[string]string       "internal error"
 // @Router       /api/v2/me/tax [get]
 func (h *TaxHandler) ListMyTaxRecords(c *gin.Context) {
-	userID, systemType, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
 
 	resp, err := h.client.ListUserTaxRecords(c.Request.Context(), &stockpb.ListUserTaxRecordsRequest{
-		UserId: userID, SystemType: systemType, Page: int32(page), PageSize: int32(pageSize),
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
+		Page:       int32(page),
+		PageSize:   int32(pageSize),
 	})
 	if err != nil {
 		handleGRPCError(c, err)

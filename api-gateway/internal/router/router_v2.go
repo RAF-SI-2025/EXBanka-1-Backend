@@ -77,6 +77,7 @@ func SetupV2Routes(
 		opts := v2.Group("/options")
 		opts.Use(middleware.AnyAuthMiddleware(authClient))
 		opts.Use(middleware.RequireAnyPermission(perms.Otc.Trade.Accept, perms.Otc.Trade.Exercise, perms.Securities.Trade.Any))
+		opts.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
 			opts.POST("/:option_id/orders", optionsV2.CreateOrder)
 			opts.POST("/:option_id/exercise", optionsV2.Exercise)

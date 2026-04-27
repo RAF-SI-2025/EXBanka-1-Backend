@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"net/http"
 	"regexp"
 	"strings"
 
@@ -126,94 +125,36 @@ func enforceOwnership(c *gin.Context, ownerID uint64) error {
 	return nil
 }
 
-// meIdentity returns the JWT-authenticated user's (userID, systemType) pair
-// extracted from the gin context populated by the auth middleware.
-//
-// Used by /me/* handlers before calling any user-scoped RPC — without
-// system_type, stock-service (and any other service that filters by
-// (user_id, system_type)) would match across both client and employee
-// namespaces, leaking data between users that happen to share the same
-// numeric user_id.
-//
-// Writes a 401 response and returns ok=false if either value is missing
-// or has an unexpected type; callers must return immediately.
-//
-// Spec C Task 3: reads "principal_id" / "principal_type" gin keys (was:
-// "user_id" / "system_type"). The gRPC field name SystemType on stock-service
-// requests is unchanged here — that proto rename happens in Task 4+.
-func meIdentity(c *gin.Context) (userID uint64, systemType string, ok bool) {
-	uid := c.GetInt64("principal_id")
-	if uid <= 0 {
-		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing principal_id in JWT context")
-		return 0, "", false
-	}
-	raw, _ := c.Get("principal_type")
-	st, _ := raw.(string)
-	if st == "" {
-		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing principal_type in JWT context")
-		return 0, "", false
-	}
-	return uint64(uid), st, true
-}
-
-// BankSentinelUserID is the synthetic user_id for bank-owned orders /
-// holdings / portfolio data. Mirrors the sentinel account-service uses
-// for bank-owned accounts (1_000_000_000) so the bank "owner" is
-// represented consistently across services.
-const BankSentinelUserID uint64 = 1_000_000_000
-
-// BankSystemType is the system_type value for bank-owned trading data.
-// Distinct from "employee" and "client" so stock-service queries can
-// scope to the bank's portfolio without conflating with individual
-// employee or client positions.
-const BankSystemType = "bank"
-
-// mePortfolioIdentity returns the (userID, systemType) pair to use when
-// looking up portfolio / order / holdings data on behalf of the
-// authenticated caller.
-//
-//   - Clients see their own data: returns (client.user_id, "client").
-//   - Employees see the BANK's data: returns (BankSentinelUserID, "bank").
-//     The employee's own user_id has no portfolio of its own; their work
-//     is the bank's work, so /me/* surfaces what they manage.
-//
-// Use this in handlers that read or write trading data scoped by
-// (user_id, system_type). Use plain meIdentity for non-trading /me/*
-// endpoints (profile, permissions, etc.) where the employee's identity
-// is what matters.
-//
-// Pair this with actingEmployeeID(c) when CREATING an order — without
-// the employee's real id propagated as acting_employee_id, stock-service
-// cannot enforce per-actuary limits (it would key the lookup on the
-// bank sentinel user_id, which has no actuary row).
-func mePortfolioIdentity(c *gin.Context) (userID uint64, systemType string, ok bool) {
-	uid, st, ok := meIdentity(c)
-	if !ok {
-		return 0, "", false
-	}
-	if st == "employee" {
-		return BankSentinelUserID, BankSystemType, true
-	}
-	return uid, st, true
-}
-
-// actingEmployeeID returns the JWT principal_id when the caller is an
-// employee, 0 otherwise. Use this to populate Order.ActingEmployeeID on
-// order creation: stock-service's actuary-limit gate fires when this is
-// non-zero regardless of whether the order ends up system_type="employee"
-// (legacy), "bank" (employee acting for the bank, Phase 3), or "client"
-// (employee on behalf of a client). Without this hook, Phase 3's identity
-// swap would silently bypass the EmployeeLimit gate for every employee buy.
-func actingEmployeeID(c *gin.Context) uint64 {
-	uid := c.GetInt64("principal_id")
-	if uid <= 0 {
+// ownerToLegacyUserID converts a ResolvedIdentity OwnerID pointer to the
+// legacy uint64 form still used by stock-service proto request shapes.
+// Bank owners (OwnerID==nil) surface as 0; the proto rename is queued for
+// Task 9 of the 2026-04-27 owner-type-schema plan, after which this helper
+// can be deleted.
+func ownerToLegacyUserID(p *uint64) uint64 {
+	if p == nil {
 		return 0
 	}
-	raw, _ := c.Get("principal_type")
-	if st, _ := raw.(string); st != "employee" {
+	return *p
+}
+
+// ownerToLegacySystemType converts an owner_type string to the legacy
+// SystemType wire value carried by stock-service proto requests. The two
+// vocabularies coincide today ("client"/"bank"); kept as an explicit
+// helper so call sites read symmetrically with ownerToLegacyUserID and
+// the eventual Task 9 rename has one place to delete.
+func ownerToLegacySystemType(t string) string {
+	return t
+}
+
+// derefU64Ptr returns *p when non-nil, else 0. Used to flatten the
+// optional pointer fields on middleware.ResolvedIdentity (OwnerID,
+// ActingEmployeeID) into the uint64 fields the gRPC requests still
+// carry.
+func derefU64Ptr(p *uint64) uint64 {
+	if p == nil {
 		return 0
 	}
-	return uint64(uid)
+	return *p
 }
 
 // ---------------------------------------------------------------------------

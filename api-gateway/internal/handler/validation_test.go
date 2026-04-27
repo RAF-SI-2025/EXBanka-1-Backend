@@ -173,56 +173,35 @@ func TestEnforceOwnership_MissingSystemType_ReturnsNil(t *testing.T) {
 	require.Equal(t, 200, w.Code)
 }
 
-// TestMePortfolioIdentity_EmployeeSwapsToBank locks in the Phase 3 contract:
-// an employee caller resolves to the bank sentinel + system_type="bank" so
-// /me/* portfolio handlers see the bank's data. Without this, every
-// employee-driven trading endpoint would silently look up the employee's
-// (empty) personal portfolio instead of the bank's. Regression guard for
-// the same shape as the actuary-limit-bypass bug.
-func TestMePortfolioIdentity_EmployeeSwapsToBank(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("principal_id", int64(42))
-	c.Set("principal_type", "employee")
+// ---------------------------------------------------------------------------
+// owner-type-schema legacy converters
+// ---------------------------------------------------------------------------
 
-	uid, st, ok := mePortfolioIdentity(c)
-	require.True(t, ok)
-	require.Equal(t, BankSentinelUserID, uid, "employee /me/* must resolve to bank sentinel")
-	require.Equal(t, BankSystemType, st, "employee /me/* must resolve to system_type=bank")
+// TestOwnerToLegacyUserID_NilIsBank locks the contract that a bank owner
+// (OwnerID==nil on ResolvedIdentity) flattens to the legacy uint64 sentinel
+// 0 used by stock-service proto request shapes pending Task 9 of the
+// 2026-04-27 owner-type-schema plan.
+func TestOwnerToLegacyUserID_NilIsBank(t *testing.T) {
+	require.Equal(t, uint64(0), ownerToLegacyUserID(nil),
+		"bank owner has nil OwnerID; legacy form is 0")
 }
 
-func TestMePortfolioIdentity_ClientPassesThrough(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("principal_id", int64(7))
-	c.Set("principal_type", "client")
-
-	uid, st, ok := mePortfolioIdentity(c)
-	require.True(t, ok)
-	require.Equal(t, uint64(7), uid, "client /me/* uses the client's own user_id")
-	require.Equal(t, "client", st)
+func TestOwnerToLegacyUserID_PtrPassThrough(t *testing.T) {
+	v := uint64(42)
+	require.Equal(t, uint64(42), ownerToLegacyUserID(&v),
+		"client/owner ID flattens to its uint64 value")
 }
 
-func TestActingEmployeeID_EmployeeReturnsJWTUserID(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("principal_id", int64(11))
-	c.Set("principal_type", "employee")
-
-	require.Equal(t, uint64(11), actingEmployeeID(c),
-		"actingEmployeeID must return the JWT user_id even when mePortfolioIdentity swaps to bank")
+func TestOwnerToLegacySystemType_PassThrough(t *testing.T) {
+	require.Equal(t, "client", ownerToLegacySystemType("client"))
+	require.Equal(t, "bank", ownerToLegacySystemType("bank"))
 }
 
-func TestActingEmployeeID_ClientReturnsZero(t *testing.T) {
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("principal_id", int64(7))
-	c.Set("principal_type", "client")
+func TestDerefU64Ptr_NilIsZero(t *testing.T) {
+	require.Equal(t, uint64(0), derefU64Ptr(nil))
+}
 
-	require.Zero(t, actingEmployeeID(c),
-		"actingEmployeeID returns 0 for clients so per-actuary limits never fire on client trades")
+func TestDerefU64Ptr_PtrPassThrough(t *testing.T) {
+	v := uint64(11)
+	require.Equal(t, uint64(11), derefU64Ptr(&v))
 }
