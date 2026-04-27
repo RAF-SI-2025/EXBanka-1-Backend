@@ -80,8 +80,8 @@ func stepCurrencyKey(name string) string { return keyStepPrefix + name + keyCurr
 func stepPayloadKey(name string) string  { return keyStepPrefix + name + keyPayload }
 
 // RecordForward writes a pending forward step row.
-func (r *Recorder) RecordForward(ctx context.Context, sagaID, stepName string, stepNumber int, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
-	row := r.buildRow(sagaID, stepName, stepNumber, st)
+func (r *Recorder) RecordForward(ctx context.Context, sagaID string, step sharedsaga.StepKind, stepNumber int, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
+	row := r.buildRow(sagaID, string(step), stepNumber, st)
 	row.Status = string(sharedsaga.SagaStatusPending)
 	row.IsCompensation = false
 	if err := r.repo.RecordStep(row); err != nil {
@@ -102,8 +102,8 @@ func (r *Recorder) MarkFailed(ctx context.Context, h sharedsaga.StepHandle, errM
 }
 
 // RecordCompensation writes a compensating row linked to the forward step.
-func (r *Recorder) RecordCompensation(ctx context.Context, sagaID, stepName string, stepNumber int, forward sharedsaga.StepHandle, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
-	row := r.buildRow(sagaID, stepName, stepNumber, st)
+func (r *Recorder) RecordCompensation(ctx context.Context, sagaID string, step sharedsaga.StepKind, stepNumber int, forward sharedsaga.StepHandle, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
+	row := r.buildRow(sagaID, string(step), stepNumber, st)
 	row.Status = string(sharedsaga.SagaStatusCompensating)
 	row.IsCompensation = true
 	if forward.ID != 0 {
@@ -133,8 +133,8 @@ func (r *Recorder) MarkCompensationFailed(ctx context.Context, h sharedsaga.Step
 // without saga scoping, every "persist_order_pending" step from any
 // prior order would silently skip the current order's step, leaving
 // the order unpersisted while the saga reports success.
-func (r *Recorder) IsCompleted(ctx context.Context, sagaID, stepName string) (bool, error) {
-	return r.repo.IsForwardCompleted(sagaID, stepName)
+func (r *Recorder) IsCompleted(ctx context.Context, sagaID string, step sharedsaga.StepKind) (bool, error) {
+	return r.repo.IsForwardCompleted(sagaID, string(step))
 }
 
 // ListStuck returns rows in pending or compensating status whose

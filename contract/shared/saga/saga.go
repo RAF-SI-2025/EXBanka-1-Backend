@@ -27,9 +27,13 @@ package saga
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/exbanka/contract/shared"
 )
@@ -60,6 +64,10 @@ func (s SagaStatus) IsTerminal() bool {
 
 // Step is one reversible unit of saga work.
 //
+// Name is a typed StepKind so callers fail at compile time on typos and
+// recovery code can switch on a fixed enum. The recorder persists the
+// underlying string into saga_logs.step_name.
+//
 // Forward is mandatory and performs the business effect.
 // Backward is optional. A nil Backward marks the step as non-compensatable
 // (e.g., publishing a Kafka event); the executor skips it during rollback.
@@ -67,7 +75,7 @@ func (s SagaStatus) IsTerminal() bool {
 // phases whose effect cannot be undone (e.g., closing a contract). The
 // executor stops the rollback walk when it reaches a pivot.
 type Step struct {
-	Name     string
+	Name     StepKind
 	Forward  func(ctx context.Context, st *State) error
 	Backward func(ctx context.Context, st *State) error
 	Pivot    bool
@@ -138,19 +146,20 @@ type StepHandle struct {
 // its own saga_logs repository.
 //
 // All methods take ctx so adapters can honor request deadlines and cancellation.
-// IsCompleted enables crash-restart resumption: before running a step, the
-// executor asks the recorder whether that step already completed in a prior
-// run; if so, it is skipped.
+// step is a typed StepKind (the same value held in Step.Name) so adapters
+// fail at compile time on typos. IsCompleted enables crash-restart resumption:
+// before running a step, the executor asks the recorder whether that step
+// already completed in a prior run; if so, it is skipped.
 type Recorder interface {
-	RecordForward(ctx context.Context, sagaID, stepName string, stepNumber int, st *State) (StepHandle, error)
+	RecordForward(ctx context.Context, sagaID string, step StepKind, stepNumber int, st *State) (StepHandle, error)
 	MarkCompleted(ctx context.Context, h StepHandle) error
 	MarkFailed(ctx context.Context, h StepHandle, errMsg string) error
 
-	RecordCompensation(ctx context.Context, sagaID, stepName string, stepNumber int, forward StepHandle, st *State) (StepHandle, error)
+	RecordCompensation(ctx context.Context, sagaID string, step StepKind, stepNumber int, forward StepHandle, st *State) (StepHandle, error)
 	MarkCompensated(ctx context.Context, h StepHandle) error
 	MarkCompensationFailed(ctx context.Context, h StepHandle, errMsg string) error
 
-	IsCompleted(ctx context.Context, sagaID, stepName string) (bool, error)
+	IsCompleted(ctx context.Context, sagaID string, step StepKind) (bool, error)
 }
 
 // NoopRecorder is a Recorder that does nothing. Useful in tests where saga
@@ -158,17 +167,17 @@ type Recorder interface {
 // has not yet wired its adapter.
 type NoopRecorder struct{}
 
-func (NoopRecorder) RecordForward(context.Context, string, string, int, *State) (StepHandle, error) {
+func (NoopRecorder) RecordForward(context.Context, string, StepKind, int, *State) (StepHandle, error) {
 	return StepHandle{}, nil
 }
 func (NoopRecorder) MarkCompleted(context.Context, StepHandle) error      { return nil }
 func (NoopRecorder) MarkFailed(context.Context, StepHandle, string) error { return nil }
-func (NoopRecorder) RecordCompensation(context.Context, string, string, int, StepHandle, *State) (StepHandle, error) {
+func (NoopRecorder) RecordCompensation(context.Context, string, StepKind, int, StepHandle, *State) (StepHandle, error) {
 	return StepHandle{}, nil
 }
 func (NoopRecorder) MarkCompensated(context.Context, StepHandle) error                { return nil }
 func (NoopRecorder) MarkCompensationFailed(context.Context, StepHandle, string) error { return nil }
-func (NoopRecorder) IsCompleted(context.Context, string, string) (bool, error)        { return false, nil }
+func (NoopRecorder) IsCompleted(context.Context, string, StepKind) (bool, error)      { return false, nil }
 
 // LifecyclePublisher is the optional hook a saga calls at top-level
 // transitions: started, committed, rolled back, or stuck (compensation
@@ -212,9 +221,21 @@ type Saga struct {
 	logf      LogFunc
 }
 
-// NewSaga returns an empty saga with the given id and recorder. A nil recorder
-// is replaced with NoopRecorder so tests can omit it without panicking.
-func NewSaga(id string, recorder Recorder) *Saga {
+// NewSaga returns an empty saga whose ID is freshly minted by the runner.
+// A nil recorder is replaced with NoopRecorder so tests can omit it without
+// panicking. Use NewSagaWithID when the caller needs to bind a specific ID
+// (e.g., recovery is reconstructing a saga whose ID was persisted earlier,
+// or when the ID is referenced from other rows like idempotency keys).
+func NewSaga(recorder Recorder) *Saga {
+	return NewSagaWithID(uuid.NewString(), recorder)
+}
+
+// NewSagaWithID is the explicit-ID constructor. The given id is stored
+// verbatim and surfaced via ID(); the caller is responsible for keeping
+// it within whatever length the underlying saga_logs schema permits
+// (the existing tables cap saga_id at 36 chars). A nil recorder is
+// replaced with NoopRecorder.
+func NewSagaWithID(id string, recorder Recorder) *Saga {
 	if recorder == nil {
 		recorder = NoopRecorder{}
 	}
@@ -224,6 +245,21 @@ func NewSaga(id string, recorder Recorder) *Saga {
 		publisher: NoopPublisher{},
 		logf:      defaultLog,
 	}
+}
+
+// NewSubSaga returns a child saga whose ID is derived deterministically
+// from this saga's ID and the given kind. Two sub-sagas built from the
+// same parent ID + kind always share an ID, which lets crash recovery
+// reconcile them without persisting the relationship explicitly.
+//
+// The returned ID is the first 16 bytes of SHA-256 hex-encoded (32 chars)
+// so it always fits the 36-char saga_logs.saga_id column.
+//
+// The child saga reuses the parent's recorder.
+func (s *Saga) NewSubSaga(kind string) *Saga {
+	h := sha256.Sum256([]byte(s.id + ":" + kind))
+	childID := hex.EncodeToString(h[:16])
+	return NewSagaWithID(childID, s.recorder)
 }
 
 // WithRetry wraps every Forward and Backward call in shared.Retry using the
@@ -257,7 +293,7 @@ func (s *Saga) WithPublisher(p LifecyclePublisher) *Saga {
 // is rejected (silently skipped with a warning) so callers cannot accidentally
 // build a saga that runs nothing.
 func (s *Saga) Add(step Step) *Saga {
-	if step.Name == "" || step.Forward == nil {
+	if step.Name == StepKind("") || step.Forward == nil {
 		s.logf("saga=%s rejected step with empty name or nil Forward", s.id)
 		return s
 	}
@@ -326,7 +362,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 	for i, step := range s.steps {
 		if err := ctx.Err(); err != nil {
 			compensated := s.rollback(ctx, state, done)
-			s.publisher.OnRolledBack(ctx, s.id, step.Name, err.Error(), compensated)
+			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), err.Error(), compensated)
 			return err
 		}
 
@@ -345,7 +381,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 			// doesn't sit half-applied with no audit trail.
 			s.logf("saga=%s step=%s record forward: %v", s.id, step.Name, err)
 			compensated := s.rollback(ctx, state, done)
-			s.publisher.OnRolledBack(ctx, s.id, step.Name, err.Error(), compensated)
+			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), err.Error(), compensated)
 			return fmt.Errorf("saga: record forward step %s: %w", step.Name, err)
 		}
 
@@ -355,7 +391,7 @@ func (s *Saga) Execute(ctx context.Context, state *State) error {
 				s.logf("saga=%s step=%s mark failed: %v", s.id, step.Name, mErr)
 			}
 			compensated := s.rollback(ctx, state, done)
-			s.publisher.OnRolledBack(ctx, s.id, step.Name, fwdErr.Error(), compensated)
+			s.publisher.OnRolledBack(ctx, s.id, string(step.Name), fwdErr.Error(), compensated)
 			return fwdErr
 		}
 
@@ -436,7 +472,7 @@ func (s *Saga) rollback(ctx context.Context, state *State, done []completedStep)
 		if mErr := s.recorder.MarkCompensated(ctx, compHandle); mErr != nil {
 			s.logf("saga=%s step=%s mark compensated: %v", s.id, d.step.Name, mErr)
 		}
-		compensated = append(compensated, d.step.Name)
+		compensated = append(compensated, string(d.step.Name))
 	}
 
 	if stuck {

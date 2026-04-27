@@ -135,7 +135,7 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 	state.Set("step:upsert_position:amount", amountRSD)
 	state.Set("step:upsert_position:currency", "RSD")
 
-	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
 			Name: "debit_source",
 			Forward: func(ctx context.Context, _ *saga.State) error {

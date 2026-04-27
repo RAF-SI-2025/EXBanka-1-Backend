@@ -135,7 +135,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	state.Set("step:credit_premium_seller:amount", premiumSellerCcy)
 	state.Set("step:credit_premium_seller:currency", premiumCcy)
 
-	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
 			Name: "reserve_and_contract",
 			Forward: func(ctx context.Context, _ *saga.State) error {

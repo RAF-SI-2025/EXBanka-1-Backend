@@ -118,7 +118,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	state.Set("step:credit_base:amount", baseAmount)
 	// credit_base's currency is set inside its Forward once we resolve baseAcct.
 
-	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
 			Name: "record_transaction",
 			Forward: func(ctx context.Context, _ *saga.State) error {
@@ -167,7 +167,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 	commissionAmount := s.computeCommission(quoteAmount)
 	if commissionAmount.Sign() > 0 && s.bankRecipient != nil {
 		commissionMemo := fmt.Sprintf("Commission for forex order #%d fill #%d", order.ID, txn.ID)
-		commSaga := saga.NewSaga(uuid.New().String(), stocksaga.NewRecorder(s.sagaRepo)).
+		commSaga := sg.NewSubSaga("commission").
 			Add(saga.Step{
 				Name: "credit_commission",
 				Forward: func(ctx context.Context, _ *saga.State) error {

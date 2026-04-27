@@ -256,7 +256,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 	// settle_reservation:amount is set inside its Forward (depends on convert).
 	// update_holding:amount is zero (informational); set by the recorder anyway.
 
-	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
 			Name: "record_transaction",
 			// Caller already persisted the txn; this step exists for
@@ -357,7 +357,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 	// this credits the bank-side leg.
 	commissionAmount := s.computeCommission(convertedAmount)
 	if commissionAmount.Sign() > 0 {
-		commSaga := saga.NewSaga(uuid.New().String(), stocksaga.NewRecorder(s.sagaRepo)).
+		commSaga := sg.NewSubSaga("commission").
 			Add(saga.Step{
 				Name: "credit_commission",
 				Forward: func(ctx context.Context, _ *saga.State) error {
@@ -602,7 +602,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 	state.Set("step:record_transaction:amount", txn.TotalPrice)
 	state.Set("step:convert_amount:amount", txn.TotalPrice)
 
-	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
 			Name:    "record_transaction",
 			Forward: func(ctx context.Context, _ *saga.State) error { return nil },
@@ -701,7 +701,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 	// Best-effort commission credit (separate sub-saga).
 	commissionAmount := s.computeCommission(convertedAmount)
 	if commissionAmount.Sign() > 0 {
-		commSaga := saga.NewSaga(uuid.New().String(), stocksaga.NewRecorder(s.sagaRepo)).
+		commSaga := sg.NewSubSaga("commission").
 			Add(saga.Step{
 				Name: "credit_commission",
 				Forward: func(ctx context.Context, _ *saga.State) error {

@@ -495,7 +495,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		actuaryLimitID uint64
 	)
 
-	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
 			Name: "persist_order_pending",
 			Forward: func(ctx context.Context, st *saga.State) error {

@@ -157,7 +157,7 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 		state.Set("step:credit_bank_fee:currency", "RSD")
 	}
 
-	sg := saga.NewSaga(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
+	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
 			Name: "debit_fund",
 			Forward: func(ctx context.Context, _ *saga.State) error {
