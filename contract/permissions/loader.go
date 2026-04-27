@@ -20,15 +20,18 @@ type Permission string
 // String returns the underlying string form of the permission.
 func (p Permission) String() string { return string(p) }
 
-// Catalog is the parsed and validated permission catalog.
-type Catalog struct {
+// ParsedCatalog is the parsed and validated permission catalog returned by
+// ParseYAML. The codegen output (perms.gen.go) declares a package-level
+// `var Catalog = []Permission{...}` slice, so the loader's struct uses a
+// distinct name to avoid collision.
+type ParsedCatalog struct {
 	All   []Permission            // every permission, in catalog order
 	Set   map[Permission]struct{} // membership set
 	Roles map[string][]Permission // flattened role → permissions
 }
 
-// IsValid reports whether p is part of the catalog.
-func (c *Catalog) IsValid(p Permission) bool {
+// Has reports whether p is part of the parsed catalog.
+func (c *ParsedCatalog) Has(p Permission) bool {
 	_, ok := c.Set[p]
 	return ok
 }
@@ -47,14 +50,14 @@ var nameRe = regexp.MustCompile(`^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*\.[a-z][a-z0-9
 
 // ParseYAML parses the catalog YAML, validates names, detects duplicates,
 // resolves role inheritance, validates grants against the catalog, and
-// returns a flattened Catalog.
-func ParseYAML(data []byte) (*Catalog, error) {
+// returns a flattened ParsedCatalog.
+func ParseYAML(data []byte) (*ParsedCatalog, error) {
 	var doc yamlDoc
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, err
 	}
 
-	cat := &Catalog{
+	cat := &ParsedCatalog{
 		All:   make([]Permission, 0, len(doc.Permissions)),
 		Set:   make(map[Permission]struct{}),
 		Roles: make(map[string][]Permission),
@@ -95,7 +98,7 @@ func ParseYAML(data []byte) (*Catalog, error) {
 	return cat, nil
 }
 
-func flattenRole(name string, all map[string]yamlRole, cat *Catalog,
+func flattenRole(name string, all map[string]yamlRole, cat *ParsedCatalog,
 	visited, stack map[string]bool) error {
 
 	if stack[name] {
@@ -130,7 +133,7 @@ func flattenRole(name string, all map[string]yamlRole, cat *Catalog,
 			continue
 		}
 		p := Permission(raw)
-		if !cat.IsValid(p) {
+		if !cat.Has(p) {
 			return fmt.Errorf("role %q grants %q which is not in catalog", name, raw)
 		}
 		out[p] = struct{}{}
