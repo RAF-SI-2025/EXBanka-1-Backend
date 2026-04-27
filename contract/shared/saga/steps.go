@@ -16,7 +16,7 @@ const (
 	StepDebitBuyer          StepKind = "debit_buyer"
 	StepCreditSeller        StepKind = "credit_seller"
 	StepTransferOwnership   StepKind = "transfer_ownership"
-	StepFinalizeAccept      StepKind = "finalize_accept"
+	StepFinalizeAccept      StepKind = "finalize"
 
 	// Crossbank exercise.
 	StepDebitStrike   StepKind = "debit_strike"
