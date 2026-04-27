@@ -12,6 +12,7 @@ import (
 
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
+	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 )
@@ -109,7 +110,7 @@ func TestBankAccountHandler_CreateBankAccount_Success(t *testing.T) {
 func TestBankAccountHandler_CreateBankAccount_ServiceError(t *testing.T) {
 	svc := &mockBankAccountSvc{
 		createFn: func(_, _, _ string, _ decimal.Decimal) (*model.Account, error) {
-			return nil, errors.New("invalid currency code")
+			return nil, service.ErrInvalidAccount
 		},
 	}
 	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
@@ -150,8 +151,8 @@ func TestBankAccountHandler_ListBankAccounts_Error(t *testing.T) {
 	}
 	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
 	_, err := h.ListBankAccounts(context.Background(), &pb.ListBankAccountsRequest{})
-	if status.Code(err) != codes.Internal {
-		t.Errorf("expected Internal, got %v", status.Code(err))
+	if status.Code(err) != codes.Unknown {
+		t.Errorf("expected Unknown, got %v", status.Code(err))
 	}
 }
 
@@ -187,13 +188,13 @@ func TestBankAccountHandler_DeleteBankAccount_NotFound(t *testing.T) {
 func TestBankAccountHandler_DeleteBankAccount_Constraint(t *testing.T) {
 	svc := &mockBankAccountSvc{
 		deleteFn: func(_ uint64) error {
-			return errors.New("bank must have at least one RSD account")
+			return service.ErrLastBankAccount
 		},
 	}
 	h := newBankAccountHandlerForTest(svc, &mockBankProducer{})
 	_, err := h.DeleteBankAccount(context.Background(), &pb.DeleteBankAccountRequest{Id: 1})
-	if status.Code(err) != codes.Internal {
-		t.Errorf("expected Internal (default), got %v", status.Code(err))
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition, got %v", status.Code(err))
 	}
 }
 
