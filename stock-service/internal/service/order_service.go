@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -668,17 +669,17 @@ func (s *OrderService) ApproveOrder(orderID uint64, supervisorID uint64, supervi
 	order, err := s.orderRepo.GetByID(orderID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("order not found")
+			return nil, fmt.Errorf("order not found: %w", ErrOrderNotFound)
 		}
 		return nil, err
 	}
 	if order.Status != "pending" {
-		return nil, errors.New("order is not pending")
+		return nil, fmt.Errorf("order is not pending: %w", ErrOrderNotPending)
 	}
 
 	// Check if settlement date has passed (for futures)
 	if s.isSettlementExpired(order) {
-		return nil, errors.New("cannot approve: settlement date has passed")
+		return nil, fmt.Errorf("cannot approve: settlement date has passed: %w", ErrOrderSettlementPassed)
 	}
 
 	order.Status = "approved"
@@ -711,12 +712,12 @@ func (s *OrderService) DeclineOrder(orderID uint64, supervisorID uint64, supervi
 	order, err := s.orderRepo.GetByID(orderID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("order not found")
+			return nil, fmt.Errorf("order not found: %w", ErrOrderNotFound)
 		}
 		return nil, err
 	}
 	if order.Status != "pending" {
-		return nil, errors.New("order is not pending")
+		return nil, fmt.Errorf("order is not pending: %w", ErrOrderNotPending)
 	}
 
 	order.Status = "declined"
@@ -742,15 +743,15 @@ func (s *OrderService) CancelOrder(orderID, userID uint64, systemType string) (*
 	order, err := s.orderRepo.GetByIDWithOwner(orderID, userID, systemType)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("order not found")
+			return nil, fmt.Errorf("order not found: %w", ErrOrderNotFound)
 		}
 		return nil, err
 	}
 	if order.IsDone {
-		return nil, errors.New("order is already completed")
+		return nil, fmt.Errorf("order is already completed: %w", ErrOrderAlreadyCompleted)
 	}
 	if order.Status == "declined" || order.Status == "cancelled" {
-		return nil, errors.New("order is already declined/cancelled")
+		return nil, fmt.Errorf("order is already declined/cancelled: %w", ErrOrderAlreadyClosed)
 	}
 
 	// Capture whether this order ever counted against the actuary's
@@ -814,7 +815,7 @@ func (s *OrderService) GetOrder(orderID, userID uint64, systemType string) (*mod
 	order, err := s.orderRepo.GetByIDWithOwner(orderID, userID, systemType)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, errors.New("order not found")
+			return nil, nil, fmt.Errorf("order not found: %w", ErrOrderNotFound)
 		}
 		return nil, nil, err
 	}

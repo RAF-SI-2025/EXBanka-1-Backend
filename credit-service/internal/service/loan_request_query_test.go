@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -30,7 +31,7 @@ func TestLoanRequestService_GetLoanRequest_NotFound(t *testing.T) {
 	svc, _ := buildLoanRequestSvc(t, nil)
 	_, err := svc.GetLoanRequest(99999)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to retrieve loan request")
+	assert.True(t, errors.Is(err, ErrLoanRequestNotFound))
 }
 
 func TestLoanRequestService_ListLoanRequests_FiltersByClient(t *testing.T) {

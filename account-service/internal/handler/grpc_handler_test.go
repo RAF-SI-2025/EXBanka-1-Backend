@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,9 +17,11 @@ import (
 	kafkaprod "github.com/exbanka/account-service/internal/kafka"
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
+	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	shared "github.com/exbanka/contract/shared"
 	"google.golang.org/grpc"
 )
 
@@ -291,35 +294,37 @@ func sampleAccount(id uint64) *model.Account {
 }
 
 // ---------------------------------------------------------------------------
-// mapServiceError tests
+// Sentinel passthrough — typed sentinels must reach the wire intact
 // ---------------------------------------------------------------------------
 
-func TestMapServiceError_AccountHandler(t *testing.T) {
+func TestSentinel_Passthrough_AccountHandler(t *testing.T) {
 	cases := []struct {
-		errMsg string
-		code   codes.Code
+		name     string
+		sentinel error
+		code     codes.Code
 	}{
-		{"account not found", codes.NotFound},
-		{"amount must be positive", codes.InvalidArgument},
-		{"currency_code is required", codes.InvalidArgument},
-		{"cannot use RSD for foreign", codes.InvalidArgument},
-		{"invalid status value", codes.InvalidArgument},
-		{"account number already exists", codes.AlreadyExists},
-		{"account already has this name", codes.AlreadyExists},
-		{"account is already active", codes.FailedPrecondition},
-		{"cannot delete last RSD account", codes.FailedPrecondition},
-		{"insufficient funds available", codes.FailedPrecondition},
-		{"spending limit exceeded", codes.FailedPrecondition},
-		{"is not a bank account", codes.FailedPrecondition},
-		{"card locked by admin", codes.ResourceExhausted},
-		{"max attempts reached", codes.ResourceExhausted},
-		{"permission denied for operation", codes.PermissionDenied},
-		{"forbidden from this resource", codes.PermissionDenied},
-		{"unexpected database error", codes.Internal},
+		{"ErrAccountNotFound", service.ErrAccountNotFound, codes.NotFound},
+		{"ErrInvalidAccount", service.ErrInvalidAccount, codes.InvalidArgument},
+		{"ErrInvalidStatus", service.ErrInvalidStatus, codes.InvalidArgument},
+		{"ErrCompanyDuplicate", service.ErrCompanyDuplicate, codes.AlreadyExists},
+		{"ErrAccountInactive", service.ErrAccountInactive, codes.FailedPrecondition},
+		{"ErrLastBankAccount", service.ErrLastBankAccount, codes.FailedPrecondition},
+		{"ErrInsufficientBalance", service.ErrInsufficientBalance, codes.FailedPrecondition},
+		{"ErrSpendingLimitExceeded", service.ErrSpendingLimitExceeded, codes.ResourceExhausted},
+		{"ErrCurrencyNotFound", service.ErrCurrencyNotFound, codes.NotFound},
+		{"ErrCompanyNotFound", service.ErrCompanyNotFound, codes.NotFound},
+		// shared optimistic-lock sentinel maps to Aborted
+		{"shared.ErrOptimisticLock", shared.ErrOptimisticLock, codes.Aborted},
 	}
 	for _, tc := range cases {
-		got := mapServiceError(errors.New(tc.errMsg))
-		assert.Equal(t, tc.code, got, "for error %q", tc.errMsg)
+		t.Run(tc.name, func(t *testing.T) {
+			s, ok := status.FromError(tc.sentinel)
+			require.True(t, ok, "sentinel %s lacks GRPCStatus", tc.name)
+			assert.Equal(t, tc.code, s.Code())
+			// errors.Is must continue to work after wrapping
+			wrapped := fmt.Errorf("op: %w", tc.sentinel)
+			assert.True(t, errors.Is(wrapped, tc.sentinel))
+		})
 	}
 }
 
@@ -357,7 +362,7 @@ func TestCreateAccount_Success(t *testing.T) {
 func TestCreateAccount_ServiceError(t *testing.T) {
 	h, f := newGRPCHandlerFixture()
 	f.accountSvc.createAccountFn = func(account *model.Account) error {
-		return errors.New("account kind must be 'current' or 'foreign'")
+		return service.ErrInvalidAccount
 	}
 
 	_, err := h.CreateAccount(context.Background(), &pb.CreateAccountRequest{
@@ -402,7 +407,9 @@ func TestGetAccount_ServiceError(t *testing.T) {
 
 	_, err := h.GetAccount(context.Background(), &pb.GetAccountRequest{Id: 1})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	// Untyped errors now pass through as Unknown — see TestSentinel_Passthrough
+	// for the typed contract.
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +464,7 @@ func TestListAccountsByClient_ServiceError(t *testing.T) {
 
 	_, err := h.ListAccountsByClient(context.Background(), &pb.ListAccountsByClientRequest{ClientId: 42})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------
@@ -484,7 +491,7 @@ func TestListAllAccounts_ServiceError(t *testing.T) {
 
 	_, err := h.ListAllAccounts(context.Background(), &pb.ListAllAccountsRequest{})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------
@@ -529,7 +536,7 @@ func TestUpdateAccountName_NotFound(t *testing.T) {
 func TestUpdateAccountName_ServiceError(t *testing.T) {
 	h, f := newGRPCHandlerFixture()
 	f.accountSvc.updateAccountNameFn = func(id, clientID uint64, newName string, changedBy int64) error {
-		return errors.New("an account with name \"Taken\" already exists for this client")
+		return service.ErrCompanyDuplicate
 	}
 
 	_, err := h.UpdateAccountName(context.Background(), &pb.UpdateAccountNameRequest{
@@ -577,7 +584,7 @@ func TestUpdateAccountLimits_NotFound(t *testing.T) {
 func TestUpdateAccountLimits_InvalidValue(t *testing.T) {
 	h, f := newGRPCHandlerFixture()
 	f.accountSvc.updateAccountLimitsFn = func(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error {
-		return errors.New("invalid daily_limit value")
+		return service.ErrInvalidAccount
 	}
 
 	badVal := "not-a-number"
@@ -630,7 +637,7 @@ func TestUpdateAccountStatus_NotFound(t *testing.T) {
 func TestUpdateAccountStatus_AlreadyInState(t *testing.T) {
 	h, f := newGRPCHandlerFixture()
 	f.accountSvc.updateAccountStatusFn = func(id uint64, newStatus string, changedBy int64) error {
-		return errors.New("account 1 is already active")
+		return service.ErrAccountInactive
 	}
 
 	_, err := h.UpdateAccountStatus(context.Background(), &pb.UpdateAccountStatusRequest{
@@ -680,7 +687,7 @@ func TestUpdateBalance_NotFound(t *testing.T) {
 func TestUpdateBalance_InsufficientFunds(t *testing.T) {
 	h, f := newGRPCHandlerFixture()
 	f.accountSvc.updateBalanceWithOptsFn = func(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts repository.UpdateBalanceOpts) error {
-		return errors.New("insufficient funds in account")
+		return service.ErrInsufficientBalance
 	}
 
 	_, err := h.UpdateBalance(context.Background(), &pb.UpdateBalanceRequest{
@@ -716,7 +723,7 @@ func TestCreateCompany_Success(t *testing.T) {
 func TestCreateCompany_ServiceError(t *testing.T) {
 	h, f := newGRPCHandlerFixture()
 	f.companySvc.createFn = func(company *model.Company) error {
-		return errors.New("registration_number already exists")
+		return service.ErrCompanyDuplicate
 	}
 
 	_, err := h.CreateCompany(context.Background(), &pb.CreateCompanyRequest{
@@ -809,7 +816,7 @@ func TestUpdateCompany_UpdateError(t *testing.T) {
 	newName := "Updated"
 	_, err := h.UpdateCompany(context.Background(), &pb.UpdateCompanyRequest{Id: 1, CompanyName: &newName})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------
@@ -839,7 +846,7 @@ func TestListCurrencies_ServiceError(t *testing.T) {
 
 	_, err := h.ListCurrencies(context.Background(), &pb.ListCurrenciesRequest{})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------
@@ -926,7 +933,7 @@ func TestGetLedgerEntries_ServiceError(t *testing.T) {
 
 	_, err := h.GetLedgerEntries(context.Background(), &pb.GetLedgerEntriesRequest{AccountNumber: "ACC001"})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------

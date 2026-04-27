@@ -160,6 +160,12 @@ func (s *AuthService) Disable2FA(ctx context.Context, userID int64, code string)
 }
 
 // Login authenticates both employees and bank clients using the unified Account table.
+//
+// Failure modes are mapped to typed sentinels (see errors.go) so the gRPC
+// handler can passthrough errors and the wire status reflects the true
+// failure (locked, pending, disabled, etc.). Email-not-found and bcrypt
+// mismatch deliberately collapse to the same sentinel (ErrInvalidCredentials)
+// to prevent email enumeration.
 func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, userAgent string) (string, string, error) {
 	const maxFailedAttempts = 5
 	const lockoutWindow = 15 * time.Minute
@@ -170,50 +176,52 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 	// Check if account is locked
 	lock, err := s.loginAttemptRepo.GetActiveLock(email)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to check account lock: %w", err)
+		log.Printf("Login(%s) check active lock failed: %v", email, err)
+		return "", "", fmt.Errorf("Login(%s) check active lock: %w", email, ErrAccountLocked)
 	}
 	if lock != nil {
-		remaining := time.Until(lock.ExpiresAt).Minutes()
-		return "", "", fmt.Errorf("account locked due to too many failed attempts, try again in %.0f minutes", remaining)
+		return "", "", fmt.Errorf("Login(%s) account already locked until %s: %w", email, lock.ExpiresAt.Format(time.RFC3339), ErrAccountLocked)
 	}
 
 	// Look up account by email
 	account, err := s.accountRepo.GetByEmail(email)
 	if err != nil {
 		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
-		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
+		locked, _, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
-			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+			return "", "", fmt.Errorf("Login(%s) locked after %d failed attempts: %w", email, maxFailedAttempts, ErrAccountLocked)
 		}
-		return "", "", fmt.Errorf("no account found with email %s (%d attempts remaining before lockout)", email, remaining)
+		// Email-not-found COLLAPSES to invalid-credentials to prevent enumeration.
+		return "", "", fmt.Errorf("Login(%s) account not found: %w", email, ErrInvalidCredentials)
 	}
 
 	// Check account status
 	if account.Status == model.AccountStatusPending {
 		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
-		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
+		locked, _, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
-			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+			return "", "", fmt.Errorf("Login(%s) locked after %d failed attempts: %w", email, maxFailedAttempts, ErrAccountLocked)
 		}
-		return "", "", fmt.Errorf("account not yet activated (%d attempts remaining before lockout)", remaining)
+		return "", "", fmt.Errorf("Login(%s) account not yet activated: %w", email, ErrAccountPending)
 	}
 	if account.Status != model.AccountStatusActive {
 		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
-		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
+		locked, _, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
-			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+			return "", "", fmt.Errorf("Login(%s) locked after %d failed attempts: %w", email, maxFailedAttempts, ErrAccountLocked)
 		}
-		return "", "", fmt.Errorf("account is disabled (%d attempts remaining before lockout)", remaining)
+		return "", "", fmt.Errorf("Login(%s) account disabled: %w", email, ErrAccountDisabled)
 	}
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(PepperPassword(s.pepper, password))); err != nil {
 		AuthLoginTotal.WithLabelValues("failure", "unknown").Inc()
-		locked, remaining, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
+		locked, _, _ := s.loginAttemptRepo.RecordFailureAndCheckLock(email, ipAddress, userAgent, deviceType, maxFailedAttempts, lockoutWindow, lockoutDuration)
 		if locked {
-			return "", "", fmt.Errorf("account locked after %d failed attempts, try again in 30 minutes", maxFailedAttempts)
+			return "", "", fmt.Errorf("Login(%s) locked after %d failed attempts: %w", email, maxFailedAttempts, ErrAccountLocked)
 		}
-		return "", "", fmt.Errorf("incorrect password for %s (%d attempts remaining before lockout)", email, remaining)
+		// Wrong-password COLLAPSES to invalid-credentials to prevent enumeration.
+		return "", "", fmt.Errorf("Login(%s) bcrypt mismatch: %w", email, ErrInvalidCredentials)
 	}
 
 	_ = s.loginAttemptRepo.RecordAttempt(email, ipAddress, userAgent, deviceType, true)
@@ -229,7 +237,8 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 	case model.PrincipalTypeEmployee:
 		userResp, err := s.userClient.GetEmployee(ctx, &userpb.GetEmployeeRequest{Id: account.PrincipalID})
 		if err != nil {
-			return "", "", fmt.Errorf("failed to fetch employee data: %w", err)
+			log.Printf("Login(%s) get employee underlying: %v", email, err)
+			return "", "", fmt.Errorf("Login(%s) get employee: %w", email, ErrEmployeeRPCFailed)
 		}
 		loginRoles = userResp.Roles
 		if len(loginRoles) == 0 && userResp.Role != "" {
@@ -241,7 +250,8 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 			AccountActive: account.Status == model.AccountStatusActive,
 		})
 		if err != nil {
-			return "", "", err
+			log.Printf("Login(%s) sign access token underlying: %v", email, err)
+			return "", "", fmt.Errorf("Login(%s) sign access token: %w", email, ErrTokenSignFailed)
 		}
 	default: // client
 		loginRoles = []string{"client"}
@@ -249,13 +259,15 @@ func (s *AuthService) Login(ctx context.Context, email, password, ipAddress, use
 			AccountActive: account.Status == model.AccountStatusActive,
 		})
 		if err != nil {
-			return "", "", err
+			log.Printf("Login(%s) sign access token underlying: %v", email, err)
+			return "", "", fmt.Errorf("Login(%s) sign access token: %w", email, ErrTokenSignFailed)
 		}
 	}
 
 	refreshToken, err := generateToken()
 	if err != nil {
-		return "", "", fmt.Errorf("generate refresh token: %w", err)
+		log.Printf("Login(%s) generate refresh token underlying: %v", email, err)
+		return "", "", fmt.Errorf("Login(%s) generate refresh token: %w", email, ErrTokenGenFailed)
 	}
 
 	// Determine user role label for session
@@ -502,31 +514,31 @@ type MobileDeviceLookup interface {
 func (s *AuthService) RefreshTokenForMobile(ctx context.Context, oldRefreshToken, deviceID string, mobileSvc MobileDeviceLookup) (string, string, error) {
 	rt, err := s.tokenRepo.GetRefreshToken(oldRefreshToken)
 	if err != nil {
-		return "", "", errors.New("invalid refresh token")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: lookup token: %v: %w", err, ErrInvalidToken)
 	}
 	if rt.Revoked {
-		return "", "", errors.New("refresh token revoked")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: refresh token revoked: %w", ErrTokenRevoked)
 	}
 	if time.Now().After(rt.ExpiresAt) {
-		return "", "", errors.New("refresh token expired")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: refresh token expired at %s: %w", rt.ExpiresAt.Format(time.RFC3339), ErrTokenExpired)
 	}
 
 	// Get account to resolve PrincipalID (the actual user ID used in MobileDevice)
 	var acct model.Account
 	if err := s.accountRepo.GetByID(rt.AccountID, &acct); err != nil {
-		return "", "", errors.New("account not found")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: lookup account %d: %v: %w", rt.AccountID, err, ErrAccountNotFound)
 	}
 	if acct.Status != model.AccountStatusActive {
-		return "", "", errors.New("account is not active")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: account %d status=%s: %w", acct.ID, acct.Status, ErrAccountDisabled)
 	}
 
 	// Verify device is active and matches the provided deviceID
 	device, err := mobileSvc.GetDeviceInfo(acct.PrincipalID)
 	if err != nil {
-		return "", "", errors.New("device not found or deactivated, please re-activate")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: device lookup for principal %d: %v: %w", acct.PrincipalID, err, ErrDeviceNotFound)
 	}
 	if device.DeviceID != deviceID {
-		return "", "", errors.New("device ID mismatch — permission denied")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: device id %q does not match registered device for principal %d: %w", deviceID, acct.PrincipalID, ErrDeviceMismatch)
 	}
 
 	// Revoke old token
@@ -658,7 +670,7 @@ func (s *AuthService) CreateAccountAndActivationToken(ctx context.Context, princ
 			PrincipalID:   principalID,
 		}
 		if err := s.accountRepo.Create(account); err != nil {
-			return fmt.Errorf("failed to create account: %w", err)
+			return fmt.Errorf("CreateAccountAndActivationToken: create account: %v: %w", err, ErrAccountCreationFailed)
 		}
 	}
 
@@ -763,18 +775,18 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 
 func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, confirmPassword string) error {
 	if newPassword != confirmPassword {
-		return errors.New("password and confirmation do not match")
+		return fmt.Errorf("ResetPassword: password and confirmation do not match: %w", ErrPasswordsDoNotMatch)
 	}
 	if err := validatePassword(newPassword); err != nil {
-		return err
+		return fmt.Errorf("ResetPassword: %v: %w", err, ErrPasswordValidation)
 	}
 
 	prt, err := s.tokenRepo.GetPasswordResetToken(tokenStr)
 	if err != nil {
-		return errors.New("invalid or expired password reset token; request a new password reset")
+		return fmt.Errorf("ResetPassword: lookup token: %v: %w", err, ErrInvalidToken)
 	}
 	if time.Now().After(prt.ExpiresAt) {
-		return errors.New("password reset token expired; request a new password reset")
+		return fmt.Errorf("ResetPassword: token expired at %s: %w", prt.ExpiresAt.Format(time.RFC3339), ErrTokenExpired)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, newPassword)), bcrypt.DefaultCost)
@@ -815,18 +827,18 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, 
 
 func (s *AuthService) ActivateAccount(ctx context.Context, tokenStr, password, confirmPassword string) error {
 	if password != confirmPassword {
-		return errors.New("passwords do not match")
+		return fmt.Errorf("ActivateAccount: passwords do not match: %w", ErrPasswordsDoNotMatch)
 	}
 	if err := validatePassword(password); err != nil {
-		return err
+		return fmt.Errorf("ActivateAccount: %v: %w", err, ErrPasswordValidation)
 	}
 
 	at, err := s.tokenRepo.GetActivationToken(tokenStr)
 	if err != nil {
-		return errors.New("invalid or expired activation token")
+		return fmt.Errorf("ActivateAccount: lookup token: %v: %w", err, ErrInvalidToken)
 	}
 	if time.Now().After(at.ExpiresAt) {
-		return errors.New("token expired")
+		return fmt.Errorf("ActivateAccount: token expired at %s: %w", at.ExpiresAt.Format(time.RFC3339), ErrTokenExpired)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, password)), bcrypt.DefaultCost)
@@ -974,14 +986,14 @@ func (s *AuthService) ListSessions(ctx context.Context, userID int64) ([]model.A
 func (s *AuthService) RevokeSession(ctx context.Context, sessionID int64, callerUserID int64) error {
 	session, err := s.sessionRepo.GetByID(sessionID)
 	if err != nil {
-		return fmt.Errorf("session not found")
+		return fmt.Errorf("RevokeSession: lookup session %d: %v: %w", sessionID, err, ErrSessionNotFound)
 	}
 	// Ensure the caller owns this session
 	if session.UserID != callerUserID {
-		return fmt.Errorf("permission denied: session belongs to another user")
+		return fmt.Errorf("RevokeSession: caller %d does not own session %d (owner=%d): %w", callerUserID, sessionID, session.UserID, ErrSessionForbidden)
 	}
 	if session.RevokedAt != nil {
-		return fmt.Errorf("session already revoked")
+		return fmt.Errorf("RevokeSession: session %d already revoked at %s: %w", sessionID, session.RevokedAt.Format(time.RFC3339), ErrSessionAlreadyRevoked)
 	}
 
 	// Revoke all refresh tokens for this session
@@ -1005,7 +1017,7 @@ func (s *AuthService) RevokeSession(ctx context.Context, sessionID int64, caller
 func (s *AuthService) RevokeAllSessionsExceptCurrent(ctx context.Context, userID int64, currentRefreshToken string) error {
 	rt, err := s.tokenRepo.GetRefreshToken(currentRefreshToken)
 	if err != nil {
-		return fmt.Errorf("current token not found")
+		return fmt.Errorf("RevokeAllSessionsExceptCurrent: current token lookup: %v: %w", err, ErrSessionNotFound)
 	}
 
 	keepSessionID := int64(0)

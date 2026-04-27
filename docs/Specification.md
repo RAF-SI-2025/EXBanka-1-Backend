@@ -2068,6 +2068,16 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - `GetReservation` returns the authoritative list of `settled_transaction_ids` so stock-service's saga recovery can distinguish "step already committed remotely" from "step never ran."
 - Only whole-remaining-order cancellation is supported; partial-cancel-during-fill is out of scope.
 
+### 21.1 gRPC Error Sentinels
+
+Service errors carry typed sentinels defined in `<service>/internal/service/errors.go`. Each sentinel embeds a gRPC code via `contract/shared/svcerr.SentinelError`, so wrapping with `fmt.Errorf("Op: %w", sentinel)` automatically resolves to the correct wire status code via `status.FromError`.
+
+Handlers do NOT map errors — they return wrapped service errors directly. The `contract/shared/grpcmw.UnaryLoggingInterceptor` records the full wrap chain (with the original underlying error) for any non-OK response, before the wire status is sent.
+
+The api-gateway maps gRPC status codes to HTTP via `api-gateway/internal/handler/validation.go:grpcToHTTPError`. Distinct sentinels surface as distinct HTTP error codes, so a client can distinguish "wrong password" (401 unauthorized) from "account locked" (403 forbidden) from "account pending" (409 business_rule_violation), etc.
+
+Email-not-found and bcrypt-mismatch deliberately collapse to the same `ErrInvalidCredentials` sentinel for security (prevents email enumeration). All other failure modes are distinct.
+
 ## 22. Concurrency & Transaction Safety
 
 This is a banking system. All code must be concurrency-safe with proper transaction isolation, optimistic locking, and rollback guarantees.

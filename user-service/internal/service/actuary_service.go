@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 
 	"gorm.io/gorm"
@@ -84,7 +85,7 @@ func (s *ActuaryService) SetActuaryLimit(ctx context.Context, employeeID int64, 
 	}
 
 	if limitAmount.IsNegative() {
-		return nil, errors.New("limit must not be negative")
+		return nil, fmt.Errorf("SetActuaryLimit(employee=%d, amount=%s): %w", employeeID, limitAmount.String(), ErrInvalidActuaryLimit)
 	}
 	limit, _, err := s.getOrCreateActuaryLimit(employeeID)
 	if err != nil {
@@ -175,12 +176,12 @@ func (s *ActuaryService) getOrCreateActuaryLimit(employeeID int64) (*model.Actua
 	emp, err := s.empRepo.GetByIDWithRoles(employeeID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, errors.New("employee not found")
+			return nil, nil, fmt.Errorf("getOrCreateActuaryLimit(employee=%d): %w", employeeID, ErrEmployeeNotFound)
 		}
 		return nil, nil, err
 	}
 	if !isActuary(emp) {
-		return nil, nil, errors.New("employee is not an actuary (must have EmployeeAgent or EmployeeSupervisor role)")
+		return nil, nil, fmt.Errorf("getOrCreateActuaryLimit(employee=%d): employee is not an actuary (must have EmployeeAgent or EmployeeSupervisor role): %w", employeeID, ErrNotActuary)
 	}
 
 	limit, err := s.actuaryRepo.GetByEmployeeID(employeeID)

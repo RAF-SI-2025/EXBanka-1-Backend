@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -10,6 +11,7 @@ import (
 
 	pb "github.com/exbanka/contract/stockpb"
 	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/service"
 )
 
 type mockExchangeSvc struct {
@@ -69,15 +71,17 @@ func TestExchangeHandler_ListExchanges_Success(t *testing.T) {
 }
 
 func TestExchangeHandler_ListExchanges_Error(t *testing.T) {
+	// Service signals the failure via a typed sentinel; handler passthrough
+	// surfaces the embedded code on the wire.
 	svc := &mockExchangeSvc{
 		listFn: func(_ string, _, _ int) ([]model.StockExchange, int64, error) {
-			return nil, 0, errors.New("db down")
+			return nil, 0, fmt.Errorf("db down: %w", service.ErrExchangeNotFound)
 		},
 	}
 	h := newExchangeHandlerForTest(svc)
 	_, err := h.ListExchanges(context.Background(), &pb.ListExchangesRequest{})
-	if status.Code(err) != codes.Internal {
-		t.Errorf("expected Internal, got %v", status.Code(err))
+	if status.Code(err) != codes.NotFound {
+		t.Errorf("expected NotFound (sentinel propagated), got %v", status.Code(err))
 	}
 }
 
@@ -100,7 +104,7 @@ func TestExchangeHandler_GetExchange_Success(t *testing.T) {
 func TestExchangeHandler_GetExchange_NotFound(t *testing.T) {
 	svc := &mockExchangeSvc{
 		getFn: func(_ uint64) (*model.StockExchange, error) {
-			return nil, errors.New("exchange not found")
+			return nil, fmt.Errorf("exchange not found: %w", service.ErrExchangeNotFound)
 		},
 	}
 	h := newExchangeHandlerForTest(svc)
@@ -158,56 +162,31 @@ func TestExchangeHandler_GetTestingMode_Success(t *testing.T) {
 	}
 }
 
-func TestMapServiceError_NotFound(t *testing.T) {
-	if got := mapServiceError(errors.New("exchange not found")); got != codes.NotFound {
-		t.Errorf("expected NotFound, got %v", got)
+// Sentinel passthrough sanity check — replaces the deleted TestMapServiceError
+// suite. Service-layer sentinels carry their own gRPC code via
+// svcerr.SentinelError; handlers no longer need a per-message map.
+func TestSentinels_PassthroughCodes_ExchangeAndSecurity(t *testing.T) {
+	cases := []struct {
+		name     string
+		sentinel error
+		code     codes.Code
+	}{
+		{"ExchangeNotFound", service.ErrExchangeNotFound, codes.NotFound},
+		{"StockNotFound", service.ErrStockNotFound, codes.NotFound},
+		{"FuturesNotFound", service.ErrFuturesNotFound, codes.NotFound},
+		{"ForexPairNotFound", service.ErrForexPairNotFound, codes.NotFound},
+		{"OptionNotFound", service.ErrOptionNotFound, codes.NotFound},
 	}
-}
-
-func TestMapServiceError_InvalidArgument(t *testing.T) {
-	for _, msg := range []string{
-		"value must be positive",
-		"invalid input",
-		"name must not be empty",
-		"field is required",
-	} {
-		if got := mapServiceError(errors.New(msg)); got != codes.InvalidArgument {
-			t.Errorf("%q: expected InvalidArgument, got %v", msg, got)
-		}
-	}
-}
-
-func TestMapServiceError_AlreadyExists(t *testing.T) {
-	for _, msg := range []string{"record already exists", "duplicate entry"} {
-		if got := mapServiceError(errors.New(msg)); got != codes.AlreadyExists {
-			t.Errorf("%q: expected AlreadyExists, got %v", msg, got)
-		}
-	}
-}
-
-func TestMapServiceError_FailedPrecondition(t *testing.T) {
-	for _, msg := range []string{
-		"insufficient funds",
-		"limit exceeded",
-		"not enough shares",
-	} {
-		if got := mapServiceError(errors.New(msg)); got != codes.FailedPrecondition {
-			t.Errorf("%q: expected FailedPrecondition, got %v", msg, got)
-		}
-	}
-}
-
-func TestMapServiceError_PermissionDenied(t *testing.T) {
-	for _, msg := range []string{"permission denied", "forbidden access"} {
-		if got := mapServiceError(errors.New(msg)); got != codes.PermissionDenied {
-			t.Errorf("%q: expected PermissionDenied, got %v", msg, got)
-		}
-	}
-}
-
-func TestMapServiceError_DefaultInternal(t *testing.T) {
-	if got := mapServiceError(errors.New("random db blowup")); got != codes.Internal {
-		t.Errorf("expected Internal, got %v", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wrapped := fmt.Errorf("Op: %w", tc.sentinel)
+			if !errors.Is(wrapped, tc.sentinel) {
+				t.Fatalf("errors.Is should match")
+			}
+			if got := status.Code(wrapped); got != tc.code {
+				t.Errorf("expected %v, got %v", tc.code, got)
+			}
+		})
 	}
 }
 

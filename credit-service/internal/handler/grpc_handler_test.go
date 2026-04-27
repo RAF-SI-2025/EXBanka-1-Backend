@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/credit-service/internal/model"
 	"github.com/exbanka/credit-service/internal/repository"
+	"github.com/exbanka/credit-service/internal/service"
 )
 
 // --- stubs --------------------------------------------------------------------
@@ -232,32 +234,34 @@ func newTestHandlerWithRate() (*CreditGRPCHandler, *testHandlerStubs) {
 	return h, s
 }
 
-// --- mapServiceError ---------------------------------------------------------
+// --- Sentinel passthrough ----------------------------------------------------
+//
+// The handler passes service errors through unchanged. Sentinels embed a
+// gRPC code via svcerr.SentinelError, so status.Code(err) yields the right
+// wire status without any handler-side mapping.
 
-func TestMapServiceError(t *testing.T) {
+func TestSentinels_PassthroughCodes(t *testing.T) {
 	cases := []struct {
-		err  string
-		code codes.Code
+		name     string
+		sentinel error
+		code     codes.Code
 	}{
-		{"loan not found", codes.NotFound},
-		{"amount must be positive", codes.InvalidArgument},
-		{"invalid loan type", codes.InvalidArgument},
-		{"value must not be zero", codes.InvalidArgument},
-		{"loan number already exists", codes.AlreadyExists},
-		{"duplicate key", codes.AlreadyExists},
-		{"loan request 1 is already approved", codes.FailedPrecondition},
-		{"insufficient funds", codes.FailedPrecondition},
-		{"amount exceeds limit", codes.FailedPrecondition},
-		{"only pending requests can be approved", codes.FailedPrecondition},
-		{"card locked", codes.ResourceExhausted},
-		{"max attempts reached", codes.ResourceExhausted},
-		{"permission denied", codes.PermissionDenied},
-		{"forbidden access", codes.PermissionDenied},
-		{"some random message", codes.Internal},
+		{"LoanNotFound", service.ErrLoanNotFound, codes.NotFound},
+		{"LoanRequestNotFound", service.ErrLoanRequestNotFound, codes.NotFound},
+		{"InvalidLoanType", service.ErrInvalidLoanType, codes.InvalidArgument},
+		{"InvalidAmount", service.ErrInvalidAmount, codes.InvalidArgument},
+		{"AmountExceedsApprovalLimit", service.ErrAmountExceedsApprovalLimit, codes.FailedPrecondition},
+		{"LoanRequestNotPending", service.ErrLoanRequestNotPending, codes.FailedPrecondition},
+		{"InvalidRateConfig", service.ErrInvalidRateConfig, codes.InvalidArgument},
+		{"InterestRateTierNotFound", service.ErrInterestRateTierNotFound, codes.NotFound},
+		{"BankMarginNotFound", service.ErrBankMarginNotFound, codes.NotFound},
 	}
 	for _, tc := range cases {
-		got := mapServiceError(errors.New(tc.err))
-		assert.Equal(t, tc.code, got, "for error %q", tc.err)
+		t.Run(tc.name, func(t *testing.T) {
+			wrapped := fmt.Errorf("Op: %w", tc.sentinel)
+			require.True(t, errors.Is(wrapped, tc.sentinel))
+			assert.Equal(t, tc.code, status.Code(wrapped))
+		})
 	}
 }
 
@@ -290,13 +294,14 @@ func TestCreateLoanRequest_Success(t *testing.T) {
 func TestCreateLoanRequest_ServiceError(t *testing.T) {
 	h, lrSvc, _, _, prod := newTestHandler()
 	lrSvc.createFn = func(_ *model.LoanRequest) error {
-		return errors.New("loan type must be one of: cash")
+		return fmt.Errorf("CreateLoanRequest(loan_type=x): %w", service.ErrInvalidLoanType)
 	}
 	_, err := h.CreateLoanRequest(context.Background(), &pb.CreateLoanRequestReq{
 		ClientId: 1, LoanType: "x", InterestType: "fixed",
 		Amount: "100", CurrencyCode: "RSD", RepaymentPeriod: 12, AccountNumber: "A",
 	})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInvalidLoanType))
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	assert.Empty(t, prod.requested, "no event should be published on error")
 }
@@ -321,20 +326,22 @@ func TestGetLoanRequest_Success(t *testing.T) {
 func TestGetLoanRequest_NotFound_ReturnsNotFoundCode(t *testing.T) {
 	h, lrSvc, _, _, _ := newTestHandler()
 	lrSvc.getFn = func(_ uint64) (*model.LoanRequest, error) {
-		return nil, gorm.ErrRecordNotFound
+		return nil, fmt.Errorf("GetLoanRequest(id=1): %w", service.ErrLoanRequestNotFound)
 	}
 	_, err := h.GetLoanRequest(context.Background(), &pb.GetLoanRequestReq{Id: 1})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrLoanRequestNotFound))
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
 func TestGetLoanRequest_ServiceError_ReturnsInternal(t *testing.T) {
 	h, lrSvc, _, _, _ := newTestHandler()
 	lrSvc.getFn = func(_ uint64) (*model.LoanRequest, error) {
-		return nil, errors.New("db down")
+		return nil, fmt.Errorf("GetLoanRequest(id=1) db: %w", service.ErrLoanLookup)
 	}
 	_, err := h.GetLoanRequest(context.Background(), &pb.GetLoanRequestReq{Id: 1})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrLoanLookup))
 	assert.Equal(t, codes.Internal, status.Code(err))
 }
 
@@ -357,7 +364,7 @@ func TestListLoanRequests_Success(t *testing.T) {
 func TestListLoanRequests_ServiceError(t *testing.T) {
 	h, lrSvc, _, _, _ := newTestHandler()
 	lrSvc.listFn = func(_, _, _ string, _ uint64, _, _ int) ([]model.LoanRequest, int64, error) {
-		return nil, 0, errors.New("db down")
+		return nil, 0, fmt.Errorf("List db: %w", service.ErrLoanLookup)
 	}
 	_, err := h.ListLoanRequests(context.Background(), &pb.ListLoanRequestsReq{Page: 1, PageSize: 10})
 	require.Error(t, err)
@@ -409,10 +416,11 @@ func TestApproveLoanRequest_ApprovedButNotDisbursed_NoDisbursedEvent(t *testing.
 func TestApproveLoanRequest_NotFound(t *testing.T) {
 	h, lrSvc, _, _, prod := newTestHandler()
 	lrSvc.approveFn = func(_ context.Context, _, _ uint64) (*model.Loan, error) {
-		return nil, gorm.ErrRecordNotFound
+		return nil, fmt.Errorf("ApproveLoanRequest(id=999): %w", service.ErrLoanRequestNotFound)
 	}
 	_, err := h.ApproveLoanRequest(context.Background(), &pb.ApproveLoanRequestReq{RequestId: 999})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrLoanRequestNotFound))
 	assert.Equal(t, codes.NotFound, status.Code(err))
 	assert.Empty(t, prod.approved)
 }
@@ -420,10 +428,11 @@ func TestApproveLoanRequest_NotFound(t *testing.T) {
 func TestApproveLoanRequest_ServiceError_FailedPrecondition(t *testing.T) {
 	h, lrSvc, _, _, _ := newTestHandler()
 	lrSvc.approveFn = func(_ context.Context, _, _ uint64) (*model.Loan, error) {
-		return nil, errors.New("loan request 1 is already approved")
+		return nil, fmt.Errorf("ApproveLoanRequest(id=1, status=approved): %w", service.ErrLoanRequestNotPending)
 	}
 	_, err := h.ApproveLoanRequest(context.Background(), &pb.ApproveLoanRequestReq{RequestId: 1})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrLoanRequestNotPending))
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
 
@@ -448,17 +457,18 @@ func TestRejectLoanRequest_Success(t *testing.T) {
 func TestRejectLoanRequest_NotFound(t *testing.T) {
 	h, lrSvc, _, _, _ := newTestHandler()
 	lrSvc.rejectFn = func(_ uint64, _ int64, _ string) (*model.LoanRequest, error) {
-		return nil, gorm.ErrRecordNotFound
+		return nil, fmt.Errorf("RejectLoanRequest(id=99): %w", service.ErrLoanRequestNotFound)
 	}
 	_, err := h.RejectLoanRequest(context.Background(), &pb.RejectLoanRequestReq{RequestId: 99})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrLoanRequestNotFound))
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
 func TestRejectLoanRequest_ServiceError_ReturnsInternal(t *testing.T) {
 	h, lrSvc, _, _, _ := newTestHandler()
 	lrSvc.rejectFn = func(_ uint64, _ int64, _ string) (*model.LoanRequest, error) {
-		return nil, errors.New("db down")
+		return nil, fmt.Errorf("RejectLoanRequest(id=99) db: %w", service.ErrLoanLookup)
 	}
 	_, err := h.RejectLoanRequest(context.Background(), &pb.RejectLoanRequestReq{RequestId: 99})
 	require.Error(t, err)
@@ -484,15 +494,20 @@ func TestGetLoan_Success(t *testing.T) {
 
 func TestGetLoan_NotFound(t *testing.T) {
 	h, _, lSvc, _, _ := newTestHandler()
-	lSvc.getFn = func(_ uint64) (*model.Loan, error) { return nil, gorm.ErrRecordNotFound }
+	lSvc.getFn = func(_ uint64) (*model.Loan, error) {
+		return nil, fmt.Errorf("GetLoan(id=1): %w", service.ErrLoanNotFound)
+	}
 	_, err := h.GetLoan(context.Background(), &pb.GetLoanReq{Id: 1})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrLoanNotFound))
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
 func TestGetLoan_ServiceError_ReturnsInternal(t *testing.T) {
 	h, _, lSvc, _, _ := newTestHandler()
-	lSvc.getFn = func(_ uint64) (*model.Loan, error) { return nil, errors.New("db down") }
+	lSvc.getFn = func(_ uint64) (*model.Loan, error) {
+		return nil, fmt.Errorf("GetLoan(id=1) db: %w", service.ErrLoanLookup)
+	}
 	_, err := h.GetLoan(context.Background(), &pb.GetLoanReq{Id: 1})
 	require.Error(t, err)
 	assert.Equal(t, codes.Internal, status.Code(err))
@@ -514,7 +529,7 @@ func TestListLoansByClient_Success(t *testing.T) {
 func TestListLoansByClient_ServiceError(t *testing.T) {
 	h, _, lSvc, _, _ := newTestHandler()
 	lSvc.listByClientFn = func(_ uint64, _, _ int) ([]model.Loan, int64, error) {
-		return nil, 0, errors.New("boom")
+		return nil, 0, fmt.Errorf("ListLoansByClient db: %w", service.ErrLoanLookup)
 	}
 	_, err := h.ListLoansByClient(context.Background(), &pb.ListLoansByClientReq{ClientId: 1})
 	require.Error(t, err)
@@ -615,12 +630,13 @@ func TestCreateInterestRateTier_Success(t *testing.T) {
 func TestCreateInterestRateTier_ValidationError(t *testing.T) {
 	h, s := newTestHandlerWithRate()
 	s.rateConfig.createTierFn = func(_ *model.InterestRateTier) error {
-		return errors.New("fixed_rate must not be negative")
+		return fmt.Errorf("CreateTier: fixed_rate must not be negative: %w", service.ErrInvalidRateConfig)
 	}
 	_, err := h.CreateInterestRateTier(context.Background(), &pb.CreateInterestRateTierRequest{
 		AmountFrom: "0", AmountTo: "100", FixedRate: "-1", VariableBase: "5",
 	})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInvalidRateConfig))
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
@@ -640,12 +656,13 @@ func TestUpdateInterestRateTier_Success(t *testing.T) {
 func TestUpdateInterestRateTier_NotFound(t *testing.T) {
 	h, s := newTestHandlerWithRate()
 	s.rateConfig.updateTierFn = func(_ *model.InterestRateTier) error {
-		return errors.New("interest rate tier 5 not found")
+		return fmt.Errorf("UpdateTier(id=5): %w", service.ErrInterestRateTierNotFound)
 	}
 	_, err := h.UpdateInterestRateTier(context.Background(), &pb.UpdateInterestRateTierRequest{
 		Id: 5, AmountFrom: "0", AmountTo: "1000", FixedRate: "6", VariableBase: "6",
 	})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInterestRateTierNotFound))
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
@@ -665,10 +682,11 @@ func TestDeleteInterestRateTier_Success(t *testing.T) {
 func TestDeleteInterestRateTier_NotFound(t *testing.T) {
 	h, s := newTestHandlerWithRate()
 	s.rateConfig.deleteTierFn = func(_ uint64) error {
-		return errors.New("interest rate tier 17 not found")
+		return fmt.Errorf("DeleteTier(id=17): %w", service.ErrInterestRateTierNotFound)
 	}
 	_, err := h.DeleteInterestRateTier(context.Background(), &pb.DeleteInterestRateTierRequest{Id: 17})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInterestRateTierNotFound))
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
@@ -709,10 +727,11 @@ func TestUpdateBankMargin_Success(t *testing.T) {
 func TestUpdateBankMargin_NegativeRejected(t *testing.T) {
 	h, s := newTestHandlerWithRate()
 	s.rateConfig.updateMargFn = func(_ *model.BankMargin) error {
-		return errors.New("margin must not be negative")
+		return fmt.Errorf("UpdateMargin(id=1): margin must not be negative: %w", service.ErrInvalidRateConfig)
 	}
 	_, err := h.UpdateBankMargin(context.Background(), &pb.UpdateBankMarginRequest{Id: 1, Margin: "-1"})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInvalidRateConfig))
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
@@ -730,10 +749,11 @@ func TestApplyVariableRateUpdate_Success(t *testing.T) {
 func TestApplyVariableRateUpdate_TierNotFound(t *testing.T) {
 	h, s := newTestHandlerWithRate()
 	s.rateConfig.applyVarFn = func(_ uint64) (int, error) {
-		return 0, errors.New("interest rate tier 99 not found")
+		return 0, fmt.Errorf("ApplyVariableRateUpdate(tier_id=99): %w", service.ErrInterestRateTierNotFound)
 	}
 	_, err := h.ApplyVariableRateUpdate(context.Background(), &pb.ApplyVariableRateUpdateRequest{TierId: 99})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInterestRateTierNotFound))
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 

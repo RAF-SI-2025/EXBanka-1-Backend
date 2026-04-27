@@ -81,27 +81,27 @@ func NewVerificationService(
 // CreateChallenge creates a new verification challenge and publishes the appropriate Kafka event.
 func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64, sourceService string, sourceID uint64, method string, deviceID string) (*model.VerificationChallenge, error) {
 	if !validMethods[method] {
-		return nil, fmt.Errorf("invalid verification method: %s; must be one of: code_pull", method)
+		return nil, fmt.Errorf("invalid verification method: %s (must be one of: code_pull): %w", method, ErrInvalidMethod)
 	}
 	if !validSourceServices[sourceService] {
-		return nil, fmt.Errorf("invalid source_service: %s; must be one of: transaction, payment, transfer", sourceService)
+		return nil, fmt.Errorf("invalid source_service: %s (must be one of: transaction, payment, transfer): %w", sourceService, ErrInvalidSourceService)
 	}
 	if sourceID == 0 {
-		return nil, fmt.Errorf("source_id must be greater than 0")
+		return nil, fmt.Errorf("source_id must be greater than 0: %w", ErrInvalidArguments)
 	}
 	if userID == 0 {
-		return nil, fmt.Errorf("user_id must be greater than 0")
+		return nil, fmt.Errorf("user_id must be greater than 0: %w", ErrInvalidArguments)
 	}
 
 	code := generateCode()
 	challengeData, err := buildChallengeData(method)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build challenge data: %w", err)
+		return nil, fmt.Errorf("failed to build challenge data: %v: %w", err, ErrChallengeDataBuild)
 	}
 
 	challengeDataJSON, err := json.Marshal(challengeData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal challenge data: %w", err)
+		return nil, fmt.Errorf("failed to marshal challenge data: %v: %w", err, ErrChallengeDataBuild)
 	}
 
 	vc := &model.VerificationChallenge{
@@ -119,7 +119,7 @@ func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64
 	}
 
 	if err := s.repo.Create(vc); err != nil {
-		return nil, fmt.Errorf("failed to create verification challenge: %w", err)
+		return nil, fmt.Errorf("failed to create verification challenge: %v: %w", err, ErrChallengePersistFailed)
 	}
 	VerificationChallengesCreatedTotal.WithLabelValues(method).Inc()
 
@@ -148,7 +148,7 @@ func (s *VerificationService) CreateChallenge(ctx context.Context, userID uint64
 func (s *VerificationService) GetChallengeStatus(challengeID uint64) (*model.VerificationChallenge, error) {
 	vc, err := s.repo.GetByID(challengeID)
 	if err != nil {
-		return nil, fmt.Errorf("challenge not found: %w", err)
+		return nil, fmt.Errorf("challenge not found: %v: %w", err, ErrChallengeNotFound)
 	}
 	return vc, nil
 }
@@ -168,7 +168,7 @@ func (s *VerificationService) SubmitVerification(ctx context.Context, challengeI
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		vc, err := s.repo.GetByIDForUpdate(tx, challengeID)
 		if err != nil {
-			return fmt.Errorf("challenge not found: %w", err)
+			return fmt.Errorf("challenge not found: %v: %w", err, ErrChallengeNotFound)
 		}
 
 		if err := s.validateChallengeState(vc); err != nil {
@@ -179,7 +179,7 @@ func (s *VerificationService) SubmitVerification(ctx context.Context, challengeI
 		if vc.DeviceID == "" {
 			vc.DeviceID = deviceID
 		} else if vc.DeviceID != deviceID {
-			return fmt.Errorf("challenge already bound to a different device")
+			return fmt.Errorf("challenge already bound to a different device: %w", ErrDeviceMismatch)
 		}
 
 		correct := s.checkResponse(vc, response)
@@ -257,7 +257,7 @@ func (s *VerificationService) SubmitCode(ctx context.Context, challengeID uint64
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		vc, err := s.repo.GetByIDForUpdate(tx, challengeID)
 		if err != nil {
-			return fmt.Errorf("challenge not found: %w", err)
+			return fmt.Errorf("challenge not found: %v: %w", err, ErrChallengeNotFound)
 		}
 
 		if err := s.validateChallengeState(vc); err != nil {
@@ -265,7 +265,7 @@ func (s *VerificationService) SubmitCode(ctx context.Context, challengeID uint64
 		}
 
 		if vc.Method != "code_pull" {
-			return fmt.Errorf("code submission is only allowed for code_pull method; this challenge uses %s", vc.Method)
+			return fmt.Errorf("code submission is only allowed for code_pull method (this challenge uses %s): %w", vc.Method, ErrMethodMismatch)
 		}
 
 		vc.Attempts++
@@ -327,7 +327,7 @@ func (s *VerificationService) VerifyByBiometric(ctx context.Context, challengeID
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		vc, err := s.repo.GetByIDForUpdate(tx, challengeID)
 		if err != nil {
-			return fmt.Errorf("challenge not found: %w", err)
+			return fmt.Errorf("challenge not found: %v: %w", err, ErrChallengeNotFound)
 		}
 
 		// Validate challenge state
@@ -337,7 +337,7 @@ func (s *VerificationService) VerifyByBiometric(ctx context.Context, challengeID
 
 		// Validate ownership
 		if vc.UserID != userID {
-			return fmt.Errorf("challenge does not belong to this user")
+			return fmt.Errorf("challenge does not belong to this user: %w", ErrChallengeOwnership)
 		}
 
 		// Check biometrics enabled via auth-service
@@ -345,10 +345,10 @@ func (s *VerificationService) VerifyByBiometric(ctx context.Context, challengeID
 			DeviceId: deviceID,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to check biometrics status: %w", err)
+			return fmt.Errorf("failed to check biometrics status: %v: %w", err, ErrAuthServiceUnavailable)
 		}
 		if !resp.Enabled {
-			return fmt.Errorf("biometrics not enabled for this device")
+			return fmt.Errorf("biometrics not enabled for this device: %w", ErrBiometricsDisabled)
 		}
 
 		// Mark verified with biometric audit trail
@@ -412,13 +412,13 @@ func (s *VerificationService) ExpireOldChallenges(ctx context.Context) {
 // validateChallengeState checks that the challenge is in a valid state for submission.
 func (s *VerificationService) validateChallengeState(vc *model.VerificationChallenge) error {
 	if vc.Status != "pending" {
-		return fmt.Errorf("challenge is already %s", vc.Status)
+		return fmt.Errorf("challenge is already %s: %w", vc.Status, ErrChallengeNotPending)
 	}
 	if time.Now().After(vc.ExpiresAt) {
-		return fmt.Errorf("challenge has expired")
+		return fmt.Errorf("challenge has expired: %w", ErrChallengeExpired)
 	}
 	if vc.Attempts >= s.maxAttempts {
-		return fmt.Errorf("max attempts exceeded for this challenge")
+		return fmt.Errorf("max attempts exceeded for this challenge: %w", ErrTooManyAttempts)
 	}
 	return nil
 }

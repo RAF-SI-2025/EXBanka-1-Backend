@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -37,46 +38,37 @@ func TestToExerciseResultPB(t *testing.T) {
 	}
 }
 
-func TestMapPortfolioError_NotFound(t *testing.T) {
-	for _, msg := range []string{
-		"holding not found", "option not found",
-		"stock listing not found for option's underlying",
-		"option holding not found",
-	} {
-		err := mapPortfolioError(errors.New(msg))
-		if status.Code(err) != codes.NotFound {
-			t.Errorf("%q: expected NotFound, got %v", msg, status.Code(err))
-		}
+// mapPortfolioError is now a passthrough; the wire status is determined by
+// the sentinel embedded in the wrapped error.
+func TestMapPortfolioError_SentinelPassthrough(t *testing.T) {
+	cases := []struct {
+		name     string
+		sentinel error
+		want     codes.Code
+	}{
+		{"HoldingNotFound", service.ErrHoldingNotFound, codes.NotFound},
+		{"OptionNotFound", service.ErrOptionNotFound, codes.NotFound},
+		{"ListingNotFound", service.ErrListingNotFound, codes.NotFound},
+		{"OptionHoldingNotFound", service.ErrOptionHoldingNotFound, codes.NotFound},
+		{"HoldingOwnership", service.ErrHoldingOwnership, codes.PermissionDenied},
+		{"PublicOnlyStocks", service.ErrPublicOnlyStocks, codes.FailedPrecondition},
+		{"InvalidPublicQuantity", service.ErrInvalidPublicQuantity, codes.FailedPrecondition},
+		{"HoldingNotOption", service.ErrHoldingNotOption, codes.FailedPrecondition},
+		{"OptionExpired", service.ErrOptionExpired, codes.FailedPrecondition},
+		{"CallNotInTheMoney", service.ErrCallNotInTheMoney, codes.FailedPrecondition},
+		{"PutNotInTheMoney", service.ErrPutNotInTheMoney, codes.FailedPrecondition},
+		{"InsufficientStockForPut", service.ErrInsufficientStockForPut, codes.FailedPrecondition},
 	}
-}
-
-func TestMapPortfolioError_PermissionDenied(t *testing.T) {
-	err := mapPortfolioError(errors.New("holding does not belong to user"))
-	if status.Code(err) != codes.PermissionDenied {
-		t.Errorf("expected PermissionDenied, got %v", status.Code(err))
-	}
-}
-
-func TestMapPortfolioError_FailedPrecondition(t *testing.T) {
-	for _, msg := range []string{
-		"only stocks can be made public for OTC trading",
-		"invalid public quantity",
-		"holding is not an option",
-		"option has expired (settlement date passed)",
-		"call option is not in the money",
-		"put option is not in the money",
-		"insufficient stock holdings to exercise put option",
-	} {
-		err := mapPortfolioError(errors.New(msg))
-		if status.Code(err) != codes.FailedPrecondition {
-			t.Errorf("%q: expected FailedPrecondition, got %v", msg, status.Code(err))
-		}
-	}
-}
-
-func TestMapPortfolioError_DefaultInternal(t *testing.T) {
-	err := mapPortfolioError(errors.New("unexpected database failure"))
-	if status.Code(err) != codes.Internal {
-		t.Errorf("expected Internal, got %v", status.Code(err))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wrapped := fmt.Errorf("Op: %w", tc.sentinel)
+			err := mapPortfolioError(wrapped)
+			if !errors.Is(err, tc.sentinel) {
+				t.Fatalf("errors.Is should match")
+			}
+			if got := status.Code(err); got != tc.want {
+				t.Errorf("want %v, got %v", tc.want, got)
+			}
+		})
 	}
 }

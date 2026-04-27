@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,35 +18,6 @@ import (
 	clientpb "github.com/exbanka/contract/clientpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 )
-
-// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
-func mapServiceError(err error) codes.Code {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "not found"):
-		return codes.NotFound
-	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"),
-		strings.Contains(msg, "must have"):
-		return codes.InvalidArgument
-	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
-		return codes.AlreadyExists
-	case strings.Contains(msg, "already blocked"), strings.Contains(msg, "already deactivated"),
-		strings.Contains(msg, "is not blocked"), strings.Contains(msg, "cannot be blocked"),
-		strings.Contains(msg, "no remaining uses"),
-		strings.Contains(msg, "insufficient funds"), strings.Contains(msg, "limit exceeded"),
-		strings.Contains(msg, "spending limit"), strings.Contains(msg, "at most"),
-		strings.Contains(msg, "already has a card"),
-		strings.Contains(msg, "already approved"), strings.Contains(msg, "already rejected"):
-		return codes.FailedPrecondition
-	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
-		strings.Contains(msg, "failed attempts"), strings.Contains(msg, "too many failed"):
-		return codes.ResourceExhausted
-	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
-		return codes.PermissionDenied
-	default:
-		return codes.Internal
-	}
-}
 
 type CardGRPCHandler struct {
 	pb.UnimplementedCardServiceServer
@@ -67,7 +37,7 @@ func NewCardGRPCHandler(cardService *service.CardService, producer *kafkaprod.Pr
 func (h *CardGRPCHandler) CreateCard(ctx context.Context, req *pb.CreateCardRequest) (*pb.CardResponse, error) {
 	card, cvv, err := h.cardService.CreateCard(ctx, req.AccountNumber, req.OwnerId, req.OwnerType, req.CardBrand)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create card: %v", err)
+		return nil, err
 	}
 
 	_ = h.producer.PublishCardCreated(ctx, kafkamsg.CardCreatedMessage{
@@ -96,7 +66,7 @@ func (h *CardGRPCHandler) GetCard(ctx context.Context, req *pb.GetCardRequest) (
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get card: %v", err)
+		return nil, err
 	}
 	return toCardResponse(card), nil
 }
@@ -104,7 +74,7 @@ func (h *CardGRPCHandler) GetCard(ctx context.Context, req *pb.GetCardRequest) (
 func (h *CardGRPCHandler) ListCardsByAccount(ctx context.Context, req *pb.ListCardsByAccountRequest) (*pb.ListCardsResponse, error) {
 	cards, err := h.cardService.ListCardsByAccount(req.AccountNumber)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list cards: %v", err)
+		return nil, err
 	}
 	resp := &pb.ListCardsResponse{Cards: make([]*pb.CardResponse, 0, len(cards))}
 	for _, c := range cards {
@@ -117,7 +87,7 @@ func (h *CardGRPCHandler) ListCardsByAccount(ctx context.Context, req *pb.ListCa
 func (h *CardGRPCHandler) ListCardsByClient(ctx context.Context, req *pb.ListCardsByClientRequest) (*pb.ListCardsResponse, error) {
 	cards, err := h.cardService.ListCardsByClient(req.ClientId)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list cards: %v", err)
+		return nil, err
 	}
 	resp := &pb.ListCardsResponse{Cards: make([]*pb.CardResponse, 0, len(cards))}
 	for _, c := range cards {
@@ -134,7 +104,7 @@ func (h *CardGRPCHandler) BlockCard(ctx context.Context, req *pb.BlockCardReques
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to block card: %v", err)
+		return nil, err
 	}
 
 	_ = h.producer.PublishCardStatusChanged(ctx, kafkamsg.CardStatusChangedMessage{
@@ -183,7 +153,7 @@ func (h *CardGRPCHandler) UnblockCard(ctx context.Context, req *pb.UnblockCardRe
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to unblock card: %v", err)
+		return nil, err
 	}
 
 	_ = h.producer.PublishCardStatusChanged(ctx, kafkamsg.CardStatusChangedMessage{
@@ -223,7 +193,7 @@ func (h *CardGRPCHandler) DeactivateCard(ctx context.Context, req *pb.Deactivate
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to deactivate card: %v", err)
+		return nil, err
 	}
 
 	_ = h.producer.PublishCardStatusChanged(ctx, kafkamsg.CardStatusChangedMessage{
@@ -268,7 +238,7 @@ func (h *CardGRPCHandler) CreateAuthorizedPerson(ctx context.Context, req *pb.Cr
 		AccountID:   req.AccountId,
 	}
 	if err := h.cardService.CreateAuthorizedPerson(ctx, ap); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create authorized person: %v", err)
+		return nil, err
 	}
 	return toAuthorizedPersonResponse(ap), nil
 }
@@ -279,7 +249,7 @@ func (h *CardGRPCHandler) GetAuthorizedPerson(ctx context.Context, req *pb.GetAu
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "authorized person not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get authorized person: %v", err)
+		return nil, err
 	}
 	return toAuthorizedPersonResponse(ap), nil
 }

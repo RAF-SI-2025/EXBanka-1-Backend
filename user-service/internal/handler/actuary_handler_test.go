@@ -7,6 +7,7 @@ import (
 
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/model"
+	"github.com/exbanka/user-service/internal/service"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 )
@@ -112,8 +113,8 @@ func TestListActuaries_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -181,7 +182,7 @@ func TestGetActuaryInfo_SupervisorRole(t *testing.T) {
 func TestGetActuaryInfo_ServiceError(t *testing.T) {
 	h := newActuaryHandlerForTest(&mockActuarySvc{
 		getActuaryInfoFn: func(employeeID int64) (*model.ActuaryLimit, *model.Employee, error) {
-			return nil, nil, errors.New("employee not found")
+			return nil, nil, service.ErrEmployeeNotFound
 		},
 	})
 
@@ -246,8 +247,8 @@ func TestSetActuaryLimit_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -285,8 +286,8 @@ func TestResetActuaryUsedLimit_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -316,7 +317,7 @@ func TestSetNeedApproval_Success(t *testing.T) {
 func TestSetNeedApproval_ServiceError(t *testing.T) {
 	h := newActuaryHandlerForTest(&mockActuarySvc{
 		setNeedApprovalFn: func(ctx context.Context, employeeID int64, needApproval bool, changedBy int64) (*model.ActuaryLimit, error) {
-			return nil, errors.New("permission denied for action")
+			return nil, service.ErrHierarchyDenied
 		},
 	})
 
@@ -367,7 +368,7 @@ func TestUpdateUsedLimit_InvalidDecimal(t *testing.T) {
 func TestUpdateUsedLimit_ServiceError(t *testing.T) {
 	h := newActuaryHandlerForTest(&mockActuarySvc{
 		updateUsedLimitFn: func(ctx context.Context, id int64, amount decimal.Decimal) (*model.ActuaryLimit, error) {
-			return nil, errors.New("not found")
+			return nil, service.ErrActuaryNotFound
 		},
 	})
 

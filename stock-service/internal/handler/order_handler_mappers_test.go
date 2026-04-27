@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/service"
 )
 
 func TestComputeOrderState_PendingDeclinedCancelled(t *testing.T) {
@@ -178,27 +180,36 @@ func TestToOrderListResponse(t *testing.T) {
 	}
 }
 
-func TestMapOrderError_AllArms(t *testing.T) {
+// Sentinel-based replacement for the legacy TestMapOrderError_AllArms.
+// mapOrderError is now a passthrough; the wire status is determined by the
+// sentinel embedded in the wrapped error.
+func TestMapOrderError_SentinelPassthrough(t *testing.T) {
 	cases := []struct {
-		msg      string
-		wantCode codes.Code
+		name     string
+		sentinel error
+		want     codes.Code
 	}{
-		{"order not found", codes.NotFound},
-		{"listing not found", codes.NotFound},
-		{"order does not belong to user", codes.PermissionDenied},
-		{"order is not pending", codes.FailedPrecondition},
-		{"order is already completed", codes.FailedPrecondition},
-		{"order is already declined/cancelled", codes.FailedPrecondition},
-		{"cannot approve: settlement date has passed", codes.FailedPrecondition},
-		{"limit_value required for limit/stop_limit orders", codes.InvalidArgument},
-		{"stop_value required for stop/stop_limit orders", codes.InvalidArgument},
-		{"some unexpected db failure", codes.Internal},
+		{"OrderNotFound", service.ErrOrderNotFound, codes.NotFound},
+		{"ListingNotFound", service.ErrListingNotFound, codes.NotFound},
+		{"OrderOwnership", service.ErrOrderOwnership, codes.PermissionDenied},
+		{"OrderNotPending", service.ErrOrderNotPending, codes.FailedPrecondition},
+		{"OrderAlreadyCompleted", service.ErrOrderAlreadyCompleted, codes.FailedPrecondition},
+		{"OrderAlreadyClosed", service.ErrOrderAlreadyClosed, codes.FailedPrecondition},
+		{"OrderSettlementPassed", service.ErrOrderSettlementPassed, codes.FailedPrecondition},
+		{"OrderRequiresLimit", service.ErrOrderRequiresLimit, codes.InvalidArgument},
+		{"OrderRequiresStop", service.ErrOrderRequiresStop, codes.InvalidArgument},
 	}
 	for _, tc := range cases {
-		err := mapOrderError(errors.New(tc.msg))
-		if status.Code(err) != tc.wantCode {
-			t.Errorf("msg=%q: want %v, got %v", tc.msg, tc.wantCode, status.Code(err))
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			wrapped := fmt.Errorf("Op: %w", tc.sentinel)
+			err := mapOrderError(wrapped)
+			if !errors.Is(err, tc.sentinel) {
+				t.Fatalf("errors.Is should match")
+			}
+			if got := status.Code(err); got != tc.want {
+				t.Errorf("want %v, got %v", tc.want, got)
+			}
+		})
 	}
 }
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -76,7 +77,10 @@ func (s *ExchangeService) getCachedRate(from, to string) (*model.ExchangeRate, e
 
 	rate, err := s.repo.GetByPair(from, to)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("getCachedRate(%s/%s): %w", from, to, ErrRateNotFound)
+		}
+		return nil, fmt.Errorf("getCachedRate(%s/%s): %v: %w", from, to, err, ErrRateLookupFailed)
 	}
 
 	if s.cache != nil {
@@ -208,7 +212,11 @@ func (s *ExchangeService) Calculate(ctx context.Context, from, to string, amount
 
 // ListRates returns all stored rates.
 func (s *ExchangeService) ListRates() ([]model.ExchangeRate, error) {
-	return s.repo.List()
+	rates, err := s.repo.List()
+	if err != nil {
+		return nil, fmt.Errorf("ListRates: %v: %w", err, ErrRateLookupFailed)
+	}
+	return rates, nil
 }
 
 // GetRate returns a single rate pair.

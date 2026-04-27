@@ -84,7 +84,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 
 	// 2. Validate amount is positive
 	if payment.InitialAmount.IsNegative() || payment.InitialAmount.IsZero() {
-		return fmt.Errorf("payment amount must be positive, got %s", payment.InitialAmount.StringFixed(4))
+		return fmt.Errorf("CreatePayment: amount must be positive, got %s: %w", payment.InitialAmount.StringFixed(4), ErrInvalidPayment)
 	}
 
 	currency := payment.CurrencyCode
@@ -93,8 +93,9 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 	}
 	commission, err := s.feeSvc.CalculateFee(payment.InitialAmount, "payment", currency)
 	if err != nil {
-		return fmt.Errorf("fee calculation failed for payment of %s %s from account %s: %w",
+		log.Printf("CreatePayment fee lookup failed: amount=%s currency=%s from=%s err=%v",
 			payment.InitialAmount.StringFixed(4), currency, payment.FromAccountNumber, err)
+		return fmt.Errorf("CreatePayment: %w", ErrFeeLookupFailed)
 	}
 	payment.Commission = commission
 	payment.FinalAmount = payment.InitialAmount.Add(payment.Commission)

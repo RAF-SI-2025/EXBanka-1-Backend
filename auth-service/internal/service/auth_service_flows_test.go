@@ -261,14 +261,16 @@ func TestAuthLogin_WrongPassword(t *testing.T) {
 
 	_, _, err := f.svc.Login(context.Background(), "emp@test.com", "WrongPass99", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "incorrect password")
+	// Wrong-password collapses to ErrInvalidCredentials (codes.Unauthenticated).
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
 }
 
 func TestAuthLogin_UnknownEmail(t *testing.T) {
 	f := newAuthFlowFixture(t)
 	_, _, err := f.svc.Login(context.Background(), "ghost@test.com", "Abcdef12", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no account found")
+	// Email-not-found collapses to ErrInvalidCredentials to prevent enumeration.
+	assert.ErrorIs(t, err, ErrInvalidCredentials)
 }
 
 func TestAuthLogin_PendingAccount(t *testing.T) {
@@ -284,7 +286,7 @@ func TestAuthLogin_PendingAccount(t *testing.T) {
 
 	_, _, err := f.svc.Login(context.Background(), "pending@test.com", "Abcdef12", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not yet activated")
+	assert.ErrorIs(t, err, ErrAccountPending)
 }
 
 func TestAuthLogin_DisabledAccount(t *testing.T) {
@@ -300,7 +302,7 @@ func TestAuthLogin_DisabledAccount(t *testing.T) {
 
 	_, _, err := f.svc.Login(context.Background(), "disabled@test.com", "Abcdef12", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "disabled")
+	assert.ErrorIs(t, err, ErrAccountDisabled)
 }
 
 func TestAuthLogin_AccountLocked(t *testing.T) {
@@ -317,7 +319,7 @@ func TestAuthLogin_AccountLocked(t *testing.T) {
 
 	_, _, err := f.svc.Login(context.Background(), "emp@test.com", "Abcdef12", "1.2.3.4", "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "account locked")
+	assert.ErrorIs(t, err, ErrAccountLocked)
 }
 
 // ----------------------------------------------------------------------------
@@ -706,7 +708,7 @@ func TestResetPassword_InvalidToken(t *testing.T) {
 	f := newAuthFlowFixture(t)
 	err := f.svc.ResetPassword(context.Background(), "missing-tok", "Abcdef12", "Abcdef12")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid or expired")
+	assert.ErrorIs(t, err, ErrInvalidToken)
 }
 
 func TestResetPassword_ExpiredToken(t *testing.T) {
@@ -772,7 +774,7 @@ func TestActivateAccount_InvalidToken(t *testing.T) {
 	f := newAuthFlowFixture(t)
 	err := f.svc.ActivateAccount(context.Background(), "missing-tok", "Abcdef12", "Abcdef12")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid or expired")
+	assert.ErrorIs(t, err, ErrInvalidToken)
 }
 
 func TestActivateAccount_ExpiredToken(t *testing.T) {
@@ -889,7 +891,7 @@ func TestRevokeSession_WrongOwner(t *testing.T) {
 
 	err := f.svc.RevokeSession(context.Background(), s.ID, 999)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "permission denied")
+	assert.ErrorIs(t, err, ErrSessionForbidden)
 }
 
 func TestRevokeSession_NotFound(t *testing.T) {
@@ -960,7 +962,7 @@ func TestRevokeAllSessionsExceptCurrent_TokenNotFound(t *testing.T) {
 	f := newAuthFlowFixture(t)
 	err := f.svc.RevokeAllSessionsExceptCurrent(context.Background(), 1, "missing-token")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "current token not found")
+	assert.ErrorIs(t, err, ErrSessionNotFound)
 }
 
 // ----------------------------------------------------------------------------
@@ -1059,7 +1061,7 @@ func TestRefreshTokenForMobile_DeviceMismatch(t *testing.T) {
 
 	_, _, err := f.svc.RefreshTokenForMobile(context.Background(), "mob-rt-2", "wrong-device", mobSvc)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "device ID mismatch")
+	assert.ErrorIs(t, err, ErrDeviceMismatch)
 }
 
 func TestRefreshTokenForMobile_NoDevice(t *testing.T) {
@@ -1072,7 +1074,7 @@ func TestRefreshTokenForMobile_NoDevice(t *testing.T) {
 	mobSvc, _ := newMobileSvcWithStubs(t, f.db)
 	_, _, err := f.svc.RefreshTokenForMobile(context.Background(), "no-device-rt", "any", mobSvc)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "device not found or deactivated")
+	assert.ErrorIs(t, err, ErrDeviceNotFound)
 }
 
 func TestRefreshTokenForMobile_TokenNotFound(t *testing.T) {
@@ -1080,7 +1082,7 @@ func TestRefreshTokenForMobile_TokenNotFound(t *testing.T) {
 	mobSvc, _ := newMobileSvcWithStubs(t, f.db)
 	_, _, err := f.svc.RefreshTokenForMobile(context.Background(), "missing-rt", "any-dev", mobSvc)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid refresh token")
+	assert.ErrorIs(t, err, ErrInvalidToken)
 }
 
 func TestRefreshTokenForMobile_Expired(t *testing.T) {

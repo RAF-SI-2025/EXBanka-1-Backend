@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -1174,7 +1175,7 @@ func TestApproveOrder_NotPending(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when approving non-pending order")
 	}
-	if err.Error() != "order is not pending" {
+	if !strings.Contains(err.Error(), "order is not pending") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1186,7 +1187,7 @@ func TestApproveOrder_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-existent order")
 	}
-	if err.Error() != "order not found" {
+	if !strings.Contains(err.Error(), "order not found") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1221,7 +1222,7 @@ func TestApproveOrder_SettlementExpired(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for expired settlement date")
 	}
-	if err.Error() != "cannot approve: settlement date has passed" {
+	if !strings.Contains(err.Error(), "cannot approve: settlement date has passed") {
 		t.Errorf("unexpected error: %v", err)
 	}
 
@@ -1298,7 +1299,7 @@ func TestCancelOrder_WrongUser(t *testing.T) {
 	// With (user_id, system_type) ownership enforced at the repo layer,
 	// cross-owner access returns "order not found" rather than leaking
 	// existence to a different owner.
-	if err.Error() != "order not found" {
+	if !strings.Contains(err.Error(), "order not found") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

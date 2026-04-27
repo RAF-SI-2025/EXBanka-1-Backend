@@ -51,10 +51,10 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 	}
 	fund, err := s.repo.GetByID(in.FundID)
 	if err != nil {
-		return nil, fmt.Errorf("fund not found: %w", err)
+		return nil, fmt.Errorf("fund not found: %v: %w", err, ErrFundNotFound)
 	}
 	if !fund.Active {
-		return nil, errors.New("fund is inactive")
+		return nil, fmt.Errorf("fund is inactive: %w", ErrFundInactive)
 	}
 
 	posUserID, posSystemType := in.ActorUserID, in.ActorSystemType
@@ -82,7 +82,7 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 	}
 
 	if amountRSD.LessThan(fund.MinimumContributionRSD) {
-		return nil, fmt.Errorf("minimum_contribution_not_met: required %s RSD got %s", fund.MinimumContributionRSD, amountRSD)
+		return nil, fmt.Errorf("minimum_contribution_not_met: required %s RSD got %s: %w", fund.MinimumContributionRSD, amountRSD, ErrFundContributionBelowMin)
 	}
 
 	srcAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.SourceAccountID})

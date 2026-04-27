@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -221,7 +222,7 @@ func TestSecurityHandler_GetStock_Success(t *testing.T) {
 func TestSecurityHandler_GetStock_NotFound(t *testing.T) {
 	sec := &mockSecuritySvc{
 		getStockFn: func(_ uint64) (*model.Stock, []model.Option, error) {
-			return nil, nil, errors.New("stock not found")
+			return nil, nil, fmt.Errorf("stock not found: %w", service.ErrStockNotFound)
 		},
 	}
 	h := newSecurityHandlerForTest(sec, &mockListingSvc{}, &mockCandleSvc{}, &mockListingRepo{})
@@ -257,7 +258,7 @@ func TestSecurityHandler_GetStockHistory_Success(t *testing.T) {
 func TestSecurityHandler_GetStockHistory_Error(t *testing.T) {
 	listingSvc := &mockListingSvc{
 		histFn: func(_ uint64, _, _ string, _, _ int) ([]model.ListingDailyPriceInfo, int64, error) {
-			return nil, 0, errors.New("listing not found")
+			return nil, 0, fmt.Errorf("listing not found: %w", service.ErrListingNotFound)
 		},
 	}
 	h := newSecurityHandlerForTest(&mockSecuritySvc{}, listingSvc, &mockCandleSvc{}, &mockListingRepo{})
@@ -342,7 +343,7 @@ func TestSecurityHandler_GetFutures_Success(t *testing.T) {
 func TestSecurityHandler_GetFutures_NotFound(t *testing.T) {
 	sec := &mockSecuritySvc{
 		getFuturesFn: func(_ uint64) (*model.FuturesContract, error) {
-			return nil, errors.New("futures not found")
+			return nil, fmt.Errorf("futures not found: %w", service.ErrFuturesNotFound)
 		},
 	}
 	h := newSecurityHandlerForTest(sec, &mockListingSvc{}, &mockCandleSvc{}, &mockListingRepo{})
@@ -420,7 +421,7 @@ func TestSecurityHandler_GetForexPair_Success(t *testing.T) {
 func TestSecurityHandler_GetForexPair_NotFound(t *testing.T) {
 	sec := &mockSecuritySvc{
 		getForexFn: func(_ uint64) (*model.ForexPair, error) {
-			return nil, errors.New("forex pair not found")
+			return nil, fmt.Errorf("forex pair not found: %w", service.ErrForexPairNotFound)
 		},
 	}
 	h := newSecurityHandlerForTest(sec, &mockListingSvc{}, &mockCandleSvc{}, &mockListingRepo{})
@@ -527,7 +528,7 @@ func TestSecurityHandler_GetOption_Success(t *testing.T) {
 func TestSecurityHandler_GetOption_NotFound(t *testing.T) {
 	sec := &mockSecuritySvc{
 		getOptionFn: func(_ uint64) (*model.Option, error) {
-			return nil, errors.New("option not found")
+			return nil, fmt.Errorf("option not found: %w", service.ErrOptionNotFound)
 		},
 	}
 	h := newSecurityHandlerForTest(sec, &mockListingSvc{}, &mockCandleSvc{}, &mockListingRepo{})

@@ -2,14 +2,10 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/exchange-service/internal/model"
@@ -43,7 +39,7 @@ func newExchangeGRPCHandlerForTest(svc exchangeFacade) *ExchangeGRPCHandler {
 func (h *ExchangeGRPCHandler) ListRates(ctx context.Context, _ *pb.ListRatesRequest) (*pb.ListRatesResponse, error) {
 	rates, err := h.svc.ListRates()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list rates: %v", err)
+		return nil, err
 	}
 	pbRates := make([]*pb.RateResponse, 0, len(rates))
 	for i := range rates {
@@ -55,10 +51,7 @@ func (h *ExchangeGRPCHandler) ListRates(ctx context.Context, _ *pb.ListRatesRequ
 func (h *ExchangeGRPCHandler) GetRate(ctx context.Context, req *pb.GetRateRequest) (*pb.RateResponse, error) {
 	rate, err := h.svc.GetRate(req.GetFromCurrency(), req.GetToCurrency())
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "rate not found for %s/%s", req.GetFromCurrency(), req.GetToCurrency())
-		}
-		return nil, status.Errorf(codes.Internal, "rate lookup failed: %v", err)
+		return nil, err
 	}
 	return rateToProto(rate), nil
 }
@@ -66,21 +59,18 @@ func (h *ExchangeGRPCHandler) GetRate(ctx context.Context, req *pb.GetRateReques
 func (h *ExchangeGRPCHandler) Calculate(ctx context.Context, req *pb.CalculateRequest) (*pb.CalculateResponse, error) {
 	amount, err := decimal.NewFromString(req.GetAmount())
 	if err != nil || amount.IsNegative() || amount.IsZero() {
-		return nil, status.Errorf(codes.InvalidArgument, "amount must be a positive number, got %q", req.GetAmount())
+		return nil, fmt.Errorf("Calculate(amount=%q): %w", req.GetAmount(), service.ErrInvalidAmount)
 	}
 	if err := validateCurrency(req.GetFromCurrency()); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "from_currency: %v", err)
+		return nil, fmt.Errorf("Calculate(from=%s): %v: %w", req.GetFromCurrency(), err, service.ErrUnsupportedCurrency)
 	}
 	if err := validateCurrency(req.GetToCurrency()); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "to_currency: %v", err)
+		return nil, fmt.Errorf("Calculate(to=%s): %v: %w", req.GetToCurrency(), err, service.ErrUnsupportedCurrency)
 	}
 
 	net, commRate, effRate, err := h.svc.Calculate(ctx, req.GetFromCurrency(), req.GetToCurrency(), amount)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "calculate: exchange rate not found: %v", err)
-		}
-		return nil, status.Errorf(codes.Internal, "calculate: %v", err)
+		return nil, err
 	}
 	return &pb.CalculateResponse{
 		FromCurrency:    req.GetFromCurrency(),
@@ -95,20 +85,17 @@ func (h *ExchangeGRPCHandler) Calculate(ctx context.Context, req *pb.CalculateRe
 func (h *ExchangeGRPCHandler) Convert(ctx context.Context, req *pb.ConvertRequest) (*pb.ConvertResponse, error) {
 	amount, err := decimal.NewFromString(req.GetAmount())
 	if err != nil || amount.IsNegative() || amount.IsZero() {
-		return nil, status.Errorf(codes.InvalidArgument, "amount must be a positive number, got %q", req.GetAmount())
+		return nil, fmt.Errorf("Convert(amount=%q): %w", req.GetAmount(), service.ErrInvalidAmount)
 	}
 	if err := validateCurrency(req.GetFromCurrency()); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "from_currency: %v", err)
+		return nil, fmt.Errorf("Convert(from=%s): %v: %w", req.GetFromCurrency(), err, service.ErrUnsupportedCurrency)
 	}
 	if err := validateCurrency(req.GetToCurrency()); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "to_currency: %v", err)
+		return nil, fmt.Errorf("Convert(to=%s): %v: %w", req.GetToCurrency(), err, service.ErrUnsupportedCurrency)
 	}
 	converted, effRate, err := h.svc.Convert(ctx, req.GetFromCurrency(), req.GetToCurrency(), amount)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "convert: exchange rate not found: %v", err)
-		}
-		return nil, status.Errorf(codes.Internal, "convert: %v", err)
+		return nil, err
 	}
 	return &pb.ConvertResponse{
 		ConvertedAmount: converted.StringFixed(4),

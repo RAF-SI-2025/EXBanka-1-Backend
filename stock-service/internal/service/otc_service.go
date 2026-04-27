@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -55,21 +56,21 @@ func (s *OTCService) BuyOffer(
 	sellerHolding, err := s.holdingRepo.GetByID(offerID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("OTC offer not found")
+			return nil, fmt.Errorf("OTC offer not found: %w", ErrOTCOfferNotFound)
 		}
 		return nil, err
 	}
 	if sellerHolding.PublicQuantity < quantity {
-		return nil, errors.New("insufficient public quantity for OTC purchase")
+		return nil, fmt.Errorf("insufficient public quantity for OTC purchase: %w", ErrOTCInsufficientPublicQuantity)
 	}
 	if sellerHolding.UserID == buyerID {
-		return nil, errors.New("cannot buy your own OTC offer")
+		return nil, fmt.Errorf("cannot buy your own OTC offer: %w", ErrOTCBuyOwnOffer)
 	}
 
 	// Get current market price from listing
 	listing, err := s.listingRepo.GetByID(sellerHolding.ListingID)
 	if err != nil {
-		return nil, errors.New("listing not found for OTC offer")
+		return nil, fmt.Errorf("listing not found for OTC offer: %w", ErrListingNotFound)
 	}
 
 	pricePerUnit := listing.Price
@@ -86,7 +87,7 @@ func (s *OTCService) BuyOffer(
 	// Debit buyer's account: total + commission
 	buyerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: buyerAccountID})
 	if err != nil {
-		return nil, errors.New("buyer account not found")
+		return nil, fmt.Errorf("buyer account not found: %w", ErrOTCBuyerAccountNotFound)
 	}
 	_, err = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 		AccountNumber:   buyerAcct.AccountNumber,
@@ -102,7 +103,7 @@ func (s *OTCService) BuyOffer(
 	// destination. A seller whose holding has no recorded account cannot
 	// participate in OTC; surface that explicitly.
 	if sellerHolding.AccountID == 0 {
-		return nil, errors.New("seller holding has no recorded account for OTC")
+		return nil, fmt.Errorf("seller holding has no recorded account for OTC: %w", ErrOTCSellerNoAccount)
 	}
 	sellerAccountID := sellerHolding.AccountID
 	sellerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: sellerAccountID})
@@ -113,7 +114,7 @@ func (s *OTCService) BuyOffer(
 			Amount:          totalPrice.Add(commission).StringFixed(4),
 			UpdateAvailable: true,
 		})
-		return nil, errors.New("seller account not found")
+		return nil, fmt.Errorf("seller account not found: %w", ErrOTCSellerAccountNotFound)
 	}
 	_, err = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 		AccountNumber:   sellerAcct.AccountNumber,

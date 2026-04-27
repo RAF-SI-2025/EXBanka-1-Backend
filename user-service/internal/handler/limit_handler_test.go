@@ -7,6 +7,7 @@ import (
 
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/model"
+	"github.com/exbanka/user-service/internal/service"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 )
@@ -95,7 +96,7 @@ func TestGetEmployeeLimits_Success(t *testing.T) {
 func TestGetEmployeeLimits_ServiceError(t *testing.T) {
 	h := newLimitHandlerForTest(&mockLimitSvc{
 		getEmployeeLimitsFn: func(employeeID int64) (*model.EmployeeLimit, error) {
-			return nil, errors.New("not found")
+			return nil, service.ErrEmployeeNotFound
 		},
 	})
 
@@ -176,8 +177,8 @@ func TestSetEmployeeLimits_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -207,7 +208,7 @@ func TestApplyLimitTemplate_Success(t *testing.T) {
 func TestApplyLimitTemplate_ServiceError(t *testing.T) {
 	h := newLimitHandlerForTest(&mockLimitSvc{
 		applyTemplateFn: func(ctx context.Context, employeeID int64, templateName string, changedBy int64) (*model.EmployeeLimit, error) {
-			return nil, errors.New("template not found: NonExistent")
+			return nil, service.ErrTemplateNotFound
 		},
 	})
 
@@ -260,8 +261,8 @@ func TestListLimitTemplates_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -319,7 +320,7 @@ func TestCreateLimitTemplate_InvalidDecimal(t *testing.T) {
 func TestCreateLimitTemplate_ServiceError(t *testing.T) {
 	h := newLimitHandlerForTest(&mockLimitSvc{
 		createTemplateFn: func(ctx context.Context, t model.LimitTemplate) (*model.LimitTemplate, error) {
-			return nil, errors.New("already exists duplicate")
+			return nil, service.ErrEmployeeAlreadyExists
 		},
 	})
 

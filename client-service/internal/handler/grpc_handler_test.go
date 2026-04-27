@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,8 +13,9 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	pb "github.com/exbanka/contract/clientpb"
 	"github.com/exbanka/client-service/internal/model"
+	"github.com/exbanka/client-service/internal/service"
+	pb "github.com/exbanka/contract/clientpb"
 )
 
 // ---------------------------------------------------------------------------
@@ -93,33 +95,32 @@ func sampleClient(id uint64) *model.Client {
 }
 
 // ---------------------------------------------------------------------------
-// mapServiceError
+// Sentinel passthrough — typed sentinels reach the wire intact
 // ---------------------------------------------------------------------------
 
-func TestMapServiceError_ClientHandler(t *testing.T) {
+func TestSentinel_Passthrough_ClientHandler(t *testing.T) {
 	cases := []struct {
-		msg  string
-		code codes.Code
+		name     string
+		sentinel error
+		code     codes.Code
 	}{
-		{"client not found", codes.NotFound},
-		{"email must not be empty", codes.InvalidArgument},
-		{"jmbg must be exactly 13 digits", codes.InvalidArgument},
-		{"email must have a domain", codes.InvalidArgument},
-		{"email must contain @", codes.InvalidArgument},
-		{"value must have content", codes.InvalidArgument},
-		{"email already exists", codes.AlreadyExists},
-		{"duplicate key constraint", codes.AlreadyExists},
-		{"daily limit exceeds employee authorization", codes.FailedPrecondition},
-		{"insufficient funds for transfer", codes.FailedPrecondition},
-		{"account locked after failed attempts", codes.ResourceExhausted},
-		{"max attempts reached", codes.ResourceExhausted},
-		{"permission denied for operation", codes.PermissionDenied},
-		{"forbidden access to resource", codes.PermissionDenied},
-		{"unexpected db error", codes.Internal},
+		{"ErrClientNotFound", service.ErrClientNotFound, codes.NotFound},
+		{"ErrClientAlreadyExists", service.ErrClientAlreadyExists, codes.AlreadyExists},
+		{"ErrInvalidJMBG", service.ErrInvalidJMBG, codes.InvalidArgument},
+		{"ErrInvalidEmail", service.ErrInvalidEmail, codes.InvalidArgument},
+		{"ErrInvalidCredentials", service.ErrInvalidCredentials, codes.Unauthenticated},
+		{"ErrAccountNotActivated", service.ErrAccountNotActivated, codes.FailedPrecondition},
+		{"ErrLimitsExceedEmployee", service.ErrLimitsExceedEmployee, codes.FailedPrecondition},
+		{"ErrEmployeeLookupFailed", service.ErrEmployeeLookupFailed, codes.Unavailable},
 	}
 	for _, tc := range cases {
-		got := mapServiceError(errors.New(tc.msg))
-		assert.Equal(t, tc.code, got, "for error %q", tc.msg)
+		t.Run(tc.name, func(t *testing.T) {
+			s, ok := status.FromError(tc.sentinel)
+			require.True(t, ok, "sentinel %s lacks GRPCStatus", tc.name)
+			assert.Equal(t, tc.code, s.Code())
+			wrapped := fmt.Errorf("op: %w", tc.sentinel)
+			assert.True(t, errors.Is(wrapped, tc.sentinel))
+		})
 	}
 }
 
@@ -155,7 +156,7 @@ func TestCreateClient_Success(t *testing.T) {
 func TestCreateClient_ValidationError(t *testing.T) {
 	h, stub := newTestClientHandler()
 	stub.createFn = func(_ context.Context, _ *model.Client) error {
-		return errors.New("JMBG must be exactly 13 digits")
+		return service.ErrInvalidJMBG
 	}
 
 	_, err := h.CreateClient(context.Background(), &pb.CreateClientRequest{
@@ -170,7 +171,7 @@ func TestCreateClient_ValidationError(t *testing.T) {
 func TestCreateClient_DuplicateEmail(t *testing.T) {
 	h, stub := newTestClientHandler()
 	stub.createFn = func(_ context.Context, _ *model.Client) error {
-		return errors.New("email already exists")
+		return service.ErrClientAlreadyExists
 	}
 
 	_, err := h.CreateClient(context.Background(), &pb.CreateClientRequest{
@@ -217,7 +218,7 @@ func TestGetClient_ServiceError(t *testing.T) {
 
 	_, err := h.GetClient(context.Background(), &pb.GetClientRequest{Id: 1})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +257,7 @@ func TestGetClientByEmail_ServiceError(t *testing.T) {
 
 	_, err := h.GetClientByEmail(context.Background(), &pb.GetClientByEmailRequest{Email: "bad@example.com"})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +299,7 @@ func TestListClients_ServiceError(t *testing.T) {
 
 	_, err := h.ListClients(context.Background(), &pb.ListClientsRequest{Page: 1, PageSize: 10})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 // ---------------------------------------------------------------------------
@@ -358,7 +359,7 @@ func TestUpdateClient_ServiceError(t *testing.T) {
 		FirstName: &firstName,
 	})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
+	assert.Equal(t, codes.Unknown, status.Code(err))
 }
 
 func TestUpdateClient_NoFields_Success(t *testing.T) {

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -220,7 +219,7 @@ func (s *EmployeeService) SetEmployeeRoles(ctx context.Context, employeeID int64
 	if s.roleSvc != nil {
 		for _, name := range roleNames {
 			if !s.roleSvc.ValidRole(name) {
-				return fmt.Errorf("invalid role: %s", name)
+				return fmt.Errorf("SetEmployeeRoles(employee=%d, role=%s): %w", employeeID, name, ErrRoleNotFound)
 			}
 		}
 	}
@@ -284,7 +283,7 @@ func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, 
 	}
 
 	if len(perms) != len(permCodes) {
-		return errors.New("one or more permission codes are invalid")
+		return fmt.Errorf("SetEmployeeAdditionalPermissions(employee=%d): %w", employeeID, ErrPermissionNotInCatalog)
 	}
 
 	if err := s.repo.SetAdditionalPermissions(employeeID, perms); err != nil {
@@ -321,7 +320,7 @@ func (s *EmployeeService) SetEmployeeAdditionalPermissions(ctx context.Context, 
 
 func ValidatePassword(password string) error {
 	if len(password) < 8 || len(password) > 32 {
-		return errors.New("password must be 8-32 characters")
+		return fmt.Errorf("ValidatePassword: password must be 8-32 characters: %w", ErrInvalidPassword)
 	}
 	digits := 0
 	hasUpper := false
@@ -337,7 +336,7 @@ func ValidatePassword(password string) error {
 		}
 	}
 	if digits < 2 || !hasUpper || !hasLower {
-		return errors.New("password must have at least 2 digits, 1 uppercase and 1 lowercase letter")
+		return fmt.Errorf("ValidatePassword: password must have at least 2 digits, 1 uppercase and 1 lowercase letter: %w", ErrInvalidPassword)
 	}
 	return nil
 }

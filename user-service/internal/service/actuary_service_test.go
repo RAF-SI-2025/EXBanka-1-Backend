@@ -147,7 +147,7 @@ func TestSetActuaryLimit_NegativeRejected(t *testing.T) {
 
 	_, err := svc.SetActuaryLimit(context.Background(), 10, decimal.NewFromInt(-100), 0)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "negative")
+	assert.ErrorIs(t, err, ErrInvalidActuaryLimit)
 }
 
 // TestGetActuaryInfo_ReturnsLimitData verifies GetActuaryInfo returns limit and employee.

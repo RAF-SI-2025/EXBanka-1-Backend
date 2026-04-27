@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 
 	"gorm.io/gorm"
@@ -144,7 +145,7 @@ func (s *LimitService) ApplyTemplate(ctx context.Context, employeeID int64, temp
 	tmpl, err := s.templateRepo.GetByName(templateName)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("template not found: " + templateName)
+			return nil, fmt.Errorf("ApplyTemplate(%s): %w", templateName, ErrTemplateNotFound)
 		}
 		return nil, err
 	}

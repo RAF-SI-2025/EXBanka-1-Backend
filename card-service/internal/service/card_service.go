@@ -41,11 +41,11 @@ func NewCardService(cardRepo *repository.CardRepository, blockRepo *repository.C
 func (s *CardService) CreateCard(ctx context.Context, accountNumber string, ownerID uint64, ownerType, cardBrand string) (*model.Card, string, error) {
 	validBrands := map[string]bool{"visa": true, "mastercard": true, "dinacard": true, "amex": true}
 	if !validBrands[cardBrand] {
-		return nil, "", fmt.Errorf("card brand must be one of: visa, mastercard, dinacard, amex; got: %s", cardBrand)
+		return nil, "", fmt.Errorf("CreateCard: card brand must be one of: visa, mastercard, dinacard, amex; got: %s: %w", cardBrand, ErrInvalidCard)
 	}
 	validOwnerTypes := map[string]bool{"client": true, "authorized_person": true}
 	if !validOwnerTypes[ownerType] {
-		return nil, "", fmt.Errorf("owner type must be one of: client, authorized_person; got: %s", ownerType)
+		return nil, "", fmt.Errorf("CreateCard: owner type must be one of: client, authorized_person; got: %s: %w", ownerType, ErrInvalidCard)
 	}
 
 	cardNumber := GenerateCardNumber(cardBrand)
@@ -81,7 +81,7 @@ func (s *CardService) CreateCard(ctx context.Context, accountNumber string, owne
 				return fmt.Errorf("failed to check card count: %w", e)
 			}
 			if count >= 1 {
-				return fmt.Errorf("business accounts can have at most 1 card per person; person %d already has a card on account %s", ownerID, accountNumber)
+				return fmt.Errorf("CreateCard: business accounts can have at most 1 card per person; person %d already has a card on account %s: %w", ownerID, accountNumber, ErrCardLimitReached)
 			}
 		} else {
 			var count int64
@@ -89,12 +89,12 @@ func (s *CardService) CreateCard(ctx context.Context, accountNumber string, owne
 				return fmt.Errorf("failed to check card count: %w", e)
 			}
 			if count >= 2 {
-				return fmt.Errorf("personal accounts can have at most 2 cards; account %s already has %d", accountNumber, count)
+				return fmt.Errorf("CreateCard: personal accounts can have at most 2 cards; account %s already has %d: %w", accountNumber, count, ErrCardLimitReached)
 			}
 		}
 
 		if e := tx.Create(card).Error; e != nil {
-			return fmt.Errorf("account %s not found or inactive", accountNumber)
+			return fmt.Errorf("CreateCard: account %s not found or inactive: %w", accountNumber, ErrAccountInactive)
 		}
 		return nil
 	})
@@ -147,16 +147,16 @@ func (s *CardService) BlockCard(id uint64, changedBy int64) (*model.Card, error)
 		card, e = s.cardRepo.GetByIDForUpdate(tx, id)
 		if e != nil {
 			if errors.Is(e, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("card %d not found", id)
+				return fmt.Errorf("card id=%d: %w", id, ErrCardNotFound)
 			}
 			return e
 		}
 		oldStatus = card.Status
 		if card.Status == "blocked" {
-			return fmt.Errorf("card %d is already blocked", id)
+			return fmt.Errorf("BlockCard(id=%d): %w", id, ErrCardBlocked)
 		}
 		if card.Status == "deactivated" {
-			return fmt.Errorf("card %d is deactivated and cannot be blocked", id)
+			return fmt.Errorf("BlockCard(id=%d): %w", id, ErrCardDeactivated)
 		}
 		card.Status = "blocked"
 		return tx.Save(card).Error
@@ -179,12 +179,12 @@ func (s *CardService) UnblockCard(id uint64, changedBy int64) (*model.Card, erro
 		card, e = s.cardRepo.GetByIDForUpdate(tx, id)
 		if e != nil {
 			if errors.Is(e, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("card %d not found", id)
+				return fmt.Errorf("card id=%d: %w", id, ErrCardNotFound)
 			}
 			return e
 		}
 		if card.Status != "blocked" {
-			return fmt.Errorf("card %d is not blocked", id)
+			return fmt.Errorf("UnblockCard(id=%d): %w", id, ErrCardNotBlocked)
 		}
 		card.Status = "active"
 		return tx.Save(card).Error
@@ -208,12 +208,12 @@ func (s *CardService) DeactivateCard(id uint64, changedBy int64) (*model.Card, e
 		card, e = s.cardRepo.GetByIDForUpdate(tx, id)
 		if e != nil {
 			if errors.Is(e, gorm.ErrRecordNotFound) {
-				return fmt.Errorf("card %d not found", id)
+				return fmt.Errorf("card id=%d: %w", id, ErrCardNotFound)
 			}
 			return e
 		}
 		if card.Status == "deactivated" {
-			return fmt.Errorf("card %d is already deactivated", id)
+			return fmt.Errorf("DeactivateCard(id=%d): %w", id, ErrCardDeactivated)
 		}
 		oldStatus = card.Status
 		card.Status = "deactivated"
@@ -241,24 +241,24 @@ func (s *CardService) GetAuthorizedPerson(id uint64) (*model.AuthorizedPerson, e
 func (s *CardService) CreateVirtualCard(ctx context.Context, accountNumber string, ownerID uint64, cardBrand, usageType string, maxUses, expiryMonths int, limitStr string) (*model.Card, string, error) {
 	validUsageTypes := map[string]bool{"single_use": true, "multi_use": true}
 	if !validUsageTypes[usageType] {
-		return nil, "", fmt.Errorf("usage_type must be one of: single_use, multi_use; got: %s", usageType)
+		return nil, "", fmt.Errorf("CreateVirtualCard: usage_type must be one of: single_use, multi_use; got: %s: %w", usageType, ErrInvalidCard)
 	}
 	if expiryMonths < 1 || expiryMonths > 3 {
-		return nil, "", fmt.Errorf("expiry_months must be between 1 and 3; got: %d", expiryMonths)
+		return nil, "", fmt.Errorf("CreateVirtualCard: expiry_months must be between 1 and 3; got: %d: %w", expiryMonths, ErrInvalidCard)
 	}
 	if usageType == "multi_use" && maxUses < 2 {
-		return nil, "", fmt.Errorf("multi_use cards must have max_uses >= 2; got: %d", maxUses)
+		return nil, "", fmt.Errorf("CreateVirtualCard: multi_use cards must have max_uses >= 2; got: %d: %w", maxUses, ErrInvalidCard)
 	}
 	if usageType == "single_use" {
 		maxUses = 1
 	}
 	limit, err := decimal.NewFromString(limitStr)
 	if err != nil || limit.LessThanOrEqual(decimal.Zero) {
-		return nil, "", fmt.Errorf("limit must be a positive number; got: %s", limitStr)
+		return nil, "", fmt.Errorf("CreateVirtualCard: limit must be a positive number; got: %s: %w", limitStr, ErrInvalidCard)
 	}
 	validBrands := map[string]bool{"visa": true, "mastercard": true, "dinacard": true, "amex": true}
 	if !validBrands[cardBrand] {
-		return nil, "", fmt.Errorf("card brand must be one of: visa, mastercard, dinacard, amex; got: %s", cardBrand)
+		return nil, "", fmt.Errorf("CreateVirtualCard: card brand must be one of: visa, mastercard, dinacard, amex; got: %s: %w", cardBrand, ErrInvalidCard)
 	}
 
 	cardNumber := GenerateCardNumber(cardBrand)
@@ -298,7 +298,7 @@ func (s *CardService) CreateVirtualCard(ctx context.Context, accountNumber strin
 func (s *CardService) SetPin(cardID uint64, pin string) error {
 	matched, _ := regexp.MatchString(`^\d{4}$`, pin)
 	if !matched {
-		return errors.New("PIN must be exactly 4 digits")
+		return fmt.Errorf("SetPin(card=%d): %w", cardID, ErrInvalidPIN)
 	}
 	card, err := s.cardRepo.GetByID(cardID)
 	if err != nil {
@@ -325,7 +325,7 @@ func (s *CardService) VerifyPin(cardID uint64, pin string) (bool, error) {
 			return e
 		}
 		if card.PinAttempts >= 3 {
-			return errors.New("card blocked due to too many failed PIN attempts")
+			return fmt.Errorf("VerifyPin(card=%d): %w", cardID, ErrCardLocked)
 		}
 		if e = bcrypt.CompareHashAndPassword([]byte(card.PinHash), []byte(pin)); e != nil {
 			card.PinAttempts++
@@ -348,7 +348,7 @@ func (s *CardService) VerifyPin(cardID uint64, pin string) (bool, error) {
 
 func (s *CardService) TemporaryBlockCard(ctx context.Context, cardID uint64, durationHours int, reason string) (*model.Card, error) {
 	if durationHours <= 0 || durationHours > 720 {
-		return nil, errors.New("duration_hours must be between 1 and 720")
+		return nil, fmt.Errorf("TemporaryBlockCard(card=%d, duration=%d): %w", cardID, durationHours, ErrInvalidBlockDuration)
 	}
 	expiresAt := time.Now().Add(time.Duration(durationHours) * time.Hour)
 	var card *model.Card
@@ -394,7 +394,7 @@ func (s *CardService) UseCard(cardID uint64) error {
 			return nil
 		}
 		if card.UsesRemaining <= 0 {
-			return errors.New("virtual card has no remaining uses")
+			return fmt.Errorf("UseCard(card=%d): %w", cardID, ErrSingleUseAlreadyUsed)
 		}
 		card.UsesRemaining--
 		if card.UsesRemaining == 0 {

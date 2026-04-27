@@ -41,7 +41,7 @@ func newLimitHandlerForTest(limitSvc limitServiceFacade) *LimitGRPCHandler {
 func (h *LimitGRPCHandler) GetEmployeeLimits(ctx context.Context, req *pb.EmployeeLimitRequest) (*pb.EmployeeLimitResponse, error) {
 	limit, err := h.limitSvc.GetEmployeeLimits(req.EmployeeId)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to get employee limits: %v", err)
+		return nil, err
 	}
 	return toEmployeeLimitResponse(limit), nil
 }
@@ -80,7 +80,7 @@ func (h *LimitGRPCHandler) SetEmployeeLimits(ctx context.Context, req *pb.SetEmp
 	changedBy := changelog.ExtractChangedBy(ctx)
 	result, err := h.limitSvc.SetEmployeeLimits(ctx, limit, changedBy)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to set employee limits: %v", err)
+		return nil, err
 	}
 	return toEmployeeLimitResponse(result), nil
 }
@@ -89,7 +89,7 @@ func (h *LimitGRPCHandler) ApplyLimitTemplate(ctx context.Context, req *pb.Apply
 	changedBy := changelog.ExtractChangedBy(ctx)
 	result, err := h.limitSvc.ApplyTemplate(ctx, req.EmployeeId, req.TemplateName, changedBy)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to apply limit template: %v", err)
+		return nil, err
 	}
 	return toEmployeeLimitResponse(result), nil
 }
@@ -97,7 +97,7 @@ func (h *LimitGRPCHandler) ApplyLimitTemplate(ctx context.Context, req *pb.Apply
 func (h *LimitGRPCHandler) ListLimitTemplates(ctx context.Context, req *pb.ListLimitTemplatesRequest) (*pb.ListLimitTemplatesResponse, error) {
 	templates, err := h.limitSvc.ListTemplates()
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list limit templates: %v", err)
+		return nil, err
 	}
 	resp := &pb.ListLimitTemplatesResponse{Templates: make([]*pb.LimitTemplateResponse, 0, len(templates))}
 	for _, t := range templates {
@@ -140,7 +140,7 @@ func (h *LimitGRPCHandler) CreateLimitTemplate(ctx context.Context, req *pb.Crea
 	}
 	result, err := h.limitSvc.CreateTemplate(ctx, tmpl)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create limit template: %v", err)
+		return nil, err
 	}
 	return toLimitTemplateResponse(result), nil
 }

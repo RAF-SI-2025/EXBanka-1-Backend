@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 
@@ -62,25 +61,28 @@ func (s *ClientLimitService) SetClientLimits(ctx context.Context, limit model.Cl
 			EmployeeId: limit.SetByEmployee,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to verify employee limits: %w", err)
+			log.Printf("warn: SetClientLimits employee-lookup gRPC failed: %v", err)
+			return nil, fmt.Errorf("SetClientLimits(employee=%d): %w", limit.SetByEmployee, ErrEmployeeLookupFailed)
 		}
 
 		maxClientDaily, err := decimal.NewFromString(empLimits.MaxClientDailyLimit)
 		if err != nil {
-			return nil, errors.New("invalid employee max_client_daily_limit")
+			log.Printf("warn: SetClientLimits invalid max_client_daily_limit decimal %q: %v", empLimits.MaxClientDailyLimit, err)
+			return nil, fmt.Errorf("SetClientLimits: %w", ErrInvalidEmployeeLimits)
 		}
 		maxClientMonthly, err := decimal.NewFromString(empLimits.MaxClientMonthlyLimit)
 		if err != nil {
-			return nil, errors.New("invalid employee max_client_monthly_limit")
+			log.Printf("warn: SetClientLimits invalid max_client_monthly_limit decimal %q: %v", empLimits.MaxClientMonthlyLimit, err)
+			return nil, fmt.Errorf("SetClientLimits: %w", ErrInvalidEmployeeLimits)
 		}
 
 		if limit.DailyLimit.GreaterThan(maxClientDaily) {
-			return nil, fmt.Errorf("daily limit %s exceeds employee authorization %s",
-				limit.DailyLimit.String(), maxClientDaily.String())
+			return nil, fmt.Errorf("SetClientLimits: daily limit %s exceeds employee authorization %s: %w",
+				limit.DailyLimit.String(), maxClientDaily.String(), ErrLimitsExceedEmployee)
 		}
 		if limit.MonthlyLimit.GreaterThan(maxClientMonthly) {
-			return nil, fmt.Errorf("monthly limit %s exceeds employee authorization %s",
-				limit.MonthlyLimit.String(), maxClientMonthly.String())
+			return nil, fmt.Errorf("SetClientLimits: monthly limit %s exceeds employee authorization %s: %w",
+				limit.MonthlyLimit.String(), maxClientMonthly.String(), ErrLimitsExceedEmployee)
 		}
 	}
 

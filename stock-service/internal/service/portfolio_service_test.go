@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -954,7 +955,7 @@ func TestPortfolio_ProcessSellFill_InsufficientQuantity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for insufficient quantity")
 	}
-	if err.Error() != "insufficient holding quantity for sell" {
+	if !strings.Contains(err.Error(), "insufficient holding quantity for sell") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -980,7 +981,7 @@ func TestPortfolio_ProcessSellFill_NoHolding(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no holding exists")
 	}
-	if err.Error() != "holding not found for sell order" {
+	if !strings.Contains(err.Error(), "holding not found for sell order") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1028,7 +1029,7 @@ func TestPortfolio_MakePublic_ExceedsOwned(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for quantity exceeding owned")
 	}
-	if err.Error() != "invalid public quantity" {
+	if !strings.Contains(err.Error(), "invalid public quantity") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1050,7 +1051,7 @@ func TestPortfolio_MakePublic_NegativeQuantity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for negative quantity")
 	}
-	if err.Error() != "invalid public quantity" {
+	if !strings.Contains(err.Error(), "invalid public quantity") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1072,7 +1073,7 @@ func TestPortfolio_MakePublic_WrongUser(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}
-	if err.Error() != "holding does not belong to user" {
+	if !strings.Contains(err.Error(), "holding does not belong to user") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1094,7 +1095,7 @@ func TestPortfolio_MakePublic_NotStock(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-stock holding")
 	}
-	if err.Error() != "only stocks can be made public for OTC trading" {
+	if !strings.Contains(err.Error(), "only stocks can be made public for OTC trading") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1106,7 +1107,7 @@ func TestPortfolio_MakePublic_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-existent holding")
 	}
-	if err.Error() != "holding not found" {
+	if !strings.Contains(err.Error(), "holding not found") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1375,7 +1376,7 @@ func TestPortfolio_ExerciseOption_CallOTM(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for OTM call option")
 	}
-	if err.Error() != "call option is not in the money" {
+	if !strings.Contains(err.Error(), "call option is not in the money") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1512,7 +1513,7 @@ func TestPortfolio_ExerciseOption_PutOTM(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for OTM put option")
 	}
-	if err.Error() != "put option is not in the money" {
+	if !strings.Contains(err.Error(), "put option is not in the money") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1559,7 +1560,7 @@ func TestPortfolio_ExerciseOption_PutInsufficientStock(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for insufficient stock")
 	}
-	if err.Error() != "insufficient stock holdings to exercise put option" {
+	if !strings.Contains(err.Error(), "insufficient stock holdings to exercise put option") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1575,7 +1576,7 @@ func TestPortfolio_ExerciseOption_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-existent holding")
 	}
-	if err.Error() != "holding not found" {
+	if !strings.Contains(err.Error(), "holding not found") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1597,7 +1598,7 @@ func TestPortfolio_ExerciseOption_WrongUser(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}
-	if err.Error() != "holding does not belong to user" {
+	if !strings.Contains(err.Error(), "holding does not belong to user") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1619,7 +1620,7 @@ func TestPortfolio_ExerciseOption_NotAnOption(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-option holding")
 	}
-	if err.Error() != "holding is not an option" {
+	if !strings.Contains(err.Error(), "holding is not an option") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1649,7 +1650,7 @@ func TestPortfolio_ExerciseOption_Expired(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for expired option")
 	}
-	if err.Error() != "option has expired (settlement date passed)" {
+	if !strings.Contains(err.Error(), "option has expired (settlement date passed)") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -1681,7 +1682,7 @@ func TestPortfolio_ProcessBuyFill_AccountDebitError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when account debit fails")
 	}
-	if err.Error() != "insufficient balance" {
+	if !strings.Contains(err.Error(), "insufficient balance") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -2091,7 +2092,7 @@ func TestExerciseOptionByOptionID_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when no holding exists for option")
 	}
-	if err.Error() != "option holding not found" {
+	if !strings.Contains(err.Error(), "option holding not found") {
 		t.Errorf("expected 'option holding not found' error, got: %v", err)
 	}
 }

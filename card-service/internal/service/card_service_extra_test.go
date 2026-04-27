@@ -105,7 +105,7 @@ func TestSetPin_InvalidFormat(t *testing.T) {
 
 	err := svc.SetPin(card.ID, "abc")
 	require.Error(t, err)
-	assert.Equal(t, "PIN must be exactly 4 digits", err.Error())
+	assert.ErrorIs(t, err, ErrInvalidPIN)
 }
 
 func TestSetPin_NotFound(t *testing.T) {
@@ -167,7 +167,7 @@ func TestTemporaryBlockCard_InvalidDuration(t *testing.T) {
 
 	_, err := svc.TemporaryBlockCard(context.Background(), 1, 0, "lost")
 	require.Error(t, err)
-	assert.Equal(t, "duration_hours must be between 1 and 720", err.Error())
+	assert.ErrorIs(t, err, ErrInvalidBlockDuration)
 }
 
 func TestTemporaryBlockCard_TooLong(t *testing.T) {
@@ -178,7 +178,7 @@ func TestTemporaryBlockCard_TooLong(t *testing.T) {
 
 	_, err := svc.TemporaryBlockCard(context.Background(), 1, 1000, "lost")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "duration_hours must be between 1 and 720")
+	assert.ErrorIs(t, err, ErrInvalidBlockDuration)
 }
 
 func TestTemporaryBlockCard_Success(t *testing.T) {

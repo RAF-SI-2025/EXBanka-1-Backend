@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/exbanka/card-service/internal/model"
+	"github.com/exbanka/card-service/internal/service"
 	pb "github.com/exbanka/contract/cardpb"
 )
 
@@ -55,7 +56,7 @@ func TestCreateCardRequest_Success(t *testing.T) {
 func TestCreateCardRequest_InvalidBrand(t *testing.T) {
 	svc := &stubCardRequestService{
 		createRequestFn: func(_ context.Context, _ *model.CardRequest) error {
-			return errors.New("invalid card brand: discover")
+			return service.ErrInvalidCard
 		},
 	}
 	h := &CardRequestGRPCHandler{cardRequestSvc: svc}
@@ -63,7 +64,6 @@ func TestCreateCardRequest_InvalidBrand(t *testing.T) {
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
-	assert.Contains(t, st.Message(), "invalid card brand")
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ func TestGetCardRequest_GenericError(t *testing.T) {
 	_, err := h.GetCardRequest(context.Background(), &pb.GetCardRequestRequest{Id: 1})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
-	assert.Equal(t, codes.Internal, st.Code())
+	assert.Equal(t, codes.Unknown, st.Code())
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +218,7 @@ func TestApproveCardRequest_Success(t *testing.T) {
 func TestApproveCardRequest_AlreadyApproved(t *testing.T) {
 	svc := &stubCardRequestService{
 		approveRequestFn: func(_ context.Context, _, _ uint64) (*model.Card, error) {
-			return nil, errors.New("card request 10 is already approved")
+			return nil, service.ErrCardRequestAlreadyDecided
 		},
 	}
 	h := &CardRequestGRPCHandler{cardRequestSvc: svc}
@@ -226,13 +226,12 @@ func TestApproveCardRequest_AlreadyApproved(t *testing.T) {
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.FailedPrecondition, st.Code())
-	assert.Contains(t, st.Message(), "already approved")
 }
 
 func TestApproveCardRequest_NotFound(t *testing.T) {
 	svc := &stubCardRequestService{
 		approveRequestFn: func(_ context.Context, _, _ uint64) (*model.Card, error) {
-			return nil, errors.New("card request not found")
+			return nil, service.ErrCardRequestNotFound
 		},
 	}
 	h := &CardRequestGRPCHandler{cardRequestSvc: svc}
@@ -280,7 +279,7 @@ func TestRejectCardRequest_Success(t *testing.T) {
 func TestRejectCardRequest_AlreadyApproved(t *testing.T) {
 	svc := &stubCardRequestService{
 		rejectRequestFn: func(_ context.Context, _, _ uint64, _ string) error {
-			return errors.New("card request 10 is already approved")
+			return service.ErrCardRequestAlreadyDecided
 		},
 	}
 	h := &CardRequestGRPCHandler{cardRequestSvc: svc}
@@ -288,7 +287,6 @@ func TestRejectCardRequest_AlreadyApproved(t *testing.T) {
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.FailedPrecondition, st.Code())
-	assert.Contains(t, st.Message(), "already approved")
 }
 
 func TestRejectCardRequest_FetchUpdatedFails(t *testing.T) {

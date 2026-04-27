@@ -96,16 +96,9 @@ func (h *OTCHandler) BuyOffer(ctx context.Context, req *pb.BuyOTCOfferRequest) (
 	}, nil
 }
 
+// mapOTCError is now a passthrough. Service-layer sentinels carry their own
+// gRPC code via svcerr.SentinelError. See internal/service/errors.go for the
+// OTC sentinel set.
 func mapOTCError(err error) error {
-	switch err.Error() {
-	case "OTC offer not found":
-		return status.Error(codes.NotFound, err.Error())
-	case "cannot buy your own OTC offer":
-		return status.Error(codes.PermissionDenied, err.Error())
-	case "insufficient public quantity for OTC purchase",
-		"buyer account not found", "seller account not found":
-		return status.Error(codes.FailedPrecondition, err.Error())
-	default:
-		return status.Error(codes.Internal, err.Error())
-	}
+	return err
 }

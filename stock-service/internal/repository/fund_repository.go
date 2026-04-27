@@ -1,17 +1,19 @@
 package repository
 
 import (
-	"errors"
 	"strings"
 
+	"google.golang.org/grpc/codes"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/contract/shared/svcerr"
 	"github.com/exbanka/stock-service/internal/model"
 )
 
 // ErrFundNameInUse signals an attempt to create or rename a fund to a name
-// already used by another active fund (case-insensitive).
-var ErrFundNameInUse = errors.New("fund name already in use")
+// already used by another active fund (case-insensitive). Typed sentinel
+// carrying codes.AlreadyExists.
+var ErrFundNameInUse = svcerr.New(codes.AlreadyExists, "fund name already in use")
 
 type FundRepository struct {
 	db *gorm.DB

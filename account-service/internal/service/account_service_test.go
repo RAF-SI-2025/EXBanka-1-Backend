@@ -451,7 +451,7 @@ func TestUpdateAccountStatus_InvalidStatus(t *testing.T) {
 
 	err := svc.UpdateAccountStatus(acct.ID, "frozen", 0)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "account status must be")
+	assert.ErrorIs(t, err, ErrInvalidStatus)
 }
 
 func TestUpdateAccountStatus_AlreadySameStatus(t *testing.T) {

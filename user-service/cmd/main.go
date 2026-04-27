@@ -14,6 +14,7 @@ import (
 	clientpb "github.com/exbanka/contract/clientpb"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/cache"
 	"github.com/exbanka/user-service/internal/config"
@@ -173,7 +174,10 @@ func main() {
 	if err := shared.RunGRPCServer(context.Background(), shared.GRPCServerConfig{
 		Address: cfg.GRPCAddr,
 		Options: []grpc.ServerOption{
-			grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("user-service"),
+			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},
 		Register: func(s *grpc.Server) {

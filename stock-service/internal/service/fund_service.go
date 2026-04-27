@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -101,7 +100,7 @@ func (s *FundService) WithSaga(
 	return &cp
 }
 
-var errSagaDepsNotWired = errors.New("fund saga dependencies not wired (Invest/Redeem unavailable)")
+var errSagaDepsNotWired = fmt.Errorf("fund saga dependencies not wired (Invest/Redeem unavailable): %w", ErrFundSagaUnavailable)
 
 // WithPositionReads wires the listing repo. The other deps needed for
 // position reads (accounts, exchange, holdings, positions) are already wired
@@ -122,13 +121,13 @@ type CreateFundInput struct {
 
 func (s *FundService) Create(ctx context.Context, in CreateFundInput) (*model.InvestmentFund, error) {
 	if in.Name == "" || len(in.Name) > 128 {
-		return nil, errors.New("name must be 1-128 chars")
+		return nil, fmt.Errorf("name must be 1-128 chars: %w", ErrFundInvalidInput)
 	}
 	if len(in.Description) > 2000 {
-		return nil, errors.New("description must be <= 2000 chars")
+		return nil, fmt.Errorf("description must be <= 2000 chars: %w", ErrFundInvalidInput)
 	}
 	if in.MinimumContributionRSD.IsNegative() {
-		return nil, errors.New("minimum_contribution_rsd must be >= 0")
+		return nil, fmt.Errorf("minimum_contribution_rsd must be >= 0: %w", ErrFundInvalidInput)
 	}
 
 	acct, err := s.bankAccountClient.CreateBankAccount(ctx, &accountpb.CreateBankAccountRequest{
@@ -187,7 +186,7 @@ func (s *FundService) Update(ctx context.Context, in UpdateFundInput) (*model.In
 		return nil, err
 	}
 	if in.ActorEmployeeID != f.ManagerEmployeeID {
-		return nil, errors.New("caller is not the fund manager")
+		return nil, fmt.Errorf("caller is not the fund manager: %w", ErrFundNotManager)
 	}
 	changed := []string{}
 	if in.Name != nil && *in.Name != f.Name {

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -175,7 +176,7 @@ func TestOTCHandler_BuyOffer_Success(t *testing.T) {
 func TestOTCHandler_BuyOffer_NotFound(t *testing.T) {
 	svc := &mockOTCSvc{
 		buyFn: func(offerID, buyerID uint64, buyerSystemType string, quantity int64, buyerAccountID uint64) (*service.OTCBuyResult, error) {
-			return nil, errors.New("OTC offer not found")
+			return nil, fmt.Errorf("OTC offer not found: %w", service.ErrOTCOfferNotFound)
 		},
 	}
 	h := newOTCHandlerForTest(svc)
@@ -196,7 +197,7 @@ func TestOTCHandler_BuyOffer_NotFound(t *testing.T) {
 func TestOTCHandler_BuyOffer_OwnOffer(t *testing.T) {
 	svc := &mockOTCSvc{
 		buyFn: func(offerID, buyerID uint64, buyerSystemType string, quantity int64, buyerAccountID uint64) (*service.OTCBuyResult, error) {
-			return nil, errors.New("cannot buy your own OTC offer")
+			return nil, fmt.Errorf("cannot buy your own OTC offer: %w", service.ErrOTCBuyOwnOffer)
 		},
 	}
 	h := newOTCHandlerForTest(svc)
@@ -217,7 +218,7 @@ func TestOTCHandler_BuyOffer_OwnOffer(t *testing.T) {
 func TestOTCHandler_BuyOffer_InsufficientQuantity(t *testing.T) {
 	svc := &mockOTCSvc{
 		buyFn: func(offerID, buyerID uint64, buyerSystemType string, quantity int64, buyerAccountID uint64) (*service.OTCBuyResult, error) {
-			return nil, errors.New("insufficient public quantity for OTC purchase")
+			return nil, fmt.Errorf("insufficient public quantity for OTC purchase: %w", service.ErrOTCInsufficientPublicQuantity)
 		},
 	}
 	h := newOTCHandlerForTest(svc)
