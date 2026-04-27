@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -411,10 +412,15 @@ func TestSagaRecovery_CreditStep_WithoutOrderRepo_LeftAlone(t *testing.T) {
 }
 
 // Placement-saga steps must NOT be auto-retried — replaying them would
-// double-place a user order.
+// double-place a user order. The covered names match the canonical
+// saga.StepKind constants registered in contract/shared/saga/steps.go;
+// step kinds that aren't registered (e.g. an obsolete "validate_listing"
+// label from older code) now panic via the recovery default arm and
+// belong in TestSagaRecovery_UnknownStepKind_Panics.
 func TestSagaRecovery_PlacementStep_NotAutoRetried(t *testing.T) {
 	for _, name := range []string{
-		"persist_order_pending", "validate_listing", "reserve_funds", "reserve_holding",
+		"persist_order_pending", "reserve_funds", "reserve_holding", "finalize_order",
+		"convert_amount", "record_transaction",
 	} {
 		t.Run(name, func(t *testing.T) {
 			step := settleStep(6, 105, 205, decimal.NewFromFloat(1), name)
@@ -486,22 +492,39 @@ func TestSagaRecovery_RetryFailure_IncrementsRetryCount(t *testing.T) {
 	}
 }
 
-// An unknown step name is logged and left alone (no retry, no status change).
-func TestSagaRecovery_UnknownStep_LeftAlone(t *testing.T) {
-	step := settleStep(9, 108, 208, decimal.NewFromFloat(1), "this_is_not_a_real_step")
+// An unknown step name MUST panic so a developer who adds a new StepKind
+// without updating the recovery switch finds out immediately. Pre-shared.Saga
+// the reconciler logged-and-skipped, but that quietly hid recovery bugs —
+// the panicking default is the safety net for switch non-exhaustiveness.
+func TestSagaRecovery_UnknownStepKind_Panics(t *testing.T) {
+	step := settleStep(9, 108, 208, decimal.NewFromFloat(1), "totally_made_up_step_kind")
 	repo := newFakeRecoveryRepo(step)
 
 	stub := &fakeRecoveryAccountStub{}
 	client := newFakeRecoveryFillClient(stub)
 
 	rec := NewSagaRecovery(repo, client, nil, "")
-	if err := rec.Reconcile(context.Background()); err != nil {
-		t.Fatalf("Reconcile: %v", err)
-	}
-	if len(repo.updateCalls) != 0 || len(client.partialSettleCalls) != 0 {
-		t.Errorf("expected no actions on unknown step, got updates=%+v settles=%+v",
-			repo.updateCalls, client.partialSettleCalls)
-	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic on unknown StepKind, got none")
+		}
+		msg, _ := r.(string)
+		if msg == "" {
+			// fmt.Sprintf produces a string; if a *errors.errorString or
+			// other type slipped in, the assertion fails out.
+			t.Fatalf("expected string panic message, got %T: %v", r, r)
+		}
+		if !strings.Contains(msg, "totally_made_up_step_kind") {
+			t.Errorf("panic message should name the unknown step, got: %s", msg)
+		}
+	}()
+
+	// reconcileStep is what panics; Reconcile catches no panics so the
+	// goroutine bubbles up. Calling reconcileStep directly avoids the
+	// per-step retry-bookkeeping wrapping for a clearer test.
+	_ = rec.reconcileStep(context.Background(), step)
 }
 
 // Run wires Reconcile onto a ticker and honors ctx cancellation.

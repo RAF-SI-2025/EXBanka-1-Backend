@@ -9,6 +9,7 @@ import (
 	"time"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 )
 
@@ -139,60 +140,135 @@ func (r *SagaRecovery) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-// reconcileStep dispatches on the step name. Unknown step names are logged
-// and skipped — we prefer to leave a mystery row alone rather than take the
-// wrong action on it.
+// reconcileStep dispatches on the step name. The dispatch is split into two
+// halves:
+//
+//  1. Legacy compensate_<step> string-prefixed names (only ever produced by the
+//     deleted SagaExecutor.RunCompensation path) are matched FIRST via direct
+//     string compare. These rows pre-date the shared.Saga migration and won't
+//     be regenerated, but we must continue draining ones that already exist
+//     in the table.
+//
+//  2. Everything else is routed via a typed switch on saga.StepKind. The
+//     `default` arm panics — there is no Go-language way to enforce switch
+//     exhaustiveness on string-aliased types, so the panicking default is the
+//     loud fail-fast that catches any new StepKind constant added to
+//     contract/shared/saga/steps.go without an accompanying recovery decision.
+//     If you see this panic in production, the fix is here in this file:
+//     decide which reconciler the new step kind belongs to (or add a tiny
+//     idempotent-mark-completed reconciler) and add the case.
 func (r *SagaRecovery) reconcileStep(ctx context.Context, step model.SagaLog) error {
+	// Legacy compensation step names from pre-shared.Saga code paths. These
+	// strings are NOT StepKind constants — the deleted SagaExecutor.RunCompensation
+	// path wrote them as bespoke labels distinct from the forward-step names.
+	// Leave them BEFORE the typed switch so the typed default doesn't panic
+	// on rows already persisted under these legacy labels.
 	switch step.StepName {
-	case "settle_reservation", "settle_reservation_quote":
+	case "compensate_settle_via_credit",
+		"compensate_credit_via_debit",
+		"compensate_quote_settle":
+		return r.reconcileCreditDebit(ctx, step)
+	}
+
+	switch saga.StepKind(step.StepName) {
+	// --- forex / fill settlement: check account-service then retry. ---
+	case saga.StepSettleReservation, saga.StepSettleReservationQuote:
 		return r.reconcileSettle(ctx, step)
 
-	case "update_holding":
-		// holdingRepo.Upsert is keyed on (user_id, security_type, security_id,
-		// account_id) with a weighted-average update, so replaying is
-		// idempotent at the row level. Without extra plumbing (a dedicated
-		// "was this fill's holding delta applied?" query) we don't have a
-		// cheap way to verify; treating it as done is the honest best-effort.
+	// --- credit/debit retry via deterministic idempotency key. ---
+	// account-service's partial unique index on ledger_entries.idempotency_key
+	// makes a second apply a safe no-op so we can drive these to completion.
+	case saga.StepCreditProceeds, saga.StepCreditBase, saga.StepCreditCommission:
+		return r.reconcileCreditDebit(ctx, step)
+
+	// --- holding mutations: idempotent at the storage layer (weighted-average
+	// upsert / ON CONFLICT DO NOTHING settlement), so marking completed is the
+	// honest best-effort without extra verification plumbing.
+	case saga.StepUpdateHolding:
 		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
 			"auto-completed by recovery (holding upsert is idempotent)")
 
-	case "decrement_holding":
-		// HoldingReservationService.PartialSettle is idempotent on
-		// orderTransactionID via ON CONFLICT DO NOTHING on the settlements
-		// table. Marking completed mirrors the update_holding rationale.
+	case saga.StepDecrementHolding:
 		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
 			"auto-completed by recovery (holding settlement is idempotent)")
 
-	case "credit_proceeds", "credit_base", "credit_commission",
-		"compensate_settle_via_credit", "compensate_credit_via_debit", "compensate_quote_settle":
-		// Auto-retry with the deterministic idempotency_key the forward-path
-		// used. account-service's partial unique index on
-		// ledger_entries.idempotency_key makes a second apply a safe no-op,
-		// so a stuck credit/debit step can be driven to completion without
-		// risking a double-ledger.
-		return r.reconcileCreditDebit(ctx, step)
-
-	case "record_transaction", "convert_amount", "persist_order_pending",
-		"approve_order", "validate_listing", "compute_reservation_amount",
-		"reserve_funds", "reserve_holding":
-		// Placement-saga steps. Auto-retrying is much more disruptive than
-		// auto-retrying a fill step — we'd risk duplicating the user's
-		// intent to place an order. Leave for human review.
+	// --- placement / order-construction steps: auto-replay would risk
+	// duplicating the user's order. Leave for human review.
+	case saga.StepPersistOrderPending,
+		saga.StepReserveFunds,
+		saga.StepReserveHolding,
+		saga.StepFinalizeOrder,
+		saga.StepConvertAmount,
+		saga.StepRecordTransaction:
 		log.Printf("WARN: stuck placement saga step %d (order=%d, step=%s) — needs human review",
 			step.ID, step.OrderID, step.StepName)
 		return nil
 
-	case "publish_kafka":
-		// Placeholder for Task 16's deferred integration: publish currently
-		// happens inline in executeOrder, so this step name shouldn't appear
-		// in practice yet. If it does, the publish either already happened
-		// or will be driven by a Kafka retry — safe to mark completed.
-		return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,
-			"auto-completed by recovery (publish handled out-of-band)")
-	}
+	// --- OTC + Fund money-movement / position steps. These sagas migrated
+	// to shared.Saga without dedicated recovery reconcilers; the safest
+	// behaviour is the same hands-off "log and leave for review" as
+	// placement steps until per-step semantics are wired. Marking them as
+	// auto-completed could double-credit; auto-retrying could double-debit
+	// without an idempotency-key contract.
+	case saga.StepReserveAndContract,
+		saga.StepReservePremium,
+		saga.StepReserveStrike,
+		saga.StepSettlePremiumBuyer,
+		saga.StepSettleStrikeBuyer,
+		saga.StepConsumeSellerHolding,
+		saga.StepDebitSource,
+		saga.StepCreditTarget,
+		saga.StepDebitFund,
+		saga.StepCreditFund,
+		saga.StepCreditPremiumSeller,
+		saga.StepCreditStrikeSeller,
+		saga.StepUpsertPosition,
+		saga.StepCreditBankFee:
+		log.Printf("WARN: stuck OTC/Fund saga step %d (order=%d, step=%s) — needs human review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
 
-	log.Printf("WARN: unknown saga step name %q in recovery (id=%d)", step.StepName, step.ID)
-	return nil
+	// --- Crossbank steps. These ride on InterBankSagaLog (a different table)
+	// in production and have a separate reconciliation cron. They should NOT
+	// land in the SagaLog table this reconciler scans; if one ever does it's
+	// a routing bug, and human review is the correct response.
+	case saga.StepReserveBuyerFunds,
+		saga.StepCreateContract,
+		saga.StepReserveSellerShares,
+		saga.StepDebitBuyer,
+		saga.StepCreditSeller,
+		saga.StepTransferOwnership,
+		saga.StepFinalizeAccept,
+		saga.StepDebitStrike,
+		saga.StepCreditStrike,
+		saga.StepDeliverShares,
+		saga.StepRefundReservation,
+		saga.StepMarkExpired:
+		log.Printf("WARN: crossbank saga step %d (order=%d, step=%s) found in SagaLog "+
+			"(should be on InterBankSagaLog) — needs human review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+
+	// --- Transaction-service steps. Owned by transaction-service's own saga
+	// log; should never land here. Same rationale as crossbank: log and let
+	// a human investigate the routing bug rather than guess at remediation.
+	case saga.StepDebitSender,
+		saga.StepCreditRecipient,
+		saga.StepCreditBankCommission,
+		saga.StepDebitUserFrom,
+		saga.StepCreditBankFrom,
+		saga.StepDebitBankTo,
+		saga.StepCreditUserTo:
+		log.Printf("WARN: transaction-service saga step %d (order=%d, step=%s) found in "+
+			"stock-service SagaLog — needs human review",
+			step.ID, step.OrderID, step.StepName)
+		return nil
+
+	default:
+		panic(fmt.Sprintf(
+			"recovery: unhandled StepKind %q — add case to switch in saga_recovery.go",
+			step.StepName))
+	}
 }
 
 // reconcileSettle resolves a stuck settle_reservation / settle_reservation_quote
