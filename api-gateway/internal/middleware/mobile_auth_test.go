@@ -300,7 +300,7 @@ func TestMobileAuthMiddleware_ValidRequest_SetsContext(t *testing.T) {
 				DeviceType:  "mobile",
 				DeviceId:    "dev-abc",
 				SystemType:  "client",
-				Permissions: []string{"accounts.read"},
+				Permissions: []string{"accounts.read.all"},
 			}, nil
 		},
 	}

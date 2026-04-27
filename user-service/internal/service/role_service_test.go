@@ -252,10 +252,10 @@ func TestRoleService_CreateRole(t *testing.T) {
 	svc := NewRoleService(roleRepo, permRepo)
 
 	// Add some permissions first
-	_ = permRepo.Create(&model.Permission{Code: "clients.read", Category: "clients"})
-	_ = permRepo.Create(&model.Permission{Code: "accounts.read", Category: "accounts"})
+	_ = permRepo.Create(&model.Permission{Code: "clients.read.all", Category: "clients"})
+	_ = permRepo.Create(&model.Permission{Code: "accounts.read.all", Category: "accounts"})
 
-	role, err := svc.CreateRole("TestRole", "A test role", []string{"clients.read", "accounts.read"})
+	role, err := svc.CreateRole("TestRole", "A test role", []string{"clients.read.all", "accounts.read.all"})
 	assert.NoError(t, err)
 	assert.Equal(t, "TestRole", role.Name)
 	assert.Len(t, role.Permissions, 2)
@@ -266,11 +266,11 @@ func TestRoleService_UpdateRolePermissions(t *testing.T) {
 	permRepo := newMockPermRepo()
 	svc := NewRoleService(roleRepo, permRepo)
 
-	_ = permRepo.Create(&model.Permission{Code: "clients.read"})
-	_ = permRepo.Create(&model.Permission{Code: "accounts.read"})
+	_ = permRepo.Create(&model.Permission{Code: "clients.read.all"})
+	_ = permRepo.Create(&model.Permission{Code: "accounts.read.all"})
 	_ = roleRepo.Create(&model.Role{ID: 1, Name: "TestRole"})
 
-	err := svc.UpdateRolePermissions(1, []string{"clients.read", "accounts.read"})
+	err := svc.UpdateRolePermissions(1, []string{"clients.read.all", "accounts.read.all"})
 	assert.NoError(t, err)
 
 	role, _ := roleRepo.GetByID(1)
@@ -360,7 +360,7 @@ func TestRoleService_UpdateRolePermissions_PublishesEvent(t *testing.T) {
 	if err := roleRepo.Create(role); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	if err := permRepo.Create(&model.Permission{Code: "clients.read"}); err != nil {
+	if err := permRepo.Create(&model.Permission{Code: "clients.read.all"}); err != nil {
 		t.Fatalf("create perm: %v", err)
 	}
 
@@ -370,7 +370,7 @@ func TestRoleService_UpdateRolePermissions_PublishesEvent(t *testing.T) {
 	svc := NewRoleService(roleRepo, permRepo).WithPublisher(pub)
 
 	before := time.Now().Unix()
-	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read"}); err != nil {
+	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read.all"}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	after := time.Now().Unix()
@@ -400,7 +400,7 @@ func TestRoleService_UpdateRolePermissions_KafkaFailureDoesNotFailUpdate(t *test
 	if err := roleRepo.Create(role); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	if err := permRepo.Create(&model.Permission{Code: "clients.read"}); err != nil {
+	if err := permRepo.Create(&model.Permission{Code: "clients.read.all"}); err != nil {
 		t.Fatalf("create perm: %v", err)
 	}
 	roleRepo.employeesByRole[role.ID] = []int64{1}
@@ -408,7 +408,7 @@ func TestRoleService_UpdateRolePermissions_KafkaFailureDoesNotFailUpdate(t *test
 	pub := &fakeRolePermPublisher{err: errors.New("kafka down")}
 	svc := NewRoleService(roleRepo, permRepo).WithPublisher(pub)
 
-	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read"}); err != nil {
+	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read.all"}); err != nil {
 		t.Fatalf("update should not propagate kafka errors: %v", err)
 	}
 }
@@ -420,12 +420,12 @@ func TestRoleService_UpdateRolePermissions_NoPublisherIsAllowed(t *testing.T) {
 	if err := roleRepo.Create(role); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	if err := permRepo.Create(&model.Permission{Code: "clients.read"}); err != nil {
+	if err := permRepo.Create(&model.Permission{Code: "clients.read.all"}); err != nil {
 		t.Fatalf("create perm: %v", err)
 	}
 
 	svc := NewRoleService(roleRepo, permRepo) // no publisher
-	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read"}); err != nil {
+	if err := svc.UpdateRolePermissions(role.ID, []string{"clients.read.all"}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 }

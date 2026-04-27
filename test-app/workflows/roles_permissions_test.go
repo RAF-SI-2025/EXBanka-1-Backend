@@ -39,7 +39,7 @@ func TestRoles_CreateCustomRole(t *testing.T) {
 	resp, err := c.POST("/api/v1/roles", map[string]interface{}{
 		"name":        fmt.Sprintf("CustomRole_%d", helpers.DateOfBirthUnix()),
 		"description": "A test custom role",
-		"permissions": []string{"clients.read", "accounts.read"},
+		"permissions": []string{"clients.read.all", "accounts.read.all"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -56,7 +56,7 @@ func TestRoles_UpdateRolePermissions(t *testing.T) {
 	createResp, err := c.POST("/api/v1/roles", map[string]interface{}{
 		"name":        fmt.Sprintf("UpdRole_%d", helpers.DateOfBirthUnix()),
 		"description": "Role to update",
-		"permissions": []string{"clients.read"},
+		"permissions": []string{"clients.read.all"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -66,7 +66,7 @@ func TestRoles_UpdateRolePermissions(t *testing.T) {
 
 	// Update permissions
 	resp, err := c.PUT(fmt.Sprintf("/api/v1/roles/%d/permissions", int(roleID)), map[string]interface{}{
-		"permission_codes": []string{"clients.read", "accounts.read", "cards.manage"},
+		"permission_codes": []string{"clients.read.all", "accounts.read.all", "cards.create.physical"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -136,7 +136,7 @@ func TestRoles_SetEmployeeAdditionalPermissions(t *testing.T) {
 	empID := helpers.GetNumberField(t, createResp, "id")
 
 	resp, err := c.PUT(fmt.Sprintf("/api/v1/employees/%d/permissions", int(empID)), map[string]interface{}{
-		"permission_codes": []string{"securities.trade", "otc.manage"},
+		"permission_codes": []string{"securities.trade.any", "otc.read.all"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)

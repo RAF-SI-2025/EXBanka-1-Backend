@@ -318,25 +318,25 @@ func TestResolvePermissions(t *testing.T) {
 			{
 				Name: "EmployeeBasic",
 				Permissions: []model.Permission{
-					{Code: "clients.read"},
-					{Code: "accounts.read"},
+					{Code: "clients.read.all"},
+					{Code: "accounts.read.all"},
 				},
 			},
 		},
 		AdditionalPermissions: []model.Permission{
-			{Code: "securities.trade"},
-			{Code: "clients.read"}, // duplicate — should be deduplicated
+			{Code: "securities.trade.any"},
+			{Code: "clients.read.all"}, // duplicate — should be deduplicated
 		},
 	}
 
 	perms := svc.ResolvePermissions(emp)
-	assert.Contains(t, perms, "clients.read")
-	assert.Contains(t, perms, "accounts.read")
-	assert.Contains(t, perms, "securities.trade")
-	// "clients.read" should appear only once
+	assert.Contains(t, perms, "clients.read.all")
+	assert.Contains(t, perms, "accounts.read.all")
+	assert.Contains(t, perms, "securities.trade.any")
+	// "clients.read.all" should appear only once
 	count := 0
 	for _, p := range perms {
-		if p == "clients.read" {
+		if p == "clients.read.all" {
 			count++
 		}
 	}

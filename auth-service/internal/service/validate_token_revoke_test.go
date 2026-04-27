@@ -46,7 +46,7 @@ func newAuthServiceWithRealCache(t *testing.T) (*AuthService, *cache.RedisCache,
 func TestValidateToken_RevokedByEpoch_RejectsToken(t *testing.T) {
 	svc, redis, jwtSvc := newAuthServiceWithRealCache(t)
 
-	tok, err := jwtSvc.GenerateAccessToken(42, "x@y", []string{"EmployeeAgent"}, []string{"clients.read"}, "employee", TokenProfile{})
+	tok, err := jwtSvc.GenerateAccessToken(42, "x@y", []string{"EmployeeAgent"}, []string{"clients.read.all"}, "employee", TokenProfile{})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestValidateToken_RevokedByEpoch_FreshTokenStillValid(t *testing.T) {
 		t.Fatalf("set epoch: %v", err)
 	}
 
-	tok, err := jwtSvc.GenerateAccessToken(42, "x@y", []string{"EmployeeAgent"}, []string{"clients.read"}, "employee", TokenProfile{})
+	tok, err := jwtSvc.GenerateAccessToken(42, "x@y", []string{"EmployeeAgent"}, []string{"clients.read.all"}, "employee", TokenProfile{})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestValidateToken_RevokedByEpoch_NoEpochKey_TokenValid(t *testing.T) {
 func TestValidateToken_RevokedByEpoch_CacheHitPathAlsoChecksEpoch(t *testing.T) {
 	svc, redis, jwtSvc := newAuthServiceWithRealCache(t)
 
-	tok, err := jwtSvc.GenerateAccessToken(7, "a@b", []string{"EmployeeAgent"}, []string{"clients.read"}, "employee", TokenProfile{})
+	tok, err := jwtSvc.GenerateAccessToken(7, "a@b", []string{"EmployeeAgent"}, []string{"clients.read.all"}, "employee", TokenProfile{})
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}

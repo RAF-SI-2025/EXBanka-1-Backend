@@ -109,6 +109,12 @@ func (s *stubUserClient) SetEmployeeAdditionalPermissions(ctx context.Context, i
 func (s *stubUserClient) ListEmployeeFullNames(ctx context.Context, in *userpb.ListEmployeeFullNamesRequest, opts ...grpc.CallOption) (*userpb.ListEmployeeFullNamesResponse, error) {
 	return &userpb.ListEmployeeFullNamesResponse{}, nil
 }
+func (s *stubUserClient) AssignPermissionToRole(ctx context.Context, in *userpb.AssignPermissionToRoleRequest, opts ...grpc.CallOption) (*userpb.AssignPermissionToRoleResponse, error) {
+	return &userpb.AssignPermissionToRoleResponse{}, nil
+}
+func (s *stubUserClient) RevokePermissionFromRole(ctx context.Context, in *userpb.RevokePermissionFromRoleRequest, opts ...grpc.CallOption) (*userpb.RevokePermissionFromRoleResponse, error) {
+	return &userpb.RevokePermissionFromRoleResponse{}, nil
+}
 
 // ----------------------------------------------------------------------------
 // Test fixtures

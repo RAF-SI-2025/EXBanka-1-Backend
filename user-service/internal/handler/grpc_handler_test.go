@@ -383,7 +383,7 @@ func TestSetEmployeeRoles_Success(t *testing.T) {
 		getFn: func(id int64) (*model.Employee, error) {
 			return &model.Employee{ID: id, Roles: []model.Role{{ID: 1, Name: "EmployeeBasic"}}}, nil
 		},
-		resolvePermsFn: func(e *model.Employee) []string { return []string{"clients.read"} },
+		resolvePermsFn: func(e *model.Employee) []string { return []string{"clients.read.all"} },
 	}
 	h := newUserHandlerForTest(emp, &mockRoleSvc{})
 
@@ -432,17 +432,17 @@ func TestSetEmployeeAdditionalPermissions_Success(t *testing.T) {
 			return &model.Employee{
 				ID: id,
 				AdditionalPermissions: []model.Permission{
-					{ID: 1, Code: "clients.read"},
+					{ID: 1, Code: "clients.read.all"},
 				},
 			}, nil
 		},
-		resolvePermsFn: func(e *model.Employee) []string { return []string{"clients.read"} },
+		resolvePermsFn: func(e *model.Employee) []string { return []string{"clients.read.all"} },
 	}
 	h := newUserHandlerForTest(emp, &mockRoleSvc{})
 
 	resp, err := h.SetEmployeeAdditionalPermissions(context.Background(), &pb.SetEmployeePermissionsRequest{
 		EmployeeId:      7,
-		PermissionCodes: []string{"clients.read"},
+		PermissionCodes: []string{"clients.read.all"},
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -465,7 +465,7 @@ func TestUpdateRolePermissions_Success(t *testing.T) {
 			return &model.Role{
 				ID:          id,
 				Name:        "EmployeeBasic",
-				Permissions: []model.Permission{{ID: 1, Code: "clients.read"}},
+				Permissions: []model.Permission{{ID: 1, Code: "clients.read.all"}},
 			}, nil
 		},
 	}
@@ -473,7 +473,7 @@ func TestUpdateRolePermissions_Success(t *testing.T) {
 
 	resp, err := h.UpdateRolePermissions(context.Background(), &pb.UpdateRolePermissionsRequest{
 		RoleId:          1,
-		PermissionCodes: []string{"clients.read"},
+		PermissionCodes: []string{"clients.read.all"},
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -491,8 +491,8 @@ func TestListPermissions_Success(t *testing.T) {
 	roleSvc := &mockRoleSvc{
 		listPermsFn: func() ([]model.Permission, error) {
 			return []model.Permission{
-				{ID: 1, Code: "clients.read", Description: "Read clients"},
-				{ID: 2, Code: "clients.write", Description: "Write clients"},
+				{ID: 1, Code: "clients.read.all", Description: "Read clients"},
+				{ID: 2, Code: "clients.update.profile", Description: "Write clients"},
 			}, nil
 		},
 	}
@@ -505,7 +505,7 @@ func TestListPermissions_Success(t *testing.T) {
 	if len(resp.Permissions) != 2 {
 		t.Errorf("expected 2 permissions, got %d", len(resp.Permissions))
 	}
-	if resp.Permissions[0].Code != "clients.read" {
+	if resp.Permissions[0].Code != "clients.read.all" {
 		t.Errorf("unexpected first permission code: %s", resp.Permissions[0].Code)
 	}
 }
@@ -610,7 +610,7 @@ func TestCreateRole_Success(t *testing.T) {
 	resp, err := h.CreateRole(context.Background(), &pb.CreateRoleRequest{
 		Name:            "CustomRole",
 		Description:     "A custom role",
-		PermissionCodes: []string{"clients.read"},
+		PermissionCodes: []string{"clients.read.all"},
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -654,7 +654,7 @@ func TestUpdateRolePermissions_UpdateError(t *testing.T) {
 
 	_, err := h.UpdateRolePermissions(context.Background(), &pb.UpdateRolePermissionsRequest{
 		RoleId:          1,
-		PermissionCodes: []string{"clients.read"},
+		PermissionCodes: []string{"clients.read.all"},
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -717,7 +717,7 @@ func TestSetEmployeeAdditionalPermissions_ServiceError(t *testing.T) {
 
 	_, err := h.SetEmployeeAdditionalPermissions(context.Background(), &pb.SetEmployeePermissionsRequest{
 		EmployeeId:      7,
-		PermissionCodes: []string{"clients.read"},
+		PermissionCodes: []string{"clients.read.all"},
 	})
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -749,7 +749,7 @@ func TestCreateEmployee_WithRole_Success(t *testing.T) {
 				Roles:     []model.Role{{ID: 1, Name: "EmployeeBasic"}},
 			}, nil
 		},
-		resolvePermsFn: func(e *model.Employee) []string { return []string{"clients.read"} },
+		resolvePermsFn: func(e *model.Employee) []string { return []string{"clients.read.all"} },
 	}
 	h := newUserHandlerForTest(emp, &mockRoleSvc{})
 

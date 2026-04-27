@@ -10,7 +10,7 @@ import (
 func TestGenerateAndValidateAccessToken(t *testing.T) {
 	svc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
 
-	token, err := svc.GenerateAccessToken(1, "user@test.com", []string{"EmployeeBasic"}, []string{"clients.read"}, "employee", TokenProfile{AccountActive: true})
+	token, err := svc.GenerateAccessToken(1, "user@test.com", []string{"EmployeeBasic"}, []string{"clients.read.all"}, "employee", TokenProfile{AccountActive: true})
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
 
@@ -19,7 +19,7 @@ func TestGenerateAndValidateAccessToken(t *testing.T) {
 	assert.Equal(t, int64(1), claims.UserID)
 	assert.Equal(t, "user@test.com", claims.Email)
 	assert.Equal(t, []string{"EmployeeBasic"}, claims.Roles)
-	assert.Equal(t, []string{"clients.read"}, claims.Permissions)
+	assert.Equal(t, []string{"clients.read.all"}, claims.Permissions)
 	assert.Equal(t, "employee", claims.SystemType)
 }
 

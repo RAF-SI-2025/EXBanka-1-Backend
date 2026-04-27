@@ -356,7 +356,7 @@ func (s *EmployeeService) emitSupervisorDemotedIfLost(employeeID, changedBy int6
 	}
 	hadFunds := false
 	for _, p := range beforePerms {
-		if p == "funds.manage" {
+		if p == "funds.manage.catalog" {
 			hadFunds = true
 			break
 		}
@@ -371,7 +371,7 @@ func (s *EmployeeService) emitSupervisorDemotedIfLost(employeeID, changedBy int6
 	}
 	stillHasFunds := false
 	for _, p := range s.ResolvePermissions(emp) {
-		if p == "funds.manage" {
+		if p == "funds.manage.catalog" {
 			stillHasFunds = true
 			break
 		}

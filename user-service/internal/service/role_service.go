@@ -16,7 +16,7 @@ type RoleService struct {
 	roleRepo  RoleRepo
 	permRepo  PermissionRepo
 	publisher RolePermPublisher
-	db        *gorm.DB // optional; required only for SeedRolesAndPermissions / CatalogDriftCheck
+	db        *gorm.DB // optional; required only for SeedRolesAndPermissions
 }
 
 func NewRoleService(roleRepo RoleRepo, permRepo PermissionRepo) *RoleService {
@@ -31,11 +31,10 @@ func (s *RoleService) WithPublisher(p RolePermPublisher) *RoleService {
 	return s
 }
 
-// WithDB wires a raw *gorm.DB handle used by SeedRolesAndPermissions and
-// CatalogDriftCheck. Both functions need to count rows in the join table
-// and read the catalog seed transactionally — neither operation maps
-// cleanly onto the narrow repository interfaces. Pass nil to disable
-// seeding (in which case the seed becomes a no-op).
+// WithDB wires a raw *gorm.DB handle used by SeedRolesAndPermissions to
+// count rows in the join table and seed catalog rows transactionally —
+// neither operation maps cleanly onto the narrow repository interfaces.
+// Pass nil to disable seeding (in which case the seed becomes a no-op).
 func (s *RoleService) WithDB(db *gorm.DB) *RoleService {
 	s.db = db
 	return s
@@ -194,34 +193,6 @@ func mergePermissions(existing []model.Permission, add model.Permission) []model
 		}
 	}
 	return append(existing, add)
-}
-
-// CatalogDriftCheck logs orphan permissions — DB rows referencing a permission
-// no longer in the catalog. Run at startup. Does not auto-clean; cleanup is
-// an explicit admin action.
-func (s *RoleService) CatalogDriftCheck() {
-	if s.db == nil {
-		return
-	}
-	type row struct {
-		RoleID int64
-		Code   string
-	}
-	var rows []row
-	if err := s.db.
-		Table("role_permissions").
-		Select("role_permissions.role_id AS role_id, permissions.code AS code").
-		Joins("JOIN permissions ON permissions.id = role_permissions.permission_id").
-		Scan(&rows).Error; err != nil {
-		log.Printf("WARN: catalog drift check failed: %v", err)
-		return
-	}
-	for _, r := range rows {
-		if !permissions.IsValid(permissions.Permission(r.Code)) {
-			log.Printf("WARN: orphan permission in role_permissions: role_id=%d perm=%q",
-				r.RoleID, r.Code)
-		}
-	}
 }
 
 // ValidRole checks if a role name exists in the DB.

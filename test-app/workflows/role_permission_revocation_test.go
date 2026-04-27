@@ -57,13 +57,13 @@ func TestRoleRevocation_AdminUpdatesRolePerms_AgentMustReauth(t *testing.T) {
 	// restore it after the test. Keep this list in sync with
 	// user-service/internal/service/role_service.go DefaultRolePermissions.
 	defaultAgentPerms := []string{
-		"clients.create", "clients.read", "clients.update",
-		"accounts.create", "accounts.read", "accounts.update",
-		"cards.create", "cards.read", "cards.update", "cards.approve",
-		"payments.read",
-		"credits.read", "credits.approve",
-		"securities.trade", "securities.read",
-		"orders.place-on-behalf",
+		"clients.create.any", "clients.read.all", "clients.update.profile",
+		"accounts.create.current", "accounts.read.all", "accounts.update.name",
+		"cards.create.physical", "cards.read.all", "cards.block.any", "cards.approve.physical",
+		"accounts.read.all",
+		"credits.read.all", "credits.approve.cash",
+		"securities.trade.any", "securities.read.holdings_all",
+		"orders.place.on_behalf_client",
 	}
 
 	t.Cleanup(func() {
@@ -77,7 +77,7 @@ func TestRoleRevocation_AdminUpdatesRolePerms_AgentMustReauth(t *testing.T) {
 	// harmless permission (securities.read). The empty list could be rejected
 	// or behave specially, so we keep one permission.
 	updResp, err := adminC.PUT("/api/v1/roles/"+strconv.Itoa(agentRoleID)+"/permissions", map[string]interface{}{
-		"permission_codes": []string{"securities.read"},
+		"permission_codes": []string{"securities.read.holdings_all"},
 	})
 	if err != nil {
 		t.Fatalf("update perms: %v", err)

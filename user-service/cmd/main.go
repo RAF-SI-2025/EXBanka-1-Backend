@@ -97,9 +97,6 @@ func main() {
 	if err := roleSvc.SeedRolesAndPermissions(); err != nil {
 		log.Fatalf("failed to seed roles and permissions: %v", err)
 	}
-	// Log any role_permissions rows that reference a permission code no
-	// longer in the codegened catalog. Does not auto-clean.
-	roleSvc.CatalogDriftCheck()
 
 	changelogRepo := repository.NewChangelogRepository(db)
 	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc, changelogRepo)
