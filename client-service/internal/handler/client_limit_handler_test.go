@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -10,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/exbanka/client-service/internal/model"
+	"github.com/exbanka/client-service/internal/service"
 	pb "github.com/exbanka/contract/clientpb"
 )
 
@@ -57,7 +57,7 @@ func TestClientLimitHandler_GetClientLimits_Success(t *testing.T) {
 func TestClientLimitHandler_GetClientLimits_NotFound(t *testing.T) {
 	svc := &mockClientLimitSvc{
 		getFn: func(_ int64) (*model.ClientLimit, error) {
-			return nil, errors.New("client limits not found")
+			return nil, service.ErrClientNotFound
 		},
 	}
 	h := newClientLimitGRPCHandlerForTest(svc)
@@ -119,14 +119,14 @@ func TestClientLimitHandler_SetClientLimits_InvalidTransfer(t *testing.T) {
 func TestClientLimitHandler_SetClientLimits_ServiceError(t *testing.T) {
 	svc := &mockClientLimitSvc{
 		setFn: func(_ context.Context, _ model.ClientLimit, _ int64) (*model.ClientLimit, error) {
-			return nil, errors.New("daily limit must be positive")
+			return nil, service.ErrLimitsExceedEmployee
 		},
 	}
 	h := newClientLimitGRPCHandlerForTest(svc)
 	_, err := h.SetClientLimits(context.Background(), &pb.SetClientLimitRequest{
 		ClientId: 5, DailyLimit: "0", MonthlyLimit: "100", TransferLimit: "100",
 	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", status.Code(err))
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition, got %v", status.Code(err))
 	}
 }

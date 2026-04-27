@@ -38,7 +38,7 @@ func newClientLimitGRPCHandlerForTest(svc clientLimitFacade) *ClientLimitGRPCHan
 func (h *ClientLimitGRPCHandler) GetClientLimits(ctx context.Context, req *pb.GetClientLimitRequest) (*pb.ClientLimitResponse, error) {
 	limit, err := h.limitSvc.GetClientLimits(req.ClientId)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to get client limits: %v", err)
+		return nil, err
 	}
 	return toClientLimitResponse(limit), nil
 }
@@ -68,7 +68,7 @@ func (h *ClientLimitGRPCHandler) SetClientLimits(ctx context.Context, req *pb.Se
 	changedBy := changelog.ExtractChangedBy(ctx)
 	result, err := h.limitSvc.SetClientLimits(ctx, limit, changedBy)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to set client limits: %v", err)
+		return nil, err
 	}
 	return toClientLimitResponse(result), nil
 }
