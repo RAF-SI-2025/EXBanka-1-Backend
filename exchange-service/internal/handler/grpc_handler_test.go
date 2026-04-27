@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/exchange-service/internal/model"
+	"github.com/exbanka/exchange-service/internal/service"
 )
 
 // ---------------------------------------------------------------------------
@@ -22,10 +23,10 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockExchangeFacade struct {
-	listRatesFn  func() ([]model.ExchangeRate, error)
-	getRateFn    func(from, to string) (*model.ExchangeRate, error)
-	calculateFn  func(ctx context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, decimal.Decimal, error)
-	convertFn    func(ctx context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, error)
+	listRatesFn func() ([]model.ExchangeRate, error)
+	getRateFn   func(from, to string) (*model.ExchangeRate, error)
+	calculateFn func(ctx context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, decimal.Decimal, error)
+	convertFn   func(ctx context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, error)
 }
 
 func (m *mockExchangeFacade) ListRates() ([]model.ExchangeRate, error) {
@@ -60,6 +61,31 @@ func sampleRate(from, to string) model.ExchangeRate {
 }
 
 // ---------------------------------------------------------------------------
+// Sentinel passthrough sanity check
+// ---------------------------------------------------------------------------
+
+func TestSentinels_PassthroughCodes(t *testing.T) {
+	cases := []struct {
+		name     string
+		sentinel error
+		code     codes.Code
+	}{
+		{"RateNotFound", service.ErrRateNotFound, codes.NotFound},
+		{"InvalidAmount", service.ErrInvalidAmount, codes.InvalidArgument},
+		{"UnsupportedCurrency", service.ErrUnsupportedCurrency, codes.InvalidArgument},
+		{"RateLookupFailed", service.ErrRateLookupFailed, codes.Internal},
+		{"SameCurrency", service.ErrSameCurrency, codes.InvalidArgument},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wrapped := fmt.Errorf("Op: %w", tc.sentinel)
+			require.True(t, errors.Is(wrapped, tc.sentinel))
+			assert.Equal(t, tc.code, status.Code(wrapped))
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // ListRates
 // ---------------------------------------------------------------------------
 
@@ -82,7 +108,7 @@ func TestListRates_Success(t *testing.T) {
 func TestListRates_Error(t *testing.T) {
 	mock := &mockExchangeFacade{
 		listRatesFn: func() ([]model.ExchangeRate, error) {
-			return nil, errors.New("db failure")
+			return nil, fmt.Errorf("ListRates db: %w", service.ErrRateLookupFailed)
 		},
 	}
 	h := newExchangeGRPCHandlerForTest(mock)
@@ -125,7 +151,7 @@ func TestGetRate_Success(t *testing.T) {
 func TestGetRate_NotFound(t *testing.T) {
 	mock := &mockExchangeFacade{
 		getRateFn: func(from, to string) (*model.ExchangeRate, error) {
-			return nil, gorm.ErrRecordNotFound
+			return nil, fmt.Errorf("GetRate(%s/%s): %w", from, to, service.ErrRateNotFound)
 		},
 	}
 	h := newExchangeGRPCHandlerForTest(mock)
@@ -145,7 +171,7 @@ func TestGetRate_NotFound(t *testing.T) {
 func TestGetRate_ServiceError(t *testing.T) {
 	mock := &mockExchangeFacade{
 		getRateFn: func(from, to string) (*model.ExchangeRate, error) {
-			return nil, errors.New("connection reset")
+			return nil, fmt.Errorf("GetRate db: %w", service.ErrRateLookupFailed)
 		},
 	}
 	h := newExchangeGRPCHandlerForTest(mock)
@@ -207,6 +233,7 @@ func TestCalculate_InvalidAmount_EmptyString(t *testing.T) {
 
 	require.Nil(t, resp)
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInvalidAmount))
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -224,6 +251,7 @@ func TestCalculate_InvalidAmount_Negative(t *testing.T) {
 
 	require.Nil(t, resp)
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInvalidAmount))
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -241,6 +269,7 @@ func TestCalculate_UnsupportedFromCurrency(t *testing.T) {
 
 	require.Nil(t, resp)
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrUnsupportedCurrency))
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -258,6 +287,7 @@ func TestCalculate_UnsupportedToCurrency(t *testing.T) {
 
 	require.Nil(t, resp)
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrUnsupportedCurrency))
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -266,7 +296,7 @@ func TestCalculate_UnsupportedToCurrency(t *testing.T) {
 func TestCalculate_NotFound(t *testing.T) {
 	mock := &mockExchangeFacade{
 		calculateFn: func(_ context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, decimal.Decimal, error) {
-			return decimal.Zero, decimal.Zero, decimal.Zero, gorm.ErrRecordNotFound
+			return decimal.Zero, decimal.Zero, decimal.Zero, fmt.Errorf("Calculate(%s/%s): %w", from, to, service.ErrRateNotFound)
 		},
 	}
 	h := newExchangeGRPCHandlerForTest(mock)
@@ -287,7 +317,7 @@ func TestCalculate_NotFound(t *testing.T) {
 func TestCalculate_ServiceError(t *testing.T) {
 	mock := &mockExchangeFacade{
 		calculateFn: func(_ context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, decimal.Decimal, error) {
-			return decimal.Zero, decimal.Zero, decimal.Zero, errors.New("unexpected db error")
+			return decimal.Zero, decimal.Zero, decimal.Zero, fmt.Errorf("Calculate db: %w", service.ErrRateLookupFailed)
 		},
 	}
 	h := newExchangeGRPCHandlerForTest(mock)
@@ -347,6 +377,7 @@ func TestConvert_InvalidAmount(t *testing.T) {
 
 	require.Nil(t, resp)
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInvalidAmount))
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -364,6 +395,7 @@ func TestConvert_UnsupportedCurrency(t *testing.T) {
 
 	require.Nil(t, resp)
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrUnsupportedCurrency))
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -372,7 +404,7 @@ func TestConvert_UnsupportedCurrency(t *testing.T) {
 func TestConvert_NotFound(t *testing.T) {
 	mock := &mockExchangeFacade{
 		convertFn: func(_ context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, error) {
-			return decimal.Zero, decimal.Zero, gorm.ErrRecordNotFound
+			return decimal.Zero, decimal.Zero, fmt.Errorf("Convert(%s/%s): %w", from, to, service.ErrRateNotFound)
 		},
 	}
 	h := newExchangeGRPCHandlerForTest(mock)
@@ -393,7 +425,7 @@ func TestConvert_NotFound(t *testing.T) {
 func TestConvert_ServiceError(t *testing.T) {
 	mock := &mockExchangeFacade{
 		convertFn: func(_ context.Context, from, to string, amount decimal.Decimal) (decimal.Decimal, decimal.Decimal, error) {
-			return decimal.Zero, decimal.Zero, errors.New("timeout")
+			return decimal.Zero, decimal.Zero, fmt.Errorf("Convert db: %w", service.ErrRateLookupFailed)
 		},
 	}
 	h := newExchangeGRPCHandlerForTest(mock)
