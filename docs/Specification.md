@@ -461,11 +461,11 @@ func (h *SomeHandler) CreateSomething(c *gin.Context) { ... }
 
 ```json
 {
-  "user_id": 123,
+  "principal_id": 123,
+  "principal_type": "employee",
   "email": "user@example.com",
   "roles": ["EmployeeBasic"],
   "permissions": ["clients.read", "accounts.read"],
-  "system_type": "employee",
   "device_type": "",
   "device_id": "",
   "jti": "uuid",
@@ -473,6 +473,8 @@ func (h *SomeHandler) CreateSomething(c *gin.Context) { ... }
   "exp": 1234567890
 }
 ```
+
+Field rename history (plan 2026-04-27-owner-type-schema.md, Tasks 1-2): `user_id` → `principal_id`, `system_type` → `principal_type`. The names align with the system-wide *principal* concept (the authenticated subject of the token, distinct from the *owner* of any resource it touches — see §6.X Identity Model below).
 
 Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>"`. Mobile refresh tokens have a 90-day expiry (configurable via `MOBILE_REFRESH_EXPIRY`).
 
@@ -546,12 +548,41 @@ For bulk replacement (set all permissions on a role at once) the legacy `PUT /ap
 After middleware runs, these are available via `c.GetXxx()`:
 
 ```go
-c.GetInt64("user_id")      // Principal ID (employee or client)
-c.GetString("email")       // Email
-c.GetString("role")        // Primary role name
-c.GetString("system_type") // "employee" or "client"
+c.GetInt64("principal_id")      // Authenticated subject ID (employee or client)
+c.GetString("principal_type")   // "employee" or "client"
+c.GetString("email")            // Email
+c.GetString("role")             // Primary role name
 // "roles" and "permissions" are set as string slices
 ```
+
+After `ResolveIdentity` runs (per-route, see §6.X) the resolved owner is also available:
+
+```go
+identity := middleware.IdentityFromContext(c) // *ResolvedIdentity
+// identity.PrincipalType / PrincipalID  — JWT subject
+// identity.OwnerType / OwnerID          — resource owner per route policy
+// identity.ActingEmployeeID             — employee id when an employee acts
+//                                         on behalf of bank/client (else nil)
+```
+
+### 6.X Identity Model (plan 2026-04-27-owner-type-schema.md)
+
+The system distinguishes two concepts:
+
+- **Principal** — the authenticated caller. JWT carries `principal_type` (`client | employee`) + `principal_id`. Set by `AuthMiddleware` / `AnyAuthMiddleware`.
+- **Owner** — the holder of a resource row. Stock-service models use `(owner_type, owner_id)` where `owner_type ∈ {client, bank}` (employees never own trading resources; bank-owned rows have `owner_id IS NULL`).
+
+The mapping from principal to owner is a per-route policy enforced by `api-gateway/internal/middleware.ResolveIdentity(rule)`:
+
+| Rule | Used by | Mapping |
+|---|---|---|
+| `OwnerIsPrincipal` | `/api/me/profile`, `/api/me/cards`, etc. | Owner == Principal verbatim. |
+| `OwnerIsBankIfEmployee` | `/api/me/orders`, `/api/me/holdings`, `/api/me/funds`, `/api/me/otc/*` | Employee → bank ownership (`OwnerType=bank`, `OwnerID=nil`). Client → self ownership. |
+| `OwnerFromURLParam("client_id")` | Admin-acts-on-client routes | Owner is the URL-named client. Requires the principal to be an employee with the relevant `*.on_behalf.*` permission. |
+
+`ActingEmployeeID` is set on every side-effect row whenever the principal is an employee, regardless of the resolved owner. The actuary-limit gate in stock-service keys on this field — `OwnerIsBankIfEmployee` for an employee correctly resolves Owner=bank but still tags the row with `acting_employee_id=<emp>` so the limit applies.
+
+Helper: `middleware.IdentityFromContext(c) → *ResolvedIdentity`. Handlers should call this once and use the resolved owner — never re-derive ownership from the JWT.
 
 ---
 
@@ -1705,13 +1736,15 @@ Volume, SettlementDate, ContractSize(int64), MaintenanceMarginRate(numeric 10,6)
 LastRefresh, Version(int64), CreatedAt, UpdatedAt
 ```
 
-**Holding** — A user's current position in a security
+**Holding** — A current position in a security, owned by a client or by the bank.
 ```
-ID(uint64), UserID(indexed), SecurityType(stock|futures|forex|option),
-SecurityID(indexed), Quantity(int64), AveragePrice(numeric 18,8),
-PublicQuantity(int64), ReservedQuantity(int64,default:0), AccountID(uint64),
-Version(int64), CreatedAt, UpdatedAt
+ID(uint64), OwnerType(client|bank,indexed), OwnerID(*uint64,indexed),
+SecurityType(stock|futures|forex|option), SecurityID(indexed), Quantity(int64),
+AveragePrice(numeric 18,8), PublicQuantity(int64), ReservedQuantity(int64,default:0),
+AccountID(uint64), Version(int64), CreatedAt, UpdatedAt
 ```
+`OwnerType`+`OwnerID` replaces the pre-Task-4 (UserID, SystemType) pair (plan 2026-04-27-owner-type-schema.md). Bank-owned holdings have `OwnerType="bank"` with `OwnerID IS NULL`; client-owned holdings have `OwnerType="client"` with a non-null `OwnerID`. The `BeforeSave` hook calls `model.ValidateOwner` to enforce the invariant. Unique index `idx_holding_per_owner_security` keys on `(owner_type, COALESCE(owner_id, 0), security_type, security_id)` so each (owner, security) pair rolls up to a single row.
+
 `ReservedQuantity` is the running total of units locked by active sell-side `HoldingReservation` rows. `AvailableQuantity = Quantity - ReservedQuantity`. Sell orders are rejected at placement if `AvailableQuantity` is insufficient; filled sells decrement both `Quantity` and `ReservedQuantity` atomically.
 
 **HoldingReservation** — Quantity-based mirror of `AccountReservation`. Locks shares on a holding for the duration of a sell order. Immutable except for `Status`/`Version`.
@@ -1726,17 +1759,19 @@ ID(uint64), HoldingReservationID(uint64,indexed), OrderTransactionID(uint64,uniq
 Quantity(int64), CreatedAt
 ```
 
-**Order** — A buy/sell order placed by a user
+**Order** — A buy/sell order placed against a listing on behalf of a client or the bank.
 ```
-ID(uint64), UserID, ListingID(→Listing), Direction(buy|sell), OrderType(market|limit|stop|stop_limit),
+ID(uint64), OwnerType(client|bank,indexed), OwnerID(*uint64,indexed),
+ListingID(→Listing), Direction(buy|sell), OrderType(market|limit|stop|stop_limit),
 Quantity(int64), FilledQuantity(int64), Price(nullable), StopPrice(nullable),
-Status(pending|executed|cancelled|rejected), AccountID, ActingEmployeeID(uint64,nullable),
+Status(pending|executed|cancelled|rejected), AccountID, ActingEmployeeID(*uint64,indexed),
 ReservationAmount(numeric18,4,nullable), ReservationCurrency(3,nullable),
 ReservationAccountID(uint64,nullable), BaseAccountID(uint64,nullable,forex-only),
 PlacementRate(numeric18,8,nullable), SagaID(string,36,indexed),
 Version(int64), CreatedAt, UpdatedAt
 ```
-`ActingEmployeeID` — nullable audit column set when an employee places a trade on behalf of a client via `POST /api/v1/orders` or `POST /api/v1/otc/admin/offers/:id/buy`.
+`OwnerType`+`OwnerID` describe the owner of the resulting holding (plan 2026-04-27-owner-type-schema.md). Bank-owned orders have `OwnerType="bank"`, `OwnerID IS NULL`. Client-owned orders have `OwnerType="client"`, `OwnerID = client_id`.
+`ActingEmployeeID` — nullable audit column set whenever the *principal* who placed the order is an employee. The actuary-limit gate keys on this field, so `OwnerIsBankIfEmployee` (an employee placing through `/api/me/orders`) correctly resolves Owner=bank but still records the employee for limit enforcement.
 `ReservationAmount`/`ReservationCurrency`/`ReservationAccountID` — populated by the placement saga's `reserve_funds` step; read on cancellation and recovery. Nullable for historical orders pre-dating Phase 2.
 `BaseAccountID` — forex orders only; the user's base-currency account credited on fill. Must differ from `AccountID` (the quote-currency account where funds are reserved).
 `PlacementRate` — audit snapshot of the FX rate used at placement time for cross-currency securities orders. Nullable for same-currency orders.
@@ -1785,6 +1820,8 @@ Key(string, PK, size:64), Value(string)
 | `notification.send-push` | (future) | notification-service | (future) |
 | `notification.push-sent` | notification-service | (logging) | (future) |
 | `auth.account-status-changed` | auth-service | (consumers) | AuthAccountStatusChangedMessage |
+| `auth.session-created` | auth-service | (audit/consumers) | `AuthSessionCreatedMessage` — payload carries `principal_type`/`principal_id` (renamed from `system_type`/`user_id` by Task 9 of plan 2026-04-27-owner-type-schema.md) plus session metadata (ip, user-agent, device type) |
+| `auth.session-revoked` | auth-service | (audit/consumers) | `AuthSessionRevokedMessage` — `session_id`, `user_id`, `reason` |
 | `auth.dead-letter` | auth-service | (monitoring) | (failed events) |
 | `user.employee-created` | user-service | notification-service | EmployeeCreatedMessage |
 | `user.employee-updated` | user-service | (consumers) | (generic) |
@@ -1912,7 +1949,9 @@ type RolePermissionsChangedMessage struct {
 | `saga_id` | string (UUID) | Links the fill to its saga_logs rows |
 | `order_id` | uint64 | |
 | `order_txn_id` | uint64 | `OrderTransaction.ID`; idempotency key for downstream consumers |
-| `user_id` | uint64 | |
+| `owner_type` | string | `client` or `bank` (canonical owner — added by plan 2026-04-27-owner-type-schema.md, Task 9) |
+| `owner_id` | uint64\|null | Client ID, or `null` for bank-owned orders |
+| `user_id` | uint64 | Legacy compatibility shim — equals `owner_id` for client owners, `0` for bank-owned. Will be retired after one or two deploy cycles. |
 | `direction` | string | `buy` or `sell` |
 | `security_type` | string | `stock`, `futures`, `forex`, `option` |
 | `ticker` | string | |
@@ -2005,8 +2044,10 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 
 | Value | Meaning |
 |---|---|
-| `owner_id = 1_000_000_000` | Bank-owned account |
-| `owner_id = 2_000_000_000` | State-owned entity |
+| `account.owner_id = 1_000_000_000` | Bank-owned account (account-service only — see note below) |
+| `account.owner_id = 2_000_000_000` | State-owned entity (account-service) |
+
+**Stock-service** no longer uses the bank-owner sentinel. Per plan 2026-04-27-owner-type-schema.md (Tasks 4-11) every stock-service model that previously carried `(user_id=1_000_000_000, system_type="employee")` now uses `(OwnerType="bank", OwnerID IS NULL)` with a `BeforeSave` `model.ValidateOwner` hook enforcing the invariant. The api-gateway middleware `ResolveIdentity` (§6.X) computes the resolved owner per route and stock-service repositories filter on `(owner_type, owner_id)` directly; the legacy columns + the `BankSentinelUserID` constant have been removed. See §6.X (Identity Model) for the full principal-vs-owner separation.
 
 ### Key Business Rules
 
@@ -2065,8 +2106,12 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - Exchange rate sync failure → log warning, keep seed rates
 
 **Ownership & On-Behalf Trading:**
-- All `/api/me/*` routes derive resource ownership from the JWT. Any resource ID from URL, query, or body is verified against the caller's `user_id` before any read or write. Mismatches return `404 not_found` to avoid leaking existence.
-- Employee on-behalf trading routes (`POST /api/v1/orders`, `POST /api/v1/otc/admin/offers/:id/buy`) verify that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. Mismatch returns 403.
+- All `/api/me/*` routes derive resource ownership from the JWT through the `ResolveIdentity` middleware (§6.X). The middleware applies a per-route policy:
+  - `OwnerIsPrincipal` — owner == authenticated principal (used by `/me/profile`, `/me/cards`, etc.).
+  - `OwnerIsBankIfEmployee` — employee principal → owner=bank; client principal → owner=self (used by `/me/orders`, `/me/holdings`, `/me/funds`, `/me/otc/*`).
+- Any resource ID from URL, query, or body is verified against the resolved owner before any read or write. Mismatches return `404 not_found` to avoid leaking existence.
+- The acting employee's id is recorded on every side-effect row (`acting_employee_id`) regardless of resolved owner; stock-service's actuary-limit gate keys on this column so an employee placing a /me/order is correctly rate-limited even though the order is bank-owned.
+- Employee on-behalf trading routes (`POST /api/v1/orders`, `POST /api/v1/otc/admin/offers/:id/buy`) use `OwnerFromURLParam("client_id")` and verify that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. Mismatch returns 403.
 
 **Stock Data Sources:**
 - Three sources supported: `external` (live API), `generated` (deterministic synthetic data), `simulator` (simulated market prices backed by the Market Simulator Service).
@@ -2276,10 +2321,10 @@ These endpoints exist only under `/api/v3/`. v3 is the home of new feature surfa
 | Entity | Table | Purpose |
 |---|---|---|
 | `InvestmentFund` | `investment_funds` | Supervisor-managed pool. One bank-owned RSD account, manager_employee_id, minimum contribution. Optimistic locking via Version. |
-| `ClientFundPosition` | `client_fund_positions` | One row per (fund, owner). Owner identified by (UserID, SystemType). Bank's stake uses UserID=1_000_000_000, SystemType="employee". TotalContributedRSD accumulates contributions and decrements on redeem. |
-| `FundContribution` | `fund_contributions` | Append-mostly history of every invest/redeem event. status pending → completed/failed under the saga that produced it. SagaID is a UUID string referencing saga_logs. |
+| `ClientFundPosition` | `client_fund_positions` | One row per (fund, owner). Owner identified by (`OwnerType`, `OwnerID`) — `bank` with `OwnerID IS NULL` for the bank's own stake, `client` with non-null `OwnerID` for clients. (Renamed from the pre-Task-4 `(UserID=1_000_000_000, SystemType="employee")` sentinel pattern by plan 2026-04-27-owner-type-schema.md.) TotalContributedRSD accumulates contributions and decrements on redeem. |
+| `FundContribution` | `fund_contributions` | Append-mostly history of every invest/redeem event. Owner identified by (`OwnerType`, `OwnerID`); status pending → completed/failed under the saga that produced it. SagaID is a UUID string referencing saga_logs. |
 | `FundHolding` | `fund_holdings` | Fund-side analogue of Holding. Increments on on-behalf-of-fund order fills, decrements on liquidation. FIFO order-by created_at for liquidation. |
-| `Order.FundID` | `orders.fund_id` | New optional column. Non-nil when the order was placed on behalf of a fund — owner_user_id is then 1_000_000_000 (bank sentinel) and fills credit `fund_holdings` instead of `holdings`. |
+| `Order.FundID` | `orders.fund_id` | New optional column. Non-nil when the order was placed on behalf of a fund — `OwnerType="bank"`/`OwnerID IS NULL` and fills credit `fund_holdings` instead of `holdings`. |
 
 ### Kafka topics
 
@@ -2287,8 +2332,8 @@ These endpoints exist only under `/api/v3/`. v3 is the home of new feature surfa
 |---|---|---|---|
 | `stock.fund-created` | stock-service | (none yet) | StockFundCreatedMessage |
 | `stock.fund-updated` | stock-service | (none yet) | StockFundUpdatedMessage |
-| `stock.fund-invested` | stock-service | (none yet) | StockFundInvestedMessage |
-| `stock.fund-redeemed` | stock-service | (none yet) | StockFundRedeemedMessage |
+| `stock.fund-invested` | stock-service | (none yet) | `StockFundInvestedMessage` — payload carries `owner_type` (`client`\|`bank`) + `owner_id` (`*uint64`, null when `owner_type=bank`); renamed from `(user_id, system_type)` by Task 9 of plan 2026-04-27-owner-type-schema.md |
+| `stock.fund-redeemed` | stock-service | (none yet) | `StockFundRedeemedMessage` — same owner_type/owner_id rename |
 | `stock.funds-reassigned` | stock-service | (none yet) | StockFundsReassignedMessage |
 | `user.supervisor-demoted` | user-service (via outbox relay) | stock-service (SupervisorDemotedConsumer) | UserSupervisorDemotedMessage |
 
@@ -2461,10 +2506,10 @@ No new permissions. `transfers.create` (existing) gates POST `/api/v3/me/transfe
 
 | Entity | Table | Purpose |
 |---|---|---|
-| `OTCOffer` | `otc_offers` | One negotiation thread between two parties on a stock-option contract. Carries direction, stock_id, qty, strike, premium, settlement_date, status, last_modified_by. Optimistic-locked. |
-| `OTCOfferRevision` | `otc_offer_revisions` | Append-only history of every CREATE/COUNTER/ACCEPT/REJECT action on an offer. (offer_id, revision_number) is unique. |
-| `OptionContract` | `option_contracts` | The premium-paid executed option produced by the accept saga. status ∈ {ACTIVE, EXERCISED, EXPIRED, FAILED}. |
-| `OTCOfferReadReceipt` | `otc_offer_read_receipts` | Composite-PK row tracking the most recent updated_at the user has seen for an offer. Drives the `unread` flag. |
+| `OTCOffer` | `otc_offers` | One negotiation thread between two parties on a stock-option contract. Carries direction, stock_id, qty, strike, premium, settlement_date, status. Initiator + counterparty identified by (`InitiatorOwnerType`, `InitiatorOwnerID`) / (`CounterpartyOwnerType`, `CounterpartyOwnerID`); `LastModifiedByPrincipalType`/`LastModifiedByPrincipalID` records the actor (principal) of the latest revision. (Renamed from the pre-Task-4 `(user_id, system_type)` triples by plan 2026-04-27-owner-type-schema.md.) Optimistic-locked. |
+| `OTCOfferRevision` | `otc_offer_revisions` | Append-only history of every CREATE/COUNTER/ACCEPT/REJECT action on an offer. Carries `ModifiedByPrincipalType`/`ModifiedByPrincipalID` (the principal who issued the revision, not the resource owner). (offer_id, revision_number) is unique. |
+| `OptionContract` | `option_contracts` | The premium-paid executed option produced by the accept saga. Buyer + seller identified by (`BuyerOwnerType`, `BuyerOwnerID`) / (`SellerOwnerType`, `SellerOwnerID`); status ∈ {ACTIVE, EXERCISED, EXPIRED, FAILED}. |
+| `OTCOfferReadReceipt` | `otc_offer_read_receipts` | Composite-PK row tracking the most recent updated_at the owner has seen for an offer. PK is (`OwnerType`, `OwnerID`, `OfferID`); bank readers materialise as `OwnerID=0` because Postgres disallows NULL in primary keys. Drives the `unread` flag. |
 | `HoldingReservation.OTCContractID` | `holding_reservations.otc_contract_id` | New nullable column. Either OrderID or OTCContractID is set; CHECK constraint enforces the XOR. |
 
 ### Permissions
@@ -2476,6 +2521,8 @@ No new permissions. `transfers.create` (existing) gates POST `/api/v3/me/transfe
 Defined in `contract/proto/stock/stock.proto`. RPCs: CreateOffer, ListMyOffers, GetOffer, CounterOffer, AcceptOffer, RejectOffer, ListMyContracts, GetContract, ExerciseContract.
 
 ### Kafka topics
+
+All OTC payloads embed one or more `OTCParty { owner_type, owner_id, bank_code? }` structs (renamed from `(user_id, system_type)` by plan 2026-04-27-owner-type-schema.md, Task 9). `owner_id` is `*uint64` and is `null` when `owner_type == "bank"`. For events whose semantic field is the *actor* of an action (e.g. `ModifiedBy`/`RejectedBy`), employee actors materialise as `owner_type="bank"`/`owner_id=null` because employees never own resources in this domain.
 
 | Topic | Producer | Payload |
 |---|---|---|
