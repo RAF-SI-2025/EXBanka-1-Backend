@@ -46,6 +46,7 @@ func main() {
 		&model.SagaLog{},
 		&model.Bank{},
 		&model.InterBankTransaction{},
+		&model.IdempotencyRecord{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
