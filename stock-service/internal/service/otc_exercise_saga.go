@@ -126,7 +126,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
-			Name: "reserve_strike",
+			Name: saga.StepReserveStrike,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy)
 				return e
@@ -137,7 +137,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			},
 		}).
 		Add(saga.Step{
-			Name: "settle_strike_buyer",
+			Name: saga.StepSettleStrikeBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, settleMemo)
 				return e
@@ -149,7 +149,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			},
 		}).
 		Add(saga.Step{
-			Name: "credit_strike_seller",
+			Name: saga.StepCreditStrikeSeller,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, strikeSellerCcy, creditMemo, idemSeller)
 				return e
@@ -160,7 +160,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			},
 		}).
 		Add(saga.Step{
-			Name: "consume_seller_holding",
+			Name: saga.StepConsumeSellerHolding,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.holdingRes.ConsumeForOTCContract(ctx, c.ID, qty, syntheticTxnID)
 				return e

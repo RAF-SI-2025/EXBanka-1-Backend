@@ -258,13 +258,13 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
-			Name: "record_transaction",
+			Name: saga.StepRecordTransaction,
 			// Caller already persisted the txn; this step exists for
 			// recovery visibility only.
 			Forward: func(ctx context.Context, _ *saga.State) error { return nil },
 		}).
 		Add(saga.Step{
-			Name: "convert_amount",
+			Name: saga.StepConvertAmount,
 			Forward: func(ctx context.Context, st *saga.State) error {
 				listing, err := s.listingRepo.GetByID(order.ListingID)
 				if err != nil {
@@ -314,7 +314,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 			// Pure compute + audit-field writes; nothing to roll back.
 		}).
 		Add(saga.Step{
-			Name: "settle_reservation",
+			Name: saga.StepSettleReservation,
 			Forward: func(ctx context.Context, st *saga.State) error {
 				commissionAmount := s.computeCommission(convertedAmount)
 				settleAmount := convertedAmount.Add(commissionAmount)
@@ -338,7 +338,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 			},
 		}).
 		Add(saga.Step{
-			Name: "update_holding",
+			Name: saga.StepUpdateHolding,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				return s.upsertHoldingForBuy(order, txn)
 			},
@@ -359,7 +359,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 	if commissionAmount.Sign() > 0 {
 		commSaga := sg.NewSubSaga("commission").
 			Add(saga.Step{
-				Name: "credit_commission",
+				Name: saga.StepCreditCommission,
 				Forward: func(ctx context.Context, _ *saga.State) error {
 					feeAcct, raErr := s.commissionRecipientAccount(ctx)
 					if raErr != nil {
@@ -604,11 +604,11 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
-			Name:    "record_transaction",
+			Name:    saga.StepRecordTransaction,
 			Forward: func(ctx context.Context, _ *saga.State) error { return nil },
 		}).
 		Add(saga.Step{
-			Name: "convert_amount",
+			Name: saga.StepConvertAmount,
 			Forward: func(ctx context.Context, st *saga.State) error {
 				l, err := s.listingRepo.GetByID(order.ListingID)
 				if err != nil {
@@ -659,7 +659,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 			},
 		}).
 		Add(saga.Step{
-			Name: "credit_proceeds",
+			Name: saga.StepCreditProceeds,
 			Forward: func(ctx context.Context, st *saga.State) error {
 				commissionAmount := s.computeCommission(convertedAmount)
 				netProceeds := convertedAmount.Sub(commissionAmount)
@@ -678,7 +678,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 			},
 		}).
 		Add(saga.Step{
-			Name: "decrement_holding",
+			Name: saga.StepDecrementHolding,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, perr := s.holdingReservationSvc.PartialSettle(ctx, order.ID, txn.ID, txn.Quantity)
 				if perr != nil {
@@ -703,7 +703,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 	if commissionAmount.Sign() > 0 {
 		commSaga := sg.NewSubSaga("commission").
 			Add(saga.Step{
-				Name: "credit_commission",
+				Name: saga.StepCreditCommission,
 				Forward: func(ctx context.Context, _ *saga.State) error {
 					feeAcct, raErr := s.commissionRecipientAccount(ctx)
 					if raErr != nil {

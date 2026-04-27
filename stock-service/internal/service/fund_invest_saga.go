@@ -137,7 +137,7 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
-			Name: "debit_source",
+			Name: saga.StepDebitSource,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.DebitAccount(ctx, srcAcct.AccountNumber, in.Amount, debitMemo, debitKey)
 				return e
@@ -148,7 +148,7 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 			},
 		}).
 		Add(saga.Step{
-			Name: "credit_fund",
+			Name: saga.StepCreditFund,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, fundAcct.AccountNumber, amountRSD, creditMemo, creditKey)
 				return e
@@ -159,7 +159,7 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 			},
 		}).
 		Add(saga.Step{
-			Name: "upsert_position",
+			Name: saga.StepUpsertPosition,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				return s.positions.IncrementContribution(in.FundID, posUserID, posSystemType, amountRSD)
 			},

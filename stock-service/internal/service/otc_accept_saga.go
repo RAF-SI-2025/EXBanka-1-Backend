@@ -137,7 +137,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
-			Name: "reserve_and_contract",
+			Name: saga.StepReserveAndContract,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				if err := s.contracts.Create(contract); err != nil {
 					return err
@@ -158,7 +158,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 			},
 		}).
 		Add(saga.Step{
-			Name: "reserve_premium",
+			Name: saga.StepReservePremium,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy)
 				return e
@@ -169,7 +169,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 			},
 		}).
 		Add(saga.Step{
-			Name: "settle_premium_buyer",
+			Name: saga.StepSettlePremiumBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo)
 				return e
@@ -185,7 +185,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 			},
 		}).
 		Add(saga.Step{
-			Name: "credit_premium_seller",
+			Name: saga.StepCreditPremiumSeller,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, sellerAcct.AccountNumber, premiumSellerCcy, creditMemo, idemSeller)
 				return e

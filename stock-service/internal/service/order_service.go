@@ -497,7 +497,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
-			Name: "persist_order_pending",
+			Name: saga.StepPersistOrderPending,
 			Forward: func(ctx context.Context, st *saga.State) error {
 				if err := s.orderRepo.Create(order); err != nil {
 					return err
@@ -511,7 +511,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 			},
 		}).
 		AddIf(req.Direction == "buy", saga.Step{
-			Name: "reserve_funds",
+			Name: saga.StepReserveFunds,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, rerr := s.accountClient.ReserveFunds(ctx, req.AccountID, order.ID, reserveAmount, reserveCurrency)
 				return rerr
@@ -522,7 +522,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 			},
 		}).
 		AddIf(req.Direction == "sell" && listing.SecurityType != "forex", saga.Step{
-			Name: "reserve_holding",
+			Name: saga.StepReserveHolding,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				if s.holdingReservationSvc == nil {
 					return status.Error(codes.Internal, "holding reservation service not configured")
@@ -540,7 +540,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 			},
 		}).
 		Add(saga.Step{
-			Name: "finalize_order",
+			Name: saga.StepFinalizeOrder,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				// Per-actuary EmployeeLimit gate. Fires whenever an employee
 				// is the acting party — regardless of whether the resulting

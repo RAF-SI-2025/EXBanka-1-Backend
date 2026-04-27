@@ -41,6 +41,28 @@ const (
 	StepCreditPremiumSeller  StepKind = "credit_premium_seller"
 	StepCreditStrikeSeller   StepKind = "credit_strike_seller"
 	StepUpsertPosition       StepKind = "upsert_position"
+
+	// Placement (intra-bank order placement saga).
+	StepPersistOrderPending StepKind = "persist_order_pending"
+	StepReserveFunds        StepKind = "reserve_funds"
+	StepReserveHolding      StepKind = "reserve_holding"
+	StepFinalizeOrder       StepKind = "finalize_order"
+
+	// Order conversion / FX.
+	StepConvertAmount     StepKind = "convert_amount"
+	StepRecordTransaction StepKind = "record_transaction"
+
+	// Forex fill / settlement.
+	StepSettleReservation      StepKind = "settle_reservation"
+	StepSettleReservationQuote StepKind = "settle_reservation_quote"
+	StepCreditBase             StepKind = "credit_base"
+	StepCreditProceeds         StepKind = "credit_proceeds"
+	StepUpdateHolding          StepKind = "update_holding"
+	StepDecrementHolding       StepKind = "decrement_holding"
+
+	// Commission / fee.
+	StepCreditCommission StepKind = "credit_commission"
+	StepCreditBankFee    StepKind = "credit_bank_fee"
 )
 
 var allSteps = map[StepKind]struct{}{
@@ -53,6 +75,11 @@ var allSteps = map[StepKind]struct{}{
 	StepDebitSource: {}, StepCreditTarget: {}, StepDebitFund: {},
 	StepCreditFund: {}, StepCreditPremiumSeller: {}, StepCreditStrikeSeller: {},
 	StepUpsertPosition: {},
+	StepPersistOrderPending: {}, StepReserveFunds: {}, StepReserveHolding: {},
+	StepFinalizeOrder: {}, StepConvertAmount: {}, StepRecordTransaction: {},
+	StepSettleReservation: {}, StepSettleReservationQuote: {}, StepCreditBase: {},
+	StepCreditProceeds: {}, StepUpdateHolding: {}, StepDecrementHolding: {},
+	StepCreditCommission: {}, StepCreditBankFee: {},
 }
 
 // MustStep returns k if k is a registered StepKind. Otherwise it panics.

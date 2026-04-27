@@ -120,7 +120,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
-			Name: "record_transaction",
+			Name: saga.StepRecordTransaction,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				// Audit-only step; the txn was already persisted above. The
 				// row exists so saga recovery can replay from this point.
@@ -128,7 +128,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 			},
 		}).
 		Add(saga.Step{
-			Name: "settle_reservation_quote",
+			Name: saga.StepSettleReservationQuote,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accountClient.PartialSettleReservation(ctx, order.ID, txn.ID, quoteAmount, quoteMemo)
 				return e
@@ -145,7 +145,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 			},
 		}).
 		Add(saga.Step{
-			Name: "credit_base",
+			Name: saga.StepCreditBase,
 			Forward: func(ctx context.Context, st *saga.State) error {
 				baseAcct, err := s.accountClient.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: *order.BaseAccountID})
 				if err != nil {
@@ -169,7 +169,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 		commissionMemo := fmt.Sprintf("Commission for forex order #%d fill #%d", order.ID, txn.ID)
 		commSaga := sg.NewSubSaga("commission").
 			Add(saga.Step{
-				Name: "credit_commission",
+				Name: saga.StepCreditCommission,
 				Forward: func(ctx context.Context, _ *saga.State) error {
 					bankAcctNo, aerr := s.bankRecipient.BankCommissionAccountNumber(ctx)
 					if aerr != nil {

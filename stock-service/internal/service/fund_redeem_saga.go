@@ -159,7 +159,7 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
-			Name: "debit_fund",
+			Name: saga.StepDebitFund,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.DebitAccount(ctx, fundAcct.AccountNumber, debitTotal, debitMemo, debitKey)
 				return e
@@ -170,7 +170,7 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 			},
 		}).
 		Add(saga.Step{
-			Name: "credit_target",
+			Name: saga.StepCreditTarget,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, targetAcct.AccountNumber, in.AmountRSD, creditMemo, creditKey)
 				return e
@@ -181,7 +181,7 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 			},
 		}).
 		AddIf(!feeRSD.IsZero(), saga.Step{
-			Name: "credit_bank_fee",
+			Name: saga.StepCreditBankFee,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.CreditAccount(ctx, bankRSDAcctNo, feeRSD, feeMemo, feeKey)
 				return e
