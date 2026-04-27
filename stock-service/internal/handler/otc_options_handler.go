@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -336,6 +335,10 @@ func derefStr(s *string) string {
 	return *s
 }
 
+// mapOTCErr is now a passthrough. Service-layer sentinels (and the typed
+// repository.ErrOptimisticLock sentinel) carry their own gRPC code via
+// svcerr.SentinelError. The bare gorm.ErrRecordNotFound branch remains
+// because some legacy paths still surface the raw GORM error.
 func mapOTCErr(err error) error {
 	if err == nil {
 		return nil
@@ -343,21 +346,5 @@ func mapOTCErr(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return status.Error(codes.NotFound, "not_found")
 	}
-	if errors.Is(err, repository.ErrOptimisticLock) {
-		return status.Error(codes.Aborted, err.Error())
-	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "insufficient available shares"),
-		strings.Contains(msg, "settlement_date"),
-		strings.Contains(msg, "terminal state"):
-		return status.Error(codes.FailedPrecondition, msg)
-	case strings.Contains(msg, "only the contract buyer"),
-		strings.Contains(msg, "cannot accept your own"),
-		strings.Contains(msg, "cannot counter your own"),
-		strings.Contains(msg, "not a participant"):
-		return status.Error(codes.PermissionDenied, msg)
-	default:
-		return status.Error(codes.Internal, msg)
-	}
+	return err
 }

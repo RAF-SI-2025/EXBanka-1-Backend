@@ -10,10 +10,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc/codes"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/shared/saga"
+	"github.com/exbanka/contract/shared/svcerr"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
@@ -48,13 +50,13 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	}
 	fund, err := s.repo.GetByID(in.FundID)
 	if err != nil {
-		return nil, fmt.Errorf("fund not found: %w", err)
+		return nil, fmt.Errorf("fund not found: %v: %w", err, ErrFundNotFound)
 	}
 	if !fund.Active {
-		return nil, errors.New("fund is inactive")
+		return nil, fmt.Errorf("fund is inactive: %w", ErrFundInactive)
 	}
 	if in.AmountRSD.LessThanOrEqual(decimal.Zero) {
-		return nil, errors.New("amount_rsd must be positive")
+		return nil, fmt.Errorf("amount_rsd must be positive: %w", ErrFundInvalidInput)
 	}
 
 	posUserID, posSystemType := in.ActorUserID, in.ActorSystemType
@@ -66,7 +68,7 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 		return nil, fmt.Errorf("no position: %w", err)
 	}
 	if in.AmountRSD.GreaterThan(pos.TotalContributedRSD) {
-		return nil, errors.New("amount_rsd exceeds position contribution (mark-to-market reads not yet wired)")
+		return nil, fmt.Errorf("amount_rsd exceeds position contribution (mark-to-market reads not yet wired): %w", ErrFundExceedsPosition)
 	}
 
 	feeRSD := decimal.Zero
@@ -230,5 +232,5 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 // ErrInsufficientFundCash is returned when a redemption requires more cash
 // than the fund's RSD account holds. The follow-up liquidation sub-saga
 // (Task 15) sells securities to bridge the gap; until it lands, callers
-// receive this sentinel and clients see HTTP 409.
-var ErrInsufficientFundCash = errors.New("insufficient_fund_cash")
+// receive this sentinel and clients see HTTP 409 (FailedPrecondition).
+var ErrInsufficientFundCash = svcerr.New(codes.FailedPrecondition, "insufficient_fund_cash")

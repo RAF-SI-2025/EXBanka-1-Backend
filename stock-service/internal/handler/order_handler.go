@@ -185,29 +185,14 @@ func (h *OrderHandler) DeclineOrder(ctx context.Context, req *pb.DeclineOrderReq
 }
 
 // --- Mapping helpers ---
-
+//
+// mapOrderError is now a passthrough. Service-layer sentinels carry their own
+// gRPC code via svcerr.SentinelError; placement-saga errors that are already
+// gRPC status errors propagate verbatim. Bare errors that escape this filter
+// will surface as codes.Unknown — fix at the source by wrapping with a
+// sentinel from internal/service/errors.go.
 func mapOrderError(err error) error {
-	// If the error is already a gRPC status error (e.g., from the placement
-	// saga in CreateOrder), propagate it verbatim so the gateway maps the
-	// correct HTTP code.
-	if _, ok := status.FromError(err); ok && status.Code(err) != codes.Unknown {
-		return err
-	}
-	switch err.Error() {
-	case "order not found", "listing not found":
-		return status.Error(codes.NotFound, err.Error())
-	case "order does not belong to user":
-		return status.Error(codes.PermissionDenied, err.Error())
-	case "order is not pending", "order is already completed",
-		"order is already declined/cancelled",
-		"cannot approve: settlement date has passed":
-		return status.Error(codes.FailedPrecondition, err.Error())
-	case "limit_value required for limit/stop_limit orders",
-		"stop_value required for stop/stop_limit orders":
-		return status.Error(codes.InvalidArgument, err.Error())
-	default:
-		return status.Error(codes.Internal, err.Error())
-	}
+	return err
 }
 
 // computeOrderState returns the computed "state" field from (status, is_done,

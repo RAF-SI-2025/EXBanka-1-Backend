@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -350,6 +349,11 @@ func toContribResponse(c *model.FundContribution) *stockpb.ContributionResponse 
 	}
 }
 
+// mapFundErr is now a passthrough. Service-layer sentinels carry their own
+// gRPC code via svcerr.SentinelError (see internal/service/errors.go).
+// repository.ErrFundNameInUse and service.ErrInsufficientFundCash are also
+// typed sentinels. The bare gorm.ErrRecordNotFound branch remains because
+// some legacy paths still surface the raw GORM error.
 func mapFundErr(err error) error {
 	if err == nil {
 		return nil
@@ -357,22 +361,5 @@ func mapFundErr(err error) error {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return status.Error(codes.NotFound, "not_found")
 	}
-	if errors.Is(err, repository.ErrFundNameInUse) {
-		return status.Error(codes.AlreadyExists, err.Error())
-	}
-	if errors.Is(err, service.ErrInsufficientFundCash) {
-		return status.Error(codes.FailedPrecondition, err.Error())
-	}
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "minimum_contribution_not_met"):
-		return status.Error(codes.FailedPrecondition, msg)
-	case strings.Contains(msg, "is inactive"),
-		strings.Contains(msg, "exceeds position"),
-		strings.Contains(msg, "must be"),
-		strings.Contains(msg, "is not the fund manager"):
-		return status.Error(codes.InvalidArgument, msg)
-	default:
-		return status.Error(codes.Internal, msg)
-	}
+	return err
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -177,7 +178,7 @@ func TestOrderHandler_CreateOrder_Approved_StartsExecution(t *testing.T) {
 func TestOrderHandler_CreateOrder_ServiceError(t *testing.T) {
 	svc := &mockOrderSvc{
 		createFn: func(_ context.Context, req service.CreateOrderRequest) (*model.Order, error) {
-			return nil, errors.New("order not found")
+			return nil, fmt.Errorf("order not found: %w", service.ErrOrderNotFound)
 		},
 	}
 	eng := &mockExecEngine{}
@@ -258,7 +259,7 @@ func TestOrderHandler_GetOrder_Success(t *testing.T) {
 func TestOrderHandler_GetOrder_NotFound(t *testing.T) {
 	svc := &mockOrderSvc{
 		getFn: func(orderID, userID uint64, systemType string) (*model.Order, []model.OrderTransaction, error) {
-			return nil, nil, errors.New("order not found")
+			return nil, nil, fmt.Errorf("order not found: %w", service.ErrOrderNotFound)
 		},
 	}
 	h := newOrderHandlerForTest(svc, &mockExecEngine{})
@@ -348,7 +349,7 @@ func TestOrderHandler_CancelOrder_Success(t *testing.T) {
 func TestOrderHandler_CancelOrder_NotOwner(t *testing.T) {
 	svc := &mockOrderSvc{
 		cancelFn: func(orderID, userID uint64, systemType string) (*model.Order, error) {
-			return nil, errors.New("order does not belong to user")
+			return nil, fmt.Errorf("order does not belong to user: %w", service.ErrOrderOwnership)
 		},
 	}
 	h := newOrderHandlerForTest(svc, &mockExecEngine{})
@@ -444,7 +445,7 @@ func TestOrderHandler_ApproveOrder_Success(t *testing.T) {
 func TestOrderHandler_ApproveOrder_NotPending(t *testing.T) {
 	svc := &mockOrderSvc{
 		approveFn: func(orderID, supervisorID uint64, supervisorName string) (*model.Order, error) {
-			return nil, errors.New("order is not pending")
+			return nil, fmt.Errorf("order is not pending: %w", service.ErrOrderNotPending)
 		},
 	}
 	h := newOrderHandlerForTest(svc, &mockExecEngine{})
@@ -490,7 +491,7 @@ func TestOrderHandler_DeclineOrder_Success(t *testing.T) {
 func TestOrderHandler_DeclineOrder_NotFound(t *testing.T) {
 	svc := &mockOrderSvc{
 		declineFn: func(orderID, supervisorID uint64, supervisorName string) (*model.Order, error) {
-			return nil, errors.New("order not found")
+			return nil, fmt.Errorf("order not found: %w", service.ErrOrderNotFound)
 		},
 	}
 	h := newOrderHandlerForTest(svc, &mockExecEngine{})

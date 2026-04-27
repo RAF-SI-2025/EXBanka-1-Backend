@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -316,7 +317,7 @@ func TestOTC_BuyOffer_InsufficientPublicQuantity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for insufficient public quantity")
 	}
-	if err.Error() != "insufficient public quantity for OTC purchase" {
+	if !strings.Contains(err.Error(), "insufficient public quantity for OTC purchase") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

@@ -1,13 +1,18 @@
 package repository
 
 import (
-	"errors"
 	"fmt"
 
+	"google.golang.org/grpc/codes"
 	"gorm.io/gorm"
+
+	"github.com/exbanka/contract/shared/svcerr"
 )
 
-var ErrOptimisticLock = errors.New("optimistic lock conflict: record was modified by another transaction")
+// ErrOptimisticLock is the typed sentinel returned when a concurrent
+// modification is detected. Carries codes.Aborted so service handlers can
+// passthrough without an explicit mapping table.
+var ErrOptimisticLock = svcerr.New(codes.Aborted, "optimistic lock conflict: record was modified by another transaction")
 
 var allowedSortColumns = map[string]string{
 	"price":  "price",

@@ -400,7 +400,7 @@ func (s *PortfolioService) upsertHoldingForBuy(order *model.Order, txn *model.Or
 
 	if order.FundID != nil {
 		if s.fundHoldingRepo == nil {
-			return errors.New("fund holding repository not wired — on-behalf-of-fund fills cannot be persisted")
+			return fmt.Errorf("fund holding repository not wired — on-behalf-of-fund fills cannot be persisted: %w", ErrFundHoldingRepoMissing)
 		}
 		fh := &model.FundHolding{
 			FundID:          *order.FundID,
@@ -801,11 +801,11 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 		order.UserID, order.SystemType, order.SecurityType, listing.SecurityID,
 	)
 	if err != nil {
-		return errors.New("holding not found for sell order")
+		return fmt.Errorf("holding not found for sell order: %w", ErrHoldingNotFound)
 	}
 
 	if holding.Quantity < txn.Quantity {
-		return errors.New("insufficient holding quantity for sell")
+		return fmt.Errorf("insufficient holding quantity for sell: %w", ErrInsufficientHolding)
 	}
 
 	gain := txn.PricePerUnit.Sub(holding.AveragePrice).Mul(decimal.NewFromInt(txn.Quantity))
@@ -885,7 +885,7 @@ func (s *PortfolioService) ListHoldingTransactions(
 	holding, err := s.holdingRepo.GetByID(holdingID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, 0, errors.New("holding not found")
+			return nil, 0, fmt.Errorf("holding not found: %w", ErrHoldingNotFound)
 		}
 		return nil, 0, err
 	}
@@ -893,7 +893,7 @@ func (s *PortfolioService) ListHoldingTransactions(
 		// Non-owner access. Match the existing portfolio-handler convention
 		// of returning a not-found message so the gateway surfaces HTTP 404
 		// rather than leaking the row's existence.
-		return nil, 0, errors.New("holding not found")
+		return nil, 0, fmt.Errorf("holding not found: %w", ErrHoldingNotFound)
 	}
 	if s.holdingTxRepo == nil {
 		return nil, 0, nil
@@ -920,18 +920,18 @@ func (s *PortfolioService) MakePublic(holdingID, userID uint64, systemType strin
 	holding, err := s.holdingRepo.GetByID(holdingID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("holding not found")
+			return nil, fmt.Errorf("holding not found: %w", ErrHoldingNotFound)
 		}
 		return nil, err
 	}
 	if holding.UserID != userID || holding.SystemType != systemType {
-		return nil, errors.New("holding does not belong to user")
+		return nil, fmt.Errorf("holding does not belong to user: %w", ErrHoldingOwnership)
 	}
 	if holding.SecurityType != "stock" {
-		return nil, errors.New("only stocks can be made public for OTC trading")
+		return nil, fmt.Errorf("only stocks can be made public for OTC trading: %w", ErrPublicOnlyStocks)
 	}
 	if quantity < 0 || quantity > holding.Quantity {
-		return nil, errors.New("invalid public quantity")
+		return nil, fmt.Errorf("invalid public quantity: %w", ErrInvalidPublicQuantity)
 	}
 
 	holding.PublicQuantity = quantity
@@ -949,32 +949,32 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64, systemType s
 	holding, err := s.holdingRepo.GetByID(holdingID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("holding not found")
+			return nil, fmt.Errorf("holding not found: %w", ErrHoldingNotFound)
 		}
 		return nil, err
 	}
 	if holding.UserID != userID || holding.SystemType != systemType {
-		return nil, errors.New("holding does not belong to user")
+		return nil, fmt.Errorf("holding does not belong to user: %w", ErrHoldingOwnership)
 	}
 	if holding.SecurityType != "option" {
-		return nil, errors.New("holding is not an option")
+		return nil, fmt.Errorf("holding is not an option: %w", ErrHoldingNotOption)
 	}
 
 	// Look up the option to get strike, type, settlement, stock info
 	option, err := s.optionRepo.GetByID(holding.SecurityID)
 	if err != nil {
-		return nil, errors.New("option not found")
+		return nil, fmt.Errorf("option not found: %w", ErrOptionNotFound)
 	}
 
 	// Check settlement date hasn't passed
 	if time.Now().After(option.SettlementDate) {
-		return nil, errors.New("option has expired (settlement date passed)")
+		return nil, fmt.Errorf("option has expired (settlement date passed): %w", ErrOptionExpired)
 	}
 
 	// Look up current stock price via listing
 	stockListing, err := s.listingRepo.GetBySecurityIDAndType(option.StockID, "stock")
 	if err != nil {
-		return nil, errors.New("stock listing not found for option's underlying")
+		return nil, fmt.Errorf("stock listing not found for option's underlying: %w", ErrListingNotFound)
 	}
 
 	sharesAffected := holding.Quantity * 100 // 1 option = 100 shares
@@ -983,7 +983,7 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64, systemType s
 	if option.OptionType == "call" {
 		// CALL: stock price must be > strike price
 		if stockListing.Price.LessThanOrEqual(option.StrikePrice) {
-			return nil, errors.New("call option is not in the money")
+			return nil, fmt.Errorf("call option is not in the money: %w", ErrCallNotInTheMoney)
 		}
 		profit = stockListing.Price.Sub(option.StrikePrice).Mul(decimal.NewFromInt(sharesAffected))
 
@@ -1023,7 +1023,7 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64, systemType s
 	} else { // "put"
 		// PUT: stock price must be < strike price
 		if stockListing.Price.GreaterThanOrEqual(option.StrikePrice) {
-			return nil, errors.New("put option is not in the money")
+			return nil, fmt.Errorf("put option is not in the money: %w", ErrPutNotInTheMoney)
 		}
 		profit = option.StrikePrice.Sub(stockListing.Price).Mul(decimal.NewFromInt(sharesAffected))
 
@@ -1034,7 +1034,7 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64, systemType s
 		}
 		stockHolding, err := s.holdingRepo.GetByUserAndSecurity(userID, holding.SystemType, "stock", option.StockID)
 		if err != nil || stockHolding.Quantity < sharesAffected {
-			return nil, errors.New("insufficient stock holdings to exercise put option")
+			return nil, fmt.Errorf("insufficient stock holdings to exercise put option: %w", ErrInsufficientStockForPut)
 		}
 
 		// Credit account by strike × shares (selling stock at strike price)
@@ -1118,7 +1118,7 @@ func (s *PortfolioService) ExerciseOptionByOptionID(ctx context.Context, optionI
 		return nil, err
 	}
 	if holding == nil {
-		return nil, errors.New("option holding not found")
+		return nil, fmt.Errorf("option holding not found: %w", ErrOptionHoldingNotFound)
 	}
 	return s.ExerciseOption(holding.ID, userID, systemType)
 }

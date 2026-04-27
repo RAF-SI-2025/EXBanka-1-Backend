@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"log"
 
 	"gorm.io/gorm"
@@ -52,7 +53,7 @@ func (s *ExchangeService) GetExchange(id uint64) (*model.StockExchange, error) {
 	ex, err := s.exchangeRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("exchange not found")
+			return nil, fmt.Errorf("exchange not found: %w", ErrExchangeNotFound)
 		}
 		return nil, err
 	}

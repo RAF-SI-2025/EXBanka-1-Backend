@@ -235,21 +235,9 @@ func toExerciseResultPB(result *service.ExerciseResult) *pb.ExerciseResult {
 	}
 }
 
+// mapPortfolioError is now a passthrough. Service-layer sentinels carry
+// their own gRPC code via svcerr.SentinelError. See internal/service/errors.go
+// for the portfolio/holding sentinel set.
 func mapPortfolioError(err error) error {
-	switch err.Error() {
-	case "holding not found", "option not found", "stock listing not found for option's underlying", "option holding not found":
-		return status.Error(codes.NotFound, err.Error())
-	case "holding does not belong to user":
-		return status.Error(codes.PermissionDenied, err.Error())
-	case "only stocks can be made public for OTC trading",
-		"invalid public quantity",
-		"holding is not an option",
-		"option has expired (settlement date passed)",
-		"call option is not in the money",
-		"put option is not in the money",
-		"insufficient stock holdings to exercise put option":
-		return status.Error(codes.FailedPrecondition, err.Error())
-	default:
-		return status.Error(codes.Internal, err.Error())
-	}
+	return err
 }

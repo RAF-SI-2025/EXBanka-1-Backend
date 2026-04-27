@@ -2,42 +2,39 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/exbanka/stock-service/internal/service"
 )
 
-func TestMapOTCError_NotFound(t *testing.T) {
-	err := mapOTCError(errors.New("OTC offer not found"))
-	if status.Code(err) != codes.NotFound {
-		t.Errorf("expected NotFound, got %v", status.Code(err))
+// mapOTCError is now a passthrough; the wire status is determined by the
+// sentinel embedded in the wrapped error.
+func TestMapOTCError_SentinelPassthrough(t *testing.T) {
+	cases := []struct {
+		name     string
+		sentinel error
+		want     codes.Code
+	}{
+		{"OTCOfferNotFound", service.ErrOTCOfferNotFound, codes.NotFound},
+		{"OTCBuyOwnOffer", service.ErrOTCBuyOwnOffer, codes.PermissionDenied},
+		{"OTCInsufficientPublicQuantity", service.ErrOTCInsufficientPublicQuantity, codes.FailedPrecondition},
+		{"OTCBuyerAccountNotFound", service.ErrOTCBuyerAccountNotFound, codes.FailedPrecondition},
+		{"OTCSellerAccountNotFound", service.ErrOTCSellerAccountNotFound, codes.FailedPrecondition},
 	}
-}
-
-func TestMapOTCError_PermissionDenied(t *testing.T) {
-	err := mapOTCError(errors.New("cannot buy your own OTC offer"))
-	if status.Code(err) != codes.PermissionDenied {
-		t.Errorf("expected PermissionDenied, got %v", status.Code(err))
-	}
-}
-
-func TestMapOTCError_FailedPrecondition(t *testing.T) {
-	for _, msg := range []string{
-		"insufficient public quantity for OTC purchase",
-		"buyer account not found",
-		"seller account not found",
-	} {
-		err := mapOTCError(errors.New(msg))
-		if status.Code(err) != codes.FailedPrecondition {
-			t.Errorf("%q: expected FailedPrecondition, got %v", msg, status.Code(err))
-		}
-	}
-}
-
-func TestMapOTCError_DefaultInternal(t *testing.T) {
-	err := mapOTCError(errors.New("db connection lost"))
-	if status.Code(err) != codes.Internal {
-		t.Errorf("expected Internal, got %v", status.Code(err))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wrapped := fmt.Errorf("Op: %w", tc.sentinel)
+			err := mapOTCError(wrapped)
+			if !errors.Is(err, tc.sentinel) {
+				t.Fatalf("errors.Is should match")
+			}
+			if got := status.Code(err); got != tc.want {
+				t.Errorf("want %v, got %v", tc.want, got)
+			}
+		})
 	}
 }

@@ -155,7 +155,7 @@ func (h *SecurityHandler) ListStocks(ctx context.Context, req *pb.ListStocksRequ
 func (h *SecurityHandler) GetStock(ctx context.Context, req *pb.GetStockRequest) (*pb.StockDetail, error) {
 	stock, options, err := h.secSvc.GetStockWithOptions(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	lid := h.resolveListingID(stock.ID, "stock")
 	return toStockDetail(stock, options, lid), nil
@@ -164,7 +164,7 @@ func (h *SecurityHandler) GetStock(ctx context.Context, req *pb.GetStockRequest)
 func (h *SecurityHandler) GetStockHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {
 	history, total, err := h.listingSvc.GetPriceHistoryForSecurity(req.Id, "stock", req.Period, int(req.Page), int(req.PageSize))
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return toPriceHistoryResponse(history, total), nil
 }
@@ -233,7 +233,7 @@ func (h *SecurityHandler) ListFutures(ctx context.Context, req *pb.ListFuturesRe
 func (h *SecurityHandler) GetFutures(ctx context.Context, req *pb.GetFuturesRequest) (*pb.FuturesDetail, error) {
 	f, err := h.secSvc.GetFutures(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	lid := h.resolveListingID(f.ID, "futures")
 	return toFuturesDetail(f, lid), nil
@@ -242,7 +242,7 @@ func (h *SecurityHandler) GetFutures(ctx context.Context, req *pb.GetFuturesRequ
 func (h *SecurityHandler) GetFuturesHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {
 	history, total, err := h.listingSvc.GetPriceHistoryForSecurity(req.Id, "futures", req.Period, int(req.Page), int(req.PageSize))
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return toPriceHistoryResponse(history, total), nil
 }
@@ -283,7 +283,7 @@ func (h *SecurityHandler) ListForexPairs(ctx context.Context, req *pb.ListForexP
 func (h *SecurityHandler) GetForexPair(ctx context.Context, req *pb.GetForexPairRequest) (*pb.ForexPairDetail, error) {
 	fp, err := h.secSvc.GetForexPair(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	lid := h.resolveListingID(fp.ID, "forex")
 	return toForexPairDetail(fp, lid), nil
@@ -292,7 +292,7 @@ func (h *SecurityHandler) GetForexPair(ctx context.Context, req *pb.GetForexPair
 func (h *SecurityHandler) GetForexPairHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {
 	history, total, err := h.listingSvc.GetPriceHistoryForSecurity(req.Id, "forex", req.Period, int(req.Page), int(req.PageSize))
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return toPriceHistoryResponse(history, total), nil
 }
@@ -342,7 +342,7 @@ func (h *SecurityHandler) ListOptions(ctx context.Context, req *pb.ListOptionsRe
 func (h *SecurityHandler) GetOption(ctx context.Context, req *pb.GetOptionRequest) (*pb.OptionDetail, error) {
 	o, err := h.secSvc.GetOption(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return toOptionDetail(o), nil
 }
@@ -368,7 +368,7 @@ func (h *SecurityHandler) GetCandles(ctx context.Context, req *pb.GetCandlesRequ
 
 	candles, err := h.candleSvc.GetCandles(ctx, req.ListingId, req.Interval, from, to)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	pbCandles := make([]*pb.CandlePoint, len(candles))
