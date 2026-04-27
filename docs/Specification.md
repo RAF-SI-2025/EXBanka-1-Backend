@@ -2096,6 +2096,23 @@ The api-gateway maps gRPC status codes to HTTP via `api-gateway/internal/handler
 
 Email-not-found and bcrypt-mismatch deliberately collapse to the same `ErrInvalidCredentials` sentinel for security (prevents email enumeration). All other failure modes are distinct.
 
+### 21.2 Cross-Service Saga Coordination
+
+Sagas that span multiple services (most stock-service crossbank/OTC/fund sagas, transaction-service inter-bank transfers) coordinate via three guarantees. Together they make distributed steps safe to retry on transient failure, debuggable via single-key joins across services, and durable across crashes between business commit and Kafka publish.
+
+**Idempotency contract** — every saga-callee gRPC method (marked `// idempotent` in its proto) accepts a `string idempotency_key` field. Callees enforce the contract via a per-service `idempotency_records` table plus the `repository.Run[T]` wrapper, which atomically reserves the key inside the same transaction as the business write and caches the response payload. Saga callers populate the key as `saga.IdempotencyKey(saga_id, step_kind)` (deterministic). Retried saga steps return the cached response without re-executing — no double-debit, no double-credit, no double-create. Renaming the `idempotency_key` field or weakening the cache semantics is a wire-protocol breaking change and requires explicit user authorization.
+
+**Saga context propagation** — outbound gRPC calls from inside a saga step carry `x-saga-id`, `x-saga-step`, and `x-acting-employee-id` metadata via `contract/shared/grpcmw.UnaryClientSagaContextInterceptor`. The callee's `UnarySagaContextInterceptor` extracts these into `context.Context`. Side-effect tables (`account_ledger_entries`, `stock_holdings`, plus the reservation/settlement debit ledger row) stamp `saga_id` + `saga_step` from the context, enabling cross-service auditing via a single SQL JOIN:
+
+```sql
+SELECT * FROM account_ledger_entries WHERE saga_id = '<id>';
+SELECT * FROM stock_holdings        WHERE saga_id = '<id>';
+```
+
+Non-saga writes (REST handlers, crons that don't run a saga) leave both columns NULL. The metadata interceptors are part of the wire protocol and may not be removed without explicit user authorization.
+
+**Outbox pattern** — saga-published Kafka events route through `contract/shared/outbox`. The `Enqueue(tx, topic, payload, saga_id)` write goes into the same DB transaction as the saga step's business action, so the event row commits atomically with the side effect or doesn't commit at all. A per-service `OutboxDrainer` goroutine reads pending rows (ticks every 500ms, batch up to 100), publishes to Kafka, marks `published_at`. Failures bump `attempt` + capture `last_error` and leave the row pending for the next tick. Crash between commit and publish is safe: the drainer picks up unpublished rows on restart. Stock-service routes every saga publisher (cross-bank accept/exercise/expire lifecycle, OTC offer create/counter/reject/accept/exercise, OTC contract/offer expiry, fund create/update/invest/redeem) through the outbox; services without an outbox fall back to direct best-effort `producer.PublishRaw`.
+
 ## 22. Concurrency & Transaction Safety
 
 This is a banking system. All code must be concurrency-safe with proper transaction isolation, optimistic locking, and rollback guarantees.
