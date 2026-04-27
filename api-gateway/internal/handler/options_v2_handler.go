@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	stockpb "github.com/exbanka/contract/stockpb"
 )
 
@@ -100,14 +101,11 @@ func (h *OptionsV2Handler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	userID, systemType, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
 	createReq := &stockpb.CreateOrderRequest{
-		UserId:     userID,
-		SystemType: systemType,
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
 		ListingId:  *opt.ListingId,
 		HoldingId:  req.HoldingID,
 		Direction:  direction,
@@ -159,15 +157,12 @@ func (h *OptionsV2Handler) Exercise(c *gin.Context) {
 	var req exerciseOptionRequest
 	_ = c.ShouldBindJSON(&req) // body is optional
 
-	userID, systemType, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
 	result, err := h.portClient.ExerciseOptionByOptionID(c.Request.Context(), &stockpb.ExerciseOptionByOptionIDRequest{
 		OptionId:   optionID,
-		UserId:     userID,
-		SystemType: systemType,
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
 		HoldingId:  req.HoldingID,
 	})
 	if err != nil {

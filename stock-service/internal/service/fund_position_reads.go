@@ -69,13 +69,13 @@ func (s *FundService) fundValueRSD(ctx context.Context, fund *model.InvestmentFu
 	return total, nil
 }
 
-// ListMyPositionsDTO returns rich position rows for (userID, systemType).
+// ListMyPositionsDTO returns rich position rows for (ownerType, ownerID).
 // Falls back to plain rows when position-reads deps aren't wired.
-func (s *FundService) ListMyPositionsDTO(ctx context.Context, userID uint64, systemType string) ([]PositionDTO, error) {
+func (s *FundService) ListMyPositionsDTO(ctx context.Context, ownerType model.OwnerType, ownerID *uint64) ([]PositionDTO, error) {
 	if s.positions == nil {
 		return nil, nil
 	}
-	rows, err := s.positions.ListByOwner(userID, systemType)
+	rows, err := s.positions.ListByOwner(ownerType, ownerID)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,8 @@ func (s *FundService) ListMyPositionsDTO(ctx context.Context, userID uint64, sys
 	return out, nil
 }
 
-// ListBankPositionsDTO is ListMyPositionsDTO scoped to the bank sentinel.
+// ListBankPositionsDTO is ListMyPositionsDTO scoped to the bank owner
+// (OwnerType=bank, owner_id=NULL).
 func (s *FundService) ListBankPositionsDTO(ctx context.Context) ([]PositionDTO, error) {
-	return s.ListMyPositionsDTO(ctx, bankSentinelUserID, "employee")
+	return s.ListMyPositionsDTO(ctx, model.OwnerBank, nil)
 }

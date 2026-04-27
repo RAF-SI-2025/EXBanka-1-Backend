@@ -36,7 +36,10 @@ func SetupV3Routes(
 	mev3 := v3.Group("/me")
 	mev3.Use(middleware.AnyAuthMiddleware(authClient))
 	{
-		mev3.GET("/investment-funds", fundHandler.ListMyPositions)
+		// ListMyPositions reads identity → bankIfEmployee.
+		mev3.GET("/investment-funds",
+			middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee),
+			fundHandler.ListMyPositions)
 
 		// Inter-bank-aware transfer creation. Detects inter-bank by the
 		// 3-digit prefix of receiverAccount and routes accordingly. Falls
@@ -46,13 +49,19 @@ func SetupV3Routes(
 	}
 
 	// Browsing + invest/redeem → AnyAuth (clients + employees).
+	// Browsing (List/Get) doesn't read identity; invest/redeem do, so
+	// wire ResolveIdentity per-route on the trading actions.
 	fundsAny := v3.Group("/investment-funds")
 	fundsAny.Use(middleware.AnyAuthMiddleware(authClient))
 	{
 		fundsAny.GET("", fundHandler.ListFunds)
 		fundsAny.GET("/:id", fundHandler.GetFund)
-		fundsAny.POST("/:id/invest", fundHandler.Invest)
-		fundsAny.POST("/:id/redeem", fundHandler.Redeem)
+		fundsAny.POST("/:id/invest",
+			middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee),
+			fundHandler.Invest)
+		fundsAny.POST("/:id/redeem",
+			middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee),
+			fundHandler.Redeem)
 	}
 
 	// Manage (create / update) → funds.manage.catalog.
@@ -75,13 +84,19 @@ func SetupV3Routes(
 	}
 
 	// ── OTC option trading (Spec 2) ─
-	// Caller's offers/contracts → AnyAuth.
-	mev3.GET("/otc/offers", otcHandler.ListMyOffers)
-	mev3.GET("/otc/contracts", otcHandler.ListMyContracts)
+	// Caller's offers/contracts → AnyAuth + ResolveIdentity (handlers read identity).
+	mev3.GET("/otc/offers",
+		middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee),
+		otcHandler.ListMyOffers)
+	mev3.GET("/otc/contracts",
+		middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee),
+		otcHandler.ListMyContracts)
 
 	// Read endpoints (offer/contract detail) → any participant via AnyAuth.
+	// Handlers also read identity for participant scoping.
 	otcRead := v3.Group("/otc")
 	otcRead.Use(middleware.AnyAuthMiddleware(authClient))
+	otcRead.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
 		otcRead.GET("/offers/:id", otcHandler.GetOffer)
 		otcRead.GET("/contracts/:id", otcHandler.GetContract)
@@ -91,6 +106,7 @@ func SetupV3Routes(
 	otcTrade := v3.Group("/otc")
 	otcTrade.Use(middleware.AnyAuthMiddleware(authClient))
 	otcTrade.Use(middleware.RequireAllPermissions(perms.Securities.Trade.Any, perms.Otc.Trade.Accept))
+	otcTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
 		otcTrade.POST("/offers", otcHandler.CreateOffer)
 		otcTrade.POST("/offers/:id/counter", otcHandler.CounterOffer)

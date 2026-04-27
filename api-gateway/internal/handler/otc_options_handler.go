@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	stockpb "github.com/exbanka/contract/stockpb"
 )
 
@@ -54,13 +55,11 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "stock_id, quantity, strike_price and settlement_date are required")
 		return
 	}
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	in := &stockpb.CreateOTCOfferRequest{
-		ActorUserId: int64(uid), ActorSystemType: st,
-		Direction: req.Direction, StockId: req.StockID,
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+		Direction:       req.Direction, StockId: req.StockID,
 		Quantity: req.Quantity, StrikePrice: req.StrikePrice, Premium: req.Premium,
 		SettlementDate: req.SettlementDate,
 	}
@@ -88,16 +87,14 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 // @Success      200 {object} map[string]interface{}
 // @Router       /api/v3/me/otc/offers [get]
 func (h *OTCOptionsHandler) ListMyOffers(c *gin.Context) {
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	resp, err := h.client.ListMyOffers(c.Request.Context(), &stockpb.ListMyOTCOffersRequest{
-		ActorUserId: int64(uid), ActorSystemType: st,
-		Role: c.DefaultQuery("role", "either"),
-		Page: int32(page), PageSize: int32(pageSize),
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+		Role:            c.DefaultQuery("role", "either"),
+		Page:            int32(page), PageSize: int32(pageSize),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -120,12 +117,11 @@ func (h *OTCOptionsHandler) GetOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
 		return
 	}
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.GetOffer(c.Request.Context(), &stockpb.GetOTCOfferRequest{
-		OfferId: id, ActorUserId: int64(uid), ActorSystemType: st,
+		OfferId:         id,
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -162,13 +158,12 @@ func (h *OTCOptionsHandler) CounterOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
 		return
 	}
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.CounterOffer(c.Request.Context(), &stockpb.CounterOTCOfferRequest{
-		OfferId: id, ActorUserId: int64(uid), ActorSystemType: st,
-		Quantity: req.Quantity, StrikePrice: req.StrikePrice, Premium: req.Premium,
+		OfferId:         id,
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+		Quantity:        req.Quantity, StrikePrice: req.StrikePrice, Premium: req.Premium,
 		SettlementDate: req.SettlementDate,
 	})
 	if err != nil {
@@ -208,13 +203,12 @@ func (h *OTCOptionsHandler) AcceptOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "buyer_account_id and seller_account_id are required")
 		return
 	}
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.AcceptOffer(c.Request.Context(), &stockpb.AcceptOTCOfferRequest{
-		OfferId: id, ActorUserId: int64(uid), ActorSystemType: st,
-		BuyerAccountId: req.BuyerAccountID, SellerAccountId: req.SellerAccountID,
+		OfferId:         id,
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+		BuyerAccountId:  req.BuyerAccountID, SellerAccountId: req.SellerAccountID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -237,12 +231,11 @@ func (h *OTCOptionsHandler) RejectOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
 		return
 	}
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.RejectOffer(c.Request.Context(), &stockpb.RejectOTCOfferRequest{
-		OfferId: id, ActorUserId: int64(uid), ActorSystemType: st,
+		OfferId:         id,
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -259,16 +252,14 @@ func (h *OTCOptionsHandler) RejectOffer(c *gin.Context) {
 // @Success      200 {object} map[string]interface{}
 // @Router       /api/v3/me/otc/contracts [get]
 func (h *OTCOptionsHandler) ListMyContracts(c *gin.Context) {
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	resp, err := h.client.ListMyContracts(c.Request.Context(), &stockpb.ListMyContractsRequest{
-		ActorUserId: int64(uid), ActorSystemType: st,
-		Role: c.DefaultQuery("role", "either"),
-		Page: int32(page), PageSize: int32(pageSize),
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+		Role:            c.DefaultQuery("role", "either"),
+		Page:            int32(page), PageSize: int32(pageSize),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -291,12 +282,11 @@ func (h *OTCOptionsHandler) GetContract(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
 		return
 	}
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.GetContract(c.Request.Context(), &stockpb.GetContractRequest{
-		ContractId: id, ActorUserId: int64(uid), ActorSystemType: st,
+		ContractId:      id,
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -335,13 +325,12 @@ func (h *OTCOptionsHandler) ExerciseContract(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "buyer_account_id and seller_account_id are required")
 		return
 	}
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.ExerciseContract(c.Request.Context(), &stockpb.ExerciseContractRequest{
-		ContractId: id, ActorUserId: int64(uid), ActorSystemType: st,
-		BuyerAccountId: req.BuyerAccountID, SellerAccountId: req.SellerAccountID,
+		ContractId:      id,
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+		BuyerAccountId:  req.BuyerAccountID, SellerAccountId: req.SellerAccountID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)

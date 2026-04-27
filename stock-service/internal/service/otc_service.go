@@ -63,7 +63,12 @@ func (s *OTCService) BuyOffer(
 	if sellerHolding.PublicQuantity < quantity {
 		return nil, fmt.Errorf("insufficient public quantity for OTC purchase: %w", ErrOTCInsufficientPublicQuantity)
 	}
-	if sellerHolding.UserID == buyerID {
+	// Self-buy guard: compare on the buyer's owner pair vs the seller's
+	// holding owner. Both sides may legitimately be bank-owned in pathological
+	// configurations; the OwnerID nil/non-nil semantics in OwnerFromLegacy
+	// handle that without leaking sentinel-value comparisons.
+	buyerOwnerType, buyerOwnerID := model.OwnerFromLegacy(buyerID, buyerSystemType)
+	if sellerHolding.OwnerType == buyerOwnerType && ownerIDEqual(sellerHolding.OwnerID, buyerOwnerID) {
 		return nil, fmt.Errorf("cannot buy your own OTC offer: %w", ErrOTCBuyOwnOffer)
 	}
 
@@ -134,8 +139,8 @@ func (s *OTCService) BuyOffer(
 	// Record capital gain for seller
 	gain := pricePerUnit.Sub(sellerHolding.AveragePrice).Mul(decimal.NewFromInt(quantity))
 	capitalGain := &model.CapitalGain{
-		UserID:           sellerHolding.UserID,
-		SystemType:       sellerHolding.SystemType,
+		OwnerType:        sellerHolding.OwnerType,
+		OwnerID:          sellerHolding.OwnerID,
 		OTC:              true,
 		SecurityType:     sellerHolding.SecurityType,
 		Ticker:           sellerHolding.Ticker,
@@ -179,15 +184,15 @@ func (s *OTCService) BuyOffer(
 	// Create/update buyer's holding
 	buyerFirstName, buyerLastName := "", ""
 	if s.nameResolver != nil {
-		fn, ln, resolveErr := s.nameResolver(buyerID, buyerSystemType)
+		fn, ln, resolveErr := s.nameResolver(buyerOwnerType, buyerOwnerID)
 		if resolveErr == nil {
 			buyerFirstName, buyerLastName = fn, ln
 		}
 	}
 
 	buyerHolding := &model.Holding{
-		UserID:        buyerID,
-		SystemType:    buyerSystemType,
+		OwnerType:     buyerOwnerType,
+		OwnerID:       buyerOwnerID,
 		UserFirstName: buyerFirstName,
 		UserLastName:  buyerLastName,
 		SecurityType:  sellerHolding.SecurityType,

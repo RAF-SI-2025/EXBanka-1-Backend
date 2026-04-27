@@ -223,7 +223,7 @@ func TestMobileAuthMiddleware_NonMobileDeviceType(t *testing.T) {
 		validateTokenFn: func(_ *authpb.ValidateTokenRequest) (*authpb.ValidateTokenResponse, error) {
 			return &authpb.ValidateTokenResponse{
 				Valid:      true,
-				UserId:     1,
+				PrincipalId: 1,
 				DeviceType: "web",
 				DeviceId:   "dev-123",
 			}, nil
@@ -249,7 +249,7 @@ func TestMobileAuthMiddleware_MissingDeviceIDHeader(t *testing.T) {
 		validateTokenFn: func(_ *authpb.ValidateTokenRequest) (*authpb.ValidateTokenResponse, error) {
 			return &authpb.ValidateTokenResponse{
 				Valid:      true,
-				UserId:     1,
+				PrincipalId: 1,
 				DeviceType: "mobile",
 				DeviceId:   "dev-123",
 			}, nil
@@ -274,7 +274,7 @@ func TestMobileAuthMiddleware_DeviceIDMismatch(t *testing.T) {
 		validateTokenFn: func(_ *authpb.ValidateTokenRequest) (*authpb.ValidateTokenResponse, error) {
 			return &authpb.ValidateTokenResponse{
 				Valid:      true,
-				UserId:     1,
+				PrincipalId: 1,
 				DeviceType: "mobile",
 				DeviceId:   "dev-123",
 			}, nil
@@ -294,13 +294,13 @@ func TestMobileAuthMiddleware_ValidRequest_SetsContext(t *testing.T) {
 	client := &mobileAuthClientStub{
 		validateTokenFn: func(_ *authpb.ValidateTokenRequest) (*authpb.ValidateTokenResponse, error) {
 			return &authpb.ValidateTokenResponse{
-				Valid:       true,
-				UserId:      42,
-				Email:       "user@example.com",
-				DeviceType:  "mobile",
-				DeviceId:    "dev-abc",
-				SystemType:  "client",
-				Permissions: []string{"accounts.read.all"},
+				Valid:         true,
+				PrincipalId:   42,
+				Email:         "user@example.com",
+				DeviceType:    "mobile",
+				DeviceId:      "dev-abc",
+				PrincipalType: "client",
+				Permissions:   []string{"accounts.read.all"},
 			}, nil
 		},
 	}
@@ -308,15 +308,15 @@ func TestMobileAuthMiddleware_ValidRequest_SetsContext(t *testing.T) {
 	r := gin.New()
 	r.Use(MobileAuthMiddleware(client))
 	r.GET("/mobile", func(c *gin.Context) {
-		uid, _ := c.Get("user_id")
+		uid, _ := c.Get("principal_id")
 		deviceID, _ := c.Get("device_id")
 		deviceType, _ := c.Get("device_type")
-		sysType, _ := c.Get("system_type")
+		pType, _ := c.Get("principal_type")
 		c.JSON(http.StatusOK, gin.H{
-			"user_id":     uid,
-			"device_id":   deviceID,
-			"device_type": deviceType,
-			"system_type": sysType,
+			"principal_id":   uid,
+			"device_id":      deviceID,
+			"device_type":    deviceType,
+			"principal_type": pType,
 		})
 	})
 
@@ -329,10 +329,10 @@ func TestMobileAuthMiddleware_ValidRequest_SetsContext(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, float64(42), resp["user_id"])
+	assert.Equal(t, float64(42), resp["principal_id"])
 	assert.Equal(t, "dev-abc", resp["device_id"])
 	assert.Equal(t, "mobile", resp["device_type"])
-	assert.Equal(t, "client", resp["system_type"])
+	assert.Equal(t, "client", resp["principal_type"])
 }
 
 // ---------------------------------------------------------------------------

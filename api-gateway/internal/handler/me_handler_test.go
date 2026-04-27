@@ -20,8 +20,8 @@ func meRouter(h *handler.MeHandler, sysType string, uid int64) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/me", func(c *gin.Context) {
-		c.Set("system_type", sysType)
-		c.Set("user_id", uid)
+		c.Set("principal_type", sysType)
+		c.Set("principal_id", uid)
 		h.GetMe(c)
 	})
 	return r
@@ -78,7 +78,7 @@ func TestMe_GetMe_UnknownSystemType_Returns403(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Contains(t, rec.Body.String(), "unknown system type")
+	require.Contains(t, rec.Body.String(), "unknown principal type")
 }
 
 func TestMe_GetMe_MissingUserID_Returns401(t *testing.T) {
@@ -86,9 +86,9 @@ func TestMe_GetMe_MissingUserID_Returns401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/me", func(c *gin.Context) {
-		c.Set("system_type", "client")
+		c.Set("principal_type", "client")
 		// don't set user_id (string instead of int64)
-		c.Set("user_id", "not-an-int")
+		c.Set("principal_id", "not-an-int")
 		h.GetMe(c)
 	})
 	req := httptest.NewRequest("GET", "/api/v2/me", nil)

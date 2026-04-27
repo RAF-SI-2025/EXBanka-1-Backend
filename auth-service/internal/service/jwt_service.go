@@ -16,13 +16,13 @@ func generateJTI() string {
 }
 
 type Claims struct {
-	UserID            int64    `json:"user_id"`
+	PrincipalID       int64    `json:"principal_id"`              // was: user_id; the principal's primary-key id
 	Email             string   `json:"email"`
 	Roles             []string `json:"roles"`
 	Permissions       []string `json:"permissions"`
-	SystemType        string   `json:"system_type"`           // "employee" or "client"
-	DeviceType        string   `json:"device_type,omitempty"` // "mobile" for mobile app tokens, empty for browser
-	DeviceID          string   `json:"device_id,omitempty"`   // UUID of registered mobile device
+	PrincipalType     string   `json:"principal_type"`            // was: system_type; "employee" or "client"
+	DeviceType        string   `json:"device_type,omitempty"`     // "mobile" for mobile app tokens, empty for browser
+	DeviceID          string   `json:"device_id,omitempty"`       // UUID of registered mobile device
 	FirstName         string   `json:"first_name,omitempty"`
 	LastName          string   `json:"last_name,omitempty"`
 	AccountActive     bool     `json:"account_active"`
@@ -57,13 +57,13 @@ type MobileProfile struct {
 	BiometricsEnabled bool
 }
 
-func (s *JWTService) GenerateAccessToken(userID int64, email string, roles []string, permissions []string, systemType string, prof TokenProfile) (string, error) {
+func (s *JWTService) GenerateAccessToken(principalID int64, email string, roles []string, permissions []string, principalType string, prof TokenProfile) (string, error) {
 	claims := &Claims{
-		UserID:        userID,
+		PrincipalID:   principalID,
 		Email:         email,
 		Roles:         roles,
 		Permissions:   permissions,
-		SystemType:    systemType,
+		PrincipalType: principalType,
 		FirstName:     prof.FirstName,
 		LastName:      prof.LastName,
 		AccountActive: prof.AccountActive,
@@ -77,13 +77,13 @@ func (s *JWTService) GenerateAccessToken(userID int64, email string, roles []str
 	return token.SignedString(s.secret)
 }
 
-func (s *JWTService) GenerateMobileAccessToken(userID int64, email string, roles []string, permissions []string, systemType string, mp MobileProfile) (string, error) {
+func (s *JWTService) GenerateMobileAccessToken(principalID int64, email string, roles []string, permissions []string, principalType string, mp MobileProfile) (string, error) {
 	claims := &Claims{
-		UserID:            userID,
+		PrincipalID:       principalID,
 		Email:             email,
 		Roles:             roles,
 		Permissions:       permissions,
-		SystemType:        systemType,
+		PrincipalType:     principalType,
 		DeviceType:        mp.DeviceType,
 		DeviceID:          mp.DeviceID,
 		FirstName:         mp.FirstName,

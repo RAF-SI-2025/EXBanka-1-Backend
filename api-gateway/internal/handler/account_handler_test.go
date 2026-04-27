@@ -142,8 +142,8 @@ func accountRouter(h *handler.AccountHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "employee")
 	}
 	r.POST("/accounts", withCtx, h.CreateAccount)
 	r.GET("/accounts", withCtx, h.ListAllAccounts)
@@ -159,15 +159,15 @@ func accountRouter(h *handler.AccountHandler) *gin.Engine {
 	r.POST("/bank-accounts", withCtx, h.CreateBankAccount)
 	r.DELETE("/bank-accounts/:id", withCtx, h.DeleteBankAccount)
 	r.GET("/me/accounts", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
+		c.Set("principal_id", int64(1))
 		h.ListMyAccounts(c)
 	})
 	r.GET("/me/accounts/:id", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
+		c.Set("principal_id", int64(1))
 		h.GetMyAccount(c)
 	})
 	r.GET("/me/accounts/:id/activity", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
+		c.Set("principal_id", int64(1))
 		h.GetMyAccountActivity(c)
 	})
 	return r

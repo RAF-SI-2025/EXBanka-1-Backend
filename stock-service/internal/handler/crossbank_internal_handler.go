@@ -66,7 +66,10 @@ func (h *CrossbankInternalHandler) PeerListOffers(ctx context.Context, in *stock
 	if h.offerRepo == nil {
 		return &stockpb.PeerListOffersResponse{}, nil
 	}
-	rows, _, err := h.offerRepo.ListByOwner(0, "", "either",
+	// PeerListOffers returns OFFERS visible to peer banks. The "either" role
+	// scope means we list across every owner_type — pass empty values to
+	// ListByOwner; the repo treats both as wildcards via the role scope.
+	rows, _, err := h.offerRepo.ListByOwner("", nil, "either",
 		[]string{model.OTCOfferStatusPending, model.OTCOfferStatusCountered}, 0, 1, 100)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
@@ -179,7 +182,7 @@ func (h *CrossbankInternalHandler) executeHandleReserveSellerShares(ctx context.
 		return &stockpb.ReserveSellerSharesResponse{Confirmed: false, FailReason: "offer_not_found"}, nil
 	}
 	if _, err := h.holdingRes.ReserveForOTCContract(ctx,
-		uint64(o.InitiatorUserID), o.InitiatorSystemType,
+		o.InitiatorOwnerType, o.InitiatorOwnerID,
 		"stock", o.StockID, in.ContractId, qty.IntPart()); err != nil {
 		row.Status = model.IBSagaStatusFailed
 		row.ErrorReason = err.Error()

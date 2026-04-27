@@ -70,10 +70,10 @@ type ForexPairLookup interface {
 // needs to reserve shares on sell-side placement. Stated as an interface so
 // tests can stub it without a real DB.
 //
-// Reserve's lookup key is (user_id, system_type, security_type, security_id) —
+// Reserve's lookup key is (owner_type, owner_id, security_type, security_id) —
 // matches the Part-A rollup where holdings aggregate across accounts.
 type HoldingReservationAPI interface {
-	Reserve(ctx context.Context, userID uint64, systemType, securityType string,
+	Reserve(ctx context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string,
 		securityID, orderID uint64, qty int64) (*ReserveHoldingResult, error)
 	Release(ctx context.Context, orderID uint64) (*ReleaseHoldingResult, error)
 }
@@ -438,9 +438,19 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		}
 	}
 
+	// Translate the legacy (user_id, system_type) request pair into the model's
+	// (owner_type, owner_id) columns. Bank orders (system_type=="bank", or the
+	// fund-rewrite branch above which sets system_type="employee" + magic
+	// user_id) carry a nil owner_id; client orders carry the real client id.
+	orderOwnerType, orderOwnerID := model.OwnerFromLegacy(req.UserID, req.SystemType)
+	if fundOrderID != nil {
+		// Fund-on-behalf orders are bank-owned regardless of the request shape.
+		orderOwnerType, orderOwnerID = model.OwnerBank, nil
+	}
+
 	order := &model.Order{
-		UserID:            req.UserID,
-		SystemType:        req.SystemType,
+		OwnerType:         orderOwnerType,
+		OwnerID:           orderOwnerID,
 		ListingID:         req.ListingID,
 		HoldingID:         req.HoldingID,
 		SecurityType:      listing.SecurityType,
@@ -462,7 +472,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		AllOrNone:         req.AllOrNone,
 		Margin:            req.Margin,
 		AccountID:         req.AccountID,
-		ActingEmployeeID:  req.ActingEmployeeID,
+		ActingEmployeeID:  ptrIfNonZero(req.ActingEmployeeID),
 		BaseAccountID:     req.BaseAccountID,
 		FundID:            fundOrderID,
 		PlacementRate:     placementRate,
@@ -530,7 +540,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 				if s.holdingReservationSvc == nil {
 					return status.Error(codes.Internal, "holding reservation service not configured")
 				}
-				_, herr := s.holdingReservationSvc.Reserve(ctx, req.UserID, req.SystemType,
+				_, herr := s.holdingReservationSvc.Reserve(ctx, orderOwnerType, orderOwnerID,
 					listing.SecurityType, listing.SecurityID, order.ID, req.Quantity)
 				return herr
 			},
@@ -739,10 +749,10 @@ func (s *OrderService) DeclineOrder(orderID uint64, supervisorID uint64, supervi
 }
 
 // CancelOrder cancels an unfilled (or partially filled) order for the given
-// (user_id, system_type) owner. Cross-system lookups return "order not found"
+// (owner_type, owner_id) owner. Cross-owner lookups return "order not found"
 // without leaking existence.
-func (s *OrderService) CancelOrder(orderID, userID uint64, systemType string) (*model.Order, error) {
-	order, err := s.orderRepo.GetByIDWithOwner(orderID, userID, systemType)
+func (s *OrderService) CancelOrder(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error) {
+	order, err := s.orderRepo.GetByIDWithOwner(orderID, ownerType, ownerID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("order not found: %w", ErrOrderNotFound)
@@ -814,10 +824,10 @@ func (s *OrderService) CancelOrder(orderID, userID uint64, systemType string) (*
 	return order, nil
 }
 
-// GetOrder retrieves an order with (user_id, system_type) ownership check.
-// Cross-system lookups return "order not found" without leaking existence.
-func (s *OrderService) GetOrder(orderID, userID uint64, systemType string) (*model.Order, []model.OrderTransaction, error) {
-	order, err := s.orderRepo.GetByIDWithOwner(orderID, userID, systemType)
+// GetOrder retrieves an order with (owner_type, owner_id) ownership check.
+// Cross-owner lookups return "order not found" without leaking existence.
+func (s *OrderService) GetOrder(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, []model.OrderTransaction, error) {
+	order, err := s.orderRepo.GetByIDWithOwner(orderID, ownerType, ownerID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil, fmt.Errorf("order not found: %w", ErrOrderNotFound)
@@ -832,9 +842,9 @@ func (s *OrderService) GetOrder(orderID, userID uint64, systemType string) (*mod
 	return order, txns, nil
 }
 
-// ListMyOrders returns paginated orders for a (user_id, system_type) owner.
-func (s *OrderService) ListMyOrders(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error) {
-	return s.orderRepo.ListByUser(userID, systemType, filter)
+// ListMyOrders returns paginated orders for an (owner_type, owner_id) owner.
+func (s *OrderService) ListMyOrders(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error) {
+	return s.orderRepo.ListByOwner(ownerType, ownerID, filter)
 }
 
 // ListAllOrders returns paginated orders for supervisor view.
@@ -927,6 +937,17 @@ func approvalActor(systemType string) string {
 	return ""
 }
 
+// approvalActorForOwner is approvalActor specialised on the new owner_type
+// surface. Bank-owned orders self-approve; client orders self-approve only
+// when no acting employee is involved (the call site handles that branch by
+// passing systemType="employee" to the legacy approvalActor instead).
+func approvalActorForOwner(t model.OwnerType) string {
+	if t == model.OwnerBank {
+		return "no need for approval"
+	}
+	return "no need for approval"
+}
+
 // defaultOrderSettings is used when NewOrderService is invoked with a nil
 // settings provider. The constants are tuned in the file preamble.
 type defaultOrderSettings struct{}
@@ -1004,10 +1025,16 @@ func (s *OrderService) isSettlementExpired(order *model.Order) bool {
 }
 
 // buildOrderEvent creates a Kafka event message from an order.
+//
+// buildOrderEvent emits the order lifecycle payload. owner_type+owner_id are
+// the canonical identity; the legacy "user_id" key is retained as a
+// compatibility shim for older consumers (bank-owned orders surface user_id=0).
 func buildOrderEvent(order *model.Order) map[string]interface{} {
 	return map[string]interface{}{
 		"order_id":      order.ID,
-		"user_id":       order.UserID,
+		"user_id":       model.OwnerIDOrZero(order.OwnerID),
+		"owner_type":    string(order.OwnerType),
+		"owner_id":      order.OwnerID,
 		"direction":     order.Direction,
 		"order_type":    order.OrderType,
 		"security_type": order.SecurityType,

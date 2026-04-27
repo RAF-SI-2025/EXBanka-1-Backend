@@ -79,13 +79,15 @@ func newCrossbankExpireFixture(t *testing.T) *cbExpireFixture {
 	// Seed an ACTIVE cross-bank contract. ownBank "111" is the seller.
 	buyerCode := "222"
 	sellerCode := "111"
+	buyerUID := uint64(55)
+	sellerUID := uint64(99)
 	contract := &model.OptionContract{
 		OfferID:         88,
-		BuyerUserID:     55,
-		BuyerSystemType: "client",
+		BuyerOwnerType:  model.OwnerClient,
+		BuyerOwnerID:    &buyerUID,
 		BuyerBankCode:   &buyerCode,
-		SellerUserID:    99,
-		SellerSystemType: "client",
+		SellerOwnerType: model.OwnerClient,
+		SellerOwnerID:   &sellerUID,
 		SellerBankCode:  &sellerCode,
 		Quantity:        decimal.NewFromInt(10),
 		StrikePrice:     decimal.NewFromInt(5000),

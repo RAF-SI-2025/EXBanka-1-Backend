@@ -23,9 +23,9 @@ import (
 
 type mockOrderSvc struct {
 	createFn     func(ctx context.Context, req service.CreateOrderRequest) (*model.Order, error)
-	getFn        func(orderID, userID uint64, systemType string) (*model.Order, []model.OrderTransaction, error)
-	listMyFn     func(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error)
-	cancelFn     func(orderID, userID uint64, systemType string) (*model.Order, error)
+	getFn        func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, []model.OrderTransaction, error)
+	listMyFn     func(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
+	cancelFn     func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error)
 	listAllFn    func(filter repository.OrderFilter) ([]model.Order, int64, error)
 	approveFn    func(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
 	declineFn    func(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
@@ -38,23 +38,23 @@ func (m *mockOrderSvc) CreateOrder(ctx context.Context, req service.CreateOrderR
 	return &model.Order{ID: 1, Status: "pending", CreatedAt: time.Now(), LastModification: time.Now()}, nil
 }
 
-func (m *mockOrderSvc) GetOrder(orderID, userID uint64, systemType string) (*model.Order, []model.OrderTransaction, error) {
+func (m *mockOrderSvc) GetOrder(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, []model.OrderTransaction, error) {
 	if m.getFn != nil {
-		return m.getFn(orderID, userID, systemType)
+		return m.getFn(orderID, ownerType, ownerID)
 	}
 	return &model.Order{ID: orderID, Status: "pending", CreatedAt: time.Now(), LastModification: time.Now()}, nil, nil
 }
 
-func (m *mockOrderSvc) ListMyOrders(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error) {
+func (m *mockOrderSvc) ListMyOrders(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error) {
 	if m.listMyFn != nil {
-		return m.listMyFn(userID, systemType, filter)
+		return m.listMyFn(ownerType, ownerID, filter)
 	}
 	return nil, 0, nil
 }
 
-func (m *mockOrderSvc) CancelOrder(orderID, userID uint64, systemType string) (*model.Order, error) {
+func (m *mockOrderSvc) CancelOrder(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error) {
 	if m.cancelFn != nil {
-		return m.cancelFn(orderID, userID, systemType)
+		return m.cancelFn(orderID, ownerType, ownerID)
 	}
 	return &model.Order{ID: orderID, Status: "cancelled", CreatedAt: time.Now(), LastModification: time.Now()}, nil
 }
@@ -100,9 +100,11 @@ func (m *mockExecEngine) StopOrderExecution(orderID uint64) {
 func TestOrderHandler_CreateOrder_Success(t *testing.T) {
 	svc := &mockOrderSvc{
 		createFn: func(_ context.Context, req service.CreateOrderRequest) (*model.Order, error) {
+			ot, oid := model.OwnerFromLegacy(req.UserID, req.SystemType)
 			return &model.Order{
 				ID:               99,
-				UserID:           req.UserID,
+				OwnerType:        ot,
+				OwnerID:          oid,
 				Status:           "pending",
 				Direction:        req.Direction,
 				OrderType:        req.OrderType,
@@ -234,7 +236,7 @@ func TestOrderHandler_CreateOrder_MissingClientWhenActingAsEmployee(t *testing.T
 
 func TestOrderHandler_GetOrder_Success(t *testing.T) {
 	svc := &mockOrderSvc{
-		getFn: func(orderID, userID uint64, systemType string) (*model.Order, []model.OrderTransaction, error) {
+		getFn: func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, []model.OrderTransaction, error) {
 			return &model.Order{
 				ID:               orderID,
 				Status:           "pending",
@@ -258,7 +260,7 @@ func TestOrderHandler_GetOrder_Success(t *testing.T) {
 
 func TestOrderHandler_GetOrder_NotFound(t *testing.T) {
 	svc := &mockOrderSvc{
-		getFn: func(orderID, userID uint64, systemType string) (*model.Order, []model.OrderTransaction, error) {
+		getFn: func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, []model.OrderTransaction, error) {
 			return nil, nil, fmt.Errorf("order not found: %w", service.ErrOrderNotFound)
 		},
 	}
@@ -274,7 +276,7 @@ func TestOrderHandler_GetOrder_NotFound(t *testing.T) {
 
 func TestOrderHandler_ListMyOrders_Success(t *testing.T) {
 	svc := &mockOrderSvc{
-		listMyFn: func(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error) {
+		listMyFn: func(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error) {
 			return []model.Order{
 				{
 					ID:               1,
@@ -303,7 +305,7 @@ func TestOrderHandler_ListMyOrders_Success(t *testing.T) {
 
 func TestOrderHandler_ListMyOrders_Error(t *testing.T) {
 	svc := &mockOrderSvc{
-		listMyFn: func(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error) {
+		listMyFn: func(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error) {
 			return nil, 0, errors.New("db error")
 		},
 	}
@@ -319,7 +321,7 @@ func TestOrderHandler_ListMyOrders_Error(t *testing.T) {
 
 func TestOrderHandler_CancelOrder_Success(t *testing.T) {
 	svc := &mockOrderSvc{
-		cancelFn: func(orderID, userID uint64, systemType string) (*model.Order, error) {
+		cancelFn: func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error) {
 			return &model.Order{
 				ID:               orderID,
 				Status:           "cancelled",
@@ -348,7 +350,7 @@ func TestOrderHandler_CancelOrder_Success(t *testing.T) {
 
 func TestOrderHandler_CancelOrder_NotOwner(t *testing.T) {
 	svc := &mockOrderSvc{
-		cancelFn: func(orderID, userID uint64, systemType string) (*model.Order, error) {
+		cancelFn: func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error) {
 			return nil, fmt.Errorf("order does not belong to user: %w", service.ErrOrderOwnership)
 		},
 	}

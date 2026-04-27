@@ -256,11 +256,15 @@ func (s *CrossbankAcceptSaga) Run(ctx context.Context, in CrossbankAcceptInput) 
 		Name: sharedsaga.MustStep(sharedsaga.StepCreateContract),
 		Forward: func(ctx context.Context, st *sharedsaga.State) error {
 			stashStepPayload(st, sharedsaga.StepCreateContract, in)
+			buyerOwnerType, buyerOwnerID := model.OwnerFromLegacy(uint64(in.BuyerUserID), in.BuyerSystemType)
+			sellerOwnerType, sellerOwnerID := model.OwnerFromLegacy(uint64(in.SellerUserID), in.SellerSystemType)
 			c := &model.OptionContract{
-				OfferID: in.OfferID,
-				BuyerUserID: in.BuyerUserID, BuyerSystemType: in.BuyerSystemType,
-				BuyerBankCode: ptrStr(in.BuyerBankCode),
-				SellerUserID: in.SellerUserID, SellerSystemType: in.SellerSystemType,
+				OfferID:         in.OfferID,
+				BuyerOwnerType:  buyerOwnerType,
+				BuyerOwnerID:    buyerOwnerID,
+				BuyerBankCode:   ptrStr(in.BuyerBankCode),
+				SellerOwnerType: sellerOwnerType,
+				SellerOwnerID:   sellerOwnerID,
 				SellerBankCode:  ptrStr(in.SellerBankCode),
 				Quantity:        in.Quantity,
 				StrikePrice:     in.StrikePrice,

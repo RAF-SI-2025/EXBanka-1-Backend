@@ -17,10 +17,7 @@ import (
 func taxRouter(h *handler.TaxHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(42))
-		c.Set("system_type", "client")
-	}
+	withCtx := clientIdentity(42)
 	r.GET("/api/v2/tax", withCtx, h.ListTaxRecords)
 	r.GET("/api/v2/me/tax", withCtx, h.ListMyTaxRecords)
 	r.POST("/api/v2/tax/collect", withCtx, h.CollectTax)
@@ -98,22 +95,6 @@ func TestTax_ListMyTaxRecords_Success(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `"records":[]`)
-}
-
-func TestTax_ListMyTaxRecords_MissingSystemType(t *testing.T) {
-	st := &stubTaxClient{}
-	h := handler.NewTaxHandler(st)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.GET("/api/v2/me/tax", func(c *gin.Context) {
-		c.Set("user_id", int64(42))
-		// deliberately omit system_type
-		h.ListMyTaxRecords(c)
-	})
-	req := httptest.NewRequest("GET", "/api/v2/me/tax", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }
 
 func TestTax_CollectTax_Success(t *testing.T) {

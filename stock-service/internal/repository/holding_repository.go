@@ -36,8 +36,8 @@ func NewHoldingRepository(db *gorm.DB) *HoldingRepository {
 
 // Upsert creates a new holding or updates an existing one with weighted average price.
 // Uses SELECT FOR UPDATE to prevent race conditions on concurrent fills.
-// The aggregation key is (user_id, system_type, security_type, security_id)
-// so a user buying the same security from two different accounts aggregates
+// The aggregation key is (owner_type, owner_id, security_type, security_id)
+// so an owner buying the same security from two different accounts aggregates
 // into a single row. The incoming holding's AccountID is treated as a
 // last-used audit field and overwrites the existing row's value (but never
 // participates in the lookup).
@@ -49,10 +49,10 @@ func NewHoldingRepository(db *gorm.DB) *HoldingRepository {
 func (r *HoldingRepository) Upsert(ctx context.Context, holding *model.Holding) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var existing model.Holding
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ?",
-				holding.UserID, holding.SystemType, holding.SecurityType, holding.SecurityID).
-			First(&existing).Error
+		q := tx.Clauses(clause.Locking{Strength: "UPDATE"})
+		q = scopeOwner(q, "owner_type", "owner_id", holding.OwnerType, holding.OwnerID)
+		q = q.Where("security_type = ? AND security_id = ?", holding.SecurityType, holding.SecurityID)
+		err := q.First(&existing).Error
 
 		if err == gorm.ErrRecordNotFound {
 			stampHoldingSaga(ctx, holding)
@@ -121,25 +121,25 @@ func (r *HoldingRepository) Delete(id uint64) error {
 	return r.db.Delete(&model.Holding{}, id).Error
 }
 
-// GetByUserAndSecurity returns the aggregated holding for a user's
-// (system_type, security_type, security_id) tuple. Since holdings are
-// aggregated across accounts, the account_id is no longer part of the key.
-func (r *HoldingRepository) GetByUserAndSecurity(userID uint64, systemType, securityType string, securityID uint64) (*model.Holding, error) {
+// GetByOwnerAndSecurity returns the aggregated holding for an owner's
+// (security_type, security_id) tuple. Since holdings are aggregated across
+// accounts, the account_id is no longer part of the key.
+func (r *HoldingRepository) GetByOwnerAndSecurity(ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error) {
 	var holding model.Holding
-	err := r.db.Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ?",
-		userID, systemType, securityType, securityID).
-		First(&holding).Error
-	if err != nil {
+	q := r.db.Where("security_type = ? AND security_id = ?", securityType, securityID)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	if err := q.First(&holding).Error; err != nil {
 		return nil, err
 	}
 	return &holding, nil
 }
 
-func (r *HoldingRepository) ListByUser(userID uint64, systemType string, filter HoldingFilter) ([]model.Holding, int64, error) {
+func (r *HoldingRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter HoldingFilter) ([]model.Holding, int64, error) {
 	var holdings []model.Holding
 	var total int64
 
-	q := r.db.Model(&model.Holding{}).Where("user_id = ? AND system_type = ? AND quantity > 0", userID, systemType)
+	q := r.db.Model(&model.Holding{}).Where("quantity > 0")
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
 	if filter.SecurityType != "" {
 		q = q.Where("security_type = ?", filter.SecurityType)
 	}
@@ -157,14 +157,13 @@ func (r *HoldingRepository) ListByUser(userID uint64, systemType string, filter 
 }
 
 // FindOldestLongOptionHolding returns the oldest (by created_at) holding for
-// a given user and option (security_id) with quantity > 0.
+// a given owner and option (security_id) with quantity > 0.
 // Returns (nil, nil) when no such holding exists.
-func (r *HoldingRepository) FindOldestLongOptionHolding(userID uint64, systemType string, optionID uint64) (*model.Holding, error) {
+func (r *HoldingRepository) FindOldestLongOptionHolding(ownerType model.OwnerType, ownerID *uint64, optionID uint64) (*model.Holding, error) {
 	var h model.Holding
-	err := r.db.
-		Where("user_id = ? AND system_type = ? AND security_type = ? AND security_id = ? AND quantity > 0", userID, systemType, "option", optionID).
-		Order("created_at ASC").
-		First(&h).Error
+	q := r.db.Where("security_type = ? AND security_id = ? AND quantity > 0", "option", optionID)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	err := q.Order("created_at ASC").First(&h).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

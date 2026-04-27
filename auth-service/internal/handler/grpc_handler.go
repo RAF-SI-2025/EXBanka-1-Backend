@@ -88,12 +88,12 @@ func (h *AuthGRPCHandler) ValidateToken(ctx context.Context, req *pb.ValidateTok
 	}
 	return &pb.ValidateTokenResponse{
 		Valid:             true,
-		UserId:            claims.UserID,
+		PrincipalId:       claims.PrincipalID,
 		Email:             claims.Email,
 		Role:              legacyRole,
 		Roles:             claims.Roles,
 		Permissions:       claims.Permissions,
-		SystemType:        claims.SystemType,
+		PrincipalType:     claims.PrincipalType,
 		DeviceType:        claims.DeviceType,
 		DeviceId:          claims.DeviceID,
 		FirstName:         claims.FirstName,

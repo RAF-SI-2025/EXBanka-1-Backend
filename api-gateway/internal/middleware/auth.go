@@ -38,7 +38,7 @@ func AuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 		}
 
 		// Block client tokens from accessing employee-only routes
-		if resp.SystemType == "client" {
+		if resp.PrincipalType == "client" {
 			abortWithError(c, http.StatusForbidden, "forbidden", "token not authorized for employee routes")
 			return
 		}
@@ -49,12 +49,16 @@ func AuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 }
 
 // setTokenContext populates the gin context with all JWT claim fields.
+//
+// The keys "principal_id" and "principal_type" are the post-Spec-C names
+// (was: "user_id" and "system_type"). All downstream readers in api-gateway
+// use these keys; the legacy keys are no longer set anywhere.
 func setTokenContext(c *gin.Context, resp *authpb.ValidateTokenResponse) {
-	c.Set("user_id", resp.UserId)
+	c.Set("principal_id", resp.PrincipalId)
 	c.Set("email", resp.Email)
 	c.Set("role", resp.Role)
 	c.Set("roles", resp.Roles)
-	c.Set("system_type", resp.SystemType)
+	c.Set("principal_type", resp.PrincipalType)
 	c.Set("permissions", resp.Permissions)
 	c.Set("device_id", resp.DeviceId)
 	c.Set("first_name", resp.FirstName)
@@ -93,11 +97,11 @@ func AnyAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 }
 
 // RequireClientToken rejects requests that do not carry a client JWT.
-// Must be chained after AnyAuthMiddleware (which sets "system_type" in the context).
+// Must be chained after AnyAuthMiddleware (which sets "principal_type" in the context).
 func RequireClientToken() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		systemType, _ := c.Get("system_type")
-		if systemType != "client" {
+		principalType, _ := c.Get("principal_type")
+		if principalType != "client" {
 			abortWithError(c, http.StatusForbidden, "forbidden", "client token required")
 			return
 		}

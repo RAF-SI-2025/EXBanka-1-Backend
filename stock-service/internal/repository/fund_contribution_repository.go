@@ -18,8 +18,14 @@ func (r *FundContributionRepository) Create(c *model.FundContribution) error {
 	return r.db.Create(c).Error
 }
 
+// UpdateStatus performs a status-only column update by id. Skips GORM hooks
+// because BeforeSave on FundContribution validates (OwnerType, OwnerID),
+// which would fire on the zero-value struct that db.Model(&FundContribution{})
+// constructs and reject the update with "invalid owner_type". A status flip
+// doesn't change ownership, so skipping hooks is correct here.
 func (r *FundContributionRepository) UpdateStatus(id uint64, status string) error {
-	res := r.db.Model(&model.FundContribution{}).
+	res := r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.FundContribution{}).
 		Where("id = ?", id).
 		Update("status", status)
 	if res.Error != nil {

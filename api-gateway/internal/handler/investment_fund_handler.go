@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	stockpb "github.com/exbanka/contract/stockpb"
 )
 
@@ -48,7 +49,7 @@ func (h *InvestmentFundHandler) CreateFund(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "name is required")
 		return
 	}
-	actorID := c.GetInt64("user_id")
+	actorID := c.GetInt64("principal_id")
 	resp, err := h.client.CreateFund(c.Request.Context(), &stockpb.CreateFundRequest{
 		ActorEmployeeId:        actorID,
 		Name:                   req.Name,
@@ -140,7 +141,7 @@ func (h *InvestmentFundHandler) UpdateFund(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
 		return
 	}
-	actorID := c.GetInt64("user_id")
+	actorID := c.GetInt64("principal_id")
 	in := &stockpb.UpdateFundRequest{ActorEmployeeId: actorID, FundId: id}
 	if req.Name != nil {
 		in.Name = *req.Name
@@ -200,14 +201,11 @@ func (h *InvestmentFundHandler) Invest(c *gin.Context) {
 	if req.OnBehalfOfType == "" {
 		req.OnBehalfOfType = "self"
 	}
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.InvestInFund(c.Request.Context(), &stockpb.InvestInFundRequest{
 		FundId:          id,
-		ActorUserId:     uid,
-		ActorSystemType: st,
+		ActorUserId:     ownerToLegacyUserID(identity.OwnerID),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
 		SourceAccountId: req.SourceAccountID,
 		Amount:          req.Amount,
 		Currency:        req.Currency,
@@ -256,14 +254,11 @@ func (h *InvestmentFundHandler) Redeem(c *gin.Context) {
 	if req.OnBehalfOfType == "" {
 		req.OnBehalfOfType = "self"
 	}
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.RedeemFromFund(c.Request.Context(), &stockpb.RedeemFromFundRequest{
 		FundId:          id,
-		ActorUserId:     uid,
-		ActorSystemType: st,
+		ActorUserId:     ownerToLegacyUserID(identity.OwnerID),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
 		AmountRsd:       req.AmountRSD,
 		TargetAccountId: req.TargetAccountID,
 		OnBehalfOf:      &stockpb.OnBehalfOf{Type: req.OnBehalfOfType},
@@ -283,12 +278,10 @@ func (h *InvestmentFundHandler) Redeem(c *gin.Context) {
 // @Success      200 {object} map[string]interface{}
 // @Router       /api/v1/me/investment-funds [get]
 func (h *InvestmentFundHandler) ListMyPositions(c *gin.Context) {
-	uid, st, ok := mePortfolioIdentity(c)
-	if !ok {
-		return
-	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.ListMyPositions(c.Request.Context(), &stockpb.ListMyPositionsRequest{
-		ActorUserId: uid, ActorSystemType: st,
+		ActorUserId:     ownerToLegacyUserID(identity.OwnerID),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
 	})
 	if err != nil {
 		handleGRPCError(c, err)

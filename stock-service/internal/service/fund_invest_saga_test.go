@@ -202,7 +202,8 @@ func TestInvestSaga_RSDSource_HappyPath(t *testing.T) {
 	if !fx.accounts.sumCredited("FUND").Equal(decimal.NewFromInt(500)) {
 		t.Errorf("fund credit: got %s want 500", fx.accounts.sumCredited("FUND"))
 	}
-	pos, err := fx.pos.GetByOwner(fx.fund.ID, 99, "client")
+	posUID := uint64(99)
+	pos, err := fx.pos.GetByFundAndOwner(fx.fund.ID, model.OwnerClient, &posUID)
 	if err != nil || !pos.TotalContributedRSD.Equal(decimal.NewFromInt(500)) {
 		t.Errorf("position: %+v err=%v", pos, err)
 	}

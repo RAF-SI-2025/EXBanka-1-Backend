@@ -19,8 +19,8 @@ func actuaryRouter(h *handler.ActuaryHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "employee")
 	}
 	r.GET("/api/v2/actuaries", withCtx, h.ListActuaries)
 	r.PUT("/api/v2/actuaries/:id/limit", withCtx, h.SetActuaryLimit)

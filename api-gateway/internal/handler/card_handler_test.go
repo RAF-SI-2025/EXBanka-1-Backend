@@ -22,12 +22,12 @@ func cardRouter(h *handler.CardHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "employee")
 	}
 	withClient := func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "client")
 	}
 	r.POST("/cards", withCtx, h.CreateCard)
 	r.GET("/cards/:id", withCtx, h.GetCard)

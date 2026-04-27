@@ -21,7 +21,7 @@ import (
 func clientRouter(h *handler.ClientHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	withCtx := func(c *gin.Context) { c.Set("user_id", int64(1)) }
+	withCtx := func(c *gin.Context) { c.Set("principal_id", int64(1)) }
 	r.POST("/clients", withCtx, h.CreateClient)
 	r.GET("/clients", withCtx, h.ListClients)
 	r.GET("/clients/:id", withCtx, h.GetClient)

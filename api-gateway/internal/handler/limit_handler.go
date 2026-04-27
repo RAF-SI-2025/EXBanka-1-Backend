@@ -274,7 +274,7 @@ func (h *LimitHandler) SetClientLimits(c *gin.Context) {
 		return
 	}
 
-	employeeID, _ := c.Get("user_id")
+	employeeID, _ := c.Get("principal_id")
 	empID, _ := employeeID.(int64)
 
 	var body setClientLimitsBody

@@ -20,15 +20,15 @@ func NewClientFundPositionRepository(db *gorm.DB) *ClientFundPositionRepository 
 
 // IncrementContribution adds delta to TotalContributedRSD, creating the row
 // if missing. Atomic ON CONFLICT upsert.
-func (r *ClientFundPositionRepository) IncrementContribution(fundID, userID uint64, systemType string, delta decimal.Decimal) error {
+func (r *ClientFundPositionRepository) IncrementContribution(fundID uint64, ownerType model.OwnerType, ownerID *uint64, delta decimal.Decimal) error {
 	row := &model.ClientFundPosition{
 		FundID:              fundID,
-		UserID:              userID,
-		SystemType:          systemType,
+		OwnerType:           ownerType,
+		OwnerID:             ownerID,
 		TotalContributedRSD: delta,
 	}
 	res := r.db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "fund_id"}, {Name: "user_id"}, {Name: "system_type"}},
+		Columns: []clause.Column{{Name: "fund_id"}, {Name: "owner_type"}, {Name: "owner_id"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"total_contributed_rsd": gorm.Expr("client_fund_positions.total_contributed_rsd + ?", delta),
 			"version":               gorm.Expr("client_fund_positions.version + 1"),
@@ -37,13 +37,13 @@ func (r *ClientFundPositionRepository) IncrementContribution(fundID, userID uint
 	return res.Error
 }
 
-func (r *ClientFundPositionRepository) DecrementContribution(fundID, userID uint64, systemType string, delta decimal.Decimal) error {
-	res := r.db.Model(&model.ClientFundPosition{}).
-		Where("fund_id = ? AND user_id = ? AND system_type = ?", fundID, userID, systemType).
-		Updates(map[string]interface{}{
-			"total_contributed_rsd": gorm.Expr("total_contributed_rsd - ?", delta),
-			"version":               gorm.Expr("version + 1"),
-		})
+func (r *ClientFundPositionRepository) DecrementContribution(fundID uint64, ownerType model.OwnerType, ownerID *uint64, delta decimal.Decimal) error {
+	q := r.db.Model(&model.ClientFundPosition{}).Where("fund_id = ?", fundID)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	res := q.Updates(map[string]interface{}{
+		"total_contributed_rsd": gorm.Expr("total_contributed_rsd - ?", delta),
+		"version":               gorm.Expr("version + 1"),
+	})
 	if res.Error != nil {
 		return res.Error
 	}
@@ -53,19 +53,22 @@ func (r *ClientFundPositionRepository) DecrementContribution(fundID, userID uint
 	return nil
 }
 
-func (r *ClientFundPositionRepository) GetByOwner(fundID, userID uint64, systemType string) (*model.ClientFundPosition, error) {
+func (r *ClientFundPositionRepository) GetByFundAndOwner(fundID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.ClientFundPosition, error) {
 	var p model.ClientFundPosition
-	err := r.db.Where("fund_id = ? AND user_id = ? AND system_type = ?", fundID, userID, systemType).First(&p).Error
+	q := r.db.Where("fund_id = ?", fundID)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	err := q.First(&p).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 	return &p, err
 }
 
-func (r *ClientFundPositionRepository) ListByOwner(userID uint64, systemType string) ([]model.ClientFundPosition, error) {
+func (r *ClientFundPositionRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64) ([]model.ClientFundPosition, error) {
 	var out []model.ClientFundPosition
-	err := r.db.Where("user_id = ? AND system_type = ?", userID, systemType).
-		Order("created_at ASC").Find(&out).Error
+	q := r.db.Model(&model.ClientFundPosition{})
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	err := q.Order("created_at ASC").Find(&out).Error
 	return out, err
 }
 

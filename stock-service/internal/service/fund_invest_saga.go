@@ -57,9 +57,12 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 		return nil, fmt.Errorf("fund is inactive: %w", ErrFundInactive)
 	}
 
-	posUserID, posSystemType := in.ActorUserID, in.ActorSystemType
+	// Resolve the position owner. Self-invest attributes the position to the
+	// actor (client owner). Bank-on-behalf attributes the position to the bank
+	// (OwnerType=bank, owner_id=NULL).
+	posOwnerType, posOwnerID := model.OwnerFromLegacy(in.ActorUserID, in.ActorSystemType)
 	if in.OnBehalfOfType == "bank" {
-		posUserID, posSystemType = bankSentinelUserID, "employee"
+		posOwnerType, posOwnerID = model.OwnerBank, nil
 	}
 
 	amountRSD := in.Amount
@@ -100,8 +103,8 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 	// saga progresses.
 	contrib := &model.FundContribution{
 		FundID:                  in.FundID,
-		UserID:                  posUserID,
-		SystemType:              posSystemType,
+		OwnerType:               posOwnerType,
+		OwnerID:                 posOwnerID,
 		Direction:               model.FundDirectionInvest,
 		AmountNative:            in.Amount,
 		NativeCurrency:          in.Currency,
@@ -161,7 +164,7 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 		Add(saga.Step{
 			Name: saga.StepUpsertPosition,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				return s.positions.IncrementContribution(in.FundID, posUserID, posSystemType, amountRSD)
+				return s.positions.IncrementContribution(in.FundID, posOwnerType, posOwnerID, amountRSD)
 			},
 			// Last step: nothing to roll back to, so no Backward needed.
 		})
@@ -185,8 +188,8 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 			MessageID:      uuid.NewString(),
 			OccurredAt:     time.Now().UTC().Format(time.RFC3339),
 			FundID:         in.FundID,
-			UserID:         posUserID,
-			SystemType:     posSystemType,
+			OwnerType:      string(posOwnerType),
+			OwnerID:        posOwnerID,
 			AmountNative:   in.Amount.String(),
 			NativeCurrency: in.Currency,
 			AmountRSD:      amountRSD.String(),

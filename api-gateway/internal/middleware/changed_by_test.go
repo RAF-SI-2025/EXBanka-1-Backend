@@ -19,7 +19,7 @@ func TestGRPCContextWithChangedBy_SetsMetadata(t *testing.T) {
 	var capturedChangedBy int64
 	r := gin.New()
 	r.GET("/test", func(c *gin.Context) {
-		c.Set("user_id", int64(42))
+		c.Set("principal_id", int64(42))
 		ctx := GRPCContextWithChangedBy(c)
 		// Extract outgoing metadata from context to verify it was set
 		md, ok := metadata.FromOutgoingContext(ctx)
@@ -69,7 +69,7 @@ func TestGRPCContextWithChangedBy_ReturnsContextDerivedFromRequest(t *testing.T)
 
 	r := gin.New()
 	r.GET("/test", func(c *gin.Context) {
-		c.Set("user_id", int64(7))
+		c.Set("principal_id", int64(7))
 		ctx := GRPCContextWithChangedBy(c)
 		// Returned context must not be nil.
 		assert.NotNil(t, ctx)

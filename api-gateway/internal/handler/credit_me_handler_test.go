@@ -19,8 +19,8 @@ func creditMeRouter(h *handler.CreditHandler, sysType string, uid int64) *gin.En
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", uid)
-		c.Set("system_type", sysType)
+		c.Set("principal_id", uid)
+		c.Set("principal_type", sysType)
 	}
 	r.GET("/api/v2/me/loans", withCtx, h.ListMyLoans)
 	r.GET("/api/v2/me/loans/:id", withCtx, h.GetMyLoan)
@@ -53,7 +53,7 @@ func TestCreditMe_ListMyLoans_BadUserContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/me/loans", func(c *gin.Context) {
-		c.Set("user_id", "wrong")
+		c.Set("principal_id", "wrong")
 		h.ListMyLoans(c)
 	})
 	req := httptest.NewRequest("GET", "/api/v2/me/loans", nil)
@@ -164,7 +164,7 @@ func TestCreditMe_ListMyLoanRequests_BadUserContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/me/loan-requests", func(c *gin.Context) {
-		c.Set("user_id", "wrong")
+		c.Set("principal_id", "wrong")
 		h.ListMyLoanRequests(c)
 	})
 	req := httptest.NewRequest("GET", "/api/v2/me/loan-requests", nil)

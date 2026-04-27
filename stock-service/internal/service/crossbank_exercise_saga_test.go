@@ -71,13 +71,15 @@ func newCrossbankExerciseFixture(t *testing.T) *cbExerciseFixture {
 	// Seed an ACTIVE cross-bank contract to exercise.
 	buyerCode := "111"
 	sellerCode := "222"
+	buyerUID := uint64(55)
+	sellerUID := uint64(99)
 	contract := &model.OptionContract{
 		OfferID:         88,
-		BuyerUserID:     55,
-		BuyerSystemType: "client",
+		BuyerOwnerType:  model.OwnerClient,
+		BuyerOwnerID:    &buyerUID,
 		BuyerBankCode:   &buyerCode,
-		SellerUserID:    99,
-		SellerSystemType: "client",
+		SellerOwnerType: model.OwnerClient,
+		SellerOwnerID:   &sellerUID,
 		SellerBankCode:  &sellerCode,
 		Quantity:        decimal.NewFromInt(10),
 		StrikePrice:     decimal.NewFromInt(5000),

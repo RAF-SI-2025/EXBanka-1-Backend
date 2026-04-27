@@ -129,7 +129,7 @@ func (h *MobileAuthHandler) RefreshMobileToken(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v2/mobile/device [get]
 func (h *MobileAuthHandler) GetDeviceInfo(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	resp, err := h.authClient.GetDeviceInfo(c.Request.Context(), &authpb.GetDeviceInfoRequest{
 		UserId: userID,
 	})
@@ -153,7 +153,7 @@ func (h *MobileAuthHandler) GetDeviceInfo(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v2/mobile/device/deactivate [post]
 func (h *MobileAuthHandler) DeactivateDevice(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	deviceID, _ := c.Get("device_id")
 	resp, err := h.authClient.DeactivateDevice(c.Request.Context(), &authpb.DeactivateDeviceRequest{
 		UserId:   userID,
@@ -178,7 +178,7 @@ type transferDeviceReq struct {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v2/mobile/device/transfer [post]
 func (h *MobileAuthHandler) TransferDevice(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	var req transferDeviceReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
@@ -215,7 +215,7 @@ func (h *MobileAuthHandler) SetBiometrics(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	deviceID, _ := c.Get("device_id")
 
 	resp, err := h.authClient.SetBiometricsEnabled(c.Request.Context(), &authpb.SetBiometricsRequest{
@@ -238,7 +238,7 @@ func (h *MobileAuthHandler) SetBiometrics(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v2/mobile/device/biometrics [get]
 func (h *MobileAuthHandler) GetBiometrics(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	deviceID, _ := c.Get("device_id")
 
 	resp, err := h.authClient.GetBiometricsEnabled(c.Request.Context(), &authpb.GetBiometricsRequest{

@@ -84,7 +84,7 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, _ := userID.(int64)
 	emailVal, _ := c.Get("email")
 	clientEmail, _ := emailVal.(string)
@@ -260,7 +260,7 @@ func (h *TransactionHandler) ExecutePayment(c *gin.Context) {
 		return
 	}
 
-	uid, _ := c.Get("user_id")
+	uid, _ := c.Get("principal_id")
 	clientID, ok := uid.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "not authenticated")
@@ -329,7 +329,7 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	}
 	toCurrency = toAcc.CurrencyCode
 
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, _ := userID.(int64)
 	emailVal, _ := c.Get("email")
 	clientEmail, _ := emailVal.(string)
@@ -380,7 +380,7 @@ func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
 		return
 	}
 
-	uid, _ := c.Get("user_id")
+	uid, _ := c.Get("principal_id")
 	clientID, ok := uid.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "not authenticated")
@@ -620,7 +620,7 @@ func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
 
 // ListMyPayments serves GET /api/me/payments.
 func (h *TransactionHandler) ListMyPayments(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -670,7 +670,7 @@ func (h *TransactionHandler) GetMyPayment(c *gin.Context) {
 
 // ListMyTransfers serves GET /api/me/transfers.
 func (h *TransactionHandler) ListMyTransfers(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -720,7 +720,7 @@ func (h *TransactionHandler) GetMyTransfer(c *gin.Context) {
 
 // ListMyPaymentRecipients serves GET /api/me/payment-recipients.
 func (h *TransactionHandler) ListMyPaymentRecipients(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -740,14 +740,14 @@ func (h *TransactionHandler) ListMyPaymentRecipients(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"recipients": recipients})
 }
 
-// CreateMyPaymentRecipient serves POST /api/me/payment-recipients — uses JWT user_id as client_id.
+// CreateMyPaymentRecipient serves POST /api/me/payment-recipients — uses JWT principal_id as client_id.
 type createMyPaymentRecipientRequest struct {
 	RecipientName string `json:"recipient_name" binding:"required"`
 	AccountNumber string `json:"account_number" binding:"required"`
 }
 
 func (h *TransactionHandler) CreateMyPaymentRecipient(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")

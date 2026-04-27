@@ -27,7 +27,7 @@ func NewSessionHandler(authClient authpb.AuthServiceClient) *SessionHandler {
 // @Failure      401  {object}  map[string]string  "unauthorized"
 // @Router       /api/v2/me/sessions [get]
 func (h *SessionHandler) ListMySessions(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid user context")
@@ -77,7 +77,7 @@ type revokeSessionRequest struct {
 // @Failure      404  {object}  map[string]string  "session not found"
 // @Router       /api/v2/me/sessions/revoke [post]
 func (h *SessionHandler) RevokeSession(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid user context")
@@ -118,7 +118,7 @@ type revokeAllSessionsRequest struct {
 // @Failure      401  {object}  map[string]string  "unauthorized"
 // @Router       /api/v2/me/sessions/revoke-others [post]
 func (h *SessionHandler) RevokeAllSessions(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid user context")

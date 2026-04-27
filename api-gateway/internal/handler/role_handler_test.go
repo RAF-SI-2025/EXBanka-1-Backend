@@ -20,7 +20,7 @@ import (
 func roleRouter(h *handler.RoleHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	withCtx := func(c *gin.Context) { c.Set("user_id", int64(1)) }
+	withCtx := func(c *gin.Context) { c.Set("principal_id", int64(1)) }
 	r.GET("/roles", withCtx, h.ListRoles)
 	r.GET("/roles/:id", withCtx, h.GetRole)
 	r.POST("/roles", withCtx, h.CreateRole)

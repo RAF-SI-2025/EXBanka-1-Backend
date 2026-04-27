@@ -109,11 +109,12 @@ func TestExecuteOrder_KafkaPayload_IncludesSagaFields(t *testing.T) {
 	baseCtx, baseCancel := context.WithCancel(context.Background())
 	defer baseCancel()
 
+	publishUID := uint64(4242)
 	orderRepo := &fakeBaseCtxOrderRepo{order: &model.Order{
 		ID:                101,
-		UserID:            4242,
+		OwnerType:         model.OwnerClient,
+		OwnerID:           &publishUID,
 		SagaID:            "saga-abc-123",
-		SystemType:        "client",
 		Status:            "approved",
 		IsDone:            false,
 		Direction:         "buy",
@@ -209,9 +210,11 @@ func TestExecuteOrder_FillFailure_DoesNotPublishKafka(t *testing.T) {
 	baseCtx, baseCancel := context.WithCancel(context.Background())
 	defer baseCancel()
 
+	failUID := uint64(5555)
 	orderRepo := &fakeBaseCtxOrderRepo{order: &model.Order{
 		ID:                202,
-		UserID:            5555,
+		OwnerType:         model.OwnerClient,
+		OwnerID:           &failUID,
 		Status:            "approved",
 		IsDone:            false,
 		Direction:         "buy",

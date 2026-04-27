@@ -70,10 +70,11 @@ func buildForexFillService() (*ForexFillService, *forexFillMocks) {
 // forexOrder builds an EUR/USD forex buy order with quote=77, base=88.
 func forexOrder(orderID uint64) *model.Order {
 	baseID := uint64(88)
+	uid := uint64(42)
 	return &model.Order{
 		ID:                  orderID,
-		UserID:              42,
-		SystemType:          "client",
+		OwnerType:           model.OwnerClient,
+		OwnerID:             &uid,
 		ListingID:           1,
 		SecurityType:        "forex",
 		Ticker:              "EUR/USD",
@@ -390,10 +391,11 @@ func TestProcessBuyFill_RoutesForexToForexService(t *testing.T) {
 	svc = svc.WithForexFillService(forexSvc)
 
 	baseID := uint64(88)
+	uid2 := uint64(42)
 	order := &model.Order{
 		ID:                  1,
-		UserID:              42,
-		SystemType:          "client",
+		OwnerType:           model.OwnerClient,
+		OwnerID:             &uid2,
 		ListingID:           1,
 		SecurityType:        "forex",
 		Ticker:              "EUR/USD",

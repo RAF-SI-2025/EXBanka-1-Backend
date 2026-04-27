@@ -21,7 +21,7 @@ import (
 func employeeRouter(h *handler.EmployeeHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	withCtx := func(c *gin.Context) { c.Set("user_id", int64(99)) }
+	withCtx := func(c *gin.Context) { c.Set("principal_id", int64(99)) }
 	r.GET("/employees", withCtx, h.ListEmployees)
 	r.GET("/employees/:id", withCtx, h.GetEmployee)
 	r.POST("/employees", withCtx, h.CreateEmployee)

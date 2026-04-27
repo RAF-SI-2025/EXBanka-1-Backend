@@ -59,13 +59,14 @@ type HoldingTransactionRow struct {
 }
 
 // ListByHolding returns all OrderTransactions for orders that match a
-// holding's aggregation key (user_id, system_type, security_type, security_id).
+// holding's aggregation key (owner_type, owner_id, security_type, security_id).
 // The holding_id itself is not stored on the order — the join is on the
 // tuple. ordersByHolding filters orders via a listing join (listing.security_id
 // matches the holding's security_id for the same security_type).
 func (r *OrderTransactionRepository) ListByHolding(
-	userID uint64,
-	systemType, securityType string,
+	ownerType model.OwnerType,
+	ownerID *uint64,
+	securityType string,
 	securityID uint64,
 	direction string,
 	page, pageSize int,
@@ -84,8 +85,12 @@ func (r *OrderTransactionRepository) ListByHolding(
 		Table("order_transactions").
 		Joins("JOIN orders ON orders.id = order_transactions.order_id").
 		Joins("JOIN listings ON listings.id = orders.listing_id").
-		Where("orders.user_id = ? AND orders.system_type = ?", userID, systemType).
 		Where("listings.security_id = ? AND listings.security_type = ?", securityID, securityType)
+	if ownerID == nil {
+		base = base.Where("orders.owner_type = ? AND orders.owner_id IS NULL", ownerType)
+	} else {
+		base = base.Where("orders.owner_type = ? AND orders.owner_id = ?", ownerType, *ownerID)
+	}
 
 	if direction != "" {
 		base = base.Where("orders.direction = ?", direction)

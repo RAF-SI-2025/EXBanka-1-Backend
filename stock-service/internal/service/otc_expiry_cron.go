@@ -110,9 +110,15 @@ func (cr *OTCExpiryCron) expireContract(ctx context.Context, c *model.OptionCont
 			MessageID:  uuid.NewString(),
 			OccurredAt: now.Format(time.RFC3339),
 			ContractID: c.ID,
-			Buyer:      kafkamsg.OTCParty{UserID: c.BuyerUserID, SystemType: c.BuyerSystemType},
-			Seller:     kafkamsg.OTCParty{UserID: c.SellerUserID, SystemType: c.SellerSystemType},
-			ExpiredAt:  now.Format(time.RFC3339),
+			Buyer: kafkamsg.OTCParty{
+				OwnerType: string(c.BuyerOwnerType),
+				OwnerID:   c.BuyerOwnerID,
+			},
+			Seller: kafkamsg.OTCParty{
+				OwnerType: string(c.SellerOwnerType),
+				OwnerID:   c.SellerOwnerID,
+			},
+			ExpiredAt: now.Format(time.RFC3339),
 		}
 		if data, err := json.Marshal(payload); err == nil {
 			publishSagaEvent(ctx, cr.outbox, cr.outboxDB, cr.producer, kafkamsg.TopicOTCContractExpired, data, "")
@@ -128,10 +134,13 @@ func (cr *OTCExpiryCron) expireOffer(ctx context.Context, o *model.OTCOffer) err
 	}
 	if cr.producer != nil {
 		payload := kafkamsg.OTCOfferExpiredMessage{
-			MessageID:    uuid.NewString(),
-			OccurredAt:   time.Now().UTC().Format(time.RFC3339),
-			OfferID:      o.ID,
-			Initiator:    kafkamsg.OTCParty{UserID: o.InitiatorUserID, SystemType: o.InitiatorSystemType},
+			MessageID:  uuid.NewString(),
+			OccurredAt: time.Now().UTC().Format(time.RFC3339),
+			OfferID:    o.ID,
+			Initiator: kafkamsg.OTCParty{
+				OwnerType: string(o.InitiatorOwnerType),
+				OwnerID:   o.InitiatorOwnerID,
+			},
 			Counterparty: ptrCounterparty(o),
 		}
 		if data, err := json.Marshal(payload); err == nil {

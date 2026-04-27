@@ -203,8 +203,8 @@ func TestAnyAuthMiddleware_EmployeeToken_SetsUserID(t *testing.T) {
 	client := &mockAuthClient{
 		resp: &authpb.ValidateTokenResponse{
 			Valid:      true,
-			UserId:     42,
-			SystemType: "employee",
+			PrincipalId:   42,
+			PrincipalType: "employee",
 			Email:      "emp@example.com",
 		},
 	}
@@ -214,11 +214,11 @@ func TestAnyAuthMiddleware_EmployeeToken_SetsUserID(t *testing.T) {
 	r2 := gin.New()
 	r2.Use(AnyAuthMiddleware(client))
 	r2.GET("/test", func(c *gin.Context) {
-		uid, exists := c.Get("user_id")
-		require.True(t, exists, "user_id should be set in context")
+		uid, exists := c.Get("principal_id")
+		require.True(t, exists, "principal_id should be set in context")
 		assert.Equal(t, int64(42), uid)
-		sysType, _ := c.Get("system_type")
-		assert.Equal(t, "employee", sysType)
+		pType, _ := c.Get("principal_type")
+		assert.Equal(t, "employee", pType)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 	req.Header.Set("Authorization", "Bearer valid-employee-token")
@@ -232,21 +232,21 @@ func TestAnyAuthMiddleware_EmployeeToken_SetsUserID(t *testing.T) {
 func TestAnyAuthMiddleware_ClientToken_SetsUserID(t *testing.T) {
 	client := &mockAuthClient{
 		resp: &authpb.ValidateTokenResponse{
-			Valid:      true,
-			UserId:     99,
-			SystemType: "client",
-			Email:      "client@example.com",
+			Valid:         true,
+			PrincipalId:   99,
+			PrincipalType: "client",
+			Email:         "client@example.com",
 		},
 	}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(AnyAuthMiddleware(client))
 	r.GET("/test", func(c *gin.Context) {
-		uid, exists := c.Get("user_id")
-		require.True(t, exists, "user_id should be set in context for client tokens")
+		uid, exists := c.Get("principal_id")
+		require.True(t, exists, "principal_id should be set in context for client tokens")
 		assert.Equal(t, int64(99), uid)
-		sysType, _ := c.Get("system_type")
-		assert.Equal(t, "client", sysType)
+		pType, _ := c.Get("principal_type")
+		assert.Equal(t, "client", pType)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 	req, _ := http.NewRequest("GET", "/test", nil)
@@ -263,9 +263,9 @@ func TestAnyAuthMiddleware_ClientToken_SetsUserID(t *testing.T) {
 func TestAuthMiddleware_RejectsClientToken(t *testing.T) {
 	client := &mockAuthClient{
 		resp: &authpb.ValidateTokenResponse{
-			Valid:      true,
-			UserId:     99,
-			SystemType: "client",
+			Valid:         true,
+			PrincipalId:   99,
+			PrincipalType: "client",
 		},
 	}
 	gin.SetMode(gin.TestMode)
@@ -298,7 +298,7 @@ func TestRequireClientToken_AllowsClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set("system_type", "client")
+		c.Set("principal_type", "client")
 		c.Next()
 	})
 	r.Use(RequireClientToken())
@@ -315,7 +315,7 @@ func TestRequireClientToken_RejectsEmployee(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set("system_type", "employee")
+		c.Set("principal_type", "employee")
 		c.Next()
 	})
 	r.Use(RequireClientToken())
