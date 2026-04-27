@@ -78,22 +78,27 @@ func main() {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
 
+	// Drop the pre-Task-4 (user_id, system_type) columns that AutoMigrate
+	// leaves behind on every table that previously carried them. Idempotent —
+	// safe to remove after one or two deploy cycles.
+	dropLegacyOwnerColumns(db)
+
 	// One-shot backfill for the new capital_gains.tax_collection_id column.
 	// Stamps every existing capital_gain row that already has a corresponding
-	// tax_collections row (matched on user, system_type, year, month,
-	// account_id, currency) so the next incremental CollectTax run does not
-	// re-tax already-collected gains. Without this, the deploy-day click of
-	// "Collect Tax" for the current month would re-charge users whose taxes
-	// were already collected before the column existed. Idempotent: the
-	// `WHERE cg.tax_collection_id IS NULL` clause makes this a no-op on
-	// subsequent restarts.
+	// tax_collections row (matched on owner, year, month, account_id,
+	// currency) so the next incremental CollectTax run does not re-tax
+	// already-collected gains. Idempotent: the `WHERE cg.tax_collection_id
+	// IS NULL` clause makes this a no-op on subsequent restarts. Match keys
+	// updated to (owner_type, owner_id) by Task 11 of plan
+	// 2026-04-27-owner-type-schema.md; legacy (user_id, system_type) columns
+	// are dropped further down by dropLegacyOwnerColumns.
 	if res := db.Exec(`
 		UPDATE capital_gains AS cg
 		SET tax_collection_id = tc.id
 		FROM tax_collections AS tc
 		WHERE cg.tax_collection_id IS NULL
-		  AND cg.user_id = tc.user_id
-		  AND cg.system_type = tc.system_type
+		  AND cg.owner_type = tc.owner_type
+		  AND cg.owner_id IS NOT DISTINCT FROM tc.owner_id
 		  AND cg.tax_year = tc.year
 		  AND cg.tax_month = tc.month
 		  AND cg.account_id = tc.account_id
@@ -107,13 +112,19 @@ func main() {
 	// Composite unique indexes
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_security_unique ON listings(security_id, security_type)")
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_price_listing_date ON listing_daily_price_infos(listing_id, date)")
-	// Drop the pre-rollup unique index (if present) before recreating the new
-	// aggregation-key index. The old index included account_id, which caused
-	// buys from two different accounts for the same user+security to create
-	// two rows and required a holding_id on every sell. The new index keys on
-	// (user_id, system_type, security_type, security_id) only.
+	// Drop the pre-rollup + pre-owner_type unique indexes (if present) before
+	// recreating the aggregation-key index. The old idx_holding_unique included
+	// account_id (caused per-account splitting of the same user+security);
+	// idx_holding_per_security keyed on the legacy (user_id, system_type)
+	// pair. The new index keys on (owner_type, owner_id, security_type,
+	// security_id) — matching the post-Task-11 schema where the legacy columns
+	// are dropped.
 	db.Exec("DROP INDEX IF EXISTS idx_holding_unique")
-	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_per_security ON holdings(user_id, system_type, security_type, security_id)")
+	db.Exec("DROP INDEX IF EXISTS idx_holding_per_security")
+	// COALESCE(owner_id, 0) keeps bank-owned holdings (owner_id IS NULL)
+	// uniquely keyed even though Postgres treats real NULLs as distinct in
+	// unique indexes by default.
+	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_per_owner_security ON holdings(owner_type, COALESCE(owner_id, 0), security_type, security_id)")
 
 	// Celina-4 OTC: enforce "exactly one of order_id / otc_contract_id" at DB
 	// level. The model's BeforeCreate hook does the same check application-side,
@@ -862,5 +873,51 @@ func mapExerciseToCrossbank(in service.ExerciseInput) service.CrossbankExerciseI
 	return service.CrossbankExerciseInput{
 		ContractID:     in.ContractID,
 		BuyerAccountID: in.BuyerAccountID,
+	}
+}
+
+// dropLegacyOwnerColumns drops the pre-Task-4 (user_id, system_type) columns
+// — and their domain-specific aliases on the OTC tables — left over from
+// before plan 2026-04-27-owner-type-schema.md introduced (owner_type, owner_id).
+// Idempotent: each column is checked with HasColumn before DropColumn, so this
+// is safe to leave in place across many restarts. Plan to remove this helper
+// after the migration has rolled out everywhere.
+func dropLegacyOwnerColumns(db *gorm.DB) {
+	targets := []struct {
+		table string
+		cols  []string
+	}{
+		{"orders", []string{"user_id", "system_type"}},
+		{"holdings", []string{"user_id", "system_type"}},
+		{"capital_gains", []string{"user_id", "system_type"}},
+		{"tax_collections", []string{"user_id", "system_type"}},
+		{"client_fund_positions", []string{"user_id", "system_type"}},
+		{"otc_offers", []string{
+			"initiator_user_id", "initiator_system_type",
+			"counterparty_user_id", "counterparty_system_type",
+			"last_modified_by_user_id", "last_modified_by_system_type",
+		}},
+		{"otc_offer_revisions", []string{"modified_by_user_id", "modified_by_system_type"}},
+		{"option_contracts", []string{
+			"buyer_user_id", "buyer_system_type",
+			"seller_user_id", "seller_system_type",
+		}},
+		{"fund_contributions", []string{"user_id", "system_type"}},
+		{"otc_offer_read_receipts", []string{"user_id", "system_type"}},
+	}
+	for _, t := range targets {
+		for _, col := range t.cols {
+			if !db.Migrator().HasTable(t.table) {
+				continue
+			}
+			if !db.Migrator().HasColumn(t.table, col) {
+				continue
+			}
+			if err := db.Migrator().DropColumn(t.table, col); err != nil {
+				log.Printf("WARN: drop %s.%s: %v", t.table, col, err)
+			} else {
+				log.Printf("dropped legacy column %s.%s", t.table, col)
+			}
+		}
 	}
 }
