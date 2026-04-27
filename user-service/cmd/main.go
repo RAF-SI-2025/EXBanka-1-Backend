@@ -86,12 +86,19 @@ func main() {
 	employeeLimitRepo := repository.NewEmployeeLimitRepository(db)
 	limitTemplateRepo := repository.NewLimitTemplateRepository(db)
 
-	roleSvc := service.NewRoleService(roleRepo, permRepo).WithPublisher(producer)
+	roleSvc := service.NewRoleService(roleRepo, permRepo).
+		WithPublisher(producer).
+		WithDB(db)
 
-	// Seed roles and permissions on startup
+	// Seed roles and permissions on startup. The slim seed only inserts
+	// the default role↔permission mappings on a truly fresh DB; subsequent
+	// startups are no-ops so admin-managed grants survive restarts.
 	if err := roleSvc.SeedRolesAndPermissions(); err != nil {
 		log.Fatalf("failed to seed roles and permissions: %v", err)
 	}
+	// Log any role_permissions rows that reference a permission code no
+	// longer in the codegened catalog. Does not auto-clean.
+	roleSvc.CatalogDriftCheck()
 
 	changelogRepo := repository.NewChangelogRepository(db)
 	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc, changelogRepo)
