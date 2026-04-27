@@ -58,12 +58,18 @@ func (m *mockOrderRepo) GetByID(id uint64) (*model.Order, error) {
 	return &copy, nil
 }
 
-func (m *mockOrderRepo) GetByIDWithOwner(id, userID uint64, systemType string) (*model.Order, error) {
+func (m *mockOrderRepo) GetByIDWithOwner(id uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error) {
 	o, ok := m.orders[id]
 	if !ok {
 		return nil, gorm.ErrRecordNotFound
 	}
-	if o.UserID != userID || o.SystemType != systemType {
+	if o.OwnerType != ownerType {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if (o.OwnerID == nil) != (ownerID == nil) {
+		return nil, gorm.ErrRecordNotFound
+	}
+	if o.OwnerID != nil && *o.OwnerID != *ownerID {
 		return nil, gorm.ErrRecordNotFound
 	}
 	copy := *o
@@ -85,12 +91,19 @@ func (m *mockOrderRepo) Delete(id uint64) error {
 	return nil
 }
 
-func (m *mockOrderRepo) ListByUser(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error) {
+func (m *mockOrderRepo) ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error) {
 	var result []model.Order
 	for _, o := range m.orders {
-		if o.UserID == userID && o.SystemType == systemType {
-			result = append(result, *o)
+		if o.OwnerType != ownerType {
+			continue
 		}
+		if (o.OwnerID == nil) != (ownerID == nil) {
+			continue
+		}
+		if o.OwnerID != nil && *o.OwnerID != *ownerID {
+			continue
+		}
+		result = append(result, *o)
 	}
 	return result, int64(len(result)), nil
 }
@@ -521,8 +534,10 @@ type fakeHoldingReservation struct {
 }
 
 type holdingReserveCall struct {
-	UserID       uint64
-	SystemType   string
+	OwnerType    model.OwnerType
+	OwnerID      *uint64
+	UserID       uint64 // mirror of *OwnerID for legacy assertions in this file
+	SystemType   string // mirror of OwnerType for legacy assertions
 	SecurityType string
 	SecurityID   uint64
 	OrderID      uint64
@@ -533,14 +548,20 @@ func newFakeHoldingReservation() *fakeHoldingReservation {
 	return &fakeHoldingReservation{}
 }
 
-func (f *fakeHoldingReservation) Reserve(_ context.Context, userID uint64, systemType, securityType string,
+func (f *fakeHoldingReservation) Reserve(_ context.Context, ownerType model.OwnerType, ownerID *uint64, securityType string,
 	securityID, orderID uint64, qty int64) (*ReserveHoldingResult, error) {
 	if f.reserveErr != nil {
 		return nil, f.reserveErr
 	}
+	uidVal := uint64(0)
+	if ownerID != nil {
+		uidVal = *ownerID
+	}
 	f.reserveCalls = append(f.reserveCalls, holdingReserveCall{
-		UserID: userID, SystemType: systemType, SecurityType: securityType,
-		SecurityID: securityID, OrderID: orderID, Qty: qty,
+		OwnerType: ownerType, OwnerID: ownerID,
+		UserID: uidVal, SystemType: string(ownerType),
+		SecurityType: securityType,
+		SecurityID:   securityID, OrderID: orderID, Qty: qty,
 	})
 	return &ReserveHoldingResult{ReservationID: orderID, ReservedQuantity: qty, AvailableQuantity: 0}, nil
 }
@@ -1271,7 +1292,7 @@ func TestCancelOrder_Success(t *testing.T) {
 	svc, orderRepo, listingRepo, _, _, _, _ := buildService()
 	order := createDefaultOrder(t, svc, listingRepo)
 
-	cancelled, err := svc.CancelOrder(order.ID, 42, "employee")
+	cancelled, err := svc.CancelOrder(order.ID, model.OwnerClient, ptrU64(42))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1292,7 +1313,7 @@ func TestCancelOrder_WrongUser(t *testing.T) {
 	svc, _, listingRepo, _, _, _, _ := buildService()
 	order := createDefaultOrder(t, svc, listingRepo)
 
-	_, err := svc.CancelOrder(order.ID, 999, "employee")
+	_, err := svc.CancelOrder(order.ID, model.OwnerClient, ptrU64(999))
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}
@@ -1312,7 +1333,7 @@ func TestCancelOrder_AlreadyCompleted(t *testing.T) {
 	stored.IsDone = true
 	_ = orderRepo.Update(stored)
 
-	_, err := svc.CancelOrder(order.ID, 42, "employee")
+	_, err := svc.CancelOrder(order.ID, model.OwnerClient, ptrU64(42))
 	if err == nil {
 		t.Fatal("expected error when cancelling completed order")
 	}
@@ -1320,7 +1341,7 @@ func TestCancelOrder_AlreadyCompleted(t *testing.T) {
 
 func TestCancelOrder_NotFound(t *testing.T) {
 	svc, _, _, _, _, _, _ := buildService()
-	_, err := svc.CancelOrder(999, 42, "employee")
+	_, err := svc.CancelOrder(999, model.OwnerClient, ptrU64(42))
 	if err == nil {
 		t.Fatal("expected error for non-existent order")
 	}
@@ -1330,7 +1351,7 @@ func TestGetOrder_Success(t *testing.T) {
 	svc, _, listingRepo, _, _, _, _ := buildService()
 	order := createDefaultOrder(t, svc, listingRepo)
 
-	got, txns, err := svc.GetOrder(order.ID, 42, "employee")
+	got, txns, err := svc.GetOrder(order.ID, model.OwnerClient, ptrU64(42))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1346,7 +1367,7 @@ func TestGetOrder_WrongUser(t *testing.T) {
 	svc, _, listingRepo, _, _, _, _ := buildService()
 	order := createDefaultOrder(t, svc, listingRepo)
 
-	_, _, err := svc.GetOrder(order.ID, 999, "employee")
+	_, _, err := svc.GetOrder(order.ID, model.OwnerClient, ptrU64(999))
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}
@@ -1638,7 +1659,7 @@ func TestCancelOrder_Approved_DecrementsUnfilledPortion(t *testing.T) {
 	_ = fx.orderRepo.Update(stored)
 
 	// Cancel the order (still approved, not done).
-	_, err = fx.svc.CancelOrder(order.ID, 21, "employee")
+	_, err = fx.svc.CancelOrder(order.ID, model.OwnerClient, ptrU64(21))
 	if err != nil {
 		t.Fatalf("cancel failed: %v", err)
 	}
@@ -1681,7 +1702,7 @@ func TestCancelOrder_Pending_NoDecrement(t *testing.T) {
 	}
 
 	// Cancel the pending order.
-	_, err = fx.svc.CancelOrder(order.ID, 21, "employee")
+	_, err = fx.svc.CancelOrder(order.ID, model.OwnerClient, ptrU64(21))
 	if err != nil {
 		t.Fatalf("cancel failed: %v", err)
 	}
@@ -1736,6 +1757,10 @@ func ptrDec(v int64) *decimal.Decimal {
 	return &d
 }
 
+func ptrU64(v uint64) *uint64 {
+	return &v
+}
+
 // ---------------------------------------------------------------------------
 // Tests: CreateOrder — on_behalf_of=fund (Task 18)
 // ---------------------------------------------------------------------------
@@ -1770,8 +1795,8 @@ func TestCreateOrder_OnBehalfOfFund_HappyPath_StampsFundIDAndBankOwner(t *testin
 	if order.FundID == nil || *order.FundID != 42 {
 		t.Errorf("FundID not stamped: %v", order.FundID)
 	}
-	if order.UserID != 1_000_000_000 || order.SystemType != "employee" {
-		t.Errorf("expected bank-sentinel owner, got %d/%s", order.UserID, order.SystemType)
+	if order.OwnerType != model.OwnerBank || order.OwnerID != nil {
+		t.Errorf("expected bank owner, got owner_type=%s owner_id=%v", order.OwnerType, order.OwnerID)
 	}
 	if order.AccountID != 7000 {
 		t.Errorf("account_id should equal fund RSD account, got %d", order.AccountID)

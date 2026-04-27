@@ -106,8 +106,9 @@ func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
 	sellerID := int64(87)
 	buyerID := int64(55)
 	// Seed seller's holding so the seller-invariant + reservation succeed.
+	sellerUID := uint64(sellerID)
 	_ = holdingRepo.Upsert(&model.Holding{
-		UserID: uint64(sellerID), SystemType: "client",
+		OwnerType: model.OwnerClient, OwnerID: &sellerUID,
 		SecurityType: "stock", SecurityID: stockID, Quantity: 100,
 		AveragePrice: decimal.NewFromInt(100),
 	})
@@ -121,15 +122,15 @@ func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
 
 	// Seed offer.
 	offer := &model.OTCOffer{
-		InitiatorUserID: sellerID, InitiatorSystemType: "client",
+		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &sellerUID,
 		Direction: model.OTCDirectionSellInitiated,
 		StockID:   stockID,
 		Quantity:  decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(5000),
 		Premium:        decimal.NewFromInt(50000),
 		SettlementDate: time.Now().AddDate(0, 0, 7),
 		Status:         model.OTCOfferStatusPending,
-		LastModifiedByUserID:     sellerID,
-		LastModifiedBySystemType: "client",
+		LastModifiedByPrincipalType: "client",
+		LastModifiedByPrincipalID:   uint64(sellerID),
 	}
 	if err := offerRepo.Create(offer); err != nil {
 		t.Fatalf("seed offer: %v", err)
@@ -204,7 +205,8 @@ func TestAcceptSaga_ReservePremiumFails_DropsContract(t *testing.T) {
 		t.Error("contract row should have been dropped")
 	}
 	// Seller's holding reservation should have been released.
-	h, _ := fx.holdings.GetByUserAndSecurity(uint64(fx.sellerID), "client", "stock", fx.stockID)
+	checkUID := uint64(fx.sellerID)
+	h, _ := fx.holdings.GetByOwnerAndSecurity(model.OwnerClient, &checkUID, "stock", fx.stockID)
 	if h.ReservedQuantity != 0 {
 		t.Errorf("seller's holding still has %d reserved (expected 0 after compensation)", h.ReservedQuantity)
 	}

@@ -239,8 +239,10 @@ func newCrossbankAcceptFixture(t *testing.T) *cbAcceptFixture {
 	peer := newFakeCrossbankPeer()
 	publisher := &countingPublisher{}
 
+	initUID := uint64(99)
 	offer := &model.OTCOffer{
-		InitiatorUserID: 99, InitiatorSystemType: "client",
+		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &initUID,
+		LastModifiedByPrincipalType: "client", LastModifiedByPrincipalID: 99,
 		Direction: model.OTCDirectionSellInitiated,
 		StockID:   1,
 		Quantity:  decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(5000),

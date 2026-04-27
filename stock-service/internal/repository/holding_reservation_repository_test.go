@@ -40,9 +40,10 @@ func newHoldingReservationTestDB(t *testing.T) *gorm.DB {
 // HoldingID foreign key reference.
 func seedHolding(t *testing.T, db *gorm.DB) *model.Holding {
 	t.Helper()
+	uid := uint64(1)
 	h := &model.Holding{
-		UserID:        1,
-		SystemType:    "client",
+		OwnerType:     model.OwnerClient,
+		OwnerID:       &uid,
 		UserFirstName: "Test",
 		UserLastName:  "User",
 		SecurityType:  "stock",

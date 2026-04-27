@@ -54,10 +54,12 @@ func TestOTCHandler_ListOffers_Success(t *testing.T) {
 	now := time.Now()
 	svc := &mockOTCSvc{
 		listFn: func(filter service.OTCFilter) ([]model.Holding, int64, error) {
+			uid := uint64(10)
 			return []model.Holding{
 				{
 					ID:             1,
-					UserID:         10,
+					OwnerType:      model.OwnerClient,
+					OwnerID:        &uid,
 					UserFirstName:  "Alice",
 					UserLastName:   "Smith",
 					SecurityType:   "stock",

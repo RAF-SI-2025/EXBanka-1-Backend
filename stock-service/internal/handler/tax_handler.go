@@ -16,9 +16,9 @@ import (
 // taxHandlerSvcFacade is the narrow interface of TaxService used by TaxHandler.
 type taxHandlerSvcFacade interface {
 	ListTaxRecords(year, month int, filter service.TaxFilter) ([]service.TaxUserSummary, int64, error)
-	GetUserTaxSummary(userID uint64, systemType string) (decimal.Decimal, decimal.Decimal, error)
-	ListUserTaxRecords(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error)
-	ListUserTaxCollections(userID uint64, systemType string) ([]model.TaxCollection, error)
+	GetUserTaxSummary(ownerType model.OwnerType, ownerID *uint64) (decimal.Decimal, decimal.Decimal, error)
+	ListUserTaxRecords(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
+	ListUserTaxCollections(ownerType model.OwnerType, ownerID *uint64) ([]model.TaxCollection, error)
 	CollectTax(year, month int) (int64, decimal.Decimal, int64, error)
 }
 
@@ -57,9 +57,13 @@ func (h *TaxHandler) ListTaxRecords(ctx context.Context, req *pb.ListTaxRecordsR
 		if s.LastCollection != nil {
 			lastCollection = s.LastCollection.Format("2006-01-02T15:04:05Z")
 		}
+		ownerID := uint64(0)
+		if s.OwnerID != nil {
+			ownerID = *s.OwnerID
+		}
 		records[i] = &pb.TaxRecord{
-			UserId:         s.UserID,
-			UserType:       s.SystemType,
+			UserId:         ownerID,
+			UserType:       s.OwnerType,
 			FirstName:      s.UserFirstName,
 			LastName:       s.UserLastName,
 			TotalDebtRsd:   s.TotalDebtRSD.StringFixed(2),
@@ -83,7 +87,8 @@ func (h *TaxHandler) ListUserTaxRecords(ctx context.Context, req *pb.ListUserTax
 		pageSize = 10
 	}
 
-	gains, total, err := h.taxSvc.ListUserTaxRecords(req.UserId, req.SystemType, page, pageSize)
+	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	gains, total, err := h.taxSvc.ListUserTaxRecords(ownerType, ownerID, page, pageSize)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -106,13 +111,13 @@ func (h *TaxHandler) ListUserTaxRecords(ctx context.Context, req *pb.ListUserTax
 	}
 
 	// Fetch balance summary
-	taxPaid, taxUnpaid, balErr := h.taxSvc.GetUserTaxSummary(req.UserId, req.SystemType)
+	taxPaid, taxUnpaid, balErr := h.taxSvc.GetUserTaxSummary(ownerType, ownerID)
 	if balErr != nil {
 		return nil, status.Error(codes.Internal, balErr.Error())
 	}
 
 	// Fetch collection history so the owner can see when tax was actually taken.
-	collections, collErr := h.taxSvc.ListUserTaxCollections(req.UserId, req.SystemType)
+	collections, collErr := h.taxSvc.ListUserTaxCollections(ownerType, ownerID)
 	if collErr != nil {
 		return nil, status.Error(codes.Internal, collErr.Error())
 	}

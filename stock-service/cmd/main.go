@@ -285,8 +285,12 @@ func main() {
 
 
 	// --- Name Resolver ---
-	nameResolver := service.UserNameResolver(func(userID uint64, systemType string) (string, string, error) {
-		if systemType == "client" {
+	nameResolver := service.UserNameResolver(func(ownerType model.OwnerType, ownerID *uint64) (string, string, error) {
+		if ownerType == model.OwnerBank || ownerID == nil {
+			return "Bank", "", nil
+		}
+		userID := *ownerID
+		if ownerType == model.OwnerClient {
 			resp, err := clientClient.GetClient(context.Background(), &clientpb.GetClientRequest{Id: userID})
 			if err != nil {
 				return "", "", err
@@ -838,19 +842,19 @@ func mapAcceptToCrossbank(o *model.OTCOffer, in service.AcceptInput, ownBank str
 		buyerBank, sellerBank = sellerBank, buyerBank
 	}
 	return service.CrossbankAcceptInput{
-		OfferID:         o.ID,
-		BuyerUserID:     in.ActorUserID,
-		BuyerSystemType: in.ActorSystemType,
-		BuyerBankCode:   buyerBank,
-		BuyerAccountID:  in.BuyerAccountID,
-		SellerUserID:    o.InitiatorUserID,
-		SellerSystemType: o.InitiatorSystemType,
-		SellerBankCode:  sellerBank,
-		Premium:         o.Premium,
-		Currency:        "RSD",
-		Quantity:        o.Quantity,
-		StrikePrice:     o.StrikePrice,
-		SettlementDate:  o.SettlementDate,
+		OfferID:          o.ID,
+		BuyerUserID:      in.ActorUserID,
+		BuyerSystemType:  in.ActorSystemType,
+		BuyerBankCode:    buyerBank,
+		BuyerAccountID:   in.BuyerAccountID,
+		SellerUserID:     int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)),
+		SellerSystemType: string(o.InitiatorOwnerType),
+		SellerBankCode:   sellerBank,
+		Premium:          o.Premium,
+		Currency:         "RSD",
+		Quantity:         o.Quantity,
+		StrikePrice:      o.StrikePrice,
+		SettlementDate:   o.SettlementDate,
 	}
 }
 

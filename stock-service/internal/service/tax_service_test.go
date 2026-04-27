@@ -36,67 +36,67 @@ func (m *mockTaxCollectionRepo) Create(collection *model.TaxCollection) error {
 	return nil
 }
 
-func (m *mockTaxCollectionRepo) SumByUserYear(userID uint64, systemType string, year int) (decimal.Decimal, error) {
+func (m *mockTaxCollectionRepo) SumByOwnerYear(ownerType model.OwnerType, ownerID *uint64, year int) (decimal.Decimal, error) {
 	total := decimal.Zero
 	for _, c := range m.collections {
-		if c.UserID == userID && c.SystemType == systemType && c.Year == year {
+		if c.OwnerType == ownerType && ownerIDEqual(c.OwnerID, ownerID) && c.Year == year {
 			total = total.Add(c.TaxAmountRSD)
 		}
 	}
 	return total, nil
 }
 
-func (m *mockTaxCollectionRepo) SumByUserMonth(userID uint64, systemType string, year, month int) (decimal.Decimal, error) {
+func (m *mockTaxCollectionRepo) SumByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) (decimal.Decimal, error) {
 	total := decimal.Zero
 	for _, c := range m.collections {
-		if c.UserID == userID && c.SystemType == systemType && c.Year == year && c.Month == month {
+		if c.OwnerType == ownerType && ownerIDEqual(c.OwnerID, ownerID) && c.Year == year && c.Month == month {
 			total = total.Add(c.TaxAmountRSD)
 		}
 	}
 	return total, nil
 }
 
-func (m *mockTaxCollectionRepo) GetLastCollection(userID uint64, systemType string) (*model.TaxCollection, error) {
+func (m *mockTaxCollectionRepo) GetLastCollection(ownerType model.OwnerType, ownerID *uint64) (*model.TaxCollection, error) {
 	var last *model.TaxCollection
 	for i := range m.collections {
-		if m.collections[i].UserID == userID && m.collections[i].SystemType == systemType {
+		if m.collections[i].OwnerType == ownerType && ownerIDEqual(m.collections[i].OwnerID, ownerID) {
 			last = &m.collections[i]
 		}
 	}
 	return last, nil
 }
 
-func (m *mockTaxCollectionRepo) SumByUserAllTime(userID uint64, systemType string) (decimal.Decimal, error) {
+func (m *mockTaxCollectionRepo) SumByOwnerAllTime(ownerType model.OwnerType, ownerID *uint64) (decimal.Decimal, error) {
 	total := decimal.Zero
 	for _, c := range m.collections {
-		if c.UserID == userID && c.SystemType == systemType {
+		if c.OwnerType == ownerType && ownerIDEqual(c.OwnerID, ownerID) {
 			total = total.Add(c.TaxAmountRSD)
 		}
 	}
 	return total, nil
 }
 
-func (m *mockTaxCollectionRepo) ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.TaxCollection, int64, error) {
+func (m *mockTaxCollectionRepo) ListByOwner(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.TaxCollection, int64, error) {
 	out := []model.TaxCollection{}
 	for i := range m.collections {
-		if m.collections[i].UserID == userID && m.collections[i].SystemType == systemType {
+		if m.collections[i].OwnerType == ownerType && ownerIDEqual(m.collections[i].OwnerID, ownerID) {
 			out = append(out, m.collections[i])
 		}
 	}
 	return out, int64(len(out)), nil
 }
 
-func (m *mockTaxCollectionRepo) CountByKey(userID uint64, systemType string, year, month int, accountID uint64, currency string) (int64, error) {
+func (m *mockTaxCollectionRepo) CountByKey(ownerType model.OwnerType, ownerID *uint64, year, month int, accountID uint64, currency string) (int64, error) {
 	var count int64
 	for _, c := range m.collections {
-		if c.UserID == userID && c.SystemType == systemType && c.Year == year && c.Month == month && c.AccountID == accountID && c.Currency == currency {
+		if c.OwnerType == ownerType && ownerIDEqual(c.OwnerID, ownerID) && c.Year == year && c.Month == month && c.AccountID == accountID && c.Currency == currency {
 			count++
 		}
 	}
 	return count, nil
 }
 
-func (m *mockTaxCollectionRepo) ListUsersWithGains(year, month int, filter repository.TaxFilter) ([]repository.TaxUserSummary, int64, error) {
+func (m *mockTaxCollectionRepo) ListOwnersWithGains(year, month int, filter repository.TaxFilter) ([]repository.TaxUserSummary, int64, error) {
 	return m.usersWithGains, int64(len(m.usersWithGains)), nil
 }
 
@@ -120,10 +120,10 @@ func (m *mockTaxCapitalGainRepo) Create(gain *model.CapitalGain) error {
 	return nil
 }
 
-func (m *mockTaxCapitalGainRepo) ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error) {
+func (m *mockTaxCapitalGainRepo) ListByOwner(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
 	var result []model.CapitalGain
 	for _, g := range m.gains {
-		if g.UserID == userID && g.SystemType == systemType {
+		if g.OwnerType == ownerType && ownerIDEqual(g.OwnerID, ownerID) {
 			result = append(result, g)
 		}
 	}
@@ -139,14 +139,14 @@ func (m *mockTaxCapitalGainRepo) ListByUser(userID uint64, systemType string, pa
 	return result[start:end], total, nil
 }
 
-func (m *mockTaxCapitalGainRepo) SumByUserMonth(userID uint64, systemType string, year, month int) ([]repository.AccountGainSummary, error) {
+func (m *mockTaxCapitalGainRepo) SumByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) ([]repository.AccountGainSummary, error) {
 	type key struct {
 		AccountID uint64
 		Currency  string
 	}
 	agg := make(map[key]decimal.Decimal)
 	for _, g := range m.gains {
-		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year && g.TaxMonth == month {
+		if g.OwnerType == ownerType && ownerIDEqual(g.OwnerID, ownerID) && g.TaxYear == year && g.TaxMonth == month {
 			k := key{AccountID: g.AccountID, Currency: g.Currency}
 			agg[k] = agg[k].Add(g.TotalGain)
 		}
@@ -162,14 +162,14 @@ func (m *mockTaxCapitalGainRepo) SumByUserMonth(userID uint64, systemType string
 	return result, nil
 }
 
-func (m *mockTaxCapitalGainRepo) SumUncollectedByUserMonth(userID uint64, systemType string, year, month int) ([]repository.AccountGainSummary, error) {
+func (m *mockTaxCapitalGainRepo) SumUncollectedByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) ([]repository.AccountGainSummary, error) {
 	type key struct {
 		AccountID uint64
 		Currency  string
 	}
 	agg := make(map[key]decimal.Decimal)
 	for _, g := range m.gains {
-		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year && g.TaxMonth == month && g.TaxCollectionID == nil {
+		if g.OwnerType == ownerType && ownerIDEqual(g.OwnerID, ownerID) && g.TaxYear == year && g.TaxMonth == month && g.TaxCollectionID == nil {
 			k := key{AccountID: g.AccountID, Currency: g.Currency}
 			agg[k] = agg[k].Add(g.TotalGain)
 		}
@@ -185,10 +185,10 @@ func (m *mockTaxCapitalGainRepo) SumUncollectedByUserMonth(userID uint64, system
 	return result, nil
 }
 
-func (m *mockTaxCapitalGainRepo) MarkCollected(userID uint64, systemType string, year, month int, accountID uint64, currency string, taxCollectionID uint64) error {
+func (m *mockTaxCapitalGainRepo) MarkCollected(ownerType model.OwnerType, ownerID *uint64, year, month int, accountID uint64, currency string, taxCollectionID uint64) error {
 	for i := range m.gains {
 		g := &m.gains[i]
-		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year && g.TaxMonth == month && g.AccountID == accountID && g.Currency == currency && g.TaxCollectionID == nil {
+		if g.OwnerType == ownerType && ownerIDEqual(g.OwnerID, ownerID) && g.TaxYear == year && g.TaxMonth == month && g.AccountID == accountID && g.Currency == currency && g.TaxCollectionID == nil {
 			id := taxCollectionID
 			g.TaxCollectionID = &id
 		}
@@ -196,14 +196,14 @@ func (m *mockTaxCapitalGainRepo) MarkCollected(userID uint64, systemType string,
 	return nil
 }
 
-func (m *mockTaxCapitalGainRepo) SumByUserYear(userID uint64, systemType string, year int) ([]repository.AccountGainSummary, error) {
+func (m *mockTaxCapitalGainRepo) SumByOwnerYear(ownerType model.OwnerType, ownerID *uint64, year int) ([]repository.AccountGainSummary, error) {
 	type key struct {
 		AccountID uint64
 		Currency  string
 	}
 	agg := make(map[key]decimal.Decimal)
 	for _, g := range m.gains {
-		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year {
+		if g.OwnerType == ownerType && ownerIDEqual(g.OwnerID, ownerID) && g.TaxYear == year {
 			k := key{AccountID: g.AccountID, Currency: g.Currency}
 			agg[k] = agg[k].Add(g.TotalGain)
 		}
@@ -219,14 +219,14 @@ func (m *mockTaxCapitalGainRepo) SumByUserYear(userID uint64, systemType string,
 	return result, nil
 }
 
-func (m *mockTaxCapitalGainRepo) SumByUserAllTime(userID uint64, systemType string) ([]repository.AccountGainSummary, error) {
+func (m *mockTaxCapitalGainRepo) SumByOwnerAllTime(ownerType model.OwnerType, ownerID *uint64) ([]repository.AccountGainSummary, error) {
 	type key struct {
 		AccountID uint64
 		Currency  string
 	}
 	agg := make(map[key]decimal.Decimal)
 	for _, g := range m.gains {
-		if g.UserID == userID && g.SystemType == systemType {
+		if g.OwnerType == ownerType && ownerIDEqual(g.OwnerID, ownerID) {
 			k := key{AccountID: g.AccountID, Currency: g.Currency}
 			agg[k] = agg[k].Add(g.TotalGain)
 		}
@@ -242,10 +242,10 @@ func (m *mockTaxCapitalGainRepo) SumByUserAllTime(userID uint64, systemType stri
 	return result, nil
 }
 
-func (m *mockTaxCapitalGainRepo) CountByUserYear(userID uint64, systemType string, year int) (int64, error) {
+func (m *mockTaxCapitalGainRepo) CountByOwnerYear(ownerType model.OwnerType, ownerID *uint64, year int) (int64, error) {
 	var count int64
 	for _, g := range m.gains {
-		if g.UserID == userID && g.SystemType == systemType && g.TaxYear == year {
+		if g.OwnerType == ownerType && ownerIDEqual(g.OwnerID, ownerID) && g.TaxYear == year {
 			count++
 		}
 	}
@@ -473,8 +473,8 @@ func TestTaxService_GetUserTaxSummary_PositiveGain(t *testing.T) {
 
 	// Record a positive capital gain of 1000 RSD for user 42
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID:           42,
-		SystemType:       "employee",
+		OwnerType:        model.OwnerClient,
+		OwnerID:          ptrU64(42),
 		SecurityType:     "stock",
 		Ticker:           "AAPL",
 		Quantity:         10,
@@ -487,7 +487,7 @@ func TestTaxService_GetUserTaxSummary_PositiveGain(t *testing.T) {
 		TaxMonth:         month,
 	})
 
-	paidThisYear, unpaidThisMonth, err := svc.GetUserTaxSummary(42, "employee")
+	paidThisYear, unpaidThisMonth, err := svc.GetUserTaxSummary(model.OwnerClient, ptrU64(42))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -517,8 +517,8 @@ func TestTaxService_GetUserTaxSummary_NegativeGain(t *testing.T) {
 
 	// Record a loss of -500 RSD
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID:           42,
-		SystemType:       "employee",
+		OwnerType:        model.OwnerClient,
+		OwnerID:          ptrU64(42),
 		SecurityType:     "stock",
 		Ticker:           "AAPL",
 		Quantity:         5,
@@ -531,7 +531,7 @@ func TestTaxService_GetUserTaxSummary_NegativeGain(t *testing.T) {
 		TaxMonth:         month,
 	})
 
-	paidThisYear, unpaidThisMonth, err := svc.GetUserTaxSummary(42, "employee")
+	paidThisYear, unpaidThisMonth, err := svc.GetUserTaxSummary(model.OwnerClient, ptrU64(42))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -552,8 +552,8 @@ func TestTaxService_ListTaxRecords(t *testing.T) {
 	svc, mocks := buildTaxService()
 
 	mocks.taxCollectionRepo.usersWithGains = []repository.TaxUserSummary{
-		{UserID: 1, SystemType: "employee", TotalDebtRSD: decimal.NewFromInt(100)},
-		{UserID: 2, SystemType: "client", TotalDebtRSD: decimal.NewFromInt(200)},
+		{OwnerType: "client", OwnerID: ptrU64(1), TotalDebtRSD: decimal.NewFromInt(100)},
+		{OwnerType: "client", OwnerID: ptrU64(2), TotalDebtRSD: decimal.NewFromInt(200)},
 	}
 
 	summaries, total, err := svc.ListTaxRecords(2026, 4, TaxFilter{Page: 1, PageSize: 10})
@@ -582,26 +582,26 @@ func TestTaxService_ListUserTaxRecords_OnlyUserRecords(t *testing.T) {
 
 	// User 42 gains
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID: 42, SystemType: "employee", Ticker: "AAPL", Quantity: 10,
+		OwnerType: model.OwnerClient, OwnerID: ptrU64(42), Ticker: "AAPL", Quantity: 10,
 		BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(150),
 		TotalGain: decimal.NewFromInt(500), Currency: "RSD", AccountID: 1,
 		TaxYear: year, TaxMonth: month,
 	})
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID: 42, SystemType: "employee", Ticker: "GOOG", Quantity: 5,
+		OwnerType: model.OwnerClient, OwnerID: ptrU64(42), Ticker: "GOOG", Quantity: 5,
 		BuyPricePerUnit: decimal.NewFromInt(200), SellPricePerUnit: decimal.NewFromInt(300),
 		TotalGain: decimal.NewFromInt(500), Currency: "RSD", AccountID: 1,
 		TaxYear: year, TaxMonth: month,
 	})
 	// User 99 gain (should not appear)
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID: 99, SystemType: "client", Ticker: "MSFT", Quantity: 3,
+		OwnerType: model.OwnerClient, OwnerID: ptrU64(99), Ticker: "MSFT", Quantity: 3,
 		BuyPricePerUnit: decimal.NewFromInt(300), SellPricePerUnit: decimal.NewFromInt(400),
 		TotalGain: decimal.NewFromInt(300), Currency: "RSD", AccountID: 2,
 		TaxYear: year, TaxMonth: month,
 	})
 
-	records, total, err := svc.ListUserTaxRecords(42, "employee", 1, 10)
+	records, total, err := svc.ListUserTaxRecords(model.OwnerClient, ptrU64(42), 1, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -613,8 +613,8 @@ func TestTaxService_ListUserTaxRecords_OnlyUserRecords(t *testing.T) {
 		t.Errorf("expected 2 records, got %d", len(records))
 	}
 	for _, r := range records {
-		if r.UserID != 42 {
-			t.Errorf("expected all records for user 42, got user %d", r.UserID)
+		if r.OwnerID == nil || *r.OwnerID != 42 {
+			t.Errorf("expected all records for owner 42, got owner_id=%v", r.OwnerID)
 		}
 	}
 }
@@ -635,8 +635,8 @@ func TestTaxService_GetUserTaxSummary_ForeignCurrency(t *testing.T) {
 
 	// Record a positive capital gain of 100 USD
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID:           42,
-		SystemType:       "employee",
+		OwnerType:        model.OwnerClient,
+		OwnerID:          ptrU64(42),
 		SecurityType:     "stock",
 		Ticker:           "AAPL",
 		Quantity:         10,
@@ -649,7 +649,7 @@ func TestTaxService_GetUserTaxSummary_ForeignCurrency(t *testing.T) {
 		TaxMonth:         month,
 	})
 
-	_, unpaidThisMonth, err := svc.GetUserTaxSummary(42, "employee")
+	_, unpaidThisMonth, err := svc.GetUserTaxSummary(model.OwnerClient, ptrU64(42))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -676,8 +676,8 @@ func TestTaxService_CollectTax_PositiveGain(t *testing.T) {
 
 	// Record a positive capital gain of 2000 RSD
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID:           42,
-		SystemType:       "employee",
+		OwnerType:        model.OwnerClient,
+		OwnerID:          ptrU64(42),
 		SecurityType:     "stock",
 		Ticker:           "AAPL",
 		Quantity:         20,
@@ -692,7 +692,7 @@ func TestTaxService_CollectTax_PositiveGain(t *testing.T) {
 
 	// ListUsersWithGains returns user 42 with debt
 	mocks.taxCollectionRepo.usersWithGains = []repository.TaxUserSummary{
-		{UserID: 42, SystemType: "employee", TotalDebtRSD: decimal.NewFromInt(300)},
+		{OwnerType: "client", OwnerID: ptrU64(42), TotalDebtRSD: decimal.NewFromInt(300)},
 	}
 
 	collectedCount, totalRSD, failedCount, err := svc.CollectTax(year, month)
@@ -740,8 +740,8 @@ func TestTaxService_CollectTax_PositiveGain(t *testing.T) {
 		t.Fatalf("expected 1 tax collection, got %d", len(mocks.taxCollectionRepo.collections))
 	}
 	tc := mocks.taxCollectionRepo.collections[0]
-	if tc.UserID != 42 {
-		t.Errorf("expected collection for user 42, got %d", tc.UserID)
+	if tc.OwnerID == nil || *tc.OwnerID != 42 {
+		t.Errorf("expected collection for owner 42, got owner_id=%v", tc.OwnerID)
 	}
 	if !tc.TaxAmountRSD.Equal(expectedTax) {
 		t.Errorf("expected TaxAmountRSD %s, got %s", expectedTax, tc.TaxAmountRSD)
@@ -773,12 +773,12 @@ func TestTaxService_CollectTax_IncrementalNewProfit(t *testing.T) {
 
 	mocks.accountClient.addAccount(1, "USER-ACCT-001")
 	mocks.taxCollectionRepo.usersWithGains = []repository.TaxUserSummary{
-		{UserID: 42, SystemType: "employee", TotalDebtRSD: decimal.NewFromInt(150)},
+		{OwnerType: "client", OwnerID: ptrU64(42), TotalDebtRSD: decimal.NewFromInt(150)},
 	}
 
 	// First gain: 1000 RSD profit → 150 RSD tax.
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID: 42, SystemType: "employee", SecurityType: "stock", Ticker: "AAPL",
+		OwnerType: model.OwnerClient, OwnerID: ptrU64(42), SecurityType: "stock", Ticker: "AAPL",
 		Quantity: 10, BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(200),
 		TotalGain: decimal.NewFromInt(1000), Currency: "RSD", AccountID: 1,
 		TaxYear: year, TaxMonth: month,
@@ -794,7 +794,7 @@ func TestTaxService_CollectTax_IncrementalNewProfit(t *testing.T) {
 
 	// Second gain lands: another 500 RSD profit → 75 RSD tax on the delta only.
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID: 42, SystemType: "employee", SecurityType: "stock", Ticker: "MSFT",
+		OwnerType: model.OwnerClient, OwnerID: ptrU64(42), SecurityType: "stock", Ticker: "MSFT",
 		Quantity: 5, BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(200),
 		TotalGain: decimal.NewFromInt(500), Currency: "RSD", AccountID: 1,
 		TaxYear: year, TaxMonth: month,
@@ -842,10 +842,10 @@ func TestTaxService_CollectTax_NoNewProfitIsNoOp(t *testing.T) {
 
 	mocks.accountClient.addAccount(1, "USER-ACCT-001")
 	mocks.taxCollectionRepo.usersWithGains = []repository.TaxUserSummary{
-		{UserID: 42, SystemType: "employee", TotalDebtRSD: decimal.NewFromInt(150)},
+		{OwnerType: "client", OwnerID: ptrU64(42), TotalDebtRSD: decimal.NewFromInt(150)},
 	}
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID: 42, SystemType: "employee", SecurityType: "stock", Ticker: "AAPL",
+		OwnerType: model.OwnerClient, OwnerID: ptrU64(42), SecurityType: "stock", Ticker: "AAPL",
 		Quantity: 10, BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(200),
 		TotalGain: decimal.NewFromInt(1000), Currency: "RSD", AccountID: 1,
 		TaxYear: year, TaxMonth: month,
@@ -889,10 +889,10 @@ func TestTaxService_CollectTax_CreditFailure_DoesNotLockInMissingCredit(t *testi
 
 	mocks.accountClient.addAccount(1, "USER-ACCT-001")
 	mocks.taxCollectionRepo.usersWithGains = []repository.TaxUserSummary{
-		{UserID: 42, SystemType: "employee", TotalDebtRSD: decimal.NewFromInt(150)},
+		{OwnerType: "client", OwnerID: ptrU64(42), TotalDebtRSD: decimal.NewFromInt(150)},
 	}
 	_ = mocks.capitalGainRepo.Create(&model.CapitalGain{
-		UserID: 42, SystemType: "employee", SecurityType: "stock", Ticker: "AAPL",
+		OwnerType: model.OwnerClient, OwnerID: ptrU64(42), SecurityType: "stock", Ticker: "AAPL",
 		Quantity: 10, BuyPricePerUnit: decimal.NewFromInt(100), SellPricePerUnit: decimal.NewFromInt(200),
 		TotalGain: decimal.NewFromInt(1000), Currency: "RSD", AccountID: 1,
 		TaxYear: year, TaxMonth: month,

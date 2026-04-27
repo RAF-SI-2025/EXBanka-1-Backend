@@ -229,7 +229,8 @@ func (h *InvestmentFundHandler) RedeemFromFund(ctx context.Context, in *stockpb.
 // enriched with derived current value / profit / percentage when the
 // position-reads dependencies are wired (listingRepo + holdings + exchange).
 func (h *InvestmentFundHandler) ListMyPositions(ctx context.Context, in *stockpb.ListMyPositionsRequest) (*stockpb.ListPositionsResponse, error) {
-	rows, err := h.fundSvc.ListMyPositionsDTO(ctx, in.ActorUserId, in.ActorSystemType)
+	ownerType, ownerID := model.OwnerFromLegacy(in.ActorUserId, in.ActorSystemType)
+	rows, err := h.fundSvc.ListMyPositionsDTO(ctx, ownerType, ownerID)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

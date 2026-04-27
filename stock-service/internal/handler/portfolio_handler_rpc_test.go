@@ -22,17 +22,17 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockPortfolioSvc struct {
-	listFn       func(userID uint64, systemType string, filter service.HoldingFilter) ([]model.Holding, int64, error)
+	listFn       func(ownerType model.OwnerType, ownerID *uint64, filter service.HoldingFilter) ([]model.Holding, int64, error)
 	priceFn      func(listingID uint64) (decimal.Decimal, error)
-	makePubFn    func(holdingID, userID uint64, systemType string, quantity int64) (*model.Holding, error)
-	exerciseFn   func(holdingID, userID uint64, systemType string) (*service.ExerciseResult, error)
-	listTxFn     func(holdingID, userID uint64, systemType, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
-	exByOptionFn func(ctx context.Context, optionID, userID uint64, systemType string, holdingID uint64) (*service.ExerciseResult, error)
+	makePubFn    func(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, quantity int64) (*model.Holding, error)
+	exerciseFn   func(holdingID uint64, ownerType model.OwnerType, ownerID *uint64) (*service.ExerciseResult, error)
+	listTxFn     func(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
+	exByOptionFn func(ctx context.Context, optionID uint64, ownerType model.OwnerType, ownerID *uint64, holdingID uint64) (*service.ExerciseResult, error)
 }
 
-func (m *mockPortfolioSvc) ListHoldings(userID uint64, systemType string, filter service.HoldingFilter) ([]model.Holding, int64, error) {
+func (m *mockPortfolioSvc) ListHoldings(ownerType model.OwnerType, ownerID *uint64, filter service.HoldingFilter) ([]model.Holding, int64, error) {
 	if m.listFn != nil {
-		return m.listFn(userID, systemType, filter)
+		return m.listFn(ownerType, ownerID, filter)
 	}
 	return nil, 0, nil
 }
@@ -44,41 +44,41 @@ func (m *mockPortfolioSvc) GetCurrentPrice(listingID uint64) (decimal.Decimal, e
 	return decimal.Zero, nil
 }
 
-func (m *mockPortfolioSvc) MakePublic(holdingID, userID uint64, systemType string, quantity int64) (*model.Holding, error) {
+func (m *mockPortfolioSvc) MakePublic(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, quantity int64) (*model.Holding, error) {
 	if m.makePubFn != nil {
-		return m.makePubFn(holdingID, userID, systemType, quantity)
+		return m.makePubFn(holdingID, ownerType, ownerID, quantity)
 	}
 	return &model.Holding{ID: holdingID, PublicQuantity: quantity}, nil
 }
 
-func (m *mockPortfolioSvc) ExerciseOption(holdingID, userID uint64, systemType string) (*service.ExerciseResult, error) {
+func (m *mockPortfolioSvc) ExerciseOption(holdingID uint64, ownerType model.OwnerType, ownerID *uint64) (*service.ExerciseResult, error) {
 	if m.exerciseFn != nil {
-		return m.exerciseFn(holdingID, userID, systemType)
+		return m.exerciseFn(holdingID, ownerType, ownerID)
 	}
 	return &service.ExerciseResult{ID: holdingID}, nil
 }
 
-func (m *mockPortfolioSvc) ListHoldingTransactions(holdingID, userID uint64, systemType, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error) {
+func (m *mockPortfolioSvc) ListHoldingTransactions(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error) {
 	if m.listTxFn != nil {
-		return m.listTxFn(holdingID, userID, systemType, direction, page, pageSize)
+		return m.listTxFn(holdingID, ownerType, ownerID, direction, page, pageSize)
 	}
 	return nil, 0, nil
 }
 
-func (m *mockPortfolioSvc) ExerciseOptionByOptionID(ctx context.Context, optionID, userID uint64, systemType string, holdingID uint64) (*service.ExerciseResult, error) {
+func (m *mockPortfolioSvc) ExerciseOptionByOptionID(ctx context.Context, optionID uint64, ownerType model.OwnerType, ownerID *uint64, holdingID uint64) (*service.ExerciseResult, error) {
 	if m.exByOptionFn != nil {
-		return m.exByOptionFn(ctx, optionID, userID, systemType, holdingID)
+		return m.exByOptionFn(ctx, optionID, ownerType, ownerID, holdingID)
 	}
 	return &service.ExerciseResult{ID: optionID}, nil
 }
 
 type mockTaxSvc struct {
-	gainsFn func(userID uint64, systemType string) (service.UserGainsAndTax, error)
+	gainsFn func(ownerType model.OwnerType, ownerID *uint64) (service.UserGainsAndTax, error)
 }
 
-func (m *mockTaxSvc) GetUserGainsAndTax(userID uint64, systemType string) (service.UserGainsAndTax, error) {
+func (m *mockTaxSvc) GetUserGainsAndTax(ownerType model.OwnerType, ownerID *uint64) (service.UserGainsAndTax, error) {
 	if m.gainsFn != nil {
-		return m.gainsFn(userID, systemType)
+		return m.gainsFn(ownerType, ownerID)
 	}
 	return service.UserGainsAndTax{}, nil
 }
@@ -90,7 +90,7 @@ func (m *mockTaxSvc) GetUserGainsAndTax(userID uint64, systemType string) (servi
 func TestPortfolioHandler_ListHoldings_Success(t *testing.T) {
 	now := time.Now()
 	psvc := &mockPortfolioSvc{
-		listFn: func(_ uint64, _ string, _ service.HoldingFilter) ([]model.Holding, int64, error) {
+		listFn: func(_ model.OwnerType, _ *uint64, _ service.HoldingFilter) ([]model.Holding, int64, error) {
 			return []model.Holding{
 				{ID: 1, SecurityType: "stock", Ticker: "AAPL", Name: "Apple", Quantity: 10, PublicQuantity: 0, AccountID: 100, UpdatedAt: now},
 			}, 1, nil
@@ -111,7 +111,7 @@ func TestPortfolioHandler_ListHoldings_Success(t *testing.T) {
 
 func TestPortfolioHandler_ListHoldings_ServiceError(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		listFn: func(_ uint64, _ string, _ service.HoldingFilter) ([]model.Holding, int64, error) {
+		listFn: func(_ model.OwnerType, _ *uint64, _ service.HoldingFilter) ([]model.Holding, int64, error) {
 			return nil, 0, errors.New("db down")
 		},
 	}
@@ -128,7 +128,7 @@ func TestPortfolioHandler_ListHoldings_ServiceError(t *testing.T) {
 
 func TestPortfolioHandler_GetPortfolioSummary_Success(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		listFn: func(_ uint64, _ string, _ service.HoldingFilter) ([]model.Holding, int64, error) {
+		listFn: func(_ model.OwnerType, _ *uint64, _ service.HoldingFilter) ([]model.Holding, int64, error) {
 			return []model.Holding{
 				{ID: 1, ListingID: 50, Quantity: 10, AveragePrice: decimal.NewFromInt(100)},
 				{ID: 2, ListingID: 51, Quantity: 0, AveragePrice: decimal.NewFromInt(200)}, // skipped
@@ -139,7 +139,7 @@ func TestPortfolioHandler_GetPortfolioSummary_Success(t *testing.T) {
 		},
 	}
 	tsvc := &mockTaxSvc{
-		gainsFn: func(_ uint64, _ string) (service.UserGainsAndTax, error) {
+		gainsFn: func(_ model.OwnerType, _ *uint64) (service.UserGainsAndTax, error) {
 			return service.UserGainsAndTax{
 				RealizedGainLifetimeRSD: decimal.NewFromInt(500),
 				TaxPaidThisYearRSD:      decimal.NewFromInt(20),
@@ -165,7 +165,7 @@ func TestPortfolioHandler_GetPortfolioSummary_Success(t *testing.T) {
 
 func TestPortfolioHandler_GetPortfolioSummary_PriceErrorSkipsHolding(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		listFn: func(_ uint64, _ string, _ service.HoldingFilter) ([]model.Holding, int64, error) {
+		listFn: func(_ model.OwnerType, _ *uint64, _ service.HoldingFilter) ([]model.Holding, int64, error) {
 			return []model.Holding{{ID: 1, ListingID: 50, Quantity: 10, AveragePrice: decimal.NewFromInt(100)}}, 1, nil
 		},
 		priceFn: func(_ uint64) (decimal.Decimal, error) {
@@ -185,7 +185,7 @@ func TestPortfolioHandler_GetPortfolioSummary_PriceErrorSkipsHolding(t *testing.
 
 func TestPortfolioHandler_GetPortfolioSummary_ListError(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		listFn: func(_ uint64, _ string, _ service.HoldingFilter) ([]model.Holding, int64, error) {
+		listFn: func(_ model.OwnerType, _ *uint64, _ service.HoldingFilter) ([]model.Holding, int64, error) {
 			return nil, 0, errors.New("db down")
 		},
 	}
@@ -198,12 +198,12 @@ func TestPortfolioHandler_GetPortfolioSummary_ListError(t *testing.T) {
 
 func TestPortfolioHandler_GetPortfolioSummary_TaxError(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		listFn: func(_ uint64, _ string, _ service.HoldingFilter) ([]model.Holding, int64, error) {
+		listFn: func(_ model.OwnerType, _ *uint64, _ service.HoldingFilter) ([]model.Holding, int64, error) {
 			return nil, 0, nil
 		},
 	}
 	tsvc := &mockTaxSvc{
-		gainsFn: func(_ uint64, _ string) (service.UserGainsAndTax, error) {
+		gainsFn: func(_ model.OwnerType, _ *uint64) (service.UserGainsAndTax, error) {
 			return service.UserGainsAndTax{}, errors.New("tax svc down")
 		},
 	}
@@ -221,7 +221,7 @@ func TestPortfolioHandler_GetPortfolioSummary_TaxError(t *testing.T) {
 func TestPortfolioHandler_MakePublic_Success(t *testing.T) {
 	now := time.Now()
 	psvc := &mockPortfolioSvc{
-		makePubFn: func(holdingID, _ uint64, _ string, qty int64) (*model.Holding, error) {
+		makePubFn: func(holdingID uint64, _ model.OwnerType, _ *uint64, qty int64) (*model.Holding, error) {
 			return &model.Holding{
 				ID: holdingID, SecurityType: "stock", Ticker: "AAPL", Name: "Apple",
 				Quantity: 10, AveragePrice: decimal.NewFromInt(150), PublicQuantity: qty, AccountID: 100, UpdatedAt: now,
@@ -240,7 +240,7 @@ func TestPortfolioHandler_MakePublic_Success(t *testing.T) {
 
 func TestPortfolioHandler_MakePublic_NotFound(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		makePubFn: func(_, _ uint64, _ string, _ int64) (*model.Holding, error) {
+		makePubFn: func(_ uint64, _ model.OwnerType, _ *uint64, _ int64) (*model.Holding, error) {
 			return nil, fmt.Errorf("holding not found: %w", service.ErrHoldingNotFound)
 		},
 	}
@@ -253,7 +253,7 @@ func TestPortfolioHandler_MakePublic_NotFound(t *testing.T) {
 
 func TestPortfolioHandler_MakePublic_PermissionDenied(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		makePubFn: func(_, _ uint64, _ string, _ int64) (*model.Holding, error) {
+		makePubFn: func(_ uint64, _ model.OwnerType, _ *uint64, _ int64) (*model.Holding, error) {
 			return nil, fmt.Errorf("holding does not belong to user: %w", service.ErrHoldingOwnership)
 		},
 	}
@@ -266,7 +266,7 @@ func TestPortfolioHandler_MakePublic_PermissionDenied(t *testing.T) {
 
 func TestPortfolioHandler_MakePublic_FailedPrecondition(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		makePubFn: func(_, _ uint64, _ string, _ int64) (*model.Holding, error) {
+		makePubFn: func(_ uint64, _ model.OwnerType, _ *uint64, _ int64) (*model.Holding, error) {
 			return nil, fmt.Errorf("only stocks can be made public for OTC trading: %w", service.ErrPublicOnlyStocks)
 		},
 	}
@@ -283,7 +283,7 @@ func TestPortfolioHandler_MakePublic_FailedPrecondition(t *testing.T) {
 
 func TestPortfolioHandler_ExerciseOption_Success(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		exerciseFn: func(holdingID, _ uint64, _ string) (*service.ExerciseResult, error) {
+		exerciseFn: func(holdingID uint64, _ model.OwnerType, _ *uint64) (*service.ExerciseResult, error) {
 			return &service.ExerciseResult{
 				ID: holdingID, OptionTicker: "AAPL_20260101_C150",
 				ExercisedQuantity: 10, SharesAffected: 1000,
@@ -306,7 +306,7 @@ func TestPortfolioHandler_ExerciseOption_Success(t *testing.T) {
 
 func TestPortfolioHandler_ExerciseOption_Expired(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		exerciseFn: func(_, _ uint64, _ string) (*service.ExerciseResult, error) {
+		exerciseFn: func(_ uint64, _ model.OwnerType, _ *uint64) (*service.ExerciseResult, error) {
 			return nil, fmt.Errorf("option has expired (settlement date passed): %w", service.ErrOptionExpired)
 		},
 	}
@@ -322,7 +322,7 @@ func TestPortfolioHandler_ExerciseOption_Internal(t *testing.T) {
 	// longer rewrite to Internal. Either is acceptable as a "non-business"
 	// signal; we just check it's not OK.
 	psvc := &mockPortfolioSvc{
-		exerciseFn: func(_, _ uint64, _ string) (*service.ExerciseResult, error) {
+		exerciseFn: func(_ uint64, _ model.OwnerType, _ *uint64) (*service.ExerciseResult, error) {
 			return nil, errors.New("unexpected db error")
 		},
 	}
@@ -343,7 +343,7 @@ func TestPortfolioHandler_ListHoldingTransactions_Success(t *testing.T) {
 	fx := decimal.NewFromFloat(116.28)
 	now := time.Now()
 	psvc := &mockPortfolioSvc{
-		listTxFn: func(_, _ uint64, _, _ string, _, _ int) ([]repository.HoldingTransactionRow, int64, error) {
+		listTxFn: func(_ uint64, _ model.OwnerType, _ *uint64, _ string, _, _ int) ([]repository.HoldingTransactionRow, int64, error) {
 			return []repository.HoldingTransactionRow{
 				{
 					ID: 1, OrderID: 100, ExecutedAt: now, Direction: "buy",
@@ -377,7 +377,7 @@ func TestPortfolioHandler_ListHoldingTransactions_Success(t *testing.T) {
 func TestPortfolioHandler_ListHoldingTransactions_DefaultsPagination(t *testing.T) {
 	captured := struct{ page, size int }{}
 	psvc := &mockPortfolioSvc{
-		listTxFn: func(_, _ uint64, _, _ string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error) {
+		listTxFn: func(_ uint64, _ model.OwnerType, _ *uint64, _ string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error) {
 			captured.page = page
 			captured.size = pageSize
 			return nil, 0, nil
@@ -395,7 +395,7 @@ func TestPortfolioHandler_ListHoldingTransactions_DefaultsPagination(t *testing.
 
 func TestPortfolioHandler_ListHoldingTransactions_NotFound(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		listTxFn: func(_, _ uint64, _, _ string, _, _ int) ([]repository.HoldingTransactionRow, int64, error) {
+		listTxFn: func(_ uint64, _ model.OwnerType, _ *uint64, _ string, _, _ int) ([]repository.HoldingTransactionRow, int64, error) {
 			return nil, 0, fmt.Errorf("holding not found: %w", service.ErrHoldingNotFound)
 		},
 	}
@@ -412,7 +412,7 @@ func TestPortfolioHandler_ListHoldingTransactions_NotFound(t *testing.T) {
 
 func TestPortfolioHandler_ExerciseOptionByOptionID_Success(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		exByOptionFn: func(_ context.Context, optionID, _ uint64, _ string, _ uint64) (*service.ExerciseResult, error) {
+		exByOptionFn: func(_ context.Context, optionID uint64, _ model.OwnerType, _ *uint64, _ uint64) (*service.ExerciseResult, error) {
 			return &service.ExerciseResult{
 				ID: optionID, OptionTicker: "TSLA_20260101_P200",
 				ExercisedQuantity: 5, SharesAffected: 500,
@@ -435,7 +435,7 @@ func TestPortfolioHandler_ExerciseOptionByOptionID_Success(t *testing.T) {
 
 func TestPortfolioHandler_ExerciseOptionByOptionID_NotFound(t *testing.T) {
 	psvc := &mockPortfolioSvc{
-		exByOptionFn: func(_ context.Context, _, _ uint64, _ string, _ uint64) (*service.ExerciseResult, error) {
+		exByOptionFn: func(_ context.Context, _ uint64, _ model.OwnerType, _ *uint64, _ uint64) (*service.ExerciseResult, error) {
 			return nil, fmt.Errorf("option not found: %w", service.ErrOptionNotFound)
 		},
 	}

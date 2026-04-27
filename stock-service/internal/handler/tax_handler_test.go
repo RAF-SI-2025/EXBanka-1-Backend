@@ -17,9 +17,9 @@ import (
 
 type mockTaxHandlerSvc struct {
 	listFn        func(year, month int, filter service.TaxFilter) ([]service.TaxUserSummary, int64, error)
-	getSummaryFn  func(userID uint64, systemType string) (decimal.Decimal, decimal.Decimal, error)
-	listUserFn    func(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error)
-	listCollFn    func(userID uint64, systemType string) ([]model.TaxCollection, error)
+	getSummaryFn  func(ownerType model.OwnerType, ownerID *uint64) (decimal.Decimal, decimal.Decimal, error)
+	listUserFn    func(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
+	listCollFn    func(ownerType model.OwnerType, ownerID *uint64) ([]model.TaxCollection, error)
 	collectFn     func(year, month int) (int64, decimal.Decimal, int64, error)
 }
 
@@ -30,23 +30,23 @@ func (m *mockTaxHandlerSvc) ListTaxRecords(year, month int, filter service.TaxFi
 	return nil, 0, nil
 }
 
-func (m *mockTaxHandlerSvc) GetUserTaxSummary(userID uint64, systemType string) (decimal.Decimal, decimal.Decimal, error) {
+func (m *mockTaxHandlerSvc) GetUserTaxSummary(ownerType model.OwnerType, ownerID *uint64) (decimal.Decimal, decimal.Decimal, error) {
 	if m.getSummaryFn != nil {
-		return m.getSummaryFn(userID, systemType)
+		return m.getSummaryFn(ownerType, ownerID)
 	}
 	return decimal.Zero, decimal.Zero, nil
 }
 
-func (m *mockTaxHandlerSvc) ListUserTaxRecords(userID uint64, systemType string, page, pageSize int) ([]model.CapitalGain, int64, error) {
+func (m *mockTaxHandlerSvc) ListUserTaxRecords(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
 	if m.listUserFn != nil {
-		return m.listUserFn(userID, systemType, page, pageSize)
+		return m.listUserFn(ownerType, ownerID, page, pageSize)
 	}
 	return nil, 0, nil
 }
 
-func (m *mockTaxHandlerSvc) ListUserTaxCollections(userID uint64, systemType string) ([]model.TaxCollection, error) {
+func (m *mockTaxHandlerSvc) ListUserTaxCollections(ownerType model.OwnerType, ownerID *uint64) ([]model.TaxCollection, error) {
 	if m.listCollFn != nil {
-		return m.listCollFn(userID, systemType)
+		return m.listCollFn(ownerType, ownerID)
 	}
 	return nil, nil
 }
@@ -66,9 +66,10 @@ func TestTaxHandler_ListTaxRecords_Success(t *testing.T) {
 	now := time.Now()
 	svc := &mockTaxHandlerSvc{
 		listFn: func(_, _ int, _ service.TaxFilter) ([]service.TaxUserSummary, int64, error) {
+			uid := uint64(5)
 			return []service.TaxUserSummary{
 				{
-					UserID: 5, SystemType: "client", UserFirstName: "Alice", UserLastName: "Smith",
+					OwnerType: "client", OwnerID: &uid, UserFirstName: "Alice", UserLastName: "Smith",
 					TotalDebtRSD: decimal.NewFromFloat(150.5), LastCollection: &now,
 				},
 			}, 1, nil
@@ -90,8 +91,9 @@ func TestTaxHandler_ListTaxRecords_Success(t *testing.T) {
 func TestTaxHandler_ListTaxRecords_NoLastCollection(t *testing.T) {
 	svc := &mockTaxHandlerSvc{
 		listFn: func(_, _ int, _ service.TaxFilter) ([]service.TaxUserSummary, int64, error) {
+			uid := uint64(5)
 			return []service.TaxUserSummary{
-				{UserID: 5, SystemType: "client", TotalDebtRSD: decimal.Zero},
+				{OwnerType: "client", OwnerID: &uid, TotalDebtRSD: decimal.Zero},
 			}, 1, nil
 		},
 	}
@@ -125,7 +127,7 @@ func TestTaxHandler_ListTaxRecords_Error(t *testing.T) {
 func TestTaxHandler_ListUserTaxRecords_Success(t *testing.T) {
 	now := time.Now()
 	svc := &mockTaxHandlerSvc{
-		listUserFn: func(_ uint64, _ string, _, _ int) ([]model.CapitalGain, int64, error) {
+		listUserFn: func(_ model.OwnerType, _ *uint64, _, _ int) ([]model.CapitalGain, int64, error) {
 			return []model.CapitalGain{
 				{
 					ID: 1, SecurityType: "stock", Ticker: "AAPL", Quantity: 10,
@@ -135,10 +137,10 @@ func TestTaxHandler_ListUserTaxRecords_Success(t *testing.T) {
 				},
 			}, 1, nil
 		},
-		getSummaryFn: func(_ uint64, _ string) (decimal.Decimal, decimal.Decimal, error) {
+		getSummaryFn: func(_ model.OwnerType, _ *uint64) (decimal.Decimal, decimal.Decimal, error) {
 			return decimal.NewFromInt(50), decimal.NewFromInt(20), nil
 		},
-		listCollFn: func(_ uint64, _ string) ([]model.TaxCollection, error) {
+		listCollFn: func(_ model.OwnerType, _ *uint64) ([]model.TaxCollection, error) {
 			return []model.TaxCollection{
 				{
 					ID: 1, Year: 2025, Month: 11, AccountID: 100, Currency: "USD",
@@ -167,7 +169,7 @@ func TestTaxHandler_ListUserTaxRecords_Success(t *testing.T) {
 func TestTaxHandler_ListUserTaxRecords_DefaultsPagination(t *testing.T) {
 	captured := struct{ page, size int }{}
 	svc := &mockTaxHandlerSvc{
-		listUserFn: func(_ uint64, _ string, page, pageSize int) ([]model.CapitalGain, int64, error) {
+		listUserFn: func(_ model.OwnerType, _ *uint64, page, pageSize int) ([]model.CapitalGain, int64, error) {
 			captured.page = page
 			captured.size = pageSize
 			return nil, 0, nil
@@ -185,7 +187,7 @@ func TestTaxHandler_ListUserTaxRecords_DefaultsPagination(t *testing.T) {
 
 func TestTaxHandler_ListUserTaxRecords_ListError(t *testing.T) {
 	svc := &mockTaxHandlerSvc{
-		listUserFn: func(_ uint64, _ string, _, _ int) ([]model.CapitalGain, int64, error) {
+		listUserFn: func(_ model.OwnerType, _ *uint64, _, _ int) ([]model.CapitalGain, int64, error) {
 			return nil, 0, errors.New("list failure")
 		},
 	}
@@ -198,10 +200,10 @@ func TestTaxHandler_ListUserTaxRecords_ListError(t *testing.T) {
 
 func TestTaxHandler_ListUserTaxRecords_SummaryError(t *testing.T) {
 	svc := &mockTaxHandlerSvc{
-		listUserFn: func(_ uint64, _ string, _, _ int) ([]model.CapitalGain, int64, error) {
+		listUserFn: func(_ model.OwnerType, _ *uint64, _, _ int) ([]model.CapitalGain, int64, error) {
 			return nil, 0, nil
 		},
-		getSummaryFn: func(_ uint64, _ string) (decimal.Decimal, decimal.Decimal, error) {
+		getSummaryFn: func(_ model.OwnerType, _ *uint64) (decimal.Decimal, decimal.Decimal, error) {
 			return decimal.Zero, decimal.Zero, errors.New("summary failure")
 		},
 	}
@@ -214,10 +216,10 @@ func TestTaxHandler_ListUserTaxRecords_SummaryError(t *testing.T) {
 
 func TestTaxHandler_ListUserTaxRecords_CollectionsError(t *testing.T) {
 	svc := &mockTaxHandlerSvc{
-		listUserFn: func(_ uint64, _ string, _, _ int) ([]model.CapitalGain, int64, error) {
+		listUserFn: func(_ model.OwnerType, _ *uint64, _, _ int) ([]model.CapitalGain, int64, error) {
 			return nil, 0, nil
 		},
-		listCollFn: func(_ uint64, _ string) ([]model.TaxCollection, error) {
+		listCollFn: func(_ model.OwnerType, _ *uint64) ([]model.TaxCollection, error) {
 			return nil, errors.New("collections failure")
 		},
 	}

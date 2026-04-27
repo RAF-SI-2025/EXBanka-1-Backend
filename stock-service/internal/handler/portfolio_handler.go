@@ -16,17 +16,17 @@ import (
 
 // portfolioSvcFacade is the narrow interface of PortfolioService used by PortfolioHandler.
 type portfolioSvcFacade interface {
-	ListHoldings(userID uint64, systemType string, filter service.HoldingFilter) ([]model.Holding, int64, error)
+	ListHoldings(ownerType model.OwnerType, ownerID *uint64, filter service.HoldingFilter) ([]model.Holding, int64, error)
 	GetCurrentPrice(listingID uint64) (decimal.Decimal, error)
-	MakePublic(holdingID, userID uint64, systemType string, quantity int64) (*model.Holding, error)
-	ExerciseOption(holdingID, userID uint64, systemType string) (*service.ExerciseResult, error)
-	ListHoldingTransactions(holdingID, userID uint64, systemType, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
-	ExerciseOptionByOptionID(ctx context.Context, optionID, userID uint64, systemType string, holdingID uint64) (*service.ExerciseResult, error)
+	MakePublic(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, quantity int64) (*model.Holding, error)
+	ExerciseOption(holdingID uint64, ownerType model.OwnerType, ownerID *uint64) (*service.ExerciseResult, error)
+	ListHoldingTransactions(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
+	ExerciseOptionByOptionID(ctx context.Context, optionID uint64, ownerType model.OwnerType, ownerID *uint64, holdingID uint64) (*service.ExerciseResult, error)
 }
 
 // taxSvcFacade is the narrow interface of TaxService used by PortfolioHandler.
 type taxSvcFacade interface {
-	GetUserGainsAndTax(userID uint64, systemType string) (service.UserGainsAndTax, error)
+	GetUserGainsAndTax(ownerType model.OwnerType, ownerID *uint64) (service.UserGainsAndTax, error)
 }
 
 type PortfolioHandler struct {
@@ -58,7 +58,8 @@ func (h *PortfolioHandler) ListHoldings(ctx context.Context, req *pb.ListHolding
 		PageSize:     int(req.PageSize),
 	}
 
-	holdings, total, err := h.portfolioSvc.ListHoldings(req.UserId, req.SystemType, filter)
+	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	holdings, total, err := h.portfolioSvc.ListHoldings(ownerType, ownerID, filter)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -89,7 +90,8 @@ func (h *PortfolioHandler) GetPortfolioSummary(ctx context.Context, req *pb.GetP
 	// Compute unrealized profit across all current holdings. Summed in each
 	// holding's native listing currency (no FX) — acceptable for display until
 	// multi-currency holdings become common.
-	allHoldings, _, err := h.portfolioSvc.ListHoldings(req.UserId, req.SystemType, service.HoldingFilter{
+	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	allHoldings, _, err := h.portfolioSvc.ListHoldings(ownerType, ownerID, service.HoldingFilter{
 		Page: 1, PageSize: 10000,
 	})
 	if err != nil {
@@ -111,7 +113,7 @@ func (h *PortfolioHandler) GetPortfolioSummary(ctx context.Context, req *pb.GetP
 	}
 
 	// Rich gains + tax breakdown (converts every native-currency amount to RSD).
-	gt, err := h.taxSvc.GetUserGainsAndTax(req.UserId, req.SystemType)
+	gt, err := h.taxSvc.GetUserGainsAndTax(ownerType, ownerID)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -137,7 +139,8 @@ func (h *PortfolioHandler) GetPortfolioSummary(ctx context.Context, req *pb.GetP
 }
 
 func (h *PortfolioHandler) MakePublic(ctx context.Context, req *pb.MakePublicRequest) (*pb.Holding, error) {
-	holding, err := h.portfolioSvc.MakePublic(req.HoldingId, req.UserId, req.SystemType, req.Quantity)
+	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	holding, err := h.portfolioSvc.MakePublic(req.HoldingId, ownerType, ownerID, req.Quantity)
 	if err != nil {
 		return nil, mapPortfolioError(err)
 	}
@@ -156,7 +159,8 @@ func (h *PortfolioHandler) MakePublic(ctx context.Context, req *pb.MakePublicReq
 }
 
 func (h *PortfolioHandler) ExerciseOption(ctx context.Context, req *pb.ExerciseOptionRequest) (*pb.ExerciseResult, error) {
-	result, err := h.portfolioSvc.ExerciseOption(req.HoldingId, req.UserId, req.SystemType)
+	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	result, err := h.portfolioSvc.ExerciseOption(req.HoldingId, ownerType, ownerID)
 	if err != nil {
 		return nil, mapPortfolioError(err)
 	}
@@ -176,8 +180,9 @@ func (h *PortfolioHandler) ListHoldingTransactions(ctx context.Context, req *pb.
 	if pageSize < 1 {
 		pageSize = 10
 	}
+	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
 	rows, total, err := h.portfolioSvc.ListHoldingTransactions(
-		req.HoldingId, req.UserId, req.SystemType, req.Direction, page, pageSize,
+		req.HoldingId, ownerType, ownerID, req.Direction, page, pageSize,
 	)
 	if err != nil {
 		return nil, mapPortfolioError(err)
@@ -217,7 +222,8 @@ func (h *PortfolioHandler) ListHoldingTransactions(ctx context.Context, req *pb.
 }
 
 func (h *PortfolioHandler) ExerciseOptionByOptionID(ctx context.Context, req *pb.ExerciseOptionByOptionIDRequest) (*pb.ExerciseResult, error) {
-	result, err := h.portfolioSvc.ExerciseOptionByOptionID(ctx, req.OptionId, req.UserId, req.SystemType, req.HoldingId)
+	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	result, err := h.portfolioSvc.ExerciseOptionByOptionID(ctx, req.OptionId, ownerType, ownerID, req.HoldingId)
 	if err != nil {
 		return nil, mapPortfolioError(err)
 	}

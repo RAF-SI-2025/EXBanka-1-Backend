@@ -111,7 +111,7 @@ func (h *OTCOptionsHandler) ListMyOffers(ctx context.Context, in *stockpb.ListMy
 // computeUnread returns true if the offer has been touched since the
 // caller last opened it AND the caller wasn't the one who touched it.
 func (h *OTCOptionsHandler) computeUnread(o *model.OTCOffer, callerID int64, callerType string) bool {
-	if o.LastModifiedByUserID == callerID && o.LastModifiedBySystemType == callerType {
+	if o.LastModifiedByPrincipalID == uint64(callerID) && o.LastModifiedByPrincipalType == callerType {
 		return false
 	}
 	rec, err := h.svc.LastReadReceipt(callerID, callerType, o.ID)
@@ -138,7 +138,7 @@ func (h *OTCOptionsHandler) GetOffer(ctx context.Context, in *stockpb.GetOTCOffe
 			Premium:        r.Premium.String(),
 			SettlementDate: r.SettlementDate.Format("2006-01-02"),
 			Action:         r.Action,
-			ModifiedBy:     &stockpb.PartyRef{UserId: r.ModifiedByUserID, SystemType: r.ModifiedBySystemType},
+			ModifiedBy:     &stockpb.PartyRef{UserId: int64(r.ModifiedByPrincipalID), SystemType: r.ModifiedByPrincipalType},
 			CreatedAt:      r.CreatedAt.Format(time.RFC3339),
 		})
 	}
@@ -203,7 +203,8 @@ func (h *OTCOptionsHandler) ListMyContracts(ctx context.Context, in *stockpb.Lis
 	if h.contracts == nil {
 		return &stockpb.ListContractsResponse{}, nil
 	}
-	rows, total, err := h.contracts.ListByOwner(in.ActorUserId, in.ActorSystemType, in.Role, in.Statuses, int(in.Page), int(in.PageSize))
+	ownerType, ownerID := model.OwnerFromLegacy(uint64(in.ActorUserId), in.ActorSystemType)
+	rows, total, err := h.contracts.ListByOwner(ownerType, ownerID, in.Role, in.Statuses, int(in.Page), int(in.PageSize))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -222,8 +223,10 @@ func (h *OTCOptionsHandler) GetContract(ctx context.Context, in *stockpb.GetCont
 	if err != nil {
 		return nil, mapOTCErr(err)
 	}
-	if (c.BuyerUserID != in.ActorUserId || c.BuyerSystemType != in.ActorSystemType) &&
-		(c.SellerUserID != in.ActorUserId || c.SellerSystemType != in.ActorSystemType) {
+	actorOwnerType, actorOwnerID := model.OwnerFromLegacy(uint64(in.ActorUserId), in.ActorSystemType)
+	isBuyer := c.BuyerOwnerType == actorOwnerType && ownerIDEqual(c.BuyerOwnerID, actorOwnerID)
+	isSeller := c.SellerOwnerType == actorOwnerType && ownerIDEqual(c.SellerOwnerID, actorOwnerID)
+	if !isBuyer && !isSeller {
 		return nil, status.Error(codes.PermissionDenied, "not a participant")
 	}
 	return h.withMarketRef(c, toContractProto(c)), nil
@@ -268,8 +271,8 @@ func toContractProto(c *model.OptionContract) *stockpb.OptionContractResponse {
 		StrikeCurrency:  c.StrikeCurrency,
 		SettlementDate:  c.SettlementDate.Format("2006-01-02"),
 		Status:          c.Status,
-		Buyer:           &stockpb.PartyRef{UserId: c.BuyerUserID, SystemType: c.BuyerSystemType},
-		Seller:          &stockpb.PartyRef{UserId: c.SellerUserID, SystemType: c.SellerSystemType},
+		Buyer:           &stockpb.PartyRef{UserId: int64(model.OwnerToLegacyUserID(c.BuyerOwnerType, c.BuyerOwnerID)), SystemType: string(c.BuyerOwnerType)},
+		Seller:          &stockpb.PartyRef{UserId: int64(model.OwnerToLegacyUserID(c.SellerOwnerType, c.SellerOwnerID)), SystemType: string(c.SellerOwnerType)},
 		PremiumPaidAt:   c.PremiumPaidAt.Format(time.RFC3339),
 		CreatedAt:       c.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:       c.UpdatedAt.Format(time.RFC3339),
@@ -309,20 +312,20 @@ func toOTCOfferProto(o *model.OTCOffer, unread bool) *stockpb.OTCOfferResponse {
 		SettlementDate: o.SettlementDate.Format("2006-01-02"),
 		Status:         o.Status,
 		Initiator: &stockpb.PartyRef{
-			UserId: o.InitiatorUserID, SystemType: o.InitiatorSystemType,
+			UserId: int64(model.OwnerToLegacyUserID(o.InitiatorOwnerType, o.InitiatorOwnerID)), SystemType: string(o.InitiatorOwnerType),
 		},
 		LastModifiedBy: &stockpb.PartyRef{
-			UserId: o.LastModifiedByUserID, SystemType: o.LastModifiedBySystemType,
+			UserId: int64(o.LastModifiedByPrincipalID), SystemType: o.LastModifiedByPrincipalType,
 		},
 		CreatedAt: o.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: o.UpdatedAt.Format(time.RFC3339),
 		Version:   o.Version,
 		Unread:    unread,
 	}
-	if o.CounterpartyUserID != nil {
+	if o.CounterpartyOwnerType != nil {
 		resp.Counterparty = &stockpb.PartyRef{
-			UserId:     *o.CounterpartyUserID,
-			SystemType: derefStr(o.CounterpartySystemType),
+			UserId:     int64(model.OwnerToLegacyUserID(*o.CounterpartyOwnerType, o.CounterpartyOwnerID)),
+			SystemType: string(*o.CounterpartyOwnerType),
 		}
 	}
 	return resp
@@ -333,6 +336,19 @@ func derefStr(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// ownerIDEqual reports whether two nullable owner-id pointers reference the
+// same logical owner. Both nil = same (bank == bank). Mirror of the helper in
+// internal/service.
+func ownerIDEqual(a, b *uint64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 
 // mapOTCErr is now a passthrough. Service-layer sentinels (and the typed

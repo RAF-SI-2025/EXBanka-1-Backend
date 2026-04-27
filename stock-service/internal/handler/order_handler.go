@@ -17,9 +17,9 @@ import (
 // orderSvcFacade is the narrow interface of OrderService used by OrderHandler.
 type orderSvcFacade interface {
 	CreateOrder(ctx context.Context, req service.CreateOrderRequest) (*model.Order, error)
-	GetOrder(orderID, userID uint64, systemType string) (*model.Order, []model.OrderTransaction, error)
-	ListMyOrders(userID uint64, systemType string, filter repository.OrderFilter) ([]model.Order, int64, error)
-	CancelOrder(orderID, userID uint64, systemType string) (*model.Order, error)
+	GetOrder(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, []model.OrderTransaction, error)
+	ListMyOrders(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
+	CancelOrder(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error)
 	ListAllOrders(filter repository.OrderFilter) ([]model.Order, int64, error)
 	ApproveOrder(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
 	DeclineOrder(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
@@ -119,7 +119,8 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 }
 
 func (h *OrderHandler) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.OrderDetail, error) {
-	order, txns, err := h.orderSvc.GetOrder(req.Id, req.UserId, req.SystemType)
+	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	order, txns, err := h.orderSvc.GetOrder(req.Id, ownerType, ownerID)
 	if err != nil {
 		return nil, mapOrderError(err)
 	}
@@ -134,7 +135,8 @@ func (h *OrderHandler) ListMyOrders(ctx context.Context, req *pb.ListMyOrdersReq
 		Page:      int(req.Page),
 		PageSize:  int(req.PageSize),
 	}
-	orders, total, err := h.orderSvc.ListMyOrders(req.UserId, req.SystemType, filter)
+	listOwnerType, listOwnerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	orders, total, err := h.orderSvc.ListMyOrders(listOwnerType, listOwnerID, filter)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -142,7 +144,8 @@ func (h *OrderHandler) ListMyOrders(ctx context.Context, req *pb.ListMyOrdersReq
 }
 
 func (h *OrderHandler) CancelOrder(ctx context.Context, req *pb.CancelOrderRequest) (*pb.Order, error) {
-	order, err := h.orderSvc.CancelOrder(req.Id, req.UserId, req.SystemType)
+	cancelOwnerType, cancelOwnerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	order, err := h.orderSvc.CancelOrder(req.Id, cancelOwnerType, cancelOwnerID)
 	if err != nil {
 		return nil, mapOrderError(err)
 	}
@@ -233,7 +236,7 @@ func toOrderProto(o *model.Order) *pb.Order {
 	filledQty := o.Quantity - o.RemainingPortions
 	order := &pb.Order{
 		Id:                o.ID,
-		UserId:            o.UserID,
+		UserId:            model.OwnerToLegacyUserID(o.OwnerType, o.OwnerID),
 		ListingId:         o.ListingID,
 		SecurityType:      o.SecurityType,
 		Ticker:            o.Ticker,
@@ -254,7 +257,7 @@ func toOrderProto(o *model.Order) *pb.Order {
 		AllOrNone:         o.AllOrNone,
 		Margin:            o.Margin,
 		AccountId:         o.AccountID,
-		ActingEmployeeId:  o.ActingEmployeeID,
+		ActingEmployeeId:  derefU64(o.ActingEmployeeID),
 		LastModification:  o.LastModification.Format("2006-01-02T15:04:05Z"),
 		CreatedAt:         o.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
@@ -297,6 +300,16 @@ func toOrderListResponse(orders []model.Order, total int64) *pb.ListOrdersRespon
 		protos[i] = toOrderProto(&o)
 	}
 	return &pb.ListOrdersResponse{Orders: protos, TotalCount: total}
+}
+
+// derefU64 returns 0 when p is nil, otherwise *p. Used to bridge model fields
+// that became *uint64 (e.g. Order.ActingEmployeeID) to proto fields whose
+// schema is still uint64.
+func derefU64(p *uint64) uint64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // resolveOrderOwner decides who the order (and any resulting holding) belongs

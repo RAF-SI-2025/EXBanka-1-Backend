@@ -54,11 +54,14 @@ func TestComputeOrderState_UnknownFallback(t *testing.T) {
 
 func TestToOrderProto_PopulatesAllFields(t *testing.T) {
 	hid := uint64(7)
+	uid := uint64(42)
+	emp := uint64(17)
 	limit := decimal.NewFromFloat(101.5)
 	stop := decimal.NewFromFloat(95.0)
 	o := &model.Order{
 		ID:                10,
-		UserID:            42,
+		OwnerType:         model.OwnerClient,
+		OwnerID:           &uid,
 		ListingID:         100,
 		HoldingID:         &hid,
 		SecurityType:      "stock",
@@ -80,7 +83,7 @@ func TestToOrderProto_PopulatesAllFields(t *testing.T) {
 		AllOrNone:         false,
 		Margin:            true,
 		AccountID:         55,
-		ActingEmployeeID:  17,
+		ActingEmployeeID:  &emp,
 		LastModification:  time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC),
 		CreatedAt:         time.Date(2026, 4, 1, 11, 0, 0, 0, time.UTC),
 	}

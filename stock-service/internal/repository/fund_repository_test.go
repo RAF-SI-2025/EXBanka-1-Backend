@@ -62,13 +62,14 @@ func TestClientFundPositionRepository_UpsertIncrements(t *testing.T) {
 	r := NewClientFundPositionRepository(db)
 
 	delta := decimal.NewFromInt(500)
-	if err := r.IncrementContribution(1, 99, "client", delta); err != nil {
+	uid := uint64(99)
+	if err := r.IncrementContribution(1, model.OwnerClient, &uid, delta); err != nil {
 		t.Fatalf("upsert 1: %v", err)
 	}
-	if err := r.IncrementContribution(1, 99, "client", delta); err != nil {
+	if err := r.IncrementContribution(1, model.OwnerClient, &uid, delta); err != nil {
 		t.Fatalf("upsert 2: %v", err)
 	}
-	got, err := r.GetByOwner(1, 99, "client")
+	got, err := r.GetByFundAndOwner(1, model.OwnerClient, &uid)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
