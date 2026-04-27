@@ -141,34 +141,9 @@ func newHandlerForTest(auth authServiceFacade, mobile mobileDeviceFacade) *AuthG
 	return &AuthGRPCHandler{authService: auth, mobileSvc: mobile}
 }
 
-// ----------------------------------------------------------------------------
-// mapServiceError tests
-// ----------------------------------------------------------------------------
-
-func TestMapServiceError(t *testing.T) {
-	cases := []struct {
-		name string
-		msg  string
-		want codes.Code
-	}{
-		{"not found", "user not found", codes.NotFound},
-		{"invalid", "invalid input", codes.InvalidArgument},
-		{"must be", "must be 8 characters", codes.InvalidArgument},
-		{"already exists", "email already exists", codes.AlreadyExists},
-		{"revoked", "token has been revoked", codes.Unauthenticated},
-		{"expired", "token expired", codes.DeadlineExceeded},
-		{"locked", "account locked", codes.ResourceExhausted},
-		{"failed attempts", "too many failed attempts", codes.ResourceExhausted},
-		{"permission", "permission denied", codes.PermissionDenied},
-		{"do not match", "passwords do not match", codes.InvalidArgument},
-		{"default", "totally unknown error", codes.Internal},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, mapServiceError(fmt.Errorf("%s", tc.msg)))
-		})
-	}
-}
+// mapServiceError has been deleted in favor of typed sentinel errors that
+// carry their own gRPC status code via the GRPCStatus interface (see
+// service/errors.go). Handler RPCs are now passthrough.
 
 // ----------------------------------------------------------------------------
 // ValidateToken
@@ -334,7 +309,7 @@ func TestHandler_RequestPasswordReset_Success(t *testing.T) {
 func TestHandler_ResetPassword_PasswordMismatch(t *testing.T) {
 	auth := &stubAuthService{
 		resetPasswordFn: func(context.Context, string, string, string) error {
-			return errors.New("passwords do not match")
+			return fmt.Errorf("ResetPassword: %w", service.ErrPasswordsDoNotMatch)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
@@ -349,7 +324,7 @@ func TestHandler_ResetPassword_PasswordMismatch(t *testing.T) {
 func TestHandler_ResetPassword_TokenNotFound(t *testing.T) {
 	auth := &stubAuthService{
 		resetPasswordFn: func(context.Context, string, string, string) error {
-			return errors.New("password reset token not found")
+			return fmt.Errorf("ResetPassword: %w", service.ErrInvalidToken)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
@@ -358,7 +333,9 @@ func TestHandler_ResetPassword_TokenNotFound(t *testing.T) {
 		Token: "missing-tok", NewPassword: "Abcdef12", ConfirmPassword: "Abcdef12",
 	})
 	require.Error(t, err)
-	assert.Equal(t, codes.NotFound, status.Code(err))
+	// Invalid/unknown token surfaces as Unauthenticated under the typed-sentinel
+	// model (was NotFound under the legacy substring mapper).
+	assert.Equal(t, codes.Unauthenticated, status.Code(err))
 }
 
 func TestHandler_ResetPassword_Success(t *testing.T) {
@@ -381,7 +358,7 @@ func TestHandler_ResetPassword_Success(t *testing.T) {
 func TestHandler_ActivateAccount_PasswordMismatch(t *testing.T) {
 	auth := &stubAuthService{
 		activateAccountFn: func(context.Context, string, string, string) error {
-			return errors.New("passwords do not match")
+			return fmt.Errorf("ActivateAccount: %w", service.ErrPasswordsDoNotMatch)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
@@ -438,7 +415,7 @@ func TestHandler_Logout_Error(t *testing.T) {
 func TestHandler_SetAccountStatus_AccountNotFound(t *testing.T) {
 	auth := &stubAuthService{
 		setAccountStatusFn: func(context.Context, string, int64, bool) error {
-			return errors.New("account not found")
+			return fmt.Errorf("op: %w", service.ErrAccountNotFound)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
@@ -592,7 +569,7 @@ func TestHandler_CreateAccount_Success(t *testing.T) {
 func TestHandler_CreateAccount_AlreadyExists(t *testing.T) {
 	auth := &stubAuthService{
 		createAccountAndActivationFn: func(context.Context, int64, string, string, string) error {
-			return errors.New("account already exists")
+			return fmt.Errorf("CreateAccountAndActivationToken: %w", service.ErrAccountCreationFailed)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
@@ -601,7 +578,10 @@ func TestHandler_CreateAccount_AlreadyExists(t *testing.T) {
 		PrincipalId: 1, Email: "x@test.com", FirstName: "X", PrincipalType: model.PrincipalTypeEmployee,
 	})
 	require.Error(t, err)
-	assert.Equal(t, codes.AlreadyExists, status.Code(err))
+	// Account creation failures collapse to Internal under the typed-sentinel
+	// model. The legacy substring mapper produced AlreadyExists for any error
+	// containing "already exists", but we no longer infer semantics from prose.
+	assert.Equal(t, codes.Internal, status.Code(err))
 }
 
 // ----------------------------------------------------------------------------
@@ -626,7 +606,7 @@ func TestHandler_RequestMobileActivation_Success(t *testing.T) {
 func TestHandler_ActivateMobileDevice_AccountNotFound(t *testing.T) {
 	mob := &stubMobileService{
 		activateDeviceFn: func(context.Context, string, string, string) (string, string, string, string, error) {
-			return "", "", "", "", errors.New("account not found")
+			return "", "", "", "", fmt.Errorf("op: %w", service.ErrAccountNotFound)
 		},
 	}
 	h := newHandlerForTest(&stubAuthService{}, mob)
@@ -684,7 +664,7 @@ func TestHandler_RefreshMobileToken_Success(t *testing.T) {
 func TestHandler_RefreshMobileToken_DeviceMismatch(t *testing.T) {
 	auth := &stubAuthService{
 		refreshTokenForMobileFn: func(context.Context, string, string, service.MobileDeviceLookup) (string, string, error) {
-			return "", "", errors.New("device ID mismatch — permission denied")
+			return "", "", fmt.Errorf("op: %w", service.ErrDeviceMismatch)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
@@ -702,7 +682,7 @@ func TestHandler_RefreshMobileToken_DeviceMismatch(t *testing.T) {
 
 func TestHandler_DeactivateDevice_DeviceNotFound(t *testing.T) {
 	mob := &stubMobileService{
-		deactivateDeviceFn: func(int64, string) error { return errors.New("device not found") },
+		deactivateDeviceFn: func(int64, string) error { return fmt.Errorf("op: %w", service.ErrDeviceNotFound) },
 	}
 	h := newHandlerForTest(&stubAuthService{}, mob)
 
@@ -734,7 +714,7 @@ func TestHandler_DeactivateDevice_Success(t *testing.T) {
 
 func TestHandler_TransferDevice_AccountNotFound(t *testing.T) {
 	mob := &stubMobileService{
-		transferDeviceFn: func(context.Context, int64, string) error { return errors.New("account not found") },
+		transferDeviceFn: func(context.Context, int64, string) error { return fmt.Errorf("op: %w", service.ErrAccountNotFound) },
 	}
 	h := newHandlerForTest(&stubAuthService{}, mob)
 
@@ -763,7 +743,7 @@ func TestHandler_TransferDevice_Success(t *testing.T) {
 func TestHandler_ValidateDeviceSignature_DeviceNotFound(t *testing.T) {
 	mob := &stubMobileService{
 		validateDeviceSignatureFn: func(string, string, string, string, string, string) (bool, error) {
-			return false, errors.New("device not found")
+			return false, fmt.Errorf("op: %w", service.ErrDeviceNotFound)
 		},
 	}
 	h := newHandlerForTest(&stubAuthService{}, mob)
@@ -795,7 +775,7 @@ func TestHandler_ValidateDeviceSignature_Valid(t *testing.T) {
 func TestHandler_GetDeviceInfo_NotFound(t *testing.T) {
 	mob := &stubMobileService{
 		getDeviceInfoFn: func(int64) (*model.MobileDevice, error) {
-			return nil, errors.New("active device not found")
+			return nil, fmt.Errorf("op: %w", service.ErrDeviceNotFound)
 		},
 	}
 	h := newHandlerForTest(&stubAuthService{}, mob)
@@ -833,7 +813,7 @@ func TestHandler_GetDeviceInfo_Found(t *testing.T) {
 
 func TestHandler_SetBiometricsEnabled_DeviceNotFound(t *testing.T) {
 	mob := &stubMobileService{
-		setBiometricsEnabledFn: func(int64, string, bool) error { return errors.New("device not found") },
+		setBiometricsEnabledFn: func(int64, string, bool) error { return fmt.Errorf("op: %w", service.ErrDeviceNotFound) },
 	}
 	h := newHandlerForTest(&stubAuthService{}, mob)
 
@@ -865,7 +845,7 @@ func TestHandler_SetBiometricsEnabled_Success(t *testing.T) {
 func TestHandler_GetBiometricsEnabled_DeviceNotFound(t *testing.T) {
 	mob := &stubMobileService{
 		getBiometricsEnabledFn: func(int64, string) (bool, error) {
-			return false, errors.New("device not found")
+			return false, fmt.Errorf("op: %w", service.ErrDeviceNotFound)
 		},
 	}
 	h := newHandlerForTest(&stubAuthService{}, mob)
@@ -888,7 +868,7 @@ func TestHandler_GetBiometricsEnabled_True(t *testing.T) {
 
 func TestHandler_CheckBiometricsEnabled_DeviceNotFound(t *testing.T) {
 	mob := &stubMobileService{
-		checkBiometricsEnabledFn: func(string) (bool, error) { return false, errors.New("device not found") },
+		checkBiometricsEnabledFn: func(string) (bool, error) { return false, fmt.Errorf("op: %w", service.ErrDeviceNotFound) },
 	}
 	h := newHandlerForTest(&stubAuthService{}, mob)
 
@@ -947,7 +927,7 @@ func TestHandler_ListSessions_Error(t *testing.T) {
 
 func TestHandler_RevokeSession_NotFound(t *testing.T) {
 	auth := &stubAuthService{
-		revokeSessionFn: func(context.Context, int64, int64) error { return errors.New("session not found") },
+		revokeSessionFn: func(context.Context, int64, int64) error { return fmt.Errorf("op: %w", service.ErrSessionNotFound) },
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})
 
@@ -972,7 +952,7 @@ func TestHandler_RevokeSession_Success(t *testing.T) {
 func TestHandler_RevokeAllSessions_TokenNotFound(t *testing.T) {
 	auth := &stubAuthService{
 		revokeAllSessionsExceptCurrentFn: func(context.Context, int64, string) error {
-			return errors.New("current refresh token not found")
+			return fmt.Errorf("RevokeAllSessionsExceptCurrent: %w", service.ErrSessionNotFound)
 		},
 	}
 	h := newHandlerForTest(auth, &stubMobileService{})

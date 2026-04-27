@@ -514,31 +514,31 @@ type MobileDeviceLookup interface {
 func (s *AuthService) RefreshTokenForMobile(ctx context.Context, oldRefreshToken, deviceID string, mobileSvc MobileDeviceLookup) (string, string, error) {
 	rt, err := s.tokenRepo.GetRefreshToken(oldRefreshToken)
 	if err != nil {
-		return "", "", errors.New("invalid refresh token")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: lookup token: %v: %w", err, ErrInvalidToken)
 	}
 	if rt.Revoked {
-		return "", "", errors.New("refresh token revoked")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: refresh token revoked: %w", ErrTokenRevoked)
 	}
 	if time.Now().After(rt.ExpiresAt) {
-		return "", "", errors.New("refresh token expired")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: refresh token expired at %s: %w", rt.ExpiresAt.Format(time.RFC3339), ErrTokenExpired)
 	}
 
 	// Get account to resolve PrincipalID (the actual user ID used in MobileDevice)
 	var acct model.Account
 	if err := s.accountRepo.GetByID(rt.AccountID, &acct); err != nil {
-		return "", "", errors.New("account not found")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: lookup account %d: %v: %w", rt.AccountID, err, ErrAccountNotFound)
 	}
 	if acct.Status != model.AccountStatusActive {
-		return "", "", errors.New("account is not active")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: account %d status=%s: %w", acct.ID, acct.Status, ErrAccountDisabled)
 	}
 
 	// Verify device is active and matches the provided deviceID
 	device, err := mobileSvc.GetDeviceInfo(acct.PrincipalID)
 	if err != nil {
-		return "", "", errors.New("device not found or deactivated, please re-activate")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: device lookup for principal %d: %v: %w", acct.PrincipalID, err, ErrDeviceNotFound)
 	}
 	if device.DeviceID != deviceID {
-		return "", "", errors.New("device ID mismatch — permission denied")
+		return "", "", fmt.Errorf("RefreshTokenForMobile: device id %q does not match registered device for principal %d: %w", deviceID, acct.PrincipalID, ErrDeviceMismatch)
 	}
 
 	// Revoke old token
@@ -670,7 +670,7 @@ func (s *AuthService) CreateAccountAndActivationToken(ctx context.Context, princ
 			PrincipalID:   principalID,
 		}
 		if err := s.accountRepo.Create(account); err != nil {
-			return fmt.Errorf("failed to create account: %w", err)
+			return fmt.Errorf("CreateAccountAndActivationToken: create account: %v: %w", err, ErrAccountCreationFailed)
 		}
 	}
 
@@ -775,18 +775,18 @@ func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) er
 
 func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, confirmPassword string) error {
 	if newPassword != confirmPassword {
-		return errors.New("password and confirmation do not match")
+		return fmt.Errorf("ResetPassword: password and confirmation do not match: %w", ErrPasswordsDoNotMatch)
 	}
 	if err := validatePassword(newPassword); err != nil {
-		return err
+		return fmt.Errorf("ResetPassword: %v: %w", err, ErrPasswordValidation)
 	}
 
 	prt, err := s.tokenRepo.GetPasswordResetToken(tokenStr)
 	if err != nil {
-		return errors.New("invalid or expired password reset token; request a new password reset")
+		return fmt.Errorf("ResetPassword: lookup token: %v: %w", err, ErrInvalidToken)
 	}
 	if time.Now().After(prt.ExpiresAt) {
-		return errors.New("password reset token expired; request a new password reset")
+		return fmt.Errorf("ResetPassword: token expired at %s: %w", prt.ExpiresAt.Format(time.RFC3339), ErrTokenExpired)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, newPassword)), bcrypt.DefaultCost)
@@ -827,18 +827,18 @@ func (s *AuthService) ResetPassword(ctx context.Context, tokenStr, newPassword, 
 
 func (s *AuthService) ActivateAccount(ctx context.Context, tokenStr, password, confirmPassword string) error {
 	if password != confirmPassword {
-		return errors.New("passwords do not match")
+		return fmt.Errorf("ActivateAccount: passwords do not match: %w", ErrPasswordsDoNotMatch)
 	}
 	if err := validatePassword(password); err != nil {
-		return err
+		return fmt.Errorf("ActivateAccount: %v: %w", err, ErrPasswordValidation)
 	}
 
 	at, err := s.tokenRepo.GetActivationToken(tokenStr)
 	if err != nil {
-		return errors.New("invalid or expired activation token")
+		return fmt.Errorf("ActivateAccount: lookup token: %v: %w", err, ErrInvalidToken)
 	}
 	if time.Now().After(at.ExpiresAt) {
-		return errors.New("token expired")
+		return fmt.Errorf("ActivateAccount: token expired at %s: %w", at.ExpiresAt.Format(time.RFC3339), ErrTokenExpired)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(PepperPassword(s.pepper, password)), bcrypt.DefaultCost)
@@ -986,14 +986,14 @@ func (s *AuthService) ListSessions(ctx context.Context, userID int64) ([]model.A
 func (s *AuthService) RevokeSession(ctx context.Context, sessionID int64, callerUserID int64) error {
 	session, err := s.sessionRepo.GetByID(sessionID)
 	if err != nil {
-		return fmt.Errorf("session not found")
+		return fmt.Errorf("RevokeSession: lookup session %d: %v: %w", sessionID, err, ErrSessionNotFound)
 	}
 	// Ensure the caller owns this session
 	if session.UserID != callerUserID {
-		return fmt.Errorf("permission denied: session belongs to another user")
+		return fmt.Errorf("RevokeSession: caller %d does not own session %d (owner=%d): %w", callerUserID, sessionID, session.UserID, ErrSessionForbidden)
 	}
 	if session.RevokedAt != nil {
-		return fmt.Errorf("session already revoked")
+		return fmt.Errorf("RevokeSession: session %d already revoked at %s: %w", sessionID, session.RevokedAt.Format(time.RFC3339), ErrSessionAlreadyRevoked)
 	}
 
 	// Revoke all refresh tokens for this session
@@ -1017,7 +1017,7 @@ func (s *AuthService) RevokeSession(ctx context.Context, sessionID int64, caller
 func (s *AuthService) RevokeAllSessionsExceptCurrent(ctx context.Context, userID int64, currentRefreshToken string) error {
 	rt, err := s.tokenRepo.GetRefreshToken(currentRefreshToken)
 	if err != nil {
-		return fmt.Errorf("current token not found")
+		return fmt.Errorf("RevokeAllSessionsExceptCurrent: current token lookup: %v: %w", err, ErrSessionNotFound)
 	}
 
 	keepSessionID := int64(0)

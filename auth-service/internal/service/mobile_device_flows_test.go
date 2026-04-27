@@ -70,7 +70,8 @@ func TestRequestActivation_AccountNotActive(t *testing.T) {
 
 	err := svc.RequestActivation(context.Background(), "pend@test.com")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "account is not active")
+	// Pending accounts collapse to ErrAccountDisabled (status != "active").
+	assert.ErrorIs(t, err, ErrAccountDisabled)
 }
 
 // ----------------------------------------------------------------------------
@@ -192,7 +193,7 @@ func TestSetBiometricsEnabled_WrongUser(t *testing.T) {
 	svc, _ := newMobileSvcWithStubs(t, db)
 	err := svc.SetBiometricsEnabled(999, deviceID, true)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not belong to user")
+	assert.ErrorIs(t, err, ErrDeviceMismatch)
 }
 
 func TestSetBiometricsEnabled_InactiveDevice(t *testing.T) {
@@ -241,7 +242,7 @@ func TestGetBiometricsEnabled_WrongUser(t *testing.T) {
 	svc, _ := newMobileSvcWithStubs(t, db)
 	_, err := svc.GetBiometricsEnabled(999, deviceID)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not belong to user")
+	assert.ErrorIs(t, err, ErrDeviceMismatch)
 }
 
 func TestCheckBiometricsEnabled_Success(t *testing.T) {
