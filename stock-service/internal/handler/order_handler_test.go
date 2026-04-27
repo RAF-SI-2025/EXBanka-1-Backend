@@ -39,8 +39,22 @@ func TestResolveOrderOwner_EmployeeOnBehalfOfClient_FlipsSystemType(t *testing.T
 }
 
 func TestResolveOrderOwner_ActingEmployeeWithoutClient_Fails(t *testing.T) {
-	_, _, err := resolveOrderOwner(0, "employee", 17, 0)
+	_, _, err := resolveOrderOwner(0, "client", 17, 0)
 	if err == nil {
-		t.Fatal("expected error when ActingEmployeeId is set without OnBehalfOfClientId")
+		t.Fatal("expected error when ActingEmployeeId is set without OnBehalfOfClientId on a non-bank request")
+	}
+}
+
+// Plan C: ResolveIdentity middleware on /me/* trading routes resolves
+// employee callers to bank ownership (UserId=0, SystemType="bank") with
+// ActingEmployeeId set. resolveOrderOwner must accept this pattern as
+// "employee places for the bank" rather than rejecting it.
+func TestResolveOrderOwner_EmployeeAsBank_Accepted(t *testing.T) {
+	uid, st, err := resolveOrderOwner(0, "bank", 17 /* acting employee */, 0)
+	if err != nil {
+		t.Fatalf("expected success for employee-as-bank, got: %v", err)
+	}
+	if uid != 0 || st != "bank" {
+		t.Errorf("employee-as-bank: got (%d,%q), want (0,\"bank\")", uid, st)
 	}
 }

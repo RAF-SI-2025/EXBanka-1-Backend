@@ -319,10 +319,19 @@ func derefU64(p *uint64) uint64 {
 // separately on the order for audit; this function does not touch it.
 func resolveOrderOwner(reqUserID uint64, reqSystemType string, actingEmployeeID, onBehalfOfClientID uint64) (uint64, string, error) {
 	if actingEmployeeID != 0 {
-		if onBehalfOfClientID == 0 {
-			return 0, "", status.Error(codes.InvalidArgument, "on_behalf_of_client_id required when acting_employee_id is set")
+		// Two legitimate employee-acting patterns:
+		//   1. Employee places for a specific client → owner=client/<clientID>
+		//   2. Employee places for the bank (/me/order under
+		//      OwnerIsBankIfEmployee) → owner=bank/0, no on-behalf-of-client
+		// Distinguish by reqSystemType: "bank" → pattern 2; anything else
+		// requires onBehalfOfClientID (pattern 1).
+		if onBehalfOfClientID != 0 {
+			return onBehalfOfClientID, "client", nil
 		}
-		return onBehalfOfClientID, "client", nil
+		if reqSystemType == "bank" {
+			return 0, "bank", nil
+		}
+		return 0, "", status.Error(codes.InvalidArgument, "on_behalf_of_client_id required when acting_employee_id is set (or system_type must be bank for employee-as-bank trades)")
 	}
 	return reqUserID, reqSystemType, nil
 }
