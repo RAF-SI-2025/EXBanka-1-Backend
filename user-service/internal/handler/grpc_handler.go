@@ -58,6 +58,8 @@ type roleFacade interface {
 	GetRole(id int64) (*model.Role, error)
 	CreateRole(name, description string, permissionCodes []string) (*model.Role, error)
 	UpdateRolePermissions(roleID int64, permissionCodes []string) error
+	AssignPermissionToRole(roleName string, perm string) error
+	RevokePermissionFromRole(roleName string, perm string) error
 	ListPermissions() ([]model.Permission, error)
 }
 
@@ -226,6 +228,39 @@ func (h *UserGRPCHandler) UpdateRolePermissions(ctx context.Context, req *pb.Upd
 		return nil, status.Errorf(codes.NotFound, "role not found after update")
 	}
 	return toRoleResponse(role), nil
+}
+
+// AssignPermissionToRole grants a single permission to a role. Validates
+// against the codegened catalog: an unknown permission returns InvalidArgument
+// and a missing role returns NotFound.
+func (h *UserGRPCHandler) AssignPermissionToRole(ctx context.Context, req *pb.AssignPermissionToRoleRequest) (*pb.AssignPermissionToRoleResponse, error) {
+	if err := h.roleSvc.AssignPermissionToRole(req.RoleName, req.Permission); err != nil {
+		return nil, status.Errorf(roleAdminErrCode(err), "failed to assign permission: %v", err)
+	}
+	return &pb.AssignPermissionToRoleResponse{}, nil
+}
+
+// RevokePermissionFromRole removes a single permission grant from a role.
+// Idempotent: revoking a permission that was never granted is a no-op success.
+func (h *UserGRPCHandler) RevokePermissionFromRole(ctx context.Context, req *pb.RevokePermissionFromRoleRequest) (*pb.RevokePermissionFromRoleResponse, error) {
+	if err := h.roleSvc.RevokePermissionFromRole(req.RoleName, req.Permission); err != nil {
+		return nil, status.Errorf(roleAdminErrCode(err), "failed to revoke permission: %v", err)
+	}
+	return &pb.RevokePermissionFromRoleResponse{}, nil
+}
+
+// roleAdminErrCode maps service-layer sentinels for the role-permission admin
+// API to gRPC status codes. Unknown errors fall through to the generic
+// service-error mapper for legacy compatibility.
+func roleAdminErrCode(err error) codes.Code {
+	switch {
+	case errors.Is(err, service.ErrPermissionNotInCatalog):
+		return codes.InvalidArgument
+	case errors.Is(err, service.ErrRoleNotFound):
+		return codes.NotFound
+	default:
+		return mapServiceError(err)
+	}
 }
 
 // ListPermissions returns all permissions.

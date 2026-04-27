@@ -157,6 +157,12 @@ func (n *noopUserClient) CreateRole(_ context.Context, _ *userpb.CreateRoleReque
 func (n *noopUserClient) UpdateRolePermissions(_ context.Context, _ *userpb.UpdateRolePermissionsRequest, _ ...grpc.CallOption) (*userpb.RoleResponse, error) {
 	return &userpb.RoleResponse{}, nil
 }
+func (n *noopUserClient) AssignPermissionToRole(_ context.Context, _ *userpb.AssignPermissionToRoleRequest, _ ...grpc.CallOption) (*userpb.AssignPermissionToRoleResponse, error) {
+	return &userpb.AssignPermissionToRoleResponse{}, nil
+}
+func (n *noopUserClient) RevokePermissionFromRole(_ context.Context, _ *userpb.RevokePermissionFromRoleRequest, _ ...grpc.CallOption) (*userpb.RevokePermissionFromRoleResponse, error) {
+	return &userpb.RevokePermissionFromRoleResponse{}, nil
+}
 func (n *noopUserClient) ListPermissions(_ context.Context, _ *userpb.ListPermissionsRequest, _ ...grpc.CallOption) (*userpb.ListPermissionsResponse, error) {
 	return &userpb.ListPermissionsResponse{}, nil
 }

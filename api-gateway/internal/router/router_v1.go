@@ -393,6 +393,18 @@ func RegisterCoreRoutes(
 		{
 			roleUpdate.PUT("/roles/:id/permissions", roleHandler.UpdateRolePermissions)
 		}
+		// Granular role-permission management (one perm at a time, by role
+		// name). Each verb uses its dedicated catalog perm.
+		rolePermAssign := protected.Group("/")
+		rolePermAssign.Use(middleware.RequirePermission(perms.Roles.Permissions.Assign))
+		{
+			rolePermAssign.POST("/roles/:role_name/permissions", roleHandler.AssignPermissionToRole)
+		}
+		rolePermRevoke := protected.Group("/")
+		rolePermRevoke.Use(middleware.RequirePermission(perms.Roles.Permissions.Revoke))
+		{
+			rolePermRevoke.DELETE("/roles/:role_name/permissions/:permission", roleHandler.RevokePermissionFromRole)
+		}
 		// Per-employee role/permission assignment
 		empPermAssign := protected.Group("/")
 		empPermAssign.Use(middleware.RequireAnyPermission(perms.Employees.Roles.Assign, perms.Employees.Permissions.Assign))

@@ -65,6 +65,13 @@ definitions:
     required:
     - template_name
     type: object
+  handler.assignPermissionRequest:
+    properties:
+      permission:
+        type: string
+    required:
+    - permission
+    type: object
   handler.counterOTCOfferRequest:
     properties:
       premium:
@@ -1161,6 +1168,106 @@ paths:
       summary: List the caller's investment-fund positions
       tags:
       - InvestmentFunds
+  /api/v1/roles/{role_name}/permissions:
+    post:
+      consumes:
+      - application/json
+      description: Grants a single permission to the named role. The permission is
+        validated against the codegened catalog. Idempotent — granting a permission
+        already held is a no-op. Requires roles.permissions.assign permission.
+      parameters:
+      - description: Role name (e.g. EmployeeBasic)
+        in: path
+        name: role_name
+        required: true
+        type: string
+      - description: Permission code to grant
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.assignPermissionRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: no content
+        "400":
+          description: validation error or permission not in catalog
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: role not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Assign a permission to a role
+      tags:
+      - roles
+  /api/v1/roles/{role_name}/permissions/{permission}:
+    delete:
+      description: Removes a single permission grant from the named role. Idempotent
+        — revoking a permission not held is a no-op. Requires roles.permissions.revoke
+        permission.
+      parameters:
+      - description: Role name (e.g. EmployeeBasic)
+        in: path
+        name: role_name
+        required: true
+        type: string
+      - description: Permission code to revoke
+        in: path
+        name: permission
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: no content
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: role not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Revoke a permission from a role
+      tags:
+      - roles
   /api/v2/accounts:
     get:
       parameters:
