@@ -63,6 +63,16 @@ const (
 	// Commission / fee.
 	StepCreditCommission StepKind = "credit_commission"
 	StepCreditBankFee    StepKind = "credit_bank_fee"
+
+	// Transfer / payment (transaction-service same-currency + cross-currency
+	// money movement steps).
+	StepDebitSender          StepKind = "debit_sender"
+	StepCreditRecipient      StepKind = "credit_recipient"
+	StepCreditBankCommission StepKind = "credit_bank_commission"
+	StepDebitUserFrom        StepKind = "debit_user_from"
+	StepCreditBankFrom       StepKind = "credit_bank_from"
+	StepDebitBankTo          StepKind = "debit_bank_to"
+	StepCreditUserTo         StepKind = "credit_user_to"
 )
 
 var allSteps = map[StepKind]struct{}{
@@ -74,12 +84,15 @@ var allSteps = map[StepKind]struct{}{
 	StepSettlePremiumBuyer: {}, StepSettleStrikeBuyer: {}, StepConsumeSellerHolding: {},
 	StepDebitSource: {}, StepCreditTarget: {}, StepDebitFund: {},
 	StepCreditFund: {}, StepCreditPremiumSeller: {}, StepCreditStrikeSeller: {},
-	StepUpsertPosition: {},
+	StepUpsertPosition:      {},
 	StepPersistOrderPending: {}, StepReserveFunds: {}, StepReserveHolding: {},
 	StepFinalizeOrder: {}, StepConvertAmount: {}, StepRecordTransaction: {},
 	StepSettleReservation: {}, StepSettleReservationQuote: {}, StepCreditBase: {},
 	StepCreditProceeds: {}, StepUpdateHolding: {}, StepDecrementHolding: {},
 	StepCreditCommission: {}, StepCreditBankFee: {},
+	StepDebitSender: {}, StepCreditRecipient: {}, StepCreditBankCommission: {},
+	StepDebitUserFrom: {}, StepCreditBankFrom: {}, StepDebitBankTo: {},
+	StepCreditUserTo: {},
 }
 
 // MustStep returns k if k is a registered StepKind. Otherwise it panics.

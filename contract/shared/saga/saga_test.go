@@ -48,6 +48,15 @@ func TestNewSubSaga_DistinctKindsYieldDistinctIDs(t *testing.T) {
 	}
 }
 
+func TestNewSubSaga_SameKindSameParentSameID(t *testing.T) {
+	parent := NewSagaWithID("parent-id", noopRecorder{})
+	a := parent.NewSubSaga("commission")
+	b := parent.NewSubSaga("commission")
+	if a.ID() != b.ID() {
+		t.Errorf("same kind from same parent must yield same ID (idempotent recovery): %s vs %s", a.ID(), b.ID())
+	}
+}
+
 func TestStep_NameIsStepKind(t *testing.T) {
 	s := NewSaga(noopRecorder{})
 	s.Add(Step{Name: StepDebitBuyer, Forward: func(ctx context.Context, st *State) error { return nil }})

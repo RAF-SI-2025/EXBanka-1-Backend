@@ -50,11 +50,15 @@ const (
 	keyAmount     = ":amount"
 )
 
-func stepAccountKey(name string) string { return keyStepPrefix + name + keyAccount }
-func stepAmountKey(name string) string  { return keyStepPrefix + name + keyAmount }
+func stepAccountKey(name sharedsaga.StepKind) string {
+	return keyStepPrefix + string(name) + keyAccount
+}
+func stepAmountKey(name sharedsaga.StepKind) string {
+	return keyStepPrefix + string(name) + keyAmount
+}
 
 // RecordForward writes a pending saga step row and returns its handle.
-func (r *Recorder) RecordForward(ctx context.Context, sagaID, stepName string, stepNumber int, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
+func (r *Recorder) RecordForward(ctx context.Context, sagaID string, stepName sharedsaga.StepKind, stepNumber int, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
 	row := r.buildRow(sagaID, stepName, stepNumber, st)
 	row.Status = string(sharedsaga.SagaStatusPending)
 	row.IsCompensation = false
@@ -75,7 +79,7 @@ func (r *Recorder) MarkFailed(ctx context.Context, h sharedsaga.StepHandle, errM
 }
 
 // RecordCompensation writes a compensating saga step row.
-func (r *Recorder) RecordCompensation(ctx context.Context, sagaID, stepName string, stepNumber int, forward sharedsaga.StepHandle, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
+func (r *Recorder) RecordCompensation(ctx context.Context, sagaID string, stepName sharedsaga.StepKind, stepNumber int, forward sharedsaga.StepHandle, st *sharedsaga.State) (sharedsaga.StepHandle, error) {
 	row := r.buildRow(sagaID, stepName, stepNumber, st)
 	row.Status = string(sharedsaga.SagaStatusCompensating)
 	row.IsCompensation = true
@@ -107,8 +111,8 @@ func (r *Recorder) MarkCompensationFailed(ctx context.Context, h sharedsaga.Step
 
 // IsCompleted reports whether a forward step with the given saga_id+step_name
 // has already reached completed status. Used by sharedsaga.Saga's restart-resume.
-func (r *Recorder) IsCompleted(ctx context.Context, sagaID, stepName string) (bool, error) {
-	return r.repo.IsForwardCompleted(sagaID, stepName)
+func (r *Recorder) IsCompleted(ctx context.Context, sagaID string, stepName sharedsaga.StepKind) (bool, error) {
+	return r.repo.IsForwardCompleted(sagaID, string(stepName))
 }
 
 // ListStuck returns rows in pending or compensating status whose
@@ -154,11 +158,11 @@ func (r *Recorder) MarkDeadLetter(ctx context.Context, h sharedsaga.StepHandle, 
 // buildRow assembles a SagaLog row from saga-level keys + per-step keys
 // in the State. Missing keys default to zero values (which the underlying
 // model accepts) so a partially-populated state still records.
-func (r *Recorder) buildRow(sagaID, stepName string, stepNumber int, st *sharedsaga.State) *model.SagaLog {
+func (r *Recorder) buildRow(sagaID string, stepName sharedsaga.StepKind, stepNumber int, st *sharedsaga.State) *model.SagaLog {
 	row := &model.SagaLog{
 		SagaID:     sagaID,
 		StepNumber: stepNumber,
-		StepName:   stepName,
+		StepName:   string(stepName),
 		CreatedAt:  time.Now(),
 	}
 	if v, ok := st.Get(keyTxID); ok {

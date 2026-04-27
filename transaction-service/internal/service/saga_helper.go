@@ -19,17 +19,11 @@ import (
 // the saga calls accountClient.UpdateBalance with the negated amount on the
 // same account number to roll back this step's effect.
 type sagaStep struct {
-	name          string
+	name          sharedsaga.StepKind
 	accountNumber string
 	amount        decimal.Decimal // signed: negative = debit, positive = credit
 	execute       func(ctx context.Context) error
 }
-
-// completedStep was used by the legacy executor to track per-step state for
-// compensation. The shared.Saga executor now owns that tracking; the type is
-// kept here as an empty placeholder so any unsynced reference still
-// compiles. Remove once no internal package references it.
-type completedStep struct{}
 
 // executeWithSaga executes each step in order using the shared saga runner,
 // recording progress through the per-service Recorder adapter and rolling
@@ -59,15 +53,14 @@ func executeWithSaga(
 	state.Set("transaction_id", transactionID)
 	state.Set("transaction_type", txType)
 
-	sg := sharedsaga.NewSaga(sagaID, recorder)
+	sg := sharedsaga.NewSagaWithID(sagaID, recorder)
 
-	failed := false
 	for _, step := range steps {
 		step := step
 		// Pre-populate per-step audit metadata so the recorder can persist
 		// the right account/amount when sharedsaga.Saga writes the row.
-		state.Set("step:"+step.name+":account_number", step.accountNumber)
-		state.Set("step:"+step.name+":amount", step.amount)
+		state.Set("step:"+string(step.name)+":account_number", step.accountNumber)
+		state.Set("step:"+string(step.name)+":amount", step.amount)
 
 		sg.Add(sharedsaga.Step{
 			Name: step.name,
@@ -93,11 +86,10 @@ func executeWithSaga(
 
 	if err := sg.Execute(ctx, state); err != nil {
 		// Match legacy metric semantics: increment once when the saga as a
-		// whole fails (not once per compensation step).
-		if !failed {
-			TransactionSagaCompensationsTotal.Inc()
-			failed = true
-		}
+		// whole fails (not once per compensation step). sg.Execute returns
+		// only after all rollback work is done, so a single increment here
+		// captures the saga-level failure.
+		TransactionSagaCompensationsTotal.Inc()
 		return err
 	}
 	return nil
