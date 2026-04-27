@@ -9,6 +9,7 @@ import (
 	"github.com/exbanka/contract/metrics"
 	notifpb "github.com/exbanka/contract/notificationpb"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	"github.com/exbanka/notification-service/internal/config"
 	"github.com/exbanka/notification-service/internal/consumer"
 	"github.com/exbanka/notification-service/internal/handler"
@@ -95,7 +96,10 @@ func main() {
 	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
 		Address: cfg.GRPCAddr,
 		Options: []grpc.ServerOption{
-			grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("notification-service"),
+			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},
 		Register: func(s *grpc.Server) {
