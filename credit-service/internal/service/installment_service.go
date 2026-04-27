@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -41,7 +42,11 @@ func CreateInstallmentSchedule(amount, annualRate decimal.Decimal, months int, c
 }
 
 func (s *InstallmentService) GetInstallmentsByLoan(loanID uint64) ([]model.Installment, error) {
-	return s.installRepo.ListByLoan(loanID)
+	insts, err := s.installRepo.ListByLoan(loanID)
+	if err != nil {
+		return nil, fmt.Errorf("GetInstallmentsByLoan(loan_id=%d): %v: %w", loanID, err, ErrInstallmentLookup)
+	}
+	return insts, nil
 }
 
 func (s *InstallmentService) MarkInstallmentPaid(installmentID uint64) error {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -34,14 +35,15 @@ var allowedRepaymentPeriods = map[string][]int{
 func validateRepaymentPeriod(loanType string, period int) error {
 	allowed, ok := allowedRepaymentPeriods[loanType]
 	if !ok {
-		return fmt.Errorf("unknown loan type: %s", loanType)
+		return fmt.Errorf("unknown loan type %q: %w", loanType, ErrInvalidLoanType)
 	}
 	for _, a := range allowed {
 		if period == a {
 			return nil
 		}
 	}
-	return fmt.Errorf("repayment period %d months is not allowed for %s loans; allowed: %v", period, loanType, allowed)
+	return fmt.Errorf("repayment period %d months not allowed for %s loans (allowed: %v): %w",
+		period, loanType, allowed, ErrInvalidRepaymentPeriod)
 }
 
 type LoanRequestService struct {
@@ -84,14 +86,14 @@ func (s *LoanRequestService) SetBankAccountClient(client accountpb.BankAccountSe
 
 func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
 	if !validLoanTypes[req.LoanType] {
-		return fmt.Errorf("loan type must be one of: cash, housing, auto, refinancing, student; got: %s", req.LoanType)
+		return fmt.Errorf("CreateLoanRequest(loan_type=%s): %w", req.LoanType, ErrInvalidLoanType)
 	}
 	if !validInterestTypes[req.InterestType] {
-		return fmt.Errorf("interest type must be one of: fixed, variable; got: %s", req.InterestType)
+		return fmt.Errorf("CreateLoanRequest(interest_type=%s): %w", req.InterestType, ErrInvalidInterestType)
 	}
 	if req.Amount.IsNegative() || req.Amount.IsZero() {
-		return fmt.Errorf("loan request amount must be greater than 0; got: %s (loan_type=%s, account=%s)",
-			req.Amount.StringFixed(2), req.LoanType, req.AccountNumber)
+		return fmt.Errorf("CreateLoanRequest(loan_type=%s, account=%s, amount=%s): %w",
+			req.LoanType, req.AccountNumber, req.Amount.StringFixed(2), ErrInvalidAmount)
 	}
 	if err := validateRepaymentPeriod(req.LoanType, req.RepaymentPeriod); err != nil {
 		return err
@@ -102,15 +104,17 @@ func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
 			AccountNumber: req.AccountNumber,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to verify account %s: %w", req.AccountNumber, err)
+			return fmt.Errorf("CreateLoanRequest(account=%s) verify: %v: %w",
+				req.AccountNumber, err, ErrAccountVerificationFailed)
 		}
 		if account.CurrencyCode != req.CurrencyCode {
-			return fmt.Errorf("loan currency (%s) must match account currency (%s)", req.CurrencyCode, account.CurrencyCode)
+			return fmt.Errorf("CreateLoanRequest(loan_currency=%s, account_currency=%s): %w",
+				req.CurrencyCode, account.CurrencyCode, ErrCurrencyMismatch)
 		}
 	}
 	if err := s.repo.Create(req); err != nil {
-		return fmt.Errorf("failed to save loan request for account %s (loan_type=%s, amount=%s): %v",
-			req.AccountNumber, req.LoanType, req.Amount.StringFixed(2), err)
+		return fmt.Errorf("CreateLoanRequest(account=%s, loan_type=%s, amount=%s): %v: %w",
+			req.AccountNumber, req.LoanType, req.Amount.StringFixed(2), err, ErrLoanRequestPersistFailed)
 	}
 	CreditLoanRequestTotal.WithLabelValues("created").Inc()
 	return nil
@@ -119,7 +123,10 @@ func (s *LoanRequestService) CreateLoanRequest(req *model.LoanRequest) error {
 func (s *LoanRequestService) GetLoanRequest(id uint64) (*model.LoanRequest, error) {
 	req, err := s.repo.GetByID(id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve loan request %d: %v", id, err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("GetLoanRequest(id=%d): %w", id, ErrLoanRequestNotFound)
+		}
+		return nil, fmt.Errorf("GetLoanRequest(id=%d): %v: %w", id, err, ErrLoanLookup)
 	}
 	return req, nil
 }
@@ -127,8 +134,8 @@ func (s *LoanRequestService) GetLoanRequest(id uint64) (*model.LoanRequest, erro
 func (s *LoanRequestService) ListLoanRequests(loanTypeFilter, accountFilter, statusFilter string, clientID uint64, page, pageSize int) ([]model.LoanRequest, int64, error) {
 	requests, total, err := s.repo.List(loanTypeFilter, accountFilter, statusFilter, clientID, page, pageSize)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list loan requests (loan_type=%s, account=%s, status=%s, client_id=%d, page=%d): %v",
-			loanTypeFilter, accountFilter, statusFilter, clientID, page, err)
+		return nil, 0, fmt.Errorf("ListLoanRequests(loan_type=%s, account=%s, status=%s, client_id=%d, page=%d): %v: %w",
+			loanTypeFilter, accountFilter, statusFilter, clientID, page, err, ErrLoanLookup)
 	}
 	return requests, total, nil
 }
@@ -138,10 +145,14 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 	// A second authoritative check happens inside the transaction.
 	req, err := s.repo.GetByID(requestID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve loan request %d for approval: %v", requestID, err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("ApproveLoanRequest(id=%d): %w", requestID, ErrLoanRequestNotFound)
+		}
+		return nil, fmt.Errorf("ApproveLoanRequest(id=%d): %v: %w", requestID, err, ErrLoanLookup)
 	}
 	if req.Status != "pending" {
-		return nil, fmt.Errorf("loan request %d is already %s; only pending requests can be approved", requestID, req.Status)
+		return nil, fmt.Errorf("ApproveLoanRequest(id=%d, status=%s): %w",
+			requestID, req.Status, ErrLoanRequestNotPending)
 	}
 
 	// Check employee MaxLoanApprovalAmount limit (advisory — gRPC call cannot be held inside a DB TX).
@@ -150,8 +161,8 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 		if limErr == nil && limits.MaxLoanApprovalAmount != "" && limits.MaxLoanApprovalAmount != "0" {
 			maxAmount, parseErr := decimal.NewFromString(limits.MaxLoanApprovalAmount)
 			if parseErr == nil && maxAmount.IsPositive() && req.Amount.GreaterThan(maxAmount) {
-				return nil, fmt.Errorf("loan request %d: loan amount %s exceeds employee %d approval limit of %s (loan_type=%s, account=%s)",
-					requestID, req.Amount.StringFixed(2), employeeID, maxAmount.StringFixed(2), req.LoanType, req.AccountNumber)
+				return nil, fmt.Errorf("ApproveLoanRequest(id=%d, employee=%d, amount=%s, limit=%s): %w",
+					requestID, employeeID, req.Amount.StringFixed(2), maxAmount.StringFixed(2), ErrAmountExceedsApprovalLimit)
 			}
 		}
 	}
@@ -159,8 +170,13 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 	// Compute rates outside the TX (pure calculation, no I/O).
 	baseRate, bankMargin, nominalRate, rateErr := s.rateConfigSvc.GetNominalRateComponents(req.LoanType, req.InterestType, req.Amount)
 	if rateErr != nil {
-		return nil, fmt.Errorf("failed to determine interest rate for loan request %d (loan_type=%s, interest_type=%s, amount=%s): %v",
-			requestID, req.LoanType, req.InterestType, req.Amount.StringFixed(2), rateErr)
+		// Preserve sentinel from rateConfigSvc if any; otherwise wrap as
+		// ErrInterestRateLookup.
+		if errors.Is(rateErr, ErrInterestRateTierNotFound) || errors.Is(rateErr, ErrBankMarginNotFound) {
+			return nil, fmt.Errorf("ApproveLoanRequest(id=%d): %w", requestID, rateErr)
+		}
+		return nil, fmt.Errorf("ApproveLoanRequest(id=%d, loan_type=%s): %v: %w",
+			requestID, req.LoanType, rateErr, ErrInterestRateLookup)
 	}
 
 	var loan *model.Loan
@@ -168,10 +184,14 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 		// Re-read with SELECT FOR UPDATE to prevent concurrent double-approval.
 		locked, e := s.repo.GetByIDForUpdate(tx, requestID)
 		if e != nil {
-			return fmt.Errorf("failed to retrieve loan request %d for approval: %v", requestID, e)
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("ApproveLoanRequest(id=%d) lock: %w", requestID, ErrLoanRequestNotFound)
+			}
+			return fmt.Errorf("ApproveLoanRequest(id=%d) lock: %v: %w", requestID, e, ErrLoanLookup)
 		}
 		if locked.Status != "pending" {
-			return fmt.Errorf("loan request %d is already %s; only pending requests can be approved", requestID, locked.Status)
+			return fmt.Errorf("ApproveLoanRequest(id=%d, status=%s) lock: %w",
+				requestID, locked.Status, ErrLoanRequestNotPending)
 		}
 
 		effectiveRate := CalculateEffectiveInterestRate(nominalRate, 12)
@@ -201,8 +221,8 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 		}
 
 		if e := tx.Create(loan).Error; e != nil {
-			return fmt.Errorf("failed to create loan for request %d (loan_type=%s, amount=%s, account=%s): %v",
-				requestID, locked.LoanType, locked.Amount.StringFixed(2), locked.AccountNumber, e)
+			return fmt.Errorf("ApproveLoanRequest(id=%d, loan_type=%s, amount=%s, account=%s) create loan: %v: %w",
+				requestID, locked.LoanType, locked.Amount.StringFixed(2), locked.AccountNumber, e, ErrLoanPersistFailed)
 		}
 
 		startDateStr := now.Format("2006-01-02")
@@ -211,13 +231,13 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 			installments[i].LoanID = loan.ID
 		}
 		if e := tx.Create(&installments).Error; e != nil {
-			return fmt.Errorf("failed to create installment schedule for loan request %d, loan %d (amount=%s, period=%d months): %v",
-				requestID, loan.ID, locked.Amount.StringFixed(2), locked.RepaymentPeriod, e)
+			return fmt.Errorf("ApproveLoanRequest(id=%d, loan_id=%d, amount=%s, period=%d) create installments: %v: %w",
+				requestID, loan.ID, locked.Amount.StringFixed(2), locked.RepaymentPeriod, e, ErrLoanPersistFailed)
 		}
 
 		locked.Status = "approved"
 		if e := tx.Save(locked).Error; e != nil {
-			return fmt.Errorf("failed to update loan request %d status to approved: %v", requestID, e)
+			return fmt.Errorf("ApproveLoanRequest(id=%d) save status: %v: %w", requestID, e, ErrLoanPersistFailed)
 		}
 		return nil
 	})
@@ -302,15 +322,19 @@ func (s *LoanRequestService) RejectLoanRequest(requestID uint64, changedBy int64
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		locked, e := s.repo.GetByIDForUpdate(tx, requestID)
 		if e != nil {
-			return fmt.Errorf("failed to retrieve loan request %d for rejection: %v", requestID, e)
+			if errors.Is(e, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("RejectLoanRequest(id=%d) lock: %w", requestID, ErrLoanRequestNotFound)
+			}
+			return fmt.Errorf("RejectLoanRequest(id=%d) lock: %v: %w", requestID, e, ErrLoanLookup)
 		}
 		if locked.Status != "pending" {
-			return fmt.Errorf("loan request %d is already %s; only pending requests can be rejected", requestID, locked.Status)
+			return fmt.Errorf("RejectLoanRequest(id=%d, status=%s): %w",
+				requestID, locked.Status, ErrLoanRequestNotPending)
 		}
 		locked.Status = "rejected"
 		if e := tx.Save(locked).Error; e != nil {
-			return fmt.Errorf("failed to update loan request %d status to rejected (loan_type=%s, amount=%s, account=%s): %v",
-				requestID, locked.LoanType, locked.Amount.StringFixed(2), locked.AccountNumber, e)
+			return fmt.Errorf("RejectLoanRequest(id=%d, loan_type=%s, amount=%s, account=%s) save: %v: %w",
+				requestID, locked.LoanType, locked.Amount.StringFixed(2), locked.AccountNumber, e, ErrLoanPersistFailed)
 		}
 		req = locked
 		return nil

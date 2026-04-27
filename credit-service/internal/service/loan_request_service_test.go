@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -208,7 +209,7 @@ func TestCreateLoanRequest_InvalidRepaymentPeriod_Cash(t *testing.T) {
 	}
 	err := svc.CreateLoanRequest(req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not allowed for cash loans")
+	assert.True(t, errors.Is(err, ErrInvalidRepaymentPeriod))
 }
 
 func TestCreateLoanRequest_AccountCurrencyMismatch(t *testing.T) {
@@ -222,7 +223,7 @@ func TestCreateLoanRequest_AccountCurrencyMismatch(t *testing.T) {
 	}
 	err := svc.CreateLoanRequest(req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must match account currency")
+	assert.True(t, errors.Is(err, ErrCurrencyMismatch))
 }
 
 func TestCreateLoanRequest_InvalidLoanType(t *testing.T) {
@@ -234,7 +235,7 @@ func TestCreateLoanRequest_InvalidLoanType(t *testing.T) {
 	}
 	err := svc.CreateLoanRequest(req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "loan type must be one of")
+	assert.True(t, errors.Is(err, ErrInvalidLoanType))
 }
 
 func TestCreateLoanRequest_ZeroAmount(t *testing.T) {
@@ -246,7 +247,7 @@ func TestCreateLoanRequest_ZeroAmount(t *testing.T) {
 	}
 	err := svc.CreateLoanRequest(req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must be greater than 0")
+	assert.True(t, errors.Is(err, ErrInvalidAmount))
 }
 
 // --- ApproveLoanRequest tests -------------------------------------------------
@@ -314,5 +315,5 @@ func TestRejectLoanRequest_AlreadyRejected(t *testing.T) {
 
 	_, err := svc.RejectLoanRequest(req.ID, 0, "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already rejected")
+	assert.True(t, errors.Is(err, ErrLoanRequestNotPending))
 }
