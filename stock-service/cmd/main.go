@@ -591,7 +591,8 @@ func main() {
 			optionContractRepo, otcOfferRepo, interBankAdapter, cfg.OwnBankCode,
 		)
 		crossbankExercise := service.NewCrossbankExerciseSaga(
-			crossbankExec, crossbankPeerRouter, fundAccountAdapter,
+			interBankSagaLogRepo, producer,
+			crossbankPeerRouter, fundAccountAdapter,
 			optionContractRepo, interBankAdapter, cfg.OwnBankCode,
 		)
 		otcOfferSvc = otcOfferSvc.WithCrossbank(
