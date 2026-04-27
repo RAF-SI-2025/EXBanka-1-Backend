@@ -243,7 +243,7 @@ func (h *PortfolioHandler) BuyOTCOfferOnBehalf(c *gin.Context) {
 		return
 	}
 
-	employeeID := uint64(c.GetInt64("user_id"))
+	employeeID := uint64(c.GetInt64("principal_id"))
 	resp, err := h.otcClient.BuyOffer(c.Request.Context(), &stockpb.BuyOTCOfferRequest{
 		OfferId:            id,
 		BuyerId:            req.ClientID,

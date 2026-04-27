@@ -21,12 +21,12 @@ func creditRouter(h *handler.CreditHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "client")
 	}
 	withEmployee := func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "employee")
 	}
 	r.POST("/loans/requests", withCtx, h.CreateLoanRequest)
 	r.GET("/loans/requests/:id", withCtx, h.GetLoanRequest)

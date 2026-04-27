@@ -19,7 +19,7 @@ func sessionRouter(h *handler.SessionHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(42))
+		c.Set("principal_id", int64(42))
 		c.Set("email", "user@x.com")
 	}
 	r.GET("/api/v2/me/sessions", withCtx, h.ListMySessions)
@@ -52,7 +52,7 @@ func TestSession_ListMySessions_BadUserContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/me/sessions", func(c *gin.Context) {
-		c.Set("user_id", "not-an-int") // wrong type
+		c.Set("principal_id", "not-an-int") // wrong type
 		h.ListMySessions(c)
 	})
 	req := httptest.NewRequest("GET", "/api/v2/me/sessions", nil)
@@ -190,7 +190,7 @@ func TestSession_GetMyLoginHistory_MissingEmail(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/me/login-history", func(c *gin.Context) {
-		c.Set("user_id", int64(42))
+		c.Set("principal_id", int64(42))
 		// Don't set email
 		h.GetMyLoginHistory(c)
 	})

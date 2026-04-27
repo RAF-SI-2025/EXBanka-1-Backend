@@ -21,7 +21,7 @@ func NewCreditHandler(creditClient creditpb.CreditServiceClient) *CreditHandler 
 
 type createLoanRequestBody struct {
 	// ClientID is accepted from the body for backwards compatibility but silently
-	// ignored — the gateway always derives the client identity from the JWT user_id.
+	// ignored — the gateway always derives the client identity from the JWT principal_id.
 	ClientID         uint64  `json:"client_id"`
 	LoanType         string  `json:"loan_type" binding:"required"`
 	InterestType     string  `json:"interest_type" binding:"required"`
@@ -89,7 +89,7 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 		}
 	}
 	// Always derive ClientId from the JWT — never trust the request body.
-	uid := c.GetInt64("user_id")
+	uid := c.GetInt64("principal_id")
 	resp, err := h.creditClient.CreateLoanRequest(c.Request.Context(), &creditpb.CreateLoanRequestReq{
 		ClientId:         uint64(uid),
 		LoanType:         loanType,
@@ -205,7 +205,7 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 	}
 
 	// Get employee ID from JWT context for limit enforcement
-	uid, _ := c.Get("user_id")
+	uid, _ := c.Get("principal_id")
 	employeeID := uid.(int64)
 
 	resp, err := h.creditClient.ApproveLoanRequest(middleware.GRPCContextWithChangedBy(c), &creditpb.ApproveLoanRequestReq{
@@ -777,7 +777,7 @@ func bankMarginToJSON(m *creditpb.BankMarginResponse) gin.H {
 
 // ListMyLoans serves GET /api/me/loans.
 func (h *CreditHandler) ListMyLoans(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -849,7 +849,7 @@ func (h *CreditHandler) GetMyInstallments(c *gin.Context) {
 
 // ListMyLoanRequests serves GET /api/me/loan-requests.
 func (h *CreditHandler) ListMyLoanRequests(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")

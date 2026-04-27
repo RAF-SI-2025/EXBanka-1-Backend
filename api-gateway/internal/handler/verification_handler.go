@@ -51,7 +51,7 @@ func (h *VerificationHandler) CreateVerification(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	deviceIDStr := c.GetString("device_id")
 
 	resp, err := h.verificationClient.CreateChallenge(c.Request.Context(), &verificationpb.CreateChallengeRequest{
@@ -151,7 +151,7 @@ func (h *VerificationHandler) SubmitVerificationCode(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /api/v2/mobile/verifications/pending [get]
 func (h *VerificationHandler) GetPendingVerifications(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 
 	resp, err := h.notificationClient.GetPendingMobileItems(c.Request.Context(), &notificationpb.GetPendingMobileRequest{
 		UserId: uint64(userID),
@@ -300,7 +300,7 @@ func (h *VerificationHandler) BiometricVerify(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	deviceID, _ := c.Get("device_id")
 
 	resp, err := h.verificationClient.VerifyByBiometric(c.Request.Context(), &verificationpb.VerifyByBiometricRequest{

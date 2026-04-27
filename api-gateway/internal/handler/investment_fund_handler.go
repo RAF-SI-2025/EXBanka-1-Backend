@@ -48,7 +48,7 @@ func (h *InvestmentFundHandler) CreateFund(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "name is required")
 		return
 	}
-	actorID := c.GetInt64("user_id")
+	actorID := c.GetInt64("principal_id")
 	resp, err := h.client.CreateFund(c.Request.Context(), &stockpb.CreateFundRequest{
 		ActorEmployeeId:        actorID,
 		Name:                   req.Name,
@@ -140,7 +140,7 @@ func (h *InvestmentFundHandler) UpdateFund(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
 		return
 	}
-	actorID := c.GetInt64("user_id")
+	actorID := c.GetInt64("principal_id")
 	in := &stockpb.UpdateFundRequest{ActorEmployeeId: actorID, FundId: id}
 	if req.Name != nil {
 		in.Name = *req.Name

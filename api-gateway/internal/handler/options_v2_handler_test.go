@@ -150,8 +150,8 @@ func makeOptionsV2Router(h *handler.OptionsV2Handler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v2/options/:option_id/orders", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "client")
 		h.CreateOrder(c)
 	})
 	return router
@@ -237,8 +237,8 @@ func TestOptionsV2_Exercise_HappyPath(t *testing.T) {
 
 	router := gin.New()
 	router.POST("/api/v2/options/:option_id/exercise", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "client")
 		h.Exercise(c)
 	})
 
@@ -255,8 +255,8 @@ func TestOptionsV2_Exercise_InvalidOptionID(t *testing.T) {
 	h := handler.NewOptionsV2Handler(&stubSecurityClient{}, &stubOrderClient{}, &stubPortfolioClient{})
 	router := gin.New()
 	router.POST("/api/v2/options/:option_id/exercise", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "client")
 		h.Exercise(c)
 	})
 	req := httptest.NewRequest("POST", "/api/v2/options/0/exercise", strings.NewReader(`{}`))

@@ -600,7 +600,7 @@ func (h *AccountHandler) DeleteBankAccount(c *gin.Context) {
 
 // ListMyAccounts serves GET /api/me/accounts.
 func (h *AccountHandler) ListMyAccounts(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -627,7 +627,7 @@ func (h *AccountHandler) ListMyAccounts(c *gin.Context) {
 
 // GetMyAccount serves GET /api/me/accounts/:id — fetches account and verifies ownership.
 func (h *AccountHandler) GetMyAccount(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -666,7 +666,7 @@ func (h *AccountHandler) GetMyAccount(c *gin.Context) {
 // @Failure      404  {object}  map[string]interface{}
 // @Router       /api/v2/me/accounts/{id}/activity [get]
 func (h *AccountHandler) GetMyAccountActivity(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")

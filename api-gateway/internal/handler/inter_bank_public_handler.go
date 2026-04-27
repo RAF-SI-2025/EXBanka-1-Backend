@@ -96,8 +96,8 @@ func (h *InterBankPublicHandler) CreateTransfer(c *gin.Context) {
 			apiError(c, 400, ErrValidation, "amount must be positive")
 			return
 		}
-		userID, _ := c.Get("user_id")
-		uid, _ := userID.(int64)
+		principalID, _ := c.Get("principal_id")
+		uid, _ := principalID.(int64)
 		emailVal, _ := c.Get("email")
 		clientEmail, _ := emailVal.(string)
 		resp, err := h.tx.CreateTransfer(c.Request.Context(), &transactionpb.CreateTransferRequest{

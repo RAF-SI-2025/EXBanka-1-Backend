@@ -18,8 +18,8 @@ func taxRouter(h *handler.TaxHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(42))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(42))
+		c.Set("principal_type", "client")
 	}
 	r.GET("/api/v2/tax", withCtx, h.ListTaxRecords)
 	r.GET("/api/v2/me/tax", withCtx, h.ListMyTaxRecords)
@@ -106,7 +106,7 @@ func TestTax_ListMyTaxRecords_MissingSystemType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/me/tax", func(c *gin.Context) {
-		c.Set("user_id", int64(42))
+		c.Set("principal_id", int64(42))
 		// deliberately omit system_type
 		h.ListMyTaxRecords(c)
 	})

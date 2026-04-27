@@ -16,7 +16,7 @@ import (
 func limitRouter(h *handler.LimitHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	withCtx := func(c *gin.Context) { c.Set("user_id", int64(1)) }
+	withCtx := func(c *gin.Context) { c.Set("principal_id", int64(1)) }
 	r.GET("/employees/:id/limits", withCtx, h.GetEmployeeLimits)
 	r.PUT("/employees/:id/limits", withCtx, h.SetEmployeeLimits)
 	r.POST("/employees/:id/limits/template", withCtx, h.ApplyLimitTemplate)

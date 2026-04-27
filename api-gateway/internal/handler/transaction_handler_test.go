@@ -20,8 +20,8 @@ func transactionRouter(h *handler.TransactionHandler, sysType string, uid int64)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", uid)
-		c.Set("system_type", sysType)
+		c.Set("principal_id", uid)
+		c.Set("principal_type", sysType)
 		c.Set("email", "x@y.com")
 	}
 	r.POST("/api/v2/me/payments", withCtx, h.CreatePayment)
@@ -467,7 +467,7 @@ func TestTx_ListMyPayments_BadUserContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/me/payments", func(c *gin.Context) {
-		c.Set("user_id", "not-int")
+		c.Set("principal_id", "not-int")
 		h.ListMyPayments(c)
 	})
 	req := httptest.NewRequest("GET", "/api/v2/me/payments", nil)
@@ -526,7 +526,7 @@ func TestTx_ListMyTransfers_BadUserContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/me/transfers", func(c *gin.Context) {
-		c.Set("user_id", "x")
+		c.Set("principal_id", "x")
 		h.ListMyTransfers(c)
 	})
 	req := httptest.NewRequest("GET", "/api/v2/me/transfers", nil)

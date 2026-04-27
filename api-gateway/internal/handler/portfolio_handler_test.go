@@ -71,8 +71,8 @@ func portfolioRouter(h *handler.PortfolioHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(42))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(42))
+		c.Set("principal_type", "client")
 	}
 	r.GET("/api/v2/me/holdings", withCtx, h.ListHoldings)
 	r.GET("/api/v2/me/portfolio/summary", withCtx, h.GetPortfolioSummary)
@@ -373,8 +373,8 @@ func TestPortfolio_BuyOTCOfferOnBehalf_BadID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/otc/admin/offers/:id/buy", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "employee")
 		h.BuyOTCOfferOnBehalf(c)
 	})
 	body := `{"client_id":7,"account_id":3,"quantity":2}`
@@ -390,8 +390,8 @@ func TestPortfolio_BuyOTCOfferOnBehalf_MissingFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/otc/admin/offers/:id/buy", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "employee")
 		h.BuyOTCOfferOnBehalf(c)
 	})
 	body := `{"quantity":2}`
@@ -413,8 +413,8 @@ func TestPortfolio_BuyOTCOfferOnBehalf_AccountClientMismatch(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/otc/admin/offers/:id/buy", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "employee")
 		h.BuyOTCOfferOnBehalf(c)
 	})
 	body := `{"client_id":7,"account_id":3,"quantity":2}`
@@ -444,8 +444,8 @@ func TestPortfolio_BuyOTCOfferOnBehalf_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/otc/admin/offers/:id/buy", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(1))
+		c.Set("principal_type", "employee")
 		h.BuyOTCOfferOnBehalf(c)
 	})
 	body := `{"client_id":7,"account_id":3,"quantity":2}`

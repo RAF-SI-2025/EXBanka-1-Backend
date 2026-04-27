@@ -162,8 +162,8 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	// Acting employee id is the JWT user_id when an employee placed this
-	// order; 0 for client-self orders. Stock-service uses this (NOT
+	// Acting employee id is the JWT principal_id when an employee placed
+	// this order; 0 for client-self orders. Stock-service uses this (NOT
 	// system_type) to fire the per-actuary EmployeeLimit gate, so it must
 	// be set even when the resulting order's system_type is "bank" or
 	// "client" — both cases mean the acting employee is responsible.
@@ -194,10 +194,10 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	if req.OnBehalfOfFundID != 0 {
 		// Reject clients placing fund orders — only employees with the
 		// fund.manage permission may. Stock-service re-validates the manager
-		// binding against the fund. The JWT system_type (not the swapped
+		// binding against the fund. The JWT principal_type (not the swapped
 		// portfolio identity) is what matters for this gate.
-		jwtSt, _ := c.Get("system_type")
-		if jwtSt != "employee" {
+		jwtPt, _ := c.Get("principal_type")
+		if jwtPt != "employee" {
 			apiError(c, http.StatusForbidden, ErrForbidden, "on_behalf_of_fund_id requires employee context")
 			return
 		}
@@ -406,7 +406,7 @@ func (h *StockOrderHandler) CreateOrderOnBehalf(c *gin.Context) {
 		}
 	}
 
-	employeeID := uint64(c.GetInt64("user_id"))
+	employeeID := uint64(c.GetInt64("principal_id"))
 	grpcReq := &stockpb.CreateOrderRequest{
 		UserId:             req.ClientID,
 		SystemType:         "employee",
@@ -464,7 +464,7 @@ func (h *StockOrderHandler) ApproveOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	supervisorID := c.GetInt64("user_id")
+	supervisorID := c.GetInt64("principal_id")
 
 	resp, err := h.client.ApproveOrder(c.Request.Context(), &stockpb.ApproveOrderRequest{
 		Id: id, SupervisorId: uint64(supervisorID),
@@ -482,7 +482,7 @@ func (h *StockOrderHandler) DeclineOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "invalid order id")
 		return
 	}
-	supervisorID := c.GetInt64("user_id")
+	supervisorID := c.GetInt64("principal_id")
 
 	resp, err := h.client.DeclineOrder(c.Request.Context(), &stockpb.DeclineOrderRequest{
 		Id: id, SupervisorId: uint64(supervisorID),

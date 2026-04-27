@@ -18,7 +18,7 @@ import (
 func blueprintRouter(h *handler.BlueprintHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	withCtx := func(c *gin.Context) { c.Set("user_id", int64(1)) }
+	withCtx := func(c *gin.Context) { c.Set("principal_id", int64(1)) }
 	r.GET("/blueprints", withCtx, h.ListBlueprints)
 	r.POST("/blueprints", withCtx, h.CreateBlueprint)
 	r.GET("/blueprints/:id", withCtx, h.GetBlueprint)

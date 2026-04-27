@@ -58,18 +58,12 @@ const (
 //   - Ignored for the other rules.
 func ResolveIdentity(rule IdentityRule, args ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// TODO(owner-type-schema Task 2): once auth-service & AuthMiddleware
-		// rename the JWT/context keys from "system_type" / "user_id" to
-		// "principal_type" / "principal_id", remove the legacy fallbacks
-		// below. The shim exists ONLY so this middleware works pre-Task 2.
+		// AuthMiddleware / AnyAuthMiddleware set "principal_type" and
+		// "principal_id" upstream. The legacy keys "system_type" /
+		// "user_id" were dropped in Spec C Task 3 and are no longer
+		// populated by any middleware.
 		principalType := c.GetString("principal_type")
-		if principalType == "" {
-			principalType = c.GetString("system_type")
-		}
 		principalID := c.GetUint64("principal_id")
-		if principalID == 0 {
-			principalID = c.GetUint64("user_id")
-		}
 
 		if principalType == "" || principalID == 0 {
 			abortWithError(c, http.StatusUnauthorized, "unauthorized", "principal not set")

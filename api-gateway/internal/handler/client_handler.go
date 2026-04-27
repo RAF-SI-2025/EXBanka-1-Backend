@@ -243,14 +243,14 @@ func (h *ClientHandler) UpdateClient(c *gin.Context) {
 // @Failure      404  {object}  map[string]string
 // @Router       /api/v2/clients/me [get]
 func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	principalID, exists := c.Get("principal_id")
 	if !exists {
 		apiError(c, 401, ErrUnauthorized, "not authenticated")
 		return
 	}
 
 	var id uint64
-	switch v := userID.(type) {
+	switch v := principalID.(type) {
 	case int64:
 		id = uint64(v)
 	case uint64:
@@ -258,12 +258,12 @@ func (h *ClientHandler) GetCurrentClient(c *gin.Context) {
 	case string:
 		parsedID, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			apiError(c, 401, ErrUnauthorized, "invalid user_id")
+			apiError(c, 401, ErrUnauthorized, "invalid principal_id")
 			return
 		}
 		id = parsedID
 	default:
-		apiError(c, 401, ErrUnauthorized, "invalid user_id")
+		apiError(c, 401, ErrUnauthorized, "invalid principal_id")
 		return
 	}
 

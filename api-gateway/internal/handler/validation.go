@@ -86,13 +86,13 @@ func notEqual(field1, val1, field2, val2 string) error {
 }
 
 // enforceClientSelf checks that a client can only access their own resources.
-// If the caller is a client (system_type == "client"), the path client_id must match their JWT user_id.
+// If the caller is a client (principal_type == "client"), the path client_id must match their JWT principal_id.
 // Employees are allowed to access any client_id.
 // Returns true if the request should continue, false if it was aborted.
 func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
-	sysType, _ := c.Get("system_type")
-	if sysType == "client" {
-		uid, _ := c.Get("user_id")
+	pType, _ := c.Get("principal_type")
+	if pType == "client" {
+		uid, _ := c.Get("principal_id")
 		userID, ok := uid.(int64)
 		if !ok || uint64(userID) != pathClientID {
 			c.AbortWithStatusJSON(403, gin.H{"error": gin.H{"code": "forbidden", "message": "clients can only access their own resources"}})
@@ -104,8 +104,8 @@ func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
 
 // enforceOwnership verifies that a fetched resource belongs to the caller.
 // Used inside /api/me/* handlers AFTER fetching a resource by an ID provided
-// in the URL or body. If the caller is a client (system_type == "client") and
-// the resource owner does not match their JWT user_id, a 404 not_found
+// in the URL or body. If the caller is a client (principal_type == "client") and
+// the resource owner does not match their JWT principal_id, a 404 not_found
 // response is written and a non-nil error is returned — callers must return
 // immediately. Employees bypass the check because their permissions gate
 // access at the middleware layer.
@@ -113,11 +113,11 @@ func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
 // We return 404 (not 403) because confirming existence of another client's
 // resource is itself a data leak.
 func enforceOwnership(c *gin.Context, ownerID uint64) error {
-	sysType, _ := c.Get("system_type")
-	if sysType != "client" {
+	pType, _ := c.Get("principal_type")
+	if pType != "client" {
 		return nil
 	}
-	uid, _ := c.Get("user_id")
+	uid, _ := c.Get("principal_id")
 	userID, ok := uid.(int64)
 	if !ok || uint64(userID) != ownerID {
 		apiError(c, 404, ErrNotFound, "resource not found")
@@ -137,16 +137,20 @@ func enforceOwnership(c *gin.Context, ownerID uint64) error {
 //
 // Writes a 401 response and returns ok=false if either value is missing
 // or has an unexpected type; callers must return immediately.
+//
+// Spec C Task 3: reads "principal_id" / "principal_type" gin keys (was:
+// "user_id" / "system_type"). The gRPC field name SystemType on stock-service
+// requests is unchanged here — that proto rename happens in Task 4+.
 func meIdentity(c *gin.Context) (userID uint64, systemType string, ok bool) {
-	uid := c.GetInt64("user_id")
+	uid := c.GetInt64("principal_id")
 	if uid <= 0 {
-		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing user_id in JWT context")
+		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing principal_id in JWT context")
 		return 0, "", false
 	}
-	raw, _ := c.Get("system_type")
+	raw, _ := c.Get("principal_type")
 	st, _ := raw.(string)
 	if st == "" {
-		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing system_type in JWT context")
+		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing principal_type in JWT context")
 		return 0, "", false
 	}
 	return uint64(uid), st, true
@@ -193,19 +197,19 @@ func mePortfolioIdentity(c *gin.Context) (userID uint64, systemType string, ok b
 	return uid, st, true
 }
 
-// actingEmployeeID returns the JWT user_id when the caller is an employee,
-// 0 otherwise. Use this to populate Order.ActingEmployeeID on order
-// creation: stock-service's actuary-limit gate fires when this is non-zero
-// regardless of whether the order ends up system_type="employee" (legacy),
-// "bank" (employee acting for the bank, Phase 3), or "client" (employee
-// on behalf of a client). Without this hook, Phase 3's identity swap
-// would silently bypass the EmployeeLimit gate for every employee buy.
+// actingEmployeeID returns the JWT principal_id when the caller is an
+// employee, 0 otherwise. Use this to populate Order.ActingEmployeeID on
+// order creation: stock-service's actuary-limit gate fires when this is
+// non-zero regardless of whether the order ends up system_type="employee"
+// (legacy), "bank" (employee acting for the bank, Phase 3), or "client"
+// (employee on behalf of a client). Without this hook, Phase 3's identity
+// swap would silently bypass the EmployeeLimit gate for every employee buy.
 func actingEmployeeID(c *gin.Context) uint64 {
-	uid := c.GetInt64("user_id")
+	uid := c.GetInt64("principal_id")
 	if uid <= 0 {
 		return 0
 	}
-	raw, _ := c.Get("system_type")
+	raw, _ := c.Get("principal_type")
 	if st, _ := raw.(string); st != "employee" {
 		return 0
 	}

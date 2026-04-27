@@ -19,7 +19,7 @@ func mobileRouter(h *handler.MobileAuthHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(42))
+		c.Set("principal_id", int64(42))
 		c.Set("device_id", "dev-1")
 	}
 	r.POST("/api/v2/mobile/auth/request-activation", h.RequestActivation)

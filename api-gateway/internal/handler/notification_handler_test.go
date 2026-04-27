@@ -18,8 +18,8 @@ func notificationRouter(h *handler.NotificationHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	withCtx := func(c *gin.Context) {
-		c.Set("user_id", int64(42))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(42))
+		c.Set("principal_type", "client")
 	}
 	r.GET("/api/v2/me/notifications", withCtx, h.ListNotifications)
 	r.GET("/api/v2/me/notifications/unread-count", withCtx, h.GetUnreadCount)

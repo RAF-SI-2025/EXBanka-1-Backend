@@ -100,9 +100,9 @@ func makeMyOrdersRouter(h *handler.StockOrderHandler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v1/me/orders", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
+		c.Set("principal_id", int64(1))
 		// use "employee" to bypass enforceOwnership on buy paths in these tests
-		c.Set("system_type", "employee")
+		c.Set("principal_type", "employee")
 		h.CreateOrder(c)
 	})
 	return router
@@ -172,8 +172,8 @@ func TestGetMyOrder_ForwardsSystemType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/api/v1/me/orders/:id", func(c *gin.Context) {
-		c.Set("user_id", int64(7))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(7))
+		c.Set("principal_type", "client")
 		h.GetMyOrder(c)
 	})
 
@@ -196,8 +196,8 @@ func TestGetMyOrder_MissingSystemType_Returns401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/api/v1/me/orders/:id", func(c *gin.Context) {
-		c.Set("user_id", int64(7))
-		// deliberately omit system_type
+		c.Set("principal_id", int64(7))
+		// deliberately omit principal_type
 		h.GetMyOrder(c)
 	})
 
@@ -206,8 +206,8 @@ func TestGetMyOrder_MissingSystemType_Returns401(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
-	require.Nil(t, ord.lastGetReq, "RPC must not be called when system_type is missing")
-	require.Contains(t, rec.Body.String(), "missing system_type")
+	require.Nil(t, ord.lastGetReq, "RPC must not be called when principal_type is missing")
+	require.Contains(t, rec.Body.String(), "missing principal_type")
 }
 
 func TestCancelOrder_ForwardsSystemType(t *testing.T) {
@@ -218,8 +218,8 @@ func TestCancelOrder_ForwardsSystemType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v1/me/orders/:id/cancel", func(c *gin.Context) {
-		c.Set("user_id", int64(11))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(11))
+		c.Set("principal_type", "employee")
 		h.CancelOrder(c)
 	})
 
@@ -263,8 +263,8 @@ func TestCreateOrder_Employee_PassesActingEmployeeID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v1/me/orders", func(c *gin.Context) {
-		c.Set("user_id", int64(11))
-		c.Set("system_type", "employee")
+		c.Set("principal_id", int64(11))
+		c.Set("principal_type", "employee")
 		h.CreateOrder(c)
 	})
 
@@ -292,8 +292,8 @@ func TestListMyOrders_ForwardsSystemType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/api/v1/me/orders", func(c *gin.Context) {
-		c.Set("user_id", int64(7))
-		c.Set("system_type", "client")
+		c.Set("principal_id", int64(7))
+		c.Set("principal_type", "client")
 		h.ListMyOrders(c)
 	})
 
