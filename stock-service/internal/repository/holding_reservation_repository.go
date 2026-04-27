@@ -111,8 +111,15 @@ func (r *HoldingReservationRepository) GetByOrderIDForUpdate(orderID uint64) (*m
 // UpdateStatus persists the row via db.Save, relying on the BeforeUpdate hook
 // to enforce optimistic-lock version matching. Returns ErrOptimisticLock
 // (wrapped) if another transaction modified the row first.
+//
+// We use Select("*").Save(...) intentionally: bare db.Save in GORM v1.31.1
+// falls back to INSERT...ON CONFLICT(id) DO UPDATE when the initial UPDATE
+// matches zero rows (finisher_api.go:109-110), which would silently overwrite
+// the winner of an optimistic-lock race and hide the conflict. Selecting "*"
+// sets the `selectedUpdate` flag in GORM's Save and disables that fallback
+// path, so RowsAffected==0 correctly indicates an optimistic-lock conflict.
 func (r *HoldingReservationRepository) UpdateStatus(res *model.HoldingReservation) error {
-	result := r.db.Save(res)
+	result := r.db.Select("*").Save(res)
 	if result.Error != nil {
 		return result.Error
 	}

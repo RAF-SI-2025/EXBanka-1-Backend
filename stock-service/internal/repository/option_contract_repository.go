@@ -42,8 +42,19 @@ func (r *OptionContractRepository) Delete(id uint64) error {
 	return r.db.Delete(&model.OptionContract{}, id).Error
 }
 
+// Save persists a loaded-then-mutated option contract through GORM's Save
+// (UPDATE by primary key). The OptionContract.BeforeUpdate hook attaches the
+// optimistic-lock WHERE version=? clause and increments Version on the
+// caller's struct.
+//
+// We use Select("*").Save(...) intentionally: bare db.Save in GORM v1.31.1
+// falls back to INSERT...ON CONFLICT(id) DO UPDATE when the initial UPDATE
+// matches zero rows (finisher_api.go:109-110), which would silently overwrite
+// the winner of an optimistic-lock race and hide the conflict. Selecting "*"
+// sets the `selectedUpdate` flag in GORM's Save and disables that fallback
+// path, so RowsAffected==0 correctly indicates an optimistic-lock conflict.
 func (r *OptionContractRepository) Save(c *model.OptionContract) error {
-	res := r.db.Save(c)
+	res := r.db.Select("*").Save(c)
 	if res.Error != nil {
 		return res.Error
 	}
