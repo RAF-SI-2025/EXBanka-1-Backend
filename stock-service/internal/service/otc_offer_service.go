@@ -247,7 +247,7 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 			SettlementDate: o.SettlementDate.Format("2006-01-02"),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicOTCOfferCreated, data)
+			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCreated, data, "")
 		}
 	}
 	return o, nil
@@ -330,7 +330,7 @@ func (s *OTCOfferService) Counter(ctx context.Context, in CounterInput) (*model.
 			UpdatedAt:      o.UpdatedAt.Format(time.RFC3339),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicOTCOfferCountered, data)
+			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCountered, data, "")
 		}
 	}
 	return o, nil
@@ -376,7 +376,7 @@ func (s *OTCOfferService) Reject(ctx context.Context, in RejectInput) (*model.OT
 			UpdatedAt:  o.UpdatedAt.Format(time.RFC3339),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicOTCOfferRejected, data)
+			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferRejected, data, "")
 		}
 	}
 	return o, nil

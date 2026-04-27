@@ -9,10 +9,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/outbox"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -68,6 +70,27 @@ type FundService struct {
 	// liquidation dep (optional; wired via WithLiquidation). When nil,
 	// Redeem's insufficient-cash path returns ErrInsufficientFundCash directly.
 	orderPlacer FundOrderPlacer
+
+	// Outbox: when wired (via WithOutbox), post-saga Kafka publishes
+	// (stock.fund-invested, stock.fund-redeemed, plus fund-created /
+	// fund-updated lifecycle events) go through the transactional outbox
+	// instead of best-effort producer.PublishRaw. The drainer goroutine
+	// asynchronously publishes pending rows so a crash between business
+	// commit and Kafka send no longer drops events. When nil, the legacy
+	// direct-publish path is used so unit tests that don't wire a DB still
+	// work.
+	outbox   *outbox.Outbox
+	outboxDB *gorm.DB
+}
+
+// WithOutbox wires the transactional outbox + the GORM handle the saga
+// uses to enqueue rows. Callers that don't wire this fall back to the
+// legacy direct-publish path (best-effort, may drop on crash).
+func (s *FundService) WithOutbox(ob *outbox.Outbox, db *gorm.DB) *FundService {
+	cp := *s
+	cp.outbox = ob
+	cp.outboxDB = db
+	return &cp
 }
 
 func NewFundService(repo *repository.FundRepository, bankAccountClient BankAccountClient, producer *kafkaprod.Producer) *FundService {
@@ -165,7 +188,7 @@ func (s *FundService) Create(ctx context.Context, in CreateFundInput) (*model.In
 			CreatedAt:         f.CreatedAt.Format(time.RFC3339),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicStockFundCreated, data)
+			publishSagaEvent(ctx, s.outbox, s.outboxDB, s.producer, kafkamsg.TopicStockFundCreated, data, "")
 		}
 	}
 	return f, nil
@@ -221,7 +244,7 @@ func (s *FundService) Update(ctx context.Context, in UpdateFundInput) (*model.In
 			UpdatedAt:     f.UpdatedAt.Format(time.RFC3339),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicStockFundUpdated, data)
+			publishSagaEvent(ctx, s.outbox, s.outboxDB, s.producer, kafkamsg.TopicStockFundUpdated, data, "")
 		}
 	}
 	return f, nil

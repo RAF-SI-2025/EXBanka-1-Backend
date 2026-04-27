@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/outbox"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -24,6 +26,21 @@ type OTCExpiryCron struct {
 	producer   *kafkaprod.Producer
 	batchSize  int
 	cronUTC    string
+
+	// Outbox: optional, enables durable post-commit Kafka publish for the
+	// expire events. When nil, the legacy direct-publish path is used so
+	// unit tests that don't wire a DB still work.
+	outbox   *outbox.Outbox
+	outboxDB *gorm.DB
+}
+
+// WithOutbox wires the transactional outbox + the GORM handle the cron
+// uses to enqueue rows. Callers that don't wire this fall back to the
+// legacy direct-publish path (best-effort, may drop on crash).
+func (cr *OTCExpiryCron) WithOutbox(ob *outbox.Outbox, db *gorm.DB) *OTCExpiryCron {
+	cr.outbox = ob
+	cr.outboxDB = db
+	return cr
 }
 
 func NewOTCExpiryCron(
@@ -98,7 +115,7 @@ func (cr *OTCExpiryCron) expireContract(ctx context.Context, c *model.OptionCont
 			ExpiredAt:  now.Format(time.RFC3339),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = cr.producer.PublishRaw(ctx, kafkamsg.TopicOTCContractExpired, data)
+			publishSagaEvent(ctx, cr.outbox, cr.outboxDB, cr.producer, kafkamsg.TopicOTCContractExpired, data, "")
 		}
 	}
 	return nil
@@ -118,7 +135,7 @@ func (cr *OTCExpiryCron) expireOffer(ctx context.Context, o *model.OTCOffer) err
 			Counterparty: ptrCounterparty(o),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = cr.producer.PublishRaw(ctx, kafkamsg.TopicOTCOfferExpired, data)
+			publishSagaEvent(ctx, cr.outbox, cr.outboxDB, cr.producer, kafkamsg.TopicOTCOfferExpired, data, "")
 		}
 	}
 	return nil

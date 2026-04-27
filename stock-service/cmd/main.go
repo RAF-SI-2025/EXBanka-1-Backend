@@ -579,7 +579,7 @@ func main() {
 			}
 			return resp.AccountNumber, resp.Id, nil
 		},
-	).WithPositionReads(listingRepo).WithLiquidation(orderSvc)
+	).WithPositionReads(listingRepo).WithLiquidation(orderSvc).WithOutbox(ob, db)
 	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo).
 		WithActuaryDeps(capitalGainRepo, userClient, exchangeClient).
 		WithFundDetailDeps(fundHoldingRepo, listingRepo, stockRepo)
@@ -602,13 +602,13 @@ func main() {
 		WithOutbox(ob, db)
 
 	// OTC expiry cron (daily).
-	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC)
+	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC).WithOutbox(ob, db)
 	otcExpiry.Start(ctx)
 
 	// --- Cross-bank OTC (Spec 4 / Celina 5) ---
 	interBankSagaLogRepo := repository.NewInterBankSagaLogRepository(db)
 	crossbankPeerRouter := service.NewStaticCrossbankPeerRouter(map[string]*service.CrossbankPeerClient{})
-	crossbankExpire := service.NewCrossbankExpireSaga(interBankSagaLogRepo, producer, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, cfg.OwnBankCode)
+	crossbankExpire := service.NewCrossbankExpireSaga(interBankSagaLogRepo, producer, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, cfg.OwnBankCode).WithOutbox(ob, db)
 	crossbankExpiryCron := service.NewCrossbankExpiryCron(optionContractRepo, crossbankExpire, "02:30", 200)
 	crossbankExpiryCron.Start(ctx)
 	crossbankCheckStatus := service.NewCrossbankCheckStatusCron(interBankSagaLogRepo, crossbankPeerRouter, producer, 30*time.Second, 30*time.Second)
@@ -625,12 +625,12 @@ func main() {
 			interBankSagaLogRepo, producer,
 			crossbankPeerRouter, fundAccountAdapter,
 			optionContractRepo, otcOfferRepo, interBankAdapter, cfg.OwnBankCode,
-		)
+		).WithOutbox(ob, db)
 		crossbankExercise := service.NewCrossbankExerciseSaga(
 			interBankSagaLogRepo, producer,
 			crossbankPeerRouter, fundAccountAdapter,
 			optionContractRepo, interBankAdapter, cfg.OwnBankCode,
-		)
+		).WithOutbox(ob, db)
 		otcOfferSvc = otcOfferSvc.WithCrossbank(
 			cfg.OwnBankCode,
 			func(ctx2 context.Context, in service.AcceptInput) (*model.OptionContract, error) {
