@@ -204,7 +204,10 @@ func main() {
 	// --- gRPC Client Connections ---
 
 	// Account service client (for debit/credit)
-	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to account-service: %v", err)
 	}
@@ -212,7 +215,10 @@ func main() {
 	accountClient := accountpb.NewAccountServiceClient(accountConn)
 
 	// Exchange service client (for currency conversion)
-	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to exchange-service: %v", err)
 	}
@@ -222,7 +228,10 @@ func main() {
 	// Transaction service InterBankService client — used by the cross-bank
 	// OTC accept/exercise sagas for Phase 3 transfer_funds + the
 	// compensation reverse-transfer.
-	transactionConn, err := grpc.NewClient(cfg.TransactionGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	transactionConn, err := grpc.NewClient(cfg.TransactionGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Printf("warn: failed to connect to transaction-service: %v (cross-bank OTC sagas disabled)", err)
 	}
@@ -233,7 +242,10 @@ func main() {
 	}
 
 	// User service client (for name resolution + actuary limit enforcement)
-	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	userConn, err := grpc.NewClient(cfg.UserGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to user-service: %v", err)
 	}
@@ -243,7 +255,10 @@ func main() {
 	stockActuaryClient := stockgrpc.NewActuaryClient(actuaryStub)
 
 	// Client service client (for name resolution)
-	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to client-service: %v", err)
 	}
@@ -627,6 +642,7 @@ func main() {
 			grpc.ChainUnaryInterceptor(
 				metrics.GRPCUnaryServerInterceptor(),
 				grpcmw.UnaryLoggingInterceptor("stock-service"),
+				grpcmw.UnarySagaContextInterceptor(),
 			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},

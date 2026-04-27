@@ -73,7 +73,10 @@ func main() {
 	)
 
 	// Connect to account-service
-	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to account service: %v", err)
 	}
@@ -81,7 +84,10 @@ func main() {
 	accountClient := accountpb.NewAccountServiceClient(accountConn)
 
 	// Connect to exchange-service
-	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to exchange service: %v", err)
 	}
@@ -90,7 +96,10 @@ func main() {
 	exchangeClient := service.NewGRPCExchangeClient(exchangeGRPCClient)
 
 	// Connect to verification-service
-	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to verification service: %v", err)
 	}
@@ -209,6 +218,7 @@ func main() {
 			grpc.ChainUnaryInterceptor(
 				metrics.GRPCUnaryServerInterceptor(),
 				grpcmw.UnaryLoggingInterceptor("transaction-service"),
+				grpcmw.UnarySagaContextInterceptor(),
 			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},
