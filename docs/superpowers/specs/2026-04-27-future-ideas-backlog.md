@@ -126,12 +126,58 @@
 **Severity:** Low
 **Effort:** Small — same shape as F13.
 
+## Items surfaced during B1 implementation (2026-04-27)
+
+### F15. `db.Save` optimistic-lock gap across 6 repositories
+
+**Evidence:** During B1 Task 3 implementation, found that GORM v1.31.1's `db.Save(versioned_row)` silently defeats optimistic locking — the initial UPDATE matches zero rows on a version conflict, then GORM falls back to `INSERT ... ON CONFLICT(id) DO UPDATE`, which clobbers the winner and returns `RowsAffected=1`. The standard `RowsAffected==0 → ErrOptimisticLock` check never fires.
+
+Fix: use `db.Select("*").Save(row)` instead — `Select("*")` sets GORM's internal `selectedUpdate` flag, disabling the fallback path.
+
+The B1 fix was applied to `inter_bank_saga_log_repository.go.Save` only. The same pattern is used unguarded in:
+- `stock-service/internal/repository/listing_repository.go:57-66` (`Update`)
+- `stock-service/internal/repository/card_repository.go`
+- `stock-service/internal/repository/option_contract_repository.go`
+- `stock-service/internal/repository/holding_reservation_repository.go`
+- `stock-service/internal/repository/stock_repository.go`
+- `stock-service/internal/repository/account_reservation_repository.go`
+
+None have tests covering the conflict path. **Latent concurrency bug in production-quality banking code.**
+
+**Severity:** **High** (silent data corruption under concurrent writes)
+**Effort:** Small per file — mechanical `db.Save(row)` → `db.Select("*").Save(row)` + `RowsAffected` check + add a regression test per repository.
+
+### F16. Forward-recovery driver for past-pivot crossbank failures
+
+**Evidence:** B1's crossbank sagas mark `StepReserveSellerShares` (accept) and `StepCreditStrike` (exercise) as `Pivot: true`. Failures past the pivot are documented as "forward-recovered, not rolled back." But `CrossbankCheckStatusCron.RunOnce` (`crossbank_check_status.go:55-88`) only mirrors peer status into local rows — it does NOT re-issue the failed peer RPC.
+
+If the peer never received the call (network drop), the local row stays `pending`, the peer reports `not_found`, and the local row gets transitioned to `failed` — divergence from "forward-recover," not active drive-to-completion.
+
+**Severity:** Medium (correctness gap; rare but real)
+**Effort:** Medium — add an active forward-driver cron OR tighten the docstring to describe the actual "stale rows reconciled to peer status; peer-never-received cases require human review" behavior.
+
+### F17. `StepDeliverShares` dead code
+
+**Evidence:** `contract/shared/saga/steps.go:24` defines `StepDeliverShares`, registered in `allSteps`, included as a recovery switch arm in `saga_recovery.go:244` — but never used as a `Step.Name` anywhere. The exercise saga deliberately uses `StepTransferOwnership` instead (wire-protocol compatibility).
+
+**Severity:** Low (cleanup hygiene)
+**Effort:** Tiny — delete the constant + switch arm, OR add a doc comment on the constant explaining why it's reserved.
+
+### F18. `RecoveryRunner` / `Classifier` infrastructure unused
+
+**Evidence:** `contract/shared/saga/saga_recovery.go.NewRecoveryRunner` and `transaction-service/internal/saga/classifier.go.NewClassifier` are exported but never wired in any `cmd/main.go`.
+
+**Severity:** Low (dead infrastructure)
+**Effort:** Small — wire it in B2 (planned), OR move to an unexported staging package until then.
+
 ## How to prioritize this list
 
 When capacity becomes available:
 
-1. **F4 (AutoMigrate → explicit tool)** is the only High-severity item. It blocks any move to production.
+1. **F4 (AutoMigrate → explicit tool)** and **F15 (`db.Save` optimistic-lock gap)** are High-severity. F4 blocks any move to production; F15 is a latent concurrency bug in 6 production-path repositories.
 2. **F2 (cross-service contract tests)** and **F3 (structured logging)** pay back quickly on any further refactor.
 3. **F1 (fixture pool)** pays back per CI cycle but requires careful test-isolation design.
 4. **F8 (Kafka DLQ)** matters if/when message loss appears in incident reports.
-5. The rest are quality-of-life — pick when convenient.
+5. **F16 (crossbank forward-recovery)** correctness gap from B1.
+6. **F17, F18, F11, F12** — cleanup and ergonomics, pick when convenient.
+7. The rest are quality-of-life — pick when convenient.
