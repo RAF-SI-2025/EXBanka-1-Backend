@@ -21,6 +21,7 @@ import (
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
+	"github.com/exbanka/contract/shared/outbox"
 	pb "github.com/exbanka/contract/stockpb"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/stock-service/internal/cache"
@@ -75,6 +76,11 @@ func main() {
 		&model.OTCOfferReadReceipt{},
 		&model.InterBankSagaLog{},
 		&model.IdempotencyRecord{},
+		// Outbox: durable queue for Kafka events published from inside
+		// sagas. The drainer goroutine (started below) reads pending rows
+		// and publishes them, so a crash between business commit and
+		// Kafka publish can no longer silently drop events.
+		&outbox.Event{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
@@ -157,6 +163,12 @@ func main() {
 	// --- Kafka ---
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
+	// Outbox + drainer. Sagas that previously called producer.PublishRaw
+	// after their final commit can now call outbox.Enqueue inside (or
+	// alongside) the same DB transaction; the drainer goroutine asynchronously
+	// publishes pending rows so a crash between business commit and Kafka
+	// publish no longer drops events.
+	ob := outbox.New(db)
 	shared.EnsureTopics(cfg.KafkaBrokers,
 		"stock.exchange-synced",
 		"stock.security-synced",
@@ -454,6 +466,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Start the outbox drainer. Adapter wraps producer.PublishRaw to satisfy
+	// outbox.Producer (which expects (ctx, topic, []byte)). The drainer ticks
+	// every 500ms publishing up to 100 pending rows per tick; failures
+	// increment row.attempt and leave the row pending for the next tick.
+	go outbox.NewDrainer(db, &outboxKafkaAdapter{prod: producer}).Run(ctx)
+
 	// Order services
 	securityLookup := service.NewSecurityLookupAdapter(stockRepo, futuresRepo, forexRepo, optionRepo)
 
@@ -580,7 +598,8 @@ func main() {
 	otcOfferSvc := service.NewOTCOfferService(
 		otcOfferRepo, otcRevisionRepo, optionContractRepo,
 		holdingRepo, otcReadReceiptRepo, producer,
-	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo)
+	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo).
+		WithOutbox(ob, db)
 
 	// OTC expiry cron (daily).
 	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC)
@@ -691,6 +710,18 @@ func main() {
 		log.Fatalf("grpc: %v", err)
 	}
 	cancel()
+}
+
+// outboxKafkaAdapter adapts the stock-service kafkaprod.Producer (which
+// exposes PublishRaw([]byte)) to outbox.Producer (which expects
+// Publish([]byte)). The adapter drops the message-key concern; topics
+// drained from outbox today don't rely on per-key partition ordering.
+type outboxKafkaAdapter struct {
+	prod *kafkaprod.Producer
+}
+
+func (a *outboxKafkaAdapter) Publish(ctx context.Context, topic string, payload []byte) error {
+	return a.prod.PublishRaw(ctx, topic, payload)
 }
 
 // bankCommissionAccountAdapter satisfies service.BankCommissionRecipient by

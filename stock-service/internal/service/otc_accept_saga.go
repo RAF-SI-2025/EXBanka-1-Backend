@@ -215,23 +215,25 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		ModifiedByUserID: in.ActorUserID, ModifiedBySystemType: in.ActorSystemType, Action: model.OTCActionAccept,
 	})
 
-	if s.producer != nil {
-		payload := kafkamsg.OTCContractCreatedMessage{
-			MessageID:      uuid.NewString(),
-			OccurredAt:     time.Now().UTC().Format(time.RFC3339),
-			ContractID:     contract.ID,
-			OfferID:        o.ID,
-			Buyer:          kafkamsg.OTCParty{UserID: buyerID, SystemType: buyerType},
-			Seller:         kafkamsg.OTCParty{UserID: sellerID, SystemType: sellerType},
-			Quantity:       contract.Quantity.String(),
-			StrikePrice:    contract.StrikePrice.String(),
-			PremiumPaid:    contract.PremiumPaid.String(),
-			SettlementDate: contract.SettlementDate.Format("2006-01-02"),
-			PremiumPaidAt:  contract.PremiumPaidAt.Format(time.RFC3339),
-		}
-		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicOTCContractCreated, data)
-		}
+	// Post-saga Kafka publish goes through the transactional outbox when
+	// wired so a crash between business commit and Kafka send doesn't drop
+	// the otc.contract-created event. Falls back to direct PublishRaw
+	// when the outbox isn't wired (legacy unit-test paths).
+	payload := kafkamsg.OTCContractCreatedMessage{
+		MessageID:      uuid.NewString(),
+		OccurredAt:     time.Now().UTC().Format(time.RFC3339),
+		ContractID:     contract.ID,
+		OfferID:        o.ID,
+		Buyer:          kafkamsg.OTCParty{UserID: buyerID, SystemType: buyerType},
+		Seller:         kafkamsg.OTCParty{UserID: sellerID, SystemType: sellerType},
+		Quantity:       contract.Quantity.String(),
+		StrikePrice:    contract.StrikePrice.String(),
+		PremiumPaid:    contract.PremiumPaid.String(),
+		SettlementDate: contract.SettlementDate.Format("2006-01-02"),
+		PremiumPaidAt:  contract.PremiumPaidAt.Format(time.RFC3339),
+	}
+	if data, err := json.Marshal(payload); err == nil {
+		s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCContractCreated, data, sagaID)
 	}
 	return contract, nil
 }

@@ -200,20 +200,22 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		log.Printf("WARN: OTC exercise saga=%s: contract.Save failed: %v", sagaID, err)
 	}
 
-	if s.producer != nil {
-		payload := kafkamsg.OTCContractExercisedMessage{
-			MessageID:         uuid.NewString(),
-			OccurredAt:        now.Format(time.RFC3339),
-			ContractID:        c.ID,
-			Buyer:             kafkamsg.OTCParty{UserID: c.BuyerUserID, SystemType: c.BuyerSystemType},
-			Seller:            kafkamsg.OTCParty{UserID: c.SellerUserID, SystemType: c.SellerSystemType},
-			StrikeAmountPaid:  strikeSellerCcy.String(),
-			SharesTransferred: decimal.NewFromInt(qty).String(),
-			ExercisedAt:       now.Format(time.RFC3339),
-		}
-		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicOTCContractExercised, data)
-		}
+	// Post-saga Kafka publish via outbox when wired so a crash between
+	// business commit and Kafka send doesn't drop the
+	// otc.contract-exercised event. Falls back to direct PublishRaw when
+	// the outbox isn't wired.
+	payload := kafkamsg.OTCContractExercisedMessage{
+		MessageID:         uuid.NewString(),
+		OccurredAt:        now.Format(time.RFC3339),
+		ContractID:        c.ID,
+		Buyer:             kafkamsg.OTCParty{UserID: c.BuyerUserID, SystemType: c.BuyerSystemType},
+		Seller:            kafkamsg.OTCParty{UserID: c.SellerUserID, SystemType: c.SellerSystemType},
+		StrikeAmountPaid:  strikeSellerCcy.String(),
+		SharesTransferred: decimal.NewFromInt(qty).String(),
+		ExercisedAt:       now.Format(time.RFC3339),
+	}
+	if data, err := json.Marshal(payload); err == nil {
+		s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCContractExercised, data, sagaID)
 	}
 	return c, nil
 }
