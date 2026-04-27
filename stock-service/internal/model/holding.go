@@ -7,17 +7,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// Holding represents a user's ownership of a security.
-// Holdings are aggregated per (user_id, system_type, security_type, security_id)
-// — one row per user per security, regardless of which account the user bought
-// from. AccountID is an optional "last-used" audit field populated by the most
-// recent buy fill; it is not part of the aggregation key.
+// Holding represents an owner's holding of a security.
+// Holdings are aggregated per (owner_type, owner_id, security_type, security_id)
+// — one row per owner per security, regardless of which account the owner
+// bought from. AccountID is an optional "last-used" audit field populated by
+// the most recent buy fill; it is not part of the aggregation key.
 type Holding struct {
-	ID             uint64          `gorm:"primaryKey;autoIncrement" json:"id"`
-	UserID         uint64          `gorm:"not null;index:idx_holding_user" json:"user_id"`
-	SystemType     string          `gorm:"size:10;not null" json:"system_type"` // "employee" or "client"
-	UserFirstName  string          `gorm:"size:100;not null" json:"user_first_name"`
-	UserLastName   string          `gorm:"size:100;not null" json:"user_last_name"`
+	ID            uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	OwnerType     OwnerType `gorm:"size:8;not null;index:idx_holding_owner,priority:1;check:owner_type IN ('client','bank')" json:"owner_type"`
+	OwnerID       *uint64   `gorm:"index:idx_holding_owner,priority:2" json:"owner_id"`
+	UserFirstName string    `gorm:"size:100;not null" json:"user_first_name"`
+	UserLastName  string    `gorm:"size:100;not null" json:"user_last_name"`
 	SecurityType   string          `gorm:"size:10;not null" json:"security_type"` // "stock", "futures", "forex", "option"
 	SecurityID     uint64          `gorm:"not null" json:"security_id"`
 	ListingID      uint64          `gorm:"not null;index" json:"listing_id"`
@@ -38,6 +38,10 @@ type Holding struct {
 	Version        int64           `gorm:"not null;default:1" json:"-"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+func (h *Holding) BeforeSave(tx *gorm.DB) error {
+	return ValidateOwner(h.OwnerType, h.OwnerID)
 }
 
 func (h *Holding) BeforeUpdate(tx *gorm.DB) error {

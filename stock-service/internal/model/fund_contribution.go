@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 const (
@@ -21,8 +22,9 @@ const (
 type FundContribution struct {
 	ID                      uint64           `gorm:"primaryKey;autoIncrement" json:"id"`
 	FundID                  uint64           `gorm:"not null;index:ix_contrib_fund" json:"fund_id"`
-	UserID                  uint64           `gorm:"not null;index:ix_contrib_user,priority:1" json:"user_id"`
-	SystemType              string           `gorm:"size:10;not null;index:ix_contrib_user,priority:2" json:"system_type"`
+	OwnerType               OwnerType        `gorm:"size:8;not null;index:ix_contrib_owner,priority:1;check:owner_type IN ('client','bank')" json:"owner_type"`
+	OwnerID                 *uint64          `gorm:"index:ix_contrib_owner,priority:2" json:"owner_id"`
+	ActingEmployeeID        *uint64          `gorm:"index" json:"acting_employee_id,omitempty"`
 	Direction               string           `gorm:"size:8;not null" json:"direction"`
 	AmountNative            decimal.Decimal  `gorm:"type:numeric(20,4);not null" json:"amount_native"`
 	NativeCurrency          string           `gorm:"size:8;not null" json:"native_currency"`
@@ -34,4 +36,8 @@ type FundContribution struct {
 	Status                  string           `gorm:"size:12;not null" json:"status"`
 	CreatedAt               time.Time        `json:"created_at"`
 	UpdatedAt               time.Time        `json:"updated_at"`
+}
+
+func (c *FundContribution) BeforeSave(tx *gorm.DB) error {
+	return ValidateOwner(c.OwnerType, c.OwnerID)
 }
