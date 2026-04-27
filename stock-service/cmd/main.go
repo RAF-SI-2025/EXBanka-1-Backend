@@ -586,7 +586,8 @@ func main() {
 	if interBankClient != nil {
 		interBankAdapter := &interBankTransferAdapter{client: interBankClient}
 		crossbankAccept := service.NewCrossbankAcceptSaga(
-			crossbankExec, crossbankPeerRouter, fundAccountAdapter,
+			interBankSagaLogRepo, producer,
+			crossbankPeerRouter, fundAccountAdapter,
 			optionContractRepo, otcOfferRepo, interBankAdapter, cfg.OwnBankCode,
 		)
 		crossbankExercise := service.NewCrossbankExerciseSaga(
