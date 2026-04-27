@@ -4,11 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	pb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/verification-service/internal/model"
@@ -27,30 +23,6 @@ type verificationService interface {
 	VerifyByBiometric(ctx context.Context, challengeID uint64, userID uint64, deviceID string) error
 }
 
-// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
-func mapServiceError(err error) codes.Code {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "not found"):
-		return codes.NotFound
-	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"):
-		return codes.InvalidArgument
-	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
-		return codes.AlreadyExists
-	case strings.Contains(msg, "already "), strings.Contains(msg, "expired"),
-		strings.Contains(msg, "max attempts"), strings.Contains(msg, "only allowed"):
-		return codes.FailedPrecondition
-	case strings.Contains(msg, "bound to a different device"),
-		strings.Contains(msg, "biometrics not enabled"),
-		strings.Contains(msg, "does not belong to this user"):
-		return codes.PermissionDenied
-	case strings.Contains(msg, "optimistic lock"):
-		return codes.Aborted
-	default:
-		return codes.Internal
-	}
-}
-
 type VerificationGRPCHandler struct {
 	pb.UnimplementedVerificationGRPCServiceServer
 	svc verificationService
@@ -63,7 +35,7 @@ func NewVerificationGRPCHandler(svc *service.VerificationService) *VerificationG
 func (h *VerificationGRPCHandler) CreateChallenge(ctx context.Context, req *pb.CreateChallengeRequest) (*pb.CreateChallengeResponse, error) {
 	vc, err := h.svc.CreateChallenge(ctx, req.GetUserId(), req.GetSourceService(), req.GetSourceId(), req.GetMethod(), req.GetDeviceId())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	// Build response challenge_data based on method.
@@ -102,7 +74,7 @@ func (h *VerificationGRPCHandler) CreateChallenge(ctx context.Context, req *pb.C
 func (h *VerificationGRPCHandler) GetChallengeStatus(ctx context.Context, req *pb.GetChallengeStatusRequest) (*pb.GetChallengeStatusResponse, error) {
 	vc, err := h.svc.GetChallengeStatus(req.GetChallengeId())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	resp := &pb.GetChallengeStatusResponse{
@@ -158,7 +130,7 @@ func (h *VerificationGRPCHandler) GetPendingChallenge(ctx context.Context, req *
 func (h *VerificationGRPCHandler) SubmitVerification(ctx context.Context, req *pb.SubmitVerificationRequest) (*pb.SubmitVerificationResponse, error) {
 	success, remaining, newChallengeData, err := h.svc.SubmitVerification(ctx, req.GetChallengeId(), req.GetDeviceId(), req.GetResponse())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	return &pb.SubmitVerificationResponse{
@@ -171,7 +143,7 @@ func (h *VerificationGRPCHandler) SubmitVerification(ctx context.Context, req *p
 func (h *VerificationGRPCHandler) SubmitCode(ctx context.Context, req *pb.SubmitCodeRequest) (*pb.SubmitCodeResponse, error) {
 	success, remaining, err := h.svc.SubmitCode(ctx, req.GetChallengeId(), req.GetCode())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	return &pb.SubmitCodeResponse{
@@ -183,7 +155,7 @@ func (h *VerificationGRPCHandler) SubmitCode(ctx context.Context, req *pb.Submit
 func (h *VerificationGRPCHandler) VerifyByBiometric(ctx context.Context, req *pb.VerifyByBiometricRequest) (*pb.VerifyByBiometricResponse, error) {
 	err := h.svc.VerifyByBiometric(ctx, req.GetChallengeId(), req.GetUserId(), req.GetDeviceId())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return &pb.VerifyByBiometricResponse{Success: true}, nil
 }

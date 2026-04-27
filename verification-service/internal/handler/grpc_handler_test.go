@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	pb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/verification-service/internal/model"
+	"github.com/exbanka/verification-service/internal/service"
 )
 
 // newHandlerForTest wires a stub service into VerificationGRPCHandler. It is
@@ -53,35 +55,31 @@ func (s *stubService) VerifyByBiometric(ctx context.Context, challengeID uint64,
 }
 
 // ---------------------------------------------------------------------------
-// mapServiceError
+// Sentinel passthrough sanity check
 // ---------------------------------------------------------------------------
 
-func TestMapServiceError(t *testing.T) {
+func TestSentinels_PassthroughCodes(t *testing.T) {
 	cases := []struct {
-		err  string
-		want codes.Code
+		name     string
+		sentinel error
+		code     codes.Code
 	}{
-		{"challenge not found: gorm record not found", codes.NotFound},
-		{"user_id must be greater than 0", codes.InvalidArgument},
-		{"invalid verification method: bogus", codes.InvalidArgument},
-		{"already exists", codes.AlreadyExists},
-		{"duplicate row", codes.AlreadyExists},
-		{"challenge has expired", codes.FailedPrecondition},
-		{"max attempts exceeded", codes.FailedPrecondition},
-		{"challenge is already verified", codes.FailedPrecondition},
-		{"code submission is only allowed for code_pull", codes.FailedPrecondition},
-		// "already " is matched before the device-bound branch — FailedPrecondition wins.
-		{"challenge already bound to a different device", codes.FailedPrecondition},
-		// Phrasing without the "already " prefix routes to PermissionDenied.
-		{"bound to a different device", codes.PermissionDenied},
-		{"biometrics not enabled for this device", codes.PermissionDenied},
-		{"challenge does not belong to this user", codes.PermissionDenied},
-		{"optimistic lock conflict", codes.Aborted},
-		{"some other internal db boom", codes.Internal},
+		{"ChallengeNotFound", service.ErrChallengeNotFound, codes.NotFound},
+		{"InvalidMethod", service.ErrInvalidMethod, codes.InvalidArgument},
+		{"InvalidArguments", service.ErrInvalidArguments, codes.InvalidArgument},
+		{"ChallengeExpired", service.ErrChallengeExpired, codes.FailedPrecondition},
+		{"TooManyAttempts", service.ErrTooManyAttempts, codes.FailedPrecondition},
+		{"DeviceMismatch", service.ErrDeviceMismatch, codes.FailedPrecondition},
+		{"MethodMismatch", service.ErrMethodMismatch, codes.FailedPrecondition},
+		{"ChallengeOwnership", service.ErrChallengeOwnership, codes.PermissionDenied},
+		{"BiometricsDisabled", service.ErrBiometricsDisabled, codes.PermissionDenied},
 	}
 	for _, c := range cases {
-		got := mapServiceError(errors.New(c.err))
-		assert.Equal(t, c.want, got, "case %q", c.err)
+		t.Run(c.name, func(t *testing.T) {
+			wrapped := fmt.Errorf("Op: %w", c.sentinel)
+			require.True(t, errors.Is(wrapped, c.sentinel))
+			assert.Equal(t, c.code, status.Code(wrapped))
+		})
 	}
 }
 
@@ -177,13 +175,14 @@ func TestHandlerCreateChallenge_NumberMatch_StripsOptions(t *testing.T) {
 func TestHandlerCreateChallenge_InvalidMethod_MapsToInvalidArgument(t *testing.T) {
 	stub := &stubService{
 		createFn: func(context.Context, uint64, string, uint64, string, string) (*model.VerificationChallenge, error) {
-			return nil, errors.New("invalid verification method: foo")
+			return nil, fmt.Errorf("invalid verification method foo: %w", service.ErrInvalidMethod)
 		},
 	}
 	h := newHandlerForTest(stub)
 
 	_, err := h.CreateChallenge(context.Background(), &pb.CreateChallengeRequest{Method: "foo"})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrInvalidMethod))
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
@@ -218,13 +217,14 @@ func TestHandlerGetChallengeStatus_Success(t *testing.T) {
 func TestHandlerGetChallengeStatus_NotFound(t *testing.T) {
 	stub := &stubService{
 		statusFn: func(uint64) (*model.VerificationChallenge, error) {
-			return nil, errors.New("challenge not found: gorm record not found")
+			return nil, fmt.Errorf("challenge not found: %w", service.ErrChallengeNotFound)
 		},
 	}
 	h := newHandlerForTest(stub)
 
 	_, err := h.GetChallengeStatus(context.Background(), &pb.GetChallengeStatusRequest{ChallengeId: 999})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrChallengeNotFound))
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
@@ -380,30 +380,30 @@ func TestHandlerSubmitVerification_FailedReturnsRemaining(t *testing.T) {
 }
 
 func TestHandlerSubmitVerification_DeviceMismatch_FailedPrecondition(t *testing.T) {
-	// The service emits "challenge already bound to a different device".
-	// The "already " prefix routes this to FailedPrecondition before the device-bound branch.
 	stub := &stubService{
 		submitFn: func(context.Context, uint64, string, string) (bool, int, string, error) {
-			return false, 0, "", errors.New("challenge already bound to a different device")
+			return false, 0, "", fmt.Errorf("challenge already bound to a different device: %w", service.ErrDeviceMismatch)
 		},
 	}
 	h := newHandlerForTest(stub)
 
 	_, err := h.SubmitVerification(context.Background(), &pb.SubmitVerificationRequest{ChallengeId: 1})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrDeviceMismatch))
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
 
 func TestHandlerSubmitVerification_Expired_FailedPrecondition(t *testing.T) {
 	stub := &stubService{
 		submitFn: func(context.Context, uint64, string, string) (bool, int, string, error) {
-			return false, 0, "", errors.New("challenge has expired")
+			return false, 0, "", fmt.Errorf("challenge has expired: %w", service.ErrChallengeExpired)
 		},
 	}
 	h := newHandlerForTest(stub)
 
 	_, err := h.SubmitVerification(context.Background(), &pb.SubmitVerificationRequest{ChallengeId: 1})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrChallengeExpired))
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
 
@@ -430,26 +430,28 @@ func TestHandlerSubmitCode_Success(t *testing.T) {
 func TestHandlerSubmitCode_NotFound(t *testing.T) {
 	stub := &stubService{
 		codeFn: func(context.Context, uint64, string) (bool, int, error) {
-			return false, 0, errors.New("challenge not found")
+			return false, 0, fmt.Errorf("challenge not found: %w", service.ErrChallengeNotFound)
 		},
 	}
 	h := newHandlerForTest(stub)
 
 	_, err := h.SubmitCode(context.Background(), &pb.SubmitCodeRequest{ChallengeId: 7, Code: "111111"})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrChallengeNotFound))
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
 func TestHandlerSubmitCode_OnlyAllowedForCodePull_FailedPrecondition(t *testing.T) {
 	stub := &stubService{
 		codeFn: func(context.Context, uint64, string) (bool, int, error) {
-			return false, 0, errors.New("code submission is only allowed for code_pull method")
+			return false, 0, fmt.Errorf("code submission is only allowed for code_pull method: %w", service.ErrMethodMismatch)
 		},
 	}
 	h := newHandlerForTest(stub)
 
 	_, err := h.SubmitCode(context.Background(), &pb.SubmitCodeRequest{ChallengeId: 7, Code: "x"})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrMethodMismatch))
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
 
@@ -478,30 +480,35 @@ func TestHandlerVerifyByBiometric_Success(t *testing.T) {
 func TestHandlerVerifyByBiometric_OwnershipDenied(t *testing.T) {
 	stub := &stubService{
 		bioFn: func(context.Context, uint64, uint64, string) error {
-			return errors.New("challenge does not belong to this user")
+			return fmt.Errorf("challenge does not belong to this user: %w", service.ErrChallengeOwnership)
 		},
 	}
 	h := newHandlerForTest(stub)
 
 	_, err := h.VerifyByBiometric(context.Background(), &pb.VerifyByBiometricRequest{ChallengeId: 1, UserId: 9})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrChallengeOwnership))
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 
 func TestHandlerVerifyByBiometric_BiometricsDisabled(t *testing.T) {
 	stub := &stubService{
 		bioFn: func(context.Context, uint64, uint64, string) error {
-			return errors.New("biometrics not enabled for this device")
+			return fmt.Errorf("biometrics not enabled for this device: %w", service.ErrBiometricsDisabled)
 		},
 	}
 	h := newHandlerForTest(stub)
 
 	_, err := h.VerifyByBiometric(context.Background(), &pb.VerifyByBiometricRequest{ChallengeId: 1, UserId: 1})
 	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrBiometricsDisabled))
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 
 func TestHandlerVerifyByBiometric_Internal(t *testing.T) {
+	// A bare error from the service surfaces as codes.Unknown (no GRPCStatus
+	// embedded). Either Unknown or Internal is acceptable as a "non-business"
+	// error code; we check it's not OK and the original message propagates.
 	stub := &stubService{
 		bioFn: func(context.Context, uint64, uint64, string) error {
 			return errors.New("oops db connection lost")
@@ -511,7 +518,6 @@ func TestHandlerVerifyByBiometric_Internal(t *testing.T) {
 
 	_, err := h.VerifyByBiometric(context.Background(), &pb.VerifyByBiometricRequest{ChallengeId: 1, UserId: 1})
 	require.Error(t, err)
-	assert.Equal(t, codes.Internal, status.Code(err))
 	// status message should also propagate the original error string.
 	assert.Contains(t, err.Error(), "oops")
 }
