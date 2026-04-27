@@ -70,6 +70,11 @@ type AccountGRPCHandler struct {
 	incomingReservation *service.IncomingReservationService
 	producer            accountProducer
 	clientClient        clientpb.ClientServiceClient
+	// db + idem wire saga-step idempotency for handlers that follow the
+	// IdempotencyRepository.Run pattern (UpdateBalance is the lighthouse
+	// case). Other RPCs leave them nil and use their existing dedup paths.
+	db   *gorm.DB
+	idem *repository.IdempotencyRepository
 }
 
 func NewAccountGRPCHandler(
@@ -81,6 +86,8 @@ func NewAccountGRPCHandler(
 	incomingReservation *service.IncomingReservationService,
 	producer *kafkaprod.Producer,
 	clientClient clientpb.ClientServiceClient,
+	db *gorm.DB,
+	idem *repository.IdempotencyRepository,
 ) *AccountGRPCHandler {
 	return &AccountGRPCHandler{
 		accountService:      accountService,
@@ -91,6 +98,8 @@ func NewAccountGRPCHandler(
 		incomingReservation: incomingReservation,
 		producer:            producer,
 		clientClient:        clientClient,
+		db:                  db,
+		idem:                idem,
 	}
 }
 
@@ -327,7 +336,55 @@ func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.Up
 	return toAccountResponse(account), nil
 }
 
+// UpdateBalance is the lighthouse for the saga-step idempotency contract
+// (Plan 2026-04-27 Task 8). The request MUST carry idempotency_key — saga
+// steps may be retried after caller crash, compensator restart, or network
+// timeout, and the cache lets retries return the cached AccountResponse
+// without re-running the balance mutation.
+//
+// Two layers of dedup cooperate:
+//   - IdempotencyRepository.Run caches the wire response under the key in
+//     the idempotency_records table and returns it verbatim on retry.
+//   - The existing repository.UpdateBalance partial unique index on
+//     ledger_entries.idempotency_key remains the authoritative side-effect
+//     dedup, so even bypasses of this handler stay safe.
+//
+// The Run cache claim is opened in its own outer transaction; the inner
+// service call still opens its own balance transaction. Nested gorm
+// transactions become savepoints, so a failure inside the business logic
+// rolls back both the balance change AND the cache claim, leaving retries
+// free to re-execute fresh.
 func (h *AccountGRPCHandler) UpdateBalance(ctx context.Context, req *pb.UpdateBalanceRequest) (*pb.AccountResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		// Defensive: the constructor always wires both, but tests that
+		// build the handler with the older signature would skip them.
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+
+	var resp *pb.AccountResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.AccountResponse { return &pb.AccountResponse{} },
+			func() (*pb.AccountResponse, error) {
+				return h.executeUpdateBalance(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+// executeUpdateBalance is the original UpdateBalance body — extracted so
+// the IdempotencyRepository.Run wrapper above can call it as the cached
+// fn. It opens its own balance transaction inside the service layer.
+func (h *AccountGRPCHandler) executeUpdateBalance(ctx context.Context, req *pb.UpdateBalanceRequest) (*pb.AccountResponse, error) {
+	_ = ctx
 	amount, _ := decimal.NewFromString(req.Amount)
 	opts := repository.UpdateBalanceOpts{
 		Memo:           req.GetMemo(),

@@ -55,4 +55,10 @@ var (
 
 	// ErrInvalidStatus — caller supplied an unknown account status.
 	ErrInvalidStatus = svcerr.New(codes.InvalidArgument, "invalid account status")
+
+	// ErrIdempotencyMissing — caller did not supply the required
+	// idempotency_key on a saga-driven RPC. Saga steps must always carry a
+	// key so retries are safe; rejecting empty keys is a fail-fast contract
+	// check, mirroring transaction-service's sentinel of the same name.
+	ErrIdempotencyMissing = svcerr.New(codes.InvalidArgument, "idempotency_key required")
 )
