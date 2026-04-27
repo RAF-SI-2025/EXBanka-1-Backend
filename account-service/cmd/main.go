@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}, &model.BankOperation{}, &model.AccountReservation{}, &model.AccountReservationSettlement{}, &model.IncomingReservation{}); err != nil {
+	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}, &model.BankOperation{}, &model.AccountReservation{}, &model.AccountReservationSettlement{}, &model.IncomingReservation{}, &model.IdempotencyRecord{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 	if err := model.SeedCurrencies(db); err != nil {
@@ -69,7 +69,10 @@ func main() {
 	}
 
 	// Connect to client-service for email lookup on account creation.
-	clientConn, clientConnErr := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	clientConn, clientConnErr := grpc.NewClient(cfg.ClientGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if clientConnErr != nil {
 		log.Printf("warn: failed to connect to client service: %v", clientConnErr)
 	}
@@ -87,6 +90,7 @@ func main() {
 	bankRepo := repository.NewBankAccountRepository(db)
 	reservationRepo := repository.NewAccountReservationRepository(db)
 	incomingReservationRepo := repository.NewIncomingReservationRepository(db)
+	idempRepo := repository.NewIdempotencyRepository(db)
 
 	accountService := service.NewAccountService(accountRepo, db, redisCache, changelogRepo)
 	accountService.SetBankRepo(bankRepo)
@@ -177,7 +181,7 @@ func main() {
 	reconcileSvc.CheckAllBalances(ctx)
 
 	reservationHandler := handler.NewReservationHandler(reservationService)
-	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, reservationHandler, incomingReservationService, producer, clientClient)
+	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, reservationHandler, incomingReservationService, producer, clientClient, db, idempRepo)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
@@ -194,6 +198,7 @@ func main() {
 			grpc.ChainUnaryInterceptor(
 				metrics.GRPCUnaryServerInterceptor(),
 				grpcmw.UnaryLoggingInterceptor("account-service"),
+				grpcmw.UnarySagaContextInterceptor(),
 			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},

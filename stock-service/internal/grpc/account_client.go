@@ -40,12 +40,18 @@ func (c *AccountClient) Stub() pb.AccountServiceClient {
 // ReserveFunds holds funds on the user's account for a securities order.
 // Idempotent on orderID: retries are safe no-ops — account-service replays
 // the original response for a duplicate (accountID, orderID) pair.
-func (c *AccountClient) ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode string) (*pb.ReserveFundsResponse, error) {
+//
+// idempotencyKey is the saga-step idempotency cache key required by
+// account-service's wrapped handler (Plan 2026-04-27 Task 9). Saga callers
+// MUST supply a deterministic key (saga.IdempotencyKey(sagaID, step))
+// so retries return the cached response without re-executing.
+func (c *AccountClient) ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey string) (*pb.ReserveFundsResponse, error) {
 	return c.stub.ReserveFunds(ctx, &pb.ReserveFundsRequest{
-		AccountId:    accountID,
-		OrderId:      orderID,
-		Amount:       amount.String(),
-		CurrencyCode: currencyCode,
+		AccountId:      accountID,
+		OrderId:        orderID,
+		Amount:         amount.String(),
+		CurrencyCode:   currencyCode,
+		IdempotencyKey: idempotencyKey,
 	})
 }
 
@@ -53,20 +59,28 @@ func (c *AccountClient) ReserveFunds(ctx context.Context, accountID, orderID uin
 // No-op if the reservation is missing, already released, or fully settled —
 // account-service returns a zero released_amount in those cases instead of
 // an error so cancel paths can be called unconditionally.
-func (c *AccountClient) ReleaseReservation(ctx context.Context, orderID uint64) (*pb.ReleaseReservationResponse, error) {
-	return c.stub.ReleaseReservation(ctx, &pb.ReleaseReservationRequest{OrderId: orderID})
+//
+// idempotencyKey: see ReserveFunds.
+func (c *AccountClient) ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*pb.ReleaseReservationResponse, error) {
+	return c.stub.ReleaseReservation(ctx, &pb.ReleaseReservationRequest{
+		OrderId:        orderID,
+		IdempotencyKey: idempotencyKey,
+	})
 }
 
 // PartialSettleReservation commits part of a reservation as an actual debit
 // and writes a ledger entry with the supplied memo. Idempotent on
 // orderTransactionID: retries are safe no-ops — the same ledger entry is
 // returned rather than double-debiting the account.
-func (c *AccountClient) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*pb.PartialSettleReservationResponse, error) {
+//
+// idempotencyKey: see ReserveFunds.
+func (c *AccountClient) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey string) (*pb.PartialSettleReservationResponse, error) {
 	return c.stub.PartialSettleReservation(ctx, &pb.PartialSettleReservationRequest{
 		OrderId:            orderID,
 		OrderTransactionId: orderTransactionID,
 		Amount:             amount.String(),
 		Memo:               memo,
+		IdempotencyKey:     idempotencyKey,
 	})
 }
 

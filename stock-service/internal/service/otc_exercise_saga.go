@@ -128,18 +128,21 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		Add(saga.Step{
 			Name: saga.StepReserveStrike,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy)
+				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy,
+					saga.IdempotencyKey(sagaID, saga.StepReserveStrike))
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReleaseReservation(ctx, syntheticTxnID)
+				_, e := s.accounts.ReleaseReservation(ctx, syntheticTxnID,
+					saga.IdempotencyKey(sagaID, saga.StepReserveStrike)+":compensate")
 				return e
 			},
 		}).
 		Add(saga.Step{
 			Name: saga.StepSettleStrikeBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, settleMemo)
+				_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, settleMemo,
+					saga.IdempotencyKey(sagaID, saga.StepSettleStrikeBuyer))
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
@@ -178,7 +181,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	// Post-saga best-effort: buyer holding upsert + contract.Save + publish.
 	// At this point money + seller-side shares have moved; failure here is
 	// logged loud and left for manual reconciliation.
-	if err := s.holdingRepo.Upsert(&model.Holding{
+	if err := s.holdingRepo.Upsert(ctx, &model.Holding{
 		UserID:       uint64(c.BuyerUserID),
 		SystemType:   c.BuyerSystemType,
 		SecurityType: "stock",
@@ -197,20 +200,22 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		log.Printf("WARN: OTC exercise saga=%s: contract.Save failed: %v", sagaID, err)
 	}
 
-	if s.producer != nil {
-		payload := kafkamsg.OTCContractExercisedMessage{
-			MessageID:         uuid.NewString(),
-			OccurredAt:        now.Format(time.RFC3339),
-			ContractID:        c.ID,
-			Buyer:             kafkamsg.OTCParty{UserID: c.BuyerUserID, SystemType: c.BuyerSystemType},
-			Seller:            kafkamsg.OTCParty{UserID: c.SellerUserID, SystemType: c.SellerSystemType},
-			StrikeAmountPaid:  strikeSellerCcy.String(),
-			SharesTransferred: decimal.NewFromInt(qty).String(),
-			ExercisedAt:       now.Format(time.RFC3339),
-		}
-		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicOTCContractExercised, data)
-		}
+	// Post-saga Kafka publish via outbox when wired so a crash between
+	// business commit and Kafka send doesn't drop the
+	// otc.contract-exercised event. Falls back to direct PublishRaw when
+	// the outbox isn't wired.
+	payload := kafkamsg.OTCContractExercisedMessage{
+		MessageID:         uuid.NewString(),
+		OccurredAt:        now.Format(time.RFC3339),
+		ContractID:        c.ID,
+		Buyer:             kafkamsg.OTCParty{UserID: c.BuyerUserID, SystemType: c.BuyerSystemType},
+		Seller:            kafkamsg.OTCParty{UserID: c.SellerUserID, SystemType: c.SellerSystemType},
+		StrikeAmountPaid:  strikeSellerCcy.String(),
+		SharesTransferred: decimal.NewFromInt(qty).String(),
+		ExercisedAt:       now.Format(time.RFC3339),
+	}
+	if data, err := json.Marshal(payload); err == nil {
+		s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCContractExercised, data, sagaID)
 	}
 	return c, nil
 }

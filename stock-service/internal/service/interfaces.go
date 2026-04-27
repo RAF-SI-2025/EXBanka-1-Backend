@@ -135,7 +135,11 @@ type AccountGainSummary = repository.AccountGainSummary
 type TaxUserSummary = repository.TaxUserSummary
 
 type HoldingRepo interface {
-	Upsert(holding *model.Holding) error // INSERT or UPDATE (weighted average)
+	// Upsert inserts a new holding or updates an existing one with a
+	// weighted-average price. Ctx is read for saga_id / saga_step (set
+	// by the gRPC server saga-context interceptor on incoming saga-callee
+	// RPCs) and stamped onto the row for cross-service audit.
+	Upsert(ctx context.Context, holding *model.Holding) error
 	GetByID(id uint64) (*model.Holding, error)
 	Update(holding *model.Holding) error
 	Delete(id uint64) error

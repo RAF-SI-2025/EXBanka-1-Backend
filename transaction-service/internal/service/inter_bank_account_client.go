@@ -60,24 +60,36 @@ func (a *GRPCAccountInterBankClient) CreditBackForInterbank(ctx context.Context,
 }
 
 // ReserveIncoming forwards to AccountService.ReserveIncoming.
+//
+// The saga-step idempotency_key is derived from reservationKey + step name
+// so retries (saga reconciler, network re-send) collapse through the
+// account-side response cache. reservationKey itself remains the
+// authoritative domain dedup key inside account-service.
 func (a *GRPCAccountInterBankClient) ReserveIncoming(ctx context.Context, accountNumber string, amount decimal.Decimal, currency, reservationKey string) error {
 	_, err := a.client.ReserveIncoming(ctx, &accountpb.ReserveIncomingRequest{
 		AccountNumber:  accountNumber,
 		Amount:         amount.String(),
 		Currency:       currency,
 		ReservationKey: reservationKey,
+		IdempotencyKey: reservationKey + ":reserve_incoming",
 	})
 	return err
 }
 
 // CommitIncoming forwards to AccountService.CommitIncoming.
 func (a *GRPCAccountInterBankClient) CommitIncoming(ctx context.Context, reservationKey string) error {
-	_, err := a.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{ReservationKey: reservationKey})
+	_, err := a.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{
+		ReservationKey: reservationKey,
+		IdempotencyKey: reservationKey + ":commit_incoming",
+	})
 	return err
 }
 
 // ReleaseIncoming forwards to AccountService.ReleaseIncoming.
 func (a *GRPCAccountInterBankClient) ReleaseIncoming(ctx context.Context, reservationKey string) error {
-	_, err := a.client.ReleaseIncoming(ctx, &accountpb.ReleaseIncomingRequest{ReservationKey: reservationKey})
+	_, err := a.client.ReleaseIncoming(ctx, &accountpb.ReleaseIncomingRequest{
+		ReservationKey: reservationKey,
+		IdempotencyKey: reservationKey + ":release_incoming",
+	})
 	return err
 }

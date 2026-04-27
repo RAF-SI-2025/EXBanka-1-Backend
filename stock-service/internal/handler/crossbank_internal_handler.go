@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/exbanka/contract/shared/saga"
@@ -33,6 +34,12 @@ type CrossbankInternalHandler struct {
 	holdingRes   *service.HoldingReservationService
 	logs         *repository.InterBankSagaLogRepository
 	ownBankCode  string
+	// db + idem wire saga-step idempotency for the responder-side Handle*
+	// RPCs. Each Handle* RPC requires idempotency_key and caches the wire
+	// response under that key, so a peer's retry returns the same
+	// response without re-running the underlying side effect.
+	db   *gorm.DB
+	idem *repository.IdempotencyRepository
 }
 
 func NewCrossbankInternalHandler(
@@ -42,11 +49,14 @@ func NewCrossbankInternalHandler(
 	holdingRes *service.HoldingReservationService,
 	logs *repository.InterBankSagaLogRepository,
 	ownBankCode string,
+	db *gorm.DB,
+	idem *repository.IdempotencyRepository,
 ) *CrossbankInternalHandler {
 	return &CrossbankInternalHandler{
 		offerRepo: offerRepo, contractRepo: contractRepo,
 		holdingRepo: holdingRepo, holdingRes: holdingRes,
 		logs: logs, ownBankCode: ownBankCode,
+		db: db, idem: idem,
 	}
 }
 
@@ -106,8 +116,32 @@ func (h *CrossbankInternalHandler) PeerAcceptIntent(ctx context.Context, in *sto
 
 // HandleReserveSellerShares is the Phase-2 responder. Looks up the seller's
 // holding for the asset and reserves `quantity` against the contract id.
-// Idempotent on (tx_id, phase, role) via the saga log.
+// Idempotent on (tx_id, phase, role) via the saga log AND on
+// idempotency_key via the response cache (Plan 2026-04-27 Task 9).
 func (h *CrossbankInternalHandler) HandleReserveSellerShares(ctx context.Context, in *stockpb.ReserveSellerSharesRequest) (*stockpb.ReserveSellerSharesResponse, error) {
+	if in.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *stockpb.ReserveSellerSharesResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, in.GetIdempotencyKey(),
+			func() *stockpb.ReserveSellerSharesResponse { return &stockpb.ReserveSellerSharesResponse{} },
+			func() (*stockpb.ReserveSellerSharesResponse, error) {
+				return h.executeHandleReserveSellerShares(ctx, in)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *CrossbankInternalHandler) executeHandleReserveSellerShares(ctx context.Context, in *stockpb.ReserveSellerSharesRequest) (*stockpb.ReserveSellerSharesResponse, error) {
 	if h.holdingRes == nil || h.logs == nil {
 		return nil, status.Error(codes.Unimplemented, "responder deps not wired")
 	}
@@ -158,8 +192,32 @@ func (h *CrossbankInternalHandler) HandleReserveSellerShares(ctx context.Context
 }
 
 // HandleTransferOwnership is the Phase-4 responder. Consumes the seller's
-// reservation (shares physically leave the seller's holding).
+// reservation (shares physically leave the seller's holding). Wrapped in
+// the saga-step idempotency contract.
 func (h *CrossbankInternalHandler) HandleTransferOwnership(ctx context.Context, in *stockpb.TransferOwnershipRequest) (*stockpb.TransferOwnershipResponse, error) {
+	if in.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *stockpb.TransferOwnershipResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, in.GetIdempotencyKey(),
+			func() *stockpb.TransferOwnershipResponse { return &stockpb.TransferOwnershipResponse{} },
+			func() (*stockpb.TransferOwnershipResponse, error) {
+				return h.executeHandleTransferOwnership(ctx, in)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *CrossbankInternalHandler) executeHandleTransferOwnership(ctx context.Context, in *stockpb.TransferOwnershipRequest) (*stockpb.TransferOwnershipResponse, error) {
 	if h.holdingRes == nil || h.logs == nil {
 		return nil, status.Error(codes.Unimplemented, "responder deps not wired")
 	}
@@ -202,7 +260,31 @@ func (h *CrossbankInternalHandler) HandleTransferOwnership(ctx context.Context, 
 
 // HandleFinalize records the contract on the responder side. The contract
 // row mirrors the initiator's so both banks have the same ground truth.
+// Wrapped in the saga-step idempotency contract.
 func (h *CrossbankInternalHandler) HandleFinalize(ctx context.Context, in *stockpb.FinalizeRequest) (*stockpb.FinalizeResponse, error) {
+	if in.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *stockpb.FinalizeResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, in.GetIdempotencyKey(),
+			func() *stockpb.FinalizeResponse { return &stockpb.FinalizeResponse{} },
+			func() (*stockpb.FinalizeResponse, error) {
+				return h.executeHandleFinalize(ctx, in)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *CrossbankInternalHandler) executeHandleFinalize(ctx context.Context, in *stockpb.FinalizeRequest) (*stockpb.FinalizeResponse, error) {
 	if h.contractRepo == nil || h.logs == nil {
 		return nil, status.Error(codes.Unimplemented, "responder deps not wired")
 	}
@@ -222,7 +304,31 @@ func (h *CrossbankInternalHandler) HandleFinalize(ctx context.Context, in *stock
 }
 
 // HandleContractExpire releases the seller's holding reservation locally.
+// Wrapped in the saga-step idempotency contract.
 func (h *CrossbankInternalHandler) HandleContractExpire(ctx context.Context, in *stockpb.ContractExpireRequest) (*stockpb.ContractExpireResponse, error) {
+	if in.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *stockpb.ContractExpireResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, in.GetIdempotencyKey(),
+			func() *stockpb.ContractExpireResponse { return &stockpb.ContractExpireResponse{} },
+			func() (*stockpb.ContractExpireResponse, error) {
+				return h.executeHandleContractExpire(ctx, in)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *CrossbankInternalHandler) executeHandleContractExpire(ctx context.Context, in *stockpb.ContractExpireRequest) (*stockpb.ContractExpireResponse, error) {
 	if h.holdingRes == nil {
 		return nil, status.Error(codes.Unimplemented, "responder deps not wired")
 	}
@@ -256,8 +362,32 @@ func (h *CrossbankInternalHandler) HandleSagaCheckStatus(ctx context.Context, in
 }
 
 // HandleReserveSharesRollback releases the seller's holding reservation
-// when the initiator's saga compensates.
+// when the initiator's saga compensates. Wrapped in the saga-step
+// idempotency contract.
 func (h *CrossbankInternalHandler) HandleReserveSharesRollback(ctx context.Context, in *stockpb.ReserveSharesRollbackRequest) (*stockpb.ReserveSharesRollbackResponse, error) {
+	if in.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *stockpb.ReserveSharesRollbackResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, in.GetIdempotencyKey(),
+			func() *stockpb.ReserveSharesRollbackResponse { return &stockpb.ReserveSharesRollbackResponse{} },
+			func() (*stockpb.ReserveSharesRollbackResponse, error) {
+				return h.executeHandleReserveSharesRollback(ctx, in)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *CrossbankInternalHandler) executeHandleReserveSharesRollback(ctx context.Context, in *stockpb.ReserveSharesRollbackRequest) (*stockpb.ReserveSharesRollbackResponse, error) {
 	if h.holdingRes == nil {
 		return nil, status.Error(codes.Unimplemented, "responder deps not wired")
 	}

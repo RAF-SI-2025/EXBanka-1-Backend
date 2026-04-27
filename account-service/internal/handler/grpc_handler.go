@@ -70,6 +70,11 @@ type AccountGRPCHandler struct {
 	incomingReservation *service.IncomingReservationService
 	producer            accountProducer
 	clientClient        clientpb.ClientServiceClient
+	// db + idem wire saga-step idempotency for handlers that follow the
+	// IdempotencyRepository.Run pattern (UpdateBalance is the lighthouse
+	// case). Other RPCs leave them nil and use their existing dedup paths.
+	db   *gorm.DB
+	idem *repository.IdempotencyRepository
 }
 
 func NewAccountGRPCHandler(
@@ -81,6 +86,8 @@ func NewAccountGRPCHandler(
 	incomingReservation *service.IncomingReservationService,
 	producer *kafkaprod.Producer,
 	clientClient clientpb.ClientServiceClient,
+	db *gorm.DB,
+	idem *repository.IdempotencyRepository,
 ) *AccountGRPCHandler {
 	return &AccountGRPCHandler{
 		accountService:      accountService,
@@ -91,32 +98,123 @@ func NewAccountGRPCHandler(
 		incomingReservation: incomingReservation,
 		producer:            producer,
 		clientClient:        clientClient,
+		db:                  db,
+		idem:                idem,
 	}
 }
 
-// ReserveFunds forwards to the reservation handler.
+// ReserveFunds wraps the reservation handler in the saga-step idempotency
+// contract. See UpdateBalance for a full explanation of the two-layer
+// dedup strategy.
 func (h *AccountGRPCHandler) ReserveFunds(ctx context.Context, req *pb.ReserveFundsRequest) (*pb.ReserveFundsResponse, error) {
-	return h.reservation.ReserveFunds(ctx, req)
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReserveFundsResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReserveFundsResponse { return &pb.ReserveFundsResponse{} },
+			func() (*pb.ReserveFundsResponse, error) {
+				return h.reservation.ReserveFunds(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
 }
 
-// ReleaseReservation forwards to the reservation handler.
+// ReleaseReservation wraps the reservation handler in the saga-step
+// idempotency contract.
 func (h *AccountGRPCHandler) ReleaseReservation(ctx context.Context, req *pb.ReleaseReservationRequest) (*pb.ReleaseReservationResponse, error) {
-	return h.reservation.ReleaseReservation(ctx, req)
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReleaseReservationResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReleaseReservationResponse { return &pb.ReleaseReservationResponse{} },
+			func() (*pb.ReleaseReservationResponse, error) {
+				return h.reservation.ReleaseReservation(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
 }
 
-// PartialSettleReservation forwards to the reservation handler.
+// PartialSettleReservation wraps the reservation handler in the saga-step
+// idempotency contract. NOTE: order_transaction_id remains the authoritative
+// domain dedup key inside the service; idempotency_key here is the response
+// cache for retried saga steps.
 func (h *AccountGRPCHandler) PartialSettleReservation(ctx context.Context, req *pb.PartialSettleReservationRequest) (*pb.PartialSettleReservationResponse, error) {
-	return h.reservation.PartialSettleReservation(ctx, req)
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.PartialSettleReservationResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.PartialSettleReservationResponse { return &pb.PartialSettleReservationResponse{} },
+			func() (*pb.PartialSettleReservationResponse, error) {
+				return h.reservation.PartialSettleReservation(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
 }
 
-// GetReservation forwards to the reservation handler.
+// GetReservation forwards to the reservation handler. Read-only — no
+// idempotency wrap needed.
 func (h *AccountGRPCHandler) GetReservation(ctx context.Context, req *pb.GetReservationRequest) (*pb.GetReservationResponse, error) {
 	return h.reservation.GetReservation(ctx, req)
 }
 
 // ReserveIncoming creates a pending credit reservation for an inter-bank
-// inbound transfer. Does not change the account balance.
+// inbound transfer. Does not change the account balance. Wrapped in the
+// saga-step idempotency contract; reservation_key remains the authoritative
+// domain dedup key on the service side.
 func (h *AccountGRPCHandler) ReserveIncoming(ctx context.Context, req *pb.ReserveIncomingRequest) (*pb.ReserveIncomingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReserveIncomingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReserveIncomingResponse { return &pb.ReserveIncomingResponse{} },
+			func() (*pb.ReserveIncomingResponse, error) {
+				return h.executeReserveIncoming(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeReserveIncoming(ctx context.Context, req *pb.ReserveIncomingRequest) (*pb.ReserveIncomingResponse, error) {
 	amt, err := decimal.NewFromString(req.Amount)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "amount: %v", err)
@@ -136,8 +234,32 @@ func (h *AccountGRPCHandler) ReserveIncoming(ctx context.Context, req *pb.Reserv
 	return &pb.ReserveIncomingResponse{ReservationKey: res.ReservationKey, BalanceAfter: balanceAfter}, nil
 }
 
-// CommitIncoming finalizes the credit and writes a ledger entry.
+// CommitIncoming finalizes the credit and writes a ledger entry. Wrapped
+// in the saga-step idempotency contract.
 func (h *AccountGRPCHandler) CommitIncoming(ctx context.Context, req *pb.CommitIncomingRequest) (*pb.CommitIncomingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.CommitIncomingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.CommitIncomingResponse { return &pb.CommitIncomingResponse{} },
+			func() (*pb.CommitIncomingResponse, error) {
+				return h.executeCommitIncoming(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeCommitIncoming(ctx context.Context, req *pb.CommitIncomingRequest) (*pb.CommitIncomingResponse, error) {
 	acct, err := h.incomingReservation.CommitIncoming(ctx, req.ReservationKey)
 	if err != nil {
 		if s, ok := status.FromError(err); ok {
@@ -148,8 +270,32 @@ func (h *AccountGRPCHandler) CommitIncoming(ctx context.Context, req *pb.CommitI
 	return &pb.CommitIncomingResponse{BalanceAfter: acct.Balance.StringFixed(4)}, nil
 }
 
-// ReleaseIncoming cancels a pending credit reservation.
+// ReleaseIncoming cancels a pending credit reservation. Wrapped in the
+// saga-step idempotency contract.
 func (h *AccountGRPCHandler) ReleaseIncoming(ctx context.Context, req *pb.ReleaseIncomingRequest) (*pb.ReleaseIncomingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReleaseIncomingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReleaseIncomingResponse { return &pb.ReleaseIncomingResponse{} },
+			func() (*pb.ReleaseIncomingResponse, error) {
+				return h.executeReleaseIncoming(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeReleaseIncoming(ctx context.Context, req *pb.ReleaseIncomingRequest) (*pb.ReleaseIncomingResponse, error) {
 	if err := h.incomingReservation.ReleaseIncoming(ctx, req.ReservationKey); err != nil {
 		if s, ok := status.FromError(err); ok {
 			return nil, s.Err()
@@ -327,7 +473,55 @@ func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.Up
 	return toAccountResponse(account), nil
 }
 
+// UpdateBalance is the lighthouse for the saga-step idempotency contract
+// (Plan 2026-04-27 Task 8). The request MUST carry idempotency_key — saga
+// steps may be retried after caller crash, compensator restart, or network
+// timeout, and the cache lets retries return the cached AccountResponse
+// without re-running the balance mutation.
+//
+// Two layers of dedup cooperate:
+//   - IdempotencyRepository.Run caches the wire response under the key in
+//     the idempotency_records table and returns it verbatim on retry.
+//   - The existing repository.UpdateBalance partial unique index on
+//     ledger_entries.idempotency_key remains the authoritative side-effect
+//     dedup, so even bypasses of this handler stay safe.
+//
+// The Run cache claim is opened in its own outer transaction; the inner
+// service call still opens its own balance transaction. Nested gorm
+// transactions become savepoints, so a failure inside the business logic
+// rolls back both the balance change AND the cache claim, leaving retries
+// free to re-execute fresh.
 func (h *AccountGRPCHandler) UpdateBalance(ctx context.Context, req *pb.UpdateBalanceRequest) (*pb.AccountResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		// Defensive: the constructor always wires both, but tests that
+		// build the handler with the older signature would skip them.
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+
+	var resp *pb.AccountResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.AccountResponse { return &pb.AccountResponse{} },
+			func() (*pb.AccountResponse, error) {
+				return h.executeUpdateBalance(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+// executeUpdateBalance is the original UpdateBalance body — extracted so
+// the IdempotencyRepository.Run wrapper above can call it as the cached
+// fn. It opens its own balance transaction inside the service layer.
+func (h *AccountGRPCHandler) executeUpdateBalance(ctx context.Context, req *pb.UpdateBalanceRequest) (*pb.AccountResponse, error) {
+	_ = ctx
 	amount, _ := decimal.NewFromString(req.Amount)
 	opts := repository.UpdateBalanceOpts{
 		Memo:           req.GetMemo(),

@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/outbox"
 	sharedsaga "github.com/exbanka/contract/shared/saga"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
@@ -75,6 +77,22 @@ type CrossbankExerciseSaga struct {
 	// HTTP path and inject a fake implementing crossbankPeerOps directly.
 	// Nil in production; non-nil only in tests via withPeerOps.
 	peerOpsOverride crossbankPeerOps
+
+	// Outbox: when wired (via WithOutbox), lifecycle Kafka publishes go
+	// through the transactional outbox instead of best-effort
+	// producer.PublishRaw. See CrossbankAcceptSaga.WithOutbox for details.
+	outbox   *outbox.Outbox
+	outboxDB *gorm.DB
+}
+
+// WithOutbox wires the transactional outbox + the GORM handle the saga
+// uses to enqueue rows. Callers that don't wire this fall back to the
+// legacy direct-publish path (best-effort, may drop on crash).
+func (s *CrossbankExerciseSaga) WithOutbox(ob *outbox.Outbox, db *gorm.DB) *CrossbankExerciseSaga {
+	cp := *s
+	cp.outbox = ob
+	cp.outboxDB = db
+	return &cp
 }
 
 // NewCrossbankExerciseSaga constructs the saga with direct references to the
@@ -174,13 +192,15 @@ func (s *CrossbankExerciseSaga) Run(ctx context.Context, in CrossbankExerciseInp
 		Name: sharedsaga.MustStep(sharedsaga.StepReserveBuyerFunds),
 		Forward: func(ctx context.Context, st *sharedsaga.State) error {
 			stashExercisePayload(st, sharedsaga.StepReserveBuyerFunds, in)
-			if _, err := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, txIDtoUint64(txID), strikeAmt, currency); err != nil {
+			if _, err := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, txIDtoUint64(txID), strikeAmt, currency,
+				sharedsaga.IdempotencyKey(txID, sharedsaga.StepReserveBuyerFunds)); err != nil {
 				return fmt.Errorf("reserve_buyer_funds: %w", err)
 			}
 			return nil
 		},
 		Backward: func(ctx context.Context, _ *sharedsaga.State) error {
-			if _, err := s.accounts.ReleaseReservation(ctx, txIDtoUint64(txID)); err != nil {
+			if _, err := s.accounts.ReleaseReservation(ctx, txIDtoUint64(txID),
+				sharedsaga.IdempotencyKey(txID, sharedsaga.StepReserveBuyerFunds)+":compensate"); err != nil {
 				log.Printf("WARN: cross-bank exercise saga=%s: release_reservation compensation: %v", txID, err)
 				return err
 			}
@@ -375,6 +395,8 @@ func (s *CrossbankExerciseSaga) buildPublisher(c *model.OptionContract, in Cross
 	sellerCode := derefOr(c.SellerBankCode, "")
 	return &crossbankExercisePublisher{
 		producer:   s.producer,
+		ob:         s.outbox,
+		obDB:       s.outboxDB,
 		sagaKind:   model.SagaKindExercise,
 		txID:       txID,
 		initiator:  buyerCode,
@@ -389,6 +411,8 @@ func (s *CrossbankExerciseSaga) buildPublisher(c *model.OptionContract, in Cross
 // CrossbankSagaExecutor's Publish* methods. One adapter per saga.Run().
 type crossbankExercisePublisher struct {
 	producer   *kafkaprod.Producer
+	ob         *outbox.Outbox
+	obDB       *gorm.DB
 	sagaKind   string
 	txID       string
 	initiator  string
@@ -398,7 +422,7 @@ type crossbankExercisePublisher struct {
 }
 
 func (p *crossbankExercisePublisher) OnStarted(ctx context.Context, _ string) {
-	if p.producer == nil {
+	if p.producer == nil && p.ob == nil {
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -409,12 +433,12 @@ func (p *crossbankExercisePublisher) OnStarted(ctx context.Context, _ string) {
 		StartedAt: now,
 	}
 	if data, err := json.Marshal(payload); err == nil {
-		_ = p.producer.PublishRaw(ctx, kafkamsg.TopicOTCCrossbankSagaStarted, data)
+		publishSagaEvent(ctx, p.ob, p.obDB, p.producer, kafkamsg.TopicOTCCrossbankSagaStarted, data, p.txID)
 	}
 }
 
 func (p *crossbankExercisePublisher) OnCommitted(ctx context.Context, _ string) {
-	if p.producer == nil {
+	if p.producer == nil && p.ob == nil {
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -423,12 +447,12 @@ func (p *crossbankExercisePublisher) OnCommitted(ctx context.Context, _ string) 
 		TxID: p.txID, SagaKind: p.sagaKind, ContractID: p.contractID, CommittedAt: now,
 	}
 	if data, err := json.Marshal(payload); err == nil {
-		_ = p.producer.PublishRaw(ctx, kafkamsg.TopicOTCCrossbankSagaCommitted, data)
+		publishSagaEvent(ctx, p.ob, p.obDB, p.producer, kafkamsg.TopicOTCCrossbankSagaCommitted, data, p.txID)
 	}
 }
 
 func (p *crossbankExercisePublisher) OnRolledBack(ctx context.Context, _ string, failingStep, reason string, compensated []string) {
-	if p.producer == nil {
+	if p.producer == nil && p.ob == nil {
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -438,12 +462,12 @@ func (p *crossbankExercisePublisher) OnRolledBack(ctx context.Context, _ string,
 		Reason: reason, CompensatedPhases: compensated, RolledBackAt: now,
 	}
 	if data, err := json.Marshal(payload); err == nil {
-		_ = p.producer.PublishRaw(ctx, kafkamsg.TopicOTCCrossbankSagaRolledBack, data)
+		publishSagaEvent(ctx, p.ob, p.obDB, p.producer, kafkamsg.TopicOTCCrossbankSagaRolledBack, data, p.txID)
 	}
 }
 
 func (p *crossbankExercisePublisher) OnStuck(ctx context.Context, _ string, failingStep, reason string) {
-	if p.producer == nil {
+	if p.producer == nil && p.ob == nil {
 		return
 	}
 	payload := kafkamsg.CrossBankSagaStuckRollbackMessage{
@@ -452,7 +476,7 @@ func (p *crossbankExercisePublisher) OnStuck(ctx context.Context, _ string, fail
 		Reason: "stuck after " + failingStep + ": " + reason,
 	}
 	if data, err := json.Marshal(payload); err == nil {
-		_ = p.producer.PublishRaw(ctx, kafkamsg.TopicOTCCrossbankSagaStuckRollback, data)
+		publishSagaEvent(ctx, p.ob, p.obDB, p.producer, kafkamsg.TopicOTCCrossbankSagaStuckRollback, data, p.txID)
 	}
 }
 

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -251,9 +253,31 @@ type grpcHandlerFixture struct {
 	ledgerSvc    *mockLedgerSvc
 	producer     *mockAccountProducer
 	clientClient *mockClientClient
+	db           *gorm.DB
+	idem         *repository.IdempotencyRepository
 }
 
-func newGRPCHandlerFixture() (*AccountGRPCHandler, *grpcHandlerFixture) {
+// newHandlerTestDB returns an in-memory SQLite DB with the schema needed by
+// the IdempotencyRepository (the only persistence the handler tests touch
+// directly — service-level state is mocked). Each test gets its own DB so
+// Run-cache hits across tests cannot leak.
+func newHandlerTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dbName := strings.ReplaceAll(t.Name(), "/", "_")
+	dsn := fmt.Sprintf("file:handler_%s?mode=memory&cache=shared", dbName)
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&model.IdempotencyRecord{}))
+	return db
+}
+
+func newGRPCHandlerFixture(t *testing.T) (*AccountGRPCHandler, *grpcHandlerFixture) {
+	t.Helper()
+	db := newHandlerTestDB(t)
+	idem := repository.NewIdempotencyRepository(db)
 	f := &grpcHandlerFixture{
 		accountSvc:   &mockAccountSvc{},
 		companySvc:   &mockCompanySvc{},
@@ -261,6 +285,8 @@ func newGRPCHandlerFixture() (*AccountGRPCHandler, *grpcHandlerFixture) {
 		ledgerSvc:    &mockLedgerSvc{},
 		producer:     &mockAccountProducer{},
 		clientClient: &mockClientClient{},
+		db:           db,
+		idem:         idem,
 	}
 	h := &AccountGRPCHandler{
 		accountService:  f.accountSvc,
@@ -269,6 +295,8 @@ func newGRPCHandlerFixture() (*AccountGRPCHandler, *grpcHandlerFixture) {
 		ledgerService:   f.ledgerSvc,
 		producer:        f.producer,
 		clientClient:    f.clientClient,
+		db:              db,
+		idem:            idem,
 	}
 	return h, f
 }
@@ -333,7 +361,7 @@ func TestSentinel_Passthrough_AccountHandler(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateAccount_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.createAccountFn = func(account *model.Account) error {
 		account.ID = 10
 		account.AccountNumber = "111000100000099011"
@@ -360,7 +388,7 @@ func TestCreateAccount_Success(t *testing.T) {
 }
 
 func TestCreateAccount_ServiceError(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.createAccountFn = func(account *model.Account) error {
 		return service.ErrInvalidAccount
 	}
@@ -380,7 +408,7 @@ func TestCreateAccount_ServiceError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetAccount_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
 		return sampleAccount(id), nil
 	}
@@ -392,7 +420,7 @@ func TestGetAccount_Success(t *testing.T) {
 }
 
 func TestGetAccount_NotFound(t *testing.T) {
-	h, _ := newGRPCHandlerFixture()
+	h, _ := newGRPCHandlerFixture(t)
 
 	_, err := h.GetAccount(context.Background(), &pb.GetAccountRequest{Id: 999})
 	require.Error(t, err)
@@ -400,7 +428,7 @@ func TestGetAccount_NotFound(t *testing.T) {
 }
 
 func TestGetAccount_ServiceError(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
 		return nil, errors.New("db connection error")
 	}
@@ -417,7 +445,7 @@ func TestGetAccount_ServiceError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetAccountByNumber_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.getAccountByNumberFn = func(accountNumber string) (*model.Account, error) {
 		a := sampleAccount(7)
 		a.AccountNumber = accountNumber
@@ -430,7 +458,7 @@ func TestGetAccountByNumber_Success(t *testing.T) {
 }
 
 func TestGetAccountByNumber_NotFound(t *testing.T) {
-	h, _ := newGRPCHandlerFixture()
+	h, _ := newGRPCHandlerFixture(t)
 
 	_, err := h.GetAccountByNumber(context.Background(), &pb.GetAccountByNumberRequest{AccountNumber: "NONEXISTENT"})
 	require.Error(t, err)
@@ -442,7 +470,7 @@ func TestGetAccountByNumber_NotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestListAccountsByClient_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.listAccountsByClientFn = func(clientID uint64, page, pageSize int) ([]model.Account, int64, error) {
 		return []model.Account{
 			*sampleAccount(1),
@@ -457,7 +485,7 @@ func TestListAccountsByClient_Success(t *testing.T) {
 }
 
 func TestListAccountsByClient_ServiceError(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.listAccountsByClientFn = func(clientID uint64, page, pageSize int) ([]model.Account, int64, error) {
 		return nil, 0, errors.New("db down")
 	}
@@ -472,7 +500,7 @@ func TestListAccountsByClient_ServiceError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestListAllAccounts_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.listAllAccountsFn = func(nameFilter, numberFilter, typeFilter string, page, pageSize int) ([]model.Account, int64, error) {
 		return []model.Account{*sampleAccount(1)}, 1, nil
 	}
@@ -484,7 +512,7 @@ func TestListAllAccounts_Success(t *testing.T) {
 }
 
 func TestListAllAccounts_ServiceError(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.listAllAccountsFn = func(_, _, _ string, _, _ int) ([]model.Account, int64, error) {
 		return nil, 0, errors.New("db down")
 	}
@@ -499,7 +527,7 @@ func TestListAllAccounts_ServiceError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateAccountName_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateAccountNameFn = func(id, clientID uint64, newName string, changedBy int64) error {
 		return nil
 	}
@@ -519,7 +547,7 @@ func TestUpdateAccountName_Success(t *testing.T) {
 }
 
 func TestUpdateAccountName_NotFound(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateAccountNameFn = func(id, clientID uint64, newName string, changedBy int64) error {
 		return gorm.ErrRecordNotFound
 	}
@@ -534,7 +562,7 @@ func TestUpdateAccountName_NotFound(t *testing.T) {
 }
 
 func TestUpdateAccountName_ServiceError(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateAccountNameFn = func(id, clientID uint64, newName string, changedBy int64) error {
 		return service.ErrCompanyDuplicate
 	}
@@ -553,7 +581,7 @@ func TestUpdateAccountName_ServiceError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateAccountLimits_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateAccountLimitsFn = func(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error {
 		return nil
 	}
@@ -571,7 +599,7 @@ func TestUpdateAccountLimits_Success(t *testing.T) {
 }
 
 func TestUpdateAccountLimits_NotFound(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateAccountLimitsFn = func(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error {
 		return gorm.ErrRecordNotFound
 	}
@@ -582,7 +610,7 @@ func TestUpdateAccountLimits_NotFound(t *testing.T) {
 }
 
 func TestUpdateAccountLimits_InvalidValue(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateAccountLimitsFn = func(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error {
 		return service.ErrInvalidAccount
 	}
@@ -601,7 +629,7 @@ func TestUpdateAccountLimits_InvalidValue(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateAccountStatus_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateAccountStatusFn = func(id uint64, newStatus string, changedBy int64) error {
 		return nil
 	}
@@ -621,7 +649,7 @@ func TestUpdateAccountStatus_Success(t *testing.T) {
 }
 
 func TestUpdateAccountStatus_NotFound(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateAccountStatusFn = func(id uint64, newStatus string, changedBy int64) error {
 		return gorm.ErrRecordNotFound
 	}
@@ -635,7 +663,7 @@ func TestUpdateAccountStatus_NotFound(t *testing.T) {
 }
 
 func TestUpdateAccountStatus_AlreadyInState(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateAccountStatusFn = func(id uint64, newStatus string, changedBy int64) error {
 		return service.ErrAccountInactive
 	}
@@ -653,7 +681,7 @@ func TestUpdateAccountStatus_AlreadyInState(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateBalance_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateBalanceWithOptsFn = func(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts repository.UpdateBalanceOpts) error {
 		return nil
 	}
@@ -665,34 +693,37 @@ func TestUpdateBalance_Success(t *testing.T) {
 		AccountNumber:   "111000100000099011",
 		Amount:          "500",
 		UpdateAvailable: true,
+		IdempotencyKey:  "ub-success-1",
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 }
 
 func TestUpdateBalance_NotFound(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateBalanceWithOptsFn = func(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts repository.UpdateBalanceOpts) error {
 		return gorm.ErrRecordNotFound
 	}
 
 	_, err := h.UpdateBalance(context.Background(), &pb.UpdateBalanceRequest{
-		AccountNumber: "NONEXISTENT",
-		Amount:        "100",
+		AccountNumber:  "NONEXISTENT",
+		Amount:         "100",
+		IdempotencyKey: "ub-notfound-1",
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
 func TestUpdateBalance_InsufficientFunds(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.accountSvc.updateBalanceWithOptsFn = func(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts repository.UpdateBalanceOpts) error {
 		return service.ErrInsufficientBalance
 	}
 
 	_, err := h.UpdateBalance(context.Background(), &pb.UpdateBalanceRequest{
-		AccountNumber: "111000100000099011",
-		Amount:        "-99999999",
+		AccountNumber:  "111000100000099011",
+		Amount:         "-99999999",
+		IdempotencyKey: "ub-insufficient-1",
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
@@ -703,7 +734,7 @@ func TestUpdateBalance_InsufficientFunds(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateCompany_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.companySvc.createFn = func(company *model.Company) error {
 		company.ID = 5
 		return nil
@@ -721,7 +752,7 @@ func TestCreateCompany_Success(t *testing.T) {
 }
 
 func TestCreateCompany_ServiceError(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.companySvc.createFn = func(company *model.Company) error {
 		return service.ErrCompanyDuplicate
 	}
@@ -741,7 +772,7 @@ func TestCreateCompany_ServiceError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetCompany_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.companySvc.getFn = func(id uint64) (*model.Company, error) {
 		return &model.Company{
 			ID:                 id,
@@ -759,7 +790,7 @@ func TestGetCompany_Success(t *testing.T) {
 }
 
 func TestGetCompany_NotFound(t *testing.T) {
-	h, _ := newGRPCHandlerFixture()
+	h, _ := newGRPCHandlerFixture(t)
 
 	_, err := h.GetCompany(context.Background(), &pb.GetCompanyRequest{Id: 999})
 	require.Error(t, err)
@@ -771,7 +802,7 @@ func TestGetCompany_NotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpdateCompany_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	existingCompany := &model.Company{
 		ID:                 1,
 		CompanyName:        "Old Name",
@@ -796,7 +827,7 @@ func TestUpdateCompany_Success(t *testing.T) {
 }
 
 func TestUpdateCompany_NotFound(t *testing.T) {
-	h, _ := newGRPCHandlerFixture()
+	h, _ := newGRPCHandlerFixture(t)
 
 	newName := "X"
 	_, err := h.UpdateCompany(context.Background(), &pb.UpdateCompanyRequest{Id: 999, CompanyName: &newName})
@@ -805,7 +836,7 @@ func TestUpdateCompany_NotFound(t *testing.T) {
 }
 
 func TestUpdateCompany_UpdateError(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.companySvc.getFn = func(id uint64) (*model.Company, error) {
 		return &model.Company{ID: id, CompanyName: "Test", RegistrationNumber: "12345678", TaxNumber: "123456789", OwnerID: 1}, nil
 	}
@@ -824,7 +855,7 @@ func TestUpdateCompany_UpdateError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestListCurrencies_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.currencySvc.listFn = func() ([]model.Currency, error) {
 		return []model.Currency{
 			{ID: 1, Code: "RSD", Name: "Serbian Dinar", Symbol: "din", Active: true},
@@ -839,7 +870,7 @@ func TestListCurrencies_Success(t *testing.T) {
 }
 
 func TestListCurrencies_ServiceError(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.currencySvc.listFn = func() ([]model.Currency, error) {
 		return nil, errors.New("db down")
 	}
@@ -854,7 +885,7 @@ func TestListCurrencies_ServiceError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetCurrency_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.currencySvc.getByCodeFn = func(code string) (*model.Currency, error) {
 		return &model.Currency{ID: 1, Code: code, Name: "Euro", Symbol: "€", Active: true}, nil
 	}
@@ -866,7 +897,7 @@ func TestGetCurrency_Success(t *testing.T) {
 }
 
 func TestGetCurrency_NotFound(t *testing.T) {
-	h, _ := newGRPCHandlerFixture()
+	h, _ := newGRPCHandlerFixture(t)
 
 	_, err := h.GetCurrency(context.Background(), &pb.GetCurrencyRequest{Code: "ZZZ"})
 	require.Error(t, err)
@@ -878,7 +909,7 @@ func TestGetCurrency_NotFound(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetLedgerEntries_Success(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	now := time.Now()
 	f.ledgerSvc.getLedgerEntriesFn = func(accountNumber string, page, pageSize int) ([]model.LedgerEntry, int64, error) {
 		return []model.LedgerEntry{
@@ -907,7 +938,7 @@ func TestGetLedgerEntries_Success(t *testing.T) {
 }
 
 func TestGetLedgerEntries_Defaults_AppliedWhenZero(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	var gotPage, gotPageSize int
 	f.ledgerSvc.getLedgerEntriesFn = func(accountNumber string, page, pageSize int) ([]model.LedgerEntry, int64, error) {
 		gotPage = page
@@ -926,7 +957,7 @@ func TestGetLedgerEntries_Defaults_AppliedWhenZero(t *testing.T) {
 }
 
 func TestGetLedgerEntries_ServiceError(t *testing.T) {
-	h, f := newGRPCHandlerFixture()
+	h, f := newGRPCHandlerFixture(t)
 	f.ledgerSvc.getLedgerEntriesFn = func(accountNumber string, page, pageSize int) ([]model.LedgerEntry, int64, error) {
 		return nil, 0, errors.New("db down")
 	}

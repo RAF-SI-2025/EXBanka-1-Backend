@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/transactionpb"
+	"github.com/exbanka/transaction-service/internal/repository"
 	"github.com/exbanka/transaction-service/internal/service"
 )
 
@@ -19,11 +20,16 @@ import (
 type InterBankGRPCHandler struct {
 	pb.UnimplementedInterBankServiceServer
 	svc *service.InterBankService
+	// db + idem wire saga-step idempotency for the receiver-side handlers
+	// (HandlePrepare / HandleCommit / ReverseInterBankTransfer). Other RPCs
+	// leave them unused — only saga callees need the cache contract.
+	db   *gorm.DB
+	idem *repository.IdempotencyRepository
 }
 
 // NewInterBankGRPCHandler constructs the handler.
-func NewInterBankGRPCHandler(svc *service.InterBankService) *InterBankGRPCHandler {
-	return &InterBankGRPCHandler{svc: svc}
+func NewInterBankGRPCHandler(svc *service.InterBankService, db *gorm.DB, idem *repository.IdempotencyRepository) *InterBankGRPCHandler {
+	return &InterBankGRPCHandler{svc: svc, db: db, idem: idem}
 }
 
 // InitiateInterBankTransfer is the sender-side entry point; called from the
@@ -54,8 +60,33 @@ func (h *InterBankGRPCHandler) InitiateInterBankTransfer(ctx context.Context, re
 	}, nil
 }
 
-// HandlePrepare is the receiver-side Prepare handler.
+// HandlePrepare is the receiver-side Prepare handler. Wrapped in the
+// saga-step idempotency contract so a peer's Prepare retry returns the
+// cached response without re-running the prepare logic.
 func (h *InterBankGRPCHandler) HandlePrepare(ctx context.Context, req *pb.InterBankPrepareRequest) (*pb.InterBankPrepareResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.InterBankPrepareResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.InterBankPrepareResponse { return &pb.InterBankPrepareResponse{} },
+			func() (*pb.InterBankPrepareResponse, error) {
+				return h.executeHandlePrepare(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *InterBankGRPCHandler) executeHandlePrepare(ctx context.Context, req *pb.InterBankPrepareRequest) (*pb.InterBankPrepareResponse, error) {
 	amt, err := decimal.NewFromString(req.Amount)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "amount: %v", err)
@@ -89,8 +120,33 @@ func (h *InterBankGRPCHandler) HandlePrepare(ctx context.Context, req *pb.InterB
 	return resp, nil
 }
 
-// HandleCommit is the receiver-side Commit handler.
+// HandleCommit is the receiver-side Commit handler. Wrapped in the
+// saga-step idempotency contract so a peer's Commit retry returns the
+// cached response without re-running the credit logic.
 func (h *InterBankGRPCHandler) HandleCommit(ctx context.Context, req *pb.InterBankCommitRequest) (*pb.InterBankCommitResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.InterBankCommitResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.InterBankCommitResponse { return &pb.InterBankCommitResponse{} },
+			func() (*pb.InterBankCommitResponse, error) {
+				return h.executeHandleCommit(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *InterBankGRPCHandler) executeHandleCommit(ctx context.Context, req *pb.InterBankCommitRequest) (*pb.InterBankCommitResponse, error) {
 	amt, err := decimal.NewFromString(req.FinalAmount)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "final_amount: %v", err)
@@ -198,6 +254,29 @@ func (h *InterBankGRPCHandler) GetInterBankTransfer(ctx context.Context, req *pb
 //   - fail_reason: empty on success; "insufficient-funds-at-responder" or
 //     similar when the peer's PREPARE returned NotReady.
 func (h *InterBankGRPCHandler) ReverseInterBankTransfer(ctx context.Context, req *pb.ReverseInterBankTransferRequest) (*pb.ReverseInterBankTransferResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReverseInterBankTransferResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReverseInterBankTransferResponse { return &pb.ReverseInterBankTransferResponse{} },
+			func() (*pb.ReverseInterBankTransferResponse, error) {
+				return h.executeReverseInterBankTransfer(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *InterBankGRPCHandler) executeReverseInterBankTransfer(ctx context.Context, req *pb.ReverseInterBankTransferRequest) (*pb.ReverseInterBankTransferResponse, error) {
 	if req.OriginalTxId == "" {
 		return nil, status.Error(codes.InvalidArgument, "original_tx_id is required")
 	}

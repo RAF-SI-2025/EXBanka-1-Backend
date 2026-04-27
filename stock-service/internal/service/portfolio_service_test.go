@@ -34,7 +34,7 @@ func newMockHoldingRepo() *mockHoldingRepo {
 	return &mockHoldingRepo{holdings: make(map[uint64]*model.Holding), nextID: 1}
 }
 
-func (m *mockHoldingRepo) Upsert(holding *model.Holding) error {
+func (m *mockHoldingRepo) Upsert(_ context.Context, holding *model.Holding) error {
 	if m.failNextUpsert != nil {
 		err := m.failNextUpsert
 		m.failNextUpsert = nil
@@ -2141,7 +2141,7 @@ func newMockFillAccountClient(stub *mockAccountClient) *mockFillAccountClient {
 	return &mockFillAccountClient{stub: stub}
 }
 
-func (m *mockFillAccountClient) PartialSettleReservation(_ context.Context, orderID, txnID uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error) {
+func (m *mockFillAccountClient) PartialSettleReservation(_ context.Context, orderID, txnID uint64, amount decimal.Decimal, memo, _ string) (*accountpb.PartialSettleReservationResponse, error) {
 	if m.partialSettleErr != nil {
 		return nil, m.partialSettleErr
 	}
@@ -2199,7 +2199,7 @@ func (m *mockFillAccountClient) routedState() (string, bool) {
 
 func (m *mockFillAccountClient) Stub() accountpb.AccountServiceClient { return m.stub }
 
-func (m *mockFillAccountClient) ReleaseReservation(_ context.Context, _ uint64) (*accountpb.ReleaseReservationResponse, error) {
+func (m *mockFillAccountClient) ReleaseReservation(_ context.Context, _ uint64, _ string) (*accountpb.ReleaseReservationResponse, error) {
 	return &accountpb.ReleaseReservationResponse{ReleasedAmount: "0", ReservedBalance: "0"}, nil
 }
 

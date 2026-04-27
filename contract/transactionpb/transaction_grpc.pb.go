@@ -889,7 +889,9 @@ type InterBankServiceClient interface {
 	InitiateInterBankTransfer(ctx context.Context, in *InitiateInterBankRequest, opts ...grpc.CallOption) (*InitiateInterBankResponse, error)
 	// Receiver side — three handlers, one per inbound HTTP route forwarded
 	// from api-gateway after HMAC verification.
+	// idempotent
 	HandlePrepare(ctx context.Context, in *InterBankPrepareRequest, opts ...grpc.CallOption) (*InterBankPrepareResponse, error)
+	// idempotent
 	HandleCommit(ctx context.Context, in *InterBankCommitRequest, opts ...grpc.CallOption) (*InterBankCommitResponse, error)
 	HandleCheckStatus(ctx context.Context, in *InterBankCheckStatusRequest, opts ...grpc.CallOption) (*InterBankCheckStatusResponse, error)
 	// Read-side helper used by the public GET /api/v1/me/transfers/{id}
@@ -899,6 +901,7 @@ type InterBankServiceClient interface {
 	// PREPARE/COMMIT machinery on the opposite direction. Used by the
 	// cross-bank OTC accept saga's compensation path when seller-side
 	// ownership transfer fails after the buyer's funds have already moved.
+	// idempotent
 	ReverseInterBankTransfer(ctx context.Context, in *ReverseInterBankTransferRequest, opts ...grpc.CallOption) (*ReverseInterBankTransferResponse, error)
 }
 
@@ -982,7 +985,9 @@ type InterBankServiceServer interface {
 	InitiateInterBankTransfer(context.Context, *InitiateInterBankRequest) (*InitiateInterBankResponse, error)
 	// Receiver side — three handlers, one per inbound HTTP route forwarded
 	// from api-gateway after HMAC verification.
+	// idempotent
 	HandlePrepare(context.Context, *InterBankPrepareRequest) (*InterBankPrepareResponse, error)
+	// idempotent
 	HandleCommit(context.Context, *InterBankCommitRequest) (*InterBankCommitResponse, error)
 	HandleCheckStatus(context.Context, *InterBankCheckStatusRequest) (*InterBankCheckStatusResponse, error)
 	// Read-side helper used by the public GET /api/v1/me/transfers/{id}
@@ -992,6 +997,7 @@ type InterBankServiceServer interface {
 	// PREPARE/COMMIT machinery on the opposite direction. Used by the
 	// cross-bank OTC accept saga's compensation path when seller-side
 	// ownership transfer fails after the buyer's funds have already moved.
+	// idempotent
 	ReverseInterBankTransfer(context.Context, *ReverseInterBankTransferRequest) (*ReverseInterBankTransferResponse, error)
 	mustEmbedUnimplementedInterBankServiceServer()
 }

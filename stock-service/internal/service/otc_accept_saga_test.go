@@ -28,7 +28,7 @@ type fakeOTCAccountClient struct {
 	settleCalls     int
 }
 
-func (f *fakeOTCAccountClient) ReserveFunds(_ context.Context, _, _ uint64, amount decimal.Decimal, _ string) (*accountpb.ReserveFundsResponse, error) {
+func (f *fakeOTCAccountClient) ReserveFunds(_ context.Context, _, _ uint64, amount decimal.Decimal, _ string, _ string) (*accountpb.ReserveFundsResponse, error) {
 	f.reserveCalls++
 	if f.failReserveOnce != nil {
 		err := f.failReserveOnce
@@ -38,12 +38,12 @@ func (f *fakeOTCAccountClient) ReserveFunds(_ context.Context, _, _ uint64, amou
 	return &accountpb.ReserveFundsResponse{}, nil
 }
 
-func (f *fakeOTCAccountClient) ReleaseReservation(_ context.Context, _ uint64) (*accountpb.ReleaseReservationResponse, error) {
+func (f *fakeOTCAccountClient) ReleaseReservation(_ context.Context, _ uint64, _ string) (*accountpb.ReleaseReservationResponse, error) {
 	f.releaseCalls++
 	return &accountpb.ReleaseReservationResponse{}, nil
 }
 
-func (f *fakeOTCAccountClient) PartialSettleReservation(_ context.Context, _, _ uint64, _ decimal.Decimal, _ string) (*accountpb.PartialSettleReservationResponse, error) {
+func (f *fakeOTCAccountClient) PartialSettleReservation(_ context.Context, _, _ uint64, _ decimal.Decimal, _ string, _ string) (*accountpb.PartialSettleReservationResponse, error) {
 	f.settleCalls++
 	if f.failSettleOnce != nil {
 		err := f.failSettleOnce
@@ -106,7 +106,7 @@ func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
 	sellerID := int64(87)
 	buyerID := int64(55)
 	// Seed seller's holding so the seller-invariant + reservation succeed.
-	_ = holdingRepo.Upsert(&model.Holding{
+	_ = holdingRepo.Upsert(context.Background(), &model.Holding{
 		UserID: uint64(sellerID), SystemType: "client",
 		SecurityType: "stock", SecurityID: stockID, Quantity: 100,
 		AveragePrice: decimal.NewFromInt(100),

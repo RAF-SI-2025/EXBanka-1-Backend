@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}, &model.Changelog{}); err != nil {
+	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}, &model.Changelog{}, &model.IdempotencyRecord{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -59,7 +59,10 @@ func main() {
 	)
 
 	// Connect to account-service
-	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to account service: %v", err)
 	}
@@ -68,7 +71,10 @@ func main() {
 	bankAccountClient := accountpb.NewBankAccountServiceClient(accountConn)
 
 	// Connect to client-service
-	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to client service: %v", err)
 	}
@@ -76,7 +82,10 @@ func main() {
 	clientClient := clientpb.NewClientServiceClient(clientConn)
 
 	// Connect to user-service for employee limit checks
-	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	userConn, err := grpc.NewClient(cfg.UserGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to user service: %v", err)
 	}
@@ -131,6 +140,7 @@ func main() {
 			grpc.ChainUnaryInterceptor(
 				metrics.GRPCUnaryServerInterceptor(),
 				grpcmw.UnaryLoggingInterceptor("credit-service"),
+				grpcmw.UnarySagaContextInterceptor(),
 			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},

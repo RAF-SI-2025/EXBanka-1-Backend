@@ -195,7 +195,7 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 			ContributionID: contrib.ID,
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicStockFundInvested, data)
+			publishSagaEvent(ctx, s.outbox, s.outboxDB, s.producer, kafkamsg.TopicStockFundInvested, data, sagaID)
 		}
 	}
 

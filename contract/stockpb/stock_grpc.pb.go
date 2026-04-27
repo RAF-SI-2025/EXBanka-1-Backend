@@ -2691,12 +2691,17 @@ type CrossBankOTCServiceClient interface {
 	PeerReviseOffer(ctx context.Context, in *PeerReviseOfferRequest, opts ...grpc.CallOption) (*OTCOfferResponse, error)
 	PeerAcceptIntent(ctx context.Context, in *PeerAcceptIntentRequest, opts ...grpc.CallOption) (*PeerAcceptIntentResponse, error)
 	// Saga phases (responder side)
+	// idempotent
 	HandleReserveSellerShares(ctx context.Context, in *ReserveSellerSharesRequest, opts ...grpc.CallOption) (*ReserveSellerSharesResponse, error)
+	// idempotent
 	HandleTransferOwnership(ctx context.Context, in *TransferOwnershipRequest, opts ...grpc.CallOption) (*TransferOwnershipResponse, error)
+	// idempotent
 	HandleFinalize(ctx context.Context, in *FinalizeRequest, opts ...grpc.CallOption) (*FinalizeResponse, error)
+	// idempotent
 	HandleContractExpire(ctx context.Context, in *ContractExpireRequest, opts ...grpc.CallOption) (*ContractExpireResponse, error)
 	HandleSagaCheckStatus(ctx context.Context, in *SagaCheckStatusRequest, opts ...grpc.CallOption) (*SagaCheckStatusResponse, error)
 	// Compensation
+	// idempotent
 	HandleReserveSharesRollback(ctx context.Context, in *ReserveSharesRollbackRequest, opts ...grpc.CallOption) (*ReserveSharesRollbackResponse, error)
 }
 
@@ -2819,12 +2824,17 @@ type CrossBankOTCServiceServer interface {
 	PeerReviseOffer(context.Context, *PeerReviseOfferRequest) (*OTCOfferResponse, error)
 	PeerAcceptIntent(context.Context, *PeerAcceptIntentRequest) (*PeerAcceptIntentResponse, error)
 	// Saga phases (responder side)
+	// idempotent
 	HandleReserveSellerShares(context.Context, *ReserveSellerSharesRequest) (*ReserveSellerSharesResponse, error)
+	// idempotent
 	HandleTransferOwnership(context.Context, *TransferOwnershipRequest) (*TransferOwnershipResponse, error)
+	// idempotent
 	HandleFinalize(context.Context, *FinalizeRequest) (*FinalizeResponse, error)
+	// idempotent
 	HandleContractExpire(context.Context, *ContractExpireRequest) (*ContractExpireResponse, error)
 	HandleSagaCheckStatus(context.Context, *SagaCheckStatusRequest) (*SagaCheckStatusResponse, error)
 	// Compensation
+	// idempotent
 	HandleReserveSharesRollback(context.Context, *ReserveSharesRollbackRequest) (*ReserveSharesRollbackResponse, error)
 	mustEmbedUnimplementedCrossBankOTCServiceServer()
 }

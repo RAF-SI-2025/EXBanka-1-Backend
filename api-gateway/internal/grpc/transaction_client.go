@@ -3,12 +3,11 @@ package grpc
 import (
 	"google.golang.org/grpc"
 
-	"github.com/exbanka/contract/shared"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
 func NewTransactionClient(addr string) (transactionpb.TransactionServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -16,7 +15,7 @@ func NewTransactionClient(addr string) (transactionpb.TransactionServiceClient, 
 }
 
 func NewFeeServiceClient(addr string) (transactionpb.FeeServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -27,7 +26,7 @@ func NewFeeServiceClient(addr string) (transactionpb.FeeServiceClient, *grpc.Cli
 // transaction-service. Used by the gateway's HMAC-authenticated internal
 // inter-bank routes and by the inter-bank-aware /api/v3/transfers handler.
 func NewInterBankServiceClient(addr string) (transactionpb.InterBankServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}

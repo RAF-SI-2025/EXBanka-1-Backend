@@ -311,7 +311,10 @@ func (r *SagaRecovery) reconcileSettle(ctx context.Context, step model.SagaLog) 
 	if step.StepName == "settle_reservation_quote" {
 		memo = "Forex recovery — quote settlement"
 	}
-	if _, err := r.accountClient.PartialSettleReservation(ctx, step.OrderID, txnID, *step.Amount, memo); err != nil {
+	// Recovery key — retries within recovery share the same key so a
+	// late-arriving original call also collapses through the cache.
+	recoveryKey := fmt.Sprintf("recovery-settle-%d-%d", step.OrderID, txnID)
+	if _, err := r.accountClient.PartialSettleReservation(ctx, step.OrderID, txnID, *step.Amount, memo, recoveryKey); err != nil {
 		// If the error is "would exceed reservation" the most likely cause
 		// is a concurrent settle that already landed our txnID; recheck
 		// before surfacing the error.

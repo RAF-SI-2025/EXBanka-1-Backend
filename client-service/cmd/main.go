@@ -62,7 +62,10 @@ func main() {
 
 	// Connect to user-service for employee limit enforcement
 	var userLimitClient userpb.EmployeeLimitServiceClient
-	userConn, userErr := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	userConn, userErr := grpc.NewClient(cfg.UserGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if userErr != nil {
 		log.Printf("warn: failed to connect to user service for limit enforcement: %v", userErr)
 	} else {
@@ -94,6 +97,7 @@ func main() {
 			grpc.ChainUnaryInterceptor(
 				metrics.GRPCUnaryServerInterceptor(),
 				grpcmw.UnaryLoggingInterceptor("client-service"),
+				grpcmw.UnarySagaContextInterceptor(),
 			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},

@@ -446,7 +446,7 @@ func newFakeAccountClient() *fakeAccountClient {
 	return &fakeAccountClient{stub: newMockStubAccountClient()}
 }
 
-func (f *fakeAccountClient) ReserveFunds(_ context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode string) (*accountpb.ReserveFundsResponse, error) {
+func (f *fakeAccountClient) ReserveFunds(_ context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, _ string) (*accountpb.ReserveFundsResponse, error) {
 	if f.reserveErr != nil {
 		return nil, f.reserveErr
 	}
@@ -454,7 +454,7 @@ func (f *fakeAccountClient) ReserveFunds(_ context.Context, accountID, orderID u
 	return &accountpb.ReserveFundsResponse{}, nil
 }
 
-func (f *fakeAccountClient) ReleaseReservation(_ context.Context, orderID uint64) (*accountpb.ReleaseReservationResponse, error) {
+func (f *fakeAccountClient) ReleaseReservation(_ context.Context, orderID uint64, _ string) (*accountpb.ReleaseReservationResponse, error) {
 	if f.releaseErr != nil {
 		return nil, f.releaseErr
 	}

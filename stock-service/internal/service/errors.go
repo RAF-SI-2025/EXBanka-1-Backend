@@ -204,6 +204,11 @@ var (
 	// exceeded by this order.
 	ErrActuaryLimitExceeded = svcerr.New(codes.PermissionDenied, "actuary limit exceeded")
 
+	// ErrIdempotencyMissing — caller did not supply the required
+	// idempotency_key on a saga-driven RPC. Mirrors the same sentinel in
+	// account-service and transaction-service.
+	ErrIdempotencyMissing = svcerr.New(codes.InvalidArgument, "idempotency_key required")
+
 	// --- Generic catch-alls (used by handlers when wrapping bare
 	// dependency errors before they become gRPC responses) ---
 

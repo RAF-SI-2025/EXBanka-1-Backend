@@ -9,9 +9,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/outbox"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -50,6 +52,41 @@ type OTCOfferService struct {
 	ownBankCode       string
 	crossbankAccept   func(ctx context.Context, in AcceptInput) (*model.OptionContract, error)
 	crossbankExercise func(ctx context.Context, in ExerciseInput) (*model.OptionContract, error)
+
+	// Outbox: when wired (via WithOutbox), post-saga Kafka publishes
+	// (otc.contract-created, otc.contract-exercised) go through the
+	// transactional outbox instead of best-effort producer.PublishRaw.
+	// The drainer goroutine asynchronously publishes pending rows so a
+	// crash between business commit and Kafka send no longer drops events.
+	// When nil, the legacy direct-publish path is used so unit tests that
+	// don't wire a DB still work.
+	outbox    *outbox.Outbox
+	outboxDB  *gorm.DB
+}
+
+// WithOutbox wires the transactional outbox + the GORM handle the saga
+// uses to enqueue rows. Callers that don't wire this fall back to the
+// legacy direct-publish path (best-effort, may drop on crash).
+func (s *OTCOfferService) WithOutbox(ob *outbox.Outbox, db *gorm.DB) *OTCOfferService {
+	cp := *s
+	cp.outbox = ob
+	cp.outboxDB = db
+	return &cp
+}
+
+// publishViaOutboxOrDirect is the post-saga publish primitive used by
+// Accept and ExerciseContract. When the outbox is wired, the payload is
+// enqueued (durable). Otherwise the legacy producer.PublishRaw is used
+// (best-effort). sagaID is stamped on the outbox row so cross-service
+// audit can correlate Kafka events to the originating saga.
+func (s *OTCOfferService) publishViaOutboxOrDirect(ctx context.Context, topic string, payload []byte, sagaID string) {
+	if s.outbox != nil && s.outboxDB != nil {
+		_ = s.outbox.Enqueue(s.outboxDB, topic, payload, sagaID)
+		return
+	}
+	if s.producer != nil {
+		_ = s.producer.PublishRaw(ctx, topic, payload)
+	}
 }
 
 // WithCrossbank wires the cross-bank dispatch hooks. The supplied
@@ -73,15 +110,17 @@ func (s *OTCOfferService) WithCrossbank(
 // sagas use. Superset of FundAccountClient (adds reservation lifecycle).
 type OTCAccountClient interface {
 	FundAccountClient
-	ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency string) (*accountpb.ReserveFundsResponse, error)
-	ReleaseReservation(ctx context.Context, sagaOrderID uint64) (*accountpb.ReleaseReservationResponse, error)
-	PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error)
+	ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency, idempotencyKey string) (*accountpb.ReserveFundsResponse, error)
+	ReleaseReservation(ctx context.Context, sagaOrderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
+	PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error)
 }
 
 // OTCHoldingMutator is the surface needed to credit a buyer's holding on
-// exercise. Implemented by *repository.HoldingRepository.
+// exercise. Implemented by *repository.HoldingRepository. Ctx carries
+// saga_id / saga_step (set by the OTC exercise saga) so the new row gets
+// stamped for cross-service audit.
 type OTCHoldingMutator interface {
-	Upsert(h *model.Holding) error
+	Upsert(ctx context.Context, h *model.Holding) error
 }
 
 // WithSaga wires the dependencies needed by Accept / ExerciseContract.
@@ -208,7 +247,7 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 			SettlementDate: o.SettlementDate.Format("2006-01-02"),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicOTCOfferCreated, data)
+			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCreated, data, "")
 		}
 	}
 	return o, nil
@@ -291,7 +330,7 @@ func (s *OTCOfferService) Counter(ctx context.Context, in CounterInput) (*model.
 			UpdatedAt:      o.UpdatedAt.Format(time.RFC3339),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicOTCOfferCountered, data)
+			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCountered, data, "")
 		}
 	}
 	return o, nil
@@ -337,7 +376,7 @@ func (s *OTCOfferService) Reject(ctx context.Context, in RejectInput) (*model.OT
 			UpdatedAt:  o.UpdatedAt.Format(time.RFC3339),
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicOTCOfferRejected, data)
+			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferRejected, data, "")
 		}
 	}
 	return o, nil

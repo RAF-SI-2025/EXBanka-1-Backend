@@ -9449,6 +9449,7 @@ type ReserveSellerSharesRequest struct {
 	Quantity       string                 `protobuf:"bytes,6,opt,name=quantity,proto3" json:"quantity,omitempty"`
 	BuyerBankCode  string                 `protobuf:"bytes,7,opt,name=buyer_bank_code,json=buyerBankCode,proto3" json:"buyer_bank_code,omitempty"`
 	SellerBankCode string                 `protobuf:"bytes,8,opt,name=seller_bank_code,json=sellerBankCode,proto3" json:"seller_bank_code,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,9,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -9539,6 +9540,13 @@ func (x *ReserveSellerSharesRequest) GetSellerBankCode() string {
 	return ""
 }
 
+func (x *ReserveSellerSharesRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
 type ReserveSellerSharesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Confirmed     bool                   `protobuf:"varint,1,opt,name=confirmed,proto3" json:"confirmed,omitempty"`
@@ -9609,6 +9617,7 @@ type TransferOwnershipRequest struct {
 	FromClientIdExternal string                 `protobuf:"bytes,6,opt,name=from_client_id_external,json=fromClientIdExternal,proto3" json:"from_client_id_external,omitempty"`
 	ToBankCode           string                 `protobuf:"bytes,7,opt,name=to_bank_code,json=toBankCode,proto3" json:"to_bank_code,omitempty"`
 	ToClientIdExternal   string                 `protobuf:"bytes,8,opt,name=to_client_id_external,json=toClientIdExternal,proto3" json:"to_client_id_external,omitempty"`
+	IdempotencyKey       string                 `protobuf:"bytes,9,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -9699,6 +9708,13 @@ func (x *TransferOwnershipRequest) GetToClientIdExternal() string {
 	return ""
 }
 
+func (x *TransferOwnershipRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
 type TransferOwnershipResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Confirmed     bool                   `protobuf:"varint,1,opt,name=confirmed,proto3" json:"confirmed,omitempty"`
@@ -9782,6 +9798,7 @@ type FinalizeRequest struct {
 	Currency               string                 `protobuf:"bytes,11,opt,name=currency,proto3" json:"currency,omitempty"`
 	SettlementDate         string                 `protobuf:"bytes,12,opt,name=settlement_date,json=settlementDate,proto3" json:"settlement_date,omitempty"`
 	SagaKind               string                 `protobuf:"bytes,13,opt,name=saga_kind,json=sagaKind,proto3" json:"saga_kind,omitempty"`
+	IdempotencyKey         string                 `protobuf:"bytes,14,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -9907,6 +9924,13 @@ func (x *FinalizeRequest) GetSagaKind() string {
 	return ""
 }
 
+func (x *FinalizeRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
 type FinalizeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
@@ -9952,11 +9976,12 @@ func (x *FinalizeResponse) GetOk() bool {
 }
 
 type ContractExpireRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TxId          string                 `protobuf:"bytes,1,opt,name=tx_id,json=txId,proto3" json:"tx_id,omitempty"`
-	ContractId    uint64                 `protobuf:"varint,2,opt,name=contract_id,json=contractId,proto3" json:"contract_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TxId           string                 `protobuf:"bytes,1,opt,name=tx_id,json=txId,proto3" json:"tx_id,omitempty"`
+	ContractId     uint64                 `protobuf:"varint,2,opt,name=contract_id,json=contractId,proto3" json:"contract_id,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,3,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ContractExpireRequest) Reset() {
@@ -10001,6 +10026,13 @@ func (x *ContractExpireRequest) GetContractId() uint64 {
 		return x.ContractId
 	}
 	return 0
+}
+
+func (x *ContractExpireRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
 }
 
 type ContractExpireResponse struct {
@@ -10192,11 +10224,12 @@ func (x *SagaCheckStatusResponse) GetNotFound() bool {
 }
 
 type ReserveSharesRollbackRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TxId          string                 `protobuf:"bytes,1,opt,name=tx_id,json=txId,proto3" json:"tx_id,omitempty"`
-	ContractId    uint64                 `protobuf:"varint,2,opt,name=contract_id,json=contractId,proto3" json:"contract_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	TxId           string                 `protobuf:"bytes,1,opt,name=tx_id,json=txId,proto3" json:"tx_id,omitempty"`
+	ContractId     uint64                 `protobuf:"varint,2,opt,name=contract_id,json=contractId,proto3" json:"contract_id,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,3,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // saga step idempotency
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ReserveSharesRollbackRequest) Reset() {
@@ -10241,6 +10274,13 @@ func (x *ReserveSharesRollbackRequest) GetContractId() uint64 {
 		return x.ContractId
 	}
 	return 0
+}
+
+func (x *ReserveSharesRollbackRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
 }
 
 type ReserveSharesRollbackResponse struct {
@@ -11190,7 +11230,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x0fbuyer_bank_code\x18\x02 \x01(\tR\rbuyerBankCode\x127\n" +
 	"\x18buyer_client_id_external\x18\x03 \x01(\tR\x15buyerClientIdExternal\"/\n" +
 	"\x18PeerAcceptIntentResponse\x12\x13\n" +
-	"\x05tx_id\x18\x01 \x01(\tR\x04txId\"\xa2\x02\n" +
+	"\x05tx_id\x18\x01 \x01(\tR\x04txId\"\xcb\x02\n" +
 	"\x1aReserveSellerSharesRequest\x12\x13\n" +
 	"\x05tx_id\x18\x01 \x01(\tR\x04txId\x12\x1b\n" +
 	"\tsaga_kind\x18\x02 \x01(\tR\bsagaKind\x12\x19\n" +
@@ -11200,12 +11240,13 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x10asset_listing_id\x18\x05 \x01(\x04R\x0eassetListingId\x12\x1a\n" +
 	"\bquantity\x18\x06 \x01(\tR\bquantity\x12&\n" +
 	"\x0fbuyer_bank_code\x18\a \x01(\tR\rbuyerBankCode\x12(\n" +
-	"\x10seller_bank_code\x18\b \x01(\tR\x0esellerBankCode\"\x83\x01\n" +
+	"\x10seller_bank_code\x18\b \x01(\tR\x0esellerBankCode\x12'\n" +
+	"\x0fidempotency_key\x18\t \x01(\tR\x0eidempotencyKey\"\x83\x01\n" +
 	"\x1bReserveSellerSharesResponse\x12\x1c\n" +
 	"\tconfirmed\x18\x01 \x01(\bR\tconfirmed\x12%\n" +
 	"\x0ereservation_id\x18\x02 \x01(\tR\rreservationId\x12\x1f\n" +
 	"\vfail_reason\x18\x03 \x01(\tR\n" +
-	"failReason\"\xc8\x02\n" +
+	"failReason\"\xf1\x02\n" +
 	"\x18TransferOwnershipRequest\x12\x13\n" +
 	"\x05tx_id\x18\x01 \x01(\tR\x04txId\x12\x1f\n" +
 	"\vcontract_id\x18\x02 \x01(\x04R\n" +
@@ -11216,14 +11257,15 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x17from_client_id_external\x18\x06 \x01(\tR\x14fromClientIdExternal\x12 \n" +
 	"\fto_bank_code\x18\a \x01(\tR\n" +
 	"toBankCode\x121\n" +
-	"\x15to_client_id_external\x18\b \x01(\tR\x12toClientIdExternal\"\x93\x01\n" +
+	"\x15to_client_id_external\x18\b \x01(\tR\x12toClientIdExternal\x12'\n" +
+	"\x0fidempotency_key\x18\t \x01(\tR\x0eidempotencyKey\"\x93\x01\n" +
 	"\x19TransferOwnershipResponse\x12\x1c\n" +
 	"\tconfirmed\x18\x01 \x01(\bR\tconfirmed\x12\x1f\n" +
 	"\vassigned_at\x18\x02 \x01(\tR\n" +
 	"assignedAt\x12\x16\n" +
 	"\x06serial\x18\x03 \x01(\tR\x06serial\x12\x1f\n" +
 	"\vfail_reason\x18\x04 \x01(\tR\n" +
-	"failReason\"\xe3\x03\n" +
+	"failReason\"\x8c\x04\n" +
 	"\x0fFinalizeRequest\x12\x13\n" +
 	"\x05tx_id\x18\x01 \x01(\tR\x04txId\x12\x1f\n" +
 	"\vcontract_id\x18\x02 \x01(\x04R\n" +
@@ -11239,13 +11281,15 @@ const file_stock_stock_proto_rawDesc = "" +
 	" \x01(\tR\apremium\x12\x1a\n" +
 	"\bcurrency\x18\v \x01(\tR\bcurrency\x12'\n" +
 	"\x0fsettlement_date\x18\f \x01(\tR\x0esettlementDate\x12\x1b\n" +
-	"\tsaga_kind\x18\r \x01(\tR\bsagaKind\"\"\n" +
+	"\tsaga_kind\x18\r \x01(\tR\bsagaKind\x12'\n" +
+	"\x0fidempotency_key\x18\x0e \x01(\tR\x0eidempotencyKey\"\"\n" +
 	"\x10FinalizeResponse\x12\x0e\n" +
-	"\x02ok\x18\x01 \x01(\bR\x02ok\"M\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\"v\n" +
 	"\x15ContractExpireRequest\x12\x13\n" +
 	"\x05tx_id\x18\x01 \x01(\tR\x04txId\x12\x1f\n" +
 	"\vcontract_id\x18\x02 \x01(\x04R\n" +
-	"contractId\"@\n" +
+	"contractId\x12'\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"@\n" +
 	"\x16ContractExpireResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"C\n" +
@@ -11258,11 +11302,12 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x04role\x18\x03 \x01(\tR\x04role\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x12!\n" +
 	"\ferror_reason\x18\x05 \x01(\tR\verrorReason\x12\x1b\n" +
-	"\tnot_found\x18\x06 \x01(\bR\bnotFound\"T\n" +
+	"\tnot_found\x18\x06 \x01(\bR\bnotFound\"}\n" +
 	"\x1cReserveSharesRollbackRequest\x12\x13\n" +
 	"\x05tx_id\x18\x01 \x01(\tR\x04txId\x12\x1f\n" +
 	"\vcontract_id\x18\x02 \x01(\x04R\n" +
-	"contractId\"/\n" +
+	"contractId\x12'\n" +
+	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"/\n" +
 	"\x1dReserveSharesRollbackResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok2\xbf\x02\n" +
 	"\x18StockExchangeGRPCService\x12J\n" +

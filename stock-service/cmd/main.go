@@ -21,6 +21,7 @@ import (
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
+	"github.com/exbanka/contract/shared/outbox"
 	pb "github.com/exbanka/contract/stockpb"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/stock-service/internal/cache"
@@ -74,6 +75,12 @@ func main() {
 		&model.OptionContract{},
 		&model.OTCOfferReadReceipt{},
 		&model.InterBankSagaLog{},
+		&model.IdempotencyRecord{},
+		// Outbox: durable queue for Kafka events published from inside
+		// sagas. The drainer goroutine (started below) reads pending rows
+		// and publishes them, so a crash between business commit and
+		// Kafka publish can no longer silently drop events.
+		&outbox.Event{},
 	); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
@@ -156,6 +163,12 @@ func main() {
 	// --- Kafka ---
 	producer := kafkaprod.NewProducer(cfg.KafkaBrokers)
 	defer producer.Close()
+	// Outbox + drainer. Sagas that previously called producer.PublishRaw
+	// after their final commit can now call outbox.Enqueue inside (or
+	// alongside) the same DB transaction; the drainer goroutine asynchronously
+	// publishes pending rows so a crash between business commit and Kafka
+	// publish no longer drops events.
+	ob := outbox.New(db)
 	shared.EnsureTopics(cfg.KafkaBrokers,
 		"stock.exchange-synced",
 		"stock.security-synced",
@@ -203,7 +216,10 @@ func main() {
 	// --- gRPC Client Connections ---
 
 	// Account service client (for debit/credit)
-	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to account-service: %v", err)
 	}
@@ -211,7 +227,10 @@ func main() {
 	accountClient := accountpb.NewAccountServiceClient(accountConn)
 
 	// Exchange service client (for currency conversion)
-	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to exchange-service: %v", err)
 	}
@@ -221,7 +240,10 @@ func main() {
 	// Transaction service InterBankService client — used by the cross-bank
 	// OTC accept/exercise sagas for Phase 3 transfer_funds + the
 	// compensation reverse-transfer.
-	transactionConn, err := grpc.NewClient(cfg.TransactionGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	transactionConn, err := grpc.NewClient(cfg.TransactionGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Printf("warn: failed to connect to transaction-service: %v (cross-bank OTC sagas disabled)", err)
 	}
@@ -232,7 +254,10 @@ func main() {
 	}
 
 	// User service client (for name resolution + actuary limit enforcement)
-	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	userConn, err := grpc.NewClient(cfg.UserGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to user-service: %v", err)
 	}
@@ -242,7 +267,10 @@ func main() {
 	stockActuaryClient := stockgrpc.NewActuaryClient(actuaryStub)
 
 	// Client service client (for name resolution)
-	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to client-service: %v", err)
 	}
@@ -438,6 +466,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Start the outbox drainer. Adapter wraps producer.PublishRaw to satisfy
+	// outbox.Producer (which expects (ctx, topic, []byte)). The drainer ticks
+	// every 500ms publishing up to 100 pending rows per tick; failures
+	// increment row.attempt and leave the row pending for the next tick.
+	go outbox.NewDrainer(db, &outboxKafkaAdapter{prod: producer}).Run(ctx)
+
 	// Order services
 	securityLookup := service.NewSecurityLookupAdapter(stockRepo, futuresRepo, forexRepo, optionRepo)
 
@@ -545,7 +579,7 @@ func main() {
 			}
 			return resp.AccountNumber, resp.Id, nil
 		},
-	).WithPositionReads(listingRepo).WithLiquidation(orderSvc)
+	).WithPositionReads(listingRepo).WithLiquidation(orderSvc).WithOutbox(ob, db)
 	fundHandler := handler.NewInvestmentFundHandler(fundService, fundRepo, fundPositionRepo).
 		WithActuaryDeps(capitalGainRepo, userClient, exchangeClient).
 		WithFundDetailDeps(fundHoldingRepo, listingRepo, stockRepo)
@@ -564,23 +598,25 @@ func main() {
 	otcOfferSvc := service.NewOTCOfferService(
 		otcOfferRepo, otcRevisionRepo, optionContractRepo,
 		holdingRepo, otcReadReceiptRepo, producer,
-	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo)
+	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo).
+		WithOutbox(ob, db)
 
 	// OTC expiry cron (daily).
-	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC)
+	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC).WithOutbox(ob, db)
 	otcExpiry.Start(ctx)
 
 	// --- Cross-bank OTC (Spec 4 / Celina 5) ---
 	interBankSagaLogRepo := repository.NewInterBankSagaLogRepository(db)
 	crossbankPeerRouter := service.NewStaticCrossbankPeerRouter(map[string]*service.CrossbankPeerClient{})
-	crossbankExpire := service.NewCrossbankExpireSaga(interBankSagaLogRepo, producer, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, cfg.OwnBankCode)
+	crossbankExpire := service.NewCrossbankExpireSaga(interBankSagaLogRepo, producer, crossbankPeerRouter, optionContractRepo, holdingReservationSvc, cfg.OwnBankCode).WithOutbox(ob, db)
 	crossbankExpiryCron := service.NewCrossbankExpiryCron(optionContractRepo, crossbankExpire, "02:30", 200)
 	crossbankExpiryCron.Start(ctx)
 	crossbankCheckStatus := service.NewCrossbankCheckStatusCron(interBankSagaLogRepo, crossbankPeerRouter, producer, 30*time.Second, 30*time.Second)
 	crossbankCheckStatus.Start(ctx)
 	crossbankOrphan := service.NewCrossbankOrphanReservationCron(interBankSagaLogRepo, holdingReservationSvc, 5*time.Minute, 30*time.Minute)
 	crossbankOrphan.Start(ctx)
-	crossbankInternalHandler := handler.NewCrossbankInternalHandler(otcOfferRepo, optionContractRepo, holdingRepo, holdingReservationSvc, interBankSagaLogRepo, cfg.OwnBankCode)
+	idemRepo := repository.NewIdempotencyRepository(db)
+	crossbankInternalHandler := handler.NewCrossbankInternalHandler(otcOfferRepo, optionContractRepo, holdingRepo, holdingReservationSvc, interBankSagaLogRepo, cfg.OwnBankCode, db, idemRepo)
 
 	// Cross-bank accept + exercise sagas + dispatch hook on OTCOfferService.
 	if interBankClient != nil {
@@ -589,12 +625,12 @@ func main() {
 			interBankSagaLogRepo, producer,
 			crossbankPeerRouter, fundAccountAdapter,
 			optionContractRepo, otcOfferRepo, interBankAdapter, cfg.OwnBankCode,
-		)
+		).WithOutbox(ob, db)
 		crossbankExercise := service.NewCrossbankExerciseSaga(
 			interBankSagaLogRepo, producer,
 			crossbankPeerRouter, fundAccountAdapter,
 			optionContractRepo, interBankAdapter, cfg.OwnBankCode,
-		)
+		).WithOutbox(ob, db)
 		otcOfferSvc = otcOfferSvc.WithCrossbank(
 			cfg.OwnBankCode,
 			func(ctx2 context.Context, in service.AcceptInput) (*model.OptionContract, error) {
@@ -625,6 +661,7 @@ func main() {
 			grpc.ChainUnaryInterceptor(
 				metrics.GRPCUnaryServerInterceptor(),
 				grpcmw.UnaryLoggingInterceptor("stock-service"),
+				grpcmw.UnarySagaContextInterceptor(),
 			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},
@@ -673,6 +710,18 @@ func main() {
 		log.Fatalf("grpc: %v", err)
 	}
 	cancel()
+}
+
+// outboxKafkaAdapter adapts the stock-service kafkaprod.Producer (which
+// exposes PublishRaw([]byte)) to outbox.Producer (which expects
+// Publish([]byte)). The adapter drops the message-key concern; topics
+// drained from outbox today don't rely on per-key partition ordering.
+type outboxKafkaAdapter struct {
+	prod *kafkaprod.Producer
+}
+
+func (a *outboxKafkaAdapter) Publish(ctx context.Context, topic string, payload []byte) error {
+	return a.prod.PublishRaw(ctx, topic, payload)
 }
 
 // bankCommissionAccountAdapter satisfies service.BankCommissionRecipient by
@@ -752,16 +801,16 @@ func (a *fundAccountAdapter) DebitAccount(ctx context.Context, accountNumber str
 
 // Reservation lifecycle methods — added so fundAccountAdapter also satisfies
 // service.OTCAccountClient (Celina-4 OTC accept/exercise sagas).
-func (a *fundAccountAdapter) ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency string) (*accountpb.ReserveFundsResponse, error) {
-	return a.fillClient.ReserveFunds(ctx, accountID, sagaOrderID, amount, currency)
+func (a *fundAccountAdapter) ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency, idempotencyKey string) (*accountpb.ReserveFundsResponse, error) {
+	return a.fillClient.ReserveFunds(ctx, accountID, sagaOrderID, amount, currency, idempotencyKey)
 }
 
-func (a *fundAccountAdapter) ReleaseReservation(ctx context.Context, sagaOrderID uint64) (*accountpb.ReleaseReservationResponse, error) {
-	return a.fillClient.ReleaseReservation(ctx, sagaOrderID)
+func (a *fundAccountAdapter) ReleaseReservation(ctx context.Context, sagaOrderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error) {
+	return a.fillClient.ReleaseReservation(ctx, sagaOrderID, idempotencyKey)
 }
 
-func (a *fundAccountAdapter) PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error) {
-	return a.fillClient.PartialSettleReservation(ctx, sagaOrderID, settleSeq, amount, memo)
+func (a *fundAccountAdapter) PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error) {
+	return a.fillClient.PartialSettleReservation(ctx, sagaOrderID, settleSeq, amount, memo, idempotencyKey)
 }
 
 // fundExchangeAdapter narrows the exchange-service gRPC client to the

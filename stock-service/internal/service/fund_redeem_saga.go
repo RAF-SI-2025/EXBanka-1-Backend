@@ -222,7 +222,7 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 			ContributionID:  contrib.ID,
 		}
 		if data, err := json.Marshal(payload); err == nil {
-			_ = s.producer.PublishRaw(ctx, kafkamsg.TopicStockFundRedeemed, data)
+			publishSagaEvent(ctx, s.outbox, s.outboxDB, s.producer, kafkamsg.TopicStockFundRedeemed, data, sagaID)
 		}
 	}
 

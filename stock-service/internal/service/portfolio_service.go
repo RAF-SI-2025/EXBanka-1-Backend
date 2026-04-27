@@ -30,7 +30,7 @@ import (
 //   - Stub() for direct GetAccount/UpdateBalance access on paths that predate
 //     Phase 2 (stateAccountNo-based commission, legacy helpers, exercise-option).
 type FillAccountClient interface {
-	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*accountpb.PartialSettleReservationResponse, error)
+	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error)
 	// CreditAccount and DebitAccount take an idempotencyKey (empty string
 	// opts out). Callers driven by the fill/compensation saga pass a
 	// deterministic key derived from the order-transaction ID so a retried
@@ -42,7 +42,7 @@ type FillAccountClient interface {
 	// on top of the expected fill amount; settlement only consumes the actual
 	// fill, leaving the buffer stuck on the user's account until this is
 	// called. Safe to call when nothing is reserved.
-	ReleaseReservation(ctx context.Context, orderID uint64) (*accountpb.ReleaseReservationResponse, error)
+	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
 	Stub() accountpb.AccountServiceClient
 }
 
@@ -321,7 +321,8 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 				memo := fmt.Sprintf("Order #%d partial fill (txn #%d)", order.ID, txn.ID)
 				st.Set("step:settle_reservation:amount", settleAmount)
 				st.Set("step:settle_reservation:currency", accountCurrency)
-				_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, settleAmount, memo)
+				_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, settleAmount, memo,
+					saga.IdempotencyKey(sagaID, saga.StepSettleReservation))
 				return serr
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
@@ -340,7 +341,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 		Add(saga.Step{
 			Name: saga.StepUpdateHolding,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				return s.upsertHoldingForBuy(order, txn)
+				return s.upsertHoldingForBuy(ctx, order, txn)
 			},
 			// Holdings upsert is idempotent on PK (weighted-average); leaving
 			// the row in place after a later-step failure is harmless.
@@ -392,7 +393,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 // quantity goes into fund_holdings instead of holdings, keyed by
 // (FundID, SecurityType, SecurityID). The fund-holdings repo applies a
 // weighted-average upsert just like the user-side holdings repo.
-func (s *PortfolioService) upsertHoldingForBuy(order *model.Order, txn *model.OrderTransaction) error {
+func (s *PortfolioService) upsertHoldingForBuy(ctx context.Context, order *model.Order, txn *model.OrderTransaction) error {
 	listing, err := s.listingRepo.GetByID(order.ListingID)
 	if err != nil {
 		return err
@@ -440,7 +441,7 @@ func (s *PortfolioService) upsertHoldingForBuy(order *model.Order, txn *model.Or
 		AveragePrice:  txn.PricePerUnit,
 		AccountID:     order.AccountID,
 	}
-	return s.holdingRepo.Upsert(holding)
+	return s.holdingRepo.Upsert(ctx, holding)
 }
 
 // commissionRecipientAccount returns the account number that should receive
@@ -526,7 +527,7 @@ func (s *PortfolioService) processBuyFillLegacy(order *model.Order, txn *model.O
 		AccountID:     order.AccountID,
 	}
 
-	if err := s.holdingRepo.Upsert(holding); err != nil {
+	if err := s.holdingRepo.Upsert(context.Background(), holding); err != nil {
 		return err
 	}
 
@@ -784,7 +785,9 @@ func (s *PortfolioService) ReleaseResidualReservation(ctx context.Context, order
 	if s.fillClient == nil {
 		return nil
 	}
-	_, err := s.fillClient.ReleaseReservation(ctx, orderID)
+	// Stable per-order key — repeated calls hit the cache and become no-ops.
+	releaseKey := fmt.Sprintf("release-residual-%d", orderID)
+	_, err := s.fillClient.ReleaseReservation(ctx, orderID, releaseKey)
 	return err
 }
 
@@ -1014,7 +1017,7 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64, systemType s
 			AveragePrice:  option.StrikePrice,
 			AccountID:     holding.AccountID,
 		}
-		if err := s.holdingRepo.Upsert(stockHolding); err != nil {
+		if err := s.holdingRepo.Upsert(context.Background(), stockHolding); err != nil {
 			// Compensate: re-credit the debit amount
 			_ = s.creditAccount(holding.AccountID, debitAmount)
 			return nil, err

@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}, &model.CardRequest{}, &model.Changelog{}); err != nil {
+	if err := db.AutoMigrate(&model.Card{}, &model.AuthorizedPerson{}, &model.CardBlock{}, &model.CardRequest{}, &model.Changelog{}, &model.IdempotencyRecord{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -66,7 +66,10 @@ func main() {
 	}
 
 	// Connect to client-service
-	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to client service: %v", err)
 	}
@@ -102,6 +105,7 @@ func main() {
 			grpc.ChainUnaryInterceptor(
 				metrics.GRPCUnaryServerInterceptor(),
 				grpcmw.UnaryLoggingInterceptor("card-service"),
+				grpcmw.UnarySagaContextInterceptor(),
 			),
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},
