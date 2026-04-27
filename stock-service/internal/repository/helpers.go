@@ -7,7 +7,21 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/exbanka/contract/shared/svcerr"
+	"github.com/exbanka/stock-service/internal/model"
 )
+
+// scopeOwner adds a (owner_type, owner_id) predicate. ownerID is *uint64
+// because bank-owner rows have owner_id = NULL — we MUST emit IS NULL
+// rather than `= 0`, which would never match.
+//
+// Use as: q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID).
+func scopeOwner(q *gorm.DB, ownerTypeCol, ownerIDCol string, ownerType model.OwnerType, ownerID *uint64) *gorm.DB {
+	q = q.Where(fmt.Sprintf("%s = ?", ownerTypeCol), string(ownerType))
+	if ownerID == nil {
+		return q.Where(fmt.Sprintf("%s IS NULL", ownerIDCol))
+	}
+	return q.Where(fmt.Sprintf("%s = ?", ownerIDCol), *ownerID)
+}
 
 // ErrOptimisticLock is the typed sentinel returned when a concurrent
 // modification is detected. Carries codes.Aborted so service handlers can

@@ -21,74 +21,77 @@ func (r *TaxCollectionRepository) Create(collection *model.TaxCollection) error 
 	return r.db.Create(collection).Error
 }
 
-// SumByUserYear returns total RSD tax collected for a (user_id, system_type) in a given year.
-func (r *TaxCollectionRepository) SumByUserYear(userID uint64, systemType string, year int) (decimal.Decimal, error) {
+// SumByOwnerYear returns total RSD tax collected for an owner in a given year.
+func (r *TaxCollectionRepository) SumByOwnerYear(ownerType model.OwnerType, ownerID *uint64, year int) (decimal.Decimal, error) {
 	var result struct {
 		Total decimal.Decimal
 	}
-	err := r.db.Model(&model.TaxCollection{}).
+	q := r.db.Model(&model.TaxCollection{}).
 		Select("COALESCE(SUM(tax_amount_rsd), 0) as total").
-		Where("user_id = ? AND system_type = ? AND year = ?", userID, systemType, year).
-		Scan(&result).Error
+		Where("year = ?", year)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	err := q.Scan(&result).Error
 	return result.Total, err
 }
 
-// SumByUserMonth returns total RSD tax collected for a (user_id, system_type) in a given month.
-func (r *TaxCollectionRepository) SumByUserMonth(userID uint64, systemType string, year, month int) (decimal.Decimal, error) {
+// SumByOwnerMonth returns total RSD tax collected for an owner in a given month.
+func (r *TaxCollectionRepository) SumByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) (decimal.Decimal, error) {
 	var result struct {
 		Total decimal.Decimal
 	}
-	err := r.db.Model(&model.TaxCollection{}).
+	q := r.db.Model(&model.TaxCollection{}).
 		Select("COALESCE(SUM(tax_amount_rsd), 0) as total").
-		Where("user_id = ? AND system_type = ? AND year = ? AND month = ?", userID, systemType, year, month).
-		Scan(&result).Error
+		Where("year = ? AND month = ?", year, month)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	err := q.Scan(&result).Error
 	return result.Total, err
 }
 
-// SumByUserAllTime returns total RSD tax collected across every month for a
-// (user_id, system_type). Used by the portfolio-summary endpoint so the UI
-// can show lifetime-paid vs. lifetime-owed.
-func (r *TaxCollectionRepository) SumByUserAllTime(userID uint64, systemType string) (decimal.Decimal, error) {
+// SumByOwnerAllTime returns total RSD tax collected across every month for an
+// owner. Used by the portfolio-summary endpoint so the UI can show
+// lifetime-paid vs. lifetime-owed.
+func (r *TaxCollectionRepository) SumByOwnerAllTime(ownerType model.OwnerType, ownerID *uint64) (decimal.Decimal, error) {
 	var result struct {
 		Total decimal.Decimal
 	}
-	err := r.db.Model(&model.TaxCollection{}).
-		Select("COALESCE(SUM(tax_amount_rsd), 0) as total").
-		Where("user_id = ? AND system_type = ?", userID, systemType).
-		Scan(&result).Error
+	q := r.db.Model(&model.TaxCollection{}).
+		Select("COALESCE(SUM(tax_amount_rsd), 0) as total")
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	err := q.Scan(&result).Error
 	return result.Total, err
 }
 
 // CountByKey counts how many TaxCollection rows already exist for the
-// (user, system_type, year, month, account_id, currency) tuple. CollectTax
-// uses this to derive an "attempt number" suffix for the account-service
-// idempotency keys, so two incremental collections in the same month produce
-// distinct keys (not deduped as replays) while a crash-and-retry of the same
-// incremental batch produces the same key (safely deduped).
-func (r *TaxCollectionRepository) CountByKey(userID uint64, systemType string, year, month int, accountID uint64, currency string) (int64, error) {
+// (owner, year, month, account_id, currency) tuple. CollectTax uses this to
+// derive an "attempt number" suffix for the account-service idempotency keys,
+// so two incremental collections in the same month produce distinct keys (not
+// deduped as replays) while a crash-and-retry of the same incremental batch
+// produces the same key (safely deduped).
+func (r *TaxCollectionRepository) CountByKey(ownerType model.OwnerType, ownerID *uint64, year, month int, accountID uint64, currency string) (int64, error) {
 	var count int64
-	err := r.db.Model(&model.TaxCollection{}).
-		Where("user_id = ? AND system_type = ? AND year = ? AND month = ? AND account_id = ? AND currency = ?",
-			userID, systemType, year, month, accountID, currency).
-		Count(&count).Error
+	q := r.db.Model(&model.TaxCollection{}).
+		Where("year = ? AND month = ? AND account_id = ? AND currency = ?",
+			year, month, accountID, currency)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	err := q.Count(&count).Error
 	return count, err
 }
 
-func (r *TaxCollectionRepository) GetLastCollection(userID uint64, systemType string) (*model.TaxCollection, error) {
+func (r *TaxCollectionRepository) GetLastCollection(ownerType model.OwnerType, ownerID *uint64) (*model.TaxCollection, error) {
 	var tc model.TaxCollection
-	err := r.db.Where("user_id = ? AND system_type = ?", userID, systemType).
-		Order("collected_at DESC").
-		First(&tc).Error
+	q := r.db.Model(&model.TaxCollection{})
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	err := q.Order("collected_at DESC").First(&tc).Error
 	if err != nil {
 		return nil, err
 	}
 	return &tc, nil
 }
 
-// ListByUser returns the tax collection history for one (user_id, system_type)
-// in reverse-chronological order. Used by GET /api/v1/me/tax so a user can see
+// ListByOwner returns the tax collection history for one owner in
+// reverse-chronological order. Used by GET /api/v1/me/tax so a user can see
 // exactly when each month's capital-gains tax was taken.
-func (r *TaxCollectionRepository) ListByUser(userID uint64, systemType string, page, pageSize int) ([]model.TaxCollection, int64, error) {
+func (r *TaxCollectionRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.TaxCollection, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -96,13 +99,15 @@ func (r *TaxCollectionRepository) ListByUser(userID uint64, systemType string, p
 		pageSize = 50
 	}
 	var total int64
-	q := r.db.Model(&model.TaxCollection{}).
-		Where("user_id = ? AND system_type = ?", userID, systemType)
+	q := r.db.Model(&model.TaxCollection{})
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 	var out []model.TaxCollection
-	err := q.Order("collected_at DESC").
+	q2 := r.db.Model(&model.TaxCollection{})
+	q2 = scopeOwner(q2, "owner_type", "owner_id", ownerType, ownerID)
+	err := q2.Order("collected_at DESC").
 		Offset((page - 1) * pageSize).
 		Limit(pageSize).
 		Find(&out).Error
@@ -112,12 +117,12 @@ func (r *TaxCollectionRepository) ListByUser(userID uint64, systemType string, p
 	return out, total, nil
 }
 
-// ListUsersWithGains returns users who have capital gains in the given month,
-// along with their uncollected tax debt in RSD.
-func (r *TaxCollectionRepository) ListUsersWithGains(year, month int, filter TaxFilter) ([]TaxUserSummary, int64, error) {
+// ListOwnersWithGains returns owners who have capital gains in the given
+// month, along with their uncollected tax debt in RSD.
+func (r *TaxCollectionRepository) ListOwnersWithGains(year, month int, filter TaxFilter) ([]TaxUserSummary, int64, error) {
 	type rawResult struct {
-		UserID        uint64
-		SystemType    string
+		OwnerType     string
+		OwnerID       *uint64
 		UserFirstName string
 		UserLastName  string
 		TotalGainRSD  decimal.Decimal
@@ -127,27 +132,27 @@ func (r *TaxCollectionRepository) ListUsersWithGains(year, month int, filter Tax
 	var results []rawResult
 	var total int64
 
-	// Base query: users with capital gains this month.
-	// The "last collected" subquery matches on (user_id, system_type) so
-	// employee/client bookkeeping stays separated when IDs collide across
-	// namespaces. The holdings join is similarly keyed.
+	// Base query: owners with capital gains this month.
+	// The "last collected" subquery matches on (owner_type, owner_id) so
+	// bank/client bookkeeping stays separated. Holdings join is similarly keyed.
 	baseQuery := r.db.Table("capital_gains cg").
 		Select(`
-			cg.user_id,
-			cg.system_type,
+			cg.owner_type,
+			cg.owner_id,
 			h.user_first_name,
 			h.user_last_name,
 			SUM(cg.total_gain) as total_gain_rsd,
-			(SELECT MAX(tc.collected_at) FROM tax_collections tc WHERE tc.user_id = cg.user_id AND tc.system_type = cg.system_type) as last_collected
+			(SELECT MAX(tc.collected_at) FROM tax_collections tc WHERE tc.owner_type = cg.owner_type AND tc.owner_id IS NOT DISTINCT FROM cg.owner_id) as last_collected
 		`).
-		Joins("LEFT JOIN holdings h ON h.user_id = cg.user_id AND h.system_type = cg.system_type AND h.id = (SELECT MIN(id) FROM holdings WHERE user_id = cg.user_id AND system_type = cg.system_type)").
+		Joins("LEFT JOIN holdings h ON h.owner_type = cg.owner_type AND h.owner_id IS NOT DISTINCT FROM cg.owner_id AND h.id = (SELECT MIN(id) FROM holdings WHERE owner_type = cg.owner_type AND owner_id IS NOT DISTINCT FROM cg.owner_id)").
 		Where("cg.tax_year = ? AND cg.tax_month = ? AND cg.tax_collection_id IS NULL", year, month)
 
 	if filter.UserType != "" {
-		if filter.UserType == "actuary" {
-			baseQuery = baseQuery.Where("cg.system_type = 'employee'")
-		} else {
-			baseQuery = baseQuery.Where("cg.system_type = ?", filter.UserType)
+		// "actuary" filter no longer maps to system_type=employee; instead it
+		// filters by acting_employee_id IS NOT NULL via post-processing.
+		// For now: 'client' → owner_type=client, others ignored.
+		if filter.UserType == "client" {
+			baseQuery = baseQuery.Where("cg.owner_type = 'client'")
 		}
 	}
 	if filter.Search != "" {
@@ -155,9 +160,9 @@ func (r *TaxCollectionRepository) ListUsersWithGains(year, month int, filter Tax
 			"%"+filter.Search+"%", "%"+filter.Search+"%")
 	}
 
-	baseQuery = baseQuery.Group("cg.user_id, cg.system_type, h.user_first_name, h.user_last_name")
+	baseQuery = baseQuery.Group("cg.owner_type, cg.owner_id, h.user_first_name, h.user_last_name")
 
-	// Count distinct users
+	// Count distinct owners
 	countQuery := r.db.Table("(?) as sub", baseQuery).Select("COUNT(*)")
 	if err := countQuery.Scan(&total).Error; err != nil {
 		return nil, 0, err
@@ -185,8 +190,8 @@ func (r *TaxCollectionRepository) ListUsersWithGains(year, month int, filter Tax
 			debt = r.TotalGainRSD.Mul(taxRate).Round(2)
 		}
 		summaries[i] = TaxUserSummary{
-			UserID:         r.UserID,
-			SystemType:     r.SystemType,
+			OwnerType:      r.OwnerType,
+			OwnerID:        r.OwnerID,
 			UserFirstName:  r.UserFirstName,
 			UserLastName:   r.UserLastName,
 			TotalDebtRSD:   debt,

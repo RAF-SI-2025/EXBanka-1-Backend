@@ -91,8 +91,8 @@ type AccountGainSummary struct {
 }
 
 type TaxUserSummary struct {
-	UserID         uint64
-	SystemType     string
+	OwnerType      string
+	OwnerID        *uint64
 	UserFirstName  string
 	UserLastName   string
 	TotalDebtRSD   decimal.Decimal
