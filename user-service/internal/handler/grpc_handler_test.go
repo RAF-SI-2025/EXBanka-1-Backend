@@ -7,6 +7,7 @@ import (
 
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/model"
+	"github.com/exbanka/user-service/internal/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
@@ -188,8 +189,11 @@ func TestCreateEmployee_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	// Raw (non-sentinel) errors now pass through as Unknown — substring
+	// matching has been removed; the logging interceptor preserves the wrap
+	// chain for ops visibility while the wire status indicates "untyped".
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -223,6 +227,8 @@ func TestGetEmployee_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+	// Handler still maps GORM record-not-found to NotFound at this site (it
+	// uses an explicit status, not mapServiceError).
 	if got := grpcCode(err); got != codes.NotFound {
 		t.Errorf("expected codes.NotFound, got %v", got)
 	}
@@ -264,8 +270,10 @@ func TestListEmployees_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	// Untyped errors now pass through as Unknown — see TestSentinel_Passthrough
+	// for the new typed-error contract.
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -305,8 +313,8 @@ func TestListRoles_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -390,8 +398,8 @@ func TestSetEmployeeRoles_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -498,8 +506,8 @@ func TestListPermissions_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -550,9 +558,11 @@ func TestUpdateEmployee_NotFound(t *testing.T) {
 }
 
 func TestUpdateEmployee_ServiceError(t *testing.T) {
+	// Inject the typed sentinel — the handler now relies on GRPCStatus, not
+	// substring matching, to convey the error class.
 	emp := &mockEmpSvc{
 		updateFn: func(ctx context.Context, id int64, updates map[string]interface{}, changedBy int64) (*model.Employee, error) {
-			return nil, errors.New("already exists duplicate")
+			return nil, service.ErrEmployeeAlreadyExists
 		},
 	}
 	h := newUserHandlerForTest(emp, &mockRoleSvc{})
@@ -563,6 +573,9 @@ func TestUpdateEmployee_ServiceError(t *testing.T) {
 	}
 	if got := grpcCode(err); got != codes.AlreadyExists {
 		t.Errorf("expected codes.AlreadyExists, got %v", got)
+	}
+	if !errors.Is(err, service.ErrEmployeeAlreadyExists) {
+		t.Errorf("expected errors.Is to match ErrEmployeeAlreadyExists")
 	}
 }
 
@@ -597,7 +610,7 @@ func TestCreateRole_Success(t *testing.T) {
 func TestCreateRole_ServiceError(t *testing.T) {
 	roleSvc := &mockRoleSvc{
 		createRoleFn: func(name, description string, perms []string) (*model.Role, error) {
-			return nil, errors.New("already exists duplicate")
+			return nil, service.ErrEmployeeAlreadyExists
 		},
 	}
 	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
@@ -630,43 +643,47 @@ func TestUpdateRolePermissions_UpdateError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// mapServiceError coverage — keyword paths
+// Sentinel passthrough — verify typed sentinels reach the wire intact
 // ---------------------------------------------------------------------------
 
-func TestMapServiceError_Keywords(t *testing.T) {
+func TestSentinel_Passthrough(t *testing.T) {
 	tests := []struct {
-		msg      string
+		name     string
+		sentinel error
 		expected codes.Code
 	}{
-		{"record not found", codes.NotFound},
-		{"must be valid", codes.InvalidArgument},
-		{"must not exceed", codes.InvalidArgument},
-		{"must have at least one", codes.InvalidArgument},
-		{"must contain digits", codes.InvalidArgument},
-		{"invalid format", codes.InvalidArgument},
-		{"already exists in db", codes.AlreadyExists},
-		{"duplicate key", codes.AlreadyExists},
-		{"insufficient funds available", codes.FailedPrecondition},
-		{"spending limit exceeded", codes.FailedPrecondition},
-		{"account is locked out", codes.ResourceExhausted},
-		{"max attempts reached", codes.ResourceExhausted},
-		{"failed attempts exceeded", codes.ResourceExhausted},
-		{"permission denied", codes.PermissionDenied},
-		{"forbidden action", codes.PermissionDenied},
-		{"something generic", codes.Internal},
+		{"ErrEmployeeNotFound", service.ErrEmployeeNotFound, codes.NotFound},
+		{"ErrInvalidJMBG", service.ErrInvalidJMBG, codes.InvalidArgument},
+		{"ErrInvalidPassword", service.ErrInvalidPassword, codes.InvalidArgument},
+		{"ErrEmployeeAlreadyExists", service.ErrEmployeeAlreadyExists, codes.AlreadyExists},
+		{"ErrPermissionNotInCatalog", service.ErrPermissionNotInCatalog, codes.InvalidArgument},
+		{"ErrRoleNotFound", service.ErrRoleNotFound, codes.NotFound},
+		{"ErrTemplateNotFound", service.ErrTemplateNotFound, codes.NotFound},
+		{"ErrBlueprintNotFound", service.ErrBlueprintNotFound, codes.NotFound},
+		{"ErrLimitExceedsTemplate", service.ErrLimitExceedsTemplate, codes.FailedPrecondition},
 	}
 
 	for _, tc := range tests {
-		got := mapServiceError(errors.New(tc.msg))
-		if got != tc.expected {
-			t.Errorf("mapServiceError(%q) = %v, want %v", tc.msg, got, tc.expected)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			s, ok := status.FromError(tc.sentinel)
+			if !ok {
+				t.Fatalf("sentinel %s does not satisfy GRPCStatus interface", tc.name)
+			}
+			if s.Code() != tc.expected {
+				t.Errorf("expected code=%v, got %v", tc.expected, s.Code())
+			}
+			// Wrapped sentinels must also resolve via errors.Is
+			wrapped := errors.Join(errors.New("context: "), tc.sentinel)
+			if !errors.Is(wrapped, tc.sentinel) {
+				t.Errorf("errors.Is failed for wrapped %s", tc.name)
+			}
+		})
 	}
 }
 
@@ -689,8 +706,8 @@ func TestSetEmployeeAdditionalPermissions_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 

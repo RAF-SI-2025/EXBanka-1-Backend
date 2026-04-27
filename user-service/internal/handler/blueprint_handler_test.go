@@ -9,8 +9,10 @@ import (
 
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/model"
+	"github.com/exbanka/user-service/internal/service"
 	"google.golang.org/grpc/codes"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 // ---------------------------------------------------------------------------
@@ -126,7 +128,7 @@ func TestCreateBlueprint_Success(t *testing.T) {
 func TestCreateBlueprint_ServiceError(t *testing.T) {
 	h := newBlueprintHandlerForTest(&mockBlueprintSvc{
 		createBlueprintFn: func(ctx context.Context, bp model.LimitBlueprint) (*model.LimitBlueprint, error) {
-			return nil, errors.New("already exists duplicate")
+			return nil, service.ErrEmployeeAlreadyExists
 		},
 	})
 
@@ -169,7 +171,7 @@ func TestGetBlueprint_Success(t *testing.T) {
 func TestGetBlueprint_NotFound(t *testing.T) {
 	h := newBlueprintHandlerForTest(&mockBlueprintSvc{
 		getBlueprintFn: func(id uint64) (*model.LimitBlueprint, error) {
-			return nil, errors.New("not found")
+			return nil, gorm.ErrRecordNotFound
 		},
 	})
 
@@ -216,8 +218,8 @@ func TestListBlueprints_ServiceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if got := grpcCode(err); got != codes.Internal {
-		t.Errorf("expected codes.Internal, got %v", got)
+	if got := grpcCode(err); got != codes.Unknown {
+		t.Errorf("expected codes.Unknown, got %v", got)
 	}
 }
 
@@ -255,7 +257,7 @@ func TestUpdateBlueprint_Success(t *testing.T) {
 func TestUpdateBlueprint_ServiceError(t *testing.T) {
 	h := newBlueprintHandlerForTest(&mockBlueprintSvc{
 		updateBlueprintFn: func(ctx context.Context, id uint64, name, description string, values json.RawMessage) (*model.LimitBlueprint, error) {
-			return nil, errors.New("not found")
+			return nil, gorm.ErrRecordNotFound
 		},
 	})
 
@@ -296,7 +298,7 @@ func TestDeleteBlueprint_Success(t *testing.T) {
 func TestDeleteBlueprint_ServiceError(t *testing.T) {
 	h := newBlueprintHandlerForTest(&mockBlueprintSvc{
 		deleteBlueprintFn: func(ctx context.Context, id uint64) error {
-			return errors.New("not found")
+			return gorm.ErrRecordNotFound
 		},
 	})
 
@@ -340,7 +342,7 @@ func TestApplyBlueprint_Success(t *testing.T) {
 func TestApplyBlueprint_ServiceError(t *testing.T) {
 	h := newBlueprintHandlerForTest(&mockBlueprintSvc{
 		applyBlueprintFn: func(ctx context.Context, blueprintID uint64, targetID int64, appliedBy int64) error {
-			return errors.New("not found")
+			return service.ErrBlueprintNotFound
 		},
 	})
 
