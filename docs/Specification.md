@@ -320,6 +320,8 @@ When adding a new feature that spans the full stack, touch these files in order:
 - [ ] Update `docs/api/REST_API.md`
 - [ ] Add integration tests in `test-app/`
 
+**Saga step naming**: When adding a new saga step, declare the constant in `contract/shared/saga/steps.go` (and add to the `allSteps` registry map). Then add a case to the recovery switch in `stock-service/internal/service/saga_recovery.go` — the switch's panicking `default` will crash startup if you forget.
+
 ---
 
 ## 5. API Gateway Patterns
@@ -1912,6 +1914,16 @@ type RolePermissionsChangedMessage struct {
 Note: Phase 2 intentionally did not introduce a `stock.order-failed` topic. Failed fills stay as stuck saga rows and are retried by the saga recovery reconciler on startup rather than emitting a failure event.
 
 When adding a new message type: define the struct in `contract/kafka/messages.go`, add a topic constant string, and follow the existing naming pattern (`{Entity}{Action}Message`).
+
+### Cross-Bank Saga Persistence
+
+Cross-bank sagas (accept, exercise, expire) are orchestrated by `contract/shared/saga.Saga` with `stock-service/internal/saga.CrossBankRecorder` writing to the `inter_bank_saga_logs` table (keyed on `tx_id, phase, role`).
+
+Step names are typed via `contract/shared/saga.StepKind`. The recovery switch in `stock-service/internal/service/saga_recovery.go` panics on any unknown `StepKind`, forcing every new step to be added explicitly.
+
+Lifecycle Kafka events (`crossbank.{accept|exercise|expire}-{started|committed|rolled-back}`) are emitted via the per-saga `LifecyclePublisher` adapter wired through `Saga.WithPublisher(...)`.
+
+Saga IDs are minted by `Saga.NewSaga(recorder)`. Sub-sagas derive a deterministic ≤36-char child ID from `sha256(parent_id + ":" + child_kind)` via `Saga.NewSubSaga(kind)`.
 
 ---
 
