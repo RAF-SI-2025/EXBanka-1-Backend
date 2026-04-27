@@ -505,12 +505,12 @@ The catalog is the source of truth for what permissions EXIST. Default role-perm
 
 | Method | Path | Required Permission |
 |---|---|---|
-| `POST` | `/api/v1/roles/:role_name/permissions` | `roles.permissions.assign` |
-| `DELETE` | `/api/v1/roles/:role_name/permissions/:permission` | `roles.permissions.revoke` |
+| `POST` | `/api/v3/roles/:role_name/permissions` | `roles.permissions.assign` |
+| `DELETE` | `/api/v3/roles/:role_name/permissions/:permission` | `roles.permissions.revoke` |
 
 The `POST` body is `{"permission": "<code>"}`. The handler validates `<code>` against the catalog — unknown codes return HTTP 400 (`InvalidArgument`). A missing role returns HTTP 404. Both verbs are idempotent and return HTTP 204 No Content on success. Both publish `RolePermissionsChangedMessage` to Kafka so auth-service can revoke active sessions for affected employees.
 
-For bulk replacement (set all permissions on a role at once) the legacy `PUT /api/v1/roles/:id/permissions` endpoint remains available (gated by `roles.update.any`).
+For bulk replacement (set all permissions on a role at once) the legacy `PUT /api/v3/roles/:id/permissions` endpoint remains available (gated by `roles.update.any`).
 
 **Catalog drift check:** at startup, user-service scans `role_permissions` and logs `WARN: orphan permission in role_permissions: role_id=… perm=…` for any DB row referencing a permission no longer in the catalog. Orphans are NOT auto-cleaned (silent revocation of admin grants would be unsafe); operators clean them manually after reviewing the warning.
 
@@ -894,7 +894,7 @@ Four new RPCs on `AccountService` back the securities-order reservation system. 
 `PortfolioGRPCService` — portfolio operations including option exercise:
 - `ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult)` — exercises an option by option ID instead of holding ID. Fields: `option_id uint64` (required), `user_id uint64` (required), `holding_id uint64` (optional; 0 means auto-resolve to the user's most recent unexpired holding for that option).
 
-`OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v1/orders` or `POST /api/v1/otc/admin/offers/:id/buy` endpoints.
+`OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v3/orders` or `POST /api/v3/otc/admin/offers/:id/buy` endpoints.
 
 `SourceAdminService` — destructive data-source management:
 - `SwitchSource(SwitchSourceRequest) returns (SwitchSourceResponse)` — switches the active stock data source. Request field: `source string` (one of `external`, `generated`, `simulator`). Response wraps a `SourceStatus` message.
@@ -1232,10 +1232,10 @@ api-gateway:
 > **Ownership lockdown (as of 2026-04-13):** The following `/api/me/*` routes enforce that the requested resource belongs to the JWT caller. Mismatches return `404 not_found` to avoid leaking existence: `GET /api/me/loans/:id`, `GET /api/me/payments/:id`, `GET /api/me/transfers/:id`, `POST /api/me/cards/:id/pin`, `POST /api/me/cards/:id/verify-pin`, `POST /api/me/cards/:id/temporary-block`, `PUT /api/me/payment-recipients/:id`, `DELETE /api/me/payment-recipients/:id`, `POST /api/me/loan-requests` (body `client_id` is ignored; JWT `user_id` is used), `POST /api/me/cards/virtual` (owner derived from JWT), `POST /api/me/orders`, `POST /api/me/otc/offers/:id/buy` (account ownership verified against JWT caller).
 
 > **Securities reservation flow (Phase 2, 2026-04-22):**
-> - `POST /api/v1/me/orders` accepts an optional `security_type` (`stock`|`futures`|`forex`|`option`) and — required when `security_type=forex` — a `base_account_id` (must differ from `account_id` and be owned by the JWT caller). Forex orders must be `direction=buy`. New 400 cases: `forex orders must be direction=buy`, `forex orders require base_account_id`, `base_account_id must differ from account_id`. New 409 case: insufficient available balance on the reservation account.
-> - `GET /api/v1/me/orders/:id` responses include `reservation_amount`, `reservation_currency`, `reservation_account_id`, `base_account_id` (forex), `placement_rate`, and `saga_id`. OrderTransaction rows additionally expose `native_amount`, `native_currency`, `converted_amount`, `account_currency`, `fx_rate` for cross-currency fills.
-> - `GET /api/v1/me/accounts` and `/api/v1/me/accounts/:id` responses include `reserved_balance` and `available_balance` (stored; `available_balance = balance - reserved_balance`).
-> - Settled fills post `LedgerEntry` rows so they appear in `/api/v1/me/accounts/:id/transactions`.
+> - `POST /api/v3/me/orders` accepts an optional `security_type` (`stock`|`futures`|`forex`|`option`) and — required when `security_type=forex` — a `base_account_id` (must differ from `account_id` and be owned by the JWT caller). Forex orders must be `direction=buy`. New 400 cases: `forex orders must be direction=buy`, `forex orders require base_account_id`, `base_account_id must differ from account_id`. New 409 case: insufficient available balance on the reservation account.
+> - `GET /api/v3/me/orders/:id` responses include `reservation_amount`, `reservation_currency`, `reservation_account_id`, `base_account_id` (forex), `placement_rate`, and `saga_id`. OrderTransaction rows additionally expose `native_amount`, `native_currency`, `converted_amount`, `account_currency`, `fx_rate` for cross-currency fills.
+> - `GET /api/v3/me/accounts` and `/api/v3/me/accounts/:id` responses include `reserved_balance` and `available_balance` (stored; `available_balance = balance - reserved_balance`).
+> - Settled fills post `LedgerEntry` rows so they appear in `/api/v3/me/accounts/:id/transactions`.
 
 | Method | Path | Middleware Extra | Handler | Description |
 |---|---|---|---|---|
@@ -1269,10 +1269,10 @@ api-gateway:
 | GET | `/api/me/loans/:id` | - | creditHandler.GetMyLoan | Get own loan |
 | GET | `/api/me/loans/:id/installments` | - | creditHandler.GetMyInstallments | Get loan installments |
 | GET | `/api/me/tax` | - | taxHandler.ListMyTaxRecords | List own capital gains tax records + balance |
-| GET | `/api/v1/me/notifications` | - | notifHandler.ListNotifications | List general notifications (v1 only) |
-| GET | `/api/v1/me/notifications/unread-count` | - | notifHandler.GetUnreadCount | Get unread notification count (v1 only) |
-| POST | `/api/v1/me/notifications/:id/read` | - | notifHandler.MarkRead | Mark notification as read (v1 only) |
-| POST | `/api/v1/me/notifications/read-all` | - | notifHandler.MarkAllRead | Mark all as read (v1 only) |
+| GET | `/api/v3/me/notifications` | - | notifHandler.ListNotifications | List general notifications (v1 only) |
+| GET | `/api/v3/me/notifications/unread-count` | - | notifHandler.GetUnreadCount | Get unread notification count (v1 only) |
+| POST | `/api/v3/me/notifications/:id/read` | - | notifHandler.MarkRead | Mark notification as read (v1 only) |
+| POST | `/api/v3/me/notifications/read-all` | - | notifHandler.MarkAllRead | Mark all as read (v1 only) |
 
 ### Employee/Admin Routes (AuthMiddleware + RequirePermission)
 
@@ -1345,10 +1345,10 @@ api-gateway:
 | POST | `/api/interest-rate-tiers/:id/apply` | interest-rates.manage | creditHandler.ApplyVariableRateUpdate | Apply rate update |
 | GET | `/api/bank-margins` | interest-rates.manage | creditHandler.ListBankMargins | List margins |
 | PUT | `/api/bank-margins/:id` | interest-rates.manage | creditHandler.UpdateBankMargin | Update margin |
-| POST | `/api/v1/admin/stock-source` | securities.manage | stockSourceHandler.SwitchSource | Switch active stock data source (destructive) |
-| GET | `/api/v1/admin/stock-source` | securities.manage | stockSourceHandler.GetSourceStatus | Get current stock data source and status |
-| POST | `/api/v1/orders` | orders.place-on-behalf | stockHandler.CreateOrderOnBehalf | Employee places stock order on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
-| POST | `/api/v1/otc/admin/offers/:id/buy` | orders.place-on-behalf | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| POST | `/api/v3/admin/stock-source` | securities.manage | stockSourceHandler.SwitchSource | Switch active stock data source (destructive) |
+| GET | `/api/v3/admin/stock-source` | securities.manage | stockSourceHandler.GetSourceStatus | Get current stock data source and status |
+| POST | `/api/v3/orders` | orders.place-on-behalf | stockHandler.CreateOrderOnBehalf | Employee places stock order on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| POST | `/api/v3/otc/admin/offers/:id/buy` | orders.place-on-behalf | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
 
 ### Browser Verification (/api/verifications — AnyAuthMiddleware)
 
@@ -2111,7 +2111,7 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
   - `OwnerIsBankIfEmployee` — employee principal → owner=bank; client principal → owner=self (used by `/me/orders`, `/me/holdings`, `/me/funds`, `/me/otc/*`).
 - Any resource ID from URL, query, or body is verified against the resolved owner before any read or write. Mismatches return `404 not_found` to avoid leaking existence.
 - The acting employee's id is recorded on every side-effect row (`acting_employee_id`) regardless of resolved owner; stock-service's actuary-limit gate keys on this column so an employee placing a /me/order is correctly rate-limited even though the order is bank-owned.
-- Employee on-behalf trading routes (`POST /api/v1/orders`, `POST /api/v1/otc/admin/offers/:id/buy`) use `OwnerFromURLParam("client_id")` and verify that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. Mismatch returns 403.
+- Employee on-behalf trading routes (`POST /api/v3/orders`, `POST /api/v3/otc/admin/offers/:id/buy`) use `OwnerFromURLParam("client_id")` and verify that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. Mismatch returns 403.
 
 **Stock Data Sources:**
 - Three sources supported: `external` (live API), `generated` (deterministic synthetic data), `simulator` (simulated market prices backed by the Market Simulator Service).
@@ -2262,53 +2262,37 @@ Reference these when adding new concurrent code:
 
 ## 23. API Versioning
 
-The API gateway supports versioned routes alongside the original unversioned routes:
+The API gateway exposes a single live version: `/api/v3/`. v1 and v2 were retired by plan E (2026-04-27, route consolidation). Any request to `/api/v1/*` or `/api/v2/*` returns HTTP 404.
 
-| Prefix | Description |
+| Prefix | Status |
 |---|---|
-| `/api/` | Original unversioned routes (frozen, backward-compatible) |
-| `/api/v1/` | Version 1 routes (mirrors `/api/` plus new endpoints) |
-| `/api/v2/` | Version 2 routes (v2-only endpoints + transparent fallback to v1 for everything else) |
-| `/api/latest/` | Alias that rewrites to the highest version (`/api/v1/`) |
+| `/api/v3/` | **Live.** The only supported API version. Hosts every route the gateway serves. |
+| `/api/v1/`, `/api/v2/` | **Retired.** Returns 404. Removed in plan E. |
+| `/api/` (unversioned) | **Removed.** Use `/api/v3/`. |
+| `/api/latest/` | **Removed.** Use `/api/v3/` directly; aliases hide version drift. |
 
 **Implementation files:**
-- `api-gateway/internal/router/router.go` — frozen, unversioned `/api/` routes
-- `api-gateway/internal/router/router_v1.go` — `/api/v1/` routes (mirrors router.go + new endpoints)
-- `api-gateway/internal/router/router_v2.go` — `/api/v2/` routes + NoRoute fallback that rewrites unknown v2 paths to v1 via `HandleContext`
-- `api-gateway/internal/router/router_latest.go` — `/api/latest/*` rewrite alias
+- `api-gateway/internal/router/router_v3.go` — defines `SetupV3(r *gin.Engine, h *Handlers)`; registers every route grouped by identity rule.
+- `api-gateway/internal/router/handlers.go` — `Deps` (gRPC client bundle) and `Handlers` (HTTP handler bundle); shared by every router version.
+- `api-gateway/internal/router/router_versioning.md` — pattern documentation for adding a v4 (or any future version) and the sunset policy.
 
-**v2 fallback rule:** Any `/api/v2/...` path not explicitly registered under v2 is transparently rewritten to `/api/v1/...` and re-dispatched internally via `r.HandleContext`. v2 clients can use any v1 route without change.
+**Per-version pattern:** each `/api/vN` is its own explicit, self-contained router file. There is **no transparent fallback** between versions — adding a v4 means creating a new `router_v4.go` with its own `SetupV4` and wiring it side-by-side in `cmd/main.go`. Routes that don't change shape between versions call the same `h.X.Y` handler from the bundle. Routes that change shape bind to a new handler variant. v3 keeps working untouched.
 
-**API versioning contract:** v2 routes must not break v1 contracts. Adding optional fields to v1 responses (e.g., `Option.listing_id`) is allowed. Breaking changes require a new version.
+**Why no fallback?** The previous v1 → v2 setup transparently delegated unknown v2 routes to v1 via `HandleContext`. This led to silent identity bugs (e.g., the actuary-limit regression fixed in spec C) when v2 added new identity rules but v1's handler kept v1 assumptions. Explicit per-version registration prevents that class of bug.
 
-### v1-only endpoints
+**Identity middleware** (spec C, plan 2026-04-27 part C) — every route group declares an identity rule via `middleware.ResolveIdentity`. The three rules in use:
 
-These endpoints exist only under `/api/v1/` and are not available on the unversioned `/api/`:
+- `OwnerIsPrincipal` — owner = JWT principal. Used for `/me/profile`, `/me/cards`, etc.
+- `OwnerIsBankIfEmployee` — if the JWT principal is an employee, owner = bank (`OwnerType="bank"`, `OwnerID=nil`); the JWT id is carried as `ActingEmployeeID` for per-actuary limits. If the principal is a client, owner = principal. Used for trading routes (`/me/orders`, OTC, funds).
+- `OwnerFromURLParam` — owner = client identified by a URL path parameter (`:client_id`). Used for employee-on-behalf-of-client endpoints.
 
-| Method | Path | Status | Plan |
-|---|---|---|---|
-| GET | /api/v1/accounts/:id/changelog | 501 placeholder | Plan 2 |
-| GET | /api/v1/employees/:id/changelog | 501 placeholder | Plan 2 |
-| GET | /api/v1/clients/:id/changelog | 501 placeholder | Plan 2 |
-| GET | /api/v1/cards/:id/changelog | 501 placeholder | Plan 2 |
-| GET | /api/v1/loans/:id/changelog | 501 placeholder | Plan 2 |
-| POST | /api/v1/admin/stock-source | live | stock source abstraction |
-| GET | /api/v1/admin/stock-source | live | stock source abstraction |
-| POST | /api/v1/orders | live | ownership lockdown + employee on-behalf trading |
-| POST | /api/v1/otc/admin/offers/:id/buy | live | ownership lockdown + employee on-behalf trading |
+Identity is read by handlers via the bound `ResolvedIdentity` context key. Handlers must not derive owner identity from request bodies or invent ad-hoc per-handler logic.
 
-### v2-only endpoints
+**API versioning contract** (going forward): newer versions must not break older versions unless the user has explicitly permitted it. Adding optional fields to v3 response bodies is allowed and does not count as a breaking change, provided existing clients that ignore unknown fields continue to work.
 
-These endpoints exist only under `/api/v2/` and are not available on v1 or unversioned:
+### Notable v3 endpoint groups
 
-| Method | Path | Middleware | Handler | Description |
-|---|---|---|---|---|
-| POST | `/api/v2/options/:option_id/orders` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.CreateOrder | Place an order on an option by option ID |
-| POST | `/api/v2/options/:option_id/exercise` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.Exercise | Exercise an option by option ID (optional `holding_id` in body; auto-resolved when omitted) |
-
-### v3-only endpoints
-
-These endpoints exist only under `/api/v3/`. v3 is the home of new feature surfaces; v3 does not re-host v1/v2 routes.
+The full endpoint reference is in `docs/api/REST_API_v1.md` (kept under that filename per the project's REST-doc-naming rule even though it now describes v3 routes). Highlights:
 
 | Method | Path | Middleware | Handler | Description |
 |---|---|---|---|---|

@@ -350,7 +350,7 @@ definitions:
       client_id:
         description: |-
           ClientID is accepted from the body for backwards compatibility but silently
-          ignored — the gateway always derives the client identity from the JWT user_id.
+          ignored — the gateway always derives the client identity from the JWT principal_id.
         type: integer
       currency_code:
         type: string
@@ -913,11 +913,12 @@ definitions:
 host: localhost:8080
 info:
   contact: {}
-  description: EXBanka Banking Microservices API Gateway. All endpoints below are
-    served under /api/v2. A v1 surface remains available at /api/v1 with identical
-    semantics.
+  description: EXBanka Banking Microservices API Gateway. All endpoints are served
+    under /api/v3 — v1 and v2 have been retired (plan E, 2026-04-27). Future versions
+    (v4+) will be added as separate explicit router files with no transparent fallback.
+    See api-gateway/internal/router/router_versioning.md.
   title: EXBanka API
-  version: "2.0"
+  version: "3.0"
 paths:
   /api/v1/actuaries/performance:
     get:
@@ -1392,27 +1393,6 @@ paths:
       summary: Get account by ID
       tags:
       - accounts
-  /api/v2/accounts/{id}/changelog:
-    get:
-      parameters:
-      - description: Account ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "501":
-          description: Not Implemented
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get account changelog (not yet implemented)
-      tags:
-      - Changelog
   /api/v2/accounts/{id}/limits:
     put:
       consumes:
@@ -2519,27 +2499,6 @@ paths:
       summary: Block a card
       tags:
       - cards
-  /api/v2/cards/{id}/changelog:
-    get:
-      parameters:
-      - description: Card ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "501":
-          description: Not Implemented
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get card changelog (not yet implemented)
-      tags:
-      - Changelog
   /api/v2/cards/{id}/deactivate:
     put:
       description: Permanently deactivates a card. Requires cards.update permission.
@@ -3342,27 +3301,6 @@ paths:
       summary: Update client
       tags:
       - clients
-  /api/v2/clients/{id}/changelog:
-    get:
-      parameters:
-      - description: Client ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "501":
-          description: Not Implemented
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get client changelog (not yet implemented)
-      tags:
-      - Changelog
   /api/v2/clients/{id}/limits:
     get:
       description: Returns the transaction limits configured for a client
@@ -3722,27 +3660,6 @@ paths:
       summary: Update an employee
       tags:
       - employees
-  /api/v2/employees/{id}/changelog:
-    get:
-      parameters:
-      - description: Employee ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "501":
-          description: Not Implemented
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get employee changelog (not yet implemented)
-      tags:
-      - Changelog
   /api/v2/employees/{id}/limits:
     get:
       description: Returns the transaction and approval limits for an employee
@@ -4634,27 +4551,6 @@ paths:
       summary: Get loan by ID (employee)
       tags:
       - loans
-  /api/v2/loans/{id}/changelog:
-    get:
-      parameters:
-      - description: Loan ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "501":
-          description: Not Implemented
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get loan changelog (not yet implemented)
-      tags:
-      - Changelog
   /api/v2/loans/{id}/installments:
     get:
       parameters:
@@ -6973,6 +6869,111 @@ paths:
       summary: QR code verification (mobile scans QR)
       tags:
       - mobile-verifications
+  /api/v3/accounts/{id}/changelog:
+    get:
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get account changelog (not yet implemented)
+      tags:
+      - Changelog
+  /api/v3/cards/{id}/changelog:
+    get:
+      parameters:
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get card changelog (not yet implemented)
+      tags:
+      - Changelog
+  /api/v3/clients/{id}/changelog:
+    get:
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get client changelog (not yet implemented)
+      tags:
+      - Changelog
+  /api/v3/employees/{id}/changelog:
+    get:
+      parameters:
+      - description: Employee ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get employee changelog (not yet implemented)
+      tags:
+      - Changelog
+  /api/v3/loans/{id}/changelog:
+    get:
+      parameters:
+      - description: Loan ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "501":
+          description: Not Implemented
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get loan changelog (not yet implemented)
+      tags:
+      - Changelog
   /api/v3/me/otc/contracts:
     get:
       produces:

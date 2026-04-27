@@ -25,7 +25,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: using listing_id=%d", listingID)
 
 	// Step 2: Agent places a buy order
-	buyResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
+	buyResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -41,7 +41,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: agent order #1 created id=%d", orderID1)
 
 	// Check initial status — may be "pending" (needs approval) or already approved
-	orderCheck, err := agentC.GET(fmt.Sprintf("/api/v1/me/orders/%d", orderID1))
+	orderCheck, err := agentC.GET(fmt.Sprintf("/api/v3/me/orders/%d", orderID1))
 	if err != nil {
 		t.Fatalf("WF-8: get order #1: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: order #1 initial status=%s", status1)
 
 	// Step 3: Supervisor approves the order
-	approveResp, err := supervisorC.POST(fmt.Sprintf("/api/v1/orders/%d/approve", orderID1), nil)
+	approveResp, err := supervisorC.POST(fmt.Sprintf("/api/v3/orders/%d/approve", orderID1), nil)
 	if err != nil {
 		t.Fatalf("WF-8: supervisor approve order: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: order #1 filled after approval")
 
 	// Verify agent has a holding
-	portfolioResp, err := agentC.GET("/api/v1/me/portfolio?security_type=stock")
+	portfolioResp, err := agentC.GET("/api/v3/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-8: list portfolio: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: agent has %d holding(s) after approved buy", holdingsCountAfterApprove)
 
 	// Step 5: Agent places another buy order
-	buyResp2, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
+	buyResp2, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -94,7 +94,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: agent order #2 created id=%d", orderID2)
 
 	// Step 6: Supervisor declines this order
-	declineResp, err := supervisorC.POST(fmt.Sprintf("/api/v1/orders/%d/decline", orderID2), nil)
+	declineResp, err := supervisorC.POST(fmt.Sprintf("/api/v3/orders/%d/decline", orderID2), nil)
 	if err != nil {
 		t.Fatalf("WF-8: supervisor decline order: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: supervisor decline response status=%d", declineResp.StatusCode)
 
 	// Verify order #2 status is declined (or similar terminal state)
-	order2Check, err := agentC.GET(fmt.Sprintf("/api/v1/me/orders/%d", orderID2))
+	order2Check, err := agentC.GET(fmt.Sprintf("/api/v3/me/orders/%d", orderID2))
 	if err != nil {
 		t.Fatalf("WF-8: get order #2: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	t.Logf("WF-8: order #2 status after decline=%s", status2)
 
 	// The declined order should not have created a new holding beyond what approval gave
-	portfolio2Resp, err := agentC.GET("/api/v1/me/portfolio?security_type=stock")
+	portfolio2Resp, err := agentC.GET("/api/v3/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-8: list portfolio after decline: %v", err)
 	}

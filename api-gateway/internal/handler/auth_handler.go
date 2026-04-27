@@ -17,6 +17,14 @@ func NewAuthHandler(authClient authpb.AuthServiceClient) *AuthHandler {
 	return &AuthHandler{authClient: authClient}
 }
 
+// Client returns the underlying authpb.AuthServiceClient. Used by router
+// middleware (AuthMiddleware, AnyAuthMiddleware, MobileAuthMiddleware,
+// RequireDeviceSignature) which need direct access to the gRPC client to
+// validate tokens. Exposing it via the bundled AuthHandler keeps the
+// router signature flat (a single *Handlers reference) instead of also
+// threading the raw client through SetupV3.
+func (h *AuthHandler) Client() authpb.AuthServiceClient { return h.authClient }
+
 type loginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`

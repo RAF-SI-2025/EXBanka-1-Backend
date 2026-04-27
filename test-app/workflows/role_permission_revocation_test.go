@@ -14,7 +14,7 @@ import (
 // changing a role's permission set forces every employee currently holding the
 // role to re-authenticate. We log in as an Agent (which has clients.read by
 // default), confirm the agent can list clients, then strip clients.read from
-// the EmployeeAgent role via PUT /api/v1/roles/<id>/permissions. The agent's
+// the EmployeeAgent role via PUT /api/v3/roles/<id>/permissions. The agent's
 // next call to a clients.read endpoint must return 401 with the "access token
 // has been revoked" message because their iat predates the revocation epoch.
 //
@@ -28,14 +28,14 @@ func TestRoleRevocation_AdminUpdatesRolePerms_AgentMustReauth(t *testing.T) {
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
 	// Sanity: agent can list clients (clients.read is in EmployeeAgent default).
-	preResp, err := agentC.GET("/api/v1/clients?page=1&page_size=1")
+	preResp, err := agentC.GET("/api/v3/clients?page=1&page_size=1")
 	if err != nil {
 		t.Fatalf("pre-revoke list: %v", err)
 	}
 	helpers.RequireStatus(t, preResp, 200)
 
 	// Find the EmployeeAgent role ID.
-	rolesResp, err := adminC.GET("/api/v1/roles")
+	rolesResp, err := adminC.GET("/api/v3/roles")
 	if err != nil {
 		t.Fatalf("list roles: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestRoleRevocation_AdminUpdatesRolePerms_AgentMustReauth(t *testing.T) {
 
 	t.Cleanup(func() {
 		// Restore default perms even if the test fails partway through.
-		_, _ = adminC.PUT("/api/v1/roles/"+strconv.Itoa(agentRoleID)+"/permissions", map[string]interface{}{
+		_, _ = adminC.PUT("/api/v3/roles/"+strconv.Itoa(agentRoleID)+"/permissions", map[string]interface{}{
 			"permission_codes": defaultAgentPerms,
 		})
 	})
@@ -76,7 +76,7 @@ func TestRoleRevocation_AdminUpdatesRolePerms_AgentMustReauth(t *testing.T) {
 	// Strip clients.read by replacing the perm set with one that only keeps a
 	// harmless permission (securities.read). The empty list could be rejected
 	// or behave specially, so we keep one permission.
-	updResp, err := adminC.PUT("/api/v1/roles/"+strconv.Itoa(agentRoleID)+"/permissions", map[string]interface{}{
+	updResp, err := adminC.PUT("/api/v3/roles/"+strconv.Itoa(agentRoleID)+"/permissions", map[string]interface{}{
 		"permission_codes": []string{"securities.read.holdings_all"},
 	})
 	if err != nil {
@@ -90,7 +90,7 @@ func TestRoleRevocation_AdminUpdatesRolePerms_AgentMustReauth(t *testing.T) {
 
 	// Now the agent's existing access token is older than the revocation
 	// epoch. Their next call to a permission-gated endpoint must return 401.
-	postResp, err := agentC.GET("/api/v1/clients?page=1&page_size=1")
+	postResp, err := agentC.GET("/api/v3/clients?page=1&page_size=1")
 	if err != nil {
 		t.Fatalf("post-revoke list: %v", err)
 	}

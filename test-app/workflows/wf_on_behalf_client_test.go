@@ -13,7 +13,7 @@ import (
 //
 // Flow
 //
-//	Employee calls POST /api/v1/clients/:id/orders. The api-gateway
+//	Employee calls POST /api/v3/clients/:id/orders. The api-gateway
 //	middleware OwnerFromURLParam("client_id") resolves owner=client,
 //	owner_id=<client_id>, acting_employee_id=<employee>. Stock-service
 //	creates the order with owner_type=client/owner_id=<client>. The

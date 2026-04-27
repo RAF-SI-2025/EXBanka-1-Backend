@@ -93,7 +93,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	t.Logf("WF-14: Loan disbursed — C: %.2f -> %.2f (gain=%.2f)", balCBefore, balCAfter, cGain)
 
 	// Verify installments were created
-	installmentsResp, err := adminC.GET(fmt.Sprintf("/api/v1/loans/%d/installments", loanID))
+	installmentsResp, err := adminC.GET(fmt.Sprintf("/api/v3/loans/%d/installments", loanID))
 	if err != nil {
 		t.Fatalf("WF-14: get installments: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	// would require the buy to fill first, so we skip it here. A separate
 	// stock-cycle test (wf_stock_buy_sell_test.go) covers buy→sell with a
 	// longer timeout and partial-fill tolerance.
-	buyResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
+	buyResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"security_type": "stock",
 		"listing_id":    listingID,
 		"direction":     "buy",
@@ -160,7 +160,7 @@ func TestWF_FullBankingDaySimulation(t *testing.T) {
 	}
 
 	// Verify all payments completed — admin can read the payment
-	adminPayResp, err := adminC.GET(fmt.Sprintf("/api/v1/payments/%d", paymentID))
+	adminPayResp, err := adminC.GET(fmt.Sprintf("/api/v3/payments/%d", paymentID))
 	if err != nil {
 		t.Fatalf("WF-14: admin get payment: %v", err)
 	}

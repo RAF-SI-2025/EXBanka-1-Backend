@@ -27,7 +27,7 @@ func TestWF_ForexValidation_RejectsMalformedRequests(t *testing.T) {
 	// Case 1: missing base_account_id on a forex buy → 400 with
 	// "forex orders require base_account_id".
 	t.Run("missing_base_account_id", func(t *testing.T) {
-		resp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
+		resp, err := clientC.POST("/api/v3/me/orders", map[string]interface{}{
 			"security_type": "forex",
 			"listing_id":    1,
 			"direction":     "buy",
@@ -45,7 +45,7 @@ func TestWF_ForexValidation_RejectsMalformedRequests(t *testing.T) {
 	// Case 2: base_account_id == account_id → 400 with
 	// "base_account_id must differ from account_id".
 	t.Run("base_equals_account", func(t *testing.T) {
-		resp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
+		resp, err := clientC.POST("/api/v3/me/orders", map[string]interface{}{
 			"security_type":   "forex",
 			"listing_id":      1,
 			"direction":       "buy",
@@ -67,7 +67,7 @@ func TestWF_ForexValidation_RejectsMalformedRequests(t *testing.T) {
 	// We supply a fake holding_id so the generic "holding_id required for
 	// sell" check passes and we land on the forex-specific direction check.
 	t.Run("direction_sell", func(t *testing.T) {
-		resp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
+		resp, err := clientC.POST("/api/v3/me/orders", map[string]interface{}{
 			"security_type":   "forex",
 			"listing_id":      1,
 			"direction":       "sell",

@@ -22,8 +22,8 @@ import (
 )
 
 // @title           EXBanka API
-// @version         2.0
-// @description     EXBanka Banking Microservices API Gateway. All endpoints below are served under /api/v2. A v1 surface remains available at /api/v1 with identical semantics.
+// @version         3.0
+// @description     EXBanka Banking Microservices API Gateway. All endpoints are served under /api/v3 — v1 and v2 have been retired (plan E, 2026-04-27). Future versions (v4+) will be added as separate explicit router files with no transparent fallback. See api-gateway/internal/router/router_versioning.md.
 // @host            localhost:8080
 // @BasePath        /
 // @securityDefinitions.apikey  BearerAuth
@@ -239,9 +239,45 @@ func main() {
 	interBankInternalHandler := handler.NewInterBankInternalHandler(interBankClient)
 
 	r := router.NewRouter()
-	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
-	router.SetupV2Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
-	router.SetupV3Routes(r, authClient, fundClient, interBankClient, accountClient, txClient, otcOptionsClient)
+
+	// Wire every gRPC client into the router-level Deps bundle, then
+	// build the cross-version Handlers bundle. v3 is the only live
+	// version — see api-gateway/internal/router/router_versioning.md
+	// for the v4-add-later pattern.
+	deps := router.Deps{
+		AuthClient:          authClient,
+		UserClient:          userClient,
+		ClientClient:        clientClient,
+		AccountClient:       accountClient,
+		CardClient:          cardClient,
+		TxClient:            txClient,
+		CreditClient:        creditClient,
+		EmpLimitClient:      empLimitClient,
+		ClientLimitClient:   clientLimitClient,
+		VirtualCardClient:   virtualCardClient,
+		BankAccountClient:   bankAccountClient,
+		FeeClient:           feeClient,
+		CardRequestClient:   cardRequestClient,
+		ExchangeClient:      exchangeClient,
+		StockExchangeClient: stockExchangeClient,
+		SecurityClient:      securityClient,
+		OrderClient:         orderClient,
+		PortfolioClient:     portfolioClient,
+		OTCClient:           otcClient,
+		TaxClient:           taxClient,
+		ActuaryClient:       actuaryClient,
+		BlueprintClient:     blueprintClient,
+		VerificationClient:  verificationClient,
+		NotificationClient:  notificationClient,
+		SourceAdminClient:   sourceAdminClient,
+		FundClient:          fundClient,
+		InterBankClient:     interBankClient,
+		OTCOptionsClient:    otcOptionsClient,
+	}
+	h := router.NewHandlers(deps)
+	router.SetupV3(r, h)
+	// When v4 ships:
+	//   router.SetupV4(r, h)
 
 	// Internal HMAC-authenticated inter-bank routes (Spec 3 §7.2). NOT under
 	// any /api/v* prefix — peer banks talk straight to /internal/inter-bank/*.

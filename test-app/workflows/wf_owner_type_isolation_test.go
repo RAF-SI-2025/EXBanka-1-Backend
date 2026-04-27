@@ -48,7 +48,7 @@ func TestWF_OrderAccessIsolatedByOwnerType(t *testing.T) {
 	_, listingID := getFirstStockListingID(t, agentC)
 
 	// Employees on /me/orders need an account_id pointing at a bank account.
-	bankAcctResp, err := adminC.GET("/api/v1/bank-accounts")
+	bankAcctResp, err := adminC.GET("/api/v3/bank-accounts")
 	if err != nil {
 		t.Fatalf("get bank accounts: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestWF_OrderAccessIsolatedByOwnerType(t *testing.T) {
 	}
 	bankAcctID := uint64(accts[0].(map[string]interface{})["id"].(float64))
 
-	createResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
+	createResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -78,8 +78,8 @@ func TestWF_OrderAccessIsolatedByOwnerType(t *testing.T) {
 	// Client logs in fresh — owner_type=client, owner_id=<client_id>.
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
-	// 1) GET /api/v1/me/orders — the client must NOT see the bank's order.
-	listResp, err := clientC.GET("/api/v1/me/orders")
+	// 1) GET /api/v3/me/orders — the client must NOT see the bank's order.
+	listResp, err := clientC.GET("/api/v3/me/orders")
 	if err != nil {
 		t.Fatalf("client list /me/orders: %v", err)
 	}
@@ -105,11 +105,11 @@ func TestWF_OrderAccessIsolatedByOwnerType(t *testing.T) {
 		}
 	}
 
-	// 2) GET /api/v1/me/orders/{bank_order_id} — must be 404, NOT 403.
+	// 2) GET /api/v3/me/orders/{bank_order_id} — must be 404, NOT 403.
 	//    Returning 403 would leak the existence of a row owned by a
 	//    different owner_type; the fix deliberately maps cross-owner
 	//    accesses to NotFound.
-	getResp, err := clientC.GET(fmt.Sprintf("/api/v1/me/orders/%d", bankOrderID))
+	getResp, err := clientC.GET(fmt.Sprintf("/api/v3/me/orders/%d", bankOrderID))
 	if err != nil {
 		t.Fatalf("client GET /me/orders/%d: %v", bankOrderID, err)
 	}
@@ -118,8 +118,8 @@ func TestWF_OrderAccessIsolatedByOwnerType(t *testing.T) {
 			bankOrderID, getResp.StatusCode, getResp.Body)
 	}
 
-	// 3) POST /api/v1/me/orders/{bank_order_id}/cancel — also 404.
-	cancelResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/orders/%d/cancel", bankOrderID), nil)
+	// 3) POST /api/v3/me/orders/{bank_order_id}/cancel — also 404.
+	cancelResp, err := clientC.POST(fmt.Sprintf("/api/v3/me/orders/%d/cancel", bankOrderID), nil)
 	if err != nil {
 		t.Fatalf("client POST /me/orders/%d/cancel: %v", bankOrderID, err)
 	}

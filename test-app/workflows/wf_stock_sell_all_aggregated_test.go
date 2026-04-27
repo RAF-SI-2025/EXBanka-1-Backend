@@ -28,7 +28,7 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 	clientID, acctAnum, clientC, _ := setupActivatedClient(t, adminC)
 
 	// Add a second RSD account owned by the same client.
-	acctBResp, err := adminC.POST("/api/v1/accounts", map[string]interface{}{
+	acctBResp, err := adminC.POST("/api/v3/accounts", map[string]interface{}{
 		"owner_id":        clientID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -58,7 +58,7 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 		{10, acctAID},
 		{10, acctBID},
 	} {
-		buyResp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
+		buyResp, err := clientC.POST("/api/v3/me/orders", map[string]interface{}{
 			"listing_id":  listingID,
 			"direction":   "buy",
 			"order_type":  "market",
@@ -78,7 +78,7 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 		// predictably.
 		fillDeadline := time.Now().Add(60 * time.Second)
 		for time.Now().Before(fillDeadline) {
-			p, err := clientC.GET(fmt.Sprintf("/api/v1/me/orders/%d", buyID))
+			p, err := clientC.GET(fmt.Sprintf("/api/v3/me/orders/%d", buyID))
 			if err != nil {
 				t.Fatalf("poll buy %d: %v", i+1, err)
 			}
@@ -90,7 +90,7 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 	}
 
 	// Verify the portfolio has ONE aggregated holding with quantity=30.
-	portfolioResp, err := clientC.GET("/api/v1/me/portfolio?security_type=stock")
+	portfolioResp, err := clientC.GET("/api/v3/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("list portfolio: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 	balBefore := getAccountBalancesByNumber(t, adminC, acctAnum)
 
 	// Place a single sell order for all 30 shares, crediting acctA.
-	sellResp, err := clientC.POST("/api/v1/me/orders", map[string]interface{}{
+	sellResp, err := clientC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "sell",
 		"order_type":  "market",
@@ -138,7 +138,7 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 	waitForOrderFill(t, clientC, sellID, 60*time.Second)
 
 	// Verify holding is zero (or the row was deleted).
-	afterResp, err := clientC.GET("/api/v1/me/portfolio?security_type=stock")
+	afterResp, err := clientC.GET("/api/v3/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("list portfolio after sell: %v", err)
 	}

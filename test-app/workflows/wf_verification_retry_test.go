@@ -24,7 +24,7 @@ func TestWF_PaymentVerificationFailureAndRetry(t *testing.T) {
 
 	// Step 2: Sender creates a payment
 	const paymentAmount = 3000.0
-	createResp, err := senderC.POST("/api/v1/me/payments", map[string]interface{}{
+	createResp, err := senderC.POST("/api/v3/me/payments", map[string]interface{}{
 		"from_account_number": senderAcct,
 		"to_account_number":   receiverAcct,
 		"amount":              paymentAmount,
@@ -43,7 +43,7 @@ func TestWF_PaymentVerificationFailureAndRetry(t *testing.T) {
 
 	// Step 4: Submit wrong code "000000" three times
 	for i := 0; i < 3; i++ {
-		resp, err := senderC.POST(fmt.Sprintf("/api/v1/verifications/%d/code", challengeID), map[string]interface{}{
+		resp, err := senderC.POST(fmt.Sprintf("/api/v3/verifications/%d/code", challengeID), map[string]interface{}{
 			"code": "000000",
 		})
 		if err != nil {
@@ -54,7 +54,7 @@ func TestWF_PaymentVerificationFailureAndRetry(t *testing.T) {
 
 	// Step 5: Check that the challenge is now failed — submitting any code should not return
 	// a successful verification
-	failCheckResp, err := senderC.POST(fmt.Sprintf("/api/v1/verifications/%d/code", challengeID), map[string]interface{}{
+	failCheckResp, err := senderC.POST(fmt.Sprintf("/api/v3/verifications/%d/code", challengeID), map[string]interface{}{
 		"code": "111111",
 	})
 	if err != nil {

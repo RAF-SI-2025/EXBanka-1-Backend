@@ -14,7 +14,7 @@ import (
 // transfer between the two accounts. Returns the transfer ID to use as source_id.
 func setupTransferForVerification(t *testing.T, adminC *client.APIClient, clientID int, fromAccount string, clientC *client.APIClient) int {
 	t.Helper()
-	dstResp, err := adminC.POST("/api/v1/accounts", map[string]interface{}{
+	dstResp, err := adminC.POST("/api/v3/accounts", map[string]interface{}{
 		"owner_id":        clientID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -27,7 +27,7 @@ func setupTransferForVerification(t *testing.T, adminC *client.APIClient, client
 	helpers.RequireStatus(t, dstResp, 201)
 	dstAccount := helpers.GetStringField(t, dstResp, "account_number")
 
-	tfrResp, err := clientC.POST("/api/v1/me/transfers", map[string]interface{}{
+	tfrResp, err := clientC.POST("/api/v3/me/transfers", map[string]interface{}{
 		"from_account_number": fromAccount,
 		"to_account_number":   dstAccount,
 		"amount":              100,
@@ -47,7 +47,7 @@ func TestVerification_CreateChallenge(t *testing.T) {
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
 	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
 
-	resp, err := clientC.POST("/api/v1/verifications", map[string]interface{}{
+	resp, err := clientC.POST("/api/v3/verifications", map[string]interface{}{
 		"source_service": "transfer",
 		"source_id":      transferID,
 	})
@@ -65,7 +65,7 @@ func TestVerification_InvalidMethodRejected(t *testing.T) {
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
 	for _, method := range []string{"qr_scan", "number_match", "email"} {
-		resp, err := clientC.POST("/api/v1/verifications", map[string]interface{}{
+		resp, err := clientC.POST("/api/v3/verifications", map[string]interface{}{
 			"source_service": "transfer",
 			"source_id":      1,
 			"method":         method,
@@ -85,7 +85,7 @@ func TestVerification_GetChallengeStatus(t *testing.T) {
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
 	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
 
-	createResp, err := clientC.POST("/api/v1/verifications", map[string]interface{}{
+	createResp, err := clientC.POST("/api/v3/verifications", map[string]interface{}{
 		"source_service": "transfer",
 		"source_id":      transferID,
 	})
@@ -95,7 +95,7 @@ func TestVerification_GetChallengeStatus(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 200)
 	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
 
-	resp, err := clientC.GET(fmt.Sprintf("/api/v1/verifications/%d/status", challengeID))
+	resp, err := clientC.GET(fmt.Sprintf("/api/v3/verifications/%d/status", challengeID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestVerification_SubmitBypassCode(t *testing.T) {
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
 	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
 
-	createResp, err := clientC.POST("/api/v1/verifications", map[string]interface{}{
+	createResp, err := clientC.POST("/api/v3/verifications", map[string]interface{}{
 		"source_service": "transfer",
 		"source_id":      transferID,
 	})
@@ -120,7 +120,7 @@ func TestVerification_SubmitBypassCode(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 200)
 	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
 
-	resp, err := clientC.POST(fmt.Sprintf("/api/v1/verifications/%d/code", challengeID), map[string]interface{}{
+	resp, err := clientC.POST(fmt.Sprintf("/api/v3/verifications/%d/code", challengeID), map[string]interface{}{
 		"code": "111111",
 	})
 	if err != nil {
@@ -136,7 +136,7 @@ func TestVerification_SubmitWrongCode(t *testing.T) {
 	clientID, accountNumber, clientC, _ := setupActivatedClient(t, adminC)
 	transferID := setupTransferForVerification(t, adminC, clientID, accountNumber, clientC)
 
-	createResp, err := clientC.POST("/api/v1/verifications", map[string]interface{}{
+	createResp, err := clientC.POST("/api/v3/verifications", map[string]interface{}{
 		"source_service": "transfer",
 		"source_id":      transferID,
 	})
@@ -146,7 +146,7 @@ func TestVerification_SubmitWrongCode(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 200)
 	challengeID := int(helpers.GetNumberField(t, createResp, "challenge_id"))
 
-	resp, err := clientC.POST(fmt.Sprintf("/api/v1/verifications/%d/code", challengeID), map[string]interface{}{
+	resp, err := clientC.POST(fmt.Sprintf("/api/v3/verifications/%d/code", challengeID), map[string]interface{}{
 		"code": "999999",
 	})
 	if err != nil {
@@ -159,7 +159,7 @@ func TestVerification_SubmitWrongCode(t *testing.T) {
 func TestVerification_UnauthenticatedRejected(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/v1/verifications", map[string]interface{}{
+	resp, err := c.POST("/api/v3/verifications", map[string]interface{}{
 		"source_service": "transfer",
 		"source_id":      1,
 	})
@@ -179,7 +179,7 @@ func TestVerification_AckEndpointRequiresMobileAuth(t *testing.T) {
 	_, _, clientC, _ := setupActivatedClient(t, adminC)
 
 	// Client tokens are not mobile tokens — should get 403
-	resp, err := clientC.POST("/api/v1/mobile/verifications/1/ack", nil)
+	resp, err := clientC.POST("/api/v3/mobile/verifications/1/ack", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

@@ -27,7 +27,7 @@ import "testing"
 // variant as a manual smoke test; a proper automated version will require a
 // --force-fail-partial-settle admin flag on account-service.
 //
-// TODO(phase-3): add POST /api/v1/admin/fault-inject/account-partial-settle
+// TODO(phase-3): add POST /api/v3/admin/fault-inject/account-partial-settle
 // endpoint (guarded by INTEGRATION_FAULT_INJECTION=1 env gate), wire it into
 // this test, and remove the t.Skip call below.
 func TestWF_StockFill_AccountServiceFailure_NoDivergence(t *testing.T) {

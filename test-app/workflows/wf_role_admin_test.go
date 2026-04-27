@@ -11,7 +11,7 @@ import (
 
 // --- Granular role-permission admin API (Plan D Task 8) ---
 //
-// These tests exercise POST/DELETE /api/v1/roles/:role_name/permissions —
+// These tests exercise POST/DELETE /api/v3/roles/:role_name/permissions —
 // the granular per-permission grant/revoke endpoints introduced alongside the
 // codegened permission catalog. Validation against the catalog is enforced at
 // the service layer (sentinel ErrPermissionNotInCatalog) and translated to
@@ -34,7 +34,7 @@ func TestAdmin_AssignPermissionToRole_Success(t *testing.T) {
 	admin := loginAsAdmin(t)
 
 	roleName := uniqueRoleName("RoleAssignOK")
-	createResp, err := admin.POST("/api/v1/roles", map[string]interface{}{
+	createResp, err := admin.POST("/api/v3/roles", map[string]interface{}{
 		"name":             roleName,
 		"description":      "test role for granular assign",
 		"permission_codes": []string{},
@@ -44,7 +44,7 @@ func TestAdmin_AssignPermissionToRole_Success(t *testing.T) {
 	}
 	helpers.RequireStatus(t, createResp, 201)
 
-	resp, err := admin.POST(fmt.Sprintf("/api/v1/roles/%s/permissions", roleName), map[string]interface{}{
+	resp, err := admin.POST(fmt.Sprintf("/api/v3/roles/%s/permissions", roleName), map[string]interface{}{
 		"permission": "clients.read.all",
 	})
 	if err != nil {
@@ -60,7 +60,7 @@ func TestAdmin_AssignPermissionToRole_Idempotent(t *testing.T) {
 	admin := loginAsAdmin(t)
 
 	roleName := uniqueRoleName("RoleAssignIdem")
-	createResp, err := admin.POST("/api/v1/roles", map[string]interface{}{
+	createResp, err := admin.POST("/api/v3/roles", map[string]interface{}{
 		"name":             roleName,
 		"description":      "test role for idempotent assign",
 		"permission_codes": []string{},
@@ -71,7 +71,7 @@ func TestAdmin_AssignPermissionToRole_Idempotent(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 
 	for i := 0; i < 2; i++ {
-		resp, err := admin.POST(fmt.Sprintf("/api/v1/roles/%s/permissions", roleName), map[string]interface{}{
+		resp, err := admin.POST(fmt.Sprintf("/api/v3/roles/%s/permissions", roleName), map[string]interface{}{
 			"permission": "accounts.read.all",
 		})
 		if err != nil {
@@ -88,7 +88,7 @@ func TestAdmin_AssignPermissionToRole_NotInCatalog(t *testing.T) {
 	admin := loginAsAdmin(t)
 
 	roleName := uniqueRoleName("RoleAssignBad")
-	createResp, err := admin.POST("/api/v1/roles", map[string]interface{}{
+	createResp, err := admin.POST("/api/v3/roles", map[string]interface{}{
 		"name":             roleName,
 		"description":      "test role for catalog rejection",
 		"permission_codes": []string{},
@@ -98,7 +98,7 @@ func TestAdmin_AssignPermissionToRole_NotInCatalog(t *testing.T) {
 	}
 	helpers.RequireStatus(t, createResp, 201)
 
-	resp, err := admin.POST(fmt.Sprintf("/api/v1/roles/%s/permissions", roleName), map[string]interface{}{
+	resp, err := admin.POST(fmt.Sprintf("/api/v3/roles/%s/permissions", roleName), map[string]interface{}{
 		"permission": "totally.fake.permission",
 	})
 	if err != nil {
@@ -113,7 +113,7 @@ func TestAdmin_AssignPermissionToRole_RoleNotFound(t *testing.T) {
 	t.Parallel()
 	admin := loginAsAdmin(t)
 
-	resp, err := admin.POST("/api/v1/roles/NoSuchRoleEver_xyz/permissions", map[string]interface{}{
+	resp, err := admin.POST("/api/v3/roles/NoSuchRoleEver_xyz/permissions", map[string]interface{}{
 		"permission": "clients.read.all",
 	})
 	if err != nil {
@@ -129,7 +129,7 @@ func TestAdmin_RevokePermissionFromRole_Success(t *testing.T) {
 	admin := loginAsAdmin(t)
 
 	roleName := uniqueRoleName("RoleRevokeOK")
-	createResp, err := admin.POST("/api/v1/roles", map[string]interface{}{
+	createResp, err := admin.POST("/api/v3/roles", map[string]interface{}{
 		"name":             roleName,
 		"description":      "test role for revoke",
 		"permission_codes": []string{"clients.read.all"},
@@ -139,7 +139,7 @@ func TestAdmin_RevokePermissionFromRole_Success(t *testing.T) {
 	}
 	helpers.RequireStatus(t, createResp, 201)
 
-	resp, err := admin.DELETE(fmt.Sprintf("/api/v1/roles/%s/permissions/clients.read.all", roleName))
+	resp, err := admin.DELETE(fmt.Sprintf("/api/v3/roles/%s/permissions/clients.read.all", roleName))
 	if err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestAdmin_RevokePermissionFromRole_Idempotent(t *testing.T) {
 	admin := loginAsAdmin(t)
 
 	roleName := uniqueRoleName("RoleRevokeIdem")
-	createResp, err := admin.POST("/api/v1/roles", map[string]interface{}{
+	createResp, err := admin.POST("/api/v3/roles", map[string]interface{}{
 		"name":             roleName,
 		"description":      "test role for idempotent revoke",
 		"permission_codes": []string{},
@@ -164,7 +164,7 @@ func TestAdmin_RevokePermissionFromRole_Idempotent(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 
 	// Revoking a permission that was never granted should be a 204 no-op.
-	resp, err := admin.DELETE(fmt.Sprintf("/api/v1/roles/%s/permissions/accounts.read.all", roleName))
+	resp, err := admin.DELETE(fmt.Sprintf("/api/v3/roles/%s/permissions/accounts.read.all", roleName))
 	if err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestAdmin_RevokePermissionFromRole_RoleNotFound(t *testing.T) {
 	t.Parallel()
 	admin := loginAsAdmin(t)
 
-	resp, err := admin.DELETE("/api/v1/roles/NoSuchRoleEver_xyz/permissions/clients.read.all")
+	resp, err := admin.DELETE("/api/v3/roles/NoSuchRoleEver_xyz/permissions/clients.read.all")
 	if err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestAdmin_RevokePermissionFromRole_RoleNotFound(t *testing.T) {
 func TestAdmin_AssignPermission_NoAuth(t *testing.T) {
 	t.Parallel()
 	c := newClient() // no token
-	resp, err := c.POST("/api/v1/roles/EmployeeBasic/permissions", map[string]interface{}{
+	resp, err := c.POST("/api/v3/roles/EmployeeBasic/permissions", map[string]interface{}{
 		"permission": "clients.read.all",
 	})
 	if err != nil {

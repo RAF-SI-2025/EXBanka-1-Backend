@@ -22,7 +22,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 	t.Logf("WF-10: using listing_id=%d", listingID)
 
 	// Place market buy
-	buyResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
+	buyResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
@@ -41,7 +41,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 	t.Logf("WF-10: buy order filled")
 
 	// Sell stock to generate capital gain/loss
-	sellResp, err := agentC.POST("/api/v1/me/orders", map[string]interface{}{
+	sellResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "sell",
 		"order_type":  "market",
@@ -60,7 +60,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 	t.Logf("WF-10: sell order filled — capital gain/loss generated")
 
 	// Step 2: Check agent's own tax records
-	taxResp, err := agentC.GET("/api/v1/me/tax")
+	taxResp, err := agentC.GET("/api/v3/me/tax")
 	if err != nil {
 		t.Fatalf("WF-10: get my tax records: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
 	// Step 4: Supervisor triggers tax collection
-	collectResp, err := supervisorC.POST("/api/v1/tax/collect", nil)
+	collectResp, err := supervisorC.POST("/api/v3/tax/collect", nil)
 	if err != nil {
 		t.Fatalf("WF-10: supervisor collect tax: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 		collectResp.Body["collected_count"], collectResp.Body["total_collected_rsd"])
 
 	// Step 5: Supervisor can list all tax records
-	taxListResp, err := supervisorC.GET("/api/v1/tax")
+	taxListResp, err := supervisorC.GET("/api/v3/tax")
 	if err != nil {
 		t.Fatalf("WF-10: supervisor list tax: %v", err)
 	}
