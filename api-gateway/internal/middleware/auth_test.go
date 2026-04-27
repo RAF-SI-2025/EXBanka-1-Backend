@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 
 	authpb "github.com/exbanka/contract/authpb"
+	perms "github.com/exbanka/contract/permissions"
 )
 
 // ---------------------------------------------------------------------------
@@ -129,7 +130,7 @@ func TestRequirePermission_NoPermissions(t *testing.T) {
 		c.Set("permissions", []string{})
 		c.Next()
 	})
-	r.Use(RequirePermission("employees.read"))
+	r.Use(RequirePermission(perms.Employees.Read.All))
 	r.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
@@ -151,10 +152,10 @@ func TestRequirePermission_HasPermission(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set("permissions", []string{"employees.read", "clients.read"})
+		c.Set("permissions", []string{"employees.read.all", "clients.read.all"})
 		c.Next()
 	})
-	r.Use(RequirePermission("employees.read"))
+	r.Use(RequirePermission(perms.Employees.Read.All))
 	r.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
@@ -173,10 +174,10 @@ func TestRequirePermission_MissingPermission(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set("permissions", []string{"clients.read"})
+		c.Set("permissions", []string{"clients.read.all"})
 		c.Next()
 	})
-	r.Use(RequirePermission("employees.create"))
+	r.Use(RequirePermission(perms.Employees.Create.Any))
 	r.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
@@ -347,7 +348,7 @@ func TestRequireClientToken_RejectsMissingType(t *testing.T) {
 func TestRequirePermission_PermissionsKeyMissing(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(RequirePermission("foo.bar"))
+	r.Use(RequirePermission(perms.Permission("foo.bar")))
 	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 	req, _ := http.NewRequest("GET", "/test", nil)
 	w := httptest.NewRecorder()
@@ -362,7 +363,7 @@ func TestRequirePermission_WrongType(t *testing.T) {
 		c.Set("permissions", "not-a-slice")
 		c.Next()
 	})
-	r.Use(RequirePermission("foo.bar"))
+	r.Use(RequirePermission(perms.Permission("foo.bar")))
 	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 	req, _ := http.NewRequest("GET", "/test", nil)
 	w := httptest.NewRecorder()
@@ -377,7 +378,7 @@ func TestRequirePermission_Insufficient(t *testing.T) {
 		c.Set("permissions", []string{"other.perm"})
 		c.Next()
 	})
-	r.Use(RequirePermission("foo.bar"))
+	r.Use(RequirePermission(perms.Permission("foo.bar")))
 	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 	req, _ := http.NewRequest("GET", "/test", nil)
 	w := httptest.NewRecorder()
@@ -389,10 +390,10 @@ func TestRequirePermission_Allowed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set("permissions", []string{"foo.bar", "baz.qux"})
+		c.Set("permissions", []string{"foo.bar", "baz.qux"}) // raw strings — middleware doesn't validate against catalog
 		c.Next()
 	})
-	r.Use(RequirePermission("foo.bar"))
+	r.Use(RequirePermission(perms.Permission("foo.bar")))
 	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 	req, _ := http.NewRequest("GET", "/test", nil)
 	w := httptest.NewRecorder()

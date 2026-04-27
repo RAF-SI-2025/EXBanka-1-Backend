@@ -14,6 +14,7 @@ import (
 	creditpb "github.com/exbanka/contract/creditpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	notificationpb "github.com/exbanka/contract/notificationpb"
+	perms "github.com/exbanka/contract/permissions"
 	stockpb "github.com/exbanka/contract/stockpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 	userpb "github.com/exbanka/contract/userpb"
@@ -75,7 +76,7 @@ func SetupV2Routes(
 	{
 		opts := v2.Group("/options")
 		opts.Use(middleware.AnyAuthMiddleware(authClient))
-		opts.Use(middleware.RequireAnyPermission("otc.trade.accept", "otc.trade.exercise", "securities.trade"))
+		opts.Use(middleware.RequireAnyPermission(perms.Otc.Trade.Accept, perms.Otc.Trade.Exercise, perms.Securities.Trade.Any))
 		{
 			opts.POST("/:option_id/orders", optionsV2.CreateOrder)
 			opts.POST("/:option_id/exercise", optionsV2.Exercise)
