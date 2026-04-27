@@ -181,7 +181,7 @@ func TestOptimisticLockConflictCard(t *testing.T) {
 	// The service should return an error ("already blocked") because GetByIDForUpdate re-reads.
 	_, err = svc.BlockCard(card.ID, 0)
 	assert.Error(t, err, "blocking an already-blocked card must return an error")
-	assert.Contains(t, err.Error(), "already blocked")
+	assert.ErrorIs(t, err, ErrCardBlocked)
 
 	var final model.Card
 	require.NoError(t, db.First(&final, card.ID).Error)

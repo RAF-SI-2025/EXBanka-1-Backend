@@ -23,7 +23,7 @@ func NewCardRequestService(repo *repository.CardRequestRepository, cardSvc *Card
 func (s *CardRequestService) CreateRequest(ctx context.Context, req *model.CardRequest) error {
 	validBrands := map[string]bool{"visa": true, "mastercard": true, "dinacard": true, "amex": true}
 	if !validBrands[req.CardBrand] {
-		return fmt.Errorf("invalid card brand: %s", req.CardBrand)
+		return fmt.Errorf("CreateRequest: invalid card brand: %s: %w", req.CardBrand, ErrInvalidCard)
 	}
 	if req.CardType == "" {
 		req.CardType = "debit"
@@ -56,10 +56,10 @@ func (s *CardRequestService) ListByClient(clientID uint64, page, pageSize int) (
 func (s *CardRequestService) ApproveRequest(ctx context.Context, id, employeeID uint64) (*model.Card, error) {
 	req, err := s.repo.GetByID(id)
 	if err != nil {
-		return nil, fmt.Errorf("card request not found: %w", err)
+		return nil, fmt.Errorf("ApproveRequest(id=%d): %w", id, ErrCardRequestNotFound)
 	}
 	if req.Status != "pending" {
-		return nil, fmt.Errorf("card request %d is already %s", id, req.Status)
+		return nil, fmt.Errorf("ApproveRequest(id=%d): request is already %s: %w", id, req.Status, ErrCardRequestAlreadyDecided)
 	}
 
 	// Create the actual card using the existing CardService
@@ -84,10 +84,10 @@ func (s *CardRequestService) ApproveRequest(ctx context.Context, id, employeeID 
 func (s *CardRequestService) RejectRequest(ctx context.Context, id, employeeID uint64, reason string) error {
 	req, err := s.repo.GetByID(id)
 	if err != nil {
-		return fmt.Errorf("card request not found: %w", err)
+		return fmt.Errorf("RejectRequest(id=%d): %w", id, ErrCardRequestNotFound)
 	}
 	if req.Status != "pending" {
-		return fmt.Errorf("card request %d is already %s", id, req.Status)
+		return fmt.Errorf("RejectRequest(id=%d): request is already %s: %w", id, req.Status, ErrCardRequestAlreadyDecided)
 	}
 	if err := s.repo.UpdateStatus(id, "rejected", reason, employeeID); err != nil {
 		return err

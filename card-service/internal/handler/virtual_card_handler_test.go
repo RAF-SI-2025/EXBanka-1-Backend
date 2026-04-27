@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/exbanka/card-service/internal/model"
+	"github.com/exbanka/card-service/internal/service"
 	pb "github.com/exbanka/contract/cardpb"
 )
 
@@ -46,7 +47,7 @@ func TestCreateVirtualCard_Success(t *testing.T) {
 func TestCreateVirtualCard_InvalidUsageType(t *testing.T) {
 	cardSvc := &stubCardService{
 		createVirtualCardFn: func(_ context.Context, _ string, _ uint64, _, _ string, _, _ int, _ string) (*model.Card, string, error) {
-			return nil, "", errors.New("usage_type must be one of: single_use, multi_use; got: bogus")
+			return nil, "", service.ErrInvalidCard
 		},
 	}
 	h := &VirtualCardGRPCHandler{cardService: cardSvc}
@@ -73,14 +74,13 @@ func TestSetCardPin_Success(t *testing.T) {
 
 func TestSetCardPin_InvalidFormat(t *testing.T) {
 	cardSvc := &stubCardService{
-		setPinFn: func(_ uint64, _ string) error { return errors.New("PIN must be exactly 4 digits") },
+		setPinFn: func(_ uint64, _ string) error { return service.ErrInvalidPIN },
 	}
 	h := &VirtualCardGRPCHandler{cardService: cardSvc}
 	_, err := h.SetCardPin(context.Background(), &pb.SetCardPinRequest{Id: 7, Pin: "abc"})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
-	assert.Contains(t, st.Message(), "PIN must be exactly 4 digits")
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ func TestTemporaryBlockCard_NotFound(t *testing.T) {
 func TestTemporaryBlockCard_InvalidDuration(t *testing.T) {
 	cardSvc := &stubCardService{
 		temporaryBlockCardFn: func(_ context.Context, _ uint64, _ int, _ string) (*model.Card, error) {
-			return nil, errors.New("duration_hours must be between 1 and 720")
+			return nil, service.ErrInvalidBlockDuration
 		},
 	}
 	h := &VirtualCardGRPCHandler{cardService: cardSvc}
@@ -167,7 +167,6 @@ func TestTemporaryBlockCard_InvalidDuration(t *testing.T) {
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
-	assert.Contains(t, st.Message(), "duration_hours must be between 1 and 720")
 }
 
 // ---------------------------------------------------------------------------
