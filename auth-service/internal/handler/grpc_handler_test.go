@@ -164,10 +164,10 @@ func TestHandler_ValidateToken_Valid(t *testing.T) {
 	auth := &stubAuthService{
 		validateTokenFn: func(string) (*service.Claims, error) {
 			return &service.Claims{
-				UserID:        7,
+				PrincipalID:   7,
 				Email:         "x@test.com",
 				Roles:         []string{"client"},
-				SystemType:    "client",
+				PrincipalType: "client",
 				AccountActive: true,
 			}, nil
 		},
@@ -177,8 +177,8 @@ func TestHandler_ValidateToken_Valid(t *testing.T) {
 	resp, err := h.ValidateToken(context.Background(), &pb.ValidateTokenRequest{Token: "tok"})
 	require.NoError(t, err)
 	assert.True(t, resp.Valid)
-	assert.Equal(t, int64(7), resp.UserId)
-	assert.Equal(t, "client", resp.SystemType)
+	assert.Equal(t, int64(7), resp.PrincipalId)
+	assert.Equal(t, "client", resp.PrincipalType)
 	assert.Equal(t, "client", resp.Role, "legacy Role should reflect first role")
 }
 

@@ -172,11 +172,11 @@ func (x *ValidateTokenRequest) GetToken() string {
 type ValidateTokenResponse struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Valid             bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
-	UserId            int64                  `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	PrincipalId       int64                  `protobuf:"varint,2,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"` // was: user_id (Spec C Task 2: JWT claim rename)
 	Email             string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	Role              string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
 	Permissions       []string               `protobuf:"bytes,5,rep,name=permissions,proto3" json:"permissions,omitempty"`
-	SystemType        string                 `protobuf:"bytes,6,opt,name=system_type,json=systemType,proto3" json:"system_type,omitempty"`
+	PrincipalType     string                 `protobuf:"bytes,6,opt,name=principal_type,json=principalType,proto3" json:"principal_type,omitempty"` // was: system_type (Spec C Task 2: JWT claim rename)
 	Roles             []string               `protobuf:"bytes,7,rep,name=roles,proto3" json:"roles,omitempty"`
 	DeviceType        string                 `protobuf:"bytes,8,opt,name=device_type,json=deviceType,proto3" json:"device_type,omitempty"` // "mobile" or empty for browser
 	DeviceId          string                 `protobuf:"bytes,9,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`       // UUID of mobile device or empty
@@ -225,9 +225,9 @@ func (x *ValidateTokenResponse) GetValid() bool {
 	return false
 }
 
-func (x *ValidateTokenResponse) GetUserId() int64 {
+func (x *ValidateTokenResponse) GetPrincipalId() int64 {
 	if x != nil {
-		return x.UserId
+		return x.PrincipalId
 	}
 	return 0
 }
@@ -253,9 +253,9 @@ func (x *ValidateTokenResponse) GetPermissions() []string {
 	return nil
 }
 
-func (x *ValidateTokenResponse) GetSystemType() string {
+func (x *ValidateTokenResponse) GetPrincipalType() string {
 	if x != nil {
-		return x.SystemType
+		return x.PrincipalType
 	}
 	return ""
 }
@@ -3029,15 +3029,14 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\",\n" +
 	"\x14ValidateTokenRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"\x99\x03\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\xa9\x03\n" +
 	"\x15ValidateTokenResponse\x12\x14\n" +
-	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x03R\x06userId\x12\x14\n" +
+	"\x05valid\x18\x01 \x01(\bR\x05valid\x12!\n" +
+	"\fprincipal_id\x18\x02 \x01(\x03R\vprincipalId\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x12\n" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12 \n" +
-	"\vpermissions\x18\x05 \x03(\tR\vpermissions\x12\x1f\n" +
-	"\vsystem_type\x18\x06 \x01(\tR\n" +
-	"systemType\x12\x14\n" +
+	"\vpermissions\x18\x05 \x03(\tR\vpermissions\x12%\n" +
+	"\x0eprincipal_type\x18\x06 \x01(\tR\rprincipalType\x12\x14\n" +
 	"\x05roles\x18\a \x03(\tR\x05roles\x12\x1f\n" +
 	"\vdevice_type\x18\b \x01(\tR\n" +
 	"deviceType\x12\x1b\n" +

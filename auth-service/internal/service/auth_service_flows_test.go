@@ -227,11 +227,11 @@ func TestAuthLogin_EmployeeSuccess(t *testing.T) {
 	assert.NotEmpty(t, access)
 	assert.NotEmpty(t, refresh)
 
-	// JWT claims should reflect employee system_type
+	// JWT claims should reflect employee principal_type
 	claims, err := f.jwtSvc.ValidateToken(access)
 	require.NoError(t, err)
-	assert.Equal(t, "employee", claims.SystemType)
-	assert.Equal(t, int64(1), claims.UserID)
+	assert.Equal(t, "employee", claims.PrincipalType)
+	assert.Equal(t, int64(1), claims.PrincipalID)
 
 	// Refresh token persisted
 	var rt model.RefreshToken
@@ -257,7 +257,7 @@ func TestAuthLogin_ClientSuccess(t *testing.T) {
 
 	claims, err := f.jwtSvc.ValidateToken(access)
 	require.NoError(t, err)
-	assert.Equal(t, "client", claims.SystemType)
+	assert.Equal(t, "client", claims.PrincipalType)
 	assert.Equal(t, []string{"client"}, claims.Roles)
 }
 
@@ -339,8 +339,8 @@ func TestValidateToken_ValidJWT_NoCache(t *testing.T) {
 
 	claims, err := f.svc.ValidateToken(token)
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), claims.UserID)
-	assert.Equal(t, "client", claims.SystemType)
+	assert.Equal(t, int64(1), claims.PrincipalID)
+	assert.Equal(t, "client", claims.PrincipalType)
 }
 
 func TestValidateToken_InvalidJWT(t *testing.T) {
@@ -452,7 +452,7 @@ func TestAuthRefreshToken_ClientSystemType(t *testing.T) {
 
 	claims, err := f.jwtSvc.ValidateToken(access)
 	require.NoError(t, err)
-	assert.Equal(t, "client", claims.SystemType)
+	assert.Equal(t, "client", claims.PrincipalType)
 }
 
 // ----------------------------------------------------------------------------

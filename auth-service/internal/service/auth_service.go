@@ -395,7 +395,7 @@ func (s *AuthService) checkRevokedByEpoch(claims *Claims) (bool, error) {
 	if claims == nil || claims.IssuedAt == nil || s.cache == nil {
 		return false, nil
 	}
-	revokedAt, err := s.cache.GetUserRevokedAt(context.Background(), claims.UserID)
+	revokedAt, err := s.cache.GetUserRevokedAt(context.Background(), claims.PrincipalID)
 	if err != nil || revokedAt == 0 {
 		return false, err
 	}
