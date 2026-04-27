@@ -31,12 +31,14 @@ func NewLedgerStore(db *gorm.DB) *LedgerStore {
 var _ shared.Store = (*LedgerStore)(nil)
 
 // RecordEntry inserts one entry. ErrDuplicateEntry is returned if the
-// idempotency key already exists.
+// idempotency key already exists. Saga context (saga_id / saga_step) is
+// stamped onto the row from ctx for cross-service audit.
 func (s *LedgerStore) RecordEntry(ctx context.Context, entry *shared.Entry) error {
 	if err := entry.Validate(); err != nil {
 		return err
 	}
 	row := s.toModel(entry)
+	StampSagaContext(ctx, row)
 	if err := s.db.WithContext(ctx).Create(row).Error; err != nil {
 		if isDuplicateKey(err) {
 			return shared.ErrDuplicateEntry
@@ -47,7 +49,8 @@ func (s *LedgerStore) RecordEntry(ctx context.Context, entry *shared.Entry) erro
 	return nil
 }
 
-// RecordMovement inserts a debit + credit pair atomically.
+// RecordMovement inserts a debit + credit pair atomically. Both rows
+// inherit the same saga_id / saga_step from ctx.
 func (s *LedgerStore) RecordMovement(ctx context.Context, mv *shared.Movement) error {
 	if err := mv.Debit.Validate(); err != nil {
 		return err
@@ -57,6 +60,7 @@ func (s *LedgerStore) RecordMovement(ctx context.Context, mv *shared.Movement) e
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		debit := s.toModel(&mv.Debit)
+		StampSagaContext(ctx, debit)
 		if err := tx.Create(debit).Error; err != nil {
 			if isDuplicateKey(err) {
 				return shared.ErrDuplicateEntry
@@ -65,6 +69,7 @@ func (s *LedgerStore) RecordMovement(ctx context.Context, mv *shared.Movement) e
 		}
 		mv.Debit.ID = debit.ID
 		credit := s.toModel(&mv.Credit)
+		StampSagaContext(ctx, credit)
 		if err := tx.Create(credit).Error; err != nil {
 			if isDuplicateKey(err) {
 				return shared.ErrDuplicateEntry

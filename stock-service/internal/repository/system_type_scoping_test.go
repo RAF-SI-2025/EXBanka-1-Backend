@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -251,7 +252,7 @@ func TestHoldingRepo_Upsert_SeparatesClientAndEmployee(t *testing.T) {
 
 	// First Upsert: creates the employee-side holding.
 	emp := sampleHolding(5, "employee", "stock", 100, 1, 10)
-	if err := repo.Upsert(emp); err != nil {
+	if err := repo.Upsert(context.Background(), emp); err != nil {
 		t.Fatalf("upsert employee: %v", err)
 	}
 
@@ -259,7 +260,7 @@ func TestHoldingRepo_Upsert_SeparatesClientAndEmployee(t *testing.T) {
 	// different system_type must create a fresh row rather than merging
 	// into the employee row.
 	client := sampleHolding(5, "client", "stock", 100, 1, 20)
-	if err := repo.Upsert(client); err != nil {
+	if err := repo.Upsert(context.Background(), client); err != nil {
 		t.Fatalf("upsert client: %v", err)
 	}
 
@@ -300,11 +301,11 @@ func TestHoldingRepo_Upsert_AggregatesAcrossAccounts(t *testing.T) {
 	repo := NewHoldingRepository(db)
 
 	// Buy 10 AAPL from account A.
-	if err := repo.Upsert(sampleHolding(7, "client", "stock", 100, 1, 10)); err != nil {
+	if err := repo.Upsert(context.Background(), sampleHolding(7, "client", "stock", 100, 1, 10)); err != nil {
 		t.Fatalf("upsert from acct 1: %v", err)
 	}
 	// Buy 10 more AAPL from account B — a different account.
-	if err := repo.Upsert(sampleHolding(7, "client", "stock", 100, 2, 10)); err != nil {
+	if err := repo.Upsert(context.Background(), sampleHolding(7, "client", "stock", 100, 2, 10)); err != nil {
 		t.Fatalf("upsert from acct 2: %v", err)
 	}
 

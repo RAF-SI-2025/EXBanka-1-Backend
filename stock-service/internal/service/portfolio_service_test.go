@@ -34,7 +34,7 @@ func newMockHoldingRepo() *mockHoldingRepo {
 	return &mockHoldingRepo{holdings: make(map[uint64]*model.Holding), nextID: 1}
 }
 
-func (m *mockHoldingRepo) Upsert(holding *model.Holding) error {
+func (m *mockHoldingRepo) Upsert(_ context.Context, holding *model.Holding) error {
 	if m.failNextUpsert != nil {
 		err := m.failNextUpsert
 		m.failNextUpsert = nil

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 
 	"github.com/shopspring/decimal"
@@ -8,7 +9,24 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/account-service/internal/model"
+	"github.com/exbanka/contract/shared/saga"
 )
+
+// StampSagaContext copies saga_id and saga_step from ctx onto the ledger
+// entry so cross-service audit queries can find every row a saga touched.
+// Both fields are nullable; non-saga callers (REST handlers, crons) leave
+// them empty. Exported so the reservation/settlement path in the service
+// layer can stamp its hand-built ledger entries with the same metadata.
+func StampSagaContext(ctx context.Context, entry *model.LedgerEntry) {
+	if id, ok := saga.SagaIDFromContext(ctx); ok && id != "" {
+		v := id
+		entry.SagaID = &v
+	}
+	if step, ok := saga.SagaStepFromContext(ctx); ok && step != "" {
+		v := string(step)
+		entry.SagaStep = &v
+	}
+}
 
 type LedgerRepository struct {
 	db *gorm.DB
@@ -39,8 +57,10 @@ func (r *LedgerRepository) GetEntriesByAccount(accountNumber string, page, pageS
 }
 
 // DebitWithLock updates account balance (debit = subtract) inside a DB transaction with FOR UPDATE lock.
-// Returns the ledger entry created.
-func (r *LedgerRepository) DebitWithLock(tx *gorm.DB, accountNumber string, amount decimal.Decimal, description, refID, refType string) (*model.LedgerEntry, error) {
+// Returns the ledger entry created. When ctx carries a saga_id / saga_step
+// (set by the gRPC server saga-context interceptor on incoming saga-callee
+// RPCs), both are stamped onto the new ledger row for cross-service audit.
+func (r *LedgerRepository) DebitWithLock(ctx context.Context, tx *gorm.DB, accountNumber string, amount decimal.Decimal, description, refID, refType string) (*model.LedgerEntry, error) {
 	var acct model.Account
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("account_number = ?", accountNumber).
@@ -70,11 +90,14 @@ func (r *LedgerRepository) DebitWithLock(tx *gorm.DB, accountNumber string, amou
 		ReferenceID:   refID,
 		ReferenceType: refType,
 	}
+	StampSagaContext(ctx, entry)
 	return entry, tx.Create(entry).Error
 }
 
 // CreditWithLock updates account balance (credit = add) inside a DB transaction with FOR UPDATE lock.
-func (r *LedgerRepository) CreditWithLock(tx *gorm.DB, accountNumber string, amount decimal.Decimal, description, refID, refType string) (*model.LedgerEntry, error) {
+// When ctx carries a saga_id / saga_step, both are stamped onto the new
+// ledger row for cross-service audit.
+func (r *LedgerRepository) CreditWithLock(ctx context.Context, tx *gorm.DB, accountNumber string, amount decimal.Decimal, description, refID, refType string) (*model.LedgerEntry, error) {
 	var acct model.Account
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("account_number = ?", accountNumber).
@@ -97,5 +120,6 @@ func (r *LedgerRepository) CreditWithLock(tx *gorm.DB, accountNumber string, amo
 		ReferenceID:   refID,
 		ReferenceType: refType,
 	}
+	StampSagaContext(ctx, entry)
 	return entry, tx.Create(entry).Error
 }

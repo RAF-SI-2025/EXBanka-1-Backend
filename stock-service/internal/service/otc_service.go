@@ -199,7 +199,7 @@ func (s *OTCService) BuyOffer(
 		AveragePrice:  pricePerUnit,
 		AccountID:     buyerAccountID,
 	}
-	if err := s.holdingRepo.Upsert(buyerHolding); err != nil {
+	if err := s.holdingRepo.Upsert(context.Background(), buyerHolding); err != nil {
 		return nil, err
 	}
 

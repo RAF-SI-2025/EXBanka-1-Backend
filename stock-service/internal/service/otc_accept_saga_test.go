@@ -106,7 +106,7 @@ func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
 	sellerID := int64(87)
 	buyerID := int64(55)
 	// Seed seller's holding so the seller-invariant + reservation succeed.
-	_ = holdingRepo.Upsert(&model.Holding{
+	_ = holdingRepo.Upsert(context.Background(), &model.Holding{
 		UserID: uint64(sellerID), SystemType: "client",
 		SecurityType: "stock", SecurityID: stockID, Quantity: 100,
 		AveragePrice: decimal.NewFromInt(100),

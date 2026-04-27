@@ -181,7 +181,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	// Post-saga best-effort: buyer holding upsert + contract.Save + publish.
 	// At this point money + seller-side shares have moved; failure here is
 	// logged loud and left for manual reconciliation.
-	if err := s.holdingRepo.Upsert(&model.Holding{
+	if err := s.holdingRepo.Upsert(ctx, &model.Holding{
 		UserID:       uint64(c.BuyerUserID),
 		SystemType:   c.BuyerSystemType,
 		SecurityType: "stock",

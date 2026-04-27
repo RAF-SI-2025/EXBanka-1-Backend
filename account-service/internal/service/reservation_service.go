@@ -280,6 +280,9 @@ func (s *ReservationService) PartialSettleReservation(ctx context.Context, order
 			ReferenceID:   fmt.Sprintf("order-%d-txn-%d", orderID, orderTransactionID),
 			ReferenceType: "reservation_settlement",
 		}
+		// Stamp saga_id / saga_step from ctx so this debit lines up with the
+		// originating saga step (e.g., StepSettleReservation) in audit reports.
+		repository.StampSagaContext(ctx, entry)
 		if err := tx.Create(entry).Error; err != nil {
 			return fmt.Errorf("ledger entry: %w", err)
 		}

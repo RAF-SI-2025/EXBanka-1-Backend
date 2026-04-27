@@ -36,6 +36,13 @@ type Holding struct {
 	// it but tests/reservations may leave it as zero.
 	AccountID      uint64          `gorm:"index" json:"account_id,omitempty"`
 	Version        int64           `gorm:"not null;default:1" json:"-"`
+	// SagaID and SagaStep are stamped onto rows created or updated from
+	// inside a saga step (read from context.Context via
+	// contract/shared/saga). They make cross-service auditing trivial:
+	// SELECT * FROM holdings WHERE saga_id = '...'. Both are nullable;
+	// non-saga writes (REST handlers, crons) leave them empty.
+	SagaID         *string         `gorm:"size:36;index" json:"saga_id,omitempty"`
+	SagaStep       *string         `gorm:"size:64" json:"saga_step,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }

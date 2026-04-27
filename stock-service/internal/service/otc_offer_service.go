@@ -79,9 +79,11 @@ type OTCAccountClient interface {
 }
 
 // OTCHoldingMutator is the surface needed to credit a buyer's holding on
-// exercise. Implemented by *repository.HoldingRepository.
+// exercise. Implemented by *repository.HoldingRepository. Ctx carries
+// saga_id / saga_step (set by the OTC exercise saga) so the new row gets
+// stamped for cross-service audit.
 type OTCHoldingMutator interface {
-	Upsert(h *model.Holding) error
+	Upsert(ctx context.Context, h *model.Holding) error
 }
 
 // WithSaga wires the dependencies needed by Accept / ExerciseContract.

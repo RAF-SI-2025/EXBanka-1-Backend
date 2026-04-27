@@ -1,14 +1,30 @@
 package repository
 
 import (
+	"context"
 	"errors"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/shopspring/decimal"
 )
+
+// stampHoldingSaga copies saga_id and saga_step from ctx onto a Holding so
+// cross-service audit queries can find every row a saga touched. Both
+// fields are nullable; non-saga callers leave them empty.
+func stampHoldingSaga(ctx context.Context, h *model.Holding) {
+	if id, ok := saga.SagaIDFromContext(ctx); ok && id != "" {
+		v := id
+		h.SagaID = &v
+	}
+	if step, ok := saga.SagaStepFromContext(ctx); ok && step != "" {
+		v := string(step)
+		h.SagaStep = &v
+	}
+}
 
 type HoldingRepository struct {
 	db *gorm.DB
@@ -25,7 +41,12 @@ func NewHoldingRepository(db *gorm.DB) *HoldingRepository {
 // into a single row. The incoming holding's AccountID is treated as a
 // last-used audit field and overwrites the existing row's value (but never
 // participates in the lookup).
-func (r *HoldingRepository) Upsert(holding *model.Holding) error {
+//
+// Saga context: when ctx carries a saga_id / saga_step (set by the gRPC
+// server saga-context interceptor on incoming RPCs, or by direct in-process
+// saga code), both are stamped onto the holding row for cross-service
+// audit. The most recent saga overwrites prior values on update.
+func (r *HoldingRepository) Upsert(ctx context.Context, holding *model.Holding) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var existing model.Holding
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -34,6 +55,7 @@ func (r *HoldingRepository) Upsert(holding *model.Holding) error {
 			First(&existing).Error
 
 		if err == gorm.ErrRecordNotFound {
+			stampHoldingSaga(ctx, holding)
 			return tx.Create(holding).Error
 		}
 		if err != nil {
@@ -58,6 +80,10 @@ func (r *HoldingRepository) Upsert(holding *model.Holding) error {
 		if holding.AccountID != 0 {
 			existing.AccountID = holding.AccountID
 		}
+		// Re-stamp saga context on update so the row reflects the most
+		// recent saga that touched it (older sagas remain queryable via
+		// ledger_entries cross-reference).
+		stampHoldingSaga(ctx, &existing)
 
 		result := tx.Save(&existing)
 		if result.Error != nil {

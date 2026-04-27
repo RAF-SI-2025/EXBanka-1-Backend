@@ -341,7 +341,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 		Add(saga.Step{
 			Name: saga.StepUpdateHolding,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				return s.upsertHoldingForBuy(order, txn)
+				return s.upsertHoldingForBuy(ctx, order, txn)
 			},
 			// Holdings upsert is idempotent on PK (weighted-average); leaving
 			// the row in place after a later-step failure is harmless.
@@ -393,7 +393,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 // quantity goes into fund_holdings instead of holdings, keyed by
 // (FundID, SecurityType, SecurityID). The fund-holdings repo applies a
 // weighted-average upsert just like the user-side holdings repo.
-func (s *PortfolioService) upsertHoldingForBuy(order *model.Order, txn *model.OrderTransaction) error {
+func (s *PortfolioService) upsertHoldingForBuy(ctx context.Context, order *model.Order, txn *model.OrderTransaction) error {
 	listing, err := s.listingRepo.GetByID(order.ListingID)
 	if err != nil {
 		return err
@@ -441,7 +441,7 @@ func (s *PortfolioService) upsertHoldingForBuy(order *model.Order, txn *model.Or
 		AveragePrice:  txn.PricePerUnit,
 		AccountID:     order.AccountID,
 	}
-	return s.holdingRepo.Upsert(holding)
+	return s.holdingRepo.Upsert(ctx, holding)
 }
 
 // commissionRecipientAccount returns the account number that should receive
@@ -527,7 +527,7 @@ func (s *PortfolioService) processBuyFillLegacy(order *model.Order, txn *model.O
 		AccountID:     order.AccountID,
 	}
 
-	if err := s.holdingRepo.Upsert(holding); err != nil {
+	if err := s.holdingRepo.Upsert(context.Background(), holding); err != nil {
 		return err
 	}
 
@@ -1017,7 +1017,7 @@ func (s *PortfolioService) ExerciseOption(holdingID, userID uint64, systemType s
 			AveragePrice:  option.StrikePrice,
 			AccountID:     holding.AccountID,
 		}
-		if err := s.holdingRepo.Upsert(stockHolding); err != nil {
+		if err := s.holdingRepo.Upsert(context.Background(), stockHolding); err != nil {
 			// Compensate: re-credit the debit amount
 			_ = s.creditAccount(holding.AccountID, debitAmount)
 			return nil, err
