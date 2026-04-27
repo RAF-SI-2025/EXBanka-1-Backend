@@ -103,6 +103,7 @@ func main() {
 	sagaLogRepo := repository.NewSagaLogRepository(db)
 	banksRepo := repository.NewBanksRepository(db)
 	ibTxRepo := repository.NewInterBankTxRepository(db)
+	idemRepo := repository.NewIdempotencyRepository(db)
 	seedPeerBanks(banksRepo, cfg)
 
 	feeRepo := repository.NewTransferFeeRepository(db)
@@ -173,7 +174,7 @@ func main() {
 			ReceiverWait: cfg.InterbankReceiverWait,
 		},
 	)
-	interBankHandler := handler.NewInterBankGRPCHandler(interBankSvc)
+	interBankHandler := handler.NewInterBankGRPCHandler(interBankSvc, db, idemRepo)
 
 	// Crash-recovery sweep — run synchronously before serving so any
 	// commit_received receiver rows finish their CommitIncoming and any
