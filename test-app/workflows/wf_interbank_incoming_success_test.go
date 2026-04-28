@@ -3,7 +3,9 @@
 package workflows
 
 import (
+	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,11 +43,25 @@ func TestInterBank_IncomingSuccess(t *testing.T) {
 		t.Fatalf("Prepare: expected Ready, got %s", string(body))
 	}
 
+	// Echo the receiver's final terms back in Commit. The receiver applied an
+	// incoming-transfer fee, so finalAmount may be < 500. termsMatch requires
+	// these to match what was committed in the Prepare row.
+	var prepareEnv struct {
+		Body struct {
+			FinalAmount   string `json:"finalAmount"`
+			FinalCurrency string `json:"finalCurrency"`
+			FxRate        string `json:"fxRate"`
+			Fees          string `json:"fees"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(body, &prepareEnv); err != nil {
+		t.Fatalf("Prepare: cannot decode envelope body: %v", err)
+	}
 	commitBody := map[string]any{
-		"finalAmount":   "500.00",
-		"finalCurrency": "RSD",
-		"fxRate":        "1",
-		"fees":          "0",
+		"finalAmount":   prepareEnv.Body.FinalAmount,
+		"finalCurrency": prepareEnv.Body.FinalCurrency,
+		"fxRate":        prepareEnv.Body.FxRate,
+		"fees":          prepareEnv.Body.Fees,
 	}
 	resp, body = peerSignedPost(t, gateway, "transfer/commit", txID, "Commit", commitBody)
 	if resp.StatusCode != http.StatusOK {
@@ -55,9 +71,19 @@ func TestInterBank_IncomingSuccess(t *testing.T) {
 		t.Fatalf("Commit: expected Committed, got %s", string(body))
 	}
 
-	// Allow a brief moment for the kafka publish + ledger flush.
-	time.Sleep(500 * time.Millisecond)
-	requireBalanceEquals(t, adminC, accountNumber, "100500")
+	// requireBalanceEquals polls — the saga can take a moment to flush the
+	// credit through to the account-service ledger after Commit returns.
+	wantBalance := addDecimalStrings("100000", prepareEnv.Body.FinalAmount)
+	requireBalanceEquals(t, adminC, accountNumber, wantBalance)
+}
+
+// addDecimalStrings returns a + b for shopspring/decimal-style strings.
+// We don't import shopspring just for this; the values are simple enough
+// that strconv parsing + formatting works.
+func addDecimalStrings(a, b string) string {
+	af, _ := strconv.ParseFloat(a, 64)
+	bf, _ := strconv.ParseFloat(b, 64)
+	return strconv.FormatFloat(af+bf, 'f', -1, 64)
 }
 
 // randomNonce returns a hex-encoded random byte string of the given length.
