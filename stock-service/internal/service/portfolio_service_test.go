@@ -2404,6 +2404,70 @@ func TestProcessBuyFill_SameCurrency_HappyPath(t *testing.T) {
 	}
 }
 
+// TestProcessBuyFill_MultiplePortions_AggregatesHolding is the regression
+// for the silent step-skip bug: when an order filled in N portions, the
+// fill saga reused order.SagaID for every portion, causing the saga
+// executor's IsCompleted check to skip update_holding /
+// settle_reservation / convert_amount on every portion after the first
+// (those step names had been recorded as completed under the same
+// saga_id by the previous portion). Symptom reported by users: bought
+// 3+3+3 of the same stock, holding showed 3 instead of 9; trying to
+// sell more than 3 was rejected. This test fills three portions on
+// one approved order and asserts the holding aggregates and money
+// settles three times.
+func TestProcessBuyFill_MultiplePortions_AggregatesHolding(t *testing.T) {
+	svc, mocks := buildPortfolioServiceWithSaga("USD", "USD")
+
+	listing := stockListing(1, 100, 100.00)
+	listing.Exchange.Currency = "USD"
+	mocks.listingRepo.addListing(listing)
+	mocks.stockRepo.addStock(&model.Stock{ID: 100, Ticker: "AAPL", Name: "Apple Inc."})
+
+	order := &model.Order{
+		ID:           1,
+		OwnerType:    model.OwnerClient,
+		OwnerID:      ptrU64(77),
+		ListingID:    1,
+		SecurityType: "stock",
+		Ticker:       "AAPL",
+		Direction:    "buy",
+		Quantity:     9,
+		AccountID:    1,
+		// Fixed SagaID emulates the placement-saga stamp the engine
+		// passes to every fill of this order.
+		SagaID: "shared-placement-saga",
+	}
+
+	for i, txnID := range []uint64{900, 901, 902} {
+		txn := &model.OrderTransaction{
+			ID: txnID, OrderID: 1, Quantity: 3,
+			PricePerUnit: decimal.NewFromInt(100),
+			TotalPrice:   decimal.NewFromInt(300),
+		}
+		if err := mocks.txRepo.Create(txn); err != nil {
+			t.Fatalf("portion %d: create txn: %v", i+1, err)
+		}
+		if err := svc.ProcessBuyFill(order, txn); err != nil {
+			t.Fatalf("portion %d: ProcessBuyFill: %v", i+1, err)
+		}
+	}
+
+	h, err := mocks.holdingRepo.GetByOwnerAndSecurity(model.OwnerClient, ptrU64(77), "stock", 100)
+	if err != nil {
+		t.Fatalf("holding not created: %v", err)
+	}
+	if h.Quantity != 9 {
+		t.Fatalf("holding quantity: got %d want 9 (3+3+3 aggregated)", h.Quantity)
+	}
+
+	if got := len(mocks.fillClient.partialSettleCalls); got != 3 {
+		t.Fatalf("expected 3 PartialSettleReservation calls (one per portion), got %d", got)
+	}
+	if got := len(mocks.fillClient.commissionCalls); got != 3 {
+		t.Fatalf("expected 3 commission credits (one per portion), got %d", got)
+	}
+}
+
 func TestProcessBuyFill_CrossCurrency_ConvertsAmount(t *testing.T) {
 	svc, mocks := buildPortfolioServiceWithSaga("RSD", "USD")
 	// 1 USD = 100 RSD

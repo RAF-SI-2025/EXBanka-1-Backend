@@ -80,10 +80,12 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 		return fmt.Errorf("forex fill order %d: missing base_account_id", order.ID)
 	}
 
-	sagaID := order.SagaID
-	if sagaID == "" {
-		sagaID = uuid.New().String()
-	}
+	// Fresh sagaID per fill — see the comment in
+	// portfolio_service.processBuyFillSaga. Reusing order.SagaID caused
+	// later portions of multi-portion forex orders to skip the saga's
+	// effects (settle_reservation_quote / credit_base / commission)
+	// because those step names were already marked completed.
+	sagaID := uuid.New().String()
 
 	contractSize := order.ContractSize
 	if contractSize <= 0 {

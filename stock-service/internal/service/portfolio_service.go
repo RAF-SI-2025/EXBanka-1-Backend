@@ -238,10 +238,16 @@ func (s *PortfolioService) ProcessBuyFill(order *model.Order, txn *model.OrderTr
 func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.OrderTransaction) error {
 	ctx := context.Background()
 
-	sagaID := order.SagaID
-	if sagaID == "" {
-		sagaID = uuid.New().String()
-	}
+	// Each partial fill is its own saga lifecycle. Reusing order.SagaID
+	// across portions caused the saga executor's IsCompleted check
+	// (saga.go:Execute) to skip update_holding / settle_reservation /
+	// convert_amount / record_transaction on every fill after the first,
+	// because those step names had already been recorded as completed
+	// under the placement-saga's saga_id. Symptom: holding row stuck at
+	// the first portion's quantity; later portions debited nothing yet
+	// still produced order_transactions rows (the engine creates those
+	// outside the saga at order_execution.go).
+	sagaID := uuid.New().String()
 
 	// Captured shared state — the convert step writes these for later steps.
 	var convertedAmount decimal.Decimal
@@ -594,10 +600,11 @@ func (s *PortfolioService) ProcessSellFill(order *model.Order, txn *model.OrderT
 func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.OrderTransaction) error {
 	ctx := context.Background()
 
-	sagaID := order.SagaID
-	if sagaID == "" {
-		sagaID = uuid.New().String()
-	}
+	// Fresh sagaID per fill — see the comment in processBuyFillSaga.
+	// Reusing order.SagaID caused later portions of multi-portion sells
+	// to skip credit_proceeds / decrement_holding because those step
+	// names were already marked completed under the placement saga_id.
+	sagaID := uuid.New().String()
 
 	var convertedAmount decimal.Decimal
 	var accountCurrency, accountNumber string
