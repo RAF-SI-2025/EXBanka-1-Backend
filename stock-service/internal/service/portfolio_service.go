@@ -290,11 +290,17 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 					return s.txRepo.Update(txn)
 				}
 
-				resp, cerr := s.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
+				// Bound the exchange call so a slow/unreachable
+				// exchange-service can't block the fill goroutine forever.
+				// Without this, a stalled gRPC call kept the saga from
+				// progressing past the convert step within the test window.
+				convCtx, convCancel := context.WithTimeout(ctx, 10*time.Second)
+				resp, cerr := s.exchangeClient.Convert(convCtx, &exchangepb.ConvertRequest{
 					FromCurrency: listingCurrency,
 					ToCurrency:   accountCurrency,
 					Amount:       txn.TotalPrice.String(),
 				})
+				convCancel()
 				if cerr != nil {
 					return fmt.Errorf("exchange convert: %w", cerr)
 				}
@@ -637,11 +643,17 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 					return s.txRepo.Update(txn)
 				}
 
-				resp, cerr := s.exchangeClient.Convert(ctx, &exchangepb.ConvertRequest{
+				// Bound the exchange call so a slow/unreachable
+				// exchange-service can't block the fill goroutine forever.
+				// Without this, a stalled gRPC call kept the saga from
+				// progressing past the convert step within the test window.
+				convCtx, convCancel := context.WithTimeout(ctx, 10*time.Second)
+				resp, cerr := s.exchangeClient.Convert(convCtx, &exchangepb.ConvertRequest{
 					FromCurrency: listingCurrency,
 					ToCurrency:   accountCurrency,
 					Amount:       txn.TotalPrice.String(),
 				})
+				convCancel()
 				if cerr != nil {
 					return fmt.Errorf("exchange convert: %w", cerr)
 				}

@@ -3,7 +3,6 @@
 package workflows
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -74,19 +73,12 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 			t.Fatalf("buy %d: expected 201, got %d: %v", i+1, buyResp.StatusCode, buyResp.Body)
 		}
 		buyID := int(helpers.GetNumberField(t, buyResp, "id"))
-		// Wait for fill before issuing the next order so reservations stack
-		// predictably.
-		fillDeadline := time.Now().Add(60 * time.Second)
-		for time.Now().Before(fillDeadline) {
-			p, err := clientC.GET(fmt.Sprintf("/api/v3/me/orders/%d", buyID))
-			if err != nil {
-				t.Fatalf("poll buy %d: %v", i+1, err)
-			}
-			if orderFilledOrHasTxn(p.Body) {
-				break
-			}
-			time.Sleep(2 * time.Second)
-		}
+		// Wait for the fill saga to fully complete (is_done=true) before
+		// asserting the portfolio. orderFilledOrHasTxn would also accept
+		// transaction-row presence, but the OrderTransaction is written
+		// BEFORE PortfolioService.ProcessBuyFill creates the Holding row —
+		// so a true return there can leave the portfolio temporarily empty.
+		waitForOrderFill(t, clientC, buyID, 60*time.Second)
 	}
 
 	// Verify the portfolio has ONE aggregated holding with quantity=30.

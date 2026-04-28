@@ -13,6 +13,7 @@ import (
 
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
+	shared "github.com/exbanka/contract/shared"
 )
 
 // IncomingReservationService owns the credit-side reservation lifecycle for
@@ -124,8 +125,17 @@ func (s *IncomingReservationService) CommitIncoming(ctx context.Context, key str
 		before := acct.Balance
 		acct.Balance = acct.Balance.Add(res.Amount)
 		acct.AvailableBalance = acct.AvailableBalance.Add(res.Amount)
-		if err := tx.Save(&acct).Error; err != nil {
-			return err
+		// Account has a Version field + BeforeUpdate hook that adds
+		// WHERE version=?. Without checking RowsAffected, an optimistic
+		// lock conflict here would silently lose the credit while still
+		// marking the reservation committed below — exactly the
+		// TestInterBank_IncomingSuccess failure mode.
+		saveRes := tx.Save(&acct)
+		if saveRes.Error != nil {
+			return saveRes.Error
+		}
+		if saveRes.RowsAffected == 0 {
+			return shared.ErrOptimisticLock
 		}
 		entry := &model.LedgerEntry{
 			AccountNumber:  res.AccountNumber,
