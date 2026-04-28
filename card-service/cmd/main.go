@@ -82,8 +82,9 @@ func main() {
 	cardRequestRepo := repository.NewCardRequestRepository(db)
 	changelogRepo := repository.NewChangelogRepository(db)
 	cardService := service.NewCardService(cardRepo, blockRepo, authRepo, producer, redisCache, db, changelogRepo)
+	changelogSvc := service.NewChangelogService(changelogRepo)
 	cardRequestSvc := service.NewCardRequestService(cardRequestRepo, cardService, producer)
-	grpcHandler := handler.NewCardGRPCHandler(cardService, producer, clientClient)
+	grpcHandler := handler.NewCardGRPCHandler(cardService, producer, clientClient, changelogSvc)
 	virtualCardHandler := handler.NewVirtualCardGRPCHandler(cardService)
 	cardRequestHandler := handler.NewCardRequestGRPCHandler(cardRequestSvc)
 

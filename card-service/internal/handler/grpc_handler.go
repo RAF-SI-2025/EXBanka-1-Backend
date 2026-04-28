@@ -21,16 +21,18 @@ import (
 
 type CardGRPCHandler struct {
 	pb.UnimplementedCardServiceServer
-	cardService  cardServiceFacade
-	producer     producerFacade
-	clientClient clientpb.ClientServiceClient
+	cardService      cardServiceFacade
+	producer         producerFacade
+	clientClient     clientpb.ClientServiceClient
+	changelogService *service.ChangelogService
 }
 
-func NewCardGRPCHandler(cardService *service.CardService, producer *kafkaprod.Producer, clientClient clientpb.ClientServiceClient) *CardGRPCHandler {
+func NewCardGRPCHandler(cardService *service.CardService, producer *kafkaprod.Producer, clientClient clientpb.ClientServiceClient, changelogService *service.ChangelogService) *CardGRPCHandler {
 	return &CardGRPCHandler{
-		cardService:  cardService,
-		producer:     producer,
-		clientClient: clientClient,
+		cardService:      cardService,
+		producer:         producer,
+		clientClient:     clientClient,
+		changelogService: changelogService,
 	}
 }
 
@@ -252,6 +254,30 @@ func (h *CardGRPCHandler) GetAuthorizedPerson(ctx context.Context, req *pb.GetAu
 		return nil, err
 	}
 	return toAuthorizedPersonResponse(ap), nil
+}
+
+// ListChangelog returns paginated audit-log entries for an entity.
+func (h *CardGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangelogRequest) (*pb.ListChangelogResponse, error) {
+	entries, total, err := h.changelogService.ListChangelog(req.GetEntityType(), req.GetEntityId(), int(req.GetPage()), int(req.GetPageSize()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
 // maskCardNumber returns a masked card number showing only the last 4 digits.
