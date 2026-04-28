@@ -991,7 +991,7 @@ func (x *UpdateRolePermissionsRequest) GetPermissionCodes() []string {
 
 type AssignPermissionToRoleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RoleName      string                 `protobuf:"bytes,1,opt,name=role_name,json=roleName,proto3" json:"role_name,omitempty"`
+	RoleId        uint64                 `protobuf:"varint,1,opt,name=role_id,json=roleId,proto3" json:"role_id,omitempty"`
 	Permission    string                 `protobuf:"bytes,2,opt,name=permission,proto3" json:"permission,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1027,11 +1027,11 @@ func (*AssignPermissionToRoleRequest) Descriptor() ([]byte, []int) {
 	return file_user_user_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *AssignPermissionToRoleRequest) GetRoleName() string {
+func (x *AssignPermissionToRoleRequest) GetRoleId() uint64 {
 	if x != nil {
-		return x.RoleName
+		return x.RoleId
 	}
-	return ""
+	return 0
 }
 
 func (x *AssignPermissionToRoleRequest) GetPermission() string {
@@ -1079,7 +1079,7 @@ func (*AssignPermissionToRoleResponse) Descriptor() ([]byte, []int) {
 
 type RevokePermissionFromRoleRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	RoleName      string                 `protobuf:"bytes,1,opt,name=role_name,json=roleName,proto3" json:"role_name,omitempty"`
+	RoleId        uint64                 `protobuf:"varint,1,opt,name=role_id,json=roleId,proto3" json:"role_id,omitempty"`
 	Permission    string                 `protobuf:"bytes,2,opt,name=permission,proto3" json:"permission,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1115,11 +1115,11 @@ func (*RevokePermissionFromRoleRequest) Descriptor() ([]byte, []int) {
 	return file_user_user_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *RevokePermissionFromRoleRequest) GetRoleName() string {
+func (x *RevokePermissionFromRoleRequest) GetRoleId() uint64 {
 	if x != nil {
-		return x.RoleName
+		return x.RoleId
 	}
-	return ""
+	return 0
 }
 
 func (x *RevokePermissionFromRoleRequest) GetPermission() string {
@@ -3071,15 +3071,15 @@ const file_user_user_proto_rawDesc = "" +
 	"\x10permission_codes\x18\x03 \x03(\tR\x0fpermissionCodes\"b\n" +
 	"\x1cUpdateRolePermissionsRequest\x12\x17\n" +
 	"\arole_id\x18\x01 \x01(\x03R\x06roleId\x12)\n" +
-	"\x10permission_codes\x18\x02 \x03(\tR\x0fpermissionCodes\"\\\n" +
-	"\x1dAssignPermissionToRoleRequest\x12\x1b\n" +
-	"\trole_name\x18\x01 \x01(\tR\broleName\x12\x1e\n" +
+	"\x10permission_codes\x18\x02 \x03(\tR\x0fpermissionCodes\"X\n" +
+	"\x1dAssignPermissionToRoleRequest\x12\x17\n" +
+	"\arole_id\x18\x01 \x01(\x04R\x06roleId\x12\x1e\n" +
 	"\n" +
 	"permission\x18\x02 \x01(\tR\n" +
 	"permission\" \n" +
-	"\x1eAssignPermissionToRoleResponse\"^\n" +
-	"\x1fRevokePermissionFromRoleRequest\x12\x1b\n" +
-	"\trole_name\x18\x01 \x01(\tR\broleName\x12\x1e\n" +
+	"\x1eAssignPermissionToRoleResponse\"Z\n" +
+	"\x1fRevokePermissionFromRoleRequest\x12\x17\n" +
+	"\arole_id\x18\x01 \x01(\x04R\x06roleId\x12\x1e\n" +
 	"\n" +
 	"permission\x18\x02 \x01(\tR\n" +
 	"permission\"\"\n" +

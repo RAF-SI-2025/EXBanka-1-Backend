@@ -369,16 +369,16 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			roleUpdate.PUT("/roles/:id/permissions", h.Role.UpdateRolePermissions)
 		}
 		// Granular role-permission management (one perm at a time, by role
-		// name). Each verb uses its dedicated catalog perm.
+		// ID). Each verb uses its dedicated catalog perm.
 		rolePermAssign := protected.Group("/")
 		rolePermAssign.Use(middleware.RequirePermission(perms.Roles.Permissions.Assign))
 		{
-			rolePermAssign.POST("/roles/:role_name/permissions", h.Role.AssignPermissionToRole)
+			rolePermAssign.POST("/roles/:id/permissions", h.Role.AssignPermissionToRole)
 		}
 		rolePermRevoke := protected.Group("/")
 		rolePermRevoke.Use(middleware.RequirePermission(perms.Roles.Permissions.Revoke))
 		{
-			rolePermRevoke.DELETE("/roles/:role_name/permissions/:permission", h.Role.RevokePermissionFromRole)
+			rolePermRevoke.DELETE("/roles/:id/permissions/:permission", h.Role.RevokePermissionFromRole)
 		}
 		// Per-employee role/permission assignment
 		empPermAssign := protected.Group("/")

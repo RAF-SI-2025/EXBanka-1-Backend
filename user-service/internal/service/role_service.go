@@ -130,11 +130,11 @@ func permissionCategory(code string) string {
 // AssignPermissionToRole grants a permission to a role. Validates against the
 // codegened catalog — admins cannot grant a permission that does not exist.
 // Idempotent: granting the same permission twice is a no-op.
-func (s *RoleService) AssignPermissionToRole(roleName string, perm string) error {
+func (s *RoleService) AssignPermissionToRole(roleID int64, perm string) error {
 	if !permissions.IsValid(permissions.Permission(perm)) {
 		return ErrPermissionNotInCatalog
 	}
-	role, err := s.roleRepo.GetByName(roleName)
+	role, err := s.roleRepo.GetByID(roleID)
 	if err != nil {
 		return ErrRoleNotFound
 	}
@@ -161,8 +161,8 @@ func (s *RoleService) AssignPermissionToRole(roleName string, perm string) error
 
 // RevokePermissionFromRole removes a permission grant from a role. Idempotent:
 // revoking a permission that was never granted is a no-op.
-func (s *RoleService) RevokePermissionFromRole(roleName string, perm string) error {
-	role, err := s.roleRepo.GetByName(roleName)
+func (s *RoleService) RevokePermissionFromRole(roleID int64, perm string) error {
+	role, err := s.roleRepo.GetByID(roleID)
 	if err != nil {
 		return ErrRoleNotFound
 	}

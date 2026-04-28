@@ -87,8 +87,8 @@ type mockRoleSvc struct {
 	getRoleFn            func(id int64) (*model.Role, error)
 	createRoleFn         func(name, description string, perms []string) (*model.Role, error)
 	updateRoleFn         func(roleID int64, perms []string) error
-	assignPermFn         func(roleName, perm string) error
-	revokePermFn         func(roleName, perm string) error
+	assignPermFn         func(roleID int64, perm string) error
+	revokePermFn         func(roleID int64, perm string) error
 	listPermsFn          func() ([]model.Permission, error)
 }
 
@@ -120,16 +120,16 @@ func (m *mockRoleSvc) UpdateRolePermissions(roleID int64, permissionCodes []stri
 	return nil
 }
 
-func (m *mockRoleSvc) AssignPermissionToRole(roleName, perm string) error {
+func (m *mockRoleSvc) AssignPermissionToRole(roleID int64, perm string) error {
 	if m.assignPermFn != nil {
-		return m.assignPermFn(roleName, perm)
+		return m.assignPermFn(roleID, perm)
 	}
 	return nil
 }
 
-func (m *mockRoleSvc) RevokePermissionFromRole(roleName, perm string) error {
+func (m *mockRoleSvc) RevokePermissionFromRole(roleID int64, perm string) error {
 	if m.revokePermFn != nil {
-		return m.revokePermFn(roleName, perm)
+		return m.revokePermFn(roleID, perm)
 	}
 	return nil
 }
@@ -781,10 +781,10 @@ func TestCreateEmployee_WithRole_Success(t *testing.T) {
 func TestAssignPermissionToRole_Success(t *testing.T) {
 	calls := 0
 	roleSvc := &mockRoleSvc{
-		assignPermFn: func(roleName, perm string) error {
+		assignPermFn: func(roleID int64, perm string) error {
 			calls++
-			if roleName != "EmployeeBasic" || perm != "clients.read.all" {
-				t.Errorf("unexpected args: role=%q perm=%q", roleName, perm)
+			if roleID != 1 || perm != "clients.read.all" {
+				t.Errorf("unexpected args: role_id=%d perm=%q", roleID, perm)
 			}
 			return nil
 		},
@@ -792,7 +792,7 @@ func TestAssignPermissionToRole_Success(t *testing.T) {
 	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
 
 	resp, err := h.AssignPermissionToRole(context.Background(), &pb.AssignPermissionToRoleRequest{
-		RoleName:   "EmployeeBasic",
+		RoleId:     1,
 		Permission: "clients.read.all",
 	})
 	if err != nil {
@@ -808,14 +808,14 @@ func TestAssignPermissionToRole_Success(t *testing.T) {
 
 func TestAssignPermissionToRole_PermissionNotInCatalog(t *testing.T) {
 	roleSvc := &mockRoleSvc{
-		assignPermFn: func(roleName, perm string) error {
+		assignPermFn: func(roleID int64, perm string) error {
 			return service.ErrPermissionNotInCatalog
 		},
 	}
 	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
 
 	_, err := h.AssignPermissionToRole(context.Background(), &pb.AssignPermissionToRoleRequest{
-		RoleName:   "EmployeeBasic",
+		RoleId:     1,
 		Permission: "totally.fake.permission",
 	})
 	if err == nil {
@@ -828,14 +828,14 @@ func TestAssignPermissionToRole_PermissionNotInCatalog(t *testing.T) {
 
 func TestAssignPermissionToRole_RoleNotFound(t *testing.T) {
 	roleSvc := &mockRoleSvc{
-		assignPermFn: func(roleName, perm string) error {
+		assignPermFn: func(roleID int64, perm string) error {
 			return service.ErrRoleNotFound
 		},
 	}
 	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
 
 	_, err := h.AssignPermissionToRole(context.Background(), &pb.AssignPermissionToRoleRequest{
-		RoleName:   "NoSuchRole",
+		RoleId:     999,
 		Permission: "clients.read.all",
 	})
 	if err == nil {
@@ -849,10 +849,10 @@ func TestAssignPermissionToRole_RoleNotFound(t *testing.T) {
 func TestRevokePermissionFromRole_Success(t *testing.T) {
 	calls := 0
 	roleSvc := &mockRoleSvc{
-		revokePermFn: func(roleName, perm string) error {
+		revokePermFn: func(roleID int64, perm string) error {
 			calls++
-			if roleName != "EmployeeBasic" || perm != "clients.read.all" {
-				t.Errorf("unexpected args: role=%q perm=%q", roleName, perm)
+			if roleID != 1 || perm != "clients.read.all" {
+				t.Errorf("unexpected args: role_id=%d perm=%q", roleID, perm)
 			}
 			return nil
 		},
@@ -860,7 +860,7 @@ func TestRevokePermissionFromRole_Success(t *testing.T) {
 	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
 
 	resp, err := h.RevokePermissionFromRole(context.Background(), &pb.RevokePermissionFromRoleRequest{
-		RoleName:   "EmployeeBasic",
+		RoleId:     1,
 		Permission: "clients.read.all",
 	})
 	if err != nil {
@@ -876,14 +876,14 @@ func TestRevokePermissionFromRole_Success(t *testing.T) {
 
 func TestRevokePermissionFromRole_RoleNotFound(t *testing.T) {
 	roleSvc := &mockRoleSvc{
-		revokePermFn: func(roleName, perm string) error {
+		revokePermFn: func(roleID int64, perm string) error {
 			return service.ErrRoleNotFound
 		},
 	}
 	h := newUserHandlerForTest(&mockEmpSvc{}, roleSvc)
 
 	_, err := h.RevokePermissionFromRole(context.Background(), &pb.RevokePermissionFromRoleRequest{
-		RoleName:   "NoSuchRole",
+		RoleId:     999,
 		Permission: "clients.read.all",
 	})
 	if err == nil {

@@ -154,11 +154,11 @@ type assignPermissionRequest struct {
 
 // AssignPermissionToRole godoc
 // @Summary      Assign a permission to a role
-// @Description  Grants a single permission to the named role. The permission is validated against the codegened catalog. Idempotent — granting a permission already held is a no-op. Requires roles.permissions.assign permission.
+// @Description  Grants a single permission to the role identified by ID. The permission is validated against the codegened catalog. Idempotent — granting a permission already held is a no-op. Requires roles.permissions.assign permission.
 // @Tags         roles
 // @Accept       json
 // @Produce      json
-// @Param        role_name  path  string                   true  "Role name (e.g. EmployeeBasic)"
+// @Param        id         path  int                      true  "Role ID"
 // @Param        body       body  assignPermissionRequest  true  "Permission code to grant"
 // @Security     BearerAuth
 // @Success      204  "no content"
@@ -167,15 +167,20 @@ type assignPermissionRequest struct {
 // @Failure      403  {object}  map[string]interface{}  "forbidden"
 // @Failure      404  {object}  map[string]interface{}  "role not found"
 // @Failure      500  {object}  map[string]interface{}  "error"
-// @Router       /api/v1/roles/{role_name}/permissions [post]
+// @Router       /api/v3/roles/{id}/permissions [post]
 func (h *RoleHandler) AssignPermissionToRole(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
+		return
+	}
 	var req assignPermissionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
 		return
 	}
-	_, err := h.userClient.AssignPermissionToRole(middleware.GRPCContextWithChangedBy(c), &userpb.AssignPermissionToRoleRequest{
-		RoleName:   c.Param("role_name"),
+	_, err = h.userClient.AssignPermissionToRole(middleware.GRPCContextWithChangedBy(c), &userpb.AssignPermissionToRoleRequest{
+		RoleId:     id,
 		Permission: req.Permission,
 	})
 	if err != nil {
@@ -187,21 +192,27 @@ func (h *RoleHandler) AssignPermissionToRole(c *gin.Context) {
 
 // RevokePermissionFromRole godoc
 // @Summary      Revoke a permission from a role
-// @Description  Removes a single permission grant from the named role. Idempotent — revoking a permission not held is a no-op. Requires roles.permissions.revoke permission.
+// @Description  Removes a single permission grant from the role identified by ID. Idempotent — revoking a permission not held is a no-op. Requires roles.permissions.revoke permission.
 // @Tags         roles
 // @Produce      json
-// @Param        role_name   path  string  true  "Role name (e.g. EmployeeBasic)"
+// @Param        id          path  int     true  "Role ID"
 // @Param        permission  path  string  true  "Permission code to revoke"
 // @Security     BearerAuth
 // @Success      204  "no content"
+// @Failure      400  {object}  map[string]interface{}  "validation error"
 // @Failure      401  {object}  map[string]interface{}  "unauthorized"
 // @Failure      403  {object}  map[string]interface{}  "forbidden"
 // @Failure      404  {object}  map[string]interface{}  "role not found"
 // @Failure      500  {object}  map[string]interface{}  "error"
-// @Router       /api/v1/roles/{role_name}/permissions/{permission} [delete]
+// @Router       /api/v3/roles/{id}/permissions/{permission} [delete]
 func (h *RoleHandler) RevokePermissionFromRole(c *gin.Context) {
-	_, err := h.userClient.RevokePermissionFromRole(middleware.GRPCContextWithChangedBy(c), &userpb.RevokePermissionFromRoleRequest{
-		RoleName:   c.Param("role_name"),
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
+		return
+	}
+	_, err = h.userClient.RevokePermissionFromRole(middleware.GRPCContextWithChangedBy(c), &userpb.RevokePermissionFromRoleRequest{
+		RoleId:     id,
 		Permission: c.Param("permission"),
 	})
 	if err != nil {
