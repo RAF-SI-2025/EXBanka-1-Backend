@@ -5,8 +5,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/exbanka/user-service/internal/model"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/user-service/internal/model"
 )
 
 type EmployeeRepository struct {

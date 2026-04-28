@@ -6,8 +6,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/exbanka/verification-service/internal/model"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/verification-service/internal/model"
 )
 
 // ErrOptimisticLock is the typed sentinel returned when a concurrent

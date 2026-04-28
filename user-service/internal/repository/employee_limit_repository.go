@@ -7,8 +7,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/exbanka/user-service/internal/model"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/user-service/internal/model"
 )
 
 type EmployeeLimitRepository struct {
