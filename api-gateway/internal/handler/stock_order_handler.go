@@ -91,17 +91,11 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "listing_id is required")
 		return
 	}
-	// Bank-acting employee orders (OwnerType=bank) skip account_id —
-	// stock-service derives the bank's RSD sentinel internally. Client
-	// orders (OwnerType=client) MUST specify account_id so we can charge
-	// the right account and enforce ownership.
-	principalType, _ := c.Get("principal_type")
-	isBankActing := principalType == "employee"
-	if direction == "buy" && req.AccountID == 0 && !isBankActing {
+	if direction == "buy" && req.AccountID == 0 {
 		apiError(c, 400, ErrValidation, "account_id is required for buy orders")
 		return
 	}
-	if direction == "buy" && req.AccountID != 0 {
+	if direction == "buy" {
 		acctResp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
 		if err != nil {
 			handleGRPCError(c, err)
@@ -115,19 +109,17 @@ func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	// holding_id is no longer required for sell orders. The request's
 	// account_id is the proceeds destination; ownership is enforced below.
 	if direction == "sell" {
-		if req.AccountID == 0 && !isBankActing {
+		if req.AccountID == 0 {
 			apiError(c, 400, ErrValidation, "account_id is required for sell orders (proceeds destination)")
 			return
 		}
-		if req.AccountID != 0 {
-			acctResp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
-			if err != nil {
-				handleGRPCError(c, err)
-				return
-			}
-			if ownErr := enforceOwnership(c, acctResp.OwnerId); ownErr != nil {
-				return
-			}
+		acctResp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.AccountID})
+		if err != nil {
+			handleGRPCError(c, err)
+			return
+		}
+		if ownErr := enforceOwnership(c, acctResp.OwnerId); ownErr != nil {
+			return
 		}
 	}
 	if (orderType == "limit" || orderType == "stop_limit") && req.LimitValue == nil {
