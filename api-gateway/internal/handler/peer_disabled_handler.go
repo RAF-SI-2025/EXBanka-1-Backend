@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -33,9 +32,26 @@ func NewPeerDisabledHandler(tx *TransactionHandler, ownBankCode string) *PeerDis
 // CreateTransfer routes to the intra-bank handler when the receiver account
 // number's 3-digit prefix matches ownBankCode. Foreign-prefix receivers get
 // 501 not_implemented (SI-TX implementation pending).
+//
+// CreateTransfer godoc
+// @Summary      Create a transfer (intra-bank only during SI-TX refactor)
+// @Description  Foreign-prefix receivers return 501 not_implemented while the SI-TX implementation is being built. Intra-bank receivers (own 3-digit prefix) delegate to the standard transfer flow.
+// @Tags         transfers
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        body body interface{} true "Transfer request — see TransactionHandler.CreateTransfer"
+// @Success      201 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{}
+// @Failure      501 {object} map[string]interface{}
+// @Router       /api/v3/me/transfers [post]
 func (h *PeerDisabledHandler) CreateTransfer(c *gin.Context) {
 	receiver := h.peekReceiverAccountNumber(c)
-	if receiver != "" && !h.isOwnPrefix(receiver) {
+	// Only return 501 when we can confidently identify a foreign-bank prefix
+	// (receiver has at least 3 chars and the prefix is not ours). Receivers
+	// shorter than 3 chars (or unreadable bodies) fall through so the
+	// downstream handler can surface the appropriate validation error.
+	if len(receiver) >= 3 && !h.isOwnPrefix(receiver) {
 		apiError(c, http.StatusNotImplemented, "not_implemented",
 			"inter-bank transfers are temporarily disabled (SI-TX implementation in progress)")
 		return
@@ -46,6 +62,17 @@ func (h *PeerDisabledHandler) CreateTransfer(c *gin.Context) {
 // GetTransferByID — intra-bank lookup only. UUID-style transactionIds (which
 // the deleted InterBankPublicHandler used to recognise) now return 404 via
 // the underlying handler's int parse.
+//
+// GetTransferByID godoc
+// @Summary      Get a transfer by ID (intra-bank only during SI-TX refactor)
+// @Description  Delegates to the intra-bank GetMyTransfer handler. UUID-style transaction IDs return 404 since the inter-bank lookup path is temporarily removed.
+// @Tags         transfers
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id path string true "Transfer ID"
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/me/transfers/{id} [get]
 func (h *PeerDisabledHandler) GetTransferByID(c *gin.Context) {
 	h.tx.GetMyTransfer(c)
 }
@@ -77,17 +104,5 @@ func (h *PeerDisabledHandler) peekReceiverAccountNumber(c *gin.Context) string {
 }
 
 func (h *PeerDisabledHandler) isOwnPrefix(accountNumber string) bool {
-	if len(accountNumber) < 3 {
-		return false
-	}
-	prefix := accountNumber[:3]
-	if strings.Contains(prefix, "-") {
-		// Account numbers with separator: prefix is everything before first '-'
-		idx := strings.Index(accountNumber, "-")
-		if idx <= 0 {
-			return false
-		}
-		prefix = accountNumber[:idx]
-	}
-	return prefix == h.ownBankCode
+	return len(accountNumber) >= 3 && accountNumber[:3] == h.ownBankCode
 }

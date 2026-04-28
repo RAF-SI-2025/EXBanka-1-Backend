@@ -96,6 +96,7 @@ type Handlers struct {
 // Call once at startup; pass the returned bundle to SetupV3 (and any
 // future SetupV4) so all versions share the same handler instances.
 func NewHandlers(d Deps) *Handlers {
+	tx := handler.NewTransactionHandler(d.TxClient, d.FeeClient, d.AccountClient, d.ExchangeClient)
 	return &Handlers{
 		Auth:          handler.NewAuthHandler(d.AuthClient),
 		Employee:      handler.NewEmployeeHandler(d.UserClient, d.AuthClient),
@@ -104,7 +105,7 @@ func NewHandlers(d Deps) *Handlers {
 		Client:        handler.NewClientHandler(d.ClientClient, d.AuthClient),
 		Account:       handler.NewAccountHandler(d.AccountClient, d.BankAccountClient, d.CardClient, d.TxClient),
 		Card:          handler.NewCardHandler(d.CardClient, d.VirtualCardClient, d.CardRequestClient, d.AccountClient),
-		Tx:            handler.NewTransactionHandler(d.TxClient, d.FeeClient, d.AccountClient, d.ExchangeClient),
+		Tx:            tx,
 		Exchange:      handler.NewExchangeHandler(d.ExchangeClient),
 		Credit:        handler.NewCreditHandler(d.CreditClient),
 		Me:            handler.NewMeHandler(d.ClientClient, d.UserClient, d.AuthClient),
@@ -123,7 +124,7 @@ func NewHandlers(d Deps) *Handlers {
 		OptionsV2:     handler.NewOptionsV2Handler(d.SecurityClient, d.OrderClient, d.PortfolioClient),
 		Fund:          handler.NewInvestmentFundHandler(d.FundClient),
 		OTCOptions:    handler.NewOTCOptionsHandler(d.OTCOptionsClient),
-		PeerDisabled:  handler.NewPeerDisabledHandler(handler.NewTransactionHandler(d.TxClient, d.FeeClient, d.AccountClient, d.ExchangeClient), d.OwnBankCode),
+		PeerDisabled:  handler.NewPeerDisabledHandler(tx, d.OwnBankCode),
 		Changelog:     handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
 	}
 }
