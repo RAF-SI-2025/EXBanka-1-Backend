@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
-	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/driver/postgres"
@@ -44,8 +43,6 @@ func main() {
 		&model.PaymentRecipient{},
 		&model.TransferFee{},
 		&model.SagaLog{},
-		&model.Bank{},
-		&model.InterBankTransaction{},
 		&model.IdempotencyRecord{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
@@ -64,10 +61,6 @@ func main() {
 		"transaction.transfer-completed",
 		"transaction.transfer-failed",
 		"transaction.saga-dead-letter",
-		"transfer.interbank-prepared",
-		"transfer.interbank-committed",
-		"transfer.interbank-received",
-		"transfer.interbank-rolled-back",
 		"notification.send-email",
 		"notification.general",
 	)
@@ -110,10 +103,6 @@ func main() {
 	transferRepo := repository.NewTransferRepository(db)
 	recipientRepo := repository.NewPaymentRecipientRepository(db)
 	sagaLogRepo := repository.NewSagaLogRepository(db)
-	banksRepo := repository.NewBanksRepository(db)
-	ibTxRepo := repository.NewInterBankTxRepository(db)
-	idemRepo := repository.NewIdempotencyRepository(db)
-	seedPeerBanks(banksRepo, cfg)
 
 	feeRepo := repository.NewTransferFeeRepository(db)
 	feeSvc := service.NewFeeService(feeRepo)
@@ -170,40 +159,6 @@ func main() {
 
 	feeHandler := handler.NewFeeGRPCHandler(feeSvc)
 
-	// Build inter-bank service stack.
-	ibPeerClients := buildPeerBankClients(cfg)
-	ibPeerRouter := service.NewStaticPeerBankRouter(ibPeerClients)
-	ibAccountClient := service.NewGRPCAccountInterBankClient(accountClient)
-	ibFeeRules := service.NewFeeServiceInterBankAdapter(feeSvc)
-	interBankSvc := service.NewInterBankService(
-		db, ibTxRepo, banksRepo, ibPeerRouter, ibAccountClient, exchangeClient,
-		ibFeeRules, producer,
-		service.InterBankServiceConfig{
-			OwnBankCode:  cfg.OwnBankCode,
-			ReceiverWait: cfg.InterbankReceiverWait,
-		},
-	)
-	interBankHandler := handler.NewInterBankGRPCHandler(interBankSvc, db, idemRepo)
-
-	// Crash-recovery sweep — run synchronously before serving so any
-	// commit_received receiver rows finish their CommitIncoming and any
-	// stuck sender rows are nudged to reconciling.
-	ibRecovery := service.NewInterBankRecovery(interBankSvc, cfg.InterbankPrepareTimeout, cfg.InterbankCommitTimeout)
-	if err := ibRecovery.RunOnce(ctx); err != nil {
-		log.Printf("warn: inter-bank recovery sweep: %v", err)
-	}
-	// Reconciler + receiver-timeout crons.
-	service.NewInterBankReconciler(interBankSvc,
-		cfg.InterbankReconcileInterval,
-		cfg.InterbankPrepareTimeout,
-		cfg.InterbankReconcileStaleAfter,
-		cfg.InterbankReconcileMaxRetries,
-	).Start(ctx)
-	service.NewInterBankTimeoutCron(interBankSvc,
-		cfg.InterbankReconcileInterval,
-		cfg.InterbankReceiverWait,
-	).Start(ctx)
-
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -225,7 +180,6 @@ func main() {
 		Register: func(s *grpc.Server) {
 			pb.RegisterTransactionServiceServer(s, grpcHandler)
 			pb.RegisterFeeServiceServer(s, feeHandler)
-			pb.RegisterInterBankServiceServer(s, interBankHandler)
 			shared.RegisterHealthCheck(s, "transaction-service")
 			metrics.InitializeGRPCMetrics(s)
 		},
@@ -236,68 +190,5 @@ func main() {
 		},
 	}); err != nil {
 		log.Fatalf("grpc: %v", err)
-	}
-}
-
-// buildPeerBankClients constructs one PeerBankClient per peer whose env
-// vars are populated. Keys are the peer's 3-digit bank code. The
-// InterBankService routes outbound traffic through these clients.
-func buildPeerBankClients(cfg *config.Config) map[string]*service.PeerBankClient {
-	out := map[string]*service.PeerBankClient{}
-	type peer struct {
-		code, baseURL, outboundKey string
-	}
-	peers := []peer{
-		{"222", cfg.Peer222BaseURL, cfg.Peer222OutboundKey},
-		{"333", cfg.Peer333BaseURL, cfg.Peer333OutboundKey},
-		{"444", cfg.Peer444BaseURL, cfg.Peer444OutboundKey},
-	}
-	for _, p := range peers {
-		if p.baseURL == "" {
-			continue
-		}
-		out[p.code] = service.NewPeerBankClient(cfg.OwnBankCode, p.code, p.outboundKey, p.baseURL, cfg.InterbankPrepareTimeout)
-	}
-	return out
-}
-
-// seedPeerBanks idempotently inserts/updates rows in `banks` for each peer
-// whose env vars are set. Plaintext keys live in env at runtime; the bcrypt
-// hashes stored here are for audit and rotation only.
-func seedPeerBanks(repo *repository.BanksRepository, cfg *config.Config) {
-	type peer struct {
-		code, baseURL, outboundKey, inboundKey string
-	}
-	peers := []peer{
-		{"222", cfg.Peer222BaseURL, cfg.Peer222OutboundKey, cfg.Peer222InboundKey},
-		{"333", cfg.Peer333BaseURL, cfg.Peer333OutboundKey, cfg.Peer333InboundKey},
-		{"444", cfg.Peer444BaseURL, cfg.Peer444OutboundKey, cfg.Peer444InboundKey},
-	}
-	for _, p := range peers {
-		if p.baseURL == "" || p.inboundKey == "" {
-			continue
-		}
-		outHash, err := bcrypt.GenerateFromPassword([]byte(p.outboundKey), bcrypt.DefaultCost)
-		if err != nil {
-			log.Printf("warn: bcrypt outbound key for peer %s: %v", p.code, err)
-			continue
-		}
-		inHash, err := bcrypt.GenerateFromPassword([]byte(p.inboundKey), bcrypt.DefaultCost)
-		if err != nil {
-			log.Printf("warn: bcrypt inbound key for peer %s: %v", p.code, err)
-			continue
-		}
-		if err := repo.Upsert(&model.Bank{
-			Code:                  p.code,
-			Name:                  "Bank " + p.code,
-			BaseURL:               p.baseURL,
-			APIKeyBcrypted:        string(outHash),
-			InboundAPIKeyBcrypted: string(inHash),
-			Active:                true,
-		}); err != nil {
-			log.Printf("warn: seed peer bank %s: %v", p.code, err)
-		} else {
-			log.Printf("Seeded peer bank %s -> %s", p.code, p.baseURL)
-		}
 	}
 }
