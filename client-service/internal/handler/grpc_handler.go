@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
 	"github.com/exbanka/client-service/internal/model"
@@ -24,12 +26,14 @@ type clientFacade interface {
 
 type ClientGRPCHandler struct {
 	pb.UnimplementedClientServiceServer
-	clientService clientFacade
+	clientService    clientFacade
+	changelogService *service.ChangelogService
 }
 
-func NewClientGRPCHandler(clientService *service.ClientService) *ClientGRPCHandler {
+func NewClientGRPCHandler(clientService *service.ClientService, changelogService *service.ChangelogService) *ClientGRPCHandler {
 	return &ClientGRPCHandler{
-		clientService: clientService,
+		clientService:    clientService,
+		changelogService: changelogService,
 	}
 }
 
@@ -130,6 +134,30 @@ func (h *ClientGRPCHandler) UpdateClient(ctx context.Context, req *pb.UpdateClie
 	}
 
 	return toClientResponse(client), nil
+}
+
+// ListChangelog returns paginated audit-log entries for an entity.
+func (h *ClientGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangelogRequest) (*pb.ListChangelogResponse, error) {
+	entries, total, err := h.changelogService.ListChangelog(req.GetEntityType(), req.GetEntityId(), int(req.GetPage()), int(req.GetPageSize()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
 func toClientResponse(c *model.Client) *pb.ClientResponse {

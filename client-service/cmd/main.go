@@ -79,8 +79,9 @@ func main() {
 
 	clientService := service.NewClientService(repo, producer, redisCache, changelogRepo)
 	clientLimitSvc := service.NewClientLimitService(clientLimitRepo, userLimitClient, producer, changelogRepo)
+	changelogSvc := service.NewChangelogService(changelogRepo)
 
-	grpcHandler := handler.NewClientGRPCHandler(clientService)
+	grpcHandler := handler.NewClientGRPCHandler(clientService, changelogSvc)
 	limitHandler := handler.NewClientLimitGRPCHandler(clientLimitSvc)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
