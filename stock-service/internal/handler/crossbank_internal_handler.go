@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
-	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/exbanka/contract/shared/saga"
+	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 	"github.com/exbanka/stock-service/internal/service"
@@ -80,14 +80,14 @@ func (h *CrossbankInternalHandler) PeerListOffers(ctx context.Context, in *stock
 			continue
 		}
 		out.Offers = append(out.Offers, &stockpb.OTCOfferResponse{
-			Id:        rows[i].ID,
-			Direction: rows[i].Direction,
-			StockId:   rows[i].StockID,
-			Quantity:  rows[i].Quantity.String(),
-			StrikePrice: rows[i].StrikePrice.String(),
-			Premium:    rows[i].Premium.String(),
+			Id:             rows[i].ID,
+			Direction:      rows[i].Direction,
+			StockId:        rows[i].StockID,
+			Quantity:       rows[i].Quantity.String(),
+			StrikePrice:    rows[i].StrikePrice.String(),
+			Premium:        rows[i].Premium.String(),
 			SettlementDate: rows[i].SettlementDate.Format("2006-01-02"),
-			Status:    rows[i].Status,
+			Status:         rows[i].Status,
 		})
 	}
 	return out, nil

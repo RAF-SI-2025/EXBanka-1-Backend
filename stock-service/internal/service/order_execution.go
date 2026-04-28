@@ -218,9 +218,9 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 		if e.producer != nil {
 			key := fmt.Sprintf("order-fill-%d", txn.ID)
 			payload := map[string]any{
-				"saga_id":          order.SagaID,
-				"order_id":         orderID,
-				"order_txn_id":     txn.ID,
+				"saga_id":      order.SagaID,
+				"order_id":     orderID,
+				"order_txn_id": txn.ID,
 				// Legacy "user_id" key retained for downstream compatibility;
 				// owner_type/owner_id are the source of truth.
 				"user_id":          model.OwnerIDOrZero(order.OwnerID),

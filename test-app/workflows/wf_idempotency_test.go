@@ -13,13 +13,13 @@ import "testing"
 // steps return the cached response without re-executing.
 //
 // What this test should verify (when implemented):
-//   1. Activate a client with a known account.
-//   2. Call account-service.UpdateBalance directly (gRPC) twice with
-//      identical (idempotency_key, payload).
-//   3. Assert the ledger contains exactly ONE entry for that key.
-//   4. Assert both responses match byte-for-byte.
-//   5. (Bonus) Call a third time with the same key but DIFFERENT amount;
-//      assert it returns the cached response, NOT a re-execution.
+//  1. Activate a client with a known account.
+//  2. Call account-service.UpdateBalance directly (gRPC) twice with
+//     identical (idempotency_key, payload).
+//  3. Assert the ledger contains exactly ONE entry for that key.
+//  4. Assert both responses match byte-for-byte.
+//  5. (Bonus) Call a third time with the same key but DIFFERENT amount;
+//     assert it returns the cached response, NOT a re-execution.
 //
 // This is currently a t.Skip placeholder because direct gRPC calls from
 // test-app require new client wiring (test-app communicates via the

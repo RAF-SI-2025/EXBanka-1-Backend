@@ -26,9 +26,9 @@ const (
 type HoldingReservation struct {
 	ID            uint64    `gorm:"primaryKey" json:"id"`
 	HoldingID     uint64    `gorm:"not null;index" json:"holding_id"`
-	OrderID       *uint64   `gorm:"uniqueIndex:ux_holding_reservation_order" json:"order_id,omitempty"`        // legacy sell-order reservations
+	OrderID       *uint64   `gorm:"uniqueIndex:ux_holding_reservation_order" json:"order_id,omitempty"`               // legacy sell-order reservations
 	OTCContractID *uint64   `gorm:"uniqueIndex:ux_holding_reservation_otc_contract" json:"otc_contract_id,omitempty"` // OTC option contracts
-	Quantity      int64     `gorm:"not null" json:"quantity"`             // IMMUTABLE
+	Quantity      int64     `gorm:"not null" json:"quantity"`                                                         // IMMUTABLE
 	Status        string    `gorm:"size:16;not null;index" json:"status"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`

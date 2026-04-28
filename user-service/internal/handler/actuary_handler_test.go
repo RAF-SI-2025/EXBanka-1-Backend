@@ -17,12 +17,12 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockActuarySvc struct {
-	listActuariesFn      func(search, position string, page, pageSize int) ([]model.ActuaryRow, int64, error)
-	getActuaryInfoFn     func(employeeID int64) (*model.ActuaryLimit, *model.Employee, error)
-	setActuaryLimitFn    func(ctx context.Context, employeeID int64, limitAmount decimal.Decimal, changedBy int64) (*model.ActuaryLimit, error)
-	resetUsedLimitFn     func(ctx context.Context, employeeID int64, changedBy int64) (*model.ActuaryLimit, error)
-	setNeedApprovalFn    func(ctx context.Context, employeeID int64, needApproval bool, changedBy int64) (*model.ActuaryLimit, error)
-	updateUsedLimitFn    func(ctx context.Context, id int64, amount decimal.Decimal) (*model.ActuaryLimit, error)
+	listActuariesFn   func(search, position string, page, pageSize int) ([]model.ActuaryRow, int64, error)
+	getActuaryInfoFn  func(employeeID int64) (*model.ActuaryLimit, *model.Employee, error)
+	setActuaryLimitFn func(ctx context.Context, employeeID int64, limitAmount decimal.Decimal, changedBy int64) (*model.ActuaryLimit, error)
+	resetUsedLimitFn  func(ctx context.Context, employeeID int64, changedBy int64) (*model.ActuaryLimit, error)
+	setNeedApprovalFn func(ctx context.Context, employeeID int64, needApproval bool, changedBy int64) (*model.ActuaryLimit, error)
+	updateUsedLimitFn func(ctx context.Context, id int64, amount decimal.Decimal) (*model.ActuaryLimit, error)
 }
 
 func (m *mockActuarySvc) ListActuaries(search, position string, page, pageSize int) ([]model.ActuaryRow, int64, error) {

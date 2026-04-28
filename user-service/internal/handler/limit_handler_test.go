@@ -17,11 +17,11 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockLimitSvc struct {
-	getEmployeeLimitsFn  func(employeeID int64) (*model.EmployeeLimit, error)
-	setEmployeeLimitsFn  func(ctx context.Context, limit model.EmployeeLimit, changedBy int64) (*model.EmployeeLimit, error)
-	applyTemplateFn      func(ctx context.Context, employeeID int64, templateName string, changedBy int64) (*model.EmployeeLimit, error)
-	listTemplatesFn      func() ([]model.LimitTemplate, error)
-	createTemplateFn     func(ctx context.Context, t model.LimitTemplate) (*model.LimitTemplate, error)
+	getEmployeeLimitsFn func(employeeID int64) (*model.EmployeeLimit, error)
+	setEmployeeLimitsFn func(ctx context.Context, limit model.EmployeeLimit, changedBy int64) (*model.EmployeeLimit, error)
+	applyTemplateFn     func(ctx context.Context, employeeID int64, templateName string, changedBy int64) (*model.EmployeeLimit, error)
+	listTemplatesFn     func() ([]model.LimitTemplate, error)
+	createTemplateFn    func(ctx context.Context, t model.LimitTemplate) (*model.LimitTemplate, error)
 }
 
 func (m *mockLimitSvc) GetEmployeeLimits(employeeID int64) (*model.EmployeeLimit, error) {

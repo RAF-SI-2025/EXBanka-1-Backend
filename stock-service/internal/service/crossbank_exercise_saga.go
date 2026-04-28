@@ -31,23 +31,23 @@ import (
 // exercising):
 //
 //  1. reserve_buyer_funds   — local: reserve the buyer's strike funds via
-//                             account-service.
+//     account-service.
 //  2. reserve_seller_shares — peer: ask seller's bank to reserve the
-//                             shares about to be delivered.
+//     shares about to be delivered.
 //  3. debit_strike          — Spec 3 inter-bank transfer (Initiate). Moves
-//                             the strike funds from buyer to seller.
+//     the strike funds from buyer to seller.
 //  4. credit_strike         — Records the credit-side completion of the
-//                             same Spec 3 transfer (no extra business
-//                             effect; emits a separate audit row).
-//                             PIVOT: rollback walk halts here. Past this
-//                             point the inter-bank funds movement has
-//                             committed; downstream failures forward-
-//                             recover, they do not roll back the funds.
+//     same Spec 3 transfer (no extra business
+//     effect; emits a separate audit row).
+//     PIVOT: rollback walk halts here. Past this
+//     point the inter-bank funds movement has
+//     committed; downstream failures forward-
+//     recover, they do not roll back the funds.
 //  5. transfer_ownership    — peer: ask seller's bank to consume the
-//                             reservation and transfer share ownership.
+//     reservation and transfer share ownership.
 //  6. finalize              — peer Finalize + local: mark contract
-//                             EXERCISED. Best-effort; failures past the
-//                             pivot do not roll back.
+//     EXERCISED. Best-effort; failures past the
+//     pivot do not roll back.
 //
 // Pivot-semantic note (vs. legacy CrossbankSagaExecutor):
 // the legacy code, on phase-4 (transfer_ownership) failure, ran

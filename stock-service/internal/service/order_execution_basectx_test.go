@@ -67,7 +67,7 @@ func (r *fakeBaseCtxTxRepo) ListByOrderID(_ uint64) ([]model.OrderTransaction, e
 
 type fakeBaseCtxListingRepo struct{ l *model.Listing }
 
-func (r *fakeBaseCtxListingRepo) Create(_ *model.Listing) error { return nil }
+func (r *fakeBaseCtxListingRepo) Create(_ *model.Listing) error            { return nil }
 func (r *fakeBaseCtxListingRepo) GetByID(_ uint64) (*model.Listing, error) { return r.l, nil }
 func (r *fakeBaseCtxListingRepo) GetBySecurityIDAndType(_ uint64, _ string) (*model.Listing, error) {
 	return nil, nil
@@ -75,7 +75,7 @@ func (r *fakeBaseCtxListingRepo) GetBySecurityIDAndType(_ uint64, _ string) (*mo
 func (r *fakeBaseCtxListingRepo) ListBySecurityIDsAndType(_ []uint64, _ string) ([]model.Listing, error) {
 	return nil, nil
 }
-func (r *fakeBaseCtxListingRepo) Update(_ *model.Listing) error          { return nil }
+func (r *fakeBaseCtxListingRepo) Update(_ *model.Listing) error           { return nil }
 func (r *fakeBaseCtxListingRepo) UpsertBySecurity(_ *model.Listing) error { return nil }
 func (r *fakeBaseCtxListingRepo) UpsertForOption(_ *model.Listing) (*model.Listing, error) {
 	return nil, nil

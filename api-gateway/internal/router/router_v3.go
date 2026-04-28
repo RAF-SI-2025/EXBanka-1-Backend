@@ -14,17 +14,6 @@ import (
 	perms "github.com/exbanka/contract/permissions"
 )
 
-// notImplemented returns a 501 handler for endpoints planned but not yet backed by gRPC.
-func notImplemented(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": gin.H{
-			"code":    "not_implemented",
-			"message": "this endpoint is coming in a future release",
-		},
-	})
-}
-
-
 // NewRouter creates the Gin engine with CORS, metrics, and Swagger.
 // SetupV3 (and any future SetupV4) attach their routes to this engine.
 //

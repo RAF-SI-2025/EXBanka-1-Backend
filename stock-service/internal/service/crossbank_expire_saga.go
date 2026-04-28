@@ -30,16 +30,16 @@ import (
 // contract — typically the seller bank that issued the option):
 //
 //  1. refund_reservation — peer call: notify the OTHER bank that the
-//                          contract has expired so it releases its side.
-//                          BEST-EFFORT: peer notify failures do NOT fail
-//                          the saga (they are logged); the local cron
-//                          will retry. No Backward (nothing local to
-//                          undo if peer rejects).
+//     contract has expired so it releases its side.
+//     BEST-EFFORT: peer notify failures do NOT fail
+//     the saga (they are logged); the local cron
+//     will retry. No Backward (nothing local to
+//     undo if peer rejects).
 //  2. mark_expired       — local: release the seller-side holding
-//                          reservation (if we are the seller) and mark
-//                          the OptionContract row EXPIRED.
-//                          PIVOT: this is the terminal commit; nothing
-//                          past it.
+//     reservation (if we are the seller) and mark
+//     the OptionContract row EXPIRED.
+//     PIVOT: this is the terminal commit; nothing
+//     past it.
 //
 // Pivot-semantic note: marking step 2 as Pivot means a hypothetical
 // future post-pivot step would not roll back step 1; today there is

@@ -202,10 +202,10 @@ func TestRequirePermission_MissingPermission(t *testing.T) {
 func TestAnyAuthMiddleware_EmployeeToken_SetsUserID(t *testing.T) {
 	client := &mockAuthClient{
 		resp: &authpb.ValidateTokenResponse{
-			Valid:      true,
+			Valid:         true,
 			PrincipalId:   42,
 			PrincipalType: "employee",
-			Email:      "emp@example.com",
+			Email:         "emp@example.com",
 		},
 	}
 	r, w, req := serveWithMiddleware(AnyAuthMiddleware(client))

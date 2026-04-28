@@ -30,13 +30,13 @@ type OTCHoldingLookup interface {
 // service-layer seller-invariant check (§4.6 of spec) ensures a seller
 // cannot promise more shares than they hold across active offers + contracts.
 type OTCOfferService struct {
-	offers    *repository.OTCOfferRepository
-	revisions *repository.OTCOfferRevisionRepository
-	contracts *repository.OptionContractRepository
-	holdings  OTCHoldingLookup
+	offers      *repository.OTCOfferRepository
+	revisions   *repository.OTCOfferRevisionRepository
+	contracts   *repository.OptionContractRepository
+	holdings    OTCHoldingLookup
 	holdingRepo OTCHoldingMutator
-	receipts  *repository.OTCReadReceiptRepository
-	producer  *kafkaprod.Producer
+	receipts    *repository.OTCReadReceiptRepository
+	producer    *kafkaprod.Producer
 
 	// saga deps (optional; wired via WithSaga). Required by Accept and
 	// ExerciseContract.
@@ -60,8 +60,8 @@ type OTCOfferService struct {
 	// crash between business commit and Kafka send no longer drops events.
 	// When nil, the legacy direct-publish path is used so unit tests that
 	// don't wire a DB still work.
-	outbox    *outbox.Outbox
-	outboxDB  *gorm.DB
+	outbox   *outbox.Outbox
+	outboxDB *gorm.DB
 }
 
 // WithOutbox wires the transactional outbox + the GORM handle the saga

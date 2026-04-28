@@ -34,29 +34,29 @@ import (
 //  1. reserve_buyer_funds   — local reserve via account-service.
 //  2. create_contract       — local: persist OptionContract row.
 //  3. reserve_seller_shares — peer call: ask seller's bank to reserve shares.
-//                             PIVOT: rollback walks stop here. Past this
-//                             point both sides have committed and any
-//                             local transient failure is recoverable: the
-//                             CrossbankCheckStatusCron polls the peer for
-//                             ground truth and reconciles our row to match
-//                             (completed | failed). NOTE: the cron only
-//                             MIRRORS peer status — it does not actively
-//                             re-issue the original peer RPC. If the peer
-//                             never received the call (network drop before
-//                             arrival), it will report not_found and our
-//                             row transitions to failed; manual operator
-//                             review is required for that rare class.
-//                             Tracked as F16 in future-ideas backlog.
+//     PIVOT: rollback walks stop here. Past this
+//     point both sides have committed and any
+//     local transient failure is recoverable: the
+//     CrossbankCheckStatusCron polls the peer for
+//     ground truth and reconciles our row to match
+//     (completed | failed). NOTE: the cron only
+//     MIRRORS peer status — it does not actively
+//     re-issue the original peer RPC. If the peer
+//     never received the call (network drop before
+//     arrival), it will report not_found and our
+//     row transitions to failed; manual operator
+//     review is required for that rare class.
+//     Tracked as F16 in future-ideas backlog.
 //  4. debit_buyer           — Spec 3 inter-bank transfer (initiate).
 //  5. credit_seller         — Spec 3 inter-bank transfer (finalized via the
-//                             same Initiate call result; this step's
-//                             Forward is a no-op that records the credit
-//                             completion in the ledger so audit reads the
-//                             saga as 7 distinct steps).
+//     same Initiate call result; this step's
+//     Forward is a no-op that records the credit
+//     completion in the ledger so audit reads the
+//     saga as 7 distinct steps).
 //  6. transfer_ownership    — peer call: ask seller's bank to mark
-//                             ownership transferred.
+//     ownership transferred.
 //  7. finalize_accept       — peer call: tell peer to mark contract ACTIVE,
-//                             mark local offer ACCEPTED.
+//     mark local offer ACCEPTED.
 //
 // The 4-then-5 split mirrors the plan's typed StepKind enum which calls
 // out debit_buyer + credit_seller as two separate transitions; the

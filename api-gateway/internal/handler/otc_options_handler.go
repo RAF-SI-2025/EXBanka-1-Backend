@@ -22,12 +22,12 @@ func NewOTCOptionsHandler(client stockpb.OTCOptionsServiceClient) *OTCOptionsHan
 }
 
 type createOTCOfferRequest struct {
-	Direction      string  `json:"direction"`
-	StockID        uint64  `json:"stock_id"`
-	Quantity       string  `json:"quantity"`
-	StrikePrice    string  `json:"strike_price"`
-	Premium        string  `json:"premium"`
-	SettlementDate string  `json:"settlement_date"`
+	Direction              string  `json:"direction"`
+	StockID                uint64  `json:"stock_id"`
+	Quantity               string  `json:"quantity"`
+	StrikePrice            string  `json:"strike_price"`
+	Premium                string  `json:"premium"`
+	SettlementDate         string  `json:"settlement_date"`
 	CounterpartyUserID     *int64  `json:"counterparty_user_id,omitempty"`
 	CounterpartySystemType *string `json:"counterparty_system_type,omitempty"`
 }

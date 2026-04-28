@@ -66,23 +66,23 @@ type InterBankFeeRules interface {
 // InterBankServiceConfig carries the timeouts/limits the service needs at
 // runtime. Sourced from config.Config in main.go.
 type InterBankServiceConfig struct {
-	OwnBankCode    string
-	ReceiverWait   time.Duration
+	OwnBankCode  string
+	ReceiverWait time.Duration
 }
 
 // InterBankService owns the durable 2PC state machine for cross-bank
 // transfers. Both the sender and receiver paths live here; role separation
 // is by method, not by service instance.
 type InterBankService struct {
-	db        *gorm.DB
-	tx        *repository.InterBankTxRepository
-	banks     *repository.BanksRepository
-	peers     PeerBankRouter
-	accounts  AccountInterBankClient
-	exchange  ExchangeForInterBank
-	feeRules  InterBankFeeRules
-	producer  *kafkaprod.Producer
-	cfg       InterBankServiceConfig
+	db       *gorm.DB
+	tx       *repository.InterBankTxRepository
+	banks    *repository.BanksRepository
+	peers    PeerBankRouter
+	accounts AccountInterBankClient
+	exchange ExchangeForInterBank
+	feeRules InterBankFeeRules
+	producer *kafkaprod.Producer
+	cfg      InterBankServiceConfig
 }
 
 // NewInterBankService constructs the service.
@@ -287,15 +287,15 @@ type HandlePrepareInput struct {
 
 // HandlePrepareOutput is the output shape for HandlePrepare.
 type HandlePrepareOutput struct {
-	Ready         bool
-	FinalAmount   decimal.Decimal
-	FinalCurrency string
-	FxRate        decimal.Decimal
-	Fees          decimal.Decimal
-	OriginalAmount decimal.Decimal
+	Ready            bool
+	FinalAmount      decimal.Decimal
+	FinalCurrency    string
+	FxRate           decimal.Decimal
+	Fees             decimal.Decimal
+	OriginalAmount   decimal.Decimal
 	OriginalCurrency string
-	ValidUntil    time.Time
-	Reason        string
+	ValidUntil       time.Time
+	Reason           string
 }
 
 // HandlePrepare is the receiver-side Prepare handler. State transitions

@@ -96,23 +96,23 @@ type MockPeerBank struct {
 	Server     *httptest.Server
 	InboundKey string
 
-	mu        sync.Mutex
-	prepare   []prepareConfig
-	commit    []commitConfig
-	status    []statusConfig
-	requests  []*RecordedRequest
-	timeoutD  time.Duration
+	mu       sync.Mutex
+	prepare  []prepareConfig
+	commit   []commitConfig
+	status   []statusConfig
+	requests []*RecordedRequest
+	timeoutD time.Duration
 }
 
 type prepareConfig struct {
-	beh   Behavior
-	terms ReadyTerms
+	beh    Behavior
+	terms  ReadyTerms
 	reason string
 }
 
 type commitConfig struct {
-	beh   Behavior
-	terms CommittedTerms
+	beh    Behavior
+	terms  CommittedTerms
 	reason string
 }
 
@@ -313,7 +313,7 @@ func (m *MockPeerBank) handlePrepare(w http.ResponseWriter, r *http.Request) {
 	default: // BehaviorReady
 		t := cfg.terms
 		body, _ := json.Marshal(readyBody{
-			Status: "Ready",
+			Status:         "Ready",
 			OriginalAmount: t.OriginalAmount, OriginalCurrency: t.OriginalCurrency,
 			FinalAmount: t.FinalAmount, FinalCurrency: t.FinalCurrency,
 			FxRate: t.FxRate, Fees: t.Fees, ValidUntil: t.ValidUntil,
@@ -405,7 +405,7 @@ func defaultReady() ReadyTerms {
 
 func defaultCommitted() CommittedTerms {
 	return CommittedTerms{
-		CreditedAt: time.Now().UTC().Format(time.RFC3339),
+		CreditedAt:     time.Now().UTC().Format(time.RFC3339),
 		CreditedAmount: "8.50", CreditedCurrency: "EUR",
 	}
 }

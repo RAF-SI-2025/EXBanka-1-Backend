@@ -22,12 +22,12 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockFeeFacade struct {
-	listFeesFn              func() ([]model.TransferFee, error)
-	createFeeFn             func(fee *model.TransferFee) error
-	getFeeFn                func(id uint64) (*model.TransferFee, error)
-	updateFeeFn             func(fee *model.TransferFee) error
-	deactivateFeeFn         func(id uint64) error
-	calculateFeeDetailedFn  func(amount decimal.Decimal, txType, currency string) (decimal.Decimal, []service.FeeDetail, error)
+	listFeesFn             func() ([]model.TransferFee, error)
+	createFeeFn            func(fee *model.TransferFee) error
+	getFeeFn               func(id uint64) (*model.TransferFee, error)
+	updateFeeFn            func(fee *model.TransferFee) error
+	deactivateFeeFn        func(id uint64) error
+	calculateFeeDetailedFn func(amount decimal.Decimal, txType, currency string) (decimal.Decimal, []service.FeeDetail, error)
 }
 
 func (m *mockFeeFacade) ListFees() ([]model.TransferFee, error) {

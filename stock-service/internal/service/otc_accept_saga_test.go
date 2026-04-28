@@ -56,18 +56,18 @@ func (f *fakeOTCAccountClient) PartialSettleReservation(_ context.Context, _, _ 
 // ---------------- fixture ----------------
 
 type acceptSagaFixture struct {
-	svc       *OTCOfferService
-	offers    *repository.OTCOfferRepository
-	contracts *repository.OptionContractRepository
-	holdings  *repository.HoldingRepository
+	svc           *OTCOfferService
+	offers        *repository.OTCOfferRepository
+	contracts     *repository.OptionContractRepository
+	holdings      *repository.HoldingRepository
 	holdingResSvc *HoldingReservationService
-	accounts  *fakeOTCAccountClient
-	exchange  *fakeFundExchangeClient
-	saga      *fakeSagaRepo
-	offer     *model.OTCOffer
-	stockID   uint64
-	sellerID  int64
-	buyerID   int64
+	accounts      *fakeOTCAccountClient
+	exchange      *fakeFundExchangeClient
+	saga          *fakeSagaRepo
+	offer         *model.OTCOffer
+	stockID       uint64
+	sellerID      int64
+	buyerID       int64
 }
 
 func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
@@ -126,9 +126,9 @@ func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
 		Direction: model.OTCDirectionSellInitiated,
 		StockID:   stockID,
 		Quantity:  decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(5000),
-		Premium:        decimal.NewFromInt(50000),
-		SettlementDate: time.Now().AddDate(0, 0, 7),
-		Status:         model.OTCOfferStatusPending,
+		Premium:                     decimal.NewFromInt(50000),
+		SettlementDate:              time.Now().AddDate(0, 0, 7),
+		Status:                      model.OTCOfferStatusPending,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   uint64(sellerID),
 	}

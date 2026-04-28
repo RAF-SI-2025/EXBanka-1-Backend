@@ -27,8 +27,8 @@ func (m *mockEmailSender) Send(to, subject, body string) error {
 }
 
 type mockInboxRepo struct {
-	getFn  func(userID uint64) ([]model.MobileInboxItem, error)
-	ackFn  func(id uint64) error
+	getFn func(userID uint64) ([]model.MobileInboxItem, error)
+	ackFn func(id uint64) error
 }
 
 func (m *mockInboxRepo) GetPendingByUser(userID uint64) ([]model.MobileInboxItem, error) {
@@ -46,10 +46,10 @@ func (m *mockInboxRepo) MarkDelivered(id uint64) error {
 }
 
 type mockNotifRepo struct {
-	listFn         func(userID uint64, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error)
-	unreadFn       func(userID uint64) (int64, error)
-	markReadFn     func(id, userID uint64) error
-	markAllReadFn  func(userID uint64) (int64, error)
+	listFn        func(userID uint64, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error)
+	unreadFn      func(userID uint64) (int64, error)
+	markReadFn    func(id, userID uint64) error
+	markAllReadFn func(userID uint64) (int64, error)
 }
 
 func (m *mockNotifRepo) ListByUser(userID uint64, readFilter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error) {
@@ -238,10 +238,10 @@ func TestGRPCHandler_ListNotifications_Success(t *testing.T) {
 
 func TestGRPCHandler_ListNotifications_ReadFilter(t *testing.T) {
 	captured := struct {
-		userID  uint64
-		filter  *bool
-		page    int
-		size    int
+		userID uint64
+		filter *bool
+		page   int
+		size   int
 	}{}
 	repo := &mockNotifRepo{
 		listFn: func(userID uint64, filter *bool, page, pageSize int) ([]model.GeneralNotification, int64, error) {

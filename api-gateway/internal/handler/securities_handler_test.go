@@ -24,18 +24,18 @@ import (
 // per-method function fields needed by the securities-handler tests.
 
 type secStub struct {
-	listStocksFn        func(*stockpb.ListStocksRequest) (*stockpb.ListStocksResponse, error)
-	getStockFn          func(*stockpb.GetStockRequest) (*stockpb.StockDetail, error)
-	stockHistoryFn      func(*stockpb.GetPriceHistoryRequest) (*stockpb.PriceHistoryResponse, error)
-	listFuturesFn       func(*stockpb.ListFuturesRequest) (*stockpb.ListFuturesResponse, error)
-	getFuturesFn        func(*stockpb.GetFuturesRequest) (*stockpb.FuturesDetail, error)
-	futuresHistoryFn    func(*stockpb.GetPriceHistoryRequest) (*stockpb.PriceHistoryResponse, error)
-	listForexFn         func(*stockpb.ListForexPairsRequest) (*stockpb.ListForexPairsResponse, error)
-	getForexFn          func(*stockpb.GetForexPairRequest) (*stockpb.ForexPairDetail, error)
-	forexHistoryFn      func(*stockpb.GetPriceHistoryRequest) (*stockpb.PriceHistoryResponse, error)
-	listOptionsFn       func(*stockpb.ListOptionsRequest) (*stockpb.ListOptionsResponse, error)
-	getOptionFn         func(*stockpb.GetOptionRequest) (*stockpb.OptionDetail, error)
-	getCandlesFn        func(*stockpb.GetCandlesRequest) (*stockpb.GetCandlesResponse, error)
+	listStocksFn     func(*stockpb.ListStocksRequest) (*stockpb.ListStocksResponse, error)
+	getStockFn       func(*stockpb.GetStockRequest) (*stockpb.StockDetail, error)
+	stockHistoryFn   func(*stockpb.GetPriceHistoryRequest) (*stockpb.PriceHistoryResponse, error)
+	listFuturesFn    func(*stockpb.ListFuturesRequest) (*stockpb.ListFuturesResponse, error)
+	getFuturesFn     func(*stockpb.GetFuturesRequest) (*stockpb.FuturesDetail, error)
+	futuresHistoryFn func(*stockpb.GetPriceHistoryRequest) (*stockpb.PriceHistoryResponse, error)
+	listForexFn      func(*stockpb.ListForexPairsRequest) (*stockpb.ListForexPairsResponse, error)
+	getForexFn       func(*stockpb.GetForexPairRequest) (*stockpb.ForexPairDetail, error)
+	forexHistoryFn   func(*stockpb.GetPriceHistoryRequest) (*stockpb.PriceHistoryResponse, error)
+	listOptionsFn    func(*stockpb.ListOptionsRequest) (*stockpb.ListOptionsResponse, error)
+	getOptionFn      func(*stockpb.GetOptionRequest) (*stockpb.OptionDetail, error)
+	getCandlesFn     func(*stockpb.GetCandlesRequest) (*stockpb.GetCandlesResponse, error)
 }
 
 func (s *secStub) ListStocks(_ context.Context, in *stockpb.ListStocksRequest, _ ...grpc.CallOption) (*stockpb.ListStocksResponse, error) {

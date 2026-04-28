@@ -32,14 +32,14 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockAccountSvc struct {
-	createAccountFn        func(account *model.Account) error
-	getAccountFn           func(id uint64) (*model.Account, error)
-	getAccountByNumberFn   func(accountNumber string) (*model.Account, error)
-	listAccountsByClientFn func(clientID uint64, page, pageSize int) ([]model.Account, int64, error)
-	listAllAccountsFn      func(nameFilter, numberFilter, typeFilter string, page, pageSize int) ([]model.Account, int64, error)
-	updateAccountNameFn    func(id, clientID uint64, newName string, changedBy int64) error
-	updateAccountLimitsFn  func(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error
-	updateAccountStatusFn  func(id uint64, newStatus string, changedBy int64) error
+	createAccountFn         func(account *model.Account) error
+	getAccountFn            func(id uint64) (*model.Account, error)
+	getAccountByNumberFn    func(accountNumber string) (*model.Account, error)
+	listAccountsByClientFn  func(clientID uint64, page, pageSize int) ([]model.Account, int64, error)
+	listAllAccountsFn       func(nameFilter, numberFilter, typeFilter string, page, pageSize int) ([]model.Account, int64, error)
+	updateAccountNameFn     func(id, clientID uint64, newName string, changedBy int64) error
+	updateAccountLimitsFn   func(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error
+	updateAccountStatusFn   func(id uint64, newStatus string, changedBy int64) error
 	updateBalanceWithOptsFn func(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts repository.UpdateBalanceOpts) error
 }
 
@@ -169,12 +169,12 @@ func (m *mockLedgerSvc) GetLedgerEntries(accountNumber string, page, pageSize in
 }
 
 type mockAccountProducer struct {
-	publishAccountCreatedFn      func(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
+	publishAccountCreatedFn       func(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
 	publishAccountStatusChangedFn func(ctx context.Context, msg kafkaprod.AccountStatusChangedMsg) error
 	publishGeneralNotificationFn  func(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
 	sendEmailFn                   func(ctx context.Context, msg kafkamsg.SendEmailMessage) error
 
-	accountCreatedCalls      []kafkamsg.AccountCreatedMessage
+	accountCreatedCalls       []kafkamsg.AccountCreatedMessage
 	accountStatusChangedCalls []kafkaprod.AccountStatusChangedMsg
 	generalNotificationCalls  []kafkamsg.GeneralNotificationMessage
 	sendEmailCalls            []kafkamsg.SendEmailMessage

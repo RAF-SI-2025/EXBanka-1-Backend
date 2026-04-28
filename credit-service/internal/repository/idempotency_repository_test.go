@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/exbanka/credit-service/internal/model"
 	pb "github.com/exbanka/contract/creditpb"
+	"github.com/exbanka/credit-service/internal/model"
 )
 
 // newIdempotencyTestDB opens a fresh in-memory SQLite database with the

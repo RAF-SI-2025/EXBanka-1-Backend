@@ -15,7 +15,8 @@ type SentinelError struct {
 }
 
 // New constructs a SentinelError. Use as a package-level var:
-//   var ErrAccountLocked = svcerr.New(codes.PermissionDenied, "account locked")
+//
+//	var ErrAccountLocked = svcerr.New(codes.PermissionDenied, "account locked")
 func New(code codes.Code, msg string) *SentinelError {
 	return &SentinelError{code: code, msg: msg}
 }

@@ -20,10 +20,10 @@ type CrossbankDiscovery struct {
 	peers   CrossbankPeerRouter
 	ownBank string
 
-	mu        sync.RWMutex
-	cached    []model.OTCOffer
-	cachedAt  time.Time
-	cacheTTL  time.Duration
+	mu       sync.RWMutex
+	cached   []model.OTCOffer
+	cachedAt time.Time
+	cacheTTL time.Duration
 }
 
 func NewCrossbankDiscovery(peers CrossbankPeerRouter, ownBank string, ttl time.Duration) *CrossbankDiscovery {
@@ -96,16 +96,16 @@ func (d *CrossbankDiscovery) refresh(ctx context.Context, peerCodes []string) []
 				updatedAt, _ := time.Parse(time.RFC3339, item.UpdatedAt)
 				bankCode := item.BankCode
 				out = append(out, model.OTCOffer{
-					ID:                  item.OfferID,
-					InitiatorBankCode:   &bankCode,
-					Direction:           item.Direction,
-					StockID:             item.StockID,
-					Quantity:            qty,
-					StrikePrice:         strike,
-					Premium:             prem,
-					SettlementDate:      settle,
-					Status:              item.Status,
-					UpdatedAt:           updatedAt,
+					ID:                item.OfferID,
+					InitiatorBankCode: &bankCode,
+					Direction:         item.Direction,
+					StockID:           item.StockID,
+					Quantity:          qty,
+					StrikePrice:       strike,
+					Premium:           prem,
+					SettlementDate:    settle,
+					Status:            item.Status,
+					UpdatedAt:         updatedAt,
 				})
 			}
 			ch <- result{offers: out}

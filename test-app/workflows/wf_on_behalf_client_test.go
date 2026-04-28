@@ -23,11 +23,11 @@ import (
 //
 // Expected behaviour
 //
-//	- POST returns 201; the order is owner_type=client.
-//	- The client's account is debited (not the bank's).
-//	- The fill produces a holding owned by the client.
-//	- Side-effect rows (orders, capital_gains, ledger entries) carry
-//	  acting_employee_id=<employee>.
+//   - POST returns 201; the order is owner_type=client.
+//   - The client's account is debited (not the bank's).
+//   - The fill produces a holding owned by the client.
+//   - Side-effect rows (orders, capital_gains, ledger entries) carry
+//     acting_employee_id=<employee>.
 //
 // Status
 //

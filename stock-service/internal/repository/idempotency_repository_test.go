@@ -8,8 +8,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/exbanka/stock-service/internal/model"
 	pb "github.com/exbanka/contract/stockpb"
+	"github.com/exbanka/stock-service/internal/model"
 )
 
 // newIdempotencyTestDB opens a fresh in-memory SQLite database with the

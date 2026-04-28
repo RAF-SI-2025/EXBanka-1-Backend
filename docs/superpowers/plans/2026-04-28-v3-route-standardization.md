@@ -132,7 +132,7 @@ git add contract/proto/user/user.proto contract/userpb/ \
         api-gateway/internal/handler/role_handler.go \
         api-gateway/internal/handler/role_handler_test.go \
         api-gateway/internal/router/router_v3.go \
-        docs/api/REST_API_v1.md
+        docs/api/REST_API_v3.md
 git commit -m "refactor(roles): role-permission endpoints use :id path param consistently"
 ```
 
@@ -190,7 +190,7 @@ Mark `GetAccountByNumber` handler method as deprecated (keep the method as it's 
 - [ ] **Step 4: Tests + REST doc + commit**
 
 ```bash
-git add api-gateway/internal/{router,handler}/ docs/api/REST_API_v1.md
+git add api-gateway/internal/{router,handler}/ docs/api/REST_API_v3.md
 git commit -m "refactor(accounts): filter by account_number via query param (was /by-number/:account_number)"
 ```
 

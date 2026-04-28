@@ -22,13 +22,13 @@ import "testing"
 // TODO(phase-3): add a per-saga-step fault injection flag (e.g., via a new
 // admin RPC on stock-service: ForceNextSagaStepFail(step="credit_commission"))
 // and wire this test to it. Then assert:
-//   1. order reaches is_done=true
-//   2. holding is credited, user account debited correctly
-//   3. bank RSD balance did NOT rise by commission yet
-//   4. saga_logs contains an entry with status=pending/compensating for
-//      credit_commission
-//   5. after waiting for the recovery reconciler's interval, bank RSD
-//      balance DOES rise, and the saga_log entry is status=completed.
+//  1. order reaches is_done=true
+//  2. holding is credited, user account debited correctly
+//  3. bank RSD balance did NOT rise by commission yet
+//  4. saga_logs contains an entry with status=pending/compensating for
+//     credit_commission
+//  5. after waiting for the recovery reconciler's interval, bank RSD
+//     balance DOES rise, and the saga_log entry is status=completed.
 func TestWF_StockFill_CommissionFailure_TradeStillCompletes(t *testing.T) {
 	t.Skip("fault-injection infrastructure missing: need a per-step fault flag on stock-service saga — see TODO above")
 }

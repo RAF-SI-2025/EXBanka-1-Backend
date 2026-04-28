@@ -222,10 +222,10 @@ func TestMobileAuthMiddleware_NonMobileDeviceType(t *testing.T) {
 	client := &mobileAuthClientStub{
 		validateTokenFn: func(_ *authpb.ValidateTokenRequest) (*authpb.ValidateTokenResponse, error) {
 			return &authpb.ValidateTokenResponse{
-				Valid:      true,
+				Valid:       true,
 				PrincipalId: 1,
-				DeviceType: "web",
-				DeviceId:   "dev-123",
+				DeviceType:  "web",
+				DeviceId:    "dev-123",
 			}, nil
 		},
 	}
@@ -248,10 +248,10 @@ func TestMobileAuthMiddleware_MissingDeviceIDHeader(t *testing.T) {
 	client := &mobileAuthClientStub{
 		validateTokenFn: func(_ *authpb.ValidateTokenRequest) (*authpb.ValidateTokenResponse, error) {
 			return &authpb.ValidateTokenResponse{
-				Valid:      true,
+				Valid:       true,
 				PrincipalId: 1,
-				DeviceType: "mobile",
-				DeviceId:   "dev-123",
+				DeviceType:  "mobile",
+				DeviceId:    "dev-123",
 			}, nil
 		},
 	}
@@ -273,10 +273,10 @@ func TestMobileAuthMiddleware_DeviceIDMismatch(t *testing.T) {
 	client := &mobileAuthClientStub{
 		validateTokenFn: func(_ *authpb.ValidateTokenRequest) (*authpb.ValidateTokenResponse, error) {
 			return &authpb.ValidateTokenResponse{
-				Valid:      true,
+				Valid:       true,
 				PrincipalId: 1,
-				DeviceType: "mobile",
-				DeviceId:   "dev-123",
+				DeviceType:  "mobile",
+				DeviceId:    "dev-123",
 			}, nil
 		},
 	}

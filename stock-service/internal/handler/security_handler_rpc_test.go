@@ -22,14 +22,14 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockSecuritySvc struct {
-	listStocksFn      func(filter repository.StockFilter) ([]model.Stock, int64, error)
-	getStockFn        func(id uint64) (*model.Stock, []model.Option, error)
-	listFuturesFn     func(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error)
-	getFuturesFn      func(id uint64) (*model.FuturesContract, error)
-	listForexFn       func(filter repository.ForexFilter) ([]model.ForexPair, int64, error)
-	getForexFn        func(id uint64) (*model.ForexPair, error)
-	listOptionsFn     func(filter repository.OptionFilter) ([]model.Option, int64, error)
-	getOptionFn       func(id uint64) (*model.Option, error)
+	listStocksFn  func(filter repository.StockFilter) ([]model.Stock, int64, error)
+	getStockFn    func(id uint64) (*model.Stock, []model.Option, error)
+	listFuturesFn func(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error)
+	getFuturesFn  func(id uint64) (*model.FuturesContract, error)
+	listForexFn   func(filter repository.ForexFilter) ([]model.ForexPair, int64, error)
+	getForexFn    func(id uint64) (*model.ForexPair, error)
+	listOptionsFn func(filter repository.OptionFilter) ([]model.Option, int64, error)
+	getOptionFn   func(id uint64) (*model.Option, error)
 }
 
 func (m *mockSecuritySvc) ListStocks(filter repository.StockFilter) ([]model.Stock, int64, error) {

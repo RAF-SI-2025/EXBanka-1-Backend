@@ -26,7 +26,7 @@ type listingSvcMockStockRepo struct {
 	capturedSizes []int
 }
 
-func (m *listingSvcMockStockRepo) Create(s *model.Stock) error          { return nil }
+func (m *listingSvcMockStockRepo) Create(s *model.Stock) error { return nil }
 func (m *listingSvcMockStockRepo) GetByID(id uint64) (*model.Stock, error) {
 	for i := range m.stocks {
 		if m.stocks[i].ID == id {
@@ -59,7 +59,7 @@ type listingSvcMockFuturesRepo struct {
 	capturedSizes []int
 }
 
-func (m *listingSvcMockFuturesRepo) Create(f *model.FuturesContract) error          { return nil }
+func (m *listingSvcMockFuturesRepo) Create(f *model.FuturesContract) error { return nil }
 func (m *listingSvcMockFuturesRepo) GetByID(id uint64) (*model.FuturesContract, error) {
 	return nil, gorm.ErrRecordNotFound
 }
@@ -81,7 +81,7 @@ type listingSvcMockForexRepo struct {
 	capturedSizes []int
 }
 
-func (m *listingSvcMockForexRepo) Create(fp *model.ForexPair) error          { return nil }
+func (m *listingSvcMockForexRepo) Create(fp *model.ForexPair) error { return nil }
 func (m *listingSvcMockForexRepo) GetByID(id uint64) (*model.ForexPair, error) {
 	return nil, gorm.ErrRecordNotFound
 }
@@ -102,10 +102,10 @@ func (m *listingSvcMockForexRepo) UpdatePriceByTicker(ticker string, rate decima
 // the stub in security_sync_test.go (whose UpsertBySecurity is a no-op), this
 // one actually persists upserts so we can count what sync produced.
 type listingSvcMockListingRepo struct {
-	listings      map[uint64]*model.Listing
-	nextID        uint64
-	upsertBySec   int
-	upsertForOpt  int
+	listings     map[uint64]*model.Listing
+	nextID       uint64
+	upsertBySec  int
+	upsertForOpt int
 }
 
 func newListingSvcMockListingRepo() *listingSvcMockListingRepo {

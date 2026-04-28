@@ -124,17 +124,17 @@ func (h *PortfolioHandler) GetPortfolioSummary(ctx context.Context, req *pb.GetP
 	totalProfit := gt.RealizedGainLifetimeRSD.Add(unrealized).Round(2)
 
 	return &pb.PortfolioSummary{
-		TotalProfit:                 totalProfit.StringFixed(2),
-		TotalProfitRsd:              totalProfit.StringFixed(2),
-		TaxPaidThisYear:             gt.TaxPaidThisYearRSD.StringFixed(2),
-		TaxUnpaidThisMonth:          gt.TaxUnpaidThisMonthRSD.StringFixed(2),
-		RealizedProfitThisMonthRsd:  gt.RealizedGainThisMonthRSD.StringFixed(2),
-		RealizedProfitThisYearRsd:   gt.RealizedGainThisYearRSD.StringFixed(2),
-		RealizedProfitLifetimeRsd:   gt.RealizedGainLifetimeRSD.StringFixed(2),
-		UnrealizedProfit:            unrealized.Round(2).StringFixed(2),
-		TaxUnpaidTotalRsd:           gt.TaxUnpaidTotalRSD.StringFixed(2),
-		OpenPositionsCount:          openPositions,
-		ClosedTradesThisYear:        gt.ClosedTradesThisYear,
+		TotalProfit:                totalProfit.StringFixed(2),
+		TotalProfitRsd:             totalProfit.StringFixed(2),
+		TaxPaidThisYear:            gt.TaxPaidThisYearRSD.StringFixed(2),
+		TaxUnpaidThisMonth:         gt.TaxUnpaidThisMonthRSD.StringFixed(2),
+		RealizedProfitThisMonthRsd: gt.RealizedGainThisMonthRSD.StringFixed(2),
+		RealizedProfitThisYearRsd:  gt.RealizedGainThisYearRSD.StringFixed(2),
+		RealizedProfitLifetimeRsd:  gt.RealizedGainLifetimeRSD.StringFixed(2),
+		UnrealizedProfit:           unrealized.Round(2).StringFixed(2),
+		TaxUnpaidTotalRsd:          gt.TaxUnpaidTotalRSD.StringFixed(2),
+		OpenPositionsCount:         openPositions,
+		ClosedTradesThisYear:       gt.ClosedTradesThisYear,
 	}, nil
 }
 

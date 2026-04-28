@@ -31,12 +31,12 @@ import (
 // ---------------------------------------------------------------------------
 
 type stubBankAccountClient struct {
-	listFn       func(*accountpb.ListBankAccountsRequest) (*accountpb.ListBankAccountsResponse, error)
-	createFn     func(*accountpb.CreateBankAccountRequest) (*accountpb.AccountResponse, error)
-	deleteFn     func(*accountpb.DeleteBankAccountRequest) (*accountpb.DeleteBankAccountResponse, error)
-	getRSDFn     func(*accountpb.GetBankRSDAccountRequest) (*accountpb.AccountResponse, error)
-	debitFn      func(*accountpb.BankAccountOpRequest) (*accountpb.BankAccountOpResponse, error)
-	creditFn     func(*accountpb.BankAccountOpRequest) (*accountpb.BankAccountOpResponse, error)
+	listFn   func(*accountpb.ListBankAccountsRequest) (*accountpb.ListBankAccountsResponse, error)
+	createFn func(*accountpb.CreateBankAccountRequest) (*accountpb.AccountResponse, error)
+	deleteFn func(*accountpb.DeleteBankAccountRequest) (*accountpb.DeleteBankAccountResponse, error)
+	getRSDFn func(*accountpb.GetBankRSDAccountRequest) (*accountpb.AccountResponse, error)
+	debitFn  func(*accountpb.BankAccountOpRequest) (*accountpb.BankAccountOpResponse, error)
+	creditFn func(*accountpb.BankAccountOpRequest) (*accountpb.BankAccountOpResponse, error)
 }
 
 func (s *stubBankAccountClient) ListBankAccounts(_ context.Context, in *accountpb.ListBankAccountsRequest, _ ...grpc.CallOption) (*accountpb.ListBankAccountsResponse, error) {
@@ -358,11 +358,11 @@ func (s *stubUserClient) SetEmployeeAdditionalPermissions(_ context.Context, in 
 // ---------------------------------------------------------------------------
 
 type stubEmployeeLimitClient struct {
-	getFn               func(*userpb.EmployeeLimitRequest) (*userpb.EmployeeLimitResponse, error)
-	setFn               func(*userpb.SetEmployeeLimitsRequest) (*userpb.EmployeeLimitResponse, error)
-	applyTemplateFn     func(*userpb.ApplyLimitTemplateRequest) (*userpb.EmployeeLimitResponse, error)
-	listTemplatesFn     func(*userpb.ListLimitTemplatesRequest) (*userpb.ListLimitTemplatesResponse, error)
-	createTemplateFn    func(*userpb.CreateLimitTemplateRequest) (*userpb.LimitTemplateResponse, error)
+	getFn            func(*userpb.EmployeeLimitRequest) (*userpb.EmployeeLimitResponse, error)
+	setFn            func(*userpb.SetEmployeeLimitsRequest) (*userpb.EmployeeLimitResponse, error)
+	applyTemplateFn  func(*userpb.ApplyLimitTemplateRequest) (*userpb.EmployeeLimitResponse, error)
+	listTemplatesFn  func(*userpb.ListLimitTemplatesRequest) (*userpb.ListLimitTemplatesResponse, error)
+	createTemplateFn func(*userpb.CreateLimitTemplateRequest) (*userpb.LimitTemplateResponse, error)
 }
 
 func (s *stubEmployeeLimitClient) GetEmployeeLimits(_ context.Context, in *userpb.EmployeeLimitRequest, _ ...grpc.CallOption) (*userpb.EmployeeLimitResponse, error) {
@@ -497,11 +497,11 @@ func (s *stubBlueprintClient) ApplyBlueprint(_ context.Context, in *userpb.Apply
 // ---------------------------------------------------------------------------
 
 type stubClientClient struct {
-	createFn       func(*clientpb.CreateClientRequest) (*clientpb.ClientResponse, error)
-	getFn          func(*clientpb.GetClientRequest) (*clientpb.ClientResponse, error)
-	getByEmailFn   func(*clientpb.GetClientByEmailRequest) (*clientpb.ClientResponse, error)
-	listFn         func(*clientpb.ListClientsRequest) (*clientpb.ListClientsResponse, error)
-	updateFn       func(*clientpb.UpdateClientRequest) (*clientpb.ClientResponse, error)
+	createFn     func(*clientpb.CreateClientRequest) (*clientpb.ClientResponse, error)
+	getFn        func(*clientpb.GetClientRequest) (*clientpb.ClientResponse, error)
+	getByEmailFn func(*clientpb.GetClientByEmailRequest) (*clientpb.ClientResponse, error)
+	listFn       func(*clientpb.ListClientsRequest) (*clientpb.ListClientsResponse, error)
+	updateFn     func(*clientpb.UpdateClientRequest) (*clientpb.ClientResponse, error)
 }
 
 func (s *stubClientClient) CreateClient(_ context.Context, in *clientpb.CreateClientRequest, _ ...grpc.CallOption) (*clientpb.ClientResponse, error) {
@@ -635,11 +635,11 @@ func (s *stubCardClient) ListChangelog(_ context.Context, _ *cardpb.ListChangelo
 // ---------------------------------------------------------------------------
 
 type stubVirtualCardClient struct {
-	createFn          func(*cardpb.CreateVirtualCardRequest) (*cardpb.CardResponse, error)
-	setPinFn          func(*cardpb.SetCardPinRequest) (*cardpb.SetCardPinResponse, error)
-	verifyPinFn       func(*cardpb.VerifyCardPinRequest) (*cardpb.VerifyCardPinResponse, error)
-	tempBlockFn       func(*cardpb.TemporaryBlockCardRequest) (*cardpb.CardResponse, error)
-	useFn             func(*cardpb.UseCardRequest) (*cardpb.UseCardResponse, error)
+	createFn    func(*cardpb.CreateVirtualCardRequest) (*cardpb.CardResponse, error)
+	setPinFn    func(*cardpb.SetCardPinRequest) (*cardpb.SetCardPinResponse, error)
+	verifyPinFn func(*cardpb.VerifyCardPinRequest) (*cardpb.VerifyCardPinResponse, error)
+	tempBlockFn func(*cardpb.TemporaryBlockCardRequest) (*cardpb.CardResponse, error)
+	useFn       func(*cardpb.UseCardRequest) (*cardpb.UseCardResponse, error)
 }
 
 func (s *stubVirtualCardClient) CreateVirtualCard(_ context.Context, in *cardpb.CreateVirtualCardRequest, _ ...grpc.CallOption) (*cardpb.CardResponse, error) {
@@ -735,22 +735,22 @@ func (s *stubCardRequestClient) RejectCardRequest(_ context.Context, in *cardpb.
 // ---------------------------------------------------------------------------
 
 type stubCreditClient struct {
-	createReqFn          func(*creditpb.CreateLoanRequestReq) (*creditpb.LoanRequestResponse, error)
-	getReqFn             func(*creditpb.GetLoanRequestReq) (*creditpb.LoanRequestResponse, error)
-	listReqFn            func(*creditpb.ListLoanRequestsReq) (*creditpb.ListLoanRequestsResponse, error)
-	approveReqFn         func(*creditpb.ApproveLoanRequestReq) (*creditpb.LoanResponse, error)
-	rejectReqFn          func(*creditpb.RejectLoanRequestReq) (*creditpb.LoanRequestResponse, error)
-	getLoanFn            func(*creditpb.GetLoanReq) (*creditpb.LoanResponse, error)
-	listLoansByClientFn  func(*creditpb.ListLoansByClientReq) (*creditpb.ListLoansResponse, error)
-	listAllLoansFn       func(*creditpb.ListAllLoansReq) (*creditpb.ListLoansResponse, error)
-	getInstallmentsFn    func(*creditpb.GetInstallmentsByLoanReq) (*creditpb.ListInstallmentsResponse, error)
-	listTiersFn          func(*creditpb.ListInterestRateTiersRequest) (*creditpb.ListInterestRateTiersResponse, error)
-	createTierFn         func(*creditpb.CreateInterestRateTierRequest) (*creditpb.InterestRateTierResponse, error)
-	updateTierFn         func(*creditpb.UpdateInterestRateTierRequest) (*creditpb.InterestRateTierResponse, error)
-	deleteTierFn         func(*creditpb.DeleteInterestRateTierRequest) (*creditpb.DeleteResponse, error)
-	listMarginsFn        func(*creditpb.ListBankMarginsRequest) (*creditpb.ListBankMarginsResponse, error)
-	updateMarginFn       func(*creditpb.UpdateBankMarginRequest) (*creditpb.BankMarginResponse, error)
-	applyVarRateFn       func(*creditpb.ApplyVariableRateUpdateRequest) (*creditpb.ApplyVariableRateUpdateResponse, error)
+	createReqFn         func(*creditpb.CreateLoanRequestReq) (*creditpb.LoanRequestResponse, error)
+	getReqFn            func(*creditpb.GetLoanRequestReq) (*creditpb.LoanRequestResponse, error)
+	listReqFn           func(*creditpb.ListLoanRequestsReq) (*creditpb.ListLoanRequestsResponse, error)
+	approveReqFn        func(*creditpb.ApproveLoanRequestReq) (*creditpb.LoanResponse, error)
+	rejectReqFn         func(*creditpb.RejectLoanRequestReq) (*creditpb.LoanRequestResponse, error)
+	getLoanFn           func(*creditpb.GetLoanReq) (*creditpb.LoanResponse, error)
+	listLoansByClientFn func(*creditpb.ListLoansByClientReq) (*creditpb.ListLoansResponse, error)
+	listAllLoansFn      func(*creditpb.ListAllLoansReq) (*creditpb.ListLoansResponse, error)
+	getInstallmentsFn   func(*creditpb.GetInstallmentsByLoanReq) (*creditpb.ListInstallmentsResponse, error)
+	listTiersFn         func(*creditpb.ListInterestRateTiersRequest) (*creditpb.ListInterestRateTiersResponse, error)
+	createTierFn        func(*creditpb.CreateInterestRateTierRequest) (*creditpb.InterestRateTierResponse, error)
+	updateTierFn        func(*creditpb.UpdateInterestRateTierRequest) (*creditpb.InterestRateTierResponse, error)
+	deleteTierFn        func(*creditpb.DeleteInterestRateTierRequest) (*creditpb.DeleteResponse, error)
+	listMarginsFn       func(*creditpb.ListBankMarginsRequest) (*creditpb.ListBankMarginsResponse, error)
+	updateMarginFn      func(*creditpb.UpdateBankMarginRequest) (*creditpb.BankMarginResponse, error)
+	applyVarRateFn      func(*creditpb.ApplyVariableRateUpdateRequest) (*creditpb.ApplyVariableRateUpdateResponse, error)
 }
 
 func (s *stubCreditClient) CreateLoanRequest(_ context.Context, in *creditpb.CreateLoanRequestReq, _ ...grpc.CallOption) (*creditpb.LoanRequestResponse, error) {
@@ -899,12 +899,12 @@ func (s *stubExchangeClient) Convert(_ context.Context, in *exchangepb.ConvertRe
 // ---------------------------------------------------------------------------
 
 type stubNotificationClient struct {
-	listFn         func(*notificationpb.ListNotificationsRequest) (*notificationpb.ListNotificationsResponse, error)
-	unreadFn       func(*notificationpb.GetUnreadCountRequest) (*notificationpb.GetUnreadCountResponse, error)
-	markReadFn     func(*notificationpb.MarkNotificationReadRequest) (*notificationpb.MarkNotificationReadResponse, error)
-	markAllReadFn  func(*notificationpb.MarkAllNotificationsReadRequest) (*notificationpb.MarkAllNotificationsReadResponse, error)
-	pendingFn      func(*notificationpb.GetPendingMobileRequest) (*notificationpb.PendingMobileResponse, error)
-	ackFn          func(*notificationpb.AckMobileRequest) (*notificationpb.AckMobileResponse, error)
+	listFn        func(*notificationpb.ListNotificationsRequest) (*notificationpb.ListNotificationsResponse, error)
+	unreadFn      func(*notificationpb.GetUnreadCountRequest) (*notificationpb.GetUnreadCountResponse, error)
+	markReadFn    func(*notificationpb.MarkNotificationReadRequest) (*notificationpb.MarkNotificationReadResponse, error)
+	markAllReadFn func(*notificationpb.MarkAllNotificationsReadRequest) (*notificationpb.MarkAllNotificationsReadResponse, error)
+	pendingFn     func(*notificationpb.GetPendingMobileRequest) (*notificationpb.PendingMobileResponse, error)
+	ackFn         func(*notificationpb.AckMobileRequest) (*notificationpb.AckMobileResponse, error)
 }
 
 func (s *stubNotificationClient) SendEmail(_ context.Context, _ *notificationpb.SendEmailRequest, _ ...grpc.CallOption) (*notificationpb.SendEmailResponse, error) {
@@ -955,12 +955,12 @@ func (s *stubNotificationClient) MarkAllNotificationsRead(_ context.Context, in 
 // ---------------------------------------------------------------------------
 
 type stubVerificationClient struct {
-	createFn         func(*verificationpb.CreateChallengeRequest) (*verificationpb.CreateChallengeResponse, error)
-	getStatusFn      func(*verificationpb.GetChallengeStatusRequest) (*verificationpb.GetChallengeStatusResponse, error)
-	getPendingFn     func(*verificationpb.GetPendingChallengeRequest) (*verificationpb.GetPendingChallengeResponse, error)
-	submitFn         func(*verificationpb.SubmitVerificationRequest) (*verificationpb.SubmitVerificationResponse, error)
-	submitCodeFn     func(*verificationpb.SubmitCodeRequest) (*verificationpb.SubmitCodeResponse, error)
-	verifyByBioFn    func(*verificationpb.VerifyByBiometricRequest) (*verificationpb.VerifyByBiometricResponse, error)
+	createFn      func(*verificationpb.CreateChallengeRequest) (*verificationpb.CreateChallengeResponse, error)
+	getStatusFn   func(*verificationpb.GetChallengeStatusRequest) (*verificationpb.GetChallengeStatusResponse, error)
+	getPendingFn  func(*verificationpb.GetPendingChallengeRequest) (*verificationpb.GetPendingChallengeResponse, error)
+	submitFn      func(*verificationpb.SubmitVerificationRequest) (*verificationpb.SubmitVerificationResponse, error)
+	submitCodeFn  func(*verificationpb.SubmitCodeRequest) (*verificationpb.SubmitCodeResponse, error)
+	verifyByBioFn func(*verificationpb.VerifyByBiometricRequest) (*verificationpb.VerifyByBiometricResponse, error)
 }
 
 func (s *stubVerificationClient) CreateChallenge(_ context.Context, in *verificationpb.CreateChallengeRequest, _ ...grpc.CallOption) (*verificationpb.CreateChallengeResponse, error) {
@@ -1212,9 +1212,9 @@ func (s *stubOTCClient) BuyOffer(_ context.Context, in *stockpb.BuyOTCOfferReque
 // ---------------------------------------------------------------------------
 
 type stubTaxClient struct {
-	listFn         func(*stockpb.ListTaxRecordsRequest) (*stockpb.ListTaxRecordsResponse, error)
-	collectFn      func(*stockpb.CollectTaxRequest) (*stockpb.CollectTaxResponse, error)
-	listUserFn     func(*stockpb.ListUserTaxRecordsRequest) (*stockpb.ListUserTaxRecordsResponse, error)
+	listFn     func(*stockpb.ListTaxRecordsRequest) (*stockpb.ListTaxRecordsResponse, error)
+	collectFn  func(*stockpb.CollectTaxRequest) (*stockpb.CollectTaxResponse, error)
+	listUserFn func(*stockpb.ListUserTaxRecordsRequest) (*stockpb.ListUserTaxRecordsResponse, error)
 }
 
 func (s *stubTaxClient) ListTaxRecords(_ context.Context, in *stockpb.ListTaxRecordsRequest, _ ...grpc.CallOption) (*stockpb.ListTaxRecordsResponse, error) {
@@ -1251,24 +1251,24 @@ func (s *stubUserClient) ListChangelog(_ context.Context, _ *userpb.ListChangelo
 // ---------------------------------------------------------------------------
 
 var (
-	_ accountpb.BankAccountServiceClient      = (*stubBankAccountClient)(nil)
-	_ authpb.AuthServiceClient                = (*stubAuthClient)(nil)
-	_ userpb.UserServiceClient                = (*stubUserClient)(nil)
-	_ userpb.EmployeeLimitServiceClient       = (*stubEmployeeLimitClient)(nil)
-	_ userpb.ActuaryServiceClient             = (*stubActuaryClient)(nil)
-	_ userpb.BlueprintServiceClient           = (*stubBlueprintClient)(nil)
-	_ clientpb.ClientServiceClient            = (*stubClientClient)(nil)
-	_ clientpb.ClientLimitServiceClient       = (*stubClientLimitClient)(nil)
-	_ cardpb.CardServiceClient                = (*stubCardClient)(nil)
-	_ cardpb.VirtualCardServiceClient         = (*stubVirtualCardClient)(nil)
-	_ cardpb.CardRequestServiceClient         = (*stubCardRequestClient)(nil)
-	_ creditpb.CreditServiceClient            = (*stubCreditClient)(nil)
-	_ exchangepb.ExchangeServiceClient        = (*stubExchangeClient)(nil)
-	_ notificationpb.NotificationServiceClient = (*stubNotificationClient)(nil)
+	_ accountpb.BankAccountServiceClient           = (*stubBankAccountClient)(nil)
+	_ authpb.AuthServiceClient                     = (*stubAuthClient)(nil)
+	_ userpb.UserServiceClient                     = (*stubUserClient)(nil)
+	_ userpb.EmployeeLimitServiceClient            = (*stubEmployeeLimitClient)(nil)
+	_ userpb.ActuaryServiceClient                  = (*stubActuaryClient)(nil)
+	_ userpb.BlueprintServiceClient                = (*stubBlueprintClient)(nil)
+	_ clientpb.ClientServiceClient                 = (*stubClientClient)(nil)
+	_ clientpb.ClientLimitServiceClient            = (*stubClientLimitClient)(nil)
+	_ cardpb.CardServiceClient                     = (*stubCardClient)(nil)
+	_ cardpb.VirtualCardServiceClient              = (*stubVirtualCardClient)(nil)
+	_ cardpb.CardRequestServiceClient              = (*stubCardRequestClient)(nil)
+	_ creditpb.CreditServiceClient                 = (*stubCreditClient)(nil)
+	_ exchangepb.ExchangeServiceClient             = (*stubExchangeClient)(nil)
+	_ notificationpb.NotificationServiceClient     = (*stubNotificationClient)(nil)
 	_ verificationpb.VerificationGRPCServiceClient = (*stubVerificationClient)(nil)
-	_ transactionpb.TransactionServiceClient  = (*stubTransactionClient)(nil)
-	_ transactionpb.FeeServiceClient          = (*stubFeeClient)(nil)
-	_ stockpb.StockExchangeGRPCServiceClient  = (*stubStockExchangeClient)(nil)
-	_ stockpb.OTCGRPCServiceClient            = (*stubOTCClient)(nil)
-	_ stockpb.TaxGRPCServiceClient            = (*stubTaxClient)(nil)
+	_ transactionpb.TransactionServiceClient       = (*stubTransactionClient)(nil)
+	_ transactionpb.FeeServiceClient               = (*stubFeeClient)(nil)
+	_ stockpb.StockExchangeGRPCServiceClient       = (*stubStockExchangeClient)(nil)
+	_ stockpb.OTCGRPCServiceClient                 = (*stubOTCClient)(nil)
+	_ stockpb.TaxGRPCServiceClient                 = (*stubTaxClient)(nil)
 )

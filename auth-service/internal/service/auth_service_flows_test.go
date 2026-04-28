@@ -115,6 +115,9 @@ func (s *stubUserClient) AssignPermissionToRole(ctx context.Context, in *userpb.
 func (s *stubUserClient) RevokePermissionFromRole(ctx context.Context, in *userpb.RevokePermissionFromRoleRequest, opts ...grpc.CallOption) (*userpb.RevokePermissionFromRoleResponse, error) {
 	return &userpb.RevokePermissionFromRoleResponse{}, nil
 }
+func (s *stubUserClient) ListChangelog(ctx context.Context, in *userpb.ListChangelogRequest, opts ...grpc.CallOption) (*userpb.ListChangelogResponse, error) {
+	return &userpb.ListChangelogResponse{}, nil
+}
 
 // ----------------------------------------------------------------------------
 // Test fixtures
@@ -360,7 +363,7 @@ func TestAuthRefreshToken_Success(t *testing.T) {
 	// Seed a session and refresh token
 	sess := &model.ActiveSession{
 		UserID: acct.PrincipalID, UserRole: "EmployeeAdmin",
-		SystemType: model.PrincipalTypeEmployee,
+		SystemType:   model.PrincipalTypeEmployee,
 		LastActiveAt: time.Now(), CreatedAt: time.Now(),
 	}
 	require.NoError(t, f.db.Create(sess).Error)
@@ -502,7 +505,7 @@ func TestLogout_Success(t *testing.T) {
 	acct := f.seedActiveAccountWithPassword(t, "u@test.com", "Abcdef12", model.PrincipalTypeEmployee, 1)
 	sess := &model.ActiveSession{
 		UserID: acct.PrincipalID, UserRole: "EmployeeAdmin",
-		SystemType: model.PrincipalTypeEmployee,
+		SystemType:   model.PrincipalTypeEmployee,
 		LastActiveAt: time.Now(), CreatedAt: time.Now(),
 	}
 	require.NoError(t, f.db.Create(sess).Error)
@@ -860,7 +863,7 @@ func TestListSessions_ReturnsActive(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		s := &model.ActiveSession{
 			UserID: 100, UserRole: "EmployeeAdmin",
-			SystemType: model.PrincipalTypeEmployee,
+			SystemType:   model.PrincipalTypeEmployee,
 			LastActiveAt: time.Now(), CreatedAt: time.Now(),
 		}
 		require.NoError(t, f.db.Create(s).Error)
@@ -874,7 +877,7 @@ func TestRevokeSession_Success(t *testing.T) {
 	f := newAuthFlowFixture(t)
 	s := &model.ActiveSession{
 		UserID: 100, UserRole: "EmployeeAdmin",
-		SystemType: model.PrincipalTypeEmployee,
+		SystemType:   model.PrincipalTypeEmployee,
 		LastActiveAt: time.Now(), CreatedAt: time.Now(),
 	}
 	require.NoError(t, f.db.Create(s).Error)
@@ -890,7 +893,7 @@ func TestRevokeSession_WrongOwner(t *testing.T) {
 	f := newAuthFlowFixture(t)
 	s := &model.ActiveSession{
 		UserID: 100, UserRole: "EmployeeAdmin",
-		SystemType: model.PrincipalTypeEmployee,
+		SystemType:   model.PrincipalTypeEmployee,
 		LastActiveAt: time.Now(), CreatedAt: time.Now(),
 	}
 	require.NoError(t, f.db.Create(s).Error)
@@ -912,7 +915,7 @@ func TestRevokeSession_AlreadyRevoked(t *testing.T) {
 	now := time.Now()
 	s := &model.ActiveSession{
 		UserID: 100, UserRole: "EmployeeAdmin",
-		SystemType: model.PrincipalTypeEmployee,
+		SystemType:   model.PrincipalTypeEmployee,
 		LastActiveAt: time.Now(), CreatedAt: time.Now(),
 		RevokedAt: &now,
 	}
@@ -933,14 +936,14 @@ func TestRevokeAllSessionsExceptCurrent_KeepsCurrent(t *testing.T) {
 
 	keep := &model.ActiveSession{
 		UserID: 50, UserRole: "EmployeeAdmin",
-		SystemType: model.PrincipalTypeEmployee,
+		SystemType:   model.PrincipalTypeEmployee,
 		LastActiveAt: time.Now(), CreatedAt: time.Now(),
 	}
 	require.NoError(t, f.db.Create(keep).Error)
 
 	other := &model.ActiveSession{
 		UserID: 50, UserRole: "EmployeeAdmin",
-		SystemType: model.PrincipalTypeEmployee,
+		SystemType:   model.PrincipalTypeEmployee,
 		LastActiveAt: time.Now(), CreatedAt: time.Now(),
 	}
 	require.NoError(t, f.db.Create(other).Error)
@@ -1112,4 +1115,3 @@ func TestHashToken_DeterministicAndUnique(t *testing.T) {
 	assert.NotEqual(t, a, c)
 	assert.Len(t, a, 64) // sha256 hex
 }
-

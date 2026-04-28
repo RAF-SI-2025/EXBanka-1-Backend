@@ -13,11 +13,11 @@ import (
 // bought from. AccountID is an optional "last-used" audit field populated by
 // the most recent buy fill; it is not part of the aggregation key.
 type Holding struct {
-	ID            uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	OwnerType     OwnerType `gorm:"size:8;not null;index:idx_holding_owner,priority:1;check:owner_type IN ('client','bank')" json:"owner_type"`
-	OwnerID       *uint64   `gorm:"index:idx_holding_owner,priority:2" json:"owner_id"`
-	UserFirstName string    `gorm:"size:100;not null" json:"user_first_name"`
-	UserLastName  string    `gorm:"size:100;not null" json:"user_last_name"`
+	ID             uint64          `gorm:"primaryKey;autoIncrement" json:"id"`
+	OwnerType      OwnerType       `gorm:"size:8;not null;index:idx_holding_owner,priority:1;check:owner_type IN ('client','bank')" json:"owner_type"`
+	OwnerID        *uint64         `gorm:"index:idx_holding_owner,priority:2" json:"owner_id"`
+	UserFirstName  string          `gorm:"size:100;not null" json:"user_first_name"`
+	UserLastName   string          `gorm:"size:100;not null" json:"user_last_name"`
 	SecurityType   string          `gorm:"size:10;not null" json:"security_type"` // "stock", "futures", "forex", "option"
 	SecurityID     uint64          `gorm:"not null" json:"security_id"`
 	ListingID      uint64          `gorm:"not null;index" json:"listing_id"`
@@ -34,17 +34,17 @@ type Holding struct {
 	// same security from two accounts still produces one row. Nullable in
 	// practice (zero value treated as unknown) — production always populates
 	// it but tests/reservations may leave it as zero.
-	AccountID      uint64          `gorm:"index" json:"account_id,omitempty"`
-	Version        int64           `gorm:"not null;default:1" json:"-"`
+	AccountID uint64 `gorm:"index" json:"account_id,omitempty"`
+	Version   int64  `gorm:"not null;default:1" json:"-"`
 	// SagaID and SagaStep are stamped onto rows created or updated from
 	// inside a saga step (read from context.Context via
 	// contract/shared/saga). They make cross-service auditing trivial:
 	// SELECT * FROM holdings WHERE saga_id = '...'. Both are nullable;
 	// non-saga writes (REST handlers, crons) leave them empty.
-	SagaID         *string         `gorm:"size:36;index" json:"saga_id,omitempty"`
-	SagaStep       *string         `gorm:"size:64" json:"saga_step,omitempty"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	SagaID    *string   `gorm:"size:36;index" json:"saga_id,omitempty"`
+	SagaStep  *string   `gorm:"size:64" json:"saga_step,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func (h *Holding) BeforeSave(tx *gorm.DB) error {
