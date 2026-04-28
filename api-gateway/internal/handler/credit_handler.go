@@ -314,6 +314,7 @@ func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 }
 
 // @Summary      List all loans
+// @Description  Lists all loans (employee read). Filter by loan_type/account_number/status. To list one client's loans, use GET /api/v3/clients/{id}/loans.
 // @Tags         loans
 // @Produce      json
 // @Param        page                  query  int     false  "Page number (default 1)"
@@ -325,34 +326,8 @@ func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/v2/loans [get]
+// @Router       /api/v3/loans [get]
 func (h *CreditHandler) ListAllLoans(c *gin.Context) {
-	// Query-param filtering: ?client_id=X
-	if clientIDStr := c.Query("client_id"); clientIDStr != "" {
-		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
-		if err != nil {
-			apiError(c, 400, ErrValidation, "invalid client_id query parameter")
-			return
-		}
-		page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 32)
-		pageSize, _ := strconv.ParseInt(c.DefaultQuery("page_size", "20"), 10, 32)
-		resp, err := h.creditClient.ListLoansByClient(c.Request.Context(), &creditpb.ListLoansByClientReq{
-			ClientId: clientID,
-			Page:     int32(page),
-			PageSize: int32(pageSize),
-		})
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		loans := make([]gin.H, 0, len(resp.Loans))
-		for _, l := range resp.Loans {
-			loans = append(loans, loanToJSON(l))
-		}
-		c.JSON(http.StatusOK, gin.H{"loans": loans, "total": resp.Total})
-		return
-	}
-
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
@@ -376,6 +351,46 @@ func (h *CreditHandler) ListAllLoans(c *gin.Context) {
 		"loans": loans,
 		"total": resp.Total,
 	})
+}
+
+// @Summary      List loans by client (path-scoped)
+// @Description  Returns all loans for a given client. Mounted under /clients/:id/loans.
+// @Tags         loans
+// @Produce      json
+// @Param        id         path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/clients/{id}/loans [get]
+func (h *CreditHandler) ListLoansByClientPath(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid client id")
+		return
+	}
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.creditClient.ListLoansByClient(c.Request.Context(), &creditpb.ListLoansByClientReq{
+		ClientId: clientID,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	loans := make([]gin.H, 0, len(resp.Loans))
+	for _, l := range resp.Loans {
+		loans = append(loans, loanToJSON(l))
+	}
+	c.JSON(http.StatusOK, gin.H{"loans": loans, "total": resp.Total})
 }
 
 // @Summary      Get installments by loan

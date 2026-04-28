@@ -130,12 +130,12 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 }
 
 // @Summary      List accounts
+// @Description  Lists all accounts (employee read). Filter by ?account_number=X for exact-match lookup, or by name/type filters. To list a single client's accounts, use GET /api/v3/clients/{id}/accounts.
 // @Tags         accounts
 // @Produce      json
 // @Param        page                  query  int     false  "Page number (default 1)"
 // @Param        page_size             query  int     false  "Items per page (default 20)"
-// @Param        client_id             query  int     false  "Filter by client owner ID (mutually exclusive with account_number)"
-// @Param        account_number        query  string  false  "Filter by exact account number (mutually exclusive with client_id)"
+// @Param        account_number        query  string  false  "Filter by exact account number"
 // @Param        name_filter           query  string  false  "Filter by account name"
 // @Param        account_number_filter query  string  false  "Filter by account number substring"
 // @Param        type_filter           query  string  false  "Filter by account type"
@@ -146,14 +146,7 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 // @Failure      500  {object}  map[string]string
 // @Router       /api/v3/accounts [get]
 func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
-	clientIDStr := c.Query("client_id")
 	accountNumber := c.Query("account_number")
-
-	// Mutually exclusive filter params — both set is a client error.
-	if clientIDStr != "" && accountNumber != "" {
-		apiError(c, 400, ErrValidation, "client_id and account_number are mutually exclusive")
-		return
-	}
 
 	// Query-param filtering: ?account_number=X — exact-match single lookup.
 	// Wraps GetAccountByNumber to keep the response shape consistent with the
@@ -171,32 +164,6 @@ func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"accounts": []gin.H{accountToJSON(resp)}, "total": 1})
-		return
-	}
-
-	// Query-param filtering: ?client_id=X
-	if clientIDStr != "" {
-		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
-		if err != nil {
-			apiError(c, 400, ErrValidation, "invalid client_id query parameter")
-			return
-		}
-		page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 32)
-		pageSize, _ := strconv.ParseInt(c.DefaultQuery("page_size", "50"), 10, 32)
-		resp, err := h.accountClient.ListAccountsByClient(c.Request.Context(), &accountpb.ListAccountsByClientRequest{
-			ClientId: clientID,
-			Page:     int32(page),
-			PageSize: int32(pageSize),
-		})
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		accounts := make([]gin.H, 0, len(resp.Accounts))
-		for _, acc := range resp.Accounts {
-			accounts = append(accounts, accountToJSON(acc))
-		}
-		c.JSON(http.StatusOK, gin.H{"accounts": accounts, "total": resp.Total})
 		return
 	}
 
@@ -223,6 +190,46 @@ func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 		"accounts": accounts,
 		"total":    resp.Total,
 	})
+}
+
+// @Summary      List accounts by client (path-scoped)
+// @Description  Returns all accounts for a given client. Mounted under /clients/:id/accounts.
+// @Tags         accounts
+// @Produce      json
+// @Param        id         path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Items per page (default 50)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/clients/{id}/accounts [get]
+func (h *AccountHandler) ListAccountsByClientPath(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid client id")
+		return
+	}
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
+	page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 32)
+	pageSize, _ := strconv.ParseInt(c.DefaultQuery("page_size", "50"), 10, 32)
+	resp, err := h.accountClient.ListAccountsByClient(c.Request.Context(), &accountpb.ListAccountsByClientRequest{
+		ClientId: clientID,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	accounts := make([]gin.H, 0, len(resp.Accounts))
+	for _, acc := range resp.Accounts {
+		accounts = append(accounts, accountToJSON(acc))
+	}
+	c.JSON(http.StatusOK, gin.H{"accounts": accounts, "total": resp.Total})
 }
 
 // @Summary      Get account by ID

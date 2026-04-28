@@ -456,6 +456,26 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			clientsRead.GET("", h.Client.ListClients)
 			clientsRead.GET("/:id", h.Client.GetClient)
 		}
+		// Client-scoped sub-collections — each gated by the perm of the
+		// downstream resource (accounts/payments/transfers, loans, cards).
+		// The Gin tree uses :id (matches /clients/:id elsewhere).
+		clientsAccountsRead := protected.Group("/clients")
+		clientsAccountsRead.Use(middleware.RequireAnyPermission(perms.Accounts.Read.All, perms.Accounts.Read.Own))
+		{
+			clientsAccountsRead.GET("/:id/accounts", h.Account.ListAccountsByClientPath)
+			clientsAccountsRead.GET("/:id/payments", h.Tx.ListPaymentsByClientPath)
+			clientsAccountsRead.GET("/:id/transfers", h.Tx.ListTransfersByClientPath)
+		}
+		clientsLoansRead := protected.Group("/clients")
+		clientsLoansRead.Use(middleware.RequireAnyPermission(perms.Credits.Read.All, perms.Credits.Read.Own))
+		{
+			clientsLoansRead.GET("/:id/loans", h.Credit.ListLoansByClientPath)
+		}
+		clientsCardsRead := protected.Group("/clients")
+		clientsCardsRead.Use(middleware.RequireAnyPermission(perms.Cards.Read.All, perms.Cards.Read.Own))
+		{
+			clientsCardsRead.GET("/:id/cards", h.Card.ListCardsByClientPath)
+		}
 		clientsCreate := protected.Group("/clients")
 		clientsCreate.Use(middleware.RequirePermission(perms.Clients.Create.Any))
 		{
@@ -476,6 +496,10 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		{
 			accountsRead.GET("", h.Account.ListAllAccounts)
 			accountsRead.GET("/:id", h.Account.GetAccount)
+			// Account-scoped sub-collections — resolve account ID → account_number
+			// internally before calling the downstream RPCs.
+			accountsRead.GET("/:id/payments", h.Tx.ListPaymentsByAccountPath)
+			accountsRead.GET("/:id/cards", h.Card.ListCardsByAccountPath)
 		}
 		accountsCreate := protected.Group("/accounts")
 		accountsCreate.Use(middleware.RequireAnyPermission(perms.Accounts.Create.Current, perms.Accounts.Create.Foreign))
@@ -525,11 +549,13 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			bankAccountsDeactivate.DELETE("/:id", h.Account.DeleteBankAccount)
 		}
 
-		// Cards management
+		// Cards management — list endpoints moved to path-scoped variants:
+		//   GET /clients/:id/cards   (by client)
+		//   GET /accounts/:id/cards  (by account)
+		// (No bare ListAllCards RPC exists in card-service.)
 		cardsRead := protected.Group("/cards")
 		cardsRead.Use(middleware.RequireAnyPermission(perms.Cards.Read.All, perms.Cards.Read.Own))
 		{
-			cardsRead.GET("", h.Card.ListCards)
 			cardsRead.GET("/:id", h.Card.GetCard)
 		}
 		cardsCreate := protected.Group("/cards")
@@ -575,19 +601,20 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			cardsRequestsReject.POST("/:id/reject", h.Card.RejectCardRequest)
 		}
 
-		// Payments (employee read)
+		// Payments (employee read) — list endpoints moved to path-scoped variants:
+		//   GET /clients/:id/payments   (by client)
+		//   GET /accounts/:id/payments  (by account, with rich filters)
 		paymentsRead := protected.Group("/payments")
 		paymentsRead.Use(middleware.RequirePermission(perms.Accounts.Read.All))
 		{
-			paymentsRead.GET("", h.Tx.ListPayments)
 			paymentsRead.GET("/:id", h.Tx.GetPayment)
 		}
 
-		// Transfers (employee read)
+		// Transfers (employee read) — list endpoint moved to path-scoped variant:
+		//   GET /clients/:id/transfers  (by client)
 		transfersRead := protected.Group("/transfers")
 		transfersRead.Use(middleware.RequirePermission(perms.Accounts.Read.All))
 		{
-			transfersRead.GET("", h.Tx.ListTransfers)
 			transfersRead.GET("/:id", h.Tx.GetTransfer)
 		}
 

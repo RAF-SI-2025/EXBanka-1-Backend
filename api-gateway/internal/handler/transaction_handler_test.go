@@ -42,8 +42,10 @@ func transactionRouter(h *handler.TransactionHandler, sysType string, uid int64)
 	r.GET("/api/v2/me/transfers/:id", withCtx, h.GetMyTransfer)
 	r.GET("/api/v2/me/payment-recipients", withCtx, h.ListMyPaymentRecipients)
 	r.POST("/api/v2/me/payment-recipients", withCtx, h.CreateMyPaymentRecipient)
-	r.GET("/api/v2/payments", withCtx, h.ListPayments)
-	r.GET("/api/v2/transfers", withCtx, h.ListTransfers)
+	// Path-scoped (Phase B): /clients/:id/payments, /accounts/:id/payments, /clients/:id/transfers
+	r.GET("/api/v3/clients/:id/payments", withCtx, h.ListPaymentsByClientPath)
+	r.GET("/api/v3/accounts/:id/payments", withCtx, h.ListPaymentsByAccountPath)
+	r.GET("/api/v3/clients/:id/transfers", withCtx, h.ListTransfersByClientPath)
 	r.GET("/api/v2/fees", withCtx, h.ListFees)
 	r.POST("/api/v2/fees", withCtx, h.CreateFee)
 	r.PUT("/api/v2/fees/:id", withCtx, h.UpdateFee)
@@ -655,36 +657,18 @@ func TestTx_DeleteFee_BadID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// ── ListPayments ──────────────────────────────────────────────────────────────
+// ── ListPaymentsByClientPath / ListPaymentsByAccountPath (Phase B) ───────────
 
-func TestTx_ListPayments_BothFilters(t *testing.T) {
+func TestTx_ListPaymentsByClientPath_BadClientID(t *testing.T) {
 	h := newTxHandler(&stubTransactionClient{}, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
 	r := transactionRouter(h, "employee", 1)
-	req := httptest.NewRequest("GET", "/api/v2/payments?client_id=7&account_number=265", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/abc/payments", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestTx_ListPayments_NoFilter(t *testing.T) {
-	h := newTxHandler(&stubTransactionClient{}, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
-	r := transactionRouter(h, "employee", 1)
-	req := httptest.NewRequest("GET", "/api/v2/payments", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestTx_ListPayments_BadClientID(t *testing.T) {
-	h := newTxHandler(&stubTransactionClient{}, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
-	r := transactionRouter(h, "employee", 1)
-	req := httptest.NewRequest("GET", "/api/v2/payments?client_id=abc", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestTx_ListPayments_ByClient_Success(t *testing.T) {
+func TestTx_ListPaymentsByClientPath_Success(t *testing.T) {
 	tx := &stubTransactionClient{
 		listPmtByClientFn: func(req *transactionpb.ListPaymentsByClientRequest) (*transactionpb.ListPaymentsResponse, error) {
 			require.Equal(t, uint64(7), req.ClientId)
@@ -692,7 +676,7 @@ func TestTx_ListPayments_ByClient_Success(t *testing.T) {
 		},
 	}
 	acct := &accountFullStub{
-		listByClient: func(in *accountpb.ListAccountsByClientRequest) (*accountpb.ListAccountsResponse, error) {
+		listByClient: func(_ *accountpb.ListAccountsByClientRequest) (*accountpb.ListAccountsResponse, error) {
 			return &accountpb.ListAccountsResponse{Accounts: []*accountpb.AccountResponse{
 				{AccountNumber: "265-1-00"},
 			}}, nil
@@ -700,48 +684,54 @@ func TestTx_ListPayments_ByClient_Success(t *testing.T) {
 	}
 	h := newTxHandler(tx, &stubFeeClient{}, acct, &stubExchangeClient{})
 	r := transactionRouter(h, "employee", 1)
-	req := httptest.NewRequest("GET", "/api/v2/payments?client_id=7", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/7/payments", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestTx_ListPayments_ByAccount_Success(t *testing.T) {
+func TestTx_ListPaymentsByAccountPath_BadID(t *testing.T) {
+	h := newTxHandler(&stubTransactionClient{}, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
+	r := transactionRouter(h, "employee", 1)
+	req := httptest.NewRequest("GET", "/api/v3/accounts/abc/payments", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestTx_ListPaymentsByAccountPath_Success(t *testing.T) {
 	tx := &stubTransactionClient{
 		listPmtByAcctFn: func(req *transactionpb.ListPaymentsByAccountRequest) (*transactionpb.ListPaymentsResponse, error) {
 			require.Equal(t, "265-1-00", req.AccountNumber)
 			return &transactionpb.ListPaymentsResponse{Total: 0}, nil
 		},
 	}
-	h := newTxHandler(tx, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
+	acct := &accountFullStub{
+		getFn: func(in *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
+			require.Equal(t, uint64(42), in.Id)
+			return &accountpb.AccountResponse{Id: in.Id, AccountNumber: "265-1-00"}, nil
+		},
+	}
+	h := newTxHandler(tx, &stubFeeClient{}, acct, &stubExchangeClient{})
 	r := transactionRouter(h, "employee", 1)
-	req := httptest.NewRequest("GET", "/api/v2/payments?account_number=265-1-00", nil)
+	req := httptest.NewRequest("GET", "/api/v3/accounts/42/payments?date_from=2026-01-01&status_filter=executed", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-// ── ListTransfers ─────────────────────────────────────────────────────────────
+// ── ListTransfersByClientPath (Phase B) ──────────────────────────────────────
 
-func TestTx_ListTransfers_NoFilter(t *testing.T) {
+func TestTx_ListTransfersByClientPath_BadClientID(t *testing.T) {
 	h := newTxHandler(&stubTransactionClient{}, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
 	r := transactionRouter(h, "employee", 1)
-	req := httptest.NewRequest("GET", "/api/v2/transfers", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/abc/transfers", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestTx_ListTransfers_BadClientID(t *testing.T) {
-	h := newTxHandler(&stubTransactionClient{}, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
-	r := transactionRouter(h, "employee", 1)
-	req := httptest.NewRequest("GET", "/api/v2/transfers?client_id=abc", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestTx_ListTransfers_Success(t *testing.T) {
+func TestTx_ListTransfersByClientPath_Success(t *testing.T) {
 	tx := &stubTransactionClient{
 		listTransfersFn: func(req *transactionpb.ListTransfersByClientRequest) (*transactionpb.ListTransfersResponse, error) {
 			require.Equal(t, uint64(7), req.ClientId)
@@ -750,7 +740,7 @@ func TestTx_ListTransfers_Success(t *testing.T) {
 	}
 	h := newTxHandler(tx, &stubFeeClient{}, &accountFullStub{}, &stubExchangeClient{})
 	r := transactionRouter(h, "employee", 1)
-	req := httptest.NewRequest("GET", "/api/v2/transfers?client_id=7", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/7/transfers", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)

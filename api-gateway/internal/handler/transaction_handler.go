@@ -770,97 +770,134 @@ func (h *TransactionHandler) CreateMyPaymentRecipient(c *gin.Context) {
 	c.JSON(http.StatusCreated, recipientToJSON(resp))
 }
 
-// ListPayments serves GET /api/payments — filters via ?client_id=X or ?account_number=X.
-func (h *TransactionHandler) ListPayments(c *gin.Context) {
-	clientIDStr := c.Query("client_id")
-	accountNumber := c.Query("account_number")
-
-	if clientIDStr != "" && accountNumber != "" {
-		apiError(c, 400, ErrValidation, "provide either client_id or account_number, not both")
-		return
-	}
-
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	if clientIDStr != "" {
-		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
-		if err != nil {
-			apiError(c, 400, ErrValidation, "invalid client_id")
-			return
-		}
-		accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		resp, err := h.txClient.ListPaymentsByClient(c.Request.Context(), &transactionpb.ListPaymentsByClientRequest{
-			ClientId:       clientID,
-			Page:           int32(page),
-			PageSize:       int32(pageSize),
-			AccountNumbers: accountNumbers,
-		})
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		payments := make([]gin.H, 0, len(resp.Payments))
-		for _, p := range resp.Payments {
-			payments = append(payments, paymentToJSON(p))
-		}
-		c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
-		return
-	}
-
-	if accountNumber != "" {
-		resp, err := h.txClient.ListPaymentsByAccount(c.Request.Context(), &transactionpb.ListPaymentsByAccountRequest{
-			AccountNumber: accountNumber,
-			DateFrom:      c.Query("date_from"),
-			DateTo:        c.Query("date_to"),
-			StatusFilter:  c.Query("status_filter"),
-			AmountMin:     c.Query("amount_min"),
-			AmountMax:     c.Query("amount_max"),
-			Page:          int32(page),
-			PageSize:      int32(pageSize),
-		})
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		payments := make([]gin.H, 0, len(resp.Payments))
-		for _, p := range resp.Payments {
-			payments = append(payments, paymentToJSON(p))
-		}
-		c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
-		return
-	}
-
-	apiError(c, 400, ErrValidation, "provide client_id or account_number query parameter")
-}
-
-// ListTransfers serves GET /api/transfers — filters via ?client_id=X.
-func (h *TransactionHandler) ListTransfers(c *gin.Context) {
-	clientIDStr := c.Query("client_id")
-	if clientIDStr == "" {
-		apiError(c, 400, ErrValidation, "provide client_id query parameter")
-		return
-	}
-
-	clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
+// @Summary      List payments by client (path-scoped)
+// @Description  Returns all payments for a given client. Mounted under /clients/:id/payments.
+// @Tags         payments
+// @Produce      json
+// @Param        id         path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/clients/{id}/payments [get]
+func (h *TransactionHandler) ListPaymentsByClientPath(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		apiError(c, 400, ErrValidation, "invalid client_id")
+		apiError(c, 400, ErrValidation, "invalid client id")
 		return
 	}
-
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
 	accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
 	if err != nil {
 		handleGRPCError(c, err)
 		return
 	}
-
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.txClient.ListPaymentsByClient(c.Request.Context(), &transactionpb.ListPaymentsByClientRequest{
+		ClientId:       clientID,
+		Page:           int32(page),
+		PageSize:       int32(pageSize),
+		AccountNumbers: accountNumbers,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	payments := make([]gin.H, 0, len(resp.Payments))
+	for _, p := range resp.Payments {
+		payments = append(payments, paymentToJSON(p))
+	}
+	c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
+}
 
+// @Summary      List payments by account (path-scoped)
+// @Description  Returns payments for a given account ID. Resolves account_number from ID via account-service.
+// @Tags         payments
+// @Produce      json
+// @Param        id             path   int     true   "Account ID"
+// @Param        page           query  int     false  "Page number (default 1)"
+// @Param        page_size      query  int     false  "Items per page (default 20)"
+// @Param        date_from      query  string  false  "Start date (RFC3339 or YYYY-MM-DD)"
+// @Param        date_to        query  string  false  "End date (RFC3339 or YYYY-MM-DD)"
+// @Param        status_filter  query  string  false  "Filter by status"
+// @Param        amount_min     query  number  false  "Minimum amount"
+// @Param        amount_max     query  number  false  "Maximum amount"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/accounts/{id}/payments [get]
+func (h *TransactionHandler) ListPaymentsByAccountPath(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid account id")
+		return
+	}
+	acct, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.txClient.ListPaymentsByAccount(c.Request.Context(), &transactionpb.ListPaymentsByAccountRequest{
+		AccountNumber: acct.AccountNumber,
+		DateFrom:      c.Query("date_from"),
+		DateTo:        c.Query("date_to"),
+		StatusFilter:  c.Query("status_filter"),
+		AmountMin:     c.Query("amount_min"),
+		AmountMax:     c.Query("amount_max"),
+		Page:          int32(page),
+		PageSize:      int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	payments := make([]gin.H, 0, len(resp.Payments))
+	for _, p := range resp.Payments {
+		payments = append(payments, paymentToJSON(p))
+	}
+	c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
+}
+
+// @Summary      List transfers by client (path-scoped)
+// @Description  Returns all transfers for a given client. Mounted under /clients/:id/transfers.
+// @Tags         transfers
+// @Produce      json
+// @Param        id         path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/clients/{id}/transfers [get]
+func (h *TransactionHandler) ListTransfersByClientPath(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid client id")
+		return
+	}
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
+	accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	resp, err := h.txClient.ListTransfersByClient(c.Request.Context(), &transactionpb.ListTransfersByClientRequest{
 		ClientId:       clientID,
 		Page:           int32(page),
@@ -871,7 +908,6 @@ func (h *TransactionHandler) ListTransfers(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-
 	transfers := make([]gin.H, 0, len(resp.Transfers))
 	for _, t := range resp.Transfers {
 		transfers = append(transfers, transferToJSON(t))

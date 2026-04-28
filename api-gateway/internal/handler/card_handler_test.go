@@ -50,7 +50,9 @@ func cardRouter(h *handler.CardHandler) *gin.Engine {
 	r.POST("/cards/requests/:id/reject", withCtx, h.RejectCardRequest)
 	r.GET("/me/cards", withClient, h.ListMyCards)
 	r.GET("/me/cards/:id", withClient, h.GetMyCard)
-	r.GET("/cards", withCtx, h.ListCards)
+	// Path-scoped (Phase B): /clients/:id/cards, /accounts/:id/cards.
+	r.GET("/api/v3/clients/:id/cards", withCtx, h.ListCardsByClientPath)
+	r.GET("/api/v3/accounts/:id/cards", withCtx, h.ListCardsByAccountPath)
 	return r
 }
 
@@ -499,47 +501,57 @@ func TestCard_GetMyCard_NotOwner(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
-func TestCard_ListCards_FilterByClient(t *testing.T) {
-	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
+// ── ListCardsByClientPath / ListCardsByAccountPath (Phase B) ─────────────────
+
+func TestCard_ListCardsByClientPath_Success(t *testing.T) {
+	cc := &stubCardClient{
+		listByClientFn: func(req *cardpb.ListCardsByClientRequest) (*cardpb.ListCardsResponse, error) {
+			require.Equal(t, uint64(7), req.ClientId)
+			return &cardpb.ListCardsResponse{Cards: []*cardpb.CardResponse{{Id: 1}}}, nil
+		},
+	}
+	h := handler.NewCardHandler(cc, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
 	r := cardRouter(h)
-	req := httptest.NewRequest("GET", "/cards?client_id=1", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/7/cards", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestCard_ListCards_FilterByAccount(t *testing.T) {
+func TestCard_ListCardsByClientPath_BadID(t *testing.T) {
 	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
 	r := cardRouter(h)
-	req := httptest.NewRequest("GET", "/cards?account_number=265-1-00", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/abc/cards", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestCard_ListCardsByAccountPath_Success(t *testing.T) {
+	cc := &stubCardClient{
+		listByAccountFn: func(req *cardpb.ListCardsByAccountRequest) (*cardpb.ListCardsResponse, error) {
+			require.Equal(t, "265-1-00", req.AccountNumber)
+			return &cardpb.ListCardsResponse{Cards: []*cardpb.CardResponse{{Id: 1}}}, nil
+		},
+	}
+	acct := &accountFullStub{
+		getFn: func(in *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
+			require.Equal(t, uint64(42), in.Id)
+			return &accountpb.AccountResponse{Id: in.Id, AccountNumber: "265-1-00"}, nil
+		},
+	}
+	h := handler.NewCardHandler(cc, &stubVirtualCardClient{}, &stubCardRequestClient{}, acct)
+	r := cardRouter(h)
+	req := httptest.NewRequest("GET", "/api/v3/accounts/42/cards", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestCard_ListCards_BothFilters(t *testing.T) {
+func TestCard_ListCardsByAccountPath_BadID(t *testing.T) {
 	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
 	r := cardRouter(h)
-	req := httptest.NewRequest("GET", "/cards?client_id=1&account_number=x", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "not both")
-}
-
-func TestCard_ListCards_NoFilter(t *testing.T) {
-	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
-	r := cardRouter(h)
-	req := httptest.NewRequest("GET", "/cards", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestCard_ListCards_BadClientID(t *testing.T) {
-	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
-	r := cardRouter(h)
-	req := httptest.NewRequest("GET", "/cards?client_id=abc", nil)
+	req := httptest.NewRequest("GET", "/api/v3/accounts/abc/cards", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)

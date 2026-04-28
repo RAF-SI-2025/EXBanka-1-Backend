@@ -874,50 +874,75 @@ func (h *CardHandler) GetMyCard(c *gin.Context) {
 	c.JSON(http.StatusOK, cardToJSON(resp))
 }
 
-// ListCards serves GET /api/cards — filters via ?client_id=X or ?account_number=X.
-func (h *CardHandler) ListCards(c *gin.Context) {
-	clientIDStr := c.Query("client_id")
-	accountNumber := c.Query("account_number")
-
-	if clientIDStr != "" && accountNumber != "" {
-		apiError(c, 400, ErrValidation, "provide either client_id or account_number, not both")
+// @Summary      List cards by client (path-scoped)
+// @Description  Returns all cards for a given client. Mounted under /clients/:id/cards.
+// @Tags         cards
+// @Produce      json
+// @Param        id  path  int  true  "Client ID"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/clients/{id}/cards [get]
+func (h *CardHandler) ListCardsByClientPath(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid client id")
 		return
 	}
-
-	if clientIDStr != "" {
-		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
-		if err != nil {
-			apiError(c, 400, ErrValidation, "invalid client_id")
-			return
-		}
-		resp, err := h.cardClient.ListCardsByClient(c.Request.Context(), &cardpb.ListCardsByClientRequest{ClientId: clientID})
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		cards := make([]gin.H, 0, len(resp.Cards))
-		for _, card := range resp.Cards {
-			cards = append(cards, cardToJSON(card))
-		}
-		c.JSON(http.StatusOK, gin.H{"cards": cards})
+	if !enforceClientSelf(c, clientID) {
 		return
 	}
-
-	if accountNumber != "" {
-		resp, err := h.cardClient.ListCardsByAccount(c.Request.Context(), &cardpb.ListCardsByAccountRequest{AccountNumber: accountNumber})
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		cards := make([]gin.H, 0, len(resp.Cards))
-		for _, card := range resp.Cards {
-			cards = append(cards, cardToJSON(card))
-		}
-		c.JSON(http.StatusOK, gin.H{"cards": cards})
+	resp, err := h.cardClient.ListCardsByClient(c.Request.Context(), &cardpb.ListCardsByClientRequest{ClientId: clientID})
+	if err != nil {
+		handleGRPCError(c, err)
 		return
 	}
+	cards := make([]gin.H, 0, len(resp.Cards))
+	for _, card := range resp.Cards {
+		cards = append(cards, cardToJSON(card))
+	}
+	c.JSON(http.StatusOK, gin.H{"cards": cards})
+}
 
-	apiError(c, 400, ErrValidation, "provide client_id or account_number query parameter")
+// @Summary      List cards by account (path-scoped)
+// @Description  Returns all cards for a given account ID. Resolves account_number from ID via account-service.
+// @Tags         cards
+// @Produce      json
+// @Param        id  path  int  true  "Account ID"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/accounts/{id}/cards [get]
+func (h *CardHandler) ListCardsByAccountPath(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid account id")
+		return
+	}
+	if h.accountClient == nil {
+		apiError(c, 500, ErrInternal, "account client not configured")
+		return
+	}
+	acct, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	resp, err := h.cardClient.ListCardsByAccount(c.Request.Context(), &cardpb.ListCardsByAccountRequest{AccountNumber: acct.AccountNumber})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	cards := make([]gin.H, 0, len(resp.Cards))
+	for _, card := range resp.Cards {
+		cards = append(cards, cardToJSON(card))
+	}
+	c.JSON(http.StatusOK, gin.H{"cards": cards})
 }
 
 func cardToJSON(card *cardpb.CardResponse) gin.H {

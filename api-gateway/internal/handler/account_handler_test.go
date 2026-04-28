@@ -149,6 +149,8 @@ func accountRouter(h *handler.AccountHandler) *gin.Engine {
 	r.GET("/accounts", withCtx, h.ListAllAccounts)
 	r.GET("/accounts/:id", withCtx, h.GetAccount)
 	r.GET("/accounts/client/:client_id", withCtx, h.ListAccountsByClient)
+	// Phase B: path-scoped /clients/:id/accounts replaces /accounts?client_id=X
+	r.GET("/api/v3/clients/:id/accounts", withCtx, h.ListAccountsByClientPath)
 	r.PUT("/accounts/:id/name", withCtx, h.UpdateAccountName)
 	r.PUT("/accounts/:id/limits", withCtx, h.UpdateAccountLimits)
 	r.POST("/accounts/:id/activate", withCtx, h.ActivateAccount)
@@ -253,7 +255,9 @@ func TestAccount_ListAllAccounts_Default(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `"total":1`)
 }
 
-func TestAccount_ListAllAccounts_FilterByClient(t *testing.T) {
+// Phase B: /accounts?client_id=X dispatch removed — see /clients/:id/accounts.
+
+func TestAccount_ListAccountsByClientPath_Success(t *testing.T) {
 	acc := &accountFullStub{
 		listByClient: func(req *accountpb.ListAccountsByClientRequest) (*accountpb.ListAccountsResponse, error) {
 			require.Equal(t, uint64(7), req.ClientId)
@@ -262,17 +266,17 @@ func TestAccount_ListAllAccounts_FilterByClient(t *testing.T) {
 	}
 	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
 	r := accountRouter(h)
-	req := httptest.NewRequest("GET", "/accounts?client_id=7", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/7/accounts", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `"total":1`)
 }
 
-func TestAccount_ListAllAccounts_BadClientID(t *testing.T) {
+func TestAccount_ListAccountsByClientPath_BadID(t *testing.T) {
 	h := handler.NewAccountHandler(&accountFullStub{}, &stubBankAccountClient{}, nil, nil)
 	r := accountRouter(h)
-	req := httptest.NewRequest("GET", "/accounts?client_id=abc", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/abc/accounts", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -344,14 +348,8 @@ func TestAccount_ListAllAccounts_FilterByAccountNumber_NotFound(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `"accounts":[]`)
 }
 
-func TestAccount_ListAllAccounts_FilterMutuallyExclusive(t *testing.T) {
-	h := handler.NewAccountHandler(&accountFullStub{}, &stubBankAccountClient{}, nil, nil)
-	r := accountRouter(h)
-	req := httptest.NewRequest("GET", "/accounts?client_id=1&account_number=x", nil)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
+// Phase B: /accounts?client_id=X+account_number=X mutually-exclusive check removed
+// (client_id query branch was eliminated; see /clients/:id/accounts).
 
 func TestAccount_ListAccountsByClient_Success(t *testing.T) {
 	h := handler.NewAccountHandler(&accountFullStub{}, &stubBankAccountClient{}, nil, nil)

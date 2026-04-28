@@ -35,6 +35,8 @@ func creditRouter(h *handler.CreditHandler) *gin.Engine {
 	r.PUT("/loans/requests/:id/reject", withEmployee, h.RejectLoanRequest)
 	r.GET("/loans/:id", withEmployee, h.GetLoan)
 	r.GET("/loans/client/:client_id", withEmployee, h.ListLoansByClient)
+	// Phase B: path-scoped /clients/:id/loans replaces /loans?client_id=X
+	r.GET("/api/v3/clients/:id/loans", withEmployee, h.ListLoansByClientPath)
 	r.GET("/loans", withEmployee, h.ListAllLoans)
 	r.GET("/loans/:id/installments", withEmployee, h.GetInstallmentsByLoan)
 	r.GET("/loans/requests/client/:client_id", withEmployee, h.ListLoanRequestsByClient)
@@ -249,19 +251,27 @@ func TestCredit_ListAllLoans_Default(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestCredit_ListAllLoans_FilterByClient(t *testing.T) {
-	h := handler.NewCreditHandler(&stubCreditClient{})
+// Phase B: /loans?client_id=X dispatch removed — see /clients/:id/loans.
+
+func TestCredit_ListLoansByClientPath_Success(t *testing.T) {
+	cc := &stubCreditClient{
+		listLoansByClientFn: func(req *creditpb.ListLoansByClientReq) (*creditpb.ListLoansResponse, error) {
+			require.Equal(t, uint64(7), req.ClientId)
+			return &creditpb.ListLoansResponse{Total: 0}, nil
+		},
+	}
+	h := handler.NewCreditHandler(cc)
 	r := creditRouter(h)
-	req := httptest.NewRequest("GET", "/loans?client_id=1", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/7/loans", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestCredit_ListAllLoans_BadClientID(t *testing.T) {
+func TestCredit_ListLoansByClientPath_BadID(t *testing.T) {
 	h := handler.NewCreditHandler(&stubCreditClient{})
 	r := creditRouter(h)
-	req := httptest.NewRequest("GET", "/loans?client_id=abc", nil)
+	req := httptest.NewRequest("GET", "/api/v3/clients/abc/loans", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
