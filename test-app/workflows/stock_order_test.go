@@ -230,7 +230,7 @@ func TestOrder_CancelOrder(t *testing.T) {
 		"direction":   "buy",
 		"order_type":  "limit",
 		"quantity":    1,
-		"limit_value": 1.00,
+		"limit_value": "1.00",
 		"all_or_none": false,
 		"margin":      false,
 		"account_id":  acctID,

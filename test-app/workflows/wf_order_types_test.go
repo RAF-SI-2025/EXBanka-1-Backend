@@ -30,7 +30,7 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 		"direction":   "buy",
 		"order_type":  "limit",
 		"quantity":    1,
-		"limit_value": 0.01,
+		"limit_value": "0.01",
 		"all_or_none": false,
 		"margin":      false,
 	})

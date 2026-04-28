@@ -44,7 +44,7 @@ func TestWF_StockBuy_CancelReleasesReservation(t *testing.T) {
 		"direction":   "buy",
 		"order_type":  "limit",
 		"quantity":    10,
-		"limit_value": 0.01,
+		"limit_value": "0.01",
 		"all_or_none": false,
 		"margin":      false,
 		"account_id":  accountID,
