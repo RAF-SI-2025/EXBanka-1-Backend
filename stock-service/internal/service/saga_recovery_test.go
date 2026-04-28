@@ -235,6 +235,9 @@ func (s *fakeRecoveryAccountStub) CommitIncoming(context.Context, *accountpb.Com
 func (s *fakeRecoveryAccountStub) ReleaseIncoming(context.Context, *accountpb.ReleaseIncomingRequest, ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 	return nil, nil
 }
+func (s *fakeRecoveryAccountStub) ListChangelog(context.Context, *accountpb.ListChangelogRequest, ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
+	return nil, nil
+}
 
 // ---------------------------------------------------------------------------
 // Helpers

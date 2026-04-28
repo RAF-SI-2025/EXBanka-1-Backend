@@ -240,6 +240,10 @@ func (m *mockClientClient) UpdateClient(ctx context.Context, in *clientpb.Update
 	return nil, errors.New("not implemented")
 }
 
+func (m *mockClientClient) ListChangelog(ctx context.Context, in *clientpb.ListChangelogRequest, opts ...grpc.CallOption) (*clientpb.ListChangelogResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 var _ clientpb.ClientServiceClient = (*mockClientClient)(nil)
 
 // ---------------------------------------------------------------------------

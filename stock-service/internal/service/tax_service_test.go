@@ -426,6 +426,9 @@ func (m *mockTaxAccountClient) CommitIncoming(context.Context, *accountpb.Commit
 func (m *mockTaxAccountClient) ReleaseIncoming(context.Context, *accountpb.ReleaseIncomingRequest, ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 	return nil, nil
 }
+func (m *mockTaxAccountClient) ListChangelog(context.Context, *accountpb.ListChangelogRequest, ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
+	return nil, nil
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build TaxService with mocks

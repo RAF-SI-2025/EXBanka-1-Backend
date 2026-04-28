@@ -534,6 +534,9 @@ func (s *stubClientClient) UpdateClient(_ context.Context, in *clientpb.UpdateCl
 	}
 	return &clientpb.ClientResponse{Id: in.Id}, nil
 }
+func (s *stubClientClient) ListChangelog(_ context.Context, _ *clientpb.ListChangelogRequest, _ ...grpc.CallOption) (*clientpb.ListChangelogResponse, error) {
+	return &clientpb.ListChangelogResponse{}, nil
+}
 
 // ---------------------------------------------------------------------------
 // ClientLimitServiceClient
@@ -622,6 +625,9 @@ func (s *stubCardClient) CreateAuthorizedPerson(_ context.Context, in *cardpb.Cr
 }
 func (s *stubCardClient) GetAuthorizedPerson(_ context.Context, _ *cardpb.GetAuthorizedPersonRequest, _ ...grpc.CallOption) (*cardpb.AuthorizedPersonResponse, error) {
 	return &cardpb.AuthorizedPersonResponse{}, nil
+}
+func (s *stubCardClient) ListChangelog(_ context.Context, _ *cardpb.ListChangelogRequest, _ ...grpc.CallOption) (*cardpb.ListChangelogResponse, error) {
+	return &cardpb.ListChangelogResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -842,6 +848,9 @@ func (s *stubCreditClient) ApplyVariableRateUpdate(_ context.Context, in *credit
 		return s.applyVarRateFn(in)
 	}
 	return &creditpb.ApplyVariableRateUpdateResponse{}, nil
+}
+func (s *stubCreditClient) ListChangelog(_ context.Context, _ *creditpb.ListChangelogRequest, _ ...grpc.CallOption) (*creditpb.ListChangelogResponse, error) {
+	return &creditpb.ListChangelogResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1232,6 +1241,9 @@ func (s *stubTaxClient) ListUserTaxRecords(_ context.Context, in *stockpb.ListUs
 // the field on stubUserClient.
 func (s *stubUserClient) ListEmployeeFullNames(_ context.Context, _ *userpb.ListEmployeeFullNamesRequest, _ ...grpc.CallOption) (*userpb.ListEmployeeFullNamesResponse, error) {
 	return &userpb.ListEmployeeFullNamesResponse{}, nil
+}
+func (s *stubUserClient) ListChangelog(_ context.Context, _ *userpb.ListChangelogRequest, _ ...grpc.CallOption) (*userpb.ListChangelogResponse, error) {
+	return &userpb.ListChangelogResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------

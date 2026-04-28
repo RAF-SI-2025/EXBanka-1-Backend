@@ -94,6 +94,9 @@ func (s *stubAccountClient) CommitIncoming(ctx context.Context, in *accountpb.Co
 func (s *stubAccountClient) ReleaseIncoming(ctx context.Context, in *accountpb.ReleaseIncomingRequest, opts ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 	return nil, nil
 }
+func (s *stubAccountClient) ListChangelog(ctx context.Context, in *accountpb.ListChangelogRequest, opts ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
+	return nil, nil
+}
 
 // --- helper ---
 

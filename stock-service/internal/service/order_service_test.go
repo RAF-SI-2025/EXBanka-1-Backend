@@ -437,6 +437,9 @@ func (m *mockStubAccountClient) CommitIncoming(context.Context, *accountpb.Commi
 func (m *mockStubAccountClient) ReleaseIncoming(context.Context, *accountpb.ReleaseIncomingRequest, ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 	return nil, nil
 }
+func (m *mockStubAccountClient) ListChangelog(context.Context, *accountpb.ListChangelogRequest, ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
+	return nil, nil
+}
 
 // fakeAccountClient implements AccountClientAPI (the narrow interface
 // OrderService depends on).

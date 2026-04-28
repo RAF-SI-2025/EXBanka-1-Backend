@@ -97,6 +97,9 @@ func (m *mockAccountClientForLoan) CommitIncoming(_ context.Context, _ *accountp
 func (m *mockAccountClientForLoan) ReleaseIncoming(_ context.Context, _ *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClientForLoan) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
+	return nil, nil
+}
 
 // ---- mockBankAccountClientForLoan -------------------------------------------
 

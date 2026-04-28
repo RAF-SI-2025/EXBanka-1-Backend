@@ -91,6 +91,9 @@ func (m *mockAccountClientForRequest) CommitIncoming(_ context.Context, _ *accou
 func (m *mockAccountClientForRequest) ReleaseIncoming(_ context.Context, _ *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
 	return nil, nil
 }
+func (m *mockAccountClientForRequest) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
+	return nil, nil
+}
 
 // --- helpers ------------------------------------------------------------------
 
