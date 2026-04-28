@@ -14,6 +14,7 @@ import (
 
 	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
+	shared "github.com/exbanka/contract/shared"
 )
 
 // ReservationService owns the reserve / release / partial-settle lifecycle of
@@ -120,8 +121,17 @@ func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountI
 		}
 		acc.ReservedBalance = acc.ReservedBalance.Add(amount)
 		acc.AvailableBalance = acc.AvailableBalance.Sub(amount)
-		if err := tx.Save(&acc).Error; err != nil {
-			return err
+		// Account has Version field + BeforeUpdate hook adding WHERE
+		// version=?. Without RowsAffected check an optimistic-lock
+		// conflict here silently leaves balances unchanged while the
+		// AccountReservation row is still inserted — the bug behind
+		// "reserved did not rise on placement" in the integration tests.
+		saveRes := tx.Save(&acc)
+		if saveRes.Error != nil {
+			return saveRes.Error
+		}
+		if saveRes.RowsAffected == 0 {
+			return shared.ErrOptimisticLock
 		}
 		out = &ReserveFundsResult{
 			ReservationID:    res.ID,
@@ -174,8 +184,12 @@ func (s *ReservationService) ReleaseReservation(ctx context.Context, orderID uin
 			acc.ReservedBalance = decimal.Zero
 		}
 		acc.AvailableBalance = acc.AvailableBalance.Add(remaining)
-		if err := tx.Save(&acc).Error; err != nil {
-			return err
+		saveRes := tx.Save(&acc)
+		if saveRes.Error != nil {
+			return saveRes.Error
+		}
+		if saveRes.RowsAffected == 0 {
+			return shared.ErrOptimisticLock
 		}
 
 		res.Status = model.ReservationStatusReleased
@@ -264,8 +278,12 @@ func (s *ReservationService) PartialSettleReservation(ctx context.Context, order
 			acc.ReservedBalance = decimal.Zero
 		}
 		acc.Balance = acc.Balance.Sub(amount)
-		if err := tx.Save(&acc).Error; err != nil {
-			return err
+		saveRes := tx.Save(&acc)
+		if saveRes.Error != nil {
+			return saveRes.Error
+		}
+		if saveRes.RowsAffected == 0 {
+			return shared.ErrOptimisticLock
 		}
 
 		// Write a ledger entry matching the shape produced by DebitWithLock

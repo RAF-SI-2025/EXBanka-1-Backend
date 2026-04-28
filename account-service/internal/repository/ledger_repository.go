@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/account-service/internal/model"
+	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/saga"
 )
 
@@ -77,8 +78,12 @@ func (r *LedgerRepository) DebitWithLock(ctx context.Context, tx *gorm.DB, accou
 		acct.DailySpending = acct.DailySpending.Add(amount)
 		acct.MonthlySpending = acct.MonthlySpending.Add(amount)
 	}
-	if err := tx.Save(&acct).Error; err != nil {
-		return nil, err
+	saveRes := tx.Save(&acct)
+	if saveRes.Error != nil {
+		return nil, saveRes.Error
+	}
+	if saveRes.RowsAffected == 0 {
+		return nil, shared.ErrOptimisticLock
 	}
 	entry := &model.LedgerEntry{
 		AccountNumber: accountNumber,
@@ -107,8 +112,12 @@ func (r *LedgerRepository) CreditWithLock(ctx context.Context, tx *gorm.DB, acco
 	before := acct.Balance
 	acct.Balance = acct.Balance.Add(amount)
 	acct.AvailableBalance = acct.AvailableBalance.Add(amount)
-	if err := tx.Save(&acct).Error; err != nil {
-		return nil, err
+	saveRes := tx.Save(&acct)
+	if saveRes.Error != nil {
+		return nil, saveRes.Error
+	}
+	if saveRes.RowsAffected == 0 {
+		return nil, shared.ErrOptimisticLock
 	}
 	entry := &model.LedgerEntry{
 		AccountNumber: accountNumber,

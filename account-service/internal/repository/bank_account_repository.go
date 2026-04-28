@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/exbanka/account-service/internal/model"
+	shared "github.com/exbanka/contract/shared"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -98,8 +99,12 @@ func (r *BankAccountRepository) applyBankOp(ctx context.Context, currency string
 			return fmt.Errorf("unknown direction %q", direction)
 		}
 
-		if saveErr := tx.Save(&acct).Error; saveErr != nil {
-			return fmt.Errorf("save bank sentinel: %w", saveErr)
+		saveRes := tx.Save(&acct)
+		if saveRes.Error != nil {
+			return fmt.Errorf("save bank sentinel: %w", saveRes.Error)
+		}
+		if saveRes.RowsAffected == 0 {
+			return fmt.Errorf("save bank sentinel: %w", shared.ErrOptimisticLock)
 		}
 
 		op := model.BankOperation{
