@@ -28,6 +28,19 @@ func scopeOwner(q *gorm.DB, ownerTypeCol, ownerIDCol string, ownerType model.Own
 // passthrough without an explicit mapping table.
 var ErrOptimisticLock = svcerr.New(codes.Aborted, "optimistic lock conflict: record was modified by another transaction")
 
+// CheckRowsAffected returns ErrOptimisticLock when the result has no error but
+// zero rows were affected, indicating a concurrent update won the optimistic-
+// lock race. It is the repository-layer mirror of shared.CheckRowsAffected.
+func CheckRowsAffected(result *gorm.DB) error {
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("%w: row was modified by another transaction", ErrOptimisticLock)
+	}
+	return nil
+}
+
 var allowedSortColumns = map[string]string{
 	"price":  "price",
 	"volume": "volume",

@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -132,7 +133,7 @@ func (s *HoldingReservationService) Reserve(
 			return nil
 		}
 		holding.ReservedQuantity += qty
-		if err := tx.Save(&holding).Error; err != nil {
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
 			return err
 		}
 		out = &ReserveHoldingResult{
@@ -185,7 +186,7 @@ func (s *HoldingReservationService) Release(ctx context.Context, orderID uint64)
 		if holding.ReservedQuantity < 0 {
 			holding.ReservedQuantity = 0
 		}
-		if err := tx.Save(&holding).Error; err != nil {
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
 			return err
 		}
 
@@ -275,7 +276,7 @@ func (s *HoldingReservationService) PartialSettle(
 			holding.ReservedQuantity = 0
 		}
 		holding.Quantity -= qty
-		if err := tx.Save(&holding).Error; err != nil {
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
 			return err
 		}
 
@@ -363,7 +364,7 @@ func (s *HoldingReservationService) ReserveForOTCContract(
 			return nil
 		}
 		holding.ReservedQuantity += qty
-		if err := tx.Save(&holding).Error; err != nil {
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
 			return err
 		}
 		out = &ReserveHoldingResult{
@@ -412,7 +413,7 @@ func (s *HoldingReservationService) ReleaseForOTCContract(ctx context.Context, o
 		if holding.ReservedQuantity < 0 {
 			holding.ReservedQuantity = 0
 		}
-		if err := tx.Save(&holding).Error; err != nil {
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
 			return err
 		}
 		res.Status = model.HoldingReservationStatusReleased
@@ -493,7 +494,7 @@ func (s *HoldingReservationService) ConsumeForOTCContract(
 			holding.ReservedQuantity = 0
 		}
 		holding.Quantity -= qty
-		if err := tx.Save(&holding).Error; err != nil {
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
 			return err
 		}
 		if settled+qty == res.Quantity {

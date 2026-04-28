@@ -70,7 +70,7 @@ func (r *FuturesRepository) UpsertByTicker(f *model.FuturesContract) error {
 		existing.Change = f.Change
 		existing.Volume = f.Volume
 		existing.LastRefresh = f.LastRefresh
-		return tx.Save(&existing).Error
+		return CheckRowsAffected(tx.Save(&existing))
 	})
 }
 

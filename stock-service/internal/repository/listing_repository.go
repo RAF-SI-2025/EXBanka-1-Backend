@@ -95,7 +95,10 @@ func (r *ListingRepository) UpsertBySecurity(listing *model.Listing) error {
 		existing.Change = listing.Change
 		existing.Volume = listing.Volume
 		existing.LastRefresh = listing.LastRefresh
-		return tx.Save(&existing).Error
+		if err := CheckRowsAffected(tx.Save(&existing)); err != nil {
+			return err
+		}
+		return nil
 	})
 }
 
@@ -120,7 +123,7 @@ func (r *ListingRepository) UpsertForOption(listing *model.Listing) (*model.List
 		existing.ExchangeID = listing.ExchangeID
 		existing.Price = listing.Price
 		existing.LastRefresh = listing.LastRefresh
-		if saveErr := tx.Save(&existing).Error; saveErr != nil {
+		if saveErr := CheckRowsAffected(tx.Save(&existing)); saveErr != nil {
 			return saveErr
 		}
 		result = existing

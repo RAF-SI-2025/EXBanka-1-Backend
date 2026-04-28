@@ -88,7 +88,7 @@ func (r *FundRepository) ReassignManager(from, to int64) ([]uint64, error) {
 		}
 		for i := range rows {
 			rows[i].ManagerEmployeeID = to
-			if err := tx.Save(&rows[i]).Error; err != nil {
+			if err := CheckRowsAffected(tx.Save(&rows[i])); err != nil {
 				return err
 			}
 			ids = append(ids, rows[i].ID)

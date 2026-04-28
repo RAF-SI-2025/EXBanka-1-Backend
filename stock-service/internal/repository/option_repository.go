@@ -66,7 +66,7 @@ func (r *OptionRepository) UpsertByTicker(o *model.Option) error {
 		existing.Premium = o.Premium
 		existing.OpenInterest = o.OpenInterest
 		existing.SettlementDate = o.SettlementDate
-		if saveErr := tx.Save(&existing).Error; saveErr != nil {
+		if saveErr := CheckRowsAffected(tx.Save(&existing)); saveErr != nil {
 			return saveErr
 		}
 		// Reflect the persisted identity back onto the caller's struct so

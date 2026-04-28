@@ -79,7 +79,7 @@ func (r *StockRepository) UpsertByTicker(stock *model.Stock) error {
 		existing.Change = stock.Change
 		existing.Volume = stock.Volume
 		existing.LastRefresh = stock.LastRefresh
-		return tx.Save(&existing).Error
+		return CheckRowsAffected(tx.Save(&existing))
 	})
 }
 

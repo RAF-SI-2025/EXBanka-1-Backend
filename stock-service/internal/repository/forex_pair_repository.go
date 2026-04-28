@@ -70,7 +70,7 @@ func (r *ForexPairRepository) UpsertByTicker(fp *model.ForexPair) error {
 		existing.Change = fp.Change
 		existing.Volume = fp.Volume
 		existing.LastRefresh = fp.LastRefresh
-		return tx.Save(&existing).Error
+		return CheckRowsAffected(tx.Save(&existing))
 	})
 }
 
