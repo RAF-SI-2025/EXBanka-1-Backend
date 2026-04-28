@@ -18,7 +18,7 @@ func TestEmployeeOnBehalf_CreateOrder(t *testing.T) {
 	clientID, _, clientC, _ := setupActivatedClient(t, adminC)
 
 	// Look up the client's account ID.
-	acctsResp, err := adminC.GET("/api/v3/accounts?client_id=" + strconv.Itoa(clientID))
+	acctsResp, err := adminC.GET("/api/v3/clients/" + strconv.Itoa(clientID) + "/accounts")
 	if err != nil {
 		t.Fatalf("list accounts: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestEmployeeOnBehalf_AccountNotOwnedByClient_Returns403(t *testing.T) {
 	bobID, _, _, _ := setupActivatedClient(t, adminC)
 
 	// Look up Bob's account ID.
-	acctsResp, err := adminC.GET("/api/v3/accounts?client_id=" + strconv.Itoa(bobID))
+	acctsResp, err := adminC.GET("/api/v3/clients/" + strconv.Itoa(bobID) + "/accounts")
 	if err != nil {
 		t.Fatalf("list accounts: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestEmployeeOnBehalf_AsBasic_Forbidden(t *testing.T) {
 	_, basicC, _ := setupBasicEmployee(t, adminC)
 	clientID, _, _, _ := setupActivatedClient(t, adminC)
 
-	acctsResp, err := adminC.GET("/api/v3/accounts?client_id=" + strconv.Itoa(clientID))
+	acctsResp, err := adminC.GET("/api/v3/clients/" + strconv.Itoa(clientID) + "/accounts")
 	if err != nil {
 		t.Fatalf("list accounts: %v", err)
 	}

@@ -300,12 +300,12 @@ func TestOrder_ApproveOrder_RequiresSupervisor(t *testing.T) {
 	helpers.RequireStatus(t, resp, 403)
 }
 
-func TestOrder_DeclineOrder_RequiresSupervisor(t *testing.T) {
+func TestOrder_RejectOrder_RequiresSupervisor(t *testing.T) {
 	t.Parallel()
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/v3/orders/1/decline", nil)
+	resp, err := agentC.POST("/api/v3/orders/1/reject", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

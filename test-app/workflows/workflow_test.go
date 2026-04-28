@@ -110,7 +110,20 @@ func TestWorkflow_FullBankingOnboarding(t *testing.T) {
 	t.Logf("WF-Onboard: card request approved")
 
 	// Step 7: Verify a card now exists for the account
-	cardsResp, err := adminClient.GET(fmt.Sprintf("/api/v3/cards?account_number=%s", accountNumber))
+	// Resolve account number → ID, then list cards by account ID.
+	acctLookupR, err := adminClient.GET("/api/v3/accounts?account_number=" + accountNumber)
+	if err != nil {
+		t.Fatalf("WF-Onboard: lookup account by number: %v", err)
+	}
+	helpers.RequireStatus(t, acctLookupR, 200)
+	acctListR, _ := acctLookupR.Body["accounts"].([]interface{})
+	if len(acctListR) == 0 {
+		t.Fatalf("WF-Onboard: no account found for number %s", accountNumber)
+	}
+	acctMapR, _ := acctListR[0].(map[string]interface{})
+	acctIDR := int(acctMapR["id"].(float64))
+
+	cardsResp, err := adminClient.GET(fmt.Sprintf("/api/v3/accounts/%d/cards", acctIDR))
 	if err != nil {
 		t.Fatalf("WF-Onboard: list cards by account: %v", err)
 	}
@@ -481,7 +494,7 @@ func TestWorkflow_FullLoanLifecycle(t *testing.T) {
 		t.Fatalf("WF-Loan: client list loans: %v", err)
 	}
 	if clientLoansResp.StatusCode == 404 || clientLoansResp.StatusCode == 405 || clientLoansResp.StatusCode == 403 || clientLoansResp.StatusCode == 400 {
-		clientLoansResp, err = adminClient.GET(fmt.Sprintf("/api/v3/loans?client_id=%d", meClientID))
+		clientLoansResp, err = adminClient.GET(fmt.Sprintf("/api/v3/clients/%d/loans", meClientID))
 		if err != nil {
 			t.Fatalf("WF-Loan: fallback list loans: %v", err)
 		}

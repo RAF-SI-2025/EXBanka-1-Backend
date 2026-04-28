@@ -197,7 +197,20 @@ func TestCard_ListByAccount(t *testing.T) {
 		t.Fatalf("error: %v", err)
 	}
 
-	resp, err := c.GET(fmt.Sprintf("/api/v3/cards?account_number=%s", acctNum))
+	// account_number → account ID lookup required before scoped cards endpoint
+	acctResp, err := c.GET("/api/v3/accounts?account_number=" + acctNum)
+	if err != nil {
+		t.Fatalf("error looking up account by number: %v", err)
+	}
+	helpers.RequireStatus(t, acctResp, 200)
+	accts, ok := acctResp.Body["accounts"].([]interface{})
+	if !ok || len(accts) == 0 {
+		t.Fatalf("TestCard_ListByAccountNumber: no account found for number %s", acctNum)
+	}
+	acctMap, _ := accts[0].(map[string]interface{})
+	acctID := int(acctMap["id"].(float64))
+
+	resp, err := c.GET(fmt.Sprintf("/api/v3/accounts/%d/cards", acctID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

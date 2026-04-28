@@ -26,7 +26,7 @@ func TestOptionsV2_CreateOrder_EndToEnd(t *testing.T) {
 	admin := loginAsAdmin(t)
 
 	// Switch to generated so we have seeded options with listing_ids.
-	switchResp, err := admin.POST("/api/v3/admin/stock-source", map[string]string{"source": "generated"})
+	switchResp, err := admin.POST("/api/v3/stock-sources", map[string]string{"source": "generated"})
 	if err != nil {
 		t.Fatalf("switch to generated: %v", err)
 	}
@@ -34,13 +34,13 @@ func TestOptionsV2_CreateOrder_EndToEnd(t *testing.T) {
 
 	// Cleanup: restore external at test end.
 	t.Cleanup(func() {
-		_, _ = admin.POST("/api/v3/admin/stock-source", map[string]string{"source": "external"})
+		_, _ = admin.POST("/api/v3/stock-sources", map[string]string{"source": "external"})
 	})
 
 	// Poll for idle — the generated source switch is synchronous but we poll for safety.
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		statusResp, err := admin.GET("/api/v3/admin/stock-source")
+		statusResp, err := admin.GET("/api/v3/stock-sources/active")
 		if err != nil {
 			time.Sleep(300 * time.Millisecond)
 			continue

@@ -11,8 +11,8 @@ import (
 
 // TestStockSource_SwitchToGenerated exercises the admin stock-source switch flow:
 //
-//	POST /api/v3/admin/stock-source {"source":"generated"} →
-//	poll GET /api/v3/admin/stock-source until status=idle →
+//	POST /api/v3/stock-sources {"source":"generated"} →
+//	poll GET /api/v3/stock-sources/active until status=idle →
 //	verify 20 generated stocks including AAPL →
 //	verify options exist for the first stock.
 //
@@ -25,7 +25,7 @@ func TestStockSource_SwitchToGenerated(t *testing.T) {
 
 	// Restore source to "external" when the test finishes so later tests see live data.
 	t.Cleanup(func() {
-		restoreResp, err := adminC.POST("/api/v3/admin/stock-source", map[string]string{
+		restoreResp, err := adminC.POST("/api/v3/stock-sources", map[string]string{
 			"source": "external",
 		})
 		if err != nil {
@@ -38,11 +38,11 @@ func TestStockSource_SwitchToGenerated(t *testing.T) {
 	})
 
 	// Switch to generated source.
-	switchResp, err := adminC.POST("/api/v3/admin/stock-source", map[string]string{
+	switchResp, err := adminC.POST("/api/v3/stock-sources", map[string]string{
 		"source": "generated",
 	})
 	if err != nil {
-		t.Fatalf("POST /api/v3/admin/stock-source: %v", err)
+		t.Fatalf("POST /api/v3/stock-sources: %v", err)
 	}
 	helpers.RequireStatus(t, switchResp, 202)
 
@@ -50,9 +50,9 @@ func TestStockSource_SwitchToGenerated(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	finalStatus := ""
 	for time.Now().Before(deadline) {
-		statusResp, err := adminC.GET("/api/v3/admin/stock-source")
+		statusResp, err := adminC.GET("/api/v3/stock-sources/active")
 		if err != nil {
-			t.Fatalf("GET /api/v3/admin/stock-source: %v", err)
+			t.Fatalf("GET /api/v3/stock-sources/active: %v", err)
 		}
 		helpers.RequireStatus(t, statusResp, 200)
 		if s, ok := statusResp.Body["status"].(string); ok && s == "idle" {

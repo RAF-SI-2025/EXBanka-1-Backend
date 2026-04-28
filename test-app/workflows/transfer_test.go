@@ -43,7 +43,7 @@ func TestTransfer_ListByClient(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.GET(fmt.Sprintf("/api/v3/transfers?client_id=%d", clientID))
+	resp, err := c.GET(fmt.Sprintf("/api/v3/clients/%d/transfers", clientID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

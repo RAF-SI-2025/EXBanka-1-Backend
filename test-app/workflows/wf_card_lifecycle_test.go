@@ -43,8 +43,20 @@ func TestWF_CardFullLifecycle(t *testing.T) {
 	helpers.RequireStatus(t, approveResp, 200)
 	t.Logf("WF-3: card request approved")
 
-	// Step 4: List client's cards to get the card ID
-	cardsResp, err := adminC.GET(fmt.Sprintf("/api/v3/cards?account_number=%s", accountNum))
+	// Step 4: Resolve account number → ID, then list client's cards to get the card ID.
+	acctLookup, err := adminC.GET("/api/v3/accounts?account_number=" + accountNum)
+	if err != nil {
+		t.Fatalf("WF-3: lookup account by number: %v", err)
+	}
+	helpers.RequireStatus(t, acctLookup, 200)
+	acctList, ok2 := acctLookup.Body["accounts"].([]interface{})
+	if !ok2 || len(acctList) == 0 {
+		t.Fatalf("WF-3: no account found for number %s", accountNum)
+	}
+	acctMap, _ := acctList[0].(map[string]interface{})
+	acctID := int(acctMap["id"].(float64))
+
+	cardsResp, err := adminC.GET(fmt.Sprintf("/api/v3/accounts/%d/cards", acctID))
 	if err != nil {
 		t.Fatalf("WF-3: list cards: %v", err)
 	}

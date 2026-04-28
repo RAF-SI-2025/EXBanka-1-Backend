@@ -148,19 +148,15 @@ func TestAccount_UpdateStatus(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	acctID := helpers.GetNumberField(t, createResp, "id")
 
-	// Deactivate
-	resp, err := c.PUT(fmt.Sprintf("/api/v3/accounts/%d/status", int(acctID)), map[string]interface{}{
-		"status": "inactive",
-	})
+	// Deactivate (POST /accounts/:id/deactivate — no body required)
+	resp, err := c.POST(fmt.Sprintf("/api/v3/accounts/%d/deactivate", int(acctID)), nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 200)
 
-	// Reactivate
-	resp, err = c.PUT(fmt.Sprintf("/api/v3/accounts/%d/status", int(acctID)), map[string]interface{}{
-		"status": "active",
-	})
+	// Reactivate (POST /accounts/:id/activate — no body required)
+	resp, err = c.POST(fmt.Sprintf("/api/v3/accounts/%d/activate", int(acctID)), nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -302,12 +298,20 @@ func TestAccount_GetByAccountNumber(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	acctNum := helpers.GetStringField(t, createResp, "account_number")
 
-	resp, err := c.GET("/api/v3/accounts/by-number/" + acctNum)
+	// Use ?account_number query param (the /by-number/:account_number path was removed in v3
+	// route standardization). The response is an array envelope; unwrap accounts[0].
+	resp, err := c.GET("/api/v3/accounts?account_number=" + acctNum)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 200)
-	helpers.RequireField(t, resp, "account_number")
+	accts, ok := resp.Body["accounts"].([]interface{})
+	if !ok || len(accts) == 0 {
+		t.Fatalf("TestAccount_GetByAccountNumber: expected accounts array with 1 item, got: %v", resp.Body)
+	}
+	if _, ok := accts[0].(map[string]interface{}); !ok {
+		t.Fatalf("TestAccount_GetByAccountNumber: accounts[0] has unexpected shape: %T", accts[0])
+	}
 }
 
 func TestAccount_MissingRequiredFields(t *testing.T) {
@@ -345,17 +349,16 @@ func TestAccount_InvalidCurrencyCode(t *testing.T) {
 	}
 }
 
-func TestAccount_UpdateStatusInvalidValue(t *testing.T) {
+func TestAccount_DeactivateNonExistent(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.PUT("/api/v3/accounts/1/status", map[string]interface{}{
-		"status": "suspended", // invalid
-	})
+	// Account ID 999999999 is extremely unlikely to exist.
+	resp, err := c.POST("/api/v3/accounts/999999999/deactivate", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 	if resp.StatusCode == 200 {
-		t.Fatal("expected failure with invalid status value")
+		t.Fatal("expected non-200 for non-existent account")
 	}
 }
 

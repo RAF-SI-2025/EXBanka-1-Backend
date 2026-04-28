@@ -77,15 +77,14 @@ func TestActuary_ResetLimit(t *testing.T) {
 	helpers.RequireStatus(t, resp, 200)
 }
 
-func TestActuary_SetNeedApproval(t *testing.T) {
+func TestActuary_RequireApproval(t *testing.T) {
 	t.Parallel()
 	adminC := loginAsAdmin(t)
 	agentID, _, _ := setupAgentEmployee(t, adminC)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
-	resp, err := supervisorC.PUT(fmt.Sprintf("/api/v3/actuaries/%d/approval", agentID), map[string]interface{}{
-		"need_approval": true,
-	})
+	// POST /actuaries/:id/require-approval — no request body.
+	resp, err := supervisorC.POST(fmt.Sprintf("/api/v3/actuaries/%d/require-approval", agentID), nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

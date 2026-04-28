@@ -99,7 +99,7 @@ func TestLoan_ListLoansByClient(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.GET(fmt.Sprintf("/api/v3/loans?client_id=%d", clientID))
+	resp, err := c.GET(fmt.Sprintf("/api/v3/clients/%d/loans", clientID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestLoan_FullLifecycle(t *testing.T) {
 	}
 	// Fall back to admin endpoint if /me/loans is not available
 	if clientLoansResp.StatusCode == 404 || clientLoansResp.StatusCode == 405 || clientLoansResp.StatusCode == 403 || clientLoansResp.StatusCode == 400 {
-		clientLoansResp, err = adminClient.GET(fmt.Sprintf("/api/v3/loans?client_id=%d", meClientID))
+		clientLoansResp, err = adminClient.GET(fmt.Sprintf("/api/v3/clients/%d/loans", meClientID))
 		if err != nil {
 			t.Fatalf("list client loans error: %v", err)
 		}

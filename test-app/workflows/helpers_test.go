@@ -92,17 +92,26 @@ func pollPendingUntilFound(t *testing.T, mobileC *client.MobileAPIClient, challe
 }
 
 // getAccountBalance fetches the available_balance for a single account by account number.
-// Uses GET /api/accounts/by-number/:account_number (anyAuth — employee or client token).
-// The balance field is returned as a JSON string by the account service; this function
-// parses it to float64 for arithmetic comparisons in tests.
+// Uses GET /api/v3/accounts?account_number=X (anyAuth — employee or client token).
+// Returns an array envelope; we unwrap accounts[0]. The balance field is returned as a JSON
+// string by the account service; this function parses it to float64 for arithmetic comparisons.
 func getAccountBalance(t *testing.T, c *client.APIClient, accountNumber string) float64 {
 	t.Helper()
-	resp, err := c.GET("/api/v3/accounts/by-number/" + accountNumber)
+	resp, err := c.GET("/api/v3/accounts?account_number=" + accountNumber)
 	if err != nil {
-		t.Fatalf("getAccountBalance: GET /api/accounts/by-number/%s: %v", accountNumber, err)
+		t.Fatalf("getAccountBalance: GET /api/v3/accounts?account_number=%s: %v", accountNumber, err)
 	}
 	helpers.RequireStatus(t, resp, 200)
-	return parseJSONBalance(t, resp.Body, "available_balance")
+	// Response is { "accounts": [...], "total": N } — unwrap accounts[0].
+	accts, ok := resp.Body["accounts"].([]interface{})
+	if !ok || len(accts) == 0 {
+		t.Fatalf("getAccountBalance: no account found for number %s. Body: %v", accountNumber, resp.Body)
+	}
+	m, ok := accts[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("getAccountBalance: unexpected shape for accounts[0]: %T", accts[0])
+	}
+	return parseJSONBalance(t, m, "available_balance")
 }
 
 // getBankRSDAccount returns the account number and available balance of the first

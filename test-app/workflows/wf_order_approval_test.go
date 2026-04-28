@@ -10,10 +10,10 @@ import (
 	"github.com/exbanka/test-app/internal/helpers"
 )
 
-// TestWF_OrderApprovalWorkflow exercises the supervisor approval/decline flow:
+// TestWF_OrderApprovalWorkflow exercises the supervisor approval/reject flow:
 //
 //	agent places buy order → supervisor approves → order fills → agent has holding →
-//	agent places another order → supervisor declines → order is declined, no new holding.
+//	agent places another order → supervisor rejects → order is rejected, no new holding.
 func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	adminC := loginAsAdmin(t)
 
@@ -93,16 +93,16 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	orderID2 := int(helpers.GetNumberField(t, buyResp2, "id"))
 	t.Logf("WF-8: agent order #2 created id=%d", orderID2)
 
-	// Step 6: Supervisor declines this order
-	declineResp, err := supervisorC.POST(fmt.Sprintf("/api/v3/orders/%d/decline", orderID2), nil)
+	// Step 6: Supervisor rejects this order
+	declineResp, err := supervisorC.POST(fmt.Sprintf("/api/v3/orders/%d/reject", orderID2), nil)
 	if err != nil {
-		t.Fatalf("WF-8: supervisor decline order: %v", err)
+		t.Fatalf("WF-8: supervisor reject order: %v", err)
 	}
-	// Accept 200 (declined) or 409 (already processed)
+	// Accept 200 (rejected) or 409 (already processed)
 	if declineResp.StatusCode != 200 && declineResp.StatusCode != 409 {
-		t.Fatalf("WF-8: expected 200 or 409 on decline, got %d", declineResp.StatusCode)
+		t.Fatalf("WF-8: expected 200 or 409 on reject, got %d", declineResp.StatusCode)
 	}
-	t.Logf("WF-8: supervisor decline response status=%d", declineResp.StatusCode)
+	t.Logf("WF-8: supervisor reject response status=%d", declineResp.StatusCode)
 
 	// Verify order #2 status is declined (or similar terminal state)
 	order2Check, err := agentC.GET(fmt.Sprintf("/api/v3/me/orders/%d", orderID2))
@@ -113,11 +113,11 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	status2 := fmt.Sprintf("%v", order2Check.Body["status"])
 	t.Logf("WF-8: order #2 status after decline=%s", status2)
 
-	// The declined order should not have created a new holding beyond what approval gave
+	// The rejected order should not have created a new holding beyond what approval gave
 	portfolio2Resp, err := agentC.GET("/api/v3/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-8: list portfolio after decline: %v", err)
 	}
 	helpers.RequireStatus(t, portfolio2Resp, 200)
-	t.Logf("WF-8: order approval/decline workflow complete")
+	t.Logf("WF-8: order approval/reject workflow complete")
 }
