@@ -55,12 +55,6 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		return nil, errors.New("offer is in a terminal state")
 	}
 
-	// Cross-bank dispatch: if the offer involves a remote bank and a
-	// dispatcher is wired, hand off to the 5-phase distributed saga. Same-
-	// bank offers fall through to the intra-bank flow below.
-	if s.crossbankAccept != nil && s.ownBankCode != "" && model.IsCrossBankOffer(o, s.ownBankCode) {
-		return s.crossbankAccept(ctx, in)
-	}
 	// Self-accept guard: compare on the principal who last modified the offer.
 	// LastModifiedByPrincipal is the audit field carrying the acting user/
 	// employee for both same-bank and on-behalf paths.

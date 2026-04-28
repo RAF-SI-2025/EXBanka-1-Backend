@@ -54,11 +54,6 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		return nil, errors.New("contract is not active")
 	}
 
-	// Cross-bank dispatch: hand off to the 5-phase distributed exercise
-	// saga when buyer/seller live on different banks.
-	if s.crossbankExercise != nil && c.IsCrossBank() {
-		return s.crossbankExercise(ctx, in)
-	}
 	if !c.SettlementDate.After(time.Now().UTC().Truncate(24 * time.Hour)) {
 		return nil, errors.New("contract has expired (settlement_date <= today)")
 	}
