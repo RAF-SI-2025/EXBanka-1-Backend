@@ -22,10 +22,10 @@ func sessionRouter(h *handler.SessionHandler) *gin.Engine {
 		c.Set("principal_id", int64(42))
 		c.Set("email", "user@x.com")
 	}
-	r.GET("/api/v2/me/sessions", withCtx, h.ListMySessions)
-	r.POST("/api/v2/me/sessions/revoke", withCtx, h.RevokeSession)
-	r.POST("/api/v2/me/sessions/revoke-others", withCtx, h.RevokeAllSessions)
-	r.GET("/api/v2/me/login-history", withCtx, h.GetMyLoginHistory)
+	r.GET("/api/v3/me/sessions", withCtx, h.ListMySessions)
+	r.DELETE("/api/v3/me/sessions/:id", withCtx, h.RevokeSession)
+	r.POST("/api/v3/me/sessions/revoke-others", withCtx, h.RevokeAllSessions)
+	r.GET("/api/v3/me/login-history", withCtx, h.GetMyLoginHistory)
 	return r
 }
 
@@ -40,7 +40,7 @@ func TestSession_ListMySessions_Success(t *testing.T) {
 	}
 	h := handler.NewSessionHandler(st)
 	r := sessionRouter(h)
-	req := httptest.NewRequest("GET", "/api/v2/me/sessions", nil)
+	req := httptest.NewRequest("GET", "/api/v3/me/sessions", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -51,11 +51,11 @@ func TestSession_ListMySessions_BadUserContext(t *testing.T) {
 	h := handler.NewSessionHandler(&stubAuthClient{})
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/api/v2/me/sessions", func(c *gin.Context) {
+	r.GET("/api/v3/me/sessions", func(c *gin.Context) {
 		c.Set("principal_id", "not-an-int") // wrong type
 		h.ListMySessions(c)
 	})
-	req := httptest.NewRequest("GET", "/api/v2/me/sessions", nil)
+	req := httptest.NewRequest("GET", "/api/v3/me/sessions", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -69,7 +69,7 @@ func TestSession_ListMySessions_GRPCError(t *testing.T) {
 	}
 	h := handler.NewSessionHandler(st)
 	r := sessionRouter(h)
-	req := httptest.NewRequest("GET", "/api/v2/me/sessions", nil)
+	req := httptest.NewRequest("GET", "/api/v3/me/sessions", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
@@ -85,21 +85,17 @@ func TestSession_RevokeSession_Success(t *testing.T) {
 	}
 	h := handler.NewSessionHandler(st)
 	r := sessionRouter(h)
-	body := `{"session_id":7}`
-	req := httptest.NewRequest("POST", "/api/v2/me/sessions/revoke", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest("DELETE", "/api/v3/me/sessions/7", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "session revoked successfully")
 }
 
-func TestSession_RevokeSession_BadBody(t *testing.T) {
+func TestSession_RevokeSession_BadID(t *testing.T) {
 	h := handler.NewSessionHandler(&stubAuthClient{})
 	r := sessionRouter(h)
-	body := `{}` // session_id required
-	req := httptest.NewRequest("POST", "/api/v2/me/sessions/revoke", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest("DELETE", "/api/v3/me/sessions/abc", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -113,9 +109,7 @@ func TestSession_RevokeSession_NotFound(t *testing.T) {
 	}
 	h := handler.NewSessionHandler(st)
 	r := sessionRouter(h)
-	body := `{"session_id":7}`
-	req := httptest.NewRequest("POST", "/api/v2/me/sessions/revoke", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest("DELETE", "/api/v3/me/sessions/7", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusNotFound, rec.Code)
@@ -132,7 +126,7 @@ func TestSession_RevokeAllSessions_Success(t *testing.T) {
 	h := handler.NewSessionHandler(st)
 	r := sessionRouter(h)
 	body := `{"current_refresh_token":"rt-token"}`
-	req := httptest.NewRequest("POST", "/api/v2/me/sessions/revoke-others", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v3/me/sessions/revoke-others", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -144,7 +138,7 @@ func TestSession_RevokeAllSessions_BadBody(t *testing.T) {
 	h := handler.NewSessionHandler(&stubAuthClient{})
 	r := sessionRouter(h)
 	body := `{}`
-	req := httptest.NewRequest("POST", "/api/v2/me/sessions/revoke-others", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/api/v3/me/sessions/revoke-others", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -163,7 +157,7 @@ func TestSession_GetMyLoginHistory_Success(t *testing.T) {
 	}
 	h := handler.NewSessionHandler(st)
 	r := sessionRouter(h)
-	req := httptest.NewRequest("GET", "/api/v2/me/login-history", nil)
+	req := httptest.NewRequest("GET", "/api/v3/me/login-history", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -179,7 +173,7 @@ func TestSession_GetMyLoginHistory_CustomLimit(t *testing.T) {
 	}
 	h := handler.NewSessionHandler(st)
 	r := sessionRouter(h)
-	req := httptest.NewRequest("GET", "/api/v2/me/login-history?limit=20", nil)
+	req := httptest.NewRequest("GET", "/api/v3/me/login-history?limit=20", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -189,12 +183,12 @@ func TestSession_GetMyLoginHistory_MissingEmail(t *testing.T) {
 	h := handler.NewSessionHandler(&stubAuthClient{})
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/api/v2/me/login-history", func(c *gin.Context) {
+	r.GET("/api/v3/me/login-history", func(c *gin.Context) {
 		c.Set("principal_id", int64(42))
 		// Don't set email
 		h.GetMyLoginHistory(c)
 	})
-	req := httptest.NewRequest("GET", "/api/v2/me/login-history", nil)
+	req := httptest.NewRequest("GET", "/api/v3/me/login-history", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -208,7 +202,7 @@ func TestSession_GetMyLoginHistory_GRPCError(t *testing.T) {
 	}
 	h := handler.NewSessionHandler(st)
 	r := sessionRouter(h)
-	req := httptest.NewRequest("GET", "/api/v2/me/login-history", nil)
+	req := httptest.NewRequest("GET", "/api/v3/me/login-history", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)

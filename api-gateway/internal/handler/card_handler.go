@@ -320,7 +320,7 @@ type createAuthorizedPersonRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/v2/cards/authorized-person [post]
+// @Router       /api/v3/cards/authorized-persons [post]
 func (h *CardHandler) CreateAuthorizedPerson(c *gin.Context) {
 	var req createAuthorizedPersonRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

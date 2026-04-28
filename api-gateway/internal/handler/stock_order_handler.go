@@ -468,7 +468,7 @@ func (h *StockOrderHandler) ApproveOrder(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func (h *StockOrderHandler) DeclineOrder(c *gin.Context) {
+func (h *StockOrderHandler) RejectOrder(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		apiError(c, 400, ErrValidation, "invalid order id")

@@ -36,7 +36,7 @@ func cardRouter(h *handler.CardHandler) *gin.Engine {
 	r.PUT("/cards/:id/block", withCtx, h.BlockCard)
 	r.PUT("/cards/:id/unblock", withCtx, h.UnblockCard)
 	r.PUT("/cards/:id/deactivate", withCtx, h.DeactivateCard)
-	r.POST("/cards/authorized-person", withCtx, h.CreateAuthorizedPerson)
+	r.POST("/cards/authorized-persons", withCtx, h.CreateAuthorizedPerson)
 	r.POST("/me/cards/virtual", withClient, h.CreateVirtualCard)
 	r.POST("/cards/:id/pin", withClient, h.SetCardPin)
 	r.POST("/cards/:id/verify-pin", withClient, h.VerifyCardPin)
@@ -213,7 +213,7 @@ func TestCard_CreateAuthorizedPerson_Success(t *testing.T) {
 	h := handler.NewCardHandler(&stubCardClient{}, &stubVirtualCardClient{}, &stubCardRequestClient{}, &accountFullStub{})
 	r := cardRouter(h)
 	body := `{"first_name":"A","last_name":"B","account_id":1}`
-	req := httptest.NewRequest("POST", "/cards/authorized-person", strings.NewReader(body))
+	req := httptest.NewRequest("POST", "/cards/authorized-persons", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)

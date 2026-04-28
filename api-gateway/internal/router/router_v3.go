@@ -194,7 +194,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 
 		// Sessions
 		me.GET("/sessions", h.Session.ListMySessions)
-		me.POST("/sessions/revoke", h.Session.RevokeSession)
+		me.DELETE("/sessions/:id", h.Session.RevokeSession)
 		me.POST("/sessions/revoke-others", h.Session.RevokeAllSessions)
 		me.GET("/login-history", h.Session.GetMyLoginHistory)
 
@@ -536,7 +536,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		cardsCreate.Use(middleware.RequireAnyPermission(perms.Cards.Create.Physical, perms.Cards.Create.Virtual))
 		{
 			cardsCreate.POST("", h.Card.CreateCard)
-			cardsCreate.POST("/authorized-person", h.Card.CreateAuthorizedPerson)
+			cardsCreate.POST("/authorized-persons", h.Card.CreateAuthorizedPerson)
 		}
 		cardsBlock := protected.Group("/cards")
 		cardsBlock.Use(middleware.RequirePermission(perms.Cards.Block.Any))
@@ -680,12 +680,14 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			stockExchangeToggle.POST("/testing-mode", h.StockExchange.SetTestingMode)
 		}
 
-		// Admin stock-source management
-		adminStockSource := protected.Group("/admin/stock-source")
-		adminStockSource.Use(middleware.RequirePermission(perms.Securities.Manage.Catalog))
+		// Stock-source management. Plural collection; the active source lives
+		// under /active so a future "list all known sources" GET can sit at
+		// the bare collection without ambiguity.
+		stockSources := protected.Group("/stock-sources")
+		stockSources.Use(middleware.RequirePermission(perms.Securities.Manage.Catalog))
 		{
-			adminStockSource.POST("", h.StockSource.SwitchSource)
-			adminStockSource.GET("", h.StockSource.GetSourceStatus)
+			stockSources.POST("", h.StockSource.SwitchSource)
+			stockSources.GET("/active", h.StockSource.GetSourceStatus)
 		}
 
 		// Orders — on-behalf-of-client (and bank by default).
@@ -697,13 +699,14 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			ordersOnBehalf.POST("", h.StockOrder.CreateOrderOnBehalf)
 		}
 
-		// OTC — employee on-behalf buying.
-		otcOnBehalf := protected.Group("/otc/admin/offers")
+		// OTC — employee on-behalf buying. The verb-suffixed action makes
+		// intent explicit at the URL.
+		otcOnBehalf := protected.Group("/otc/offers")
 		otcOnBehalf.Use(middleware.RequireAnyPermission(
 			perms.Otc.Trade.Accept, perms.Orders.Place.OnBehalfClient))
 		otcOnBehalf.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
-			otcOnBehalf.POST("/:id/buy", h.Portfolio.BuyOTCOfferOnBehalf)
+			otcOnBehalf.POST("/:id/buy-on-behalf", h.Portfolio.BuyOTCOfferOnBehalf)
 		}
 
 		// Order management (supervisor) — read split from approve/reject.
@@ -722,7 +725,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		ordersReject.Use(middleware.RequirePermission(perms.Orders.Cancel.All))
 		ordersReject.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
-			ordersReject.POST("/:id/decline", h.StockOrder.DeclineOrder)
+			ordersReject.POST("/:id/reject", h.StockOrder.RejectOrder)
 		}
 
 		// Actuary (agent) management
