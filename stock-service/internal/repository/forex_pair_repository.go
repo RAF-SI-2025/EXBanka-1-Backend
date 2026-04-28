@@ -75,8 +75,11 @@ func (r *ForexPairRepository) UpsertByTicker(fp *model.ForexPair) error {
 }
 
 // UpdatePriceByTicker updates only the exchange_rate column for the forex pair with the given ticker.
+// Uses SkipHooks because Model(&ForexPair{}) creates a zero-value struct; the BeforeUpdate
+// optimistic-lock hook would add WHERE version=0 and match nothing (see CLAUDE.md §3a).
 func (r *ForexPairRepository) UpdatePriceByTicker(ticker string, rate decimal.Decimal) error {
-	return r.db.Model(&model.ForexPair{}).Where("ticker = ?", ticker).Update("exchange_rate", rate).Error
+	return r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.ForexPair{}).Where("ticker = ?", ticker).Update("exchange_rate", rate).Error
 }
 
 func (r *ForexPairRepository) List(filter ForexFilter) ([]model.ForexPair, int64, error) {

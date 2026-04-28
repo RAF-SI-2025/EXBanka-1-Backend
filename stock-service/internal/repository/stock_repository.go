@@ -84,8 +84,13 @@ func (r *StockRepository) UpsertByTicker(stock *model.Stock) error {
 }
 
 // UpdatePriceByTicker updates only the price column for the stock with the given ticker.
+// Uses SkipHooks because Model(&Stock{}) creates a zero-value struct; the BeforeUpdate
+// optimistic-lock hook would add WHERE version=0 and match nothing (see CLAUDE.md §3a).
+// Price-sync is a bulk write, not a concurrent user action, so version-racing is not
+// meaningful here.
 func (r *StockRepository) UpdatePriceByTicker(ticker string, price decimal.Decimal) error {
-	return r.db.Model(&model.Stock{}).Where("ticker = ?", ticker).Update("price", price).Error
+	return r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.Stock{}).Where("ticker = ?", ticker).Update("price", price).Error
 }
 
 func (r *StockRepository) List(filter StockFilter) ([]model.Stock, int64, error) {
