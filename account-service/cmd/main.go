@@ -97,6 +97,7 @@ func main() {
 	companyService := service.NewCompanyService(companyRepo)
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
+	changelogSvc := service.NewChangelogService(changelogRepo)
 	reservationService := service.NewReservationService(db, accountRepo, reservationRepo, ledgerRepo)
 	incomingReservationService := service.NewIncomingReservationService(db, accountRepo, incomingReservationRepo)
 
@@ -181,7 +182,7 @@ func main() {
 	reconcileSvc.CheckAllBalances(ctx)
 
 	reservationHandler := handler.NewReservationHandler(reservationService)
-	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, reservationHandler, incomingReservationService, producer, clientClient, db, idempRepo)
+	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, reservationHandler, incomingReservationService, producer, clientClient, db, idempRepo, changelogSvc)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)

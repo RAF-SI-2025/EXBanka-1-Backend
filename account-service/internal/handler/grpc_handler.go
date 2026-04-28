@@ -70,6 +70,7 @@ type AccountGRPCHandler struct {
 	incomingReservation *service.IncomingReservationService
 	producer            accountProducer
 	clientClient        clientpb.ClientServiceClient
+	changelogService    *service.ChangelogService
 	// db + idem wire saga-step idempotency for handlers that follow the
 	// IdempotencyRepository.Run pattern (UpdateBalance is the lighthouse
 	// case). Other RPCs leave them nil and use their existing dedup paths.
@@ -88,6 +89,7 @@ func NewAccountGRPCHandler(
 	clientClient clientpb.ClientServiceClient,
 	db *gorm.DB,
 	idem *repository.IdempotencyRepository,
+	changelogService *service.ChangelogService,
 ) *AccountGRPCHandler {
 	return &AccountGRPCHandler{
 		accountService:      accountService,
@@ -98,6 +100,7 @@ func NewAccountGRPCHandler(
 		incomingReservation: incomingReservation,
 		producer:            producer,
 		clientClient:        clientClient,
+		changelogService:    changelogService,
 		db:                  db,
 		idem:                idem,
 	}
@@ -619,6 +622,30 @@ func (h *AccountGRPCHandler) GetCurrency(ctx context.Context, req *pb.GetCurrenc
 		return nil, err
 	}
 	return toCurrencyResponse(currency), nil
+}
+
+// ListChangelog returns paginated audit-log entries for an entity.
+func (h *AccountGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangelogRequest) (*pb.ListChangelogResponse, error) {
+	entries, total, err := h.changelogService.ListChangelog(req.GetEntityType(), req.GetEntityId(), int(req.GetPage()), int(req.GetPageSize()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
 func (h *AccountGRPCHandler) GetLedgerEntries(ctx context.Context, req *pb.GetLedgerEntriesRequest) (*pb.GetLedgerEntriesResponse, error) {
