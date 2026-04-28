@@ -48,8 +48,14 @@ type Deps struct {
 	NotificationClient  notificationpb.NotificationServiceClient
 	SourceAdminClient   stockpb.SourceAdminServiceClient
 	FundClient          stockpb.InvestmentFundServiceClient
-	InterBankClient     transactionpb.InterBankServiceClient
 	OTCOptionsClient    stockpb.OTCOptionsServiceClient
+
+	// OwnBankCode is the 3-digit bank prefix used by PeerDisabledHandler
+	// to distinguish intra-bank receivers from foreign-bank ones while
+	// the SI-TX implementation is being built (Phase 1 of the SI-TX
+	// refactor; see docs/superpowers/specs/2026-04-29-celina5-sitx-
+	// refactor-design.md).
+	OwnBankCode string
 }
 
 // Handlers bundles every HTTP handler the gateway exposes. The constructor
@@ -82,7 +88,7 @@ type Handlers struct {
 	OptionsV2     *handler.OptionsV2Handler
 	Fund          *handler.InvestmentFundHandler
 	OTCOptions    *handler.OTCOptionsHandler
-	InterBankPub  *handler.InterBankPublicHandler
+	PeerDisabled  *handler.PeerDisabledHandler
 	Changelog     *handler.ChangelogHandler
 }
 
@@ -117,7 +123,7 @@ func NewHandlers(d Deps) *Handlers {
 		OptionsV2:     handler.NewOptionsV2Handler(d.SecurityClient, d.OrderClient, d.PortfolioClient),
 		Fund:          handler.NewInvestmentFundHandler(d.FundClient),
 		OTCOptions:    handler.NewOTCOptionsHandler(d.OTCOptionsClient),
-		InterBankPub:  handler.NewInterBankPublicHandler(d.InterBankClient, d.TxClient, d.AccountClient),
+		PeerDisabled:  handler.NewPeerDisabledHandler(handler.NewTransactionHandler(d.TxClient, d.FeeClient, d.AccountClient, d.ExchangeClient), d.OwnBankCode),
 		Changelog:     handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
 	}
 }

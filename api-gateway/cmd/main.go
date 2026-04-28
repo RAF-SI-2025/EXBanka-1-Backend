@@ -11,14 +11,11 @@ import (
 	"time"
 
 	_ "github.com/exbanka/api-gateway/docs"
-	"github.com/exbanka/api-gateway/internal/cache"
 	"github.com/exbanka/api-gateway/internal/config"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
 	"github.com/exbanka/api-gateway/internal/handler"
-	"github.com/exbanka/api-gateway/internal/middleware"
 	"github.com/exbanka/api-gateway/internal/router"
 	"github.com/exbanka/contract/metrics"
-	"github.com/redis/go-redis/v9"
 )
 
 // @title           EXBanka API
@@ -211,32 +208,12 @@ func main() {
 	markReady, _, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
-	// Inter-bank wiring (Spec 3): InterBankService gRPC client, Redis nonce
-	// store, peer-key resolver, internal HMAC-authenticated routes.
-	interBankClient, interBankConn, err := grpcclients.NewInterBankServiceClient(cfg.TransactionGRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to connect to inter-bank service: %v", err)
-	}
-	defer interBankConn.Close()
-
-	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Printf("warn: redis ping failed (%s) — inter-bank nonce store unavailable: %v", cfg.RedisAddr, err)
-	}
-	nonceStore := cache.NewNonceStore(redisClient, 10*time.Minute)
-	peerKeys := map[string]string{
-		"222": cfg.Peer222InboundKey,
-		"333": cfg.Peer333InboundKey,
-		"444": cfg.Peer444InboundKey,
-	}
-	peerKeyResolver := func(code string) (string, bool) {
-		k, ok := peerKeys[code]
-		if !ok || k == "" {
-			return "", false
-		}
-		return k, true
-	}
-	interBankInternalHandler := handler.NewInterBankInternalHandler(interBankClient)
+	// Inter-bank wiring removed — Phase 1 of the SI-TX refactor unwires
+	// the wrong-assumption InterBankService routes. PeerDisabledHandler
+	// (in router.NewHandlers) serves /api/v3/me/transfers and returns
+	// 501 for foreign-prefix receivers until the SI-TX-conformant
+	// replacement ships in Phase 2. See docs/superpowers/specs/
+	// 2026-04-29-celina5-sitx-refactor-design.md.
 
 	r := router.NewRouter()
 
@@ -271,23 +248,13 @@ func main() {
 		NotificationClient:  notificationClient,
 		SourceAdminClient:   sourceAdminClient,
 		FundClient:          fundClient,
-		InterBankClient:     interBankClient,
 		OTCOptionsClient:    otcOptionsClient,
+		OwnBankCode:         cfg.OwnBankCode,
 	}
 	h := router.NewHandlers(deps)
 	router.SetupV3(r, h)
 	// When v4 ships:
 	//   router.SetupV4(r, h)
-
-	// Internal HMAC-authenticated inter-bank routes (Spec 3 §7.2). NOT under
-	// any /api/v* prefix — peer banks talk straight to /internal/inter-bank/*.
-	internal := r.Group("/internal/inter-bank")
-	internal.Use(middleware.HMACMiddleware(peerKeyResolver, nonceStore, 5*time.Minute))
-	{
-		internal.POST("/transfer/prepare", interBankInternalHandler.Prepare)
-		internal.POST("/transfer/commit", interBankInternalHandler.Commit)
-		internal.POST("/check-status", interBankInternalHandler.CheckStatus)
-	}
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,

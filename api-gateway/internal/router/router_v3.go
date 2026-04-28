@@ -92,13 +92,16 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.GET("/payments/:id", h.Tx.GetMyPayment)
 		me.POST("/payments/:id/execute", h.Tx.ExecutePayment)
 
-		// Transfers — inter-bank-aware. Detects inter-bank by 3-digit
-		// receiverAccount prefix and routes accordingly. Falls through
-		// to the regular intra-bank handler for own-bank prefixes.
-		me.POST("/transfers", h.InterBankPub.CreateTransfer)
+		// Transfers. While the SI-TX implementation is being built,
+		// PeerDisabledHandler returns 501 for foreign-prefix receivers
+		// and delegates to the intra-bank TransactionHandler for
+		// own-prefix receivers (Phase 1 of the SI-TX refactor; see
+		// docs/superpowers/specs/2026-04-29-celina5-sitx-refactor-
+		// design.md).
+		me.POST("/transfers", h.PeerDisabled.CreateTransfer)
 		me.POST("/transfers/preview", h.Tx.PreviewTransfer)
 		me.GET("/transfers", h.Tx.ListMyTransfers)
-		me.GET("/transfers/:id", h.InterBankPub.GetTransferByID)
+		me.GET("/transfers/:id", h.PeerDisabled.GetTransferByID)
 		me.POST("/transfers/:id/execute", h.Tx.ExecuteTransfer)
 
 		// Payment recipients
