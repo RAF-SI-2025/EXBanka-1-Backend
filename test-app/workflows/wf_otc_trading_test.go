@@ -22,7 +22,8 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 	_, agentB, _ := setupAgentEmployee(t, adminC)
 
 	_, listingID := getFirstStockListingID(t, agentA)
-	t.Logf("WF-9: using listing_id=%d", listingID)
+	bankAcctID := getBankRSDAccountID(t, adminC)
+	t.Logf("WF-9: using listing_id=%d bank_rsd_account_id=%d", listingID, bankAcctID)
 
 	// Step 2: Agent A buys stock
 	buyQuantity := 5
@@ -33,6 +34,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 		"quantity":    buyQuantity,
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-9: agent A buy stock: %v", err)
@@ -102,7 +104,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 	// Step 6: Agent B buys from A's OTC offer
 	otcBuyResp, err := agentB.POST(fmt.Sprintf("/api/v3/otc/offers/%d/buy", offerID), map[string]interface{}{
 		"quantity":   1,
-		"account_id": 1,
+		"account_id": bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-9: agent B OTC buy: %v", err)

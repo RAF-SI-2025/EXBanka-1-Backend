@@ -22,7 +22,8 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 
 	// Step 2: Get a stock listing
 	_, listingID := getFirstStockListingID(t, agentC)
-	t.Logf("WF-6: using listing_id=%d", listingID)
+	bankAcctID := getBankRSDAccountID(t, adminC)
+	t.Logf("WF-6: using listing_id=%d bank_rsd_account_id=%d", listingID, bankAcctID)
 
 	// Step 3: Place market buy order
 	buyResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
@@ -32,6 +33,7 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 		"quantity":    1,
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-6: create buy order: %v", err)
@@ -88,6 +90,7 @@ func TestWF_StockBuySellCycle(t *testing.T) {
 		"quantity":    1,
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-6: create sell order: %v", err)

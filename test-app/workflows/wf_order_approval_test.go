@@ -22,9 +22,10 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
 	_, listingID := getFirstStockListingID(t, agentC)
-	t.Logf("WF-8: using listing_id=%d", listingID)
+	bankAcctID := getBankRSDAccountID(t, adminC)
+	t.Logf("WF-8: using listing_id=%d bank_rsd_account_id=%d", listingID, bankAcctID)
 
-	// Step 2: Agent places a buy order
+	// Step 2: Agent places a buy order on behalf of the bank
 	buyResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
@@ -32,6 +33,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 		"quantity":    1,
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-8: agent create buy order: %v", err)
@@ -85,6 +87,7 @@ func TestWF_OrderApprovalWorkflow(t *testing.T) {
 		"quantity":    1,
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-8: agent create order #2: %v", err)

@@ -19,7 +19,8 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 	// Step 1: Create agent and buy stock
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 	_, listingID := getFirstStockListingID(t, agentC)
-	t.Logf("WF-10: using listing_id=%d", listingID)
+	bankAcctID := getBankRSDAccountID(t, adminC)
+	t.Logf("WF-10: using listing_id=%d bank_rsd_account_id=%d", listingID, bankAcctID)
 
 	// Place market buy
 	buyResp, err := agentC.POST("/api/v3/me/orders", map[string]interface{}{
@@ -29,6 +30,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 		"quantity":    2,
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-10: create buy order: %v", err)
@@ -48,6 +50,7 @@ func TestWF_TaxCollectionCycle(t *testing.T) {
 		"quantity":    2,
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-10: create sell order: %v", err)

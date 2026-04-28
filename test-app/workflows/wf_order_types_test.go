@@ -22,7 +22,8 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 
 	// Step 2: Get a stock listing
 	_, listingID := getFirstStockListingID(t, supervisorC)
-	t.Logf("WF-7: using stock listing_id=%d", listingID)
+	bankAcctID := getBankRSDAccountID(t, adminC)
+	t.Logf("WF-7: using stock listing_id=%d bank_rsd_account_id=%d", listingID, bankAcctID)
 
 	// Step 3: Place limit buy with absurdly low limit_value so it stays pending
 	limitResp, err := supervisorC.POST("/api/v3/me/orders", map[string]interface{}{
@@ -33,6 +34,7 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 		"limit_value": "0.01",
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-7: create limit order: %v", err)
@@ -100,6 +102,7 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 			"quantity":    1,
 			"all_or_none": false,
 			"margin":      false,
+			"account_id":  bankAcctID,
 		})
 		if err != nil {
 			t.Fatalf("WF-7: create futures buy order: %v", err)
