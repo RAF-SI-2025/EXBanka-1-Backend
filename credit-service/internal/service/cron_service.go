@@ -102,6 +102,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 	}
 
 	retryDeadline := time.Now().Add(72 * time.Hour).Format(time.RFC3339)
+	installRef := fmt.Sprintf("installment:%d", installmentID)
 
 	// Debit the loan's account via account-service
 	debitErr := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
@@ -114,6 +115,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			AccountNumber:   loan.AccountNumber,
 			Amount:          debitAmt,
 			UpdateAvailable: true,
+			IdempotencyKey:  installRef + ":debit",
 		})
 		return e
 	})
@@ -207,6 +209,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			AccountNumber:   c.bankRSDAccount,
 			Amount:          amount,
 			UpdateAvailable: true,
+			IdempotencyKey:  installRef + ":bank-credit",
 		})
 		if creditErr != nil {
 			log.Printf("CronService: failed to credit bank RSD account for installment %d: %v — reversing client debit", installmentID, creditErr)
@@ -214,6 +217,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				AccountNumber:   loan.AccountNumber,
 				Amount:          amount, // positive = credit back to client
 				UpdateAvailable: true,
+				IdempotencyKey:  installRef + ":debit-compensate",
 			})
 			if compErr != nil {
 				log.Printf("CronService: CRITICAL: compensation for installment %d failed: %v — manual intervention required", installmentID, compErr)
@@ -242,6 +246,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				AccountNumber:   c.bankRSDAccount,
 				Amount:          amtDecimal.Neg().StringFixed(4),
 				UpdateAvailable: true,
+				IdempotencyKey:  installRef + ":bank-credit-compensate",
 			}); compErr != nil {
 				log.Printf("CronService: CRITICAL: bank compensation failed for installment %d: %v — manual review required", installmentID, compErr)
 			}
@@ -252,6 +257,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				AccountNumber:   loan.AccountNumber,
 				Amount:          amtDecimal.StringFixed(4),
 				UpdateAvailable: true,
+				IdempotencyKey:  installRef + ":debit-compensate-2",
 			}); compErr != nil {
 				log.Printf("CronService: CRITICAL: client compensation failed for installment %d: %v — manual review required", installmentID, compErr)
 			}
