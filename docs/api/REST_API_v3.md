@@ -61,22 +61,23 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 21. [Mobile Device Management](#21-mobile-device-management)
 22. [Mobile Device Settings](#22-mobile-device-settings)
 23. [Verification](#23-verification)
-24. [WebSocket](#24-websocket)
-25. [Stock Exchanges](#25-stock-exchanges)
-26. [Securities](#26-securities)
-27. [Orders](#27-orders)
-28. [Portfolio](#28-portfolio)
-29. [OTC Offers](#29-otc-offers)
-30. [Actuaries](#30-actuaries)
-31. [Tax](#31-tax)
-32. [Blueprints](#32-blueprints)
-33. [Changelog (Audit Trail)](#33-changelog-audit-trail)
-34. [Sessions & Login History](#34-sessions--login-history)
-35. [Notifications](#35-notifications)
-36. [Stock Data Source](#36-stock-data-source)
-37. [Error Response Format](#error-response-format)
-38. [Password Requirements](#password-requirements)
-39. [Notes for Frontend Developers](#notes-for-frontend-developers)
+24. [Stock Exchanges](#24-stock-exchanges)
+25. [Securities](#25-securities)
+26. [Orders](#26-orders)
+27. [Portfolio](#27-portfolio)
+28. [OTC Offers (Public Stock Listings)](#28-otc-offers-public-stock-listings)
+29. [OTC Option Contracts (Celina 4)](#29-otc-option-contracts-celina-4)
+30. [Investment Funds (Celina 4)](#30-investment-funds-celina-4)
+31. [Actuaries](#31-actuaries)
+32. [Tax](#32-tax)
+33. [Blueprints](#33-blueprints)
+34. [Changelog (Audit Trail)](#34-changelog-audit-trail)
+35. [Sessions & Login History](#35-sessions--login-history)
+36. [Notifications](#36-notifications)
+37. [Stock Data Source](#37-stock-data-source)
+38. [Error Response Format](#error-response-format)
+39. [Password Requirements](#password-requirements)
+40. [Notes for Frontend Developers](#notes-for-frontend-developers)
 
 ---
 
@@ -3559,6 +3560,54 @@ Get a single account by ID, scoped to the authenticated principal.
 
 ---
 
+### GET /api/v3/me/accounts/:id/activity
+
+Returns every balance-affecting ledger entry on the account in reverse-chronological order. Includes securities buys/sells (`reference_type=order`), tax collection (`reference_type=tax`), commission debits, transfers, payments, and interest. Ownership is enforced against the JWT.
+
+**Authentication:** Any JWT (AnyAuthMiddleware) — account must belong to the caller
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Account ID |
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `page` | int | 1 | Page number |
+| `page_size` | int | 20 | Items per page (max 200) |
+
+**Response 200:**
+```json
+{
+  "entries": [
+    {
+      "id": 5021,
+      "entry_type": "debit",
+      "amount": "150.00",
+      "currency": "RSD",
+      "balance_before": "10000.00",
+      "balance_after": "9850.00",
+      "description": "Order fill — AAPL x 1",
+      "reference_id": 1234,
+      "reference_type": "order",
+      "occurred_at": 1745832000
+    }
+  ],
+  "total_count": 42
+}
+```
+
+**Error Responses:**
+- `400` — invalid id
+- `401` — missing or invalid JWT
+- `403` — account does not belong to the caller
+- `404` — account not found
+
+---
+
 ### GET /api/v3/me/cards
 
 List all cards belonging to the authenticated principal.
@@ -3872,49 +3921,49 @@ Get all installment records for a loan belonging to the authenticated principal.
 
 ### POST /api/v3/me/orders
 
-Create a new stock order. See [Section 27: Orders](#27-orders) for full request/response details.
+Create a new stock order. See [Section 26: Orders](#26-orders) for full request/response details.
 
 ---
 
 ### GET /api/v3/me/orders
 
-List authenticated user's orders. See [Section 27: Orders](#27-orders) for full request/response details.
+List authenticated user's orders. See [Section 26: Orders](#26-orders) for full request/response details.
 
 ---
 
 ### GET /api/v3/me/orders/:id
 
-Get a specific order. See [Section 27: Orders](#27-orders) for full request/response details.
+Get a specific order. See [Section 26: Orders](#26-orders) for full request/response details.
 
 ---
 
 ### POST /api/v3/me/orders/:id/cancel
 
-Cancel a pending order. See [Section 27: Orders](#27-orders) for full request/response details.
+Cancel a pending order. See [Section 26: Orders](#26-orders) for full request/response details.
 
 ---
 
 ### GET /api/v3/me/portfolio
 
-List authenticated user's holdings. See [Section 28: Portfolio](#28-portfolio) for full request/response details.
+List authenticated user's holdings. See [Section 27: Portfolio](#27-portfolio) for full request/response details.
 
 ---
 
 ### GET /api/v3/me/portfolio/summary
 
-Get portfolio summary. See [Section 28: Portfolio](#28-portfolio) for full request/response details.
+Get portfolio summary. See [Section 27: Portfolio](#27-portfolio) for full request/response details.
 
 ---
 
 ### POST /api/v3/me/portfolio/:id/make-public
 
-Make a holding available on the OTC market. See [Section 28: Portfolio](#28-portfolio) for full request/response details.
+Make a holding available on the OTC market. See [Section 27: Portfolio](#27-portfolio) for full request/response details.
 
 ---
 
 ### POST /api/v3/me/portfolio/:id/exercise
 
-Exercise an options contract. See [Section 28: Portfolio](#28-portfolio) for full request/response details.
+Exercise an options contract. See [Section 27: Portfolio](#27-portfolio) for full request/response details.
 
 ---
 
@@ -4496,43 +4545,7 @@ QR code verification. The mobile app scans a QR code displayed in the browser, e
 
 ---
 
-## 24. WebSocket
-
-Real-time push notifications for mobile devices.
-
----
-
-### GET /api/v3/ws/mobile
-
-Establish a WebSocket connection for real-time verification challenge delivery.
-
-**Authentication:** Mobile JWT via `Authorization` header + `X-Device-ID` header
-
-**Connection:**
-```
-GET /api/v3/ws/mobile
-Authorization: Bearer <mobile_jwt>
-X-Device-ID: <device_id>
-```
-
-**Server -> Client Messages:**
-```json
-{
-  "type": "verification_challenge",
-  "challenge_id": 123,
-  "method": "code_pull",
-  "display_data": { "code": "482916" },
-  "expires_at": "2026-04-01T12:05:00Z"
-}
-```
-
-**Keepalive:** Server sends ping every 30s. Client must respond with pong. Connections with no pong for 60s are closed.
-
-**Reconnection:** If the WebSocket disconnects, fall back to polling `GET /api/v3/mobile/verifications/pending` every 2s (foreground) or 30s (background).
-
----
-
-## 25. Stock Exchanges
+## 24. Stock Exchanges
 
 ### GET /api/v3/stock-exchanges
 
@@ -4610,7 +4623,7 @@ Get current testing mode status.
 
 ---
 
-## 26. Securities
+## 25. Securities
 
 All securities endpoints require any valid JWT (AnyAuthMiddleware).
 
@@ -4858,7 +4871,7 @@ GET /api/v3/securities/candles?listing_id=42&interval=1h&from=2026-04-01T00:00:0
 
 ---
 
-## 27. Orders
+## 26. Orders
 
 ### POST /api/v3/me/orders
 
@@ -5101,7 +5114,67 @@ Place a stock/futures/forex/option order on behalf of a named client. The gatewa
 
 ---
 
-## 28. Portfolio
+### POST /api/v3/options/:option_id/orders
+
+Place an order on a market option contract by its `option_id` (the gateway resolves the underlying `listing_id` and forwards to the standard order pipeline).
+
+**Authentication:** Any JWT + one of `otc.trade.accept`, `otc.trade.exercise`, or `securities.trade`. Identity middleware: `OwnerIsBankIfEmployee` (employee → bank ownership; client → self).
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `option_id` | uint64 | Option contract ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `direction` | string | Yes | `buy` or `sell` |
+| `order_type` | string | Yes | `market`, `limit`, `stop`, or `stop_limit` |
+| `quantity` | int64 | Yes | Positive units |
+| `limit_value` | string (decimal) | Conditional | Required when `order_type` is `limit` or `stop_limit` |
+| `stop_value` | string (decimal) | Conditional | Required when `order_type` is `stop` or `stop_limit` |
+| `all_or_none` | bool | No | All-or-none flag |
+| `margin` | bool | No | Margin flag |
+| `account_id` | uint64 | Yes | Account funding the order |
+| `holding_id` | uint64 | No | Existing holding to consume on a sell |
+
+**Response 201:** Order object (same shape as `POST /api/v3/me/orders`).
+
+**Error Responses:**
+- `400` — invalid `option_id`, missing required field, or order-type/value mismatch
+- `409` — option not tradeable (no resolvable `listing_id`)
+
+---
+
+### POST /api/v3/options/:option_id/exercise
+
+Exercise an option by `option_id`. If `holding_id` is omitted, the backend auto-resolves the caller's oldest long-option holding for that option.
+
+**Authentication:** Any JWT + one of `otc.trade.accept`, `otc.trade.exercise`, or `securities.trade`. Identity middleware: `OwnerIsBankIfEmployee`.
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `option_id` | uint64 | Option contract ID |
+
+**Request Body (optional):**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `holding_id` | uint64 | No | Holding to consume; auto-resolved when omitted |
+
+**Response 200:** Exercise result (holding update + ledger entries).
+
+**Error Responses:**
+- `400` — invalid `option_id`
+- `404` — option / holding not found
+
+---
+
+## 27. Portfolio
 
 ### GET /api/v3/me/portfolio
 
@@ -5254,11 +5327,13 @@ Exercise an options contract.
 
 ---
 
-## 29. OTC Offers
+## 28. OTC Offers (Public Stock Listings)
+
+These three endpoints cover the legacy stock-public-OTC flow — a holding made publicly tradeable via `POST /api/v3/me/portfolio/:id/make-public` and bought outright by another user. For the Celina 4 option-contract negotiations (offer / counter / accept / reject / exercise), see [Section 29](#29-otc-option-contracts-celina-4).
 
 ### GET /api/v3/otc/offers
 
-List OTC trading offers.
+List public stock OTC offers (publicly listed holdings).
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -5347,7 +5422,568 @@ Renamed from `POST /api/v3/otc/admin/offers/:id/buy` in the v3 route standardiza
 
 ---
 
-## 30. Actuaries
+## 29. OTC Option Contracts (Celina 4)
+
+OTC option-contract negotiation flow (Specification §26). Two parties — both clients, both supervisors, or a client and an employee acting for the bank — exchange revisions on a stock-option contract until one side accepts or rejects. Acceptance triggers a premium-payment SAGA that creates an `OptionContract`. The contract can later be exercised before its `settlement_date`.
+
+The URL namespace is shared with [Section 28](#28-otc-offers-public-stock-listings) (`/api/v3/otc/offers`) — the routes here are distinguished by their HTTP verb and action segment (`/counter`, `/accept`, `/reject`, `/exercise`).
+
+**Permissions:** all trading actions (create, counter, accept, reject, exercise) require **both** `securities.trade` **and** `otc.trade` (`RequireAllPermissions`). Read endpoints accept any authenticated principal.
+
+**Identity middleware:** these routes use `OwnerIsBankIfEmployee` — when the caller is an employee, the offer/contract is owned by `bank` (no client `OwnerID`); when the caller is a client, the offer/contract is owned by that client.
+
+---
+
+### POST /api/v3/otc/offers
+
+Create a new OTC option offer (open a negotiation thread).
+
+**Authentication:** Any JWT + `securities.trade` AND `otc.trade`
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `direction` | string | Yes | `sell_initiated` (caller is the seller of the option) or `buy_initiated` (caller is the buyer) |
+| `stock_id` | uint64 | Yes | Stock listing ID the option is on |
+| `quantity` | string (decimal) | Yes | Number of shares the option covers |
+| `strike_price` | string (decimal) | Yes | Strike price per share, in the seller's account currency |
+| `premium` | string (decimal) | No | Option premium (paid by buyer to seller on accept) |
+| `settlement_date` | string (RFC3339 date) | Yes | Last day the option can be exercised |
+| `counterparty_user_id` | int64 | No | Pin the offer to a specific counterparty (1:1 negotiation). Omit for a broadcast offer. |
+| `counterparty_system_type` | string | No | `client` (default) or `employee` — paired with `counterparty_user_id` |
+
+**Example Request:**
+```json
+{
+  "direction": "sell_initiated",
+  "stock_id": 42,
+  "quantity": "100",
+  "strike_price": "5000.00",
+  "premium": "50000.00",
+  "settlement_date": "2026-06-05",
+  "counterparty_user_id": 8,
+  "counterparty_system_type": "client"
+}
+```
+
+**Response 201:**
+```json
+{
+  "offer": {
+    "id": 1001,
+    "direction": "sell_initiated",
+    "status": "PENDING",
+    "stock_id": 42,
+    "quantity": "100",
+    "strike_price": "5000.00",
+    "premium": "50000.00",
+    "settlement_date": "2026-06-05",
+    "initiator": { "owner_type": "client", "owner_id": 7 },
+    "counterparty": { "owner_type": "client", "owner_id": 8 },
+    "last_modified_at": "2026-04-28T14:20:00Z"
+  }
+}
+```
+
+**Error Responses:**
+- `400` — invalid direction / missing required field
+- `403` — missing `securities.trade` or `otc.trade`
+
+---
+
+### POST /api/v3/otc/offers/:id/counter
+
+Send a counter-offer on an existing negotiation thread. The counterparty becomes the new `last_modified_by`. Each counter appends an `OTCOfferRevision` row.
+
+**Authentication:** Any JWT + `securities.trade` AND `otc.trade`
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | uint64 | Offer ID |
+
+**Request Body:** Any subset of the negotiable terms — fields left blank are unchanged.
+
+| Field | Type | Description |
+|---|---|---|
+| `quantity` | string (decimal) | New share count |
+| `strike_price` | string (decimal) | New strike per share |
+| `premium` | string (decimal) | New premium |
+| `settlement_date` | string (RFC3339 date) | New settlement date |
+
+**Response 200:** `{ "offer": <updated offer> }`.
+
+**Error Responses:**
+- `400` — invalid id / invalid body
+- `403` — missing perms
+- `409` — offer is already accepted, rejected, or expired
+
+---
+
+### POST /api/v3/otc/offers/:id/accept
+
+Accept the current revision of an offer. Triggers the premium-payment SAGA: reserve seller's shares → debit buyer's account by `premium` → credit seller → create `OptionContract` row in `ACTIVE` status. Cross-currency cases convert through exchange-service.
+
+**Authentication:** Any JWT + `securities.trade` AND `otc.trade`
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | uint64 | Offer ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `buyer_account_id` | uint64 | Yes | Account the premium is debited from |
+| `seller_account_id` | uint64 | Yes | Account the premium is credited to |
+
+**Response 201:**
+```json
+{
+  "offer": { "id": 1001, "status": "ACCEPTED", ... },
+  "contract": {
+    "id": 5001,
+    "status": "ACTIVE",
+    "stock_id": 42,
+    "quantity": "100",
+    "strike_price": "5000.00",
+    "premium": "50000.00",
+    "settlement_date": "2026-06-05",
+    "buyer": { "owner_type": "client", "owner_id": 7 },
+    "seller": { "owner_type": "client", "owner_id": 8 }
+  }
+}
+```
+
+**Error Responses:**
+- `400` — missing `buyer_account_id` / `seller_account_id`
+- `403` — missing perms
+- `409` — insufficient buyer funds, insufficient seller shares, or offer no longer pending
+
+---
+
+### POST /api/v3/otc/offers/:id/reject
+
+Reject an offer. Marks status `REJECTED`; no further revisions are accepted.
+
+**Authentication:** Any JWT + `securities.trade` AND `otc.trade`
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | uint64 | Offer ID |
+
+**Request Body:** None.
+
+**Response 200:** `{ "offer": <updated offer> }`.
+
+---
+
+### GET /api/v3/otc/offers/:id
+
+Get full detail for one offer including its revision history.
+
+**Authentication:** Any JWT (read-only)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | uint64 | Offer ID |
+
+**Response 200:**
+```json
+{
+  "offer": { "id": 1001, ... },
+  "revisions": [
+    {
+      "revision_number": 1,
+      "modified_by": { "principal_type": "client", "principal_id": 7 },
+      "quantity": "100",
+      "strike_price": "5000.00",
+      "premium": "45000.00",
+      "settlement_date": "2026-06-05",
+      "created_at": "2026-04-28T14:20:00Z"
+    },
+    {
+      "revision_number": 2,
+      "modified_by": { "principal_type": "client", "principal_id": 8 },
+      "quantity": "100",
+      "strike_price": "5000.00",
+      "premium": "50000.00",
+      "settlement_date": "2026-06-05",
+      "created_at": "2026-04-28T14:35:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/v3/me/otc/offers
+
+List the caller's OTC offers. Employees see all bank-owned offers; clients see their own.
+
+**Authentication:** Any JWT (`OwnerIsBankIfEmployee`)
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `role` | string | `either` | `initiator`, `counterparty`, or `either` |
+| `page` | int | 1 | Page number |
+| `page_size` | int | 20 | Items per page |
+
+**Response 200:**
+```json
+{
+  "offers": [ { "id": 1001, "status": "PENDING", "unread": true, ... } ],
+  "total": 1
+}
+```
+
+---
+
+### POST /api/v3/otc/contracts/:id/exercise
+
+Exercise an active option contract — the buyer pays `quantity * strike_price` to the seller and receives the underlying shares. Runs the 5-phase exercise SAGA.
+
+**Authentication:** Any JWT + `securities.trade` AND `otc.trade`
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | uint64 | Contract ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `buyer_account_id` | uint64 | Yes | Account that pays the strike (and where the holding lands) |
+| `seller_account_id` | uint64 | Yes | Account that receives the strike payment |
+
+**Response 201:**
+```json
+{
+  "contract": { "id": 5001, "status": "EXERCISED", ... },
+  "holding": { "id": 9001, "stock_id": 42, "quantity": "100", "owner": { ... } }
+}
+```
+
+**Error Responses:**
+- `400` — missing buyer/seller account IDs
+- `403` — missing perms
+- `409` — contract already exercised / expired, or insufficient buyer funds
+
+---
+
+### GET /api/v3/otc/contracts/:id
+
+Get one option contract.
+
+**Authentication:** Any JWT (read-only)
+
+**Response 200:** `{ "contract": { ... } }`.
+
+---
+
+### GET /api/v3/me/otc/contracts
+
+List the caller's option contracts.
+
+**Authentication:** Any JWT (`OwnerIsBankIfEmployee`)
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `role` | string | `either` | `buyer`, `seller`, or `either` |
+| `page` | int | 1 | Page number |
+| `page_size` | int | 20 | Items per page |
+
+**Response 200:**
+```json
+{
+  "contracts": [ { "id": 5001, "status": "ACTIVE", ... } ],
+  "total": 1
+}
+```
+
+---
+
+## 30. Investment Funds (Celina 4)
+
+Supervisor-managed investment funds (Specification §24). Clients and the bank take positions in funds via invest/redeem; supervisors manage the catalog and place on-behalf-of-fund orders. Each fund has one bank-owned RSD account that holds its cash; positions and contributions are tracked in `client_fund_positions` and `fund_contributions`.
+
+**Permissions used:**
+- `funds.manage` — create / update funds (supervisor / admin)
+- `funds.bank-position-read` — read bank's own positions and actuary performance
+
+**Identity middleware:** invest/redeem use `OwnerIsBankIfEmployee` — employees act as the bank, clients act as themselves.
+
+---
+
+### POST /api/v3/investment-funds
+
+Create a new investment fund. Provisions a bank-owned RSD account dedicated to the fund.
+
+**Authentication:** Employee JWT + `funds.manage` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Unique fund name |
+| `description` | string | No | Short investment-strategy description |
+| `minimum_contribution_rsd` | string (decimal) | No | Smallest allowed invest amount in RSD (default `0`) |
+
+**Example Request:**
+```json
+{
+  "name": "Alpha Growth Fund",
+  "description": "IT-sector focus",
+  "minimum_contribution_rsd": "1000.00"
+}
+```
+
+**Response 201:**
+```json
+{
+  "fund": {
+    "id": 101,
+    "name": "Alpha Growth Fund",
+    "description": "IT-sector focus",
+    "minimum_contribution_rsd": "1000.00",
+    "manager_employee_id": 25,
+    "rsd_account_id": 9001,
+    "active": true,
+    "created_at": "2026-04-28T15:00:00Z"
+  }
+}
+```
+
+**Error Responses:**
+- `400` — missing `name`
+- `403` — missing `funds.manage`
+- `409` — name already taken
+
+---
+
+### GET /api/v3/investment-funds
+
+List investment funds (Discovery page).
+
+**Authentication:** Any JWT
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `page` | int | 1 | Page number |
+| `page_size` | int | 20 | Items per page |
+| `search` | string | — | Case-insensitive substring on `name` |
+| `active_only` | bool | false | When `true`, hide inactive funds |
+
+**Response 200:**
+```json
+{
+  "funds": [
+    {
+      "id": 101,
+      "name": "Alpha Growth Fund",
+      "description": "IT-sector focus",
+      "minimum_contribution_rsd": "1000.00",
+      "manager_employee_id": 25,
+      "fund_value_rsd": "2600000.00",
+      "liquid_cash_rsd": "1500000.00",
+      "profit_rsd": "5000.00",
+      "active": true
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+### GET /api/v3/investment-funds/:id
+
+Get one fund detail (used by the Detaljan prikaz page).
+
+**Authentication:** Any JWT
+
+**Response 200:**
+```json
+{
+  "fund": { "id": 101, "name": "Alpha Growth Fund", ... },
+  "holdings": [ { "stock_id": 42, "quantity": "100", "acquired_at": "..." } ],
+  "performance": [ { "as_of": "2026-04-01", "fund_value_rsd": "2600000.00" } ]
+}
+```
+
+---
+
+### PUT /api/v3/investment-funds/:id
+
+Update a fund's mutable fields.
+
+**Authentication:** Employee JWT + `funds.manage` permission
+
+**Request Body:** Any subset; omitted fields are unchanged.
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | New name |
+| `description` | string | New description |
+| `minimum_contribution_rsd` | string (decimal) | New minimum |
+| `active` | bool | Toggle visibility / acceptance of new investments |
+
+**Response 200:** `{ "fund": <updated fund> }`.
+
+---
+
+### POST /api/v3/investment-funds/:id/invest
+
+Invest money into a fund. Runs the invest saga: `debit_source` → `credit_fund_rsd_account` → `upsert_position`. Cross-currency invests convert via exchange-service before debit.
+
+**Authentication:** Any JWT (`OwnerIsBankIfEmployee`)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | uint64 | Fund ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `source_account_id` | uint64 | Yes | Account to debit |
+| `amount` | string (decimal) | Yes | Amount in `currency` |
+| `currency` | string | Yes | ISO code of `amount` (e.g. `RSD`, `EUR`) |
+| `on_behalf_of_type` | string | No | `self` (default — caller's position) or `bank` (employee invests for the bank) |
+
+**Response 201:**
+```json
+{
+  "contribution": {
+    "id": 7001,
+    "fund_id": 101,
+    "amount_rsd": "10000.00",
+    "is_inflow": true,
+    "status": "completed",
+    "created_at": "2026-04-28T15:30:00Z"
+  }
+}
+```
+
+**Error Responses:**
+- `400` — missing `source_account_id` / `amount` / `currency`
+- `409` — amount below `minimum_contribution_rsd`, insufficient balance, or fund inactive
+
+---
+
+### POST /api/v3/investment-funds/:id/redeem
+
+Redeem money out of a fund. Runs the redeem saga: `debit_fund` (amount + fee) → `credit_target` → optional `credit_bank_fee` → `decrement_position`. The fee is `fund_redemption_fee_pct` (0.5% by default; bank redeems pay 0). When the fund's RSD cash is insufficient, the call returns `409 insufficient_fund_cash` (liquidation sub-saga is a follow-up).
+
+**Authentication:** Any JWT (`OwnerIsBankIfEmployee`)
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | uint64 | Fund ID |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `amount_rsd` | string (decimal) | Yes | Amount to redeem in RSD |
+| `target_account_id` | uint64 | Yes | Account that receives the proceeds |
+| `on_behalf_of_type` | string | No | `self` (default) or `bank` |
+
+**Response 201:**
+```json
+{
+  "contribution": {
+    "id": 7002,
+    "fund_id": 101,
+    "amount_rsd": "5000.00",
+    "is_inflow": false,
+    "status": "completed",
+    "fee_rsd": "25.00",
+    "created_at": "2026-04-28T15:45:00Z"
+  }
+}
+```
+
+**Error Responses:**
+- `400` — missing `amount_rsd` / `target_account_id`
+- `409` — `insufficient_fund_cash`, position too small, or fund inactive
+
+---
+
+### GET /api/v3/me/investment-funds
+
+List the caller's fund positions (Moji fondovi tab). Employees get the bank's positions; clients get their own.
+
+**Authentication:** Any JWT (`OwnerIsBankIfEmployee`)
+
+**Response 200:**
+```json
+{
+  "positions": [
+    {
+      "fund_id": 101,
+      "fund_name": "Alpha Growth Fund",
+      "total_contributed_rsd": "25000.00",
+      "current_value_rsd": "27000.00",
+      "percentage_fund": "0.005",
+      "profit_rsd": "2000.00",
+      "last_change_at": "2026-04-15T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/v3/investment-funds/positions
+
+List the bank's own fund positions (Portal: Profit Banke → Investment Funds Positions).
+
+**Authentication:** Employee JWT + `funds.bank-position-read` permission
+
+**Response 200:**
+```json
+{
+  "positions": [
+    {
+      "fund_id": 101,
+      "fund_name": "Alpha Growth Fund",
+      "manager_employee_id": 25,
+      "total_contributed_rsd": "500000.00",
+      "current_value_rsd": "540000.00",
+      "percentage_fund": "20.0",
+      "profit_rsd": "40000.00"
+    }
+  ]
+}
+```
+
+**Error Responses:**
+- `403` — missing `funds.bank-position-read`
+
+---
+
+## 31. Actuaries
 
 ### GET /api/v3/actuaries
 
@@ -5412,6 +6048,34 @@ Reset used trading limit for an actuary back to zero.
 
 ---
 
+### GET /api/v3/actuaries/performance
+
+Realised-profit feed for the Profit Banke → Actuary Performances page. Returns one entry per acting employee, aggregated across all on-behalf-of-bank trades they have placed. Profit is realised P&L only — open positions are not marked-to-market here.
+
+**Authentication:** Employee JWT + `actuaries.read.all` permission
+
+**Response 200:**
+```json
+{
+  "actuaries": [
+    {
+      "employee_id": 25,
+      "first_name": "Marija",
+      "last_name": "Marković",
+      "position": "supervisor",
+      "realised_profit_rsd": "125000.00",
+      "trade_count": 42
+    }
+  ]
+}
+```
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — missing `actuaries.read.all`
+
+---
+
 ### POST /api/v3/actuaries/:id/require-approval
 
 Require supervisor approval for all orders placed by this actuary. No request body required. Replaces `PUT /api/v3/actuaries/:id/approval` with `{"need_approval": true}`.
@@ -5456,7 +6120,7 @@ Remove the supervisor approval requirement for this actuary (orders go straight 
 
 ---
 
-## 31. Tax
+## 32. Tax
 
 ### GET /api/v3/tax
 
@@ -5556,7 +6220,7 @@ Authorization: Bearer <token>
 
 ---
 
-## 32. Blueprints
+## 33. Blueprints
 
 **v1-only section.** Limit blueprints are reusable named templates that define a set of limit values. They can be created for employees, actuaries, or clients. Applying a blueprint copies its values to the target entity's limits.
 
@@ -5794,7 +6458,7 @@ Apply a blueprint's limit values to a target entity. The target type is determin
 
 ---
 
-## 33. Changelog (Audit Trail)
+## 34. Changelog (Audit Trail)
 
 Field-level change history for core entities. All five changelog endpoints are **fully implemented** — they return paginated audit log entries from each service's own changelog table, recording every field mutation with old value, new value, and the employee who made the change.
 
@@ -5929,7 +6593,7 @@ Get the field-level change history for a loan.
 
 ---
 
-## 34. Sessions & Login History
+## 35. Sessions & Login History
 
 Manage active sessions and view login history for the authenticated user.
 
@@ -6070,7 +6734,7 @@ Get recent login attempts for the authenticated user.
 
 ---
 
-## 35. Notifications
+## 36. Notifications
 
 **v1-only section.** General persistent notifications for the authenticated user. Unlike verification notifications (mobile-only, time-limited), these persist indefinitely and track read/unread status. Accessible by both browser and mobile clients.
 
@@ -6205,7 +6869,7 @@ Mark all unread notifications as read for the authenticated user.
 
 ---
 
-## 36. Stock Data Source
+## 37. Stock Data Source
 
 Admin-only endpoints for managing the stock-service data source. Switching sources is **destructive** — it wipes every securities row, listing, option, order, holding, capital gain, tax collection, and order transaction, then reseeds from the new source. Use with care.
 

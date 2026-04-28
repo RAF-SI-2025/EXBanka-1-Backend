@@ -778,7 +778,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			fundsBank.GET("/investment-funds/positions", h.Fund.ListBankPositions)
 		}
 
-		// ── v2 options (legacy v2-only routes, now hosted on v3) ────
+		// ── Options trading (by option_id) ──────────────────────────
 		opts := protected.Group("/options")
 		opts.Use(middleware.RequireAnyPermission(perms.Otc.Trade.Accept, perms.Otc.Trade.Exercise, perms.Securities.Trade.Any))
 		opts.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
