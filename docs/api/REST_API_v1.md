@@ -70,12 +70,13 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 30. [Actuaries](#30-actuaries)
 31. [Tax](#31-tax)
 32. [Blueprints](#32-blueprints)
-33. [Changelog](#33-changelog)
+33. [Changelog (Audit Trail)](#33-changelog-audit-trail)
 34. [Sessions & Login History](#34-sessions--login-history)
 35. [Notifications](#35-notifications)
-36. [Error Response Format](#error-response-format)
-36. [Password Requirements](#password-requirements)
-37. [Notes for Frontend Developers](#notes-for-frontend-developers)
+36. [Stock Data Source](#36-stock-data-source)
+37. [Error Response Format](#error-response-format)
+38. [Password Requirements](#password-requirements)
+39. [Notes for Frontend Developers](#notes-for-frontend-developers)
 
 ---
 
@@ -558,7 +559,7 @@ Replace all permissions for a role.
 
 ---
 
-### POST /api/v3/roles/:role_name/permissions
+### POST /api/v3/roles/:id/permissions
 
 Grant a single permission to a role (granular). The permission code is validated against the codegened catalog (`contract/permissions/catalog.yaml`); unknown codes are rejected with 400. Idempotent — granting a permission already held is a no-op success.
 
@@ -568,7 +569,7 @@ Grant a single permission to a role (granular). The permission code is validated
 
 | Parameter | Type | Description |
 |---|---|---|
-| `role_name` | string | Role name (e.g. `EmployeeBasic`, `EmployeeAgent`) |
+| `id` | uint64 | Role ID (numeric) |
 
 **Request Body:**
 
@@ -579,14 +580,14 @@ Grant a single permission to a role (granular). The permission code is validated
 **Response 204:** No content
 
 **Error Responses:**
-- `400` — `permission` missing from request body, or permission not found in catalog
+- `400` — `id` is not a valid integer, `permission` missing from request body, or permission not found in catalog
 - `401` — missing or invalid JWT
 - `403` — caller lacks `roles.permissions.assign`
-- `404` — role with the given name does not exist
+- `404` — role with the given ID does not exist
 
 ---
 
-### DELETE /api/v3/roles/:role_name/permissions/:permission
+### DELETE /api/v3/roles/:id/permissions/:permission
 
 Revoke a single permission grant from a role (granular). Idempotent — revoking a permission not currently held is a no-op success.
 
@@ -596,15 +597,16 @@ Revoke a single permission grant from a role (granular). Idempotent — revoking
 
 | Parameter | Type | Description |
 |---|---|---|
-| `role_name` | string | Role name (e.g. `EmployeeBasic`) |
+| `id` | uint64 | Role ID (numeric) |
 | `permission` | string | Permission code to revoke (e.g. `clients.read.all`) |
 
 **Response 204:** No content
 
 **Error Responses:**
+- `400` — `id` is not a valid integer
 - `401` — missing or invalid JWT
 - `403` — caller lacks `roles.permissions.revoke`
-- `404` — role with the given name does not exist
+- `404` — role with the given ID does not exist
 
 ---
 
@@ -846,9 +848,43 @@ Create a new bank account.
 
 ---
 
+### GET /api/v3/clients/:id/accounts
+
+List all accounts belonging to a specific client. Replaces the former `GET /api/v3/accounts?client_id=X` pattern.
+
+**Authentication:** Employee JWT + `accounts.read.all` or `accounts.read.own` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Client ID |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+
+**Response 200:**
+```json
+{
+  "accounts": [ /* array of account objects */ ],
+  "total": 3
+}
+```
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — missing required permission
+- `404` — client not found
+
+---
+
 ### GET /api/v3/accounts
 
-List all accounts with optional filters. Pass `client_id` to filter by owner. Clients looking for their own accounts should use `GET /api/v3/me/accounts` instead.
+List all accounts with optional filters. This is the supervisor's "find any account" view. To look up accounts belonging to a specific client, use `GET /api/v3/clients/:id/accounts` instead. Clients looking for their own accounts should use `GET /api/v3/me/accounts`.
 
 **Authentication:** Employee JWT + `accounts.read` permission
 
@@ -858,10 +894,11 @@ List all accounts with optional filters. Pass `client_id` to filter by owner. Cl
 |---|---|---|
 | `page` | int | Page number (default: 1) |
 | `page_size` | int | Items per page (default: 20) |
-| `name_filter` | string | Filter by account name |
-| `account_number_filter` | string | Filter by account number |
+| `name_filter` | string | Filter by account name (partial match) |
+| `account_number` | string | Look up a single account by exact account number; returns an array of 0 or 1 items (never 404) |
 | `type_filter` | string | Filter by account type |
-| `client_id` | int | Filter accounts belonging to a specific client |
+
+> **Note:** `account_number` is mutually exclusive with `name_filter` and `type_filter`. Providing more than one filter at the same time returns 400. `client_id` is no longer accepted on this endpoint — use `GET /api/v3/clients/:id/accounts` for client-scoped lookups.
 
 **Response 200:**
 ```json
@@ -914,22 +951,12 @@ Get a single account by ID.
 
 ---
 
-### GET /api/v3/accounts/by-number/:account_number
+<!-- NOTE: GET /api/v3/accounts/by-number/:account_number was removed in the v3 route
+     standardization (2026-04-28). Use GET /api/v3/accounts?account_number=<number> instead.
+     That endpoint returns an array of 0 or 1 items; it never returns 404 for a missing account.
+-->
 
-Get an account by its account number.
 
-**Authentication:** Any JWT (Employee or Client)
-
-**Path Parameters:**
-
-| Parameter | Type | Description |
-|---|---|---|
-| `account_number` | string | Full account number |
-
-**Response 200:** Account object
-**Response 404:** `{"error": "account not found"}`
-
----
 
 ### PUT /api/v3/accounts/:id/name
 
@@ -996,11 +1023,11 @@ Update the daily/monthly spending limits of an account. Requires a verification 
 
 ---
 
-### PUT /api/v3/accounts/:id/status
+### POST /api/v3/accounts/:id/activate
 
-Update the status of an account (activate, block, close, etc.).
+Activate a previously inactive account. No request body required.
 
-**Authentication:** Employee JWT + `accounts.update` permission
+**Authentication:** Employee JWT + `accounts.deactivate.any` permission
 
 **Path Parameters:**
 
@@ -1008,13 +1035,41 @@ Update the status of an account (activate, block, close, etc.).
 |---|---|---|
 | `id` | int | Account ID |
 
-**Request Body:**
+**Response 200:**
+```json
+{ "status": "active" }
+```
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `status` | string | Yes | `"active"` or `"inactive"` |
+**Error Responses:**
+- `400` — invalid account ID
+- `401` — missing or invalid JWT
+- `403` — caller lacks `accounts.deactivate.any`
+- `404` — account not found
 
-**Response 200:** Updated account object
+---
+
+### POST /api/v3/accounts/:id/deactivate
+
+Deactivate an active account. No request body required.
+
+**Authentication:** Employee JWT + `accounts.deactivate.any` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Account ID |
+
+**Response 200:**
+```json
+{ "status": "inactive" }
+```
+
+**Error Responses:**
+- `400` — invalid account ID
+- `401` — missing or invalid JWT
+- `403` — caller lacks `accounts.deactivate.any`
+- `404` — account not found
 
 ---
 
@@ -1148,18 +1203,29 @@ Get a card by ID.
 
 ---
 
-### GET /api/v3/cards
+<!-- NOTE: GET /api/v3/cards (bare collection) was removed in the v3 route standardization
+     (2026-04-28). Card lists are now scoped to a parent resource:
+       - By client:  GET /api/v3/clients/:id/cards   (requires cards.read.all or cards.read.own)
+       - By account: GET /api/v3/accounts/:id/cards  (requires cards.read.all or cards.read.own)
+     See the "Client-Scoped Sub-Collections" and "Account-Scoped Sub-Collections" sections below.
+-->
 
-List cards with optional filters. Employees can filter by `client_id` or `account_number`. Exactly one filter should be provided; if neither is provided, all cards visible to the employee are returned.
+### GET /api/v3/clients/:id/cards
 
-**Authentication:** Employee JWT + `cards.manage` permission
+List all cards belonging to a specific client.
+
+**Authentication:** Employee JWT + `cards.read.all` or `cards.read.own` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Client ID |
 
 **Query Parameters:**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `client_id` | int | Filter cards belonging to a specific client |
-| `account_number` | string | Filter cards linked to a specific account number |
 | `page` | int | Page number (default: 1) |
 | `page_size` | int | Items per page (default: 20) |
 
@@ -1170,6 +1236,45 @@ List cards with optional filters. Employees can filter by `client_id` or `accoun
   "total": 5
 }
 ```
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — missing required permission
+- `404` — client not found
+
+---
+
+### GET /api/v3/accounts/:id/cards
+
+List all cards linked to a specific account (identified by account numeric ID).
+
+**Authentication:** Employee JWT + `cards.read.all` or `cards.read.own` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Account ID (numeric, not account number string) |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+
+**Response 200:**
+```json
+{
+  "cards": [ /* array of card objects */ ],
+  "total": 5
+}
+```
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — missing required permission
+- `404` — account not found
 
 ---
 
@@ -1223,7 +1328,7 @@ Permanently deactivate a card.
 
 ---
 
-### POST /api/v3/cards/authorized-person
+### POST /api/v3/cards/authorized-persons
 
 Create an authorized person who can also hold a card linked to an existing account.
 
@@ -1515,18 +1620,62 @@ Get a payment by ID.
 
 ---
 
-### GET /api/v3/payments
+<!-- NOTE: GET /api/v3/payments?client_id=X and GET /api/v3/payments?account_number=X were
+     removed in the v3 route standardization (2026-04-28). Use the scoped endpoints:
+       - By client:  GET /api/v3/clients/:id/payments
+       - By account: GET /api/v3/accounts/:id/payments
+-->
 
-List payments with optional filters. For employees, pass `client_id` or `account_number` to filter.
+### GET /api/v3/clients/:id/payments
 
-**Authentication:** Employee JWT + `payments.read` permission
+List all payments where the specified client's accounts appear as sender or recipient.
+
+**Authentication:** Employee JWT + `accounts.read.all` or `accounts.read.own` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Client ID |
 
 **Query Parameters:**
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `client_id` | integer | -- | Filter payments where the client's accounts appear as sender or recipient |
-| `account_number` | string | -- | Filter payments for a specific account number |
+| `page` | integer | 1 | Page number |
+| `page_size` | integer | 20 | Items per page |
+
+**Response 200:**
+```json
+{
+  "payments": [ /* array of payment objects */ ],
+  "total": 87
+}
+```
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — missing required permission
+- `404` — client not found
+
+---
+
+### GET /api/v3/accounts/:id/payments
+
+List payments for a specific account, identified by account numeric ID. Supports rich date, status, and amount filters.
+
+**Authentication:** Employee JWT + `accounts.read.all` or `accounts.read.own` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Account ID (numeric, not account number string) |
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
 | `page` | integer | 1 | Page number |
 | `page_size` | integer | 20 | Items per page |
 | `date_from` | string | -- | Start date filter (RFC3339 or YYYY-MM-DD) |
@@ -1542,6 +1691,11 @@ List payments with optional filters. For employees, pass `client_id` or `account
   "total": 87
 }
 ```
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — missing required permission
+- `404` — account not found
 
 ---
 
@@ -1727,17 +1881,26 @@ Get a transfer by ID.
 
 ---
 
-### GET /api/v3/transfers
+<!-- NOTE: GET /api/v3/transfers?client_id=X was removed in the v3 route standardization
+     (2026-04-28). Use GET /api/v3/clients/:id/transfers instead.
+-->
 
-List transfers with optional filters. Pass `client_id` to filter by owner.
+### GET /api/v3/clients/:id/transfers
 
-**Authentication:** Employee JWT + `payments.read` permission
+List all currency transfers where the specified client's accounts appear as sender or recipient.
+
+**Authentication:** Employee JWT + `accounts.read.all` or `accounts.read.own` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Client ID |
 
 **Query Parameters:**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `client_id` | int | Filter transfers belonging to a specific client |
 | `page` | int | Page number (default: 1) |
 | `page_size` | int | Items per page (default: 20) |
 
@@ -1748,6 +1911,11 @@ List transfers with optional filters. Pass `client_id` to filter by owner.
   "total": 12
 }
 ```
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — missing required permission
+- `404` — client not found
 
 ---
 
@@ -2071,11 +2239,49 @@ Submit a new loan application. The `client_id` field in the request body is igno
 
 ---
 
+<!-- NOTE: GET /api/v3/loans?client_id=X was removed in the v3 route standardization
+     (2026-04-28). Use GET /api/v3/clients/:id/loans instead.
+-->
+
+### GET /api/v3/clients/:id/loans
+
+List all loans belonging to a specific client.
+
+**Authentication:** Employee JWT + `credits.read.all` or `credits.read.own` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Client ID |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default: 1) |
+| `page_size` | int | Items per page (default: 20) |
+
+**Response 200:**
+```json
+{
+  "loans": [ /* array of loan objects */ ],
+  "total": 12
+}
+```
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — missing required permission
+- `404` — client not found
+
+---
+
 ### GET /api/v3/loans
 
-List loans (employee view). Pass `client_id` to filter loans for a specific client. Clients should use `GET /api/v3/me/loans`.
+List all loans (employee view). This endpoint no longer accepts `?client_id` — use `GET /api/v3/clients/:id/loans` for client-scoped lookups. Clients should use `GET /api/v3/me/loans`.
 
-**Authentication:** Employee JWT + `credits.read` permission
+**Authentication:** Employee JWT + `credits.read.all` or `credits.read.own` permission
 
 **Query Parameters:**
 
@@ -2086,7 +2292,6 @@ List loans (employee view). Pass `client_id` to filter loans for a specific clie
 | `loan_type_filter` | string | Filter by loan type |
 | `account_number_filter` | string | Filter by account number |
 | `status_filter` | string | Filter by status |
-| `client_id` | int | Filter loans belonging to a specific client |
 
 **Response 200:**
 ```json
@@ -4827,11 +5032,11 @@ Approve a pending order.
 
 ---
 
-### POST /api/v3/orders/:id/decline
+### POST /api/v3/orders/:id/reject
 
-Decline a pending order.
+Reject a pending order that requires supervisor approval. Renamed from `/decline` in the v3 route standardization (2026-04-28) for verb consistency.
 
-**Authentication:** Employee JWT + `orders.approve` permission
+**Authentication:** Employee JWT + `orders.cancel.all` permission
 
 **Path Parameters:**
 
@@ -4840,6 +5045,12 @@ Decline a pending order.
 | `id` | int | Order ID |
 
 **Response 200:** Updated order object.
+
+**Error Responses:**
+- `401` — missing or invalid JWT
+- `403` — missing `orders.cancel.all`
+- `404` — order not found
+- `409` — order already in a terminal state
 
 ---
 
@@ -5093,11 +5304,13 @@ Purchase an OTC offer. Ownership is derived from the JWT — the account must be
 
 ---
 
-### POST /api/v3/otc/admin/offers/:id/buy
+### POST /api/v3/otc/offers/:id/buy-on-behalf
 
 Purchase an OTC offer on behalf of a named client. The gateway verifies that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. The resulting order is recorded with `acting_employee_id` set to the caller's employee ID.
 
-**Authentication:** Employee JWT + `orders.place-on-behalf` permission
+Renamed from `POST /api/v3/otc/admin/offers/:id/buy` in the v3 route standardization (2026-04-28): the `/admin/` namespace was dropped and the action verb-suffix `buy-on-behalf` was added to distinguish it from the self-service `POST /otc/offers/:id/buy`.
+
+**Authentication:** Employee JWT + `otc.trade.accept` or `orders.place-on-behalf` permission
 
 **Path Parameters:**
 
@@ -5129,7 +5342,7 @@ Purchase an OTC offer on behalf of a named client. The gateway verifies that the
 | 200 | OTC offer purchased |
 | 400 | Validation error |
 | 403 | Account does not belong to the specified client |
-| 403 | Missing `orders.place-on-behalf` permission |
+| 403 | Missing required permission |
 | 404 | Offer not found |
 
 ---
@@ -5199,11 +5412,11 @@ Reset used trading limit for an actuary back to zero.
 
 ---
 
-### PUT /api/v3/actuaries/:id/approval
+### POST /api/v3/actuaries/:id/require-approval
 
-Set whether an actuary's orders require supervisor approval.
+Require supervisor approval for all orders placed by this actuary. No request body required. Replaces `PUT /api/v3/actuaries/:id/approval` with `{"need_approval": true}`.
 
-**Authentication:** Employee JWT + `agents.manage` permission
+**Authentication:** Employee JWT + `employees.update.any` permission
 
 **Path Parameters:**
 
@@ -5211,13 +5424,35 @@ Set whether an actuary's orders require supervisor approval.
 |---|---|---|
 | `id` | int | Actuary (employee) ID |
 
-**Request Body:**
+**Response 200:** Updated actuary object.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `need_approval` | boolean | Yes | Whether orders need approval |
+**Error Responses:**
+- `400` — invalid actuary ID
+- `401` — missing or invalid JWT
+- `403` — missing `employees.update.any`
+- `404` — actuary not found
+
+---
+
+### POST /api/v3/actuaries/:id/skip-approval
+
+Remove the supervisor approval requirement for this actuary (orders go straight to the market). No request body required. Replaces `PUT /api/v3/actuaries/:id/approval` with `{"need_approval": false}`.
+
+**Authentication:** Employee JWT + `employees.update.any` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int | Actuary (employee) ID |
 
 **Response 200:** Updated actuary object.
+
+**Error Responses:**
+- `400` — invalid actuary ID
+- `401` — missing or invalid JWT
+- `403` — missing `employees.update.any`
+- `404` — actuary not found
 
 ---
 
@@ -5559,11 +5794,58 @@ Apply a blueprint's limit values to a target entity. The target type is determin
 
 ---
 
-## 33. Changelog
+## 33. Changelog (Audit Trail)
 
-**v1-only section.** Field-level change history for core entities. All changelog endpoints currently return **501 Not Implemented** and will be backed by audit trail infrastructure in a future release.
+Field-level change history for core entities. All five changelog endpoints are **fully implemented** — they return paginated audit log entries from each service's own changelog table, recording every field mutation with old value, new value, and the employee who made the change.
 
-Each endpoint requires the same permission as the parent resource's read permission.
+Each endpoint requires the same permission as the parent resource's read-all permission.
+
+**Common Query Parameters:**
+
+| Parameter | Type | Default | Max | Description |
+|---|---|---|---|---|
+| `page` | int | 1 | — | Page number |
+| `page_size` | int | 20 | 200 | Items per page |
+
+**Common Response Shape (200):**
+
+```json
+{
+  "entries": [
+    {
+      "id": 123,
+      "entity_type": "account",
+      "entity_id": 42,
+      "action": "update",
+      "field_name": "status",
+      "old_value": "\"active\"",
+      "new_value": "\"inactive\"",
+      "changed_by": 7,
+      "changed_at": "2026-04-28T14:32:11Z",
+      "reason": "Manual deactivation by supervisor"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20
+}
+```
+
+Fields:
+- `id` — changelog entry ID
+- `entity_type` — resource type (`"account"`, `"card"`, `"client"`, `"loan"`, `"employee"`)
+- `entity_id` — numeric ID of the changed entity
+- `action` — `"create"`, `"update"`, or `"delete"`
+- `field_name` — name of the changed field
+- `old_value` / `new_value` — JSON-encoded previous and current values (strings are wrapped in quotes)
+- `changed_by` — employee ID who performed the change (0 if system-initiated)
+- `changed_at` — RFC3339 timestamp
+- `reason` — free-text reason if the change came via a supervisor action (may be empty)
+
+**Common Error Responses:**
+- `400` — `id` is not a positive integer, or `page_size` > 200
+- `401` — missing or invalid JWT
+- `403` — missing required permission
 
 ---
 
@@ -5571,7 +5853,7 @@ Each endpoint requires the same permission as the parent resource's read permiss
 
 Get the field-level change history for an account.
 
-**Authentication:** Employee JWT + `accounts.read` permission
+**Authentication:** Employee JWT + `accounts.read.all`
 
 **Path Parameters:**
 
@@ -5579,16 +5861,7 @@ Get the field-level change history for an account.
 |---|---|---|
 | `id` | int | Account ID |
 
-**Response:** `501 Not Implemented`
-
-```json
-{
-  "error": {
-    "code": "not_implemented",
-    "message": "this endpoint is coming in a future release"
-  }
-}
-```
+**Response 200:** Common changelog shape (see above), `entity_type: "account"`.
 
 ---
 
@@ -5596,7 +5869,7 @@ Get the field-level change history for an account.
 
 Get the field-level change history for an employee.
 
-**Authentication:** Employee JWT + `employees.read` permission
+**Authentication:** Employee JWT + `employees.read.all`
 
 **Path Parameters:**
 
@@ -5604,16 +5877,7 @@ Get the field-level change history for an employee.
 |---|---|---|
 | `id` | int | Employee ID |
 
-**Response:** `501 Not Implemented`
-
-```json
-{
-  "error": {
-    "code": "not_implemented",
-    "message": "this endpoint is coming in a future release"
-  }
-}
-```
+**Response 200:** Common changelog shape (see above), `entity_type: "employee"`.
 
 ---
 
@@ -5621,7 +5885,7 @@ Get the field-level change history for an employee.
 
 Get the field-level change history for a client.
 
-**Authentication:** Employee JWT + `clients.read` permission
+**Authentication:** Employee JWT + `clients.read.all`
 
 **Path Parameters:**
 
@@ -5629,24 +5893,15 @@ Get the field-level change history for a client.
 |---|---|---|
 | `id` | int | Client ID |
 
-**Response:** `501 Not Implemented`
-
-```json
-{
-  "error": {
-    "code": "not_implemented",
-    "message": "this endpoint is coming in a future release"
-  }
-}
-```
+**Response 200:** Common changelog shape (see above), `entity_type: "client"`.
 
 ---
 
 ### GET /api/v3/cards/:id/changelog
 
-Get the field-level change history for a card.
+Get the field-level change history for a payment card.
 
-**Authentication:** Employee JWT + `cards.read` permission
+**Authentication:** Employee JWT + `cards.read.all`
 
 **Path Parameters:**
 
@@ -5654,16 +5909,7 @@ Get the field-level change history for a card.
 |---|---|---|
 | `id` | int | Card ID |
 
-**Response:** `501 Not Implemented`
-
-```json
-{
-  "error": {
-    "code": "not_implemented",
-    "message": "this endpoint is coming in a future release"
-  }
-}
-```
+**Response 200:** Common changelog shape (see above), `entity_type: "card"`.
 
 ---
 
@@ -5671,7 +5917,7 @@ Get the field-level change history for a card.
 
 Get the field-level change history for a loan.
 
-**Authentication:** Employee JWT + `credits.read` permission
+**Authentication:** Employee JWT + `credits.read.all`
 
 **Path Parameters:**
 
@@ -5679,16 +5925,7 @@ Get the field-level change history for a loan.
 |---|---|---|
 | `id` | int | Loan ID |
 
-**Response:** `501 Not Implemented`
-
-```json
-{
-  "error": {
-    "code": "not_implemented",
-    "message": "this endpoint is coming in a future release"
-  }
-}
-```
+**Response 200:** Common changelog shape (see above), `entity_type: "loan"`.
 
 ---
 
@@ -5730,23 +5967,22 @@ List all active sessions for the authenticated user.
 
 ---
 
-### POST /api/v3/me/sessions/revoke
+### DELETE /api/v3/me/sessions/:id
 
-Revoke a specific session by ID, logging out the device associated with it.
+Revoke a specific session by ID, logging out the device associated with it. Renamed from `POST /api/v3/me/sessions/revoke` (which read the session ID from the request body) in the v3 route standardization (2026-04-28). No request body required.
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
-**Request Body:**
+**Path Parameters:**
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `session_id` | int64 | Yes | ID of the session to revoke |
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | int64 | Session ID to revoke |
 
 **Example Request:**
-```json
-{
-  "session_id": 42
-}
+```
+DELETE /api/v3/me/sessions/42
+Authorization: Bearer <token>
 ```
 
 **Response 200:**
@@ -5759,7 +5995,7 @@ Revoke a specific session by ID, logging out the device associated with it.
 | Status | Description |
 |---|---|
 | 200 | Session revoked |
-| 400 | Invalid input |
+| 400 | Invalid or missing session ID |
 | 401 | Unauthorized |
 | 404 | Session not found |
 
@@ -5969,17 +6205,19 @@ Mark all unread notifications as read for the authenticated user.
 
 ---
 
-## 36. Admin — Stock Data Source
+## 36. Stock Data Source
 
-**v1-only section.** Admin-only endpoints for managing the stock-service data source. Switching sources is **destructive** — it wipes every securities row, listing, option, order, holding, capital gain, tax collection, and order transaction, then reseeds from the new source. Use with care.
+Admin-only endpoints for managing the stock-service data source. Switching sources is **destructive** — it wipes every securities row, listing, option, order, holding, capital gain, tax collection, and order transaction, then reseeds from the new source. Use with care.
 
-**Authentication:** `AuthMiddleware` + permission `securities.manage` (seeded on `EmployeeAdmin` only)
+Routes were moved from `/api/v3/admin/stock-source` to `/api/v3/stock-sources` in the v3 route standardization (2026-04-28).
+
+**Authentication:** `AuthMiddleware` + permission `securities.manage.catalog` (seeded on `EmployeeAdmin` only)
 
 ---
 
-### POST /api/v3/admin/stock-source
+### POST /api/v3/stock-sources
 
-Switch the active stock data source and reseed the database. For `generated`, the reseed runs synchronously (response returns after the DB is ready). For `external` and `simulator`, the reseed runs in a background goroutine and the response returns immediately with `status: "reseeding"`; poll `GET /api/v3/admin/stock-source` to watch for `status: "idle"`.
+Switch the active stock data source and reseed the database. For `generated`, the reseed runs synchronously (response returns after the DB is ready). For `external` and `simulator`, the reseed runs in a background goroutine and the response returns immediately with `status: "reseeding"`; poll `GET /api/v3/stock-sources/active` to watch for `status: "idle"`.
 
 **Request Body:**
 
@@ -6003,16 +6241,18 @@ Switch the active stock data source and reseed the database. For `generated`, th
 **Error Responses:**
 
 - `400 validation_error` — unknown `source` value
-- `403 forbidden` — missing `securities.manage` permission
+- `403 forbidden` — missing `securities.manage.catalog` permission
 - `409 conflict` — another switch is already in progress
 - `500 internal_error` — wipe or reseed failed; check `last_error` via GET
 - `503 unavailable` — simulator unreachable (when `source=simulator`)
 
 ---
 
-### GET /api/v3/admin/stock-source
+### GET /api/v3/stock-sources/active
 
 Return the current active source and the most recent switch status.
+
+**Authentication:** `AuthMiddleware` + permission `securities.manage.catalog`
 
 **Response 200:**
 
