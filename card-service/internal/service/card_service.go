@@ -17,6 +17,7 @@ import (
 	"github.com/exbanka/card-service/internal/repository"
 	"github.com/exbanka/contract/changelog"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	shared "github.com/exbanka/contract/shared"
 	"github.com/shopspring/decimal"
 )
 
@@ -159,7 +160,7 @@ func (s *CardService) BlockCard(id uint64, changedBy int64) (*model.Card, error)
 			return fmt.Errorf("BlockCard(id=%d): %w", id, ErrCardDeactivated)
 		}
 		card.Status = "blocked"
-		return tx.Save(card).Error
+		return shared.CheckRowsAffected(tx.Save(card))
 	})
 	if err == nil {
 		CardStatusChangesTotal.WithLabelValues("block").Inc()
@@ -187,7 +188,7 @@ func (s *CardService) UnblockCard(id uint64, changedBy int64) (*model.Card, erro
 			return fmt.Errorf("UnblockCard(id=%d): %w", id, ErrCardNotBlocked)
 		}
 		card.Status = "active"
-		return tx.Save(card).Error
+		return shared.CheckRowsAffected(tx.Save(card))
 	})
 	if err == nil {
 		CardStatusChangesTotal.WithLabelValues("unblock").Inc()
@@ -217,7 +218,7 @@ func (s *CardService) DeactivateCard(id uint64, changedBy int64) (*model.Card, e
 		}
 		oldStatus = card.Status
 		card.Status = "deactivated"
-		return tx.Save(card).Error
+		return shared.CheckRowsAffected(tx.Save(card))
 	})
 	if err == nil {
 		CardStatusChangesTotal.WithLabelValues("deactivate").Inc()
@@ -336,12 +337,12 @@ func (s *CardService) VerifyPin(cardID uint64, pin string) (bool, error) {
 				CardPinAttemptsTotal.WithLabelValues("failure").Inc()
 			}
 			ok = false
-			return tx.Save(card).Error
+			return shared.CheckRowsAffected(tx.Save(card))
 		}
 		card.PinAttempts = 0
 		ok = true
 		CardPinAttemptsTotal.WithLabelValues("success").Inc()
-		return tx.Save(card).Error
+		return shared.CheckRowsAffected(tx.Save(card))
 	})
 	return ok, err
 }
@@ -359,7 +360,7 @@ func (s *CardService) TemporaryBlockCard(ctx context.Context, cardID uint64, dur
 			return e
 		}
 		card.Status = "blocked"
-		if e = tx.Save(card).Error; e != nil {
+		if e = shared.CheckRowsAffected(tx.Save(card)); e != nil {
 			return e
 		}
 		block := &model.CardBlock{
@@ -400,7 +401,7 @@ func (s *CardService) UseCard(cardID uint64) error {
 		if card.UsesRemaining == 0 {
 			card.Status = "deactivated"
 		}
-		return tx.Save(card).Error
+		return shared.CheckRowsAffected(tx.Save(card))
 	})
 	if err == nil {
 		s.invalidateCardCache(cardID)

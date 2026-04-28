@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/exbanka/card-service/internal/repository"
-	"github.com/exbanka/contract/shared"
+	shared "github.com/exbanka/contract/shared"
 )
 
 // StartCardCron launches the card maintenance loop. It exits when ctx is cancelled.
@@ -43,7 +43,7 @@ func runCardCronTick(ctx context.Context, cardRepo *repository.CardRepository, b
 				return e
 			}
 			card.Status = "active"
-			return tx.Save(card).Error
+			return shared.CheckRowsAffected(tx.Save(card))
 		}); txErr != nil {
 			log.Printf("card cron: failed to unblock card %d (block %d): %v", cardID, blockID, txErr)
 		}
@@ -66,7 +66,7 @@ func runCardCronTick(ctx context.Context, cardRepo *repository.CardRepository, b
 				return nil // already done by concurrent tick
 			}
 			locked.Status = "deactivated"
-			return tx.Save(locked).Error
+			return shared.CheckRowsAffected(tx.Save(locked))
 		}); txErr != nil {
 			log.Printf("card cron: failed to deactivate virtual card %d: %v", card.ID, txErr)
 		}
