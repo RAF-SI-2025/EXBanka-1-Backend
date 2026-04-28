@@ -1,8 +1,12 @@
 package repository
 
 import (
-	"github.com/exbanka/user-service/internal/model"
+	"fmt"
+
 	"gorm.io/gorm"
+
+	"github.com/exbanka/user-service/internal/model"
+	shared "github.com/exbanka/contract/shared"
 )
 
 type EmployeeRepository struct {
@@ -47,7 +51,14 @@ func (r *EmployeeRepository) GetByEmail(email string) (*model.Employee, error) {
 }
 
 func (r *EmployeeRepository) Update(emp *model.Employee) error {
-	return r.db.Save(emp).Error
+	saveRes := r.db.Save(emp)
+	if saveRes.Error != nil {
+		return saveRes.Error
+	}
+	if saveRes.RowsAffected == 0 {
+		return fmt.Errorf("update employee(id=%d): %w", emp.ID, shared.ErrOptimisticLock)
+	}
+	return nil
 }
 
 func (r *EmployeeRepository) GetByJMBG(jmbg string) (*model.Employee, error) {

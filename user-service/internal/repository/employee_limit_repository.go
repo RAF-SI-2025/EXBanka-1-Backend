@@ -2,11 +2,13 @@ package repository
 
 import (
 	"errors"
+	"fmt"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/user-service/internal/model"
+	shared "github.com/exbanka/contract/shared"
 )
 
 type EmployeeLimitRepository struct {
@@ -36,7 +38,14 @@ func (r *EmployeeLimitRepository) GetByEmployeeID(employeeID int64) (*model.Empl
 }
 
 func (r *EmployeeLimitRepository) Update(limit *model.EmployeeLimit) error {
-	return r.db.Save(limit).Error
+	saveRes := r.db.Save(limit)
+	if saveRes.Error != nil {
+		return saveRes.Error
+	}
+	if saveRes.RowsAffected == 0 {
+		return fmt.Errorf("update employee_limit(employee_id=%d): %w", limit.EmployeeID, shared.ErrOptimisticLock)
+	}
+	return nil
 }
 
 func (r *EmployeeLimitRepository) Delete(employeeID int64) error {
