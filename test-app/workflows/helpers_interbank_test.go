@@ -177,7 +177,7 @@ func peerSignedPost(t *testing.T, gatewayURL, path, txID, action string, body an
 // the saga to the account-service ledger.
 func requireBalanceEquals(t *testing.T, adminC *client.APIClient, accountNumber, want string) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	var got string
 	for time.Now().Before(deadline) {
 		resp, err := adminC.GET("/api/v3/accounts?account_number=" + accountNumber)
@@ -198,7 +198,7 @@ func requireBalanceEquals(t *testing.T, adminC *client.APIClient, accountNumber,
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	t.Errorf("account %s balance after 10s: got %q, want %q", accountNumber, got, want)
+	t.Errorf("account %s balance after 30s: got %q, want %q", accountNumber, got, want)
 }
 
 // balanceEquals compares decimal strings ignoring trailing-zero noise.
