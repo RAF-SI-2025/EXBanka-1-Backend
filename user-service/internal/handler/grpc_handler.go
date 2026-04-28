@@ -41,12 +41,13 @@ type roleFacade interface {
 
 type UserGRPCHandler struct {
 	pb.UnimplementedUserServiceServer
-	empService employeeFacade
-	roleSvc    roleFacade
+	empService       employeeFacade
+	roleSvc          roleFacade
+	changelogService *service.ChangelogService
 }
 
-func NewUserGRPCHandler(empService *service.EmployeeService, roleSvc *service.RoleService) *UserGRPCHandler {
-	return &UserGRPCHandler{empService: empService, roleSvc: roleSvc}
+func NewUserGRPCHandler(empService *service.EmployeeService, roleSvc *service.RoleService, changelogService *service.ChangelogService) *UserGRPCHandler {
+	return &UserGRPCHandler{empService: empService, roleSvc: roleSvc, changelogService: changelogService}
 }
 
 // newUserHandlerForTest constructs a UserGRPCHandler with interface-typed dependencies
@@ -267,6 +268,30 @@ func (h *UserGRPCHandler) SetEmployeeAdditionalPermissions(ctx context.Context, 
 		return nil, status.Errorf(codes.NotFound, "employee not found")
 	}
 	return toEmployeeResponse(emp, h.empService), nil
+}
+
+// ListChangelog returns paginated audit-log entries for an entity.
+func (h *UserGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangelogRequest) (*pb.ListChangelogResponse, error) {
+	entries, total, err := h.changelogService.ListChangelog(req.GetEntityType(), req.GetEntityId(), int(req.GetPage()), int(req.GetPageSize()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
 func toEmployeeResponse(emp *model.Employee, empSvc employeeFacade) *pb.EmployeeResponse {

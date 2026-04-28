@@ -100,6 +100,7 @@ func main() {
 
 	changelogRepo := repository.NewChangelogRepository(db)
 	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc, changelogRepo)
+	changelogSvc := service.NewChangelogService(changelogRepo)
 	limitSvc := service.NewLimitService(employeeLimitRepo, limitTemplateRepo, repo, producer, changelogRepo)
 
 	if err := limitSvc.SeedDefaultTemplates(); err != nil {
@@ -167,7 +168,7 @@ func main() {
 		}
 	}
 
-	grpcHandler := handler.NewUserGRPCHandler(empService, roleSvc)
+	grpcHandler := handler.NewUserGRPCHandler(empService, roleSvc, changelogSvc)
 	limitHandler := handler.NewLimitGRPCHandler(limitSvc)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
