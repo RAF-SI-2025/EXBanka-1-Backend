@@ -23,12 +23,12 @@ import (
 // function fields. Keeps existing stubPortfolioClient (in
 // options_v2_handler_test.go) untouched.
 type portfolioStub struct {
-	listFn          func(*stockpb.ListHoldingsRequest) (*stockpb.ListHoldingsResponse, error)
-	summaryFn       func(*stockpb.GetPortfolioSummaryRequest) (*stockpb.PortfolioSummary, error)
-	makePublicFn    func(*stockpb.MakePublicRequest) (*stockpb.Holding, error)
-	exerciseFn      func(*stockpb.ExerciseOptionRequest) (*stockpb.ExerciseResult, error)
-	listTxFn        func(*stockpb.ListHoldingTransactionsRequest) (*stockpb.ListHoldingTransactionsResponse, error)
-	exerciseByIDFn  func(*stockpb.ExerciseOptionByOptionIDRequest) (*stockpb.ExerciseResult, error)
+	listFn         func(*stockpb.ListHoldingsRequest) (*stockpb.ListHoldingsResponse, error)
+	summaryFn      func(*stockpb.GetPortfolioSummaryRequest) (*stockpb.PortfolioSummary, error)
+	makePublicFn   func(*stockpb.MakePublicRequest) (*stockpb.Holding, error)
+	exerciseFn     func(*stockpb.ExerciseOptionRequest) (*stockpb.ExerciseResult, error)
+	listTxFn       func(*stockpb.ListHoldingTransactionsRequest) (*stockpb.ListHoldingTransactionsResponse, error)
+	exerciseByIDFn func(*stockpb.ExerciseOptionByOptionIDRequest) (*stockpb.ExerciseResult, error)
 }
 
 func (s *portfolioStub) ListHoldings(_ context.Context, in *stockpb.ListHoldingsRequest, _ ...grpc.CallOption) (*stockpb.ListHoldingsResponse, error) {

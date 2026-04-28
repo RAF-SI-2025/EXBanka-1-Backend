@@ -60,9 +60,14 @@ func TestAuth_LoginWithValidCredentials(t *testing.T) {
 }
 
 func TestAuth_LoginWithInvalidPassword(t *testing.T) {
+	// Use a throwaway employee instead of cfg.AdminEmail so this wrong-password
+	// attempt does not pollute the shared admin lockout counter (which can
+	// trigger account-lockout when multiple parallel tests hit admin).
+	adminC := loginAsAdmin(t)
+	_, _, _, email := setupActivatedClient(t, adminC)
 	c := newClient()
 	resp, err := c.POST("/api/v3/auth/login", map[string]string{
-		"email":    cfg.AdminEmail,
+		"email":    email,
 		"password": "wrongpassword",
 	})
 	if err != nil {
@@ -102,9 +107,12 @@ func TestAuth_LoginWithEmptyFields(t *testing.T) {
 		t.Fatal("expected failure with empty email")
 	}
 
-	// Empty password
+	// Empty password — use a throwaway employee, NOT cfg.AdminEmail (admin
+	// lockout pollution risk under parallel test execution).
+	adminC := loginAsAdmin(t)
+	_, _, _, email := setupActivatedClient(t, adminC)
 	resp, err = c.POST("/api/v3/auth/login", map[string]string{
-		"email":    cfg.AdminEmail,
+		"email":    email,
 		"password": "",
 	})
 	if err != nil {

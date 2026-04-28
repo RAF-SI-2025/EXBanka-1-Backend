@@ -534,7 +534,7 @@ git commit -m "test: confirm v1/v2 paths return 404 after consolidation"
 - [ ] **Step 1: Delete the old docs**
 
 ```bash
-git rm docs/api/REST_API.md docs/api/REST_API_v1.md docs/api/REST_API_v2.md
+git rm docs/api/REST_API.md docs/api/REST_API_v3.md docs/api/REST_API_v2.md
 git mv docs/api/REST_API_v3.md docs/api/REST_API.md
 ```
 

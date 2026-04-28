@@ -16,9 +16,9 @@ import (
 // row to completed; on peer NOT_FOUND it transitions to failed and runs the
 // owning saga's compensation.
 type CrossbankCheckStatusCron struct {
-	logs     *repository.InterBankSagaLogRepository
-	peers    CrossbankPeerRouter
-	producer *kafkaprod.Producer
+	logs      *repository.InterBankSagaLogRepository
+	peers     CrossbankPeerRouter
+	producer  *kafkaprod.Producer
 	tickEvery time.Duration
 	staleAge  time.Duration
 }

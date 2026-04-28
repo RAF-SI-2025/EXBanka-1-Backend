@@ -289,6 +289,7 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 		AccountNumber:   loan.AccountNumber,
 		Amount:          amountStr,
 		UpdateAvailable: true,
+		IdempotencyKey:  reference + ":credit",
 	})
 	if creditErr != nil {
 		// Compensate: return the money to the bank (idempotent by reference).

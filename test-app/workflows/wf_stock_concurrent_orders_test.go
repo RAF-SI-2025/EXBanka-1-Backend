@@ -3,6 +3,7 @@
 package workflows
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -60,7 +61,7 @@ func TestWF_StockConcurrentOrders_RespectsAvailableBalance(t *testing.T) {
 				"direction":   "buy",
 				"order_type":  "limit",
 				"quantity":    quantity,
-				"limit_value": limitPrice,
+				"limit_value": fmt.Sprintf("%.6f", limitPrice),
 				"all_or_none": false,
 				"margin":      false,
 				"account_id":  accountID,

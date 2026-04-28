@@ -20,12 +20,12 @@ type Config struct {
 	MetricsPort          string
 
 	// Inter-bank 2PC tuning (Spec 3 §9.1).
-	InterbankPrepareTimeout           time.Duration
-	InterbankCommitTimeout            time.Duration
-	InterbankReceiverWait             time.Duration
-	InterbankReconcileInterval        time.Duration
-	InterbankReconcileMaxRetries      int
-	InterbankReconcileStaleAfter      time.Duration
+	InterbankPrepareTimeout      time.Duration
+	InterbankCommitTimeout       time.Duration
+	InterbankReceiverWait        time.Duration
+	InterbankReconcileInterval   time.Duration
+	InterbankReconcileMaxRetries int
+	InterbankReconcileStaleAfter time.Duration
 
 	// Per-peer endpoint + HMAC keys.
 	OwnBankCode        string

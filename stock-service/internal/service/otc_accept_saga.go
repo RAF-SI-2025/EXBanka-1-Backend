@@ -127,7 +127,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	// until step 1 runs; capture it via a local var the later closures
 	// reference. Step 1 always runs first so subsequent forwards/backwards
 	// see the populated id.
-	settleMemo := fmt.Sprintf("OTC premium for contract")
+	settleMemo := "OTC premium for contract"
 	idemSeller := ""
 	creditMemo := ""
 

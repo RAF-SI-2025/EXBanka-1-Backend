@@ -62,10 +62,10 @@ func (s *stubProducer) PublishChallengeFailed(_ context.Context, msg kafkamsg.Ve
 }
 
 type stubAuthClient struct {
-	enabled    bool
-	err        error
-	lastReq    *authpb.CheckBiometricsRequest
-	callCount  int
+	enabled   bool
+	err       error
+	lastReq   *authpb.CheckBiometricsRequest
+	callCount int
 }
 
 func (s *stubAuthClient) CheckBiometricsEnabled(_ context.Context, in *authpb.CheckBiometricsRequest, _ ...grpc.CallOption) (*authpb.CheckBiometricsResponse, error) {

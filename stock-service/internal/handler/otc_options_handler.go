@@ -331,13 +331,6 @@ func toOTCOfferProto(o *model.OTCOffer, unread bool) *stockpb.OTCOfferResponse {
 	return resp
 }
 
-func derefStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
 // ownerIDEqual reports whether two nullable owner-id pointers reference the
 // same logical owner. Both nil = same (bank == bank). Mirror of the helper in
 // internal/service.

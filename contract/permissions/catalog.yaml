@@ -77,6 +77,10 @@ permissions:
   - funds.read.all
   - funds.manage.catalog
 
+  # actuaries (agent management by supervisors)
+  - actuaries.read.all
+  - actuaries.manage.any
+
   # employees
   - employees.create.any
   - employees.read.all
@@ -142,6 +146,8 @@ default_roles:
   EmployeeSupervisor:
     inherits: [EmployeeAgent]
     grants:
+      - actuaries.read.all
+      - actuaries.manage.any
       - clients.read.all
       - clients.update.limits
       - accounts.read.all

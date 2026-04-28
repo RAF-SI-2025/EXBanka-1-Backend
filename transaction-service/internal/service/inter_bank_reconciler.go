@@ -15,12 +15,12 @@ import (
 // /internal/inter-bank/check-status endpoint for any local row stuck in
 // `reconciling` and advances it according to Spec 3 §9.4.
 type InterBankReconciler struct {
-	svc           *InterBankService
-	interval      time.Duration
-	maxRetries    int
-	staleAfter    time.Duration
+	svc            *InterBankService
+	interval       time.Duration
+	maxRetries     int
+	staleAfter     time.Duration
 	prepareTimeout time.Duration
-	batchSize     int
+	batchSize      int
 }
 
 // NewInterBankReconciler constructs the cron.

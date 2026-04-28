@@ -48,7 +48,7 @@ func TestEmployee_ListEmployees_WithEntries(t *testing.T) {
 	user := &stubUserClient{
 		listEmployeesFn: func(_ *userpb.ListEmployeesRequest) (*userpb.ListEmployeesResponse, error) {
 			return &userpb.ListEmployeesResponse{
-				Employees: []*userpb.EmployeeResponse{{Id: 1, FirstName: "A"}, {Id: 2, FirstName: "B"}},
+				Employees:  []*userpb.EmployeeResponse{{Id: 1, FirstName: "A"}, {Id: 2, FirstName: "B"}},
 				TotalCount: 2,
 			}, nil
 		},

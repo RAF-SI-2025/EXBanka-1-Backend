@@ -11,16 +11,16 @@ import (
 
 func TestToListingInfo_PopulatesID(t *testing.T) {
 	info := toListingInfo(
-		42,                              // listingID
-		7,                               // exchangeID
-		"NYSE",                          // exchangeAcronym
-		"USD",                           // exchangeCurrency
-		decimal.NewFromInt(100),         // price
-		decimal.NewFromInt(101),         // high
-		decimal.NewFromInt(99),          // low
-		decimal.NewFromInt(1),           // change
-		1_234_567,                       // volume
-		decimal.NewFromInt(50),          // initialMarginCost
+		42,                      // listingID
+		7,                       // exchangeID
+		"NYSE",                  // exchangeAcronym
+		"USD",                   // exchangeCurrency
+		decimal.NewFromInt(100), // price
+		decimal.NewFromInt(101), // high
+		decimal.NewFromInt(99),  // low
+		decimal.NewFromInt(1),   // change
+		1_234_567,               // volume
+		decimal.NewFromInt(50),  // initialMarginCost
 		time.Unix(1_700_000_000, 0).UTC(),
 	)
 	if info.Currency != "USD" {

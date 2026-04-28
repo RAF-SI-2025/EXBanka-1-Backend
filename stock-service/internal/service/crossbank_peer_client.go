@@ -109,14 +109,14 @@ func (c *CrossbankPeerClient) PeerListOffers(ctx context.Context, since, request
 // ---------- Phase-2 RESERVE_SHARES ----------
 
 type PeerReserveSharesRequest struct {
-	TxID            string `json:"txId"`
-	SagaKind        string `json:"sagaKind"`
-	OfferID         uint64 `json:"offerId"`
-	ContractID      uint64 `json:"contractId,omitempty"`
-	AssetListingID  uint64 `json:"assetListingId"`
-	Quantity        string `json:"quantity"`
-	BuyerBankCode   string `json:"buyerBankCode"`
-	SellerBankCode  string `json:"sellerBankCode"`
+	TxID           string `json:"txId"`
+	SagaKind       string `json:"sagaKind"`
+	OfferID        uint64 `json:"offerId"`
+	ContractID     uint64 `json:"contractId,omitempty"`
+	AssetListingID uint64 `json:"assetListingId"`
+	Quantity       string `json:"quantity"`
+	BuyerBankCode  string `json:"buyerBankCode"`
+	SellerBankCode string `json:"sellerBankCode"`
 }
 
 type PeerReserveSharesResponse struct {
@@ -136,14 +136,14 @@ func (c *CrossbankPeerClient) ReserveShares(ctx context.Context, req PeerReserve
 // ---------- Phase-4 TRANSFER_OWNERSHIP ----------
 
 type PeerTransferOwnershipRequest struct {
-	TxID                  string `json:"txId"`
-	ContractID            uint64 `json:"contractId"`
-	AssetListingID        uint64 `json:"assetListingId"`
-	Quantity              string `json:"quantity"`
-	FromBankCode          string `json:"fromBankCode"`
-	FromClientIDExternal  string `json:"fromClientIdExternal"`
-	ToBankCode            string `json:"toBankCode"`
-	ToClientIDExternal    string `json:"toClientIdExternal"`
+	TxID                 string `json:"txId"`
+	ContractID           uint64 `json:"contractId"`
+	AssetListingID       uint64 `json:"assetListingId"`
+	Quantity             string `json:"quantity"`
+	FromBankCode         string `json:"fromBankCode"`
+	FromClientIDExternal string `json:"fromClientIdExternal"`
+	ToBankCode           string `json:"toBankCode"`
+	ToClientIDExternal   string `json:"toClientIdExternal"`
 }
 
 type PeerTransferOwnershipResponse struct {

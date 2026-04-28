@@ -444,11 +444,11 @@ func (m *mockStubAccountClient) ListChangelog(context.Context, *accountpb.ListCh
 // fakeAccountClient implements AccountClientAPI (the narrow interface
 // OrderService depends on).
 type fakeAccountClient struct {
-	stub          *mockStubAccountClient
-	reserveCalls  []reserveCall
-	releaseCalls  []uint64
-	reserveErr    error
-	releaseErr    error
+	stub         *mockStubAccountClient
+	reserveCalls []reserveCall
+	releaseCalls []uint64
+	reserveErr   error
+	releaseErr   error
 }
 
 type reserveCall struct {
@@ -579,7 +579,9 @@ type fakeForexRepo struct {
 	pairs map[uint64]*model.ForexPair
 }
 
-func newFakeForexRepo() *fakeForexRepo { return &fakeForexRepo{pairs: make(map[uint64]*model.ForexPair)} }
+func newFakeForexRepo() *fakeForexRepo {
+	return &fakeForexRepo{pairs: make(map[uint64]*model.ForexPair)}
+}
 
 func (f *fakeForexRepo) add(p *model.ForexPair) { f.pairs[p.ID] = p }
 
@@ -595,12 +597,12 @@ func (f *fakeForexRepo) GetByID(id uint64) (*model.ForexPair, error) {
 // Stores a per-employee ActuaryLimitInfo and records increment/decrement
 // calls so tests can assert used_limit accounting.
 type fakeActuaryClient struct {
-	infos             map[uint64]*stockgrpc.ActuaryLimitInfo
-	getErr            error
-	incrementCalls    []limitCall
-	decrementCalls    []limitCall
-	incrementErr      error
-	decrementErr      error
+	infos          map[uint64]*stockgrpc.ActuaryLimitInfo
+	getErr         error
+	incrementCalls []limitCall
+	decrementCalls []limitCall
+	incrementErr   error
+	decrementErr   error
 }
 
 type limitCall struct {
@@ -679,7 +681,7 @@ func newFakeOrderSettings() *fakeOrderSettings {
 	}
 }
 
-func (f *fakeOrderSettings) CommissionRate() decimal.Decimal   { return f.commission }
+func (f *fakeOrderSettings) CommissionRate() decimal.Decimal    { return f.commission }
 func (f *fakeOrderSettings) MarketSlippagePct() decimal.Decimal { return f.slippage }
 
 // ---------------------------------------------------------------------------

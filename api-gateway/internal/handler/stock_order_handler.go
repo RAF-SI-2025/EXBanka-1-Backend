@@ -36,16 +36,16 @@ func NewStockOrderHandler(client stockpb.OrderGRPCServiceClient, accountClient a
 // @Router       /api/v2/me/orders [post]
 func (h *StockOrderHandler) CreateOrder(c *gin.Context) {
 	var req struct {
-		SecurityType  string  `json:"security_type"`
-		ListingID     uint64  `json:"listing_id"`
-		HoldingID     uint64  `json:"holding_id"`
-		Direction     string  `json:"direction"`
-		OrderType     string  `json:"order_type"`
-		Quantity      int64   `json:"quantity"`
-		LimitValue    *string `json:"limit_value"`
-		StopValue     *string `json:"stop_value"`
-		AllOrNone     bool    `json:"all_or_none"`
-		Margin        bool    `json:"margin"`
+		SecurityType     string  `json:"security_type"`
+		ListingID        uint64  `json:"listing_id"`
+		HoldingID        uint64  `json:"holding_id"`
+		Direction        string  `json:"direction"`
+		OrderType        string  `json:"order_type"`
+		Quantity         int64   `json:"quantity"`
+		LimitValue       *string `json:"limit_value"`
+		StopValue        *string `json:"stop_value"`
+		AllOrNone        bool    `json:"all_or_none"`
+		Margin           bool    `json:"margin"`
 		AccountID        uint64  `json:"account_id"`
 		BaseAccountID    *uint64 `json:"base_account_id,omitempty"`
 		OnBehalfOfFundID uint64  `json:"on_behalf_of_fund_id,omitempty"`

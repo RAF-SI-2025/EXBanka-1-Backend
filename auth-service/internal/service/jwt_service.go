@@ -16,13 +16,13 @@ func generateJTI() string {
 }
 
 type Claims struct {
-	PrincipalID       int64    `json:"principal_id"`              // was: user_id; the principal's primary-key id
+	PrincipalID       int64    `json:"principal_id"` // was: user_id; the principal's primary-key id
 	Email             string   `json:"email"`
 	Roles             []string `json:"roles"`
 	Permissions       []string `json:"permissions"`
-	PrincipalType     string   `json:"principal_type"`            // was: system_type; "employee" or "client"
-	DeviceType        string   `json:"device_type,omitempty"`     // "mobile" for mobile app tokens, empty for browser
-	DeviceID          string   `json:"device_id,omitempty"`       // UUID of registered mobile device
+	PrincipalType     string   `json:"principal_type"`        // was: system_type; "employee" or "client"
+	DeviceType        string   `json:"device_type,omitempty"` // "mobile" for mobile app tokens, empty for browser
+	DeviceID          string   `json:"device_id,omitempty"`   // UUID of registered mobile device
 	FirstName         string   `json:"first_name,omitempty"`
 	LastName          string   `json:"last_name,omitempty"`
 	AccountActive     bool     `json:"account_active"`

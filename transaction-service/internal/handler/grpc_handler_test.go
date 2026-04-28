@@ -70,10 +70,10 @@ func (m *mockPaymentFacade) ListPaymentsByClient(accountNumbers []string, page, 
 // --
 
 type mockTransferFacade struct {
-	createTransferFn                 func(ctx context.Context, transfer *model.Transfer) error
-	executeTransferFn                func(ctx context.Context, transferID uint64) error
-	getTransferFn                    func(id uint64) (*model.Transfer, error)
-	listTransfersByAccountNumbersFn  func(accountNumbers []string, page, pageSize int) ([]model.Transfer, int64, error)
+	createTransferFn                func(ctx context.Context, transfer *model.Transfer) error
+	executeTransferFn               func(ctx context.Context, transferID uint64) error
+	getTransferFn                   func(id uint64) (*model.Transfer, error)
+	listTransfersByAccountNumbersFn func(accountNumbers []string, page, pageSize int) ([]model.Transfer, int64, error)
 }
 
 func (m *mockTransferFacade) CreateTransfer(ctx context.Context, transfer *model.Transfer) error {
@@ -107,11 +107,11 @@ func (m *mockTransferFacade) ListTransfersByAccountNumbers(accountNumbers []stri
 // --
 
 type mockRecipientFacade struct {
-	createFn      func(pr *model.PaymentRecipient) error
-	getByIDFn     func(id uint64) (*model.PaymentRecipient, error)
+	createFn       func(pr *model.PaymentRecipient) error
+	getByIDFn      func(id uint64) (*model.PaymentRecipient, error)
 	listByClientFn func(clientID uint64) ([]model.PaymentRecipient, error)
-	updateFn      func(id uint64, recipientName, accountNumber *string) (*model.PaymentRecipient, error)
-	deleteFn      func(id uint64) error
+	updateFn       func(id uint64, recipientName, accountNumber *string) (*model.PaymentRecipient, error)
+	deleteFn       func(id uint64) error
 }
 
 func (m *mockRecipientFacade) Create(pr *model.PaymentRecipient) error {
@@ -152,9 +152,9 @@ func (m *mockRecipientFacade) Delete(id uint64) error {
 // --
 
 type mockTxProducer struct {
-	publishPaymentCreatedFn   func(ctx context.Context, msg kafkamsg.PaymentCompletedMessage) error
-	publishPaymentCompletedFn func(ctx context.Context, msg kafkamsg.PaymentCompletedMessage) error
-	publishTransferCreatedFn  func(ctx context.Context, msg kafkamsg.TransferCompletedMessage) error
+	publishPaymentCreatedFn    func(ctx context.Context, msg kafkamsg.PaymentCompletedMessage) error
+	publishPaymentCompletedFn  func(ctx context.Context, msg kafkamsg.PaymentCompletedMessage) error
+	publishTransferCreatedFn   func(ctx context.Context, msg kafkamsg.TransferCompletedMessage) error
 	publishTransferCompletedFn func(ctx context.Context, msg kafkamsg.TransferCompletedMessage) error
 }
 

@@ -71,9 +71,9 @@ type CommitBody struct {
 
 // CommittedBody — receiver → sender (Spec 3 §6.6).
 type CommittedBody struct {
-	CreditedAt        string `json:"creditedAt"`
-	CreditedAmount    string `json:"creditedAmount"`
-	CreditedCurrency  string `json:"creditedCurrency"`
+	CreditedAt       string `json:"creditedAt"`
+	CreditedAmount   string `json:"creditedAmount"`
+	CreditedCurrency string `json:"creditedCurrency"`
 }
 
 // CheckStatusBody — either direction (Spec 3 §6.7 request).

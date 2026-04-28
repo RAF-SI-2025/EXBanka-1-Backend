@@ -187,7 +187,6 @@ func (m *mockHoldingRepo) addHolding(h *model.Holding) {
 	m.holdings[h.ID] = &stored
 }
 
-
 // mockCapitalGainRepo records created capital gains.
 type mockCapitalGainRepo struct {
 	gains          []model.CapitalGain
@@ -2341,8 +2340,8 @@ func TestProcessBuyFill_SameCurrency_HappyPath(t *testing.T) {
 
 	order := &model.Order{
 		ID:           1,
-		OwnerType: model.OwnerClient,
-		OwnerID:   ptrU64(77),
+		OwnerType:    model.OwnerClient,
+		OwnerID:      ptrU64(77),
 		ListingID:    1,
 		SecurityType: "stock",
 		Ticker:       "AAPL",
@@ -2424,8 +2423,8 @@ func TestProcessBuyFill_CrossCurrency_ConvertsAmount(t *testing.T) {
 
 	order := &model.Order{
 		ID:           1,
-		OwnerType: model.OwnerClient,
-		OwnerID:   ptrU64(77),
+		OwnerType:    model.OwnerClient,
+		OwnerID:      ptrU64(77),
 		ListingID:    1,
 		SecurityType: "stock",
 		Ticker:       "AAPL",

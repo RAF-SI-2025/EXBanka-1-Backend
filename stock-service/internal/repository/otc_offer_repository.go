@@ -9,7 +9,6 @@ import (
 	"github.com/exbanka/stock-service/internal/model"
 )
 
-
 type OTCOfferRepository struct {
 	db *gorm.DB
 }
@@ -160,4 +159,3 @@ func (r *OTCOfferRepository) SumActiveQuantityForSeller(sellerOwnerType model.Ow
 	}
 	return rows[0].Sum, nil
 }
-

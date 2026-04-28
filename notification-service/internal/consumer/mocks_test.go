@@ -103,8 +103,8 @@ func (s *stubGenericPublisher) callCount() int {
 
 // stubGeneralNotificationCreator captures Create calls.
 type stubGeneralNotificationCreator struct {
-	mu       sync.Mutex
-	created  []*model.GeneralNotification
+	mu        sync.Mutex
+	created   []*model.GeneralNotification
 	createErr error
 }
 

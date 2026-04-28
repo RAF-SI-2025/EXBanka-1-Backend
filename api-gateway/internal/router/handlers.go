@@ -56,34 +56,34 @@ type Deps struct {
 // (NewHandlers) takes a single Deps argument so adding a new dependency
 // doesn't ripple into every router version.
 type Handlers struct {
-	Auth           *handler.AuthHandler
-	Employee       *handler.EmployeeHandler
-	Role           *handler.RoleHandler
-	Limit          *handler.LimitHandler
-	Client         *handler.ClientHandler
-	Account        *handler.AccountHandler
-	Card           *handler.CardHandler
-	Tx             *handler.TransactionHandler
-	Exchange       *handler.ExchangeHandler
-	Credit         *handler.CreditHandler
-	Me             *handler.MeHandler
-	Session        *handler.SessionHandler
-	StockExchange  *handler.StockExchangeHandler
-	Securities     *handler.SecuritiesHandler
-	StockOrder     *handler.StockOrderHandler
-	Portfolio      *handler.PortfolioHandler
-	Actuary        *handler.ActuaryHandler
-	Blueprint      *handler.BlueprintHandler
-	Tax            *handler.TaxHandler
-	StockSource    *handler.StockSourceHandler
-	Notification   *handler.NotificationHandler
-	MobileAuth     *handler.MobileAuthHandler
-	Verification   *handler.VerificationHandler
-	OptionsV2      *handler.OptionsV2Handler
-	Fund           *handler.InvestmentFundHandler
-	OTCOptions     *handler.OTCOptionsHandler
-	InterBankPub   *handler.InterBankPublicHandler
-	Changelog      *handler.ChangelogHandler
+	Auth          *handler.AuthHandler
+	Employee      *handler.EmployeeHandler
+	Role          *handler.RoleHandler
+	Limit         *handler.LimitHandler
+	Client        *handler.ClientHandler
+	Account       *handler.AccountHandler
+	Card          *handler.CardHandler
+	Tx            *handler.TransactionHandler
+	Exchange      *handler.ExchangeHandler
+	Credit        *handler.CreditHandler
+	Me            *handler.MeHandler
+	Session       *handler.SessionHandler
+	StockExchange *handler.StockExchangeHandler
+	Securities    *handler.SecuritiesHandler
+	StockOrder    *handler.StockOrderHandler
+	Portfolio     *handler.PortfolioHandler
+	Actuary       *handler.ActuaryHandler
+	Blueprint     *handler.BlueprintHandler
+	Tax           *handler.TaxHandler
+	StockSource   *handler.StockSourceHandler
+	Notification  *handler.NotificationHandler
+	MobileAuth    *handler.MobileAuthHandler
+	Verification  *handler.VerificationHandler
+	OptionsV2     *handler.OptionsV2Handler
+	Fund          *handler.InvestmentFundHandler
+	OTCOptions    *handler.OTCOptionsHandler
+	InterBankPub  *handler.InterBankPublicHandler
+	Changelog     *handler.ChangelogHandler
 }
 
 // NewHandlers wires every handler from the supplied gRPC client deps.

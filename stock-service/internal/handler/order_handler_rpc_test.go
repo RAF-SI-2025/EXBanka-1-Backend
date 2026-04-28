@@ -22,13 +22,13 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockOrderSvc struct {
-	createFn     func(ctx context.Context, req service.CreateOrderRequest) (*model.Order, error)
-	getFn        func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, []model.OrderTransaction, error)
-	listMyFn     func(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
-	cancelFn     func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error)
-	listAllFn    func(filter repository.OrderFilter) ([]model.Order, int64, error)
-	approveFn    func(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
-	declineFn    func(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
+	createFn  func(ctx context.Context, req service.CreateOrderRequest) (*model.Order, error)
+	getFn     func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, []model.OrderTransaction, error)
+	listMyFn  func(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
+	cancelFn  func(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error)
+	listAllFn func(filter repository.OrderFilter) ([]model.Order, int64, error)
+	approveFn func(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
+	declineFn func(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
 }
 
 func (m *mockOrderSvc) CreateOrder(ctx context.Context, req service.CreateOrderRequest) (*model.Order, error) {

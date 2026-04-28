@@ -250,14 +250,14 @@ func positionDTOsToProto(rows []service.PositionDTO) []*stockpb.PositionItem {
 	out := make([]*stockpb.PositionItem, 0, len(rows))
 	for _, p := range rows {
 		out = append(out, &stockpb.PositionItem{
-			FundId:           p.FundID,
-			FundName:         p.FundName,
-			ManagerFullName:  p.ManagerFullName,
-			ContributionRsd:  p.ContributionRSD.String(),
-			PercentageFund:   p.PercentageFund.String(),
-			CurrentValueRsd:  p.CurrentValueRSD.String(),
-			ProfitRsd:        p.ProfitRSD.String(),
-			LastChangedAt:    p.LastChangedAt.Format("2006-01-02T15:04:05Z07:00"),
+			FundId:          p.FundID,
+			FundName:        p.FundName,
+			ManagerFullName: p.ManagerFullName,
+			ContributionRsd: p.ContributionRSD.String(),
+			PercentageFund:  p.PercentageFund.String(),
+			CurrentValueRsd: p.CurrentValueRSD.String(),
+			ProfitRsd:       p.ProfitRSD.String(),
+			LastChangedAt:   p.LastChangedAt.Format("2006-01-02T15:04:05Z07:00"),
 		})
 	}
 	return out

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -21,10 +20,7 @@ import (
 
 // fakeNonceClaim is an in-memory drop-in for cache.NonceStore that lets the
 // test exercise the middleware without spinning up Redis.
-type fakeNonceClaim struct {
-	mu   sync.Mutex
-	seen map[string]bool
-}
+type fakeNonceClaim struct{}
 
 func newFakeNonceStore() *cache.NonceStore { return cache.NewNonceStore(nil, 0) }
 

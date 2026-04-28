@@ -9,16 +9,16 @@ import (
 
 // Order represents a buy or sell order for a security listing.
 type Order struct {
-	ID         uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
-	OwnerType  OwnerType `gorm:"size:8;not null;index:idx_order_owner,priority:1;check:owner_type IN ('client','bank')" json:"owner_type"`
-	OwnerID    *uint64   `gorm:"index:idx_order_owner,priority:2" json:"owner_id"`
-	ListingID  uint64    `gorm:"not null;index" json:"listing_id"`
-	Listing    Listing   `gorm:"foreignKey:ListingID" json:"-"`
-	HoldingID  *uint64   `gorm:"index" json:"holding_id"` // for sell orders, references portfolio holding
+	ID        uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
+	OwnerType OwnerType `gorm:"size:8;not null;index:idx_order_owner,priority:1;check:owner_type IN ('client','bank')" json:"owner_type"`
+	OwnerID   *uint64   `gorm:"index:idx_order_owner,priority:2" json:"owner_id"`
+	ListingID uint64    `gorm:"not null;index" json:"listing_id"`
+	Listing   Listing   `gorm:"foreignKey:ListingID" json:"-"`
+	HoldingID *uint64   `gorm:"index" json:"holding_id"` // for sell orders, references portfolio holding
 	// FundID is non-nil when the order was placed on behalf of an investment
 	// fund. owner_type is then "bank" (owner_id IS NULL). Fills credit
 	// fund_holdings instead of holdings.
-	FundID *uint64 `gorm:"index" json:"fund_id,omitempty"`
+	FundID            *uint64          `gorm:"index" json:"fund_id,omitempty"`
 	SecurityType      string           `gorm:"size:10;not null" json:"security_type"`
 	Ticker            string           `gorm:"size:30;not null" json:"ticker"`
 	Direction         string           `gorm:"size:4;not null" json:"direction"`   // "buy" or "sell"
@@ -37,8 +37,8 @@ type Order struct {
 	AfterHours        bool             `gorm:"not null;default:false" json:"after_hours"`
 	AllOrNone         bool             `gorm:"not null;default:false" json:"all_or_none"`
 	Margin            bool             `gorm:"not null;default:false" json:"margin"`
-	AccountID        uint64  `gorm:"not null" json:"account_id"`
-	ActingEmployeeID *uint64 `gorm:"index" json:"acting_employee_id,omitempty"`
+	AccountID         uint64           `gorm:"not null" json:"account_id"`
+	ActingEmployeeID  *uint64          `gorm:"index" json:"acting_employee_id,omitempty"`
 	// Reservation metadata populated on placement; read on cancellation and
 	// recovery. Nullable because historical orders pre-date Phase 2.
 	ReservationAmount    *decimal.Decimal `gorm:"type:numeric(18,4)" json:"reservation_amount,omitempty"`
@@ -53,19 +53,19 @@ type Order struct {
 	// orders.
 	PlacementRate *decimal.Decimal `gorm:"type:numeric(18,8)" json:"placement_rate,omitempty"`
 	// SagaID links this order to its placement-saga rows in saga_logs.
-	SagaID           string `gorm:"size:36;index" json:"saga_id,omitempty"`
+	SagaID string `gorm:"size:36;index" json:"saga_id,omitempty"`
 	// LimitAmountRSD is the RSD-equivalent of the reservation at placement
 	// time, used for actuary limit tracking (UpdateUsedLimit on approve /
 	// pro-rata refund on cancel). Nil for client orders and for employee
 	// orders whose employee has no actuary limit row.
-	LimitAmountRSD   *decimal.Decimal `gorm:"type:numeric(18,4)" json:"limit_amount_rsd,omitempty"`
+	LimitAmountRSD *decimal.Decimal `gorm:"type:numeric(18,4)" json:"limit_amount_rsd,omitempty"`
 	// LimitActuaryID is the actuary_limits.id to UpdateUsedLimit against on
 	// approve/cancel. Nil when LimitAmountRSD is nil.
-	LimitActuaryID   *uint64 `json:"limit_actuary_id,omitempty"`
-	Version          int64  `gorm:"not null;default:1" json:"-"`
-	LastModification  time.Time        `json:"last_modification"`
-	CreatedAt         time.Time        `json:"created_at"`
-	UpdatedAt         time.Time        `json:"updated_at"`
+	LimitActuaryID   *uint64   `json:"limit_actuary_id,omitempty"`
+	Version          int64     `gorm:"not null;default:1" json:"-"`
+	LastModification time.Time `json:"last_modification"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 func (o *Order) BeforeSave(tx *gorm.DB) error {

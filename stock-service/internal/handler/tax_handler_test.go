@@ -16,11 +16,11 @@ import (
 )
 
 type mockTaxHandlerSvc struct {
-	listFn        func(year, month int, filter service.TaxFilter) ([]service.TaxUserSummary, int64, error)
-	getSummaryFn  func(ownerType model.OwnerType, ownerID *uint64) (decimal.Decimal, decimal.Decimal, error)
-	listUserFn    func(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
-	listCollFn    func(ownerType model.OwnerType, ownerID *uint64) ([]model.TaxCollection, error)
-	collectFn     func(year, month int) (int64, decimal.Decimal, int64, error)
+	listFn       func(year, month int, filter service.TaxFilter) ([]service.TaxUserSummary, int64, error)
+	getSummaryFn func(ownerType model.OwnerType, ownerID *uint64) (decimal.Decimal, decimal.Decimal, error)
+	listUserFn   func(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
+	listCollFn   func(ownerType model.OwnerType, ownerID *uint64) ([]model.TaxCollection, error)
+	collectFn    func(year, month int) (int64, decimal.Decimal, int64, error)
 }
 
 func (m *mockTaxHandlerSvc) ListTaxRecords(year, month int, filter service.TaxFilter) ([]service.TaxUserSummary, int64, error) {

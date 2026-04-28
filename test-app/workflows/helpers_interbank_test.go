@@ -172,25 +172,33 @@ func peerSignedPost(t *testing.T, gatewayURL, path, txID, action string, body an
 }
 
 // requireBalanceEquals fetches the account via the admin API and asserts
-// `balance` matches `want` to 4 decimal places.
+// `balance` matches `want` to 4 decimal places. Polls for up to 10s because
+// inter-bank Commit returns success before the credit propagates through
+// the saga to the account-service ledger.
 func requireBalanceEquals(t *testing.T, adminC *client.APIClient, accountNumber, want string) {
 	t.Helper()
-	resp, err := adminC.GET("/api/v3/accounts?account_number=" + accountNumber)
-	if err != nil {
-		t.Fatalf("get account: %v", err)
+	deadline := time.Now().Add(30 * time.Second)
+	var got string
+	for time.Now().Before(deadline) {
+		resp, err := adminC.GET("/api/v3/accounts?account_number=" + accountNumber)
+		if err != nil {
+			t.Fatalf("get account: %v", err)
+		}
+		if resp.StatusCode != 200 {
+			t.Fatalf("get account status %d: %s", resp.StatusCode, string(resp.RawBody))
+		}
+		accounts, _ := resp.Body["accounts"].([]any)
+		if len(accounts) == 0 {
+			t.Fatalf("no accounts found for %s", accountNumber)
+		}
+		first, _ := accounts[0].(map[string]any)
+		got, _ = first["balance"].(string)
+		if balanceEquals(got, want) {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
 	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("get account status %d: %s", resp.StatusCode, string(resp.RawBody))
-	}
-	accounts, _ := resp.Body["accounts"].([]any)
-	if len(accounts) == 0 {
-		t.Fatalf("no accounts found for %s", accountNumber)
-	}
-	first, _ := accounts[0].(map[string]any)
-	got, _ := first["balance"].(string)
-	if !balanceEquals(got, want) {
-		t.Errorf("account %s balance: got %q, want %q", accountNumber, got, want)
-	}
+	t.Errorf("account %s balance after 30s: got %q, want %q", accountNumber, got, want)
 }
 
 // balanceEquals compares decimal strings ignoring trailing-zero noise.

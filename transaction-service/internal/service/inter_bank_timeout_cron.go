@@ -13,9 +13,9 @@ import (
 // InterBankTimeoutCron is the receiver-side cron that abandons pending
 // reservations whose Commit never arrived within ReceiverWait (Spec 3 §9.5).
 type InterBankTimeoutCron struct {
-	svc      *InterBankService
-	interval time.Duration
-	wait     time.Duration
+	svc       *InterBankService
+	interval  time.Duration
+	wait      time.Duration
 	batchSize int
 }
 

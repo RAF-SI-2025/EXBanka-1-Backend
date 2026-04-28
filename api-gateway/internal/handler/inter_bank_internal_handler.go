@@ -134,6 +134,7 @@ func (h *InterBankInternalHandler) Prepare(c *gin.Context) {
 		Amount:           inner.Amount,
 		Currency:         inner.Currency,
 		Memo:             inner.Memo,
+		IdempotencyKey:   env.TransactionID + ":prepare",
 	})
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "downstream_error", "message": err.Error()}})
@@ -185,11 +186,12 @@ func (h *InterBankInternalHandler) Commit(c *gin.Context) {
 		return
 	}
 	resp, err := h.client.HandleCommit(c.Request.Context(), &transactionpb.InterBankCommitRequest{
-		TransactionId: env.TransactionID,
-		FinalAmount:   inner.FinalAmount,
-		FinalCurrency: inner.FinalCurrency,
-		FxRate:        inner.FxRate,
-		Fees:          inner.Fees,
+		TransactionId:  env.TransactionID,
+		FinalAmount:    inner.FinalAmount,
+		FinalCurrency:  inner.FinalCurrency,
+		FxRate:         inner.FxRate,
+		Fees:           inner.Fees,
+		IdempotencyKey: env.TransactionID + ":commit",
 	})
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"code": "downstream_error", "message": err.Error()}})

@@ -55,13 +55,13 @@ type FundService struct {
 
 	// saga deps (optional; wired via WithSaga). Nil → Invest/Redeem return
 	// errSagaDepsNotWired. Tests that exercise plain CRUD can skip the wiring.
-	sagaRepo  SagaLogRepo
-	accounts  FundAccountClient
-	exchange  FundExchangeClient
-	contribs  *repository.FundContributionRepository
-	positions *repository.ClientFundPositionRepository
-	holdings  *repository.FundHoldingRepository
-	settings  FundSettings
+	sagaRepo         SagaLogRepo
+	accounts         FundAccountClient
+	exchange         FundExchangeClient
+	contribs         *repository.FundContributionRepository
+	positions        *repository.ClientFundPositionRepository
+	holdings         *repository.FundHoldingRepository
+	settings         FundSettings
 	bankRSDAccountFn func(context.Context) (string, uint64, error)
 
 	// position-reads deps (optional; wired via WithPositionReads).

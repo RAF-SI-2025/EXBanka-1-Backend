@@ -937,17 +937,6 @@ func approvalActor(systemType string) string {
 	return ""
 }
 
-// approvalActorForOwner is approvalActor specialised on the new owner_type
-// surface. Bank-owned orders self-approve; client orders self-approve only
-// when no acting employee is involved (the call site handles that branch by
-// passing systemType="employee" to the legacy approvalActor instead).
-func approvalActorForOwner(t model.OwnerType) string {
-	if t == model.OwnerBank {
-		return "no need for approval"
-	}
-	return "no need for approval"
-}
-
 // defaultOrderSettings is used when NewOrderService is invoked with a nil
 // settings provider. The constants are tuned in the file preamble.
 type defaultOrderSettings struct{}

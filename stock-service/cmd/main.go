@@ -16,13 +16,13 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	clientpb "github.com/exbanka/contract/clientpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
-	transactionpb "github.com/exbanka/contract/transactionpb"
 	"github.com/exbanka/contract/influx"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
 	"github.com/exbanka/contract/shared/outbox"
 	pb "github.com/exbanka/contract/stockpb"
+	transactionpb "github.com/exbanka/contract/transactionpb"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/config"
@@ -321,7 +321,6 @@ func main() {
 	fundContribRepo := repository.NewFundContributionRepository(db)
 	fundPositionRepo := repository.NewClientFundPositionRepository(db)
 	fundHoldingRepo := repository.NewFundHoldingRepository(db)
-
 
 	// --- Name Resolver ---
 	nameResolver := service.UserNameResolver(func(ownerType model.OwnerType, ownerID *uint64) (string, string, error) {
@@ -750,11 +749,11 @@ func (a *outboxKafkaAdapter) Publish(ctx context.Context, topic string, payload 
 // commission, forex trade commission, OTC commission). Separate from
 // cfg.StateAccountNo which is reserved for capital-gains tax collection.
 type bankCommissionAccountAdapter struct {
-	bankClient  accountpb.BankAccountServiceClient
-	mu          sync.Mutex
-	cached      string
-	cachedAt    time.Time
-	cacheTTL    time.Duration
+	bankClient accountpb.BankAccountServiceClient
+	mu         sync.Mutex
+	cached     string
+	cachedAt   time.Time
+	cacheTTL   time.Duration
 }
 
 func newBankCommissionAccountAdapter(conn *grpc.ClientConn) *bankCommissionAccountAdapter {

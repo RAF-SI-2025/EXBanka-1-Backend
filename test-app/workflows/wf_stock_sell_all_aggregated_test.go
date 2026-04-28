@@ -41,8 +41,8 @@ func TestWF_SellAllAcrossAggregatedHolding(t *testing.T) {
 	helpers.RequireStatus(t, acctBResp, 201)
 	acctBnum := helpers.GetStringField(t, acctBResp, "account_number")
 
-	acctAID := getAccountIDByNumber(t, clientC, acctAnum)
-	acctBID := getAccountIDByNumber(t, clientC, acctBnum)
+	acctAID := getAccountIDByNumber(t, adminC, acctAnum)
+	acctBID := getAccountIDByNumber(t, adminC, acctBnum)
 
 	// Pick a stock listing to trade.
 	_, listingID := getFirstStockListingID(t, clientC)

@@ -83,13 +83,13 @@ func (m *mockEmpSvc) ResolvePermissions(emp *model.Employee) []string {
 // ---------------------------------------------------------------------------
 
 type mockRoleSvc struct {
-	listRolesFn          func() ([]model.Role, error)
-	getRoleFn            func(id int64) (*model.Role, error)
-	createRoleFn         func(name, description string, perms []string) (*model.Role, error)
-	updateRoleFn         func(roleID int64, perms []string) error
-	assignPermFn         func(roleID int64, perm string) error
-	revokePermFn         func(roleID int64, perm string) error
-	listPermsFn          func() ([]model.Permission, error)
+	listRolesFn  func() ([]model.Role, error)
+	getRoleFn    func(id int64) (*model.Role, error)
+	createRoleFn func(name, description string, perms []string) (*model.Role, error)
+	updateRoleFn func(roleID int64, perms []string) error
+	assignPermFn func(roleID int64, perm string) error
+	revokePermFn func(roleID int64, perm string) error
+	listPermsFn  func() ([]model.Permission, error)
 }
 
 func (m *mockRoleSvc) ListRoles() ([]model.Role, error) {

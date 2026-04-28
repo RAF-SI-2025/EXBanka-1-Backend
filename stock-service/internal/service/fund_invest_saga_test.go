@@ -22,12 +22,12 @@ import (
 type fakeFundAccountClient struct {
 	accounts map[uint64]*accountpb.AccountResponse
 
-	debitCalls       []accountCall
-	creditCalls      []accountCall
-	getAccountCalls  int
-	failGetAccount   error
-	failDebitOnce    error // returned once if non-nil, then cleared
-	failCreditOnce   error // same
+	debitCalls             []accountCall
+	creditCalls            []accountCall
+	getAccountCalls        int
+	failGetAccount         error
+	failDebitOnce          error            // returned once if non-nil, then cleared
+	failCreditOnce         error            // same
 	specificCreditFailures map[string]error // key = account number
 }
 
@@ -113,8 +113,8 @@ func (f *fakeFundAccountClient) sumCredited(accountNumber string) decimal.Decima
 }
 
 type fakeFundExchangeClient struct {
-	rate    string
-	convert string
+	rate     string
+	convert  string
 	failNext error
 }
 

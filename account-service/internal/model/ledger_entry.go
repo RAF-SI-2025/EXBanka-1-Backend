@@ -26,7 +26,7 @@ type LedgerEntry struct {
 	// both PostgreSQL (production) and the SQLite build used in tests
 	// (modernc glebarez/sqlite). Pre-existing rows with an empty string are
 	// untouched by the constraint.
-	IdempotencyKey string    `gorm:"size:128;uniqueIndex:idx_ledger_idempotency_key,where:idempotency_key <> ''" json:"idempotency_key,omitempty"`
+	IdempotencyKey string `gorm:"size:128;uniqueIndex:idx_ledger_idempotency_key,where:idempotency_key <> ''" json:"idempotency_key,omitempty"`
 	// SagaID and SagaStep are stamped onto rows created from inside a saga
 	// step (read from context.Context via contract/shared/saga). They make
 	// cross-service auditing trivial: SELECT * FROM ledger_entries WHERE

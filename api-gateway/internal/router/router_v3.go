@@ -14,17 +14,6 @@ import (
 	perms "github.com/exbanka/contract/permissions"
 )
 
-// notImplemented returns a 501 handler for endpoints planned but not yet backed by gRPC.
-func notImplemented(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": gin.H{
-			"code":    "not_implemented",
-			"message": "this endpoint is coming in a future release",
-		},
-	})
-}
-
-
 // NewRouter creates the Gin engine with CORS, metrics, and Swagger.
 // SetupV3 (and any future SetupV4) attach their routes to this engine.
 //
@@ -711,18 +700,15 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 
 		// Actuary (agent) management
 		actuariesRead := protected.Group("/actuaries")
-		actuariesRead.Use(middleware.RequirePermission(perms.Employees.Read.All))
+		actuariesRead.Use(middleware.RequirePermission(perms.Actuaries.Read.All))
 		{
 			actuariesRead.GET("", h.Actuary.ListActuaries)
-			// Performance read sits with the rest of /actuaries — funds.read.all
-			// is broader than employees.read.all, but ListActuaries already
-			// requires employees.read.all so anyone reaching this group has
-			// read access. The handler itself does no perm check beyond the
-			// group middleware, matching prior behavior at /actuaries/performance.
+			// Performance read sits with the rest of /actuaries — supervisors
+			// have actuaries.read.all so they reach this group.
 			actuariesRead.GET("/performance", h.Fund.ActuaryPerformance)
 		}
 		actuariesAssign := protected.Group("/actuaries")
-		actuariesAssign.Use(middleware.RequirePermission(perms.Employees.Update.Any))
+		actuariesAssign.Use(middleware.RequirePermission(perms.Actuaries.Manage.Any))
 		{
 			actuariesAssign.PUT("/:id/limit", h.Actuary.SetActuaryLimit)
 			// Approval action pair — bodyless POST, idempotent.
@@ -730,7 +716,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			actuariesAssign.POST("/:id/skip-approval", h.Actuary.SkipApproval)
 		}
 		actuariesUnassign := protected.Group("/actuaries")
-		actuariesUnassign.Use(middleware.RequirePermission(perms.Employees.Update.Any))
+		actuariesUnassign.Use(middleware.RequirePermission(perms.Actuaries.Manage.Any))
 		{
 			actuariesUnassign.POST("/:id/reset-limit", h.Actuary.ResetActuaryLimit)
 		}

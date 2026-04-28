@@ -16,14 +16,14 @@ import "testing"
 // safe: the drainer picks up unpublished rows on restart.
 //
 // What this test should verify (when implemented):
-//   1. Configure stock-service with a controllable drainer (e.g.
-//      env-toggle to disable the goroutine).
-//   2. Run an OTC accept saga to completion. Assert outbox row exists
-//      with published_at = NULL.
-//   3. Re-enable the drainer / restart the service.
-//   4. Poll Kafka for the otc.contract-created event; assert it
-//      eventually arrives.
-//   5. Assert the outbox row's published_at is now non-NULL.
+//  1. Configure stock-service with a controllable drainer (e.g.
+//     env-toggle to disable the goroutine).
+//  2. Run an OTC accept saga to completion. Assert outbox row exists
+//     with published_at = NULL.
+//  3. Re-enable the drainer / restart the service.
+//  4. Poll Kafka for the otc.contract-created event; assert it
+//     eventually arrives.
+//  5. Assert the outbox row's published_at is now non-NULL.
 //
 // This is currently a t.Skip placeholder because the test-app harness
 // can't yet kill / restart individual docker-compose services mid-test.
