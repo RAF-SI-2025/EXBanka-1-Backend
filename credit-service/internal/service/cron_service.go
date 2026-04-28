@@ -180,8 +180,10 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 
 				// Wrap both writes in a single transaction to prevent partial updates.
 				txErr := c.db.Transaction(func(tx *gorm.DB) error {
-					if e := tx.Save(loan).Error; e != nil {
-						return e
+					if saveRes := tx.Save(loan); saveRes.Error != nil {
+						return saveRes.Error
+					} else if saveRes.RowsAffected == 0 {
+						return fmt.Errorf("optimistic lock conflict: loan %d was modified concurrently", loan.ID)
 					}
 					return tx.Session(&gorm.Session{SkipHooks: true}).
 						Model(&model.Installment{}).

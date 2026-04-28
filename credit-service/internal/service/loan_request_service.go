@@ -236,8 +236,10 @@ func (s *LoanRequestService) ApproveLoanRequest(ctx context.Context, requestID u
 		}
 
 		locked.Status = "approved"
-		if e := tx.Save(locked).Error; e != nil {
-			return fmt.Errorf("ApproveLoanRequest(id=%d) save status: %v: %w", requestID, e, ErrLoanPersistFailed)
+		if saveRes := tx.Save(locked); saveRes.Error != nil {
+			return fmt.Errorf("ApproveLoanRequest(id=%d) save status: %v: %w", requestID, saveRes.Error, ErrLoanPersistFailed)
+		} else if saveRes.RowsAffected == 0 {
+			return fmt.Errorf("ApproveLoanRequest(id=%d) save status: %w", requestID, ErrLoanPersistFailed)
 		}
 		return nil
 	})
@@ -333,9 +335,11 @@ func (s *LoanRequestService) RejectLoanRequest(requestID uint64, changedBy int64
 				requestID, locked.Status, ErrLoanRequestNotPending)
 		}
 		locked.Status = "rejected"
-		if e := tx.Save(locked).Error; e != nil {
+		if saveRes := tx.Save(locked); saveRes.Error != nil {
 			return fmt.Errorf("RejectLoanRequest(id=%d, loan_type=%s, amount=%s, account=%s) save: %v: %w",
-				requestID, locked.LoanType, locked.Amount.StringFixed(2), locked.AccountNumber, e, ErrLoanPersistFailed)
+				requestID, locked.LoanType, locked.Amount.StringFixed(2), locked.AccountNumber, saveRes.Error, ErrLoanPersistFailed)
+		} else if saveRes.RowsAffected == 0 {
+			return fmt.Errorf("RejectLoanRequest(id=%d) save: %w", requestID, ErrLoanPersistFailed)
 		}
 		req = locked
 		return nil
