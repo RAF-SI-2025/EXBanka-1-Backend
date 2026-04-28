@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/creditpb"
@@ -67,6 +69,7 @@ type CreditGRPCHandler struct {
 	loanRepo           *repository.LoanRepository
 	installRepo        *repository.InstallmentRepository
 	producer           creditProducer
+	changelogService   *service.ChangelogService
 }
 
 func NewCreditGRPCHandler(
@@ -77,6 +80,7 @@ func NewCreditGRPCHandler(
 	loanRepo *repository.LoanRepository,
 	installRepo *repository.InstallmentRepository,
 	producer *kafkaprod.Producer,
+	changelogService *service.ChangelogService,
 ) *CreditGRPCHandler {
 	return &CreditGRPCHandler{
 		loanRequestService: loanRequestService,
@@ -86,6 +90,7 @@ func NewCreditGRPCHandler(
 		loanRepo:           loanRepo,
 		installRepo:        installRepo,
 		producer:           producer,
+		changelogService:   changelogService,
 	}
 }
 
@@ -427,6 +432,30 @@ func (h *CreditGRPCHandler) ApplyVariableRateUpdate(ctx context.Context, req *pb
 		return nil, err
 	}
 	return &pb.ApplyVariableRateUpdateResponse{AffectedLoans: int32(affected)}, nil
+}
+
+// ListChangelog returns paginated audit-log entries for an entity.
+func (h *CreditGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangelogRequest) (*pb.ListChangelogResponse, error) {
+	entries, total, err := h.changelogService.ListChangelog(req.GetEntityType(), req.GetEntityId(), int(req.GetPage()), int(req.GetPageSize()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
 func toInterestRateTierResponse(t *model.InterestRateTier) *pb.InterestRateTierResponse {
