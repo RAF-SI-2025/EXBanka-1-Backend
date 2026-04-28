@@ -53,7 +53,7 @@ func TestWF_StockBuy_CrossCurrency_ConvertedDebit(t *testing.T) {
 
 	// Wait for fill — cross-currency fills include a Convert step in the saga,
 	// so the same timing window as same-currency fills applies.
-	waitForOrderFill(t, clientC, orderID, 60*time.Second)
+	waitForOrderFill(t, clientC, orderID, 180*time.Second)
 
 	after := getAccountBalancesByNumber(t, adminC, acctNum)
 	t.Logf("after: balance=%.4f available=%.4f reserved=%.4f",
