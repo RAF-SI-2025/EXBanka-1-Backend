@@ -51,6 +51,8 @@ var Catalog = []Permission{
 	"funds.redeem.own",
 	"funds.read.all",
 	"funds.manage.catalog",
+	"actuaries.read.all",
+	"actuaries.manage.any",
 	"employees.create.any",
 	"employees.read.all",
 	"employees.update.any",
@@ -115,6 +117,26 @@ var Accounts = struct {
 	}{
 		Limits: "accounts.update.limits",
 		Name:   "accounts.update.name",
+	},
+}
+
+var Actuaries = struct {
+	Manage struct {
+		Any Permission
+	}
+	Read struct {
+		All Permission
+	}
+}{
+	Manage: struct {
+		Any Permission
+	}{
+		Any: "actuaries.manage.any",
+	},
+	Read: struct {
+		All Permission
+	}{
+		All: "actuaries.read.all",
 	},
 }
 
@@ -583,6 +605,8 @@ var DefaultRoles = map[string][]Permission{
 		"accounts.read.own",
 		"accounts.update.limits",
 		"accounts.update.name",
+		"actuaries.manage.any",
+		"actuaries.read.all",
 		"bank_accounts.manage.any",
 		"cards.approve.physical",
 		"cards.approve.virtual",
@@ -687,6 +711,8 @@ var DefaultRoles = map[string][]Permission{
 		"accounts.read.own",
 		"accounts.update.limits",
 		"accounts.update.name",
+		"actuaries.manage.any",
+		"actuaries.read.all",
 		"bank_accounts.manage.any",
 		"cards.approve.physical",
 		"cards.approve.virtual",
