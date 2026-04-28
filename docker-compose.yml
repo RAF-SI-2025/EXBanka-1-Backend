@@ -692,13 +692,7 @@ services:
       NOTIFICATION_GRPC_ADDR: "notification-service:50053"
       KAFKA_BROKERS: kafka:9092
       METRICS_PORT: "9100"
-      # Inter-bank HMAC verification (Spec 3 §8). Redis backs the nonce
-      # store; per-peer plaintext inbound keys verify HMAC signatures.
-      REDIS_ADDR: "redis:6379"
       OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
-      PEER_222_INBOUND_KEY: "${PEER_222_INBOUND_KEY:-test-222-key}"
-      PEER_333_INBOUND_KEY: "${PEER_333_INBOUND_KEY:-}"
-      PEER_444_INBOUND_KEY: "${PEER_444_INBOUND_KEY:-}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
