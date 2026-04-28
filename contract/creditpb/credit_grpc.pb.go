@@ -35,6 +35,7 @@ const (
 	CreditService_ListBankMargins_FullMethodName         = "/credit.CreditService/ListBankMargins"
 	CreditService_UpdateBankMargin_FullMethodName        = "/credit.CreditService/UpdateBankMargin"
 	CreditService_ApplyVariableRateUpdate_FullMethodName = "/credit.CreditService/ApplyVariableRateUpdate"
+	CreditService_ListChangelog_FullMethodName           = "/credit.CreditService/ListChangelog"
 )
 
 // CreditServiceClient is the client API for CreditService service.
@@ -60,6 +61,9 @@ type CreditServiceClient interface {
 	UpdateBankMargin(ctx context.Context, in *UpdateBankMarginRequest, opts ...grpc.CallOption) (*BankMarginResponse, error)
 	// Variable rate propagation
 	ApplyVariableRateUpdate(ctx context.Context, in *ApplyVariableRateUpdateRequest, opts ...grpc.CallOption) (*ApplyVariableRateUpdateResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error)
 }
 
 type creditServiceClient struct {
@@ -230,6 +234,16 @@ func (c *creditServiceClient) ApplyVariableRateUpdate(ctx context.Context, in *A
 	return out, nil
 }
 
+func (c *creditServiceClient) ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListChangelogResponse)
+	err := c.cc.Invoke(ctx, CreditService_ListChangelog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CreditServiceServer is the server API for CreditService service.
 // All implementations must embed UnimplementedCreditServiceServer
 // for forward compatibility.
@@ -253,6 +267,9 @@ type CreditServiceServer interface {
 	UpdateBankMargin(context.Context, *UpdateBankMarginRequest) (*BankMarginResponse, error)
 	// Variable rate propagation
 	ApplyVariableRateUpdate(context.Context, *ApplyVariableRateUpdateRequest) (*ApplyVariableRateUpdateResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error)
 	mustEmbedUnimplementedCreditServiceServer()
 }
 
@@ -310,6 +327,9 @@ func (UnimplementedCreditServiceServer) UpdateBankMargin(context.Context, *Updat
 }
 func (UnimplementedCreditServiceServer) ApplyVariableRateUpdate(context.Context, *ApplyVariableRateUpdateRequest) (*ApplyVariableRateUpdateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApplyVariableRateUpdate not implemented")
+}
+func (UnimplementedCreditServiceServer) ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListChangelog not implemented")
 }
 func (UnimplementedCreditServiceServer) mustEmbedUnimplementedCreditServiceServer() {}
 func (UnimplementedCreditServiceServer) testEmbeddedByValue()                       {}
@@ -620,6 +640,24 @@ func _CreditService_ApplyVariableRateUpdate_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CreditService_ListChangelog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListChangelogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CreditServiceServer).ListChangelog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CreditService_ListChangelog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CreditServiceServer).ListChangelog(ctx, req.(*ListChangelogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CreditService_ServiceDesc is the grpc.ServiceDesc for CreditService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -690,6 +728,10 @@ var CreditService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ApplyVariableRateUpdate",
 			Handler:    _CreditService_ApplyVariableRateUpdate_Handler,
+		},
+		{
+			MethodName: "ListChangelog",
+			Handler:    _CreditService_ListChangelog_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

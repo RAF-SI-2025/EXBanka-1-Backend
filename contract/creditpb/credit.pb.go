@@ -21,6 +21,242 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type ListChangelogRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EntityType    string                 `protobuf:"bytes,1,opt,name=entity_type,json=entityType,proto3" json:"entity_type,omitempty"` // e.g. "loan", "loan_request"
+	EntityId      int64                  `protobuf:"varint,2,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	Page          int32                  `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize      int32                  `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListChangelogRequest) Reset() {
+	*x = ListChangelogRequest{}
+	mi := &file_credit_credit_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListChangelogRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListChangelogRequest) ProtoMessage() {}
+
+func (x *ListChangelogRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_credit_credit_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListChangelogRequest.ProtoReflect.Descriptor instead.
+func (*ListChangelogRequest) Descriptor() ([]byte, []int) {
+	return file_credit_credit_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ListChangelogRequest) GetEntityType() string {
+	if x != nil {
+		return x.EntityType
+	}
+	return ""
+}
+
+func (x *ListChangelogRequest) GetEntityId() int64 {
+	if x != nil {
+		return x.EntityId
+	}
+	return 0
+}
+
+func (x *ListChangelogRequest) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *ListChangelogRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+type ChangelogEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	EntityType    string                 `protobuf:"bytes,2,opt,name=entity_type,json=entityType,proto3" json:"entity_type,omitempty"`
+	EntityId      int64                  `protobuf:"varint,3,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	Action        string                 `protobuf:"bytes,4,opt,name=action,proto3" json:"action,omitempty"`
+	FieldName     string                 `protobuf:"bytes,5,opt,name=field_name,json=fieldName,proto3" json:"field_name,omitempty"`
+	OldValue      string                 `protobuf:"bytes,6,opt,name=old_value,json=oldValue,proto3" json:"old_value,omitempty"`
+	NewValue      string                 `protobuf:"bytes,7,opt,name=new_value,json=newValue,proto3" json:"new_value,omitempty"`
+	ChangedBy     int64                  `protobuf:"varint,8,opt,name=changed_by,json=changedBy,proto3" json:"changed_by,omitempty"`
+	ChangedAt     int64                  `protobuf:"varint,9,opt,name=changed_at,json=changedAt,proto3" json:"changed_at,omitempty"`
+	Reason        string                 `protobuf:"bytes,10,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChangelogEntry) Reset() {
+	*x = ChangelogEntry{}
+	mi := &file_credit_credit_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChangelogEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangelogEntry) ProtoMessage() {}
+
+func (x *ChangelogEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_credit_credit_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangelogEntry.ProtoReflect.Descriptor instead.
+func (*ChangelogEntry) Descriptor() ([]byte, []int) {
+	return file_credit_credit_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ChangelogEntry) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *ChangelogEntry) GetEntityType() string {
+	if x != nil {
+		return x.EntityType
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetEntityId() int64 {
+	if x != nil {
+		return x.EntityId
+	}
+	return 0
+}
+
+func (x *ChangelogEntry) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetFieldName() string {
+	if x != nil {
+		return x.FieldName
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetOldValue() string {
+	if x != nil {
+		return x.OldValue
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetNewValue() string {
+	if x != nil {
+		return x.NewValue
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetChangedBy() int64 {
+	if x != nil {
+		return x.ChangedBy
+	}
+	return 0
+}
+
+func (x *ChangelogEntry) GetChangedAt() int64 {
+	if x != nil {
+		return x.ChangedAt
+	}
+	return 0
+}
+
+func (x *ChangelogEntry) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type ListChangelogResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*ChangelogEntry      `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListChangelogResponse) Reset() {
+	*x = ListChangelogResponse{}
+	mi := &file_credit_credit_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListChangelogResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListChangelogResponse) ProtoMessage() {}
+
+func (x *ListChangelogResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_credit_credit_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListChangelogResponse.ProtoReflect.Descriptor instead.
+func (*ListChangelogResponse) Descriptor() ([]byte, []int) {
+	return file_credit_credit_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListChangelogResponse) GetEntries() []*ChangelogEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *ListChangelogResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 type CreateLoanRequestReq struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ClientId         uint64                 `protobuf:"varint,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
@@ -41,7 +277,7 @@ type CreateLoanRequestReq struct {
 
 func (x *CreateLoanRequestReq) Reset() {
 	*x = CreateLoanRequestReq{}
-	mi := &file_credit_credit_proto_msgTypes[0]
+	mi := &file_credit_credit_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -53,7 +289,7 @@ func (x *CreateLoanRequestReq) String() string {
 func (*CreateLoanRequestReq) ProtoMessage() {}
 
 func (x *CreateLoanRequestReq) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[0]
+	mi := &file_credit_credit_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66,7 +302,7 @@ func (x *CreateLoanRequestReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateLoanRequestReq.ProtoReflect.Descriptor instead.
 func (*CreateLoanRequestReq) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{0}
+	return file_credit_credit_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateLoanRequestReq) GetClientId() uint64 {
@@ -162,7 +398,7 @@ type GetLoanRequestReq struct {
 
 func (x *GetLoanRequestReq) Reset() {
 	*x = GetLoanRequestReq{}
-	mi := &file_credit_credit_proto_msgTypes[1]
+	mi := &file_credit_credit_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -174,7 +410,7 @@ func (x *GetLoanRequestReq) String() string {
 func (*GetLoanRequestReq) ProtoMessage() {}
 
 func (x *GetLoanRequestReq) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[1]
+	mi := &file_credit_credit_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -187,7 +423,7 @@ func (x *GetLoanRequestReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLoanRequestReq.ProtoReflect.Descriptor instead.
 func (*GetLoanRequestReq) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{1}
+	return file_credit_credit_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetLoanRequestReq) GetId() uint64 {
@@ -211,7 +447,7 @@ type ListLoanRequestsReq struct {
 
 func (x *ListLoanRequestsReq) Reset() {
 	*x = ListLoanRequestsReq{}
-	mi := &file_credit_credit_proto_msgTypes[2]
+	mi := &file_credit_credit_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -223,7 +459,7 @@ func (x *ListLoanRequestsReq) String() string {
 func (*ListLoanRequestsReq) ProtoMessage() {}
 
 func (x *ListLoanRequestsReq) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[2]
+	mi := &file_credit_credit_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -236,7 +472,7 @@ func (x *ListLoanRequestsReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLoanRequestsReq.ProtoReflect.Descriptor instead.
 func (*ListLoanRequestsReq) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{2}
+	return file_credit_credit_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListLoanRequestsReq) GetLoanTypeFilter() string {
@@ -291,7 +527,7 @@ type ListLoanRequestsResponse struct {
 
 func (x *ListLoanRequestsResponse) Reset() {
 	*x = ListLoanRequestsResponse{}
-	mi := &file_credit_credit_proto_msgTypes[3]
+	mi := &file_credit_credit_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -303,7 +539,7 @@ func (x *ListLoanRequestsResponse) String() string {
 func (*ListLoanRequestsResponse) ProtoMessage() {}
 
 func (x *ListLoanRequestsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[3]
+	mi := &file_credit_credit_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -316,7 +552,7 @@ func (x *ListLoanRequestsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLoanRequestsResponse.ProtoReflect.Descriptor instead.
 func (*ListLoanRequestsResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{3}
+	return file_credit_credit_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListLoanRequestsResponse) GetRequests() []*LoanRequestResponse {
@@ -343,7 +579,7 @@ type ApproveLoanRequestReq struct {
 
 func (x *ApproveLoanRequestReq) Reset() {
 	*x = ApproveLoanRequestReq{}
-	mi := &file_credit_credit_proto_msgTypes[4]
+	mi := &file_credit_credit_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -355,7 +591,7 @@ func (x *ApproveLoanRequestReq) String() string {
 func (*ApproveLoanRequestReq) ProtoMessage() {}
 
 func (x *ApproveLoanRequestReq) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[4]
+	mi := &file_credit_credit_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -368,7 +604,7 @@ func (x *ApproveLoanRequestReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApproveLoanRequestReq.ProtoReflect.Descriptor instead.
 func (*ApproveLoanRequestReq) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{4}
+	return file_credit_credit_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ApproveLoanRequestReq) GetRequestId() uint64 {
@@ -394,7 +630,7 @@ type RejectLoanRequestReq struct {
 
 func (x *RejectLoanRequestReq) Reset() {
 	*x = RejectLoanRequestReq{}
-	mi := &file_credit_credit_proto_msgTypes[5]
+	mi := &file_credit_credit_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -406,7 +642,7 @@ func (x *RejectLoanRequestReq) String() string {
 func (*RejectLoanRequestReq) ProtoMessage() {}
 
 func (x *RejectLoanRequestReq) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[5]
+	mi := &file_credit_credit_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -419,7 +655,7 @@ func (x *RejectLoanRequestReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RejectLoanRequestReq.ProtoReflect.Descriptor instead.
 func (*RejectLoanRequestReq) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{5}
+	return file_credit_credit_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RejectLoanRequestReq) GetRequestId() uint64 {
@@ -452,7 +688,7 @@ type LoanRequestResponse struct {
 
 func (x *LoanRequestResponse) Reset() {
 	*x = LoanRequestResponse{}
-	mi := &file_credit_credit_proto_msgTypes[6]
+	mi := &file_credit_credit_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -464,7 +700,7 @@ func (x *LoanRequestResponse) String() string {
 func (*LoanRequestResponse) ProtoMessage() {}
 
 func (x *LoanRequestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[6]
+	mi := &file_credit_credit_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -477,7 +713,7 @@ func (x *LoanRequestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoanRequestResponse.ProtoReflect.Descriptor instead.
 func (*LoanRequestResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{6}
+	return file_credit_credit_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *LoanRequestResponse) GetId() uint64 {
@@ -594,7 +830,7 @@ type GetLoanReq struct {
 
 func (x *GetLoanReq) Reset() {
 	*x = GetLoanReq{}
-	mi := &file_credit_credit_proto_msgTypes[7]
+	mi := &file_credit_credit_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -606,7 +842,7 @@ func (x *GetLoanReq) String() string {
 func (*GetLoanReq) ProtoMessage() {}
 
 func (x *GetLoanReq) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[7]
+	mi := &file_credit_credit_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -619,7 +855,7 @@ func (x *GetLoanReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetLoanReq.ProtoReflect.Descriptor instead.
 func (*GetLoanReq) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{7}
+	return file_credit_credit_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetLoanReq) GetId() uint64 {
@@ -640,7 +876,7 @@ type ListLoansByClientReq struct {
 
 func (x *ListLoansByClientReq) Reset() {
 	*x = ListLoansByClientReq{}
-	mi := &file_credit_credit_proto_msgTypes[8]
+	mi := &file_credit_credit_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -652,7 +888,7 @@ func (x *ListLoansByClientReq) String() string {
 func (*ListLoansByClientReq) ProtoMessage() {}
 
 func (x *ListLoansByClientReq) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[8]
+	mi := &file_credit_credit_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -665,7 +901,7 @@ func (x *ListLoansByClientReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLoansByClientReq.ProtoReflect.Descriptor instead.
 func (*ListLoansByClientReq) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{8}
+	return file_credit_credit_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListLoansByClientReq) GetClientId() uint64 {
@@ -702,7 +938,7 @@ type ListAllLoansReq struct {
 
 func (x *ListAllLoansReq) Reset() {
 	*x = ListAllLoansReq{}
-	mi := &file_credit_credit_proto_msgTypes[9]
+	mi := &file_credit_credit_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -714,7 +950,7 @@ func (x *ListAllLoansReq) String() string {
 func (*ListAllLoansReq) ProtoMessage() {}
 
 func (x *ListAllLoansReq) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[9]
+	mi := &file_credit_credit_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -727,7 +963,7 @@ func (x *ListAllLoansReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAllLoansReq.ProtoReflect.Descriptor instead.
 func (*ListAllLoansReq) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{9}
+	return file_credit_credit_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListAllLoansReq) GetLoanTypeFilter() string {
@@ -775,7 +1011,7 @@ type ListLoansResponse struct {
 
 func (x *ListLoansResponse) Reset() {
 	*x = ListLoansResponse{}
-	mi := &file_credit_credit_proto_msgTypes[10]
+	mi := &file_credit_credit_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -787,7 +1023,7 @@ func (x *ListLoansResponse) String() string {
 func (*ListLoansResponse) ProtoMessage() {}
 
 func (x *ListLoansResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[10]
+	mi := &file_credit_credit_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -800,7 +1036,7 @@ func (x *ListLoansResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListLoansResponse.ProtoReflect.Descriptor instead.
 func (*ListLoansResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{10}
+	return file_credit_credit_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ListLoansResponse) GetLoans() []*LoanResponse {
@@ -843,7 +1079,7 @@ type LoanResponse struct {
 
 func (x *LoanResponse) Reset() {
 	*x = LoanResponse{}
-	mi := &file_credit_credit_proto_msgTypes[11]
+	mi := &file_credit_credit_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -855,7 +1091,7 @@ func (x *LoanResponse) String() string {
 func (*LoanResponse) ProtoMessage() {}
 
 func (x *LoanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[11]
+	mi := &file_credit_credit_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -868,7 +1104,7 @@ func (x *LoanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoanResponse.ProtoReflect.Descriptor instead.
 func (*LoanResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{11}
+	return file_credit_credit_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *LoanResponse) GetId() uint64 {
@@ -1006,7 +1242,7 @@ type GetInstallmentsByLoanReq struct {
 
 func (x *GetInstallmentsByLoanReq) Reset() {
 	*x = GetInstallmentsByLoanReq{}
-	mi := &file_credit_credit_proto_msgTypes[12]
+	mi := &file_credit_credit_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1018,7 +1254,7 @@ func (x *GetInstallmentsByLoanReq) String() string {
 func (*GetInstallmentsByLoanReq) ProtoMessage() {}
 
 func (x *GetInstallmentsByLoanReq) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[12]
+	mi := &file_credit_credit_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1031,7 +1267,7 @@ func (x *GetInstallmentsByLoanReq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInstallmentsByLoanReq.ProtoReflect.Descriptor instead.
 func (*GetInstallmentsByLoanReq) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{12}
+	return file_credit_credit_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetInstallmentsByLoanReq) GetLoanId() uint64 {
@@ -1050,7 +1286,7 @@ type ListInstallmentsResponse struct {
 
 func (x *ListInstallmentsResponse) Reset() {
 	*x = ListInstallmentsResponse{}
-	mi := &file_credit_credit_proto_msgTypes[13]
+	mi := &file_credit_credit_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1062,7 +1298,7 @@ func (x *ListInstallmentsResponse) String() string {
 func (*ListInstallmentsResponse) ProtoMessage() {}
 
 func (x *ListInstallmentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[13]
+	mi := &file_credit_credit_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1075,7 +1311,7 @@ func (x *ListInstallmentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInstallmentsResponse.ProtoReflect.Descriptor instead.
 func (*ListInstallmentsResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{13}
+	return file_credit_credit_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListInstallmentsResponse) GetInstallments() []*InstallmentResponse {
@@ -1101,7 +1337,7 @@ type InstallmentResponse struct {
 
 func (x *InstallmentResponse) Reset() {
 	*x = InstallmentResponse{}
-	mi := &file_credit_credit_proto_msgTypes[14]
+	mi := &file_credit_credit_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1113,7 +1349,7 @@ func (x *InstallmentResponse) String() string {
 func (*InstallmentResponse) ProtoMessage() {}
 
 func (x *InstallmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[14]
+	mi := &file_credit_credit_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1126,7 +1362,7 @@ func (x *InstallmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstallmentResponse.ProtoReflect.Descriptor instead.
 func (*InstallmentResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{14}
+	return file_credit_credit_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *InstallmentResponse) GetId() uint64 {
@@ -1193,7 +1429,7 @@ type ListInterestRateTiersRequest struct {
 
 func (x *ListInterestRateTiersRequest) Reset() {
 	*x = ListInterestRateTiersRequest{}
-	mi := &file_credit_credit_proto_msgTypes[15]
+	mi := &file_credit_credit_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1205,7 +1441,7 @@ func (x *ListInterestRateTiersRequest) String() string {
 func (*ListInterestRateTiersRequest) ProtoMessage() {}
 
 func (x *ListInterestRateTiersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[15]
+	mi := &file_credit_credit_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1218,7 +1454,7 @@ func (x *ListInterestRateTiersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInterestRateTiersRequest.ProtoReflect.Descriptor instead.
 func (*ListInterestRateTiersRequest) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{15}
+	return file_credit_credit_proto_rawDescGZIP(), []int{18}
 }
 
 type ListInterestRateTiersResponse struct {
@@ -1230,7 +1466,7 @@ type ListInterestRateTiersResponse struct {
 
 func (x *ListInterestRateTiersResponse) Reset() {
 	*x = ListInterestRateTiersResponse{}
-	mi := &file_credit_credit_proto_msgTypes[16]
+	mi := &file_credit_credit_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1242,7 +1478,7 @@ func (x *ListInterestRateTiersResponse) String() string {
 func (*ListInterestRateTiersResponse) ProtoMessage() {}
 
 func (x *ListInterestRateTiersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[16]
+	mi := &file_credit_credit_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1255,7 +1491,7 @@ func (x *ListInterestRateTiersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInterestRateTiersResponse.ProtoReflect.Descriptor instead.
 func (*ListInterestRateTiersResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{16}
+	return file_credit_credit_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListInterestRateTiersResponse) GetTiers() []*InterestRateTierResponse {
@@ -1281,7 +1517,7 @@ type InterestRateTierResponse struct {
 
 func (x *InterestRateTierResponse) Reset() {
 	*x = InterestRateTierResponse{}
-	mi := &file_credit_credit_proto_msgTypes[17]
+	mi := &file_credit_credit_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1293,7 +1529,7 @@ func (x *InterestRateTierResponse) String() string {
 func (*InterestRateTierResponse) ProtoMessage() {}
 
 func (x *InterestRateTierResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[17]
+	mi := &file_credit_credit_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1306,7 +1542,7 @@ func (x *InterestRateTierResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterestRateTierResponse.ProtoReflect.Descriptor instead.
 func (*InterestRateTierResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{17}
+	return file_credit_credit_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *InterestRateTierResponse) GetId() uint64 {
@@ -1377,7 +1613,7 @@ type CreateInterestRateTierRequest struct {
 
 func (x *CreateInterestRateTierRequest) Reset() {
 	*x = CreateInterestRateTierRequest{}
-	mi := &file_credit_credit_proto_msgTypes[18]
+	mi := &file_credit_credit_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1389,7 +1625,7 @@ func (x *CreateInterestRateTierRequest) String() string {
 func (*CreateInterestRateTierRequest) ProtoMessage() {}
 
 func (x *CreateInterestRateTierRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[18]
+	mi := &file_credit_credit_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1402,7 +1638,7 @@ func (x *CreateInterestRateTierRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateInterestRateTierRequest.ProtoReflect.Descriptor instead.
 func (*CreateInterestRateTierRequest) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{18}
+	return file_credit_credit_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CreateInterestRateTierRequest) GetAmountFrom() string {
@@ -1446,7 +1682,7 @@ type UpdateInterestRateTierRequest struct {
 
 func (x *UpdateInterestRateTierRequest) Reset() {
 	*x = UpdateInterestRateTierRequest{}
-	mi := &file_credit_credit_proto_msgTypes[19]
+	mi := &file_credit_credit_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1458,7 +1694,7 @@ func (x *UpdateInterestRateTierRequest) String() string {
 func (*UpdateInterestRateTierRequest) ProtoMessage() {}
 
 func (x *UpdateInterestRateTierRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[19]
+	mi := &file_credit_credit_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1471,7 +1707,7 @@ func (x *UpdateInterestRateTierRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateInterestRateTierRequest.ProtoReflect.Descriptor instead.
 func (*UpdateInterestRateTierRequest) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{19}
+	return file_credit_credit_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *UpdateInterestRateTierRequest) GetId() uint64 {
@@ -1518,7 +1754,7 @@ type DeleteInterestRateTierRequest struct {
 
 func (x *DeleteInterestRateTierRequest) Reset() {
 	*x = DeleteInterestRateTierRequest{}
-	mi := &file_credit_credit_proto_msgTypes[20]
+	mi := &file_credit_credit_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1530,7 +1766,7 @@ func (x *DeleteInterestRateTierRequest) String() string {
 func (*DeleteInterestRateTierRequest) ProtoMessage() {}
 
 func (x *DeleteInterestRateTierRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[20]
+	mi := &file_credit_credit_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1543,7 +1779,7 @@ func (x *DeleteInterestRateTierRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteInterestRateTierRequest.ProtoReflect.Descriptor instead.
 func (*DeleteInterestRateTierRequest) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{20}
+	return file_credit_credit_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DeleteInterestRateTierRequest) GetId() uint64 {
@@ -1562,7 +1798,7 @@ type DeleteResponse struct {
 
 func (x *DeleteResponse) Reset() {
 	*x = DeleteResponse{}
-	mi := &file_credit_credit_proto_msgTypes[21]
+	mi := &file_credit_credit_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1574,7 +1810,7 @@ func (x *DeleteResponse) String() string {
 func (*DeleteResponse) ProtoMessage() {}
 
 func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[21]
+	mi := &file_credit_credit_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1587,7 +1823,7 @@ func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteResponse.ProtoReflect.Descriptor instead.
 func (*DeleteResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{21}
+	return file_credit_credit_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *DeleteResponse) GetSuccess() bool {
@@ -1605,7 +1841,7 @@ type ListBankMarginsRequest struct {
 
 func (x *ListBankMarginsRequest) Reset() {
 	*x = ListBankMarginsRequest{}
-	mi := &file_credit_credit_proto_msgTypes[22]
+	mi := &file_credit_credit_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1617,7 +1853,7 @@ func (x *ListBankMarginsRequest) String() string {
 func (*ListBankMarginsRequest) ProtoMessage() {}
 
 func (x *ListBankMarginsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[22]
+	mi := &file_credit_credit_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1630,7 +1866,7 @@ func (x *ListBankMarginsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBankMarginsRequest.ProtoReflect.Descriptor instead.
 func (*ListBankMarginsRequest) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{22}
+	return file_credit_credit_proto_rawDescGZIP(), []int{25}
 }
 
 type ListBankMarginsResponse struct {
@@ -1642,7 +1878,7 @@ type ListBankMarginsResponse struct {
 
 func (x *ListBankMarginsResponse) Reset() {
 	*x = ListBankMarginsResponse{}
-	mi := &file_credit_credit_proto_msgTypes[23]
+	mi := &file_credit_credit_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1654,7 +1890,7 @@ func (x *ListBankMarginsResponse) String() string {
 func (*ListBankMarginsResponse) ProtoMessage() {}
 
 func (x *ListBankMarginsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[23]
+	mi := &file_credit_credit_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1667,7 +1903,7 @@ func (x *ListBankMarginsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBankMarginsResponse.ProtoReflect.Descriptor instead.
 func (*ListBankMarginsResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{23}
+	return file_credit_credit_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListBankMarginsResponse) GetMargins() []*BankMarginResponse {
@@ -1691,7 +1927,7 @@ type BankMarginResponse struct {
 
 func (x *BankMarginResponse) Reset() {
 	*x = BankMarginResponse{}
-	mi := &file_credit_credit_proto_msgTypes[24]
+	mi := &file_credit_credit_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1703,7 +1939,7 @@ func (x *BankMarginResponse) String() string {
 func (*BankMarginResponse) ProtoMessage() {}
 
 func (x *BankMarginResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[24]
+	mi := &file_credit_credit_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1716,7 +1952,7 @@ func (x *BankMarginResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BankMarginResponse.ProtoReflect.Descriptor instead.
 func (*BankMarginResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{24}
+	return file_credit_credit_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *BankMarginResponse) GetId() uint64 {
@@ -1771,7 +2007,7 @@ type UpdateBankMarginRequest struct {
 
 func (x *UpdateBankMarginRequest) Reset() {
 	*x = UpdateBankMarginRequest{}
-	mi := &file_credit_credit_proto_msgTypes[25]
+	mi := &file_credit_credit_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1783,7 +2019,7 @@ func (x *UpdateBankMarginRequest) String() string {
 func (*UpdateBankMarginRequest) ProtoMessage() {}
 
 func (x *UpdateBankMarginRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[25]
+	mi := &file_credit_credit_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1796,7 +2032,7 @@ func (x *UpdateBankMarginRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateBankMarginRequest.ProtoReflect.Descriptor instead.
 func (*UpdateBankMarginRequest) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{25}
+	return file_credit_credit_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *UpdateBankMarginRequest) GetId() uint64 {
@@ -1822,7 +2058,7 @@ type ApplyVariableRateUpdateRequest struct {
 
 func (x *ApplyVariableRateUpdateRequest) Reset() {
 	*x = ApplyVariableRateUpdateRequest{}
-	mi := &file_credit_credit_proto_msgTypes[26]
+	mi := &file_credit_credit_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1834,7 +2070,7 @@ func (x *ApplyVariableRateUpdateRequest) String() string {
 func (*ApplyVariableRateUpdateRequest) ProtoMessage() {}
 
 func (x *ApplyVariableRateUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[26]
+	mi := &file_credit_credit_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1847,7 +2083,7 @@ func (x *ApplyVariableRateUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyVariableRateUpdateRequest.ProtoReflect.Descriptor instead.
 func (*ApplyVariableRateUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{26}
+	return file_credit_credit_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ApplyVariableRateUpdateRequest) GetTierId() uint64 {
@@ -1866,7 +2102,7 @@ type ApplyVariableRateUpdateResponse struct {
 
 func (x *ApplyVariableRateUpdateResponse) Reset() {
 	*x = ApplyVariableRateUpdateResponse{}
-	mi := &file_credit_credit_proto_msgTypes[27]
+	mi := &file_credit_credit_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1878,7 +2114,7 @@ func (x *ApplyVariableRateUpdateResponse) String() string {
 func (*ApplyVariableRateUpdateResponse) ProtoMessage() {}
 
 func (x *ApplyVariableRateUpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_credit_credit_proto_msgTypes[27]
+	mi := &file_credit_credit_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1891,7 +2127,7 @@ func (x *ApplyVariableRateUpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyVariableRateUpdateResponse.ProtoReflect.Descriptor instead.
 func (*ApplyVariableRateUpdateResponse) Descriptor() ([]byte, []int) {
-	return file_credit_credit_proto_rawDescGZIP(), []int{27}
+	return file_credit_credit_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ApplyVariableRateUpdateResponse) GetAffectedLoans() int32 {
@@ -1905,7 +2141,32 @@ var File_credit_credit_proto protoreflect.FileDescriptor
 
 const file_credit_credit_proto_rawDesc = "" +
 	"\n" +
-	"\x13credit/credit.proto\x12\x06credit\"\xb5\x03\n" +
+	"\x13credit/credit.proto\x12\x06credit\"\x85\x01\n" +
+	"\x14ListChangelogRequest\x12\x1f\n" +
+	"\ventity_type\x18\x01 \x01(\tR\n" +
+	"entityType\x12\x1b\n" +
+	"\tentity_id\x18\x02 \x01(\x03R\bentityId\x12\x12\n" +
+	"\x04page\x18\x03 \x01(\x05R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"\xa5\x02\n" +
+	"\x0eChangelogEntry\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1f\n" +
+	"\ventity_type\x18\x02 \x01(\tR\n" +
+	"entityType\x12\x1b\n" +
+	"\tentity_id\x18\x03 \x01(\x03R\bentityId\x12\x16\n" +
+	"\x06action\x18\x04 \x01(\tR\x06action\x12\x1d\n" +
+	"\n" +
+	"field_name\x18\x05 \x01(\tR\tfieldName\x12\x1b\n" +
+	"\told_value\x18\x06 \x01(\tR\boldValue\x12\x1b\n" +
+	"\tnew_value\x18\a \x01(\tR\bnewValue\x12\x1d\n" +
+	"\n" +
+	"changed_by\x18\b \x01(\x03R\tchangedBy\x12\x1d\n" +
+	"\n" +
+	"changed_at\x18\t \x01(\x03R\tchangedAt\x12\x16\n" +
+	"\x06reason\x18\n" +
+	" \x01(\tR\x06reason\"_\n" +
+	"\x15ListChangelogResponse\x120\n" +
+	"\aentries\x18\x01 \x03(\v2\x16.credit.ChangelogEntryR\aentries\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xb5\x03\n" +
 	"\x14CreateLoanRequestReq\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\x04R\bclientId\x12\x1b\n" +
 	"\tloan_type\x18\x02 \x01(\tR\bloanType\x12#\n" +
@@ -2063,8 +2324,7 @@ const file_credit_credit_proto_rawDesc = "" +
 	"\x1eApplyVariableRateUpdateRequest\x12\x17\n" +
 	"\atier_id\x18\x01 \x01(\x04R\x06tierId\"H\n" +
 	"\x1fApplyVariableRateUpdateResponse\x12%\n" +
-	"\x0eaffected_loans\x18\x01 \x01(\x05R\raffectedLoans2\xd1\n" +
-	"\n" +
+	"\x0eaffected_loans\x18\x01 \x01(\x05R\raffectedLoans2\x9f\v\n" +
 	"\rCreditService\x12N\n" +
 	"\x11CreateLoanRequest\x12\x1c.credit.CreateLoanRequestReq\x1a\x1b.credit.LoanRequestResponse\x12H\n" +
 	"\x0eGetLoanRequest\x12\x19.credit.GetLoanRequestReq\x1a\x1b.credit.LoanRequestResponse\x12Q\n" +
@@ -2081,7 +2341,8 @@ const file_credit_credit_proto_rawDesc = "" +
 	"\x16DeleteInterestRateTier\x12%.credit.DeleteInterestRateTierRequest\x1a\x16.credit.DeleteResponse\x12R\n" +
 	"\x0fListBankMargins\x12\x1e.credit.ListBankMarginsRequest\x1a\x1f.credit.ListBankMarginsResponse\x12O\n" +
 	"\x10UpdateBankMargin\x12\x1f.credit.UpdateBankMarginRequest\x1a\x1a.credit.BankMarginResponse\x12j\n" +
-	"\x17ApplyVariableRateUpdate\x12&.credit.ApplyVariableRateUpdateRequest\x1a'.credit.ApplyVariableRateUpdateResponseB/Z-github.com/exbanka/contract/creditpb;creditpbb\x06proto3"
+	"\x17ApplyVariableRateUpdate\x12&.credit.ApplyVariableRateUpdateRequest\x1a'.credit.ApplyVariableRateUpdateResponse\x12L\n" +
+	"\rListChangelog\x12\x1c.credit.ListChangelogRequest\x1a\x1d.credit.ListChangelogResponseB/Z-github.com/exbanka/contract/creditpb;creditpbb\x06proto3"
 
 var (
 	file_credit_credit_proto_rawDescOnce sync.Once
@@ -2095,80 +2356,86 @@ func file_credit_credit_proto_rawDescGZIP() []byte {
 	return file_credit_credit_proto_rawDescData
 }
 
-var file_credit_credit_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_credit_credit_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_credit_credit_proto_goTypes = []any{
-	(*CreateLoanRequestReq)(nil),            // 0: credit.CreateLoanRequestReq
-	(*GetLoanRequestReq)(nil),               // 1: credit.GetLoanRequestReq
-	(*ListLoanRequestsReq)(nil),             // 2: credit.ListLoanRequestsReq
-	(*ListLoanRequestsResponse)(nil),        // 3: credit.ListLoanRequestsResponse
-	(*ApproveLoanRequestReq)(nil),           // 4: credit.ApproveLoanRequestReq
-	(*RejectLoanRequestReq)(nil),            // 5: credit.RejectLoanRequestReq
-	(*LoanRequestResponse)(nil),             // 6: credit.LoanRequestResponse
-	(*GetLoanReq)(nil),                      // 7: credit.GetLoanReq
-	(*ListLoansByClientReq)(nil),            // 8: credit.ListLoansByClientReq
-	(*ListAllLoansReq)(nil),                 // 9: credit.ListAllLoansReq
-	(*ListLoansResponse)(nil),               // 10: credit.ListLoansResponse
-	(*LoanResponse)(nil),                    // 11: credit.LoanResponse
-	(*GetInstallmentsByLoanReq)(nil),        // 12: credit.GetInstallmentsByLoanReq
-	(*ListInstallmentsResponse)(nil),        // 13: credit.ListInstallmentsResponse
-	(*InstallmentResponse)(nil),             // 14: credit.InstallmentResponse
-	(*ListInterestRateTiersRequest)(nil),    // 15: credit.ListInterestRateTiersRequest
-	(*ListInterestRateTiersResponse)(nil),   // 16: credit.ListInterestRateTiersResponse
-	(*InterestRateTierResponse)(nil),        // 17: credit.InterestRateTierResponse
-	(*CreateInterestRateTierRequest)(nil),   // 18: credit.CreateInterestRateTierRequest
-	(*UpdateInterestRateTierRequest)(nil),   // 19: credit.UpdateInterestRateTierRequest
-	(*DeleteInterestRateTierRequest)(nil),   // 20: credit.DeleteInterestRateTierRequest
-	(*DeleteResponse)(nil),                  // 21: credit.DeleteResponse
-	(*ListBankMarginsRequest)(nil),          // 22: credit.ListBankMarginsRequest
-	(*ListBankMarginsResponse)(nil),         // 23: credit.ListBankMarginsResponse
-	(*BankMarginResponse)(nil),              // 24: credit.BankMarginResponse
-	(*UpdateBankMarginRequest)(nil),         // 25: credit.UpdateBankMarginRequest
-	(*ApplyVariableRateUpdateRequest)(nil),  // 26: credit.ApplyVariableRateUpdateRequest
-	(*ApplyVariableRateUpdateResponse)(nil), // 27: credit.ApplyVariableRateUpdateResponse
+	(*ListChangelogRequest)(nil),            // 0: credit.ListChangelogRequest
+	(*ChangelogEntry)(nil),                  // 1: credit.ChangelogEntry
+	(*ListChangelogResponse)(nil),           // 2: credit.ListChangelogResponse
+	(*CreateLoanRequestReq)(nil),            // 3: credit.CreateLoanRequestReq
+	(*GetLoanRequestReq)(nil),               // 4: credit.GetLoanRequestReq
+	(*ListLoanRequestsReq)(nil),             // 5: credit.ListLoanRequestsReq
+	(*ListLoanRequestsResponse)(nil),        // 6: credit.ListLoanRequestsResponse
+	(*ApproveLoanRequestReq)(nil),           // 7: credit.ApproveLoanRequestReq
+	(*RejectLoanRequestReq)(nil),            // 8: credit.RejectLoanRequestReq
+	(*LoanRequestResponse)(nil),             // 9: credit.LoanRequestResponse
+	(*GetLoanReq)(nil),                      // 10: credit.GetLoanReq
+	(*ListLoansByClientReq)(nil),            // 11: credit.ListLoansByClientReq
+	(*ListAllLoansReq)(nil),                 // 12: credit.ListAllLoansReq
+	(*ListLoansResponse)(nil),               // 13: credit.ListLoansResponse
+	(*LoanResponse)(nil),                    // 14: credit.LoanResponse
+	(*GetInstallmentsByLoanReq)(nil),        // 15: credit.GetInstallmentsByLoanReq
+	(*ListInstallmentsResponse)(nil),        // 16: credit.ListInstallmentsResponse
+	(*InstallmentResponse)(nil),             // 17: credit.InstallmentResponse
+	(*ListInterestRateTiersRequest)(nil),    // 18: credit.ListInterestRateTiersRequest
+	(*ListInterestRateTiersResponse)(nil),   // 19: credit.ListInterestRateTiersResponse
+	(*InterestRateTierResponse)(nil),        // 20: credit.InterestRateTierResponse
+	(*CreateInterestRateTierRequest)(nil),   // 21: credit.CreateInterestRateTierRequest
+	(*UpdateInterestRateTierRequest)(nil),   // 22: credit.UpdateInterestRateTierRequest
+	(*DeleteInterestRateTierRequest)(nil),   // 23: credit.DeleteInterestRateTierRequest
+	(*DeleteResponse)(nil),                  // 24: credit.DeleteResponse
+	(*ListBankMarginsRequest)(nil),          // 25: credit.ListBankMarginsRequest
+	(*ListBankMarginsResponse)(nil),         // 26: credit.ListBankMarginsResponse
+	(*BankMarginResponse)(nil),              // 27: credit.BankMarginResponse
+	(*UpdateBankMarginRequest)(nil),         // 28: credit.UpdateBankMarginRequest
+	(*ApplyVariableRateUpdateRequest)(nil),  // 29: credit.ApplyVariableRateUpdateRequest
+	(*ApplyVariableRateUpdateResponse)(nil), // 30: credit.ApplyVariableRateUpdateResponse
 }
 var file_credit_credit_proto_depIdxs = []int32{
-	6,  // 0: credit.ListLoanRequestsResponse.requests:type_name -> credit.LoanRequestResponse
-	11, // 1: credit.ListLoansResponse.loans:type_name -> credit.LoanResponse
-	14, // 2: credit.ListInstallmentsResponse.installments:type_name -> credit.InstallmentResponse
-	17, // 3: credit.ListInterestRateTiersResponse.tiers:type_name -> credit.InterestRateTierResponse
-	24, // 4: credit.ListBankMarginsResponse.margins:type_name -> credit.BankMarginResponse
-	0,  // 5: credit.CreditService.CreateLoanRequest:input_type -> credit.CreateLoanRequestReq
-	1,  // 6: credit.CreditService.GetLoanRequest:input_type -> credit.GetLoanRequestReq
-	2,  // 7: credit.CreditService.ListLoanRequests:input_type -> credit.ListLoanRequestsReq
-	4,  // 8: credit.CreditService.ApproveLoanRequest:input_type -> credit.ApproveLoanRequestReq
-	5,  // 9: credit.CreditService.RejectLoanRequest:input_type -> credit.RejectLoanRequestReq
-	7,  // 10: credit.CreditService.GetLoan:input_type -> credit.GetLoanReq
-	8,  // 11: credit.CreditService.ListLoansByClient:input_type -> credit.ListLoansByClientReq
-	9,  // 12: credit.CreditService.ListAllLoans:input_type -> credit.ListAllLoansReq
-	12, // 13: credit.CreditService.GetInstallmentsByLoan:input_type -> credit.GetInstallmentsByLoanReq
-	15, // 14: credit.CreditService.ListInterestRateTiers:input_type -> credit.ListInterestRateTiersRequest
-	18, // 15: credit.CreditService.CreateInterestRateTier:input_type -> credit.CreateInterestRateTierRequest
-	19, // 16: credit.CreditService.UpdateInterestRateTier:input_type -> credit.UpdateInterestRateTierRequest
-	20, // 17: credit.CreditService.DeleteInterestRateTier:input_type -> credit.DeleteInterestRateTierRequest
-	22, // 18: credit.CreditService.ListBankMargins:input_type -> credit.ListBankMarginsRequest
-	25, // 19: credit.CreditService.UpdateBankMargin:input_type -> credit.UpdateBankMarginRequest
-	26, // 20: credit.CreditService.ApplyVariableRateUpdate:input_type -> credit.ApplyVariableRateUpdateRequest
-	6,  // 21: credit.CreditService.CreateLoanRequest:output_type -> credit.LoanRequestResponse
-	6,  // 22: credit.CreditService.GetLoanRequest:output_type -> credit.LoanRequestResponse
-	3,  // 23: credit.CreditService.ListLoanRequests:output_type -> credit.ListLoanRequestsResponse
-	11, // 24: credit.CreditService.ApproveLoanRequest:output_type -> credit.LoanResponse
-	6,  // 25: credit.CreditService.RejectLoanRequest:output_type -> credit.LoanRequestResponse
-	11, // 26: credit.CreditService.GetLoan:output_type -> credit.LoanResponse
-	10, // 27: credit.CreditService.ListLoansByClient:output_type -> credit.ListLoansResponse
-	10, // 28: credit.CreditService.ListAllLoans:output_type -> credit.ListLoansResponse
-	13, // 29: credit.CreditService.GetInstallmentsByLoan:output_type -> credit.ListInstallmentsResponse
-	16, // 30: credit.CreditService.ListInterestRateTiers:output_type -> credit.ListInterestRateTiersResponse
-	17, // 31: credit.CreditService.CreateInterestRateTier:output_type -> credit.InterestRateTierResponse
-	17, // 32: credit.CreditService.UpdateInterestRateTier:output_type -> credit.InterestRateTierResponse
-	21, // 33: credit.CreditService.DeleteInterestRateTier:output_type -> credit.DeleteResponse
-	23, // 34: credit.CreditService.ListBankMargins:output_type -> credit.ListBankMarginsResponse
-	24, // 35: credit.CreditService.UpdateBankMargin:output_type -> credit.BankMarginResponse
-	27, // 36: credit.CreditService.ApplyVariableRateUpdate:output_type -> credit.ApplyVariableRateUpdateResponse
-	21, // [21:37] is the sub-list for method output_type
-	5,  // [5:21] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	1,  // 0: credit.ListChangelogResponse.entries:type_name -> credit.ChangelogEntry
+	9,  // 1: credit.ListLoanRequestsResponse.requests:type_name -> credit.LoanRequestResponse
+	14, // 2: credit.ListLoansResponse.loans:type_name -> credit.LoanResponse
+	17, // 3: credit.ListInstallmentsResponse.installments:type_name -> credit.InstallmentResponse
+	20, // 4: credit.ListInterestRateTiersResponse.tiers:type_name -> credit.InterestRateTierResponse
+	27, // 5: credit.ListBankMarginsResponse.margins:type_name -> credit.BankMarginResponse
+	3,  // 6: credit.CreditService.CreateLoanRequest:input_type -> credit.CreateLoanRequestReq
+	4,  // 7: credit.CreditService.GetLoanRequest:input_type -> credit.GetLoanRequestReq
+	5,  // 8: credit.CreditService.ListLoanRequests:input_type -> credit.ListLoanRequestsReq
+	7,  // 9: credit.CreditService.ApproveLoanRequest:input_type -> credit.ApproveLoanRequestReq
+	8,  // 10: credit.CreditService.RejectLoanRequest:input_type -> credit.RejectLoanRequestReq
+	10, // 11: credit.CreditService.GetLoan:input_type -> credit.GetLoanReq
+	11, // 12: credit.CreditService.ListLoansByClient:input_type -> credit.ListLoansByClientReq
+	12, // 13: credit.CreditService.ListAllLoans:input_type -> credit.ListAllLoansReq
+	15, // 14: credit.CreditService.GetInstallmentsByLoan:input_type -> credit.GetInstallmentsByLoanReq
+	18, // 15: credit.CreditService.ListInterestRateTiers:input_type -> credit.ListInterestRateTiersRequest
+	21, // 16: credit.CreditService.CreateInterestRateTier:input_type -> credit.CreateInterestRateTierRequest
+	22, // 17: credit.CreditService.UpdateInterestRateTier:input_type -> credit.UpdateInterestRateTierRequest
+	23, // 18: credit.CreditService.DeleteInterestRateTier:input_type -> credit.DeleteInterestRateTierRequest
+	25, // 19: credit.CreditService.ListBankMargins:input_type -> credit.ListBankMarginsRequest
+	28, // 20: credit.CreditService.UpdateBankMargin:input_type -> credit.UpdateBankMarginRequest
+	29, // 21: credit.CreditService.ApplyVariableRateUpdate:input_type -> credit.ApplyVariableRateUpdateRequest
+	0,  // 22: credit.CreditService.ListChangelog:input_type -> credit.ListChangelogRequest
+	9,  // 23: credit.CreditService.CreateLoanRequest:output_type -> credit.LoanRequestResponse
+	9,  // 24: credit.CreditService.GetLoanRequest:output_type -> credit.LoanRequestResponse
+	6,  // 25: credit.CreditService.ListLoanRequests:output_type -> credit.ListLoanRequestsResponse
+	14, // 26: credit.CreditService.ApproveLoanRequest:output_type -> credit.LoanResponse
+	9,  // 27: credit.CreditService.RejectLoanRequest:output_type -> credit.LoanRequestResponse
+	14, // 28: credit.CreditService.GetLoan:output_type -> credit.LoanResponse
+	13, // 29: credit.CreditService.ListLoansByClient:output_type -> credit.ListLoansResponse
+	13, // 30: credit.CreditService.ListAllLoans:output_type -> credit.ListLoansResponse
+	16, // 31: credit.CreditService.GetInstallmentsByLoan:output_type -> credit.ListInstallmentsResponse
+	19, // 32: credit.CreditService.ListInterestRateTiers:output_type -> credit.ListInterestRateTiersResponse
+	20, // 33: credit.CreditService.CreateInterestRateTier:output_type -> credit.InterestRateTierResponse
+	20, // 34: credit.CreditService.UpdateInterestRateTier:output_type -> credit.InterestRateTierResponse
+	24, // 35: credit.CreditService.DeleteInterestRateTier:output_type -> credit.DeleteResponse
+	26, // 36: credit.CreditService.ListBankMargins:output_type -> credit.ListBankMarginsResponse
+	27, // 37: credit.CreditService.UpdateBankMargin:output_type -> credit.BankMarginResponse
+	30, // 38: credit.CreditService.ApplyVariableRateUpdate:output_type -> credit.ApplyVariableRateUpdateResponse
+	2,  // 39: credit.CreditService.ListChangelog:output_type -> credit.ListChangelogResponse
+	23, // [23:40] is the sub-list for method output_type
+	6,  // [6:23] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_credit_credit_proto_init() }
@@ -2182,7 +2449,7 @@ func file_credit_credit_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_credit_credit_proto_rawDesc), len(file_credit_credit_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

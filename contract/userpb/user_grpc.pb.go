@@ -33,6 +33,7 @@ const (
 	UserService_SetEmployeeRoles_FullMethodName                 = "/user.UserService/SetEmployeeRoles"
 	UserService_SetEmployeeAdditionalPermissions_FullMethodName = "/user.UserService/SetEmployeeAdditionalPermissions"
 	UserService_ListEmployeeFullNames_FullMethodName            = "/user.UserService/ListEmployeeFullNames"
+	UserService_ListChangelog_FullMethodName                    = "/user.UserService/ListChangelog"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -53,6 +54,9 @@ type UserServiceClient interface {
 	SetEmployeeRoles(ctx context.Context, in *SetEmployeeRolesRequest, opts ...grpc.CallOption) (*EmployeeResponse, error)
 	SetEmployeeAdditionalPermissions(ctx context.Context, in *SetEmployeePermissionsRequest, opts ...grpc.CallOption) (*EmployeeResponse, error)
 	ListEmployeeFullNames(ctx context.Context, in *ListEmployeeFullNamesRequest, opts ...grpc.CallOption) (*ListEmployeeFullNamesResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error)
 }
 
 type userServiceClient struct {
@@ -203,6 +207,16 @@ func (c *userServiceClient) ListEmployeeFullNames(ctx context.Context, in *ListE
 	return out, nil
 }
 
+func (c *userServiceClient) ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListChangelogResponse)
+	err := c.cc.Invoke(ctx, UserService_ListChangelog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserServiceServer is the server API for UserService service.
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
@@ -221,6 +235,9 @@ type UserServiceServer interface {
 	SetEmployeeRoles(context.Context, *SetEmployeeRolesRequest) (*EmployeeResponse, error)
 	SetEmployeeAdditionalPermissions(context.Context, *SetEmployeePermissionsRequest) (*EmployeeResponse, error)
 	ListEmployeeFullNames(context.Context, *ListEmployeeFullNamesRequest) (*ListEmployeeFullNamesResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -272,6 +289,9 @@ func (UnimplementedUserServiceServer) SetEmployeeAdditionalPermissions(context.C
 }
 func (UnimplementedUserServiceServer) ListEmployeeFullNames(context.Context, *ListEmployeeFullNamesRequest) (*ListEmployeeFullNamesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListEmployeeFullNames not implemented")
+}
+func (UnimplementedUserServiceServer) ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListChangelog not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -546,6 +566,24 @@ func _UserService_ListEmployeeFullNames_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_ListChangelog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListChangelogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ListChangelog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ListChangelog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ListChangelog(ctx, req.(*ListChangelogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserService_ServiceDesc is the grpc.ServiceDesc for UserService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -608,6 +646,10 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListEmployeeFullNames",
 			Handler:    _UserService_ListEmployeeFullNames_Handler,
+		},
+		{
+			MethodName: "ListChangelog",
+			Handler:    _UserService_ListChangelog_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

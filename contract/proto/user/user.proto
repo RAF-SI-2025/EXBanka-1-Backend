@@ -19,6 +19,35 @@ service UserService {
   rpc SetEmployeeRoles(SetEmployeeRolesRequest) returns (EmployeeResponse);
   rpc SetEmployeeAdditionalPermissions(SetEmployeePermissionsRequest) returns (EmployeeResponse);
   rpc ListEmployeeFullNames(ListEmployeeFullNamesRequest) returns (ListEmployeeFullNamesResponse);
+
+  // Audit-trail reads. Returns changelog rows scoped by entity_type +
+  // entity_id; pagination matches list endpoints (1-based page).
+  rpc ListChangelog(ListChangelogRequest) returns (ListChangelogResponse);
+}
+
+message ListChangelogRequest {
+  string entity_type = 1; // e.g. "employee" or "employee_limit"
+  int64  entity_id   = 2;
+  int32  page        = 3;
+  int32  page_size   = 4;
+}
+
+message ChangelogEntry {
+  uint64 id          = 1;
+  string entity_type = 2;
+  int64  entity_id   = 3;
+  string action      = 4;
+  string field_name  = 5;
+  string old_value   = 6;
+  string new_value   = 7;
+  int64  changed_by  = 8;
+  int64  changed_at  = 9;
+  string reason      = 10;
+}
+
+message ListChangelogResponse {
+  repeated ChangelogEntry entries = 1;
+  int64                   total   = 2;
 }
 
 message ListEmployeeFullNamesRequest {

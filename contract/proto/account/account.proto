@@ -40,6 +40,35 @@ service AccountService {
   rpc CommitIncoming(CommitIncomingRequest)   returns (CommitIncomingResponse);
   // idempotent
   rpc ReleaseIncoming(ReleaseIncomingRequest) returns (ReleaseIncomingResponse);
+
+  // Audit-trail reads. Returns changelog rows scoped by entity_type +
+  // entity_id; pagination matches list endpoints (1-based page).
+  rpc ListChangelog(ListChangelogRequest) returns (ListChangelogResponse);
+}
+
+message ListChangelogRequest {
+  string entity_type = 1; // e.g. "account"
+  int64  entity_id   = 2;
+  int32  page        = 3;
+  int32  page_size   = 4;
+}
+
+message ChangelogEntry {
+  uint64 id          = 1;
+  string entity_type = 2;
+  int64  entity_id   = 3;
+  string action      = 4; // create|update|delete|status_change
+  string field_name  = 5;
+  string old_value   = 6; // JSON-encoded string
+  string new_value   = 7; // JSON-encoded string
+  int64  changed_by  = 8; // user_id (0 = system)
+  int64  changed_at  = 9; // unix seconds
+  string reason      = 10;
+}
+
+message ListChangelogResponse {
+  repeated ChangelogEntry entries = 1;
+  int64                   total   = 2;
 }
 
 message CreateAccountRequest {

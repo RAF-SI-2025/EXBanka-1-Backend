@@ -41,6 +41,7 @@ const (
 	AccountService_ReserveIncoming_FullMethodName          = "/account.AccountService/ReserveIncoming"
 	AccountService_CommitIncoming_FullMethodName           = "/account.AccountService/CommitIncoming"
 	AccountService_ReleaseIncoming_FullMethodName          = "/account.AccountService/ReleaseIncoming"
+	AccountService_ListChangelog_FullMethodName            = "/account.AccountService/ListChangelog"
 )
 
 // AccountServiceClient is the client API for AccountService service.
@@ -79,6 +80,9 @@ type AccountServiceClient interface {
 	CommitIncoming(ctx context.Context, in *CommitIncomingRequest, opts ...grpc.CallOption) (*CommitIncomingResponse, error)
 	// idempotent
 	ReleaseIncoming(ctx context.Context, in *ReleaseIncomingRequest, opts ...grpc.CallOption) (*ReleaseIncomingResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error)
 }
 
 type accountServiceClient struct {
@@ -309,6 +313,16 @@ func (c *accountServiceClient) ReleaseIncoming(ctx context.Context, in *ReleaseI
 	return out, nil
 }
 
+func (c *accountServiceClient) ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListChangelogResponse)
+	err := c.cc.Invoke(ctx, AccountService_ListChangelog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AccountServiceServer is the server API for AccountService service.
 // All implementations must embed UnimplementedAccountServiceServer
 // for forward compatibility.
@@ -345,6 +359,9 @@ type AccountServiceServer interface {
 	CommitIncoming(context.Context, *CommitIncomingRequest) (*CommitIncomingResponse, error)
 	// idempotent
 	ReleaseIncoming(context.Context, *ReleaseIncomingRequest) (*ReleaseIncomingResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error)
 	mustEmbedUnimplementedAccountServiceServer()
 }
 
@@ -420,6 +437,9 @@ func (UnimplementedAccountServiceServer) CommitIncoming(context.Context, *Commit
 }
 func (UnimplementedAccountServiceServer) ReleaseIncoming(context.Context, *ReleaseIncomingRequest) (*ReleaseIncomingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReleaseIncoming not implemented")
+}
+func (UnimplementedAccountServiceServer) ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListChangelog not implemented")
 }
 func (UnimplementedAccountServiceServer) mustEmbedUnimplementedAccountServiceServer() {}
 func (UnimplementedAccountServiceServer) testEmbeddedByValue()                        {}
@@ -838,6 +858,24 @@ func _AccountService_ReleaseIncoming_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AccountService_ListChangelog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListChangelogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ListChangelog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ListChangelog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ListChangelog(ctx, req.(*ListChangelogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AccountService_ServiceDesc is the grpc.ServiceDesc for AccountService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -932,6 +970,10 @@ var AccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReleaseIncoming",
 			Handler:    _AccountService_ReleaseIncoming_Handler,
+		},
+		{
+			MethodName: "ListChangelog",
+			Handler:    _AccountService_ListChangelog_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
