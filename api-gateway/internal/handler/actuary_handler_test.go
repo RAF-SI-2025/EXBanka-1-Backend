@@ -22,10 +22,11 @@ func actuaryRouter(h *handler.ActuaryHandler) *gin.Engine {
 		c.Set("principal_id", int64(1))
 		c.Set("principal_type", "employee")
 	}
-	r.GET("/api/v2/actuaries", withCtx, h.ListActuaries)
-	r.PUT("/api/v2/actuaries/:id/limit", withCtx, h.SetActuaryLimit)
-	r.POST("/api/v2/actuaries/:id/limit/reset", withCtx, h.ResetActuaryLimit)
-	r.PUT("/api/v2/actuaries/:id/need-approval", withCtx, h.SetNeedApproval)
+	r.GET("/api/v3/actuaries", withCtx, h.ListActuaries)
+	r.PUT("/api/v3/actuaries/:id/limit", withCtx, h.SetActuaryLimit)
+	r.POST("/api/v3/actuaries/:id/reset-limit", withCtx, h.ResetActuaryLimit)
+	r.POST("/api/v3/actuaries/:id/require-approval", withCtx, h.RequireApproval)
+	r.POST("/api/v3/actuaries/:id/skip-approval", withCtx, h.SkipApproval)
 	return r
 }
 
@@ -41,7 +42,7 @@ func TestActuary_ListActuaries_Defaults(t *testing.T) {
 	}
 	h := handler.NewActuaryHandler(st)
 	r := actuaryRouter(h)
-	req := httptest.NewRequest("GET", "/api/v2/actuaries", nil)
+	req := httptest.NewRequest("GET", "/api/v3/actuaries", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -57,7 +58,7 @@ func TestActuary_ListActuaries_GRPCError(t *testing.T) {
 	}
 	h := handler.NewActuaryHandler(st)
 	r := actuaryRouter(h)
-	req := httptest.NewRequest("GET", "/api/v2/actuaries", nil)
+	req := httptest.NewRequest("GET", "/api/v3/actuaries", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusForbidden, rec.Code)
@@ -74,7 +75,7 @@ func TestActuary_SetActuaryLimit_Success(t *testing.T) {
 	h := handler.NewActuaryHandler(st)
 	r := actuaryRouter(h)
 	body := `{"limit":"1000"}`
-	req := httptest.NewRequest("PUT", "/api/v2/actuaries/7/limit", strings.NewReader(body))
+	req := httptest.NewRequest("PUT", "/api/v3/actuaries/7/limit", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -85,7 +86,7 @@ func TestActuary_SetActuaryLimit_BadID(t *testing.T) {
 	h := handler.NewActuaryHandler(&stubActuaryClient{})
 	r := actuaryRouter(h)
 	body := `{"limit":"1000"}`
-	req := httptest.NewRequest("PUT", "/api/v2/actuaries/x/limit", strings.NewReader(body))
+	req := httptest.NewRequest("PUT", "/api/v3/actuaries/x/limit", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -97,7 +98,7 @@ func TestActuary_SetActuaryLimit_MissingLimit(t *testing.T) {
 	h := handler.NewActuaryHandler(&stubActuaryClient{})
 	r := actuaryRouter(h)
 	body := `{}`
-	req := httptest.NewRequest("PUT", "/api/v2/actuaries/7/limit", strings.NewReader(body))
+	req := httptest.NewRequest("PUT", "/api/v3/actuaries/7/limit", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -114,7 +115,7 @@ func TestActuary_ResetActuaryLimit_Success(t *testing.T) {
 	}
 	h := handler.NewActuaryHandler(st)
 	r := actuaryRouter(h)
-	req := httptest.NewRequest("POST", "/api/v2/actuaries/7/limit/reset", nil)
+	req := httptest.NewRequest("POST", "/api/v3/actuaries/7/reset-limit", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -123,13 +124,13 @@ func TestActuary_ResetActuaryLimit_Success(t *testing.T) {
 func TestActuary_ResetActuaryLimit_BadID(t *testing.T) {
 	h := handler.NewActuaryHandler(&stubActuaryClient{})
 	r := actuaryRouter(h)
-	req := httptest.NewRequest("POST", "/api/v2/actuaries/x/limit/reset", nil)
+	req := httptest.NewRequest("POST", "/api/v3/actuaries/x/reset-limit", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestActuary_SetNeedApproval_Success(t *testing.T) {
+func TestActuary_RequireApproval_Success(t *testing.T) {
 	st := &stubActuaryClient{
 		setApprFn: func(req *userpb.SetNeedApprovalRequest) (*userpb.ActuaryInfo, error) {
 			require.Equal(t, uint64(7), req.Id)
@@ -139,31 +140,32 @@ func TestActuary_SetNeedApproval_Success(t *testing.T) {
 	}
 	h := handler.NewActuaryHandler(st)
 	r := actuaryRouter(h)
-	body := `{"need_approval":true}`
-	req := httptest.NewRequest("PUT", "/api/v2/actuaries/7/need-approval", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest("POST", "/api/v3/actuaries/7/require-approval", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestActuary_SetNeedApproval_BadID(t *testing.T) {
-	h := handler.NewActuaryHandler(&stubActuaryClient{})
+func TestActuary_SkipApproval_Success(t *testing.T) {
+	st := &stubActuaryClient{
+		setApprFn: func(req *userpb.SetNeedApprovalRequest) (*userpb.ActuaryInfo, error) {
+			require.Equal(t, uint64(7), req.Id)
+			require.False(t, req.NeedApproval)
+			return &userpb.ActuaryInfo{}, nil
+		},
+	}
+	h := handler.NewActuaryHandler(st)
 	r := actuaryRouter(h)
-	body := `{"need_approval":true}`
-	req := httptest.NewRequest("PUT", "/api/v2/actuaries/x/need-approval", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest("POST", "/api/v3/actuaries/7/skip-approval", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestActuary_SetNeedApproval_BadBody(t *testing.T) {
+func TestActuary_RequireApproval_BadID(t *testing.T) {
 	h := handler.NewActuaryHandler(&stubActuaryClient{})
 	r := actuaryRouter(h)
-	body := `not-json`
-	req := httptest.NewRequest("PUT", "/api/v2/actuaries/7/need-approval", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest("POST", "/api/v3/actuaries/x/require-approval", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)

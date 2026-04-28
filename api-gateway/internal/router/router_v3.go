@@ -733,12 +733,20 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		actuariesRead.Use(middleware.RequirePermission(perms.Employees.Read.All))
 		{
 			actuariesRead.GET("", h.Actuary.ListActuaries)
+			// Performance read sits with the rest of /actuaries — funds.read.all
+			// is broader than employees.read.all, but ListActuaries already
+			// requires employees.read.all so anyone reaching this group has
+			// read access. The handler itself does no perm check beyond the
+			// group middleware, matching prior behavior at /actuaries/performance.
+			actuariesRead.GET("/performance", h.Fund.ActuaryPerformance)
 		}
 		actuariesAssign := protected.Group("/actuaries")
 		actuariesAssign.Use(middleware.RequirePermission(perms.Employees.Update.Any))
 		{
 			actuariesAssign.PUT("/:id/limit", h.Actuary.SetActuaryLimit)
-			actuariesAssign.PUT("/:id/approval", h.Actuary.SetNeedApproval)
+			// Approval action pair — bodyless POST, idempotent.
+			actuariesAssign.POST("/:id/require-approval", h.Actuary.RequireApproval)
+			actuariesAssign.POST("/:id/skip-approval", h.Actuary.SkipApproval)
 		}
 		actuariesUnassign := protected.Group("/actuaries")
 		actuariesUnassign.Use(middleware.RequirePermission(perms.Employees.Update.Any))
@@ -794,12 +802,13 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			fundsManage.PUT("/:id", h.Fund.UpdateFund)
 		}
 
-		// Bank-position read + actuary performance.
+		// Bank-position read. The /actuaries/performance route lives under
+		// the actuariesRead group above — same URL, sits with its sibling
+		// actuary endpoints rather than under the funds umbrella.
 		fundsBank := protected.Group("/")
 		fundsBank.Use(middleware.RequirePermission(perms.Funds.Read.All))
 		{
 			fundsBank.GET("/investment-funds/positions", h.Fund.ListBankPositions)
-			fundsBank.GET("/actuaries/performance", h.Fund.ActuaryPerformance)
 		}
 
 		// ── v2 options (legacy v2-only routes, now hosted on v3) ────
