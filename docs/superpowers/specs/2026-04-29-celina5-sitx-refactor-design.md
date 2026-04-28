@@ -35,6 +35,14 @@ This design refactors all wrong-assumption code so cross-bank communication conf
 - `POST /api/v3/negotiations`, `PUT /api/v3/negotiations/{rid}/{id}`, `GET /api/v3/negotiations/{rid}/{id}`, `DELETE /api/v3/negotiations/{rid}/{id}`, `GET /api/v3/negotiations/{rid}/{id}/accept` — OTC negotiation lifecycle.
 - `GET /api/v3/user/{rid}/{id}` — user information lookup; called by peers when displaying counterparty identity in OTC negotiations or transfer history.
 
+**Admin CRUD over peer banks** — also on api-gateway, **not** peer-facing:
+- `GET /api/v3/peer-banks` — list registered peer banks.
+- `GET /api/v3/peer-banks/:id` — read one.
+- `POST /api/v3/peer-banks` — register a new peer (bank code, routing number, base URL, API token, optional HMAC keys, active flag).
+- `PUT /api/v3/peer-banks/:id` — update mutable fields (base URL, API token, HMAC keys, active flag).
+- `DELETE /api/v3/peer-banks/:id` — remove a peer.
+These routes use `AuthMiddleware` (employee JWT) + `RequirePermission("peer_banks.manage")`. New permission, granted to `EmployeeAdmin` only. Lets ops add/remove peer banks at runtime without redeploy or DB-poke; supports the user-facing requirement to "edit which banks we work with."
+
 **Routing number ↔ bank code.** SI-TX `routingNumber` is a numeric identifier; the team's existing `bank_code` is a 3-digit string ("111", "222", "333", "444"). The two are **the same value, different encodings.** `peer_banks.routing_number` stores the int form (`111`); `peer_banks.bank_code` stores the string form (`"111"`). Postings reference `routingNumber` (int); legacy code paths reference `bank_code` (string). Conversion is `strconv.Itoa` / `strconv.Atoi` — no semantic difference.
 
 Peer banks configure each other's base URLs as `https://exbanka.example/api/v3` and concatenate SI-TX paths against it. SI-TX paths are relative to a per-peer base URL, so the `/api/v3/` prefix does not violate conformance.
@@ -67,6 +75,7 @@ Both paths populate `c.Set("peer_bank_code", ...)` and `c.Set("peer_routing_numb
 - **`peer_tx_handler.go`** — `POST /api/v3/interbank`. Decodes envelope, validates `idempotenceKey` shape, dispatches to `transaction-service.PeerTxService`.
 - **`peer_otc_handler.go`** — 6 OTC routes. Dispatches to `stock-service.PeerOTCService`.
 - **`peer_user_handler.go`** — `GET /api/v3/user/{rid}/{id}`. Routes to `user-service` or `client-service` by `rid`.
+- **`peer_bank_admin_handler.go`** — admin CRUD on `peer_banks`. 5 routes (list / get / create / update / delete). Calls `transaction-service.PeerBankAdminService` via gRPC.
 
 ### gRPC contract changes
 
@@ -78,6 +87,14 @@ service PeerTxService {
   rpc HandleCommitTx(SiTxCommitRequest) returns (google.protobuf.Empty);
   rpc HandleRollbackTx(SiTxRollbackRequest) returns (google.protobuf.Empty);
   rpc InitiateOutboundTx(InitiateOutboundRequest) returns (InitiateOutboundResponse);
+}
+
+service PeerBankAdminService {
+  rpc ListPeerBanks(ListPeerBanksRequest) returns (ListPeerBanksResponse);
+  rpc GetPeerBank(GetPeerBankRequest) returns (PeerBank);
+  rpc CreatePeerBank(CreatePeerBankRequest) returns (PeerBank);
+  rpc UpdatePeerBank(UpdatePeerBankRequest) returns (PeerBank);
+  rpc DeletePeerBank(DeletePeerBankRequest) returns (google.protobuf.Empty);
 }
 ```
 
@@ -286,7 +303,7 @@ Per Approach 3 from brainstorming. Each phase ends in a `main`-mergeable state.
 
 **Phase 1 — Demolition.** Delete all wrong-assumption code. Drop schema tables. `POST /api/v3/me/transfers` falls back to intra-bank only; inter-bank prefix returns `501 Not Implemented`. Test-app inter-bank workflows skipped with `t.Skip("pending SI-TX")`. `Specification.md` §25/§27 replaced with a "pending SI-TX implementation" stub. Repository layout: ~8000 LOC removed, no new code yet.
 
-**Phase 2 — SI-TX foundation.** Add `contract/sitx/types.go`, `peer_auth` middleware, `peer_banks` table + seeder, `peer_idempotence_records` table. Add stub `POST /api/v3/interbank` that 501s. Hybrid auth working; envelope decoding working.
+**Phase 2 — SI-TX foundation.** Add `contract/sitx/types.go`, `peer_auth` middleware, `peer_banks` table + seeder, `peer_idempotence_records` table. Add stub `POST /api/v3/interbank` that 501s. Hybrid auth working; envelope decoding working. **Also adds the admin CRUD surface** — `PeerBankAdminService` gRPC, the 5 `/api/v3/peer-banks` routes, and the new `peer_banks.manage` permission seeded for `EmployeeAdmin`. After Phase 2 admins can register peers via REST without redeploys.
 
 **Phase 3 — TX execution (transfers).** Implement `posting_executor` → wire to existing `account-service` RPCs. Implement `vote_builder` with all 8 NoVote reasons. Wire `POST /api/v3/me/transfers` inter-bank dispatch. `outbound_peer_txs` table + `OutboundReplayCron`. Re-enable `wf_peer_tx_*` workflows.
 
@@ -307,6 +324,7 @@ These were settled during brainstorming and are not open questions:
 - **Sender-debit-immediate:** preserved. Existing semantic where outbound transfer debits sender's account before sending NEW_TX, credits back on rollback.
 - **Retry policy:** 4 attempts, 60s/120s/240s/480s exponential backoff, then mark `failed`.
 - **NoVote semantics:** all hard-fail. Sender does not retry NO votes regardless of reason.
+- **Peer-bank admin CRUD:** runtime-editable via 5 REST routes under `/api/v3/peer-banks`, gated by new `peer_banks.manage` permission (EmployeeAdmin). Seed file `seeder/peer_banks.sql` provides initial registrations; admins can add/update/remove peers without redeploy.
 
 ## Open follow-ups (out of scope for this design)
 
