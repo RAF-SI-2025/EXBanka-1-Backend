@@ -505,8 +505,8 @@ The catalog is the source of truth for what permissions EXIST. Default role-perm
 
 | Method | Path | Required Permission |
 |---|---|---|
-| `POST` | `/api/v3/roles/:role_name/permissions` | `roles.permissions.assign` |
-| `DELETE` | `/api/v3/roles/:role_name/permissions/:permission` | `roles.permissions.revoke` |
+| `POST` | `/api/v3/roles/:id/permissions` | `roles.permissions.assign` |
+| `DELETE` | `/api/v3/roles/:id/permissions/:permission` | `roles.permissions.revoke` |
 
 The `POST` body is `{"permission": "<code>"}`. The handler validates `<code>` against the catalog — unknown codes return HTTP 400 (`InvalidArgument`). A missing role returns HTTP 404. Both verbs are idempotent and return HTTP 204 No Content on success. Both publish `RolePermissionsChangedMessage` to Kafka so auth-service can revoke active sessions for affected employees.
 
@@ -894,7 +894,7 @@ Four new RPCs on `AccountService` back the securities-order reservation system. 
 `PortfolioGRPCService` — portfolio operations including option exercise:
 - `ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult)` — exercises an option by option ID instead of holding ID. Fields: `option_id uint64` (required), `user_id uint64` (required), `holding_id uint64` (optional; 0 means auto-resolve to the user's most recent unexpired holding for that option).
 
-`OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v3/orders` or `POST /api/v3/otc/admin/offers/:id/buy` endpoints.
+`OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v3/orders` or `POST /api/v3/otc/offers/:id/buy-on-behalf` endpoints.
 
 `SourceAdminService` — destructive data-source management:
 - `SwitchSource(SwitchSourceRequest) returns (SwitchSourceResponse)` — switches the active stock data source. Request field: `source string` (one of `external`, `generated`, `simulator`). Response wraps a `SourceStatus` message.
@@ -1303,19 +1303,21 @@ api-gateway:
 | GET | `/api/currencies` | (any employee) | accountHandler.ListCurrencies | List currencies |
 | GET | `/api/accounts` | accounts.read | accountHandler.ListAllAccounts | List accounts |
 | GET | `/api/accounts/:id` | accounts.read | accountHandler.GetAccount | Get account |
-| GET | `/api/accounts/by-number/:account_number` | accounts.read | accountHandler.GetAccountByNumber | Get by number |
+| GET | `/api/accounts?account_number=X` | accounts.read | accountHandler.ListAllAccounts | Look up by number (returns array of 0-1 items) |
 | POST | `/api/accounts` | accounts.create | accountHandler.CreateAccount | Create account |
 | PUT | `/api/accounts/:id/name` | accounts.update | accountHandler.UpdateAccountName | Update name |
 | PUT | `/api/accounts/:id/limits` | accounts.update | accountHandler.UpdateAccountLimits | Update limits |
-| PUT | `/api/accounts/:id/status` | accounts.update | accountHandler.UpdateAccountStatus | Update status |
+| POST | `/api/accounts/:id/activate` | accounts.deactivate.any | accountHandler.ActivateAccount | Activate account |
+| POST | `/api/accounts/:id/deactivate` | accounts.deactivate.any | accountHandler.DeactivateAccount | Deactivate account |
 | POST | `/api/companies` | accounts.create | accountHandler.CreateCompany | Create company |
 | GET | `/api/bank-accounts` | bank-accounts.manage | accountHandler.ListBankAccounts | List bank accounts |
 | POST | `/api/bank-accounts` | bank-accounts.manage | accountHandler.CreateBankAccount | Create bank account |
 | DELETE | `/api/bank-accounts/:id` | bank-accounts.manage | accountHandler.DeleteBankAccount | Delete bank account |
-| GET | `/api/cards` | cards.read | cardHandler.ListCards | List cards (filter) |
+| GET | `/api/clients/:id/cards` | cards.read | cardHandler.ListCardsByClientPath | List cards by client |
+| GET | `/api/accounts/:id/cards` | cards.read | cardHandler.ListCardsByAccountPath | List cards by account |
 | GET | `/api/cards/:id` | cards.read | cardHandler.GetCard | Get card |
 | POST | `/api/cards` | cards.create | cardHandler.CreateCard | Create card |
-| POST | `/api/cards/authorized-person` | cards.create | cardHandler.CreateAuthorizedPerson | Add auth person |
+| POST | `/api/cards/authorized-persons` | cards.create | cardHandler.CreateAuthorizedPerson | Add auth person |
 | POST | `/api/cards/:id/block` | cards.update | cardHandler.BlockCard | Block card |
 | POST | `/api/cards/:id/unblock` | cards.update | cardHandler.UnblockCard | Unblock card |
 | POST | `/api/cards/:id/deactivate` | cards.update | cardHandler.DeactivateCard | Deactivate card |
@@ -1323,9 +1325,10 @@ api-gateway:
 | GET | `/api/cards/requests/:id` | cards.approve | cardHandler.GetCardRequest | Get card request |
 | POST | `/api/cards/requests/:id/approve` | cards.approve | cardHandler.ApproveCardRequest | Approve request |
 | POST | `/api/cards/requests/:id/reject` | cards.approve | cardHandler.RejectCardRequest | Reject request |
-| GET | `/api/payments` | payments.read | txHandler.ListPayments | List payments |
+| GET | `/api/clients/:id/payments` | accounts.read | txHandler.ListPaymentsByClientPath | List payments by client |
+| GET | `/api/accounts/:id/payments` | accounts.read | txHandler.ListPaymentsByAccountPath | List payments by account |
 | GET | `/api/payments/:id` | payments.read | txHandler.GetPayment | Get payment |
-| GET | `/api/transfers` | payments.read | txHandler.ListTransfers | List transfers |
+| GET | `/api/clients/:id/transfers` | accounts.read | txHandler.ListTransfersByClientPath | List transfers by client |
 | GET | `/api/transfers/:id` | payments.read | txHandler.GetTransfer | Get transfer |
 | GET | `/api/fees` | fees.manage | txHandler.ListFees | List fee rules |
 | POST | `/api/fees` | fees.manage | txHandler.CreateFee | Create fee rule |
@@ -1345,10 +1348,21 @@ api-gateway:
 | POST | `/api/interest-rate-tiers/:id/apply` | interest-rates.manage | creditHandler.ApplyVariableRateUpdate | Apply rate update |
 | GET | `/api/bank-margins` | interest-rates.manage | creditHandler.ListBankMargins | List margins |
 | PUT | `/api/bank-margins/:id` | interest-rates.manage | creditHandler.UpdateBankMargin | Update margin |
-| POST | `/api/v3/admin/stock-source` | securities.manage | stockSourceHandler.SwitchSource | Switch active stock data source (destructive) |
-| GET | `/api/v3/admin/stock-source` | securities.manage | stockSourceHandler.GetSourceStatus | Get current stock data source and status |
+| POST | `/api/v3/stock-sources` | securities.manage.catalog | stockSourceHandler.SwitchSource | Switch active stock data source (destructive) |
+| GET | `/api/v3/stock-sources/active` | securities.manage.catalog | stockSourceHandler.GetSourceStatus | Get current stock data source and status |
 | POST | `/api/v3/orders` | orders.place-on-behalf | stockHandler.CreateOrderOnBehalf | Employee places stock order on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
-| POST | `/api/v3/otc/admin/offers/:id/buy` | orders.place-on-behalf | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| POST | `/api/v3/otc/offers/:id/buy-on-behalf` | otc.trade.accept or orders.place-on-behalf | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| GET | `/api/v3/clients/:id/accounts` | accounts.read | accountHandler.ListAccountsByClientPath | List accounts by client |
+| GET | `/api/v3/clients/:id/loans` | credits.read | creditHandler.ListLoansByClientPath | List loans by client |
+| GET | `/api/v3/accounts/:id/changelog` | accounts.read.all | changelogHandler.GetAccountChangelog | Account audit log |
+| GET | `/api/v3/cards/:id/changelog` | cards.read.all | changelogHandler.GetCardChangelog | Card audit log |
+| GET | `/api/v3/clients/:id/changelog` | clients.read.all | changelogHandler.GetClientChangelog | Client audit log |
+| GET | `/api/v3/loans/:id/changelog` | credits.read.all | changelogHandler.GetLoanChangelog | Loan audit log |
+| GET | `/api/v3/employees/:id/changelog` | employees.read.all | changelogHandler.GetEmployeeChangelog | Employee audit log |
+| DELETE | `/api/v3/me/sessions/:id` | (any auth) | sessionHandler.RevokeSession | Revoke a session by ID |
+| POST | `/api/v3/actuaries/:id/require-approval` | employees.update.any | actuaryHandler.RequireApproval | Require supervisor approval for actuary |
+| POST | `/api/v3/actuaries/:id/skip-approval` | employees.update.any | actuaryHandler.SkipApproval | Remove approval requirement for actuary |
+| POST | `/api/v3/orders/:id/reject` | orders.cancel.all | stockOrderHandler.RejectOrder | Reject a pending order (renamed from /decline) |
 
 ### Browser Verification (/api/verifications — AnyAuthMiddleware)
 
@@ -2111,7 +2125,7 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
   - `OwnerIsBankIfEmployee` — employee principal → owner=bank; client principal → owner=self (used by `/me/orders`, `/me/holdings`, `/me/funds`, `/me/otc/*`).
 - Any resource ID from URL, query, or body is verified against the resolved owner before any read or write. Mismatches return `404 not_found` to avoid leaking existence.
 - The acting employee's id is recorded on every side-effect row (`acting_employee_id`) regardless of resolved owner; stock-service's actuary-limit gate keys on this column so an employee placing a /me/order is correctly rate-limited even though the order is bank-owned.
-- Employee on-behalf trading routes (`POST /api/v3/orders`, `POST /api/v3/otc/admin/offers/:id/buy`) use `OwnerFromURLParam("client_id")` and verify that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. Mismatch returns 403.
+- Employee on-behalf trading routes (`POST /api/v3/orders`, `POST /api/v3/otc/offers/:id/buy-on-behalf`) use `OwnerFromURLParam("client_id")` and verify that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. Mismatch returns 403.
 
 **Stock Data Sources:**
 - Three sources supported: `external` (live API), `generated` (deterministic synthetic data), `simulator` (simulated market prices backed by the Market Simulator Service).
