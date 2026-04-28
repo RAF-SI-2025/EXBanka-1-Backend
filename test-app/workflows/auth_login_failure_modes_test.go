@@ -100,9 +100,10 @@ func assertHTTP(t *testing.T, resp *client.Response, status int, errCode string)
 }
 
 // createUnactivatedClient creates a bank client via POST /api/v3/clients but
-// deliberately does NOT pull the activation token from Kafka. The auth-service
-// Account row is created with status=pending; logging in will surface
-// ErrAccountPending → FailedPrecondition → 409 business_rule_violation.
+// deliberately does NOT activate the account. It waits for the auth-service to
+// consume the client.created Kafka event and create an Account row in
+// status=pending (confirmed by scanning for the ACTIVATION email on Kafka).
+// Logging in will surface ErrAccountPending → FailedPrecondition → 409.
 //
 // Returns the email used.
 func createUnactivatedClient(t *testing.T, adminC *client.APIClient) string {
@@ -122,5 +123,12 @@ func createUnactivatedClient(t *testing.T, adminC *client.APIClient) string {
 		t.Fatalf("createUnactivatedClient: POST /api/v3/clients: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 201)
+
+	// Wait until the auth-service has consumed the client.created Kafka event
+	// and created the Account row in status=pending. We confirm this by scanning
+	// for the ACTIVATION email published by auth-service — its presence means the
+	// Account row exists. We read the token but intentionally do NOT use it, so
+	// the account stays in pending status.
+	_ = scanKafkaForActivationToken(t, email)
 	return email
 }
