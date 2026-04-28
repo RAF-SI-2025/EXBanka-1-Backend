@@ -43,7 +43,6 @@ func main() {
 		&model.PaymentRecipient{},
 		&model.TransferFee{},
 		&model.SagaLog{},
-		&model.IdempotencyRecord{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
