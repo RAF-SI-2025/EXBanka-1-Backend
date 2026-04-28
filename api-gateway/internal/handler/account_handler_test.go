@@ -148,11 +148,11 @@ func accountRouter(h *handler.AccountHandler) *gin.Engine {
 	r.POST("/accounts", withCtx, h.CreateAccount)
 	r.GET("/accounts", withCtx, h.ListAllAccounts)
 	r.GET("/accounts/:id", withCtx, h.GetAccount)
-	r.GET("/accounts/by-number/:account_number", withCtx, h.GetAccountByNumber)
 	r.GET("/accounts/client/:client_id", withCtx, h.ListAccountsByClient)
 	r.PUT("/accounts/:id/name", withCtx, h.UpdateAccountName)
 	r.PUT("/accounts/:id/limits", withCtx, h.UpdateAccountLimits)
-	r.PUT("/accounts/:id/status", withCtx, h.UpdateAccountStatus)
+	r.POST("/accounts/:id/activate", withCtx, h.ActivateAccount)
+	r.POST("/accounts/:id/deactivate", withCtx, h.DeactivateAccount)
 	r.GET("/currencies", withCtx, h.ListCurrencies)
 	r.POST("/companies", withCtx, h.CreateCompany)
 	r.GET("/bank-accounts", withCtx, h.ListBankAccounts)
@@ -311,14 +311,46 @@ func TestAccount_GetAccount_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-func TestAccount_GetAccountByNumber(t *testing.T) {
-	h := handler.NewAccountHandler(&accountFullStub{}, &stubBankAccountClient{}, nil, nil)
+func TestAccount_ListAllAccounts_FilterByAccountNumber(t *testing.T) {
+	acc := &accountFullStub{
+		getByNumFn: func(req *accountpb.GetAccountByNumberRequest) (*accountpb.AccountResponse, error) {
+			require.Equal(t, "265-1-00", req.AccountNumber)
+			return &accountpb.AccountResponse{Id: 99, AccountNumber: "265-1-00"}, nil
+		},
+	}
+	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
 	r := accountRouter(h)
-	req := httptest.NewRequest("GET", "/accounts/by-number/265-1-00", nil)
+	req := httptest.NewRequest("GET", "/accounts?account_number=265-1-00", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"total":1`)
 	require.Contains(t, rec.Body.String(), `"account_number":"265-1-00"`)
+}
+
+func TestAccount_ListAllAccounts_FilterByAccountNumber_NotFound(t *testing.T) {
+	acc := &accountFullStub{
+		getByNumFn: func(_ *accountpb.GetAccountByNumberRequest) (*accountpb.AccountResponse, error) {
+			return nil, status.Error(codes.NotFound, "no")
+		},
+	}
+	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
+	r := accountRouter(h)
+	req := httptest.NewRequest("GET", "/accounts?account_number=000-0-00", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"total":0`)
+	require.Contains(t, rec.Body.String(), `"accounts":[]`)
+}
+
+func TestAccount_ListAllAccounts_FilterMutuallyExclusive(t *testing.T) {
+	h := handler.NewAccountHandler(&accountFullStub{}, &stubBankAccountClient{}, nil, nil)
+	r := accountRouter(h)
+	req := httptest.NewRequest("GET", "/accounts?client_id=1&account_number=x", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestAccount_ListAccountsByClient_Success(t *testing.T) {
@@ -393,23 +425,42 @@ func TestAccount_UpdateAccountLimits_NegativeMonthly(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestAccount_UpdateAccountStatus_Success(t *testing.T) {
-	h := handler.NewAccountHandler(&accountFullStub{}, &stubBankAccountClient{}, nil, nil)
+func TestAccount_ActivateAccount_Success(t *testing.T) {
+	acc := &accountFullStub{
+		updStatus: func(req *accountpb.UpdateAccountStatusRequest) (*accountpb.AccountResponse, error) {
+			require.Equal(t, "active", req.Status)
+			require.Equal(t, uint64(1), req.Id)
+			return &accountpb.AccountResponse{Id: 1, Status: "active"}, nil
+		},
+	}
+	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
 	r := accountRouter(h)
-	body := `{"status":"active"}`
-	req := httptest.NewRequest("PUT", "/accounts/1/status", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest("POST", "/accounts/1/activate", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestAccount_UpdateAccountStatus_BadStatus(t *testing.T) {
+func TestAccount_DeactivateAccount_Success(t *testing.T) {
+	acc := &accountFullStub{
+		updStatus: func(req *accountpb.UpdateAccountStatusRequest) (*accountpb.AccountResponse, error) {
+			require.Equal(t, "inactive", req.Status)
+			require.Equal(t, uint64(1), req.Id)
+			return &accountpb.AccountResponse{Id: 1, Status: "inactive"}, nil
+		},
+	}
+	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
+	r := accountRouter(h)
+	req := httptest.NewRequest("POST", "/accounts/1/deactivate", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestAccount_ActivateAccount_BadID(t *testing.T) {
 	h := handler.NewAccountHandler(&accountFullStub{}, &stubBankAccountClient{}, nil, nil)
 	r := accountRouter(h)
-	body := `{"status":"weird"}`
-	req := httptest.NewRequest("PUT", "/accounts/1/status", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest("POST", "/accounts/abc/activate", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)

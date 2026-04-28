@@ -134,17 +134,48 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 // @Produce      json
 // @Param        page                  query  int     false  "Page number (default 1)"
 // @Param        page_size             query  int     false  "Items per page (default 20)"
+// @Param        client_id             query  int     false  "Filter by client owner ID (mutually exclusive with account_number)"
+// @Param        account_number        query  string  false  "Filter by exact account number (mutually exclusive with client_id)"
 // @Param        name_filter           query  string  false  "Filter by account name"
-// @Param        account_number_filter query  string  false  "Filter by account number"
+// @Param        account_number_filter query  string  false  "Filter by account number substring"
 // @Param        type_filter           query  string  false  "Filter by account type"
 // @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/v2/accounts [get]
+// @Router       /api/v3/accounts [get]
 func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
+	clientIDStr := c.Query("client_id")
+	accountNumber := c.Query("account_number")
+
+	// Mutually exclusive filter params — both set is a client error.
+	if clientIDStr != "" && accountNumber != "" {
+		apiError(c, 400, ErrValidation, "client_id and account_number are mutually exclusive")
+		return
+	}
+
+	// Query-param filtering: ?account_number=X — exact-match single lookup.
+	// Wraps GetAccountByNumber to keep the response shape consistent with the
+	// list endpoint. NotFound → empty result rather than a hard 404.
+	if accountNumber != "" {
+		resp, err := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{
+			AccountNumber: accountNumber,
+		})
+		if err != nil {
+			if isNotFound(err) {
+				c.JSON(http.StatusOK, gin.H{"accounts": []gin.H{}, "total": 0})
+				return
+			}
+			handleGRPCError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"accounts": []gin.H{accountToJSON(resp)}, "total": 1})
+		return
+	}
+
 	// Query-param filtering: ?client_id=X
-	if clientIDStr := c.Query("client_id"); clientIDStr != "" {
+	if clientIDStr != "" {
 		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
 		if err != nil {
 			apiError(c, 400, ErrValidation, "invalid client_id query parameter")
@@ -211,27 +242,6 @@ func (h *AccountHandler) GetAccount(c *gin.Context) {
 	}
 
 	resp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: id})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, accountToJSON(resp))
-}
-
-// @Summary      Get account by number
-// @Tags         accounts
-// @Produce      json
-// @Param        account_number  path  string  true  "Account number"
-// @Security     BearerAuth
-// @Success      200  {object}  map[string]interface{}
-// @Failure      401  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Router       /api/v2/accounts/by-number/{account_number} [get]
-func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
-	accountNumber := c.Param("account_number")
-	resp, err := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{
-		AccountNumber: accountNumber,
-	})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
@@ -387,39 +397,13 @@ func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 	c.JSON(http.StatusOK, accountToJSON(resp))
 }
 
-type updateAccountStatusRequest struct {
-	Status string `json:"status" binding:"required"`
-}
-
-// @Summary      Update account status
-// @Description  Updates the active/inactive status of a bank account. Requires accounts.update permission.
-// @Tags         accounts
-// @Accept       json
-// @Produce      json
-// @Param        id    path  int                         true  "Account ID"
-// @Param        body  body  updateAccountStatusRequest  true  "New status"
-// @Security     BearerAuth
-// @Success      200   {object}  map[string]interface{}
-// @Failure      400   {object}  map[string]string
-// @Failure      401   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /api/v2/accounts/{id}/status [put]
-func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
+// setAccountStatus is the shared core for the activate/deactivate action pair.
+// The HTTP verb is POST and the desired status is hard-coded by the caller —
+// no body is read.
+func (h *AccountHandler) setAccountStatus(c *gin.Context, status string) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		apiError(c, 400, ErrValidation, "invalid id")
-		return
-	}
-
-	var req updateAccountStatusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, 400, ErrValidation, err.Error())
-		return
-	}
-
-	status, err := oneOf("status", req.Status, "active", "inactive")
-	if err != nil {
-		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.accountClient.UpdateAccountStatus(middleware.GRPCContextWithChangedBy(c), &accountpb.UpdateAccountStatusRequest{
@@ -431,6 +415,40 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, accountToJSON(resp))
+}
+
+// ActivateAccount godoc
+// @Summary      Activate an account
+// @Description  Marks the account as active. Idempotent. Requires accounts.deactivate permission (status changes cluster under deactivate).
+// @Tags         accounts
+// @Produce      json
+// @Param        id    path  int  true  "Account ID"
+// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      404   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /api/v3/accounts/{id}/activate [post]
+func (h *AccountHandler) ActivateAccount(c *gin.Context) {
+	h.setAccountStatus(c, "active")
+}
+
+// DeactivateAccount godoc
+// @Summary      Deactivate an account
+// @Description  Marks the account as inactive. Idempotent. Requires accounts.deactivate permission.
+// @Tags         accounts
+// @Produce      json
+// @Param        id    path  int  true  "Account ID"
+// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      404   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /api/v3/accounts/{id}/deactivate [post]
+func (h *AccountHandler) DeactivateAccount(c *gin.Context) {
+	h.setAccountStatus(c, "inactive")
 }
 
 // @Summary      List currencies

@@ -476,7 +476,6 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		{
 			accountsRead.GET("", h.Account.ListAllAccounts)
 			accountsRead.GET("/:id", h.Account.GetAccount)
-			accountsRead.GET("/by-number/:account_number", h.Account.GetAccountByNumber)
 		}
 		accountsCreate := protected.Group("/accounts")
 		accountsCreate.Use(middleware.RequireAnyPermission(perms.Accounts.Create.Current, perms.Accounts.Create.Foreign))
@@ -493,12 +492,13 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		{
 			accountsLimits.PUT("/:id/limits", h.Account.UpdateAccountLimits)
 		}
-		// Status updates cluster under deactivate.any: changing account status
-		// (active ↔ inactive) is an deactivation-class privilege.
+		// Activate/deactivate action pair. Both cluster under deactivate.any:
+		// changing account status is a deactivation-class privilege.
 		accountsStatus := protected.Group("/accounts")
 		accountsStatus.Use(middleware.RequirePermission(perms.Accounts.Deactivate.Any))
 		{
-			accountsStatus.PUT("/:id/status", h.Account.UpdateAccountStatus)
+			accountsStatus.POST("/:id/activate", h.Account.ActivateAccount)
+			accountsStatus.POST("/:id/deactivate", h.Account.DeactivateAccount)
 		}
 
 		// Companies

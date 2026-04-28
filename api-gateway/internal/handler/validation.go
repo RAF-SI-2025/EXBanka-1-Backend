@@ -216,6 +216,15 @@ func handleGRPCError(c *gin.Context, err error) {
 	apiError(c, httpStatus, code, message)
 }
 
+// isNotFound reports whether err is a gRPC NotFound status.
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	s, ok := status.FromError(err)
+	return ok && s.Code() == codes.NotFound
+}
+
 // emptyIfNil returns an initialized empty slice when s is nil.
 // This prevents encoding/json from serializing nil slices as null.
 func emptyIfNil[T any](s []T) []T {
