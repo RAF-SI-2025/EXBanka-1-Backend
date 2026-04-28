@@ -83,6 +83,7 @@ type Handlers struct {
 	Fund           *handler.InvestmentFundHandler
 	OTCOptions     *handler.OTCOptionsHandler
 	InterBankPub   *handler.InterBankPublicHandler
+	Changelog      *handler.ChangelogHandler
 }
 
 // NewHandlers wires every handler from the supplied gRPC client deps.
@@ -117,5 +118,6 @@ func NewHandlers(d Deps) *Handlers {
 		Fund:          handler.NewInvestmentFundHandler(d.FundClient),
 		OTCOptions:    handler.NewOTCOptionsHandler(d.OTCOptionsClient),
 		InterBankPub:  handler.NewInterBankPublicHandler(d.InterBankClient, d.TxClient, d.AccountClient),
+		Changelog:     handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
 	}
 }

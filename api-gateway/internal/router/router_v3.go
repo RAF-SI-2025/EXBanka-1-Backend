@@ -24,52 +24,6 @@ func notImplemented(c *gin.Context) {
 	})
 }
 
-// ── Named placeholder handlers with Swagger annotations ─────────────────────
-
-// @Summary      Get account changelog (not yet implemented)
-// @Tags         Changelog
-// @Security     BearerAuth
-// @Param        id  path  int  true  "Account ID"
-// @Produce      json
-// @Success      501  {object}  map[string]interface{}
-// @Router       /api/v3/accounts/{id}/changelog [get]
-func v3GetAccountChangelog(c *gin.Context) { notImplemented(c) }
-
-// @Summary      Get employee changelog (not yet implemented)
-// @Tags         Changelog
-// @Security     BearerAuth
-// @Param        id  path  int  true  "Employee ID"
-// @Produce      json
-// @Success      501  {object}  map[string]interface{}
-// @Router       /api/v3/employees/{id}/changelog [get]
-func v3GetEmployeeChangelog(c *gin.Context) { notImplemented(c) }
-
-// @Summary      Get client changelog (not yet implemented)
-// @Tags         Changelog
-// @Security     BearerAuth
-// @Param        id  path  int  true  "Client ID"
-// @Produce      json
-// @Success      501  {object}  map[string]interface{}
-// @Router       /api/v3/clients/{id}/changelog [get]
-func v3GetClientChangelog(c *gin.Context) { notImplemented(c) }
-
-// @Summary      Get card changelog (not yet implemented)
-// @Tags         Changelog
-// @Security     BearerAuth
-// @Param        id  path  int  true  "Card ID"
-// @Produce      json
-// @Success      501  {object}  map[string]interface{}
-// @Router       /api/v3/cards/{id}/changelog [get]
-func v3GetCardChangelog(c *gin.Context) { notImplemented(c) }
-
-// @Summary      Get loan changelog (not yet implemented)
-// @Tags         Changelog
-// @Security     BearerAuth
-// @Param        id  path  int  true  "Loan ID"
-// @Produce      json
-// @Success      501  {object}  map[string]interface{}
-// @Router       /api/v3/loans/{id}/changelog [get]
-func v3GetLoanChangelog(c *gin.Context) { notImplemented(c) }
 
 // NewRouter creates the Gin engine with CORS, metrics, and Swagger.
 // SetupV3 (and any future SetupV4) attach their routes to this engine.
@@ -797,27 +751,27 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		changelogAccounts := protected.Group("/accounts")
 		changelogAccounts.Use(middleware.RequirePermission(perms.Accounts.Read.All))
 		{
-			changelogAccounts.GET("/:id/changelog", v3GetAccountChangelog)
+			changelogAccounts.GET("/:id/changelog", h.Changelog.GetAccountChangelog)
 		}
 		changelogEmployees := protected.Group("/employees")
 		changelogEmployees.Use(middleware.RequirePermission(perms.Employees.Read.All))
 		{
-			changelogEmployees.GET("/:id/changelog", v3GetEmployeeChangelog)
+			changelogEmployees.GET("/:id/changelog", h.Changelog.GetEmployeeChangelog)
 		}
 		changelogClients := protected.Group("/clients")
 		changelogClients.Use(middleware.RequirePermission(perms.Clients.Read.All))
 		{
-			changelogClients.GET("/:id/changelog", v3GetClientChangelog)
+			changelogClients.GET("/:id/changelog", h.Changelog.GetClientChangelog)
 		}
 		changelogCards := protected.Group("/cards")
 		changelogCards.Use(middleware.RequirePermission(perms.Cards.Read.All))
 		{
-			changelogCards.GET("/:id/changelog", v3GetCardChangelog)
+			changelogCards.GET("/:id/changelog", h.Changelog.GetCardChangelog)
 		}
 		changelogLoans := protected.Group("/loans")
 		changelogLoans.Use(middleware.RequirePermission(perms.Credits.Read.All))
 		{
-			changelogLoans.GET("/:id/changelog", v3GetLoanChangelog)
+			changelogLoans.GET("/:id/changelog", h.Changelog.GetLoanChangelog)
 		}
 
 		// ── Investment funds (Celina-4) ────────────────────────────

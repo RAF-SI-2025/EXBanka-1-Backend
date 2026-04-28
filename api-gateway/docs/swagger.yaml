@@ -660,13 +660,6 @@ definitions:
     required:
     - current_refresh_token
     type: object
-  handler.revokeSessionRequest:
-    properties:
-      session_id:
-        type: integer
-    required:
-    - session_id
-    type: object
   handler.setBiometricsReq:
     properties:
       enabled:
@@ -777,13 +770,6 @@ definitions:
         type: string
     required:
     - new_name
-    type: object
-  handler.updateAccountStatusRequest:
-    properties:
-      status:
-        type: string
-    required:
-    - status
     type: object
   handler.updateBankMarginBody:
     properties:
@@ -1169,154 +1155,7 @@ paths:
       summary: List the caller's investment-fund positions
       tags:
       - InvestmentFunds
-  /api/v1/roles/{role_name}/permissions:
-    post:
-      consumes:
-      - application/json
-      description: Grants a single permission to the named role. The permission is
-        validated against the codegened catalog. Idempotent — granting a permission
-        already held is a no-op. Requires roles.permissions.assign permission.
-      parameters:
-      - description: Role name (e.g. EmployeeBasic)
-        in: path
-        name: role_name
-        required: true
-        type: string
-      - description: Permission code to grant
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.assignPermissionRequest'
-      produces:
-      - application/json
-      responses:
-        "204":
-          description: no content
-        "400":
-          description: validation error or permission not in catalog
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "403":
-          description: forbidden
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: role not found
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: error
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Assign a permission to a role
-      tags:
-      - roles
-  /api/v1/roles/{role_name}/permissions/{permission}:
-    delete:
-      description: Removes a single permission grant from the named role. Idempotent
-        — revoking a permission not held is a no-op. Requires roles.permissions.revoke
-        permission.
-      parameters:
-      - description: Role name (e.g. EmployeeBasic)
-        in: path
-        name: role_name
-        required: true
-        type: string
-      - description: Permission code to revoke
-        in: path
-        name: permission
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "204":
-          description: no content
-        "401":
-          description: unauthorized
-          schema:
-            additionalProperties: true
-            type: object
-        "403":
-          description: forbidden
-          schema:
-            additionalProperties: true
-            type: object
-        "404":
-          description: role not found
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: error
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Revoke a permission from a role
-      tags:
-      - roles
   /api/v2/accounts:
-    get:
-      parameters:
-      - description: Page number (default 1)
-        in: query
-        name: page
-        type: integer
-      - description: Items per page (default 20)
-        in: query
-        name: page_size
-        type: integer
-      - description: Filter by account name
-        in: query
-        name: name_filter
-        type: string
-      - description: Filter by account number
-        in: query
-        name: account_number_filter
-        type: string
-      - description: Filter by account type
-        in: query
-        name: type_filter
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: List accounts
-      tags:
-      - accounts
     post:
       consumes:
       - application/json
@@ -1491,88 +1330,6 @@ paths:
       summary: Update account name
       tags:
       - accounts
-  /api/v2/accounts/{id}/status:
-    put:
-      consumes:
-      - application/json
-      description: Updates the active/inactive status of a bank account. Requires
-        accounts.update permission.
-      parameters:
-      - description: Account ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: New status
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.updateAccountStatusRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Update account status
-      tags:
-      - accounts
-  /api/v2/accounts/by-number/{account_number}:
-    get:
-      parameters:
-      - description: Account number
-        in: path
-        name: account_number
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get account by number
-      tags:
-      - accounts
   /api/v2/accounts/client/{client_id}:
     get:
       parameters:
@@ -1620,73 +1377,6 @@ paths:
       summary: List accounts by client
       tags:
       - accounts
-  /api/v2/admin/stock-source:
-    get:
-      description: Returns the currently active stock data source, seeding status,
-        and any error details.
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "403":
-          description: Forbidden
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get the current stock data source and status
-      tags:
-      - Admin
-    post:
-      consumes:
-      - application/json
-      description: Wipes all stock-service securities and trading state, then reseeds
-        from the new source. Admin-only.
-      parameters:
-      - description: 'target source: external | generated | simulator'
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.switchSourceRequest'
-      produces:
-      - application/json
-      responses:
-        "202":
-          description: Accepted
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties: true
-            type: object
-        "403":
-          description: Forbidden
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Switch active stock data source (DESTRUCTIVE)
-      tags:
-      - Admin
   /api/v2/auth/activate:
     post:
       consumes:
@@ -2750,48 +2440,6 @@ paths:
       security:
       - BearerAuth: []
       summary: List cards by account
-      tags:
-      - cards
-  /api/v2/cards/authorized-person:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Authorized person data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.createAuthorizedPersonRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Create authorized person
       tags:
       - cards
   /api/v2/cards/client/{client_id}:
@@ -4464,54 +4112,6 @@ paths:
       summary: Create limit template
       tags:
       - limits
-  /api/v2/loans:
-    get:
-      parameters:
-      - description: Page number (default 1)
-        in: query
-        name: page
-        type: integer
-      - description: Items per page (default 20)
-        in: query
-        name: page_size
-        type: integer
-      - description: Filter by loan type
-        in: query
-        name: loan_type_filter
-        type: string
-      - description: Filter by account number
-        in: query
-        name: account_number_filter
-        type: string
-      - description: Filter by status
-        in: query
-        name: status_filter
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: List all loans
-      tags:
-      - loans
   /api/v2/loans/{id}:
     get:
       parameters:
@@ -5302,51 +4902,6 @@ paths:
       security:
       - BearerAuth: []
       summary: List my active sessions
-      tags:
-      - sessions
-  /api/v2/me/sessions/revoke:
-    post:
-      consumes:
-      - application/json
-      description: Revokes a session by ID, logging out the device associated with
-        it
-      parameters:
-      - description: Session to revoke
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.revokeSessionRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: success message
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: validation error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: session not found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Revoke a specific session
       tags:
       - sessions
   /api/v2/me/sessions/revoke-others:
@@ -6869,8 +6424,71 @@ paths:
       summary: QR code verification (mobile scans QR)
       tags:
       - mobile-verifications
-  /api/v3/accounts/{id}/changelog:
+  /api/v3/accounts:
     get:
+      description: Lists all accounts (employee read). Filter by ?account_number=X
+        for exact-match lookup, or by name/type filters. To list a single client's
+        accounts, use GET /api/v3/clients/{id}/accounts.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by exact account number
+        in: query
+        name: account_number
+        type: string
+      - description: Filter by account name
+        in: query
+        name: name_filter
+        type: string
+      - description: Filter by account number substring
+        in: query
+        name: account_number_filter
+        type: string
+      - description: Filter by account type
+        in: query
+        name: type_filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List accounts
+      tags:
+      - accounts
+  /api/v3/accounts/{id}/activate:
+    post:
+      description: Marks the account as active. Idempotent. Requires accounts.deactivate
+        permission (status changes cluster under deactivate).
       parameters:
       - description: Account ID
         in: path
@@ -6880,20 +6498,46 @@ paths:
       produces:
       - application/json
       responses:
-        "501":
-          description: Not Implemented
+        "200":
+          description: OK
           schema:
             additionalProperties: true
             type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
-      summary: Get account changelog (not yet implemented)
+      summary: Activate an account
       tags:
-      - Changelog
-  /api/v3/cards/{id}/changelog:
+      - accounts
+  /api/v3/accounts/{id}/cards:
     get:
+      description: Returns all cards for a given account ID. Resolves account_number
+        from ID via account-service.
       parameters:
-      - description: Card ID
+      - description: Account ID
         in: path
         name: id
         required: true
@@ -6901,18 +6545,355 @@ paths:
       produces:
       - application/json
       responses:
-        "501":
-          description: Not Implemented
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List cards by account (path-scoped)
+      tags:
+      - cards
+  /api/v3/accounts/{id}/changelog:
+    get:
+      description: Returns paginated audit-log entries for a bank account.
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 200)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties: true
             type: object
       security:
       - BearerAuth: []
-      summary: Get card changelog (not yet implemented)
+      summary: Get account changelog
       tags:
       - Changelog
-  /api/v3/clients/{id}/changelog:
+  /api/v3/accounts/{id}/deactivate:
+    post:
+      description: Marks the account as inactive. Idempotent. Requires accounts.deactivate
+        permission.
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Deactivate an account
+      tags:
+      - accounts
+  /api/v3/accounts/{id}/payments:
     get:
+      description: Returns payments for a given account ID. Resolves account_number
+        from ID via account-service.
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Start date (RFC3339 or YYYY-MM-DD)
+        in: query
+        name: date_from
+        type: string
+      - description: End date (RFC3339 or YYYY-MM-DD)
+        in: query
+        name: date_to
+        type: string
+      - description: Filter by status
+        in: query
+        name: status_filter
+        type: string
+      - description: Minimum amount
+        in: query
+        name: amount_min
+        type: number
+      - description: Maximum amount
+        in: query
+        name: amount_max
+        type: number
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List payments by account (path-scoped)
+      tags:
+      - payments
+  /api/v3/cards/{id}/changelog:
+    get:
+      description: Returns paginated audit-log entries for a payment card.
+      parameters:
+      - description: Card ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 200)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get card changelog
+      tags:
+      - Changelog
+  /api/v3/cards/authorized-persons:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Authorized person data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createAuthorizedPersonRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create authorized person
+      tags:
+      - cards
+  /api/v3/clients/{id}/accounts:
+    get:
+      description: Returns all accounts for a given client. Mounted under /clients/:id/accounts.
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 50)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List accounts by client (path-scoped)
+      tags:
+      - accounts
+  /api/v3/clients/{id}/cards:
+    get:
+      description: Returns all cards for a given client. Mounted under /clients/:id/cards.
       parameters:
       - description: Client ID
         in: path
@@ -6922,56 +6903,376 @@ paths:
       produces:
       - application/json
       responses:
-        "501":
-          description: Not Implemented
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List cards by client (path-scoped)
+      tags:
+      - cards
+  /api/v3/clients/{id}/changelog:
+    get:
+      description: Returns paginated audit-log entries for a bank client.
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 200)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties: true
             type: object
       security:
       - BearerAuth: []
-      summary: Get client changelog (not yet implemented)
+      summary: Get client changelog
       tags:
       - Changelog
+  /api/v3/clients/{id}/loans:
+    get:
+      description: Returns all loans for a given client. Mounted under /clients/:id/loans.
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List loans by client (path-scoped)
+      tags:
+      - loans
+  /api/v3/clients/{id}/payments:
+    get:
+      description: Returns all payments for a given client. Mounted under /clients/:id/payments.
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List payments by client (path-scoped)
+      tags:
+      - payments
+  /api/v3/clients/{id}/transfers:
+    get:
+      description: Returns all transfers for a given client. Mounted under /clients/:id/transfers.
+      parameters:
+      - description: Client ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List transfers by client (path-scoped)
+      tags:
+      - transfers
   /api/v3/employees/{id}/changelog:
     get:
+      description: Returns paginated audit-log entries for an employee.
       parameters:
       - description: Employee ID
         in: path
         name: id
         required: true
         type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 200)
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
-        "501":
-          description: Not Implemented
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties: true
             type: object
       security:
       - BearerAuth: []
-      summary: Get employee changelog (not yet implemented)
+      summary: Get employee changelog
       tags:
       - Changelog
+  /api/v3/loans:
+    get:
+      description: Lists all loans (employee read). Filter by loan_type/account_number/status.
+        To list one client's loans, use GET /api/v3/clients/{id}/loans.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by loan type
+        in: query
+        name: loan_type_filter
+        type: string
+      - description: Filter by account number
+        in: query
+        name: account_number_filter
+        type: string
+      - description: Filter by status
+        in: query
+        name: status_filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List all loans
+      tags:
+      - loans
   /api/v3/loans/{id}/changelog:
     get:
+      description: Returns paginated audit-log entries for a loan.
       parameters:
       - description: Loan ID
         in: path
         name: id
         required: true
         type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 200)
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
-        "501":
-          description: Not Implemented
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
           schema:
             additionalProperties: true
             type: object
       security:
       - BearerAuth: []
-      summary: Get loan changelog (not yet implemented)
+      summary: Get loan changelog
       tags:
       - Changelog
   /api/v3/me/otc/contracts:
@@ -7009,6 +7310,48 @@ paths:
       summary: List the caller's OTC offers
       tags:
       - OTCOptions
+  /api/v3/me/sessions/{id}:
+    delete:
+      description: Revokes a session by ID, logging out the device associated with
+        it. ID comes from the URL path; ownership enforced by the caller's JWT.
+      parameters:
+      - description: Session ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: validation error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: session not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Revoke a specific session
+      tags:
+      - sessions
   /api/v3/otc/contracts/{id}:
     get:
       parameters:
@@ -7183,6 +7526,179 @@ paths:
       summary: Reject an OTC offer
       tags:
       - OTCOptions
+  /api/v3/roles/{id}/permissions:
+    post:
+      consumes:
+      - application/json
+      description: Grants a single permission to the role identified by ID. The permission
+        is validated against the codegened catalog. Idempotent — granting a permission
+        already held is a no-op. Requires roles.permissions.assign permission.
+      parameters:
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Permission code to grant
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.assignPermissionRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: no content
+        "400":
+          description: validation error or permission not in catalog
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: role not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Assign a permission to a role
+      tags:
+      - roles
+  /api/v3/roles/{id}/permissions/{permission}:
+    delete:
+      description: Removes a single permission grant from the role identified by ID.
+        Idempotent — revoking a permission not held is a no-op. Requires roles.permissions.revoke
+        permission.
+      parameters:
+      - description: Role ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Permission code to revoke
+        in: path
+        name: permission
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: no content
+        "400":
+          description: validation error
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: role not found
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Revoke a permission from a role
+      tags:
+      - roles
+  /api/v3/stock-sources:
+    post:
+      consumes:
+      - application/json
+      description: Wipes all stock-service securities and trading state, then reseeds
+        from the new source. Admin-only.
+      parameters:
+      - description: 'target source: external | generated | simulator'
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.switchSourceRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Switch active stock data source (DESTRUCTIVE)
+      tags:
+      - Admin
+  /api/v3/stock-sources/active:
+    get:
+      description: Returns the currently active stock data source, seeding status,
+        and any error details.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the current stock data source and status
+      tags:
+      - Admin
 securityDefinitions:
   BearerAuth:
     description: Enter "Bearer <token>"
