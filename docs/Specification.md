@@ -2544,20 +2544,59 @@ Both Accept and Exercise convert through `exchange-service.Convert` when buyer +
 
 Same-currency flows skip the conversion call entirely.
 
-## 27. Cross-Bank OTC Options (Celina 5) — Pending SI-TX Implementation
+## 27. Cross-Bank OTC Options (Celina 5 / SI-TX)
 
-The previous in-house cross-bank OTC saga (12-RPC `CrossBankOTCService`, `CrossbankAcceptSaga` / `CrossbankExerciseSaga` / `CrossbankExpireSaga`, `InterBankSagaLog` durable audit table, `CrossbankCheckStatusCron` / `CrossbankOrphanReservationCron` / `CrossbankExpiryCron`) was removed in the Phase 1 demolition of the SI-TX refactor.
+Cross-bank OTC negotiation + acceptance follows SI-TX. Phase 4 of the SI-TX refactor; plan: `docs/superpowers/plans/2026-04-29-celina5-sitx-phase4-otc-peer.md`.
 
-The SI-TX-conformant replacement is built in Phase 4 of the refactor (see §25). It exposes peer-facing OTC endpoints at:
+§27 covers the OTC layer; the underlying TX dispatch reuses the §25 SI-TX flow.
 
-- `GET /api/v3/public-stock` — peer OTC discovery
-- `POST /api/v3/negotiations` — initiate cross-bank offer
-- `PUT /api/v3/negotiations/{rid}/{id}` — counter-offer
-- `GET /api/v3/negotiations/{rid}/{id}` — read
-- `DELETE /api/v3/negotiations/{rid}/{id}` — cancel
-- `GET /api/v3/negotiations/{rid}/{id}/accept` — accept (triggers SI-TX TX formation via `POST /api/v3/interbank` `NEW_TX`)
-- `GET /api/v3/user/{rid}/{id}` — user info
+### Public peer-facing routes (api-gateway)
 
-Design doc: `docs/superpowers/specs/2026-04-29-celina5-sitx-refactor-design.md`.
+Same `PeerAuth` as §25.
 
-During this transition cross-bank OTC is unavailable; intra-bank OTC (Celina 4 / §26) continues to work.
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v3/public-stock` | Returns this bank's OTC-public-flagged holdings (queries `holdings` where `public_quantity > 0 AND security_type = 'stock'`). |
+| POST | `/api/v3/negotiations` | Peer-initiated cross-bank offer. Persists in `peer_otc_negotiations` and returns a fresh negotiation id (UUID). |
+| PUT | `/api/v3/negotiations/:rid/:id` | Counter-offer. Updates the offer JSON on an existing negotiation row. |
+| GET | `/api/v3/negotiations/:rid/:id` | Read negotiation state (offer + buyer/seller ids + status). |
+| DELETE | `/api/v3/negotiations/:rid/:id` | Cancel — sets status to `cancelled`. |
+| GET | `/api/v3/negotiations/:rid/:id/accept` | Accept — composes the 4-posting `Transaction` and dispatches via `PeerTxService.InitiateOutboundTxWithPostings`. |
+| GET | `/api/v3/user/:rid/:id` | Counterparty user info lookup. Returns 404 if `rid` ≠ `OWN_BANK_CODE`'s routing (we don't proxy across banks). For own routing, dispatches to `client-service.GetClient` for `client-N` ids and `user-service.GetEmployee` for `employee-N` ids. |
+
+### gRPC service
+
+- **`PeerOTCService`** (stock-service): 6 RPCs mirroring the public routes — `GetPublicStocks`, `CreateNegotiation`, `UpdateNegotiation`, `GetNegotiation`, `DeleteNegotiation`, `AcceptNegotiation`.
+
+### Acceptance flow
+
+`AcceptNegotiation` (stock-service handler):
+1. Look up the negotiation in `peer_otc_negotiations`.
+2. Decode the offer.
+3. Compose 4 postings:
+   - Buyer debits premium (in `premiumCurrency`).
+   - Seller credits premium.
+   - Seller debits 1× `OptionDescription` (asset_id is the JSON-encoded `OptionDescription` per cohort convention — captures ticker, amount, strike, settlement, negotiation_id).
+   - Buyer credits 1× `OptionDescription`.
+4. Call `transaction-service.PeerTxService.InitiateOutboundTxWithPostings` with `tx_kind="otc-accept"`. The TX runs through the standard `NEW_TX` → `COMMIT_TX` flow on the SI-TX wire.
+5. Mark negotiation `accepted`. Return `transaction_id` to caller.
+
+### Database table
+
+- **`peer_otc_negotiations`** — receiver-side persistence of inbound peer negotiations. Composite-unique on `(peer_bank_code, foreign_id)`. Columns: `id`, `peer_bank_code`, `foreign_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `offer_json` (serialised `contractsitx.OtcOffer`), `status` (`ongoing` | `accepted` | `cancelled` | `expired`), timestamps.
+
+### SI-TX wire types
+
+Defined in `contract/sitx/otc_types.go`:
+
+- `OtcOffer` — ticker, amount, pricePerStock, currency, premium, premiumCurrency, settlementDate, lastModifiedBy.
+- `OtcNegotiation` — full record (id, buyer/seller ids, offer, status, updatedAt).
+- `OptionDescription` — used as a posting `assetId` for OTC TX formation (ticker, amount, strikePrice, currency, settlementDate, negotiationId).
+- `UserInformation` — response shape of `GET /user/{rid}/{id}`.
+- `PublicStocksResponse` + `PublicStock` — response shape of `GET /public-stock`.
+- `ForeignBankId` — `(routingNumber, id)` tuple used wherever cross-bank resource identity is needed.
+
+### Out of scope
+
+- Liquidation of underlying stocks at exercise time — Phase 4 covers acceptance (TX formation); exercise of the resulting option contract is a follow-up.
+- Cross-bank price discovery / quote streaming — `GET /public-stock` is poll-driven; sub-second updates are not in scope.
