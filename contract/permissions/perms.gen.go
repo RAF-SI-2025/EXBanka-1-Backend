@@ -17,6 +17,7 @@ var Catalog = []Permission{
 	"accounts.update.limits",
 	"accounts.deactivate.any",
 	"bank_accounts.manage.any",
+	"peer_banks.manage.any",
 	"cards.create.physical",
 	"cards.create.virtual",
 	"cards.read.all",
@@ -514,6 +515,18 @@ var Otc = struct {
 	},
 }
 
+var PeerBanks = struct {
+	Manage struct {
+		Any Permission
+	}
+}{
+	Manage: struct {
+		Any Permission
+	}{
+		Any: "peer_banks.manage.any",
+	},
+}
+
 var Roles = struct {
 	Permissions struct {
 		Assign Permission
@@ -659,6 +672,7 @@ var DefaultRoles = map[string][]Permission{
 		"otc.trade.accept",
 		"otc.trade.exercise",
 		"otc.trade.expire",
+		"peer_banks.manage.any",
 		"roles.permissions.assign",
 		"roles.permissions.revoke",
 		"roles.read.all",

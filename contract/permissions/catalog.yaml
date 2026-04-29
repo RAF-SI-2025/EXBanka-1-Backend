@@ -31,6 +31,9 @@ permissions:
   # bank accounts
   - bank_accounts.manage.any
 
+  # peer banks (Celina 5 SI-TX — admin-only registry of cross-bank peers)
+  - peer_banks.manage.any
+
   # cards
   - cards.create.physical
   - cards.create.virtual
