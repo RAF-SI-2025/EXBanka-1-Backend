@@ -2392,19 +2392,104 @@ Permission revoke that drops `funds.manage` → user-service writes a `user.supe
 - Task 21: actuary-performance aggregation
 - Task 25: integration tests in test-app/workflows
 
-## 25. Inter-Bank Cross-Bank Communication (Celina 5) — Pending SI-TX Implementation
+## 25. Inter-Bank Cross-Bank Communication (Celina 5 / SI-TX)
 
-The previous in-house 2PC inter-bank transfer protocol (HMAC headers, `Prepare` / `Ready` / `NotReady` / `Commit` / `Committed` / `CheckStatus` action enum, three split routes under `/internal/inter-bank/*`, status state machine, reconciler cron) was removed in the Phase 1 demolition of the SI-TX refactor.
+Cross-bank money movement and OTC trading conform to the SI-TX cohort wire protocol (https://arsen.srht.site/si-tx-proto/) referenced by Celina 5. The implementation landed in Phases 2-4 of the SI-TX refactor; design doc: `docs/superpowers/specs/2026-04-29-celina5-sitx-refactor-design.md`. Phase plans: `docs/superpowers/plans/2026-04-29-celina5-sitx-phase{1,2,3,4}-*.md`.
 
-The replacement implementation conforms to the SI-TX cohort wire protocol referenced by Celina 5 (`https://arsen.srht.site/si-tx-proto/`) and is being built in subsequent phases:
+§25 covers the **transfer-side** SI-TX implementation. Cross-bank OTC (negotiations + acceptance) is in §27.
 
-- **Phase 2 (foundation):** `Message<Type>` envelope, hybrid `X-Api-Key` / HMAC peer auth middleware, `peer_banks` registry table, `peer_idempotence_records` replay cache. Skeleton `POST /api/v3/interbank` (501). Admin CRUD on peer_banks via `/api/v3/peer-banks` routes.
-- **Phase 3 (TX execution):** `NEW_TX` / `COMMIT_TX` / `ROLLBACK_TX` posting executor, vote builder with the 8 SI-TX `NoVote` reasons, sender-side `outbound_peer_txs` + replay cron. Restores inter-bank transfer functionality.
-- **Phase 4 (OTC negotiations):** `GET /api/v3/public-stock`, the 5 `/api/v3/negotiations/{rid}/{id}` routes, `GET /api/v3/user/{rid}/{id}`. Restores cross-bank OTC functionality.
+### Public peer-facing routes (api-gateway)
 
-Design doc: `docs/superpowers/specs/2026-04-29-celina5-sitx-refactor-design.md`. Phase 1 plan: `docs/superpowers/plans/2026-04-29-celina5-sitx-phase1-demolition.md`.
+Hosted on api-gateway, gated by `middleware.PeerAuth` (hybrid auth — see "Authentication" below).
 
-`POST /api/v3/me/transfers` is served by `PeerTxDispatcherHandler`. Intra-bank receivers (own 3-digit prefix) delegate to the standard intra-bank transfer flow and return `201`. Foreign-prefix receivers dispatch to `PeerTxService.InitiateOutboundTx` via gRPC and return `202 Accepted` with `{transaction_id, poll_url, status}` (Phase 3 Task 11).
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v3/interbank` | Receives `Message<Type>` envelope. Decodes by `messageType` and dispatches to `transaction-service.PeerTxService` via gRPC. |
+
+### Admin REST routes (api-gateway, employee JWT)
+
+Hosted on api-gateway, gated by employee JWT + `peer_banks.manage.any` permission. Allows ops to add/update/remove peer banks at runtime without redeploys.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v3/peer-banks` | List registered peers (optional `?active_only=true`). |
+| GET | `/api/v3/peer-banks/:id` | Read one. |
+| POST | `/api/v3/peer-banks` | Register a new peer (bank_code, routing_number, base_url, api_token, optional HMAC keys, active flag). |
+| PUT | `/api/v3/peer-banks/:id` | Update mutable fields. |
+| DELETE | `/api/v3/peer-banks/:id` | Remove. |
+
+API tokens are bcrypt-hashed before persist. The plaintext `api_token` is also stored alongside (only readable via the internal `ResolvePeerByAPIToken` RPC, never via REST) so the api-gateway middleware can resolve incoming tokens to peer-bank records.
+
+### Authentication
+
+`middleware.PeerAuth` accepts either:
+
+1. **`X-Api-Key: <token>`** — looked up via `transaction-service.PeerBankAdminService.ResolvePeerByAPIToken` (internal gRPC; constant-time compare against `peer_banks.api_token_plaintext` for active peers only).
+2. **`X-Bank-Code: <code>` + `X-Bank-Signature: <hex SHA-256>` + `X-Timestamp: <RFC3339>` + `X-Nonce: <single-use>`** — looked up via `ResolvePeerByBankCode`. Signature verified against `peer_banks.hmac_inbound_key`; timestamp window ±5 min; nonce dedup window 10 min in Redis (`cache.PeerNonceStore`).
+
+On success the middleware sets `peer_bank_code` and `peer_routing_number` on the gin context. On any failure: 401 with empty body (no info leak; constant-time compare).
+
+### gRPC services
+
+- **`PeerTxService`** (transaction-service): 4 RPCs — `HandleNewTx`, `HandleCommitTx`, `HandleRollbackTx`, `InitiateOutboundTx`, plus `InitiateOutboundTxWithPostings` (Phase 4).
+- **`PeerBankAdminService`** (transaction-service): 5 admin RPCs (List/Get/Create/Update/Delete) + 2 internal-resolve RPCs (`ResolvePeerByAPIToken`, `ResolvePeerByBankCode`) returning `PeerBankFull` (with HMAC keys + plaintext token, never exposed via REST).
+
+### TX execution
+
+**Receiver side** (`HandleNewTx`):
+1. Replay-cache lookup on `(peer_bank_code, locally_generated_key)` in `peer_idempotence_records`. Hit → return cached vote.
+2. `vote_builder.BuildPrelimVote(postings)` — cheap balance check (UNBALANCED_TX if Σ debits ≠ Σ credits per `assetId`).
+3. `posting_executor.Reserve(...)` — per-posting checks: `NO_SUCH_ACCOUNT` (account not found), `UNACCEPTABLE_ASSET` (debit on our routing, or inactive account), `NO_SUCH_ASSET` (currency mismatch), `INSUFFICIENT_ASSET` (reserve fails). On YES, `account-service.ReserveIncoming(reservation_key="<peer>:<idem>")` per credit posting.
+4. Record cached response in `peer_idempotence_records` (same DB tx as the local commit per SI-TX §"R must record the idempotence key").
+5. Return 200 + `TransactionVote`.
+
+**Receiver side** (`HandleCommitTx` / `HandleRollbackTx`): look up idem record; `account-service.CommitIncoming` / `ReleaseIncoming` on the reservation key. Return 204.
+
+**Sender side** (`InitiateOutboundTx`):
+1. Detect peer routing from receiver-account 3-digit prefix. `peerLookup` reads `peer_banks` table.
+2. Generate UUID idempotence key. Persist `outbound_peer_txs` row in `pending`.
+3. **Sender-debit-immediate**: `account-service.UpdateBalance(amount=-X)` to debit sender now (preserves intra-bank transfer semantics).
+4. Best-effort dispatch via `sitx.PeerHTTPClient` to peer's `/interbank` (`Message<NEW_TX>`); on YES response, follow up with `Message<COMMIT_TX>`. On any error, leave row `pending` and `OutboundReplayCron` resumes.
+
+`InitiateOutboundTxWithPostings` is the same flow but accepts a pre-composed `[]Posting` (used by cross-bank OTC accept — see §27).
+
+### Database tables
+
+- **`peer_banks`** — runtime-editable registry. Columns: `id`, `bank_code`, `routing_number`, `base_url`, `api_token_bcrypt`, `api_token_plaintext`, `hmac_inbound_key`, `hmac_outbound_key`, `active`, timestamps.
+- **`peer_idempotence_records`** — receiver-side replay cache. Composite-unique on `(peer_bank_code, locally_generated_key)`. Stores cached `response_payload_json`.
+- **`outbound_peer_txs`** — sender-side state. Columns: `id`, `idempotence_key`, `peer_bank_code`, `tx_kind` (`transfer` | `otc-accept` | `otc-exercise`), `postings_json`, `status` (`pending` | `committing` | `committed` | `rolled_back` | `failed`), `attempt_count`, `last_attempt_at`, `last_error`, timestamps.
+
+### Retry / replay policy
+
+`OutboundReplayCron` (transaction-service): 30s tick. Scans `outbound_peer_txs` rows in `pending` whose `last_attempt_at` is older than 60s (or NULL — never attempted). 4-attempt cap; rows that exceed get marked `failed`. Receiver returns the same cached vote on every retry due to idempotence-key dedup.
+
+### NoVote reason codes
+
+Verbatim from SI-TX (each emitted with optional posting index for posting-scoped reasons):
+
+| Reason | Trigger |
+|---|---|
+| `UNBALANCED_TX` | Σ debits ≠ Σ credits per `assetId` |
+| `NO_SUCH_ACCOUNT` | account_id not found locally |
+| `NO_SUCH_ASSET` | account currency ≠ posting `assetId` |
+| `UNACCEPTABLE_ASSET` | inactive account, or debit-posting on our routing (peer can't order us to debit) |
+| `INSUFFICIENT_ASSET` | balance check / reserve failed |
+| `OPTION_AMOUNT_INCORRECT` | OTC posting amount drift (Phase 4) |
+| `OPTION_USED_OR_EXPIRED` | OTC contract already exercised / past settlement (Phase 4) |
+| `OPTION_NEGOTIATION_NOT_FOUND` | OTC negotiation reference invalid (Phase 4) |
+
+### Permission
+
+- **`peer_banks.manage.any`** — admin CRUD on `peer_banks`. Granted to `EmployeeAdmin` only (via the wildcard `*` grant).
+
+### Authentication failure semantics
+
+All `PeerAuth` failures return 401 with empty body. Constant-time comparison via `crypto/hmac.Equal` for the HMAC path; the API-token path uses a custom constant-time string compare. No info leak about which header failed, whether the bank is registered, or whether the timestamp/nonce is out-of-window.
+
+### Out of scope
+
+- TLS termination is the deployment platform's responsibility (gateway accepts plaintext HTTP on the internal network).
+- HMAC key rotation: admins use `PUT /api/v3/peer-banks/:id` to rotate keys; the old key is invalidated immediately on commit. Mid-flight requests using the old key fail 401 — peer banks must coordinate rotations.
 
 ## 26. Intra-bank OTC Options (Celina 4 / Spec 2)
 
