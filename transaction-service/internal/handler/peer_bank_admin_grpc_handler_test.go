@@ -99,6 +99,78 @@ func TestPeerBankAdmin_UpdateAndDelete(t *testing.T) {
 	}
 }
 
+func TestPeerBankAdmin_ResolveByAPIToken(t *testing.T) {
+	h := newAdminTestHandler(t)
+	ctx := context.Background()
+	_, _ = h.CreatePeerBank(ctx, &transactionpb.CreatePeerBankRequest{
+		BankCode: "222", RoutingNumber: 222, BaseUrl: "http://x", ApiToken: "secret-222",
+		HmacInboundKey: "in-222", HmacOutboundKey: "out-222", Active: true,
+	})
+
+	resp, err := h.ResolvePeerByAPIToken(ctx, &transactionpb.ResolvePeerByAPITokenRequest{ApiToken: "secret-222"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !resp.GetFound() {
+		t.Fatalf("expected found=true")
+	}
+	pb := resp.GetPeerBank()
+	if pb.GetBankCode() != "222" || pb.GetApiTokenPlaintext() != "secret-222" {
+		t.Errorf("got %+v", pb)
+	}
+	if pb.GetHmacInboundKey() != "in-222" || pb.GetHmacOutboundKey() != "out-222" {
+		t.Errorf("hmac keys missing: %+v", pb)
+	}
+}
+
+func TestPeerBankAdmin_ResolveByAPIToken_NotFound(t *testing.T) {
+	h := newAdminTestHandler(t)
+	resp, err := h.ResolvePeerByAPIToken(context.Background(), &transactionpb.ResolvePeerByAPITokenRequest{ApiToken: "nope"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resp.GetFound() {
+		t.Errorf("expected found=false on miss")
+	}
+}
+
+func TestPeerBankAdmin_ResolveByAPIToken_InactiveExcluded(t *testing.T) {
+	h := newAdminTestHandler(t)
+	ctx := context.Background()
+	_, _ = h.CreatePeerBank(ctx, &transactionpb.CreatePeerBankRequest{
+		BankCode: "222", RoutingNumber: 222, BaseUrl: "http://x", ApiToken: "tok-222", Active: false,
+	})
+	resp, _ := h.ResolvePeerByAPIToken(ctx, &transactionpb.ResolvePeerByAPITokenRequest{ApiToken: "tok-222"})
+	if resp.GetFound() {
+		t.Errorf("inactive peer should not match")
+	}
+}
+
+func TestPeerBankAdmin_ResolveByBankCode(t *testing.T) {
+	h := newAdminTestHandler(t)
+	ctx := context.Background()
+	_, _ = h.CreatePeerBank(ctx, &transactionpb.CreatePeerBankRequest{
+		BankCode: "222", RoutingNumber: 222, BaseUrl: "http://x", ApiToken: "tok-222",
+		HmacInboundKey: "in-222", Active: true,
+	})
+
+	resp, err := h.ResolvePeerByBankCode(ctx, &transactionpb.ResolvePeerByBankCodeRequest{BankCode: "222"})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !resp.GetFound() || resp.GetPeerBank().GetHmacInboundKey() != "in-222" {
+		t.Errorf("got %+v", resp.GetPeerBank())
+	}
+}
+
+func TestPeerBankAdmin_ResolveByBankCode_NotFound(t *testing.T) {
+	h := newAdminTestHandler(t)
+	resp, _ := h.ResolvePeerByBankCode(context.Background(), &transactionpb.ResolvePeerByBankCodeRequest{BankCode: "999"})
+	if resp.GetFound() {
+		t.Errorf("expected found=false")
+	}
+}
+
 func endsWith(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }

@@ -136,3 +136,68 @@ func tokenPreview(tok string) string {
 	}
 	return "…" + tok[len(tok)-4:]
 }
+
+func (h *PeerBankAdminGRPCHandler) ResolvePeerByAPIToken(ctx context.Context, req *transactionpb.ResolvePeerByAPITokenRequest) (*transactionpb.ResolvePeerByAPITokenResponse, error) {
+	tok := req.GetApiToken()
+	if tok == "" {
+		return &transactionpb.ResolvePeerByAPITokenResponse{Found: false}, nil
+	}
+	rows, err := h.repo.List(true) // active only
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list: %v", err)
+	}
+	for i := range rows {
+		// Constant-time comparison so the lookup doesn't leak token-prefix
+		// timing info via early-exit string compare.
+		if subtleEqualString(rows[i].APITokenPlaintext, tok) {
+			return &transactionpb.ResolvePeerByAPITokenResponse{
+				PeerBank: peerBankToFullProto(&rows[i]),
+				Found:    true,
+			}, nil
+		}
+	}
+	return &transactionpb.ResolvePeerByAPITokenResponse{Found: false}, nil
+}
+
+func (h *PeerBankAdminGRPCHandler) ResolvePeerByBankCode(ctx context.Context, req *transactionpb.ResolvePeerByBankCodeRequest) (*transactionpb.ResolvePeerByBankCodeResponse, error) {
+	row, err := h.repo.GetByBankCode(req.GetBankCode())
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &transactionpb.ResolvePeerByBankCodeResponse{Found: false}, nil
+		}
+		return nil, status.Errorf(codes.Internal, "get by bank code: %v", err)
+	}
+	if !row.Active {
+		return &transactionpb.ResolvePeerByBankCodeResponse{Found: false}, nil
+	}
+	return &transactionpb.ResolvePeerByBankCodeResponse{
+		PeerBank: peerBankToFullProto(row),
+		Found:    true,
+	}, nil
+}
+
+func peerBankToFullProto(row *model.PeerBank) *transactionpb.PeerBankFull {
+	return &transactionpb.PeerBankFull{
+		Id:                row.ID,
+		BankCode:          row.BankCode,
+		RoutingNumber:     row.RoutingNumber,
+		BaseUrl:           row.BaseURL,
+		ApiTokenPlaintext: row.APITokenPlaintext,
+		HmacInboundKey:    row.HMACInboundKey,
+		HmacOutboundKey:   row.HMACOutboundKey,
+		Active:            row.Active,
+	}
+}
+
+// subtleEqualString returns true iff a == b in constant time relative to
+// the longer of len(a), len(b).
+func subtleEqualString(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	var v byte
+	for i := 0; i < len(a); i++ {
+		v |= a[i] ^ b[i]
+	}
+	return v == 0
+}
