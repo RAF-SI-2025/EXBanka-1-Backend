@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/exbanka/contract/shared/grpcmw"
 	"github.com/exbanka/contract/shared/outbox"
 	pb "github.com/exbanka/contract/stockpb"
+	transactionpb "github.com/exbanka/contract/transactionpb"
 	userpb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/config"
@@ -81,6 +83,9 @@ func main() {
 		&model.OptionContract{},
 		&model.OTCOfferReadReceipt{},
 		&model.IdempotencyRecord{},
+		// Phase 4 SI-TX: receiver-side mirror of inbound peer-bank
+		// OTC negotiations. Created/updated by PeerOTCGRPCHandler.
+		&model.PeerOtcNegotiation{},
 		// Outbox: durable queue for Kafka events published from inside
 		// sagas. The drainer goroutine (started below) reads pending rows
 		// and publishes them, so a crash between business commit and
@@ -268,6 +273,19 @@ func main() {
 	}
 	defer clientConn.Close()
 	clientClient := clientpb.NewClientServiceClient(clientConn)
+
+	// Transaction service client (Phase 4 SI-TX: PeerOTC accept dispatches
+	// the 4-posting OTC settlement TX through transaction-service's
+	// PeerTxService.InitiateOutboundTxWithPostings).
+	transactionConn, err := grpc.NewClient(cfg.TransactionGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
+	if err != nil {
+		log.Fatalf("failed to connect to transaction-service: %v", err)
+	}
+	defer transactionConn.Close()
+	peerTxClient := transactionpb.NewPeerTxServiceClient(transactionConn)
 
 	// --- Redis ---
 	var redisCache *cache.RedisCache
@@ -602,6 +620,19 @@ func main() {
 
 	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).WithListings(listingRepo)
 
+	// --- Cross-bank OTC (Phase 4 SI-TX) ---
+	// PeerOTCService backs the api-gateway /api/v3/public-stock and
+	// /api/v3/negotiations endpoints. GetPublicStocks reads from holdings
+	// (rows with public_quantity > 0); negotiation lifecycle is mirrored
+	// in peer_otc_negotiations; AcceptNegotiation composes 4 SI-TX postings
+	// and dispatches via transaction-service's PeerTxService.
+	ownRouting, err := strconv.ParseInt(cfg.OwnBankCode, 10, 64)
+	if err != nil {
+		log.Fatalf("invalid OWN_BANK_CODE %q: %v", cfg.OwnBankCode, err)
+	}
+	peerOtcRepo := repository.NewPeerOtcNegotiationRepository(db)
+	peerOtcHandler := handler.NewPeerOTCGRPCHandler(peerOtcRepo, holdingRepo, peerTxClient, ownRouting)
+
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -629,6 +660,7 @@ func main() {
 			pb.RegisterTaxGRPCServiceServer(s, handler.NewTaxHandler(taxSvc))
 			pb.RegisterInvestmentFundServiceServer(s, fundHandler)
 			pb.RegisterOTCOptionsServiceServer(s, otcOptionsHandler)
+			pb.RegisterPeerOTCServiceServer(s, peerOtcHandler)
 			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 				switch name {
 				case "external":
