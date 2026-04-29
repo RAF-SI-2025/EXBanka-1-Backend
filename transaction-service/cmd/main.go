@@ -25,6 +25,7 @@ import (
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
 	"github.com/exbanka/transaction-service/internal/service"
+	"github.com/exbanka/transaction-service/internal/sitx"
 )
 
 func main() {
@@ -175,10 +176,12 @@ func main() {
 	// Phase 2 Task 8 (SI-TX): peer-bank admin + peer-tx stubs.
 	peerBankRepo := repository.NewPeerBankRepository(db)
 	peerIdemRepo := repository.NewPeerIdempotenceRepository(db)
-	_ = peerIdemRepo // wired into PeerTxService in Phase 3
 
 	peerBankAdminHandler := handler.NewPeerBankAdminGRPCHandler(peerBankRepo)
-	peerTxHandler := handler.NewPeerTxGRPCHandler()
+	// Phase 3 Task 6: real PeerTxGRPCHandler. ownRouting placeholder until Task 10
+	// extracts it from config.
+	peerExecutor := sitx.NewPostingExecutor(accountClient, 111)
+	peerTxHandler := handler.NewPeerTxGRPCHandler(peerIdemRepo, peerExecutor, accountClient)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
