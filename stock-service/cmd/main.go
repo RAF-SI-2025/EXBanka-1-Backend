@@ -47,6 +47,13 @@ func main() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 
+	// Phase 1 SI-TX cleanup: drop legacy inter_bank_saga_logs table.
+	// Model deleted; AutoMigrate no longer recreates it. Replaced in Phase 4
+	// with SI-TX-shape peer_otc_negotiations.
+	if err := db.Exec("DROP TABLE IF EXISTS inter_bank_saga_logs").Error; err != nil {
+		log.Printf("warn: drop inter_bank_saga_logs failed: %v", err)
+	}
+
 	// AutoMigrate all models
 	if err := db.AutoMigrate(
 		&model.StockExchange{},

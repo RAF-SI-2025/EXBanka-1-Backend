@@ -37,6 +37,18 @@ func main() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 
+	// Phase 1 SI-TX cleanup: drop legacy tables that previously held
+	// InterBankTransaction / Bank rows. The corresponding GORM models
+	// have been deleted; AutoMigrate no longer recreates them. The DROPs
+	// run on every startup but are idempotent. Replaced in Phase 2 with
+	// SI-TX-shape peer_banks / peer_idempotence_records / outbound_peer_txs.
+	if err := db.Exec("DROP TABLE IF EXISTS inter_bank_transactions").Error; err != nil {
+		log.Printf("warn: drop inter_bank_transactions failed: %v", err)
+	}
+	if err := db.Exec("DROP TABLE IF EXISTS banks").Error; err != nil {
+		log.Printf("warn: drop banks failed: %v", err)
+	}
+
 	if err := db.AutoMigrate(
 		&model.Payment{},
 		&model.Transfer{},
