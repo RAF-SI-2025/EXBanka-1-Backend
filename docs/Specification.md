@@ -533,6 +533,7 @@ For bulk replacement (set all permissions on a role at once) the legacy `PUT /ap
 | funds | `funds.read.all`, `funds.manage.catalog` |
 | orders | `orders.place.on_behalf_client`, `orders.place.on_behalf_bank`, `orders.read.all`, `orders.cancel.all` |
 | verification | `verification.skip`, `verification.manage` |
+| peer_banks | `peer_banks.manage.any` (Phase 2 SI-TX — admin CRUD on the `peer_banks` registry; `EmployeeAdmin` only via the wildcard `*` grant) |
 
 ### Role Definitions
 
@@ -1363,6 +1364,26 @@ api-gateway:
 | POST | `/api/v3/actuaries/:id/require-approval` | employees.update.any | actuaryHandler.RequireApproval | Require supervisor approval for actuary |
 | POST | `/api/v3/actuaries/:id/skip-approval` | employees.update.any | actuaryHandler.SkipApproval | Remove approval requirement for actuary |
 | POST | `/api/v3/orders/:id/reject` | orders.cancel.all | stockOrderHandler.RejectOrder | Reject a pending order (renamed from /decline) |
+| GET | `/api/v3/peer-banks` | peer_banks.manage.any | PeerBankAdminHandler.List | Admin: list peers. Phase 2 SI-TX. |
+| GET | `/api/v3/peer-banks/:id` | peer_banks.manage.any | PeerBankAdminHandler.Get | Admin: read one. Phase 2 SI-TX. |
+| POST | `/api/v3/peer-banks` | peer_banks.manage.any | PeerBankAdminHandler.Create | Admin: register a peer. Phase 2 SI-TX. |
+| PUT | `/api/v3/peer-banks/:id` | peer_banks.manage.any | PeerBankAdminHandler.Update | Admin: update mutable fields. Phase 2 SI-TX. |
+| DELETE | `/api/v3/peer-banks/:id` | peer_banks.manage.any | PeerBankAdminHandler.Delete | Admin: remove a peer. Phase 2 SI-TX. |
+
+### Peer-Bank Protocol (Celina 5 SI-TX — PeerAuth)
+
+These routes are reached by other banks in the SI-TX cohort, not by employees or clients. Authentication is via `middleware.PeerAuth` (hybrid `X-Api-Key` or HMAC headers — see [§25](#25-inter-bank-cross-bank-communication-celina-5--si-tx)).
+
+| Method | Path | Middleware | Handler | Description |
+|---|---|---|---|---|
+| POST | `/api/v3/interbank` | PeerAuth | PeerTxHandler.PostInterbank | SI-TX `Message<Type>` envelope. Phase 3. |
+| GET | `/api/v3/public-stock` | PeerAuth | PeerOTCHandler.GetPublicStocks | Lists own bank's OTC-public holdings. Phase 4. |
+| POST | `/api/v3/negotiations` | PeerAuth | PeerOTCHandler.CreateNegotiation | Peer-initiated cross-bank OTC offer. Phase 4. |
+| PUT | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.UpdateNegotiation | Counter-offer. Phase 4. |
+| GET | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.GetNegotiation | Read negotiation state. Phase 4. |
+| DELETE | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.DeleteNegotiation | Cancel. Phase 4. |
+| GET | `/api/v3/negotiations/:rid/:id/accept` | PeerAuth | PeerOTCHandler.AcceptNegotiation | Triggers 4-posting TX via PeerTxService. Phase 4. |
+| GET | `/api/v3/user/:rid/:id` | PeerAuth | PeerUserHandler.GetUser | Counterparty user info lookup. Phase 4. |
 
 ### Browser Verification (/api/verifications — AnyAuthMiddleware)
 
@@ -1631,6 +1652,31 @@ ID(uint64), ClientID(indexed), TransactionID, TransactionType(payment|transfer),
 Code(6), ExpiresAt, Attempts(int), Used(bool)
 ```
 
+**PeerBank** (Phase 2 SI-TX) — Runtime-editable peer-bank registry
+```
+ID(uint64), BankCode(unique), RoutingNumber(unique,3), BaseURL,
+APITokenBcrypt, APITokenPlaintext, HmacInboundKey, HmacOutboundKey,
+Active(bool,indexed), CreatedAt, UpdatedAt
+```
+`APITokenPlaintext` is only readable via the internal `ResolvePeerByAPIToken` RPC (never exposed via REST). Admins manage via `/api/v3/peer-banks` (gated by `peer_banks.manage.any`).
+
+**PeerIdempotenceRecord** (Phase 2 SI-TX) — Receiver-side replay cache for inbound TXs
+```
+ID(uint64), PeerBankCode(indexed), LocallyGeneratedKey, MessageType(NEW_TX|COMMIT_TX|ROLLBACK_TX),
+ResponsePayloadJSON, CreatedAt
+Composite-unique: (peer_bank_code, locally_generated_key)
+```
+Cached `response_payload_json` is returned verbatim on retries so receivers vote consistently.
+
+**OutboundPeerTx** (Phase 3 SI-TX) — Sender-side state for outbound SI-TX TXs
+```
+ID(uint64), IdempotenceKey(unique,36), PeerBankCode(indexed), TxKind(transfer|otc-accept|otc-exercise),
+PostingsJSON, Status(pending|committing|committed|rolled_back|failed,indexed),
+AttemptCount(int,default:0), LastAttemptAt(nullable,indexed), LastError(text),
+CreatedAt, UpdatedAt
+```
+`OutboundReplayCron` (30s tick, 4-attempt cap) resumes rows in `pending` whose `last_attempt_at` is older than 60s.
+
 ### Credit Service (credit_db)
 
 **LoanRequest**
@@ -1818,6 +1864,17 @@ Key(string, PK, size:64), Value(string)
 ```
 `system_settings.active_stock_source` — persists the currently active stock data source
 (`external`, `generated`, or `simulator`) across service restarts.
+
+**PeerOtcNegotiation** (Phase 4 SI-TX) — Receiver-side persistence of inbound peer OTC negotiations
+```
+ID(uuid,PK), PeerBankCode(indexed), ForeignID(indexed),
+BuyerRoutingNumber(3), BuyerID, SellerRoutingNumber(3), SellerID,
+OfferJSON(serialised contractsitx.OtcOffer),
+Status(ongoing|accepted|cancelled|expired,indexed),
+CreatedAt, UpdatedAt
+Composite-unique: (peer_bank_code, foreign_id)
+```
+Reached via the peer-facing `/api/v3/negotiations/:rid/:id` routes; acceptance triggers a 4-posting `Transaction` dispatched through `PeerTxService.InitiateOutboundTxWithPostings`.
 
 ---
 
