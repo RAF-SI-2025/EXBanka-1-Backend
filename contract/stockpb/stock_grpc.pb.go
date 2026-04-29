@@ -2666,3 +2666,301 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "stock/stock.proto",
 }
+
+const (
+	PeerOTCService_GetPublicStocks_FullMethodName   = "/stock.PeerOTCService/GetPublicStocks"
+	PeerOTCService_CreateNegotiation_FullMethodName = "/stock.PeerOTCService/CreateNegotiation"
+	PeerOTCService_UpdateNegotiation_FullMethodName = "/stock.PeerOTCService/UpdateNegotiation"
+	PeerOTCService_GetNegotiation_FullMethodName    = "/stock.PeerOTCService/GetNegotiation"
+	PeerOTCService_DeleteNegotiation_FullMethodName = "/stock.PeerOTCService/DeleteNegotiation"
+	PeerOTCService_AcceptNegotiation_FullMethodName = "/stock.PeerOTCService/AcceptNegotiation"
+)
+
+// PeerOTCServiceClient is the client API for PeerOTCService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// PeerOTCService backs the api-gateway /api/v3/public-stock and
+// /api/v3/negotiations/{rid}/{id} routes (Phase 4, Celina 5 SI-TX).
+type PeerOTCServiceClient interface {
+	GetPublicStocks(ctx context.Context, in *GetPublicStocksRequest, opts ...grpc.CallOption) (*GetPublicStocksResponse, error)
+	CreateNegotiation(ctx context.Context, in *CreateNegotiationRequest, opts ...grpc.CallOption) (*CreateNegotiationResponse, error)
+	UpdateNegotiation(ctx context.Context, in *UpdateNegotiationRequest, opts ...grpc.CallOption) (*UpdateNegotiationResponse, error)
+	GetNegotiation(ctx context.Context, in *GetNegotiationRequest, opts ...grpc.CallOption) (*GetNegotiationResponse, error)
+	DeleteNegotiation(ctx context.Context, in *DeleteNegotiationRequest, opts ...grpc.CallOption) (*DeleteNegotiationResponse, error)
+	AcceptNegotiation(ctx context.Context, in *AcceptNegotiationRequest, opts ...grpc.CallOption) (*AcceptNegotiationResponse, error)
+}
+
+type peerOTCServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPeerOTCServiceClient(cc grpc.ClientConnInterface) PeerOTCServiceClient {
+	return &peerOTCServiceClient{cc}
+}
+
+func (c *peerOTCServiceClient) GetPublicStocks(ctx context.Context, in *GetPublicStocksRequest, opts ...grpc.CallOption) (*GetPublicStocksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetPublicStocksResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_GetPublicStocks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerOTCServiceClient) CreateNegotiation(ctx context.Context, in *CreateNegotiationRequest, opts ...grpc.CallOption) (*CreateNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateNegotiationResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_CreateNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerOTCServiceClient) UpdateNegotiation(ctx context.Context, in *UpdateNegotiationRequest, opts ...grpc.CallOption) (*UpdateNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateNegotiationResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_UpdateNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerOTCServiceClient) GetNegotiation(ctx context.Context, in *GetNegotiationRequest, opts ...grpc.CallOption) (*GetNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetNegotiationResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_GetNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerOTCServiceClient) DeleteNegotiation(ctx context.Context, in *DeleteNegotiationRequest, opts ...grpc.CallOption) (*DeleteNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteNegotiationResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_DeleteNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerOTCServiceClient) AcceptNegotiation(ctx context.Context, in *AcceptNegotiationRequest, opts ...grpc.CallOption) (*AcceptNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AcceptNegotiationResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_AcceptNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PeerOTCServiceServer is the server API for PeerOTCService service.
+// All implementations must embed UnimplementedPeerOTCServiceServer
+// for forward compatibility.
+//
+// PeerOTCService backs the api-gateway /api/v3/public-stock and
+// /api/v3/negotiations/{rid}/{id} routes (Phase 4, Celina 5 SI-TX).
+type PeerOTCServiceServer interface {
+	GetPublicStocks(context.Context, *GetPublicStocksRequest) (*GetPublicStocksResponse, error)
+	CreateNegotiation(context.Context, *CreateNegotiationRequest) (*CreateNegotiationResponse, error)
+	UpdateNegotiation(context.Context, *UpdateNegotiationRequest) (*UpdateNegotiationResponse, error)
+	GetNegotiation(context.Context, *GetNegotiationRequest) (*GetNegotiationResponse, error)
+	DeleteNegotiation(context.Context, *DeleteNegotiationRequest) (*DeleteNegotiationResponse, error)
+	AcceptNegotiation(context.Context, *AcceptNegotiationRequest) (*AcceptNegotiationResponse, error)
+	mustEmbedUnimplementedPeerOTCServiceServer()
+}
+
+// UnimplementedPeerOTCServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedPeerOTCServiceServer struct{}
+
+func (UnimplementedPeerOTCServiceServer) GetPublicStocks(context.Context, *GetPublicStocksRequest) (*GetPublicStocksResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPublicStocks not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) CreateNegotiation(context.Context, *CreateNegotiationRequest) (*CreateNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateNegotiation not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) UpdateNegotiation(context.Context, *UpdateNegotiationRequest) (*UpdateNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateNegotiation not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) GetNegotiation(context.Context, *GetNegotiationRequest) (*GetNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetNegotiation not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) DeleteNegotiation(context.Context, *DeleteNegotiationRequest) (*DeleteNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteNegotiation not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) AcceptNegotiation(context.Context, *AcceptNegotiationRequest) (*AcceptNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptNegotiation not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) mustEmbedUnimplementedPeerOTCServiceServer() {}
+func (UnimplementedPeerOTCServiceServer) testEmbeddedByValue()                        {}
+
+// UnsafePeerOTCServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PeerOTCServiceServer will
+// result in compilation errors.
+type UnsafePeerOTCServiceServer interface {
+	mustEmbedUnimplementedPeerOTCServiceServer()
+}
+
+func RegisterPeerOTCServiceServer(s grpc.ServiceRegistrar, srv PeerOTCServiceServer) {
+	// If the following call panics, it indicates UnimplementedPeerOTCServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&PeerOTCService_ServiceDesc, srv)
+}
+
+func _PeerOTCService_GetPublicStocks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPublicStocksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).GetPublicStocks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_GetPublicStocks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).GetPublicStocks(ctx, req.(*GetPublicStocksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerOTCService_CreateNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).CreateNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_CreateNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).CreateNegotiation(ctx, req.(*CreateNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerOTCService_UpdateNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).UpdateNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_UpdateNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).UpdateNegotiation(ctx, req.(*UpdateNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerOTCService_GetNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).GetNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_GetNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).GetNegotiation(ctx, req.(*GetNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerOTCService_DeleteNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).DeleteNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_DeleteNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).DeleteNegotiation(ctx, req.(*DeleteNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerOTCService_AcceptNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).AcceptNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_AcceptNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).AcceptNegotiation(ctx, req.(*AcceptNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PeerOTCService_ServiceDesc is the grpc.ServiceDesc for PeerOTCService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.PeerOTCService",
+	HandlerType: (*PeerOTCServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetPublicStocks",
+			Handler:    _PeerOTCService_GetPublicStocks_Handler,
+		},
+		{
+			MethodName: "CreateNegotiation",
+			Handler:    _PeerOTCService_CreateNegotiation_Handler,
+		},
+		{
+			MethodName: "UpdateNegotiation",
+			Handler:    _PeerOTCService_UpdateNegotiation_Handler,
+		},
+		{
+			MethodName: "GetNegotiation",
+			Handler:    _PeerOTCService_GetNegotiation_Handler,
+		},
+		{
+			MethodName: "DeleteNegotiation",
+			Handler:    _PeerOTCService_DeleteNegotiation_Handler,
+		},
+		{
+			MethodName: "AcceptNegotiation",
+			Handler:    _PeerOTCService_AcceptNegotiation_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}

@@ -1149,3 +1149,96 @@ message ExerciseResponse {
   string buyer_currency = 8;
   string shares_transferred = 9;
 }
+
+// PeerOTCService backs the api-gateway /api/v3/public-stock and
+// /api/v3/negotiations/{rid}/{id} routes (Phase 4, Celina 5 SI-TX).
+service PeerOTCService {
+  rpc GetPublicStocks(GetPublicStocksRequest) returns (GetPublicStocksResponse);
+  rpc CreateNegotiation(CreateNegotiationRequest) returns (CreateNegotiationResponse);
+  rpc UpdateNegotiation(UpdateNegotiationRequest) returns (UpdateNegotiationResponse);
+  rpc GetNegotiation(GetNegotiationRequest) returns (GetNegotiationResponse);
+  rpc DeleteNegotiation(DeleteNegotiationRequest) returns (DeleteNegotiationResponse);
+  rpc AcceptNegotiation(AcceptNegotiationRequest) returns (AcceptNegotiationResponse);
+}
+
+message PeerForeignBankId {
+  int64 routing_number = 1;
+  string id = 2;
+}
+
+message PeerOtcOffer {
+  string ticker = 1;
+  int64 amount = 2;
+  string price_per_stock = 3;
+  string currency = 4;
+  string premium = 5;
+  string premium_currency = 6;
+  string settlement_date = 7;
+  PeerForeignBankId last_modified_by = 8;
+}
+
+message GetPublicStocksRequest {
+  string peer_bank_code = 1;
+}
+
+message PeerPublicStock {
+  PeerForeignBankId owner_id = 1;
+  string ticker = 2;
+  int64 amount = 3;
+  string price_per_stock = 4;
+  string currency = 5;
+}
+
+message GetPublicStocksResponse {
+  repeated PeerPublicStock stocks = 1;
+}
+
+message CreateNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerOtcOffer offer = 2;
+  PeerForeignBankId buyer_id = 3;
+  PeerForeignBankId seller_id = 4;
+}
+
+message CreateNegotiationResponse {
+  PeerForeignBankId negotiation_id = 1;
+}
+
+message UpdateNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+  PeerOtcOffer offer = 3;
+}
+
+message UpdateNegotiationResponse {}
+
+message GetNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+
+message GetNegotiationResponse {
+  PeerForeignBankId id = 1;
+  PeerForeignBankId buyer_id = 2;
+  PeerForeignBankId seller_id = 3;
+  PeerOtcOffer offer = 4;
+  string status = 5;
+  string updated_at = 6;
+}
+
+message DeleteNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+
+message DeleteNegotiationResponse {}
+
+message AcceptNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+
+message AcceptNegotiationResponse {
+  string transaction_id = 1;
+  string status = 2;
+}
