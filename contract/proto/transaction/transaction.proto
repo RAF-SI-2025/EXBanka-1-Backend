@@ -311,6 +311,11 @@ service PeerBankAdminService {
   rpc CreatePeerBank(CreatePeerBankRequest) returns (PeerBank);
   rpc UpdatePeerBank(UpdatePeerBankRequest) returns (PeerBank);
   rpc DeletePeerBank(DeletePeerBankRequest) returns (DeletePeerBankResponse);
+  // Phase 3 internal RPCs (Celina 5 SI-TX): return full peer-bank record
+  // including HMAC keys + plaintext API token. NOT exposed via REST —
+  // gateway-internal use only.
+  rpc ResolvePeerByAPIToken(ResolvePeerByAPITokenRequest) returns (ResolvePeerByAPITokenResponse);
+  rpc ResolvePeerByBankCode(ResolvePeerByBankCodeRequest) returns (ResolvePeerByBankCodeResponse);
 }
 
 message PeerBank {
@@ -367,4 +372,33 @@ message DeletePeerBankRequest {
 
 message DeletePeerBankResponse {
   // Empty.
+}
+
+message PeerBankFull {
+  uint64 id = 1;
+  string bank_code = 2;
+  int64 routing_number = 3;
+  string base_url = 4;
+  string api_token_plaintext = 5; // server-side use only
+  string hmac_inbound_key = 6;
+  string hmac_outbound_key = 7;
+  bool active = 8;
+}
+
+message ResolvePeerByAPITokenRequest {
+  string api_token = 1;
+}
+
+message ResolvePeerByAPITokenResponse {
+  PeerBankFull peer_bank = 1;
+  bool found = 2;
+}
+
+message ResolvePeerByBankCodeRequest {
+  string bank_code = 1;
+}
+
+message ResolvePeerByBankCodeResponse {
+  PeerBankFull peer_bank = 1;
+  bool found = 2;
 }

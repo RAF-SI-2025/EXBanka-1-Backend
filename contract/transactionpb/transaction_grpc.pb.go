@@ -1093,11 +1093,13 @@ var PeerTxService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	PeerBankAdminService_ListPeerBanks_FullMethodName  = "/transaction.PeerBankAdminService/ListPeerBanks"
-	PeerBankAdminService_GetPeerBank_FullMethodName    = "/transaction.PeerBankAdminService/GetPeerBank"
-	PeerBankAdminService_CreatePeerBank_FullMethodName = "/transaction.PeerBankAdminService/CreatePeerBank"
-	PeerBankAdminService_UpdatePeerBank_FullMethodName = "/transaction.PeerBankAdminService/UpdatePeerBank"
-	PeerBankAdminService_DeletePeerBank_FullMethodName = "/transaction.PeerBankAdminService/DeletePeerBank"
+	PeerBankAdminService_ListPeerBanks_FullMethodName         = "/transaction.PeerBankAdminService/ListPeerBanks"
+	PeerBankAdminService_GetPeerBank_FullMethodName           = "/transaction.PeerBankAdminService/GetPeerBank"
+	PeerBankAdminService_CreatePeerBank_FullMethodName        = "/transaction.PeerBankAdminService/CreatePeerBank"
+	PeerBankAdminService_UpdatePeerBank_FullMethodName        = "/transaction.PeerBankAdminService/UpdatePeerBank"
+	PeerBankAdminService_DeletePeerBank_FullMethodName        = "/transaction.PeerBankAdminService/DeletePeerBank"
+	PeerBankAdminService_ResolvePeerByAPIToken_FullMethodName = "/transaction.PeerBankAdminService/ResolvePeerByAPIToken"
+	PeerBankAdminService_ResolvePeerByBankCode_FullMethodName = "/transaction.PeerBankAdminService/ResolvePeerByBankCode"
 )
 
 // PeerBankAdminServiceClient is the client API for PeerBankAdminService service.
@@ -1113,6 +1115,11 @@ type PeerBankAdminServiceClient interface {
 	CreatePeerBank(ctx context.Context, in *CreatePeerBankRequest, opts ...grpc.CallOption) (*PeerBank, error)
 	UpdatePeerBank(ctx context.Context, in *UpdatePeerBankRequest, opts ...grpc.CallOption) (*PeerBank, error)
 	DeletePeerBank(ctx context.Context, in *DeletePeerBankRequest, opts ...grpc.CallOption) (*DeletePeerBankResponse, error)
+	// Phase 3 internal RPCs (Celina 5 SI-TX): return full peer-bank record
+	// including HMAC keys + plaintext API token. NOT exposed via REST —
+	// gateway-internal use only.
+	ResolvePeerByAPIToken(ctx context.Context, in *ResolvePeerByAPITokenRequest, opts ...grpc.CallOption) (*ResolvePeerByAPITokenResponse, error)
+	ResolvePeerByBankCode(ctx context.Context, in *ResolvePeerByBankCodeRequest, opts ...grpc.CallOption) (*ResolvePeerByBankCodeResponse, error)
 }
 
 type peerBankAdminServiceClient struct {
@@ -1173,6 +1180,26 @@ func (c *peerBankAdminServiceClient) DeletePeerBank(ctx context.Context, in *Del
 	return out, nil
 }
 
+func (c *peerBankAdminServiceClient) ResolvePeerByAPIToken(ctx context.Context, in *ResolvePeerByAPITokenRequest, opts ...grpc.CallOption) (*ResolvePeerByAPITokenResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolvePeerByAPITokenResponse)
+	err := c.cc.Invoke(ctx, PeerBankAdminService_ResolvePeerByAPIToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerBankAdminServiceClient) ResolvePeerByBankCode(ctx context.Context, in *ResolvePeerByBankCodeRequest, opts ...grpc.CallOption) (*ResolvePeerByBankCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolvePeerByBankCodeResponse)
+	err := c.cc.Invoke(ctx, PeerBankAdminService_ResolvePeerByBankCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerBankAdminServiceServer is the server API for PeerBankAdminService service.
 // All implementations must embed UnimplementedPeerBankAdminServiceServer
 // for forward compatibility.
@@ -1186,6 +1213,11 @@ type PeerBankAdminServiceServer interface {
 	CreatePeerBank(context.Context, *CreatePeerBankRequest) (*PeerBank, error)
 	UpdatePeerBank(context.Context, *UpdatePeerBankRequest) (*PeerBank, error)
 	DeletePeerBank(context.Context, *DeletePeerBankRequest) (*DeletePeerBankResponse, error)
+	// Phase 3 internal RPCs (Celina 5 SI-TX): return full peer-bank record
+	// including HMAC keys + plaintext API token. NOT exposed via REST —
+	// gateway-internal use only.
+	ResolvePeerByAPIToken(context.Context, *ResolvePeerByAPITokenRequest) (*ResolvePeerByAPITokenResponse, error)
+	ResolvePeerByBankCode(context.Context, *ResolvePeerByBankCodeRequest) (*ResolvePeerByBankCodeResponse, error)
 	mustEmbedUnimplementedPeerBankAdminServiceServer()
 }
 
@@ -1210,6 +1242,12 @@ func (UnimplementedPeerBankAdminServiceServer) UpdatePeerBank(context.Context, *
 }
 func (UnimplementedPeerBankAdminServiceServer) DeletePeerBank(context.Context, *DeletePeerBankRequest) (*DeletePeerBankResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeletePeerBank not implemented")
+}
+func (UnimplementedPeerBankAdminServiceServer) ResolvePeerByAPIToken(context.Context, *ResolvePeerByAPITokenRequest) (*ResolvePeerByAPITokenResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolvePeerByAPIToken not implemented")
+}
+func (UnimplementedPeerBankAdminServiceServer) ResolvePeerByBankCode(context.Context, *ResolvePeerByBankCodeRequest) (*ResolvePeerByBankCodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolvePeerByBankCode not implemented")
 }
 func (UnimplementedPeerBankAdminServiceServer) mustEmbedUnimplementedPeerBankAdminServiceServer() {}
 func (UnimplementedPeerBankAdminServiceServer) testEmbeddedByValue()                              {}
@@ -1322,6 +1360,42 @@ func _PeerBankAdminService_DeletePeerBank_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerBankAdminService_ResolvePeerByAPIToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolvePeerByAPITokenRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerBankAdminServiceServer).ResolvePeerByAPIToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerBankAdminService_ResolvePeerByAPIToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerBankAdminServiceServer).ResolvePeerByAPIToken(ctx, req.(*ResolvePeerByAPITokenRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerBankAdminService_ResolvePeerByBankCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolvePeerByBankCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerBankAdminServiceServer).ResolvePeerByBankCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerBankAdminService_ResolvePeerByBankCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerBankAdminServiceServer).ResolvePeerByBankCode(ctx, req.(*ResolvePeerByBankCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PeerBankAdminService_ServiceDesc is the grpc.ServiceDesc for PeerBankAdminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1348,6 +1422,14 @@ var PeerBankAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeletePeerBank",
 			Handler:    _PeerBankAdminService_DeletePeerBank_Handler,
+		},
+		{
+			MethodName: "ResolvePeerByAPIToken",
+			Handler:    _PeerBankAdminService_ResolvePeerByAPIToken_Handler,
+		},
+		{
+			MethodName: "ResolvePeerByBankCode",
+			Handler:    _PeerBankAdminService_ResolvePeerByBankCode_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
