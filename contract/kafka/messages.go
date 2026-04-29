@@ -777,4 +777,3 @@ type OTCContractFailedMessage struct {
 	SagaID             string `json:"saga_id"`
 	CompensationStatus string `json:"compensation_status"`
 }
-

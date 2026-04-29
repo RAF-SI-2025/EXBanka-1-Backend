@@ -84,32 +84,32 @@ type Deps struct {
 // (NewHandlers) takes a single Deps argument so adding a new dependency
 // doesn't ripple into every router version.
 type Handlers struct {
-	Auth          *handler.AuthHandler
-	Employee      *handler.EmployeeHandler
-	Role          *handler.RoleHandler
-	Limit         *handler.LimitHandler
-	Client        *handler.ClientHandler
-	Account       *handler.AccountHandler
-	Card          *handler.CardHandler
-	Tx            *handler.TransactionHandler
-	Exchange      *handler.ExchangeHandler
-	Credit        *handler.CreditHandler
-	Me            *handler.MeHandler
-	Session       *handler.SessionHandler
-	StockExchange *handler.StockExchangeHandler
-	Securities    *handler.SecuritiesHandler
-	StockOrder    *handler.StockOrderHandler
-	Portfolio     *handler.PortfolioHandler
-	Actuary       *handler.ActuaryHandler
-	Blueprint     *handler.BlueprintHandler
-	Tax           *handler.TaxHandler
-	StockSource   *handler.StockSourceHandler
-	Notification  *handler.NotificationHandler
-	MobileAuth    *handler.MobileAuthHandler
-	Verification  *handler.VerificationHandler
-	OptionsV2     *handler.OptionsV2Handler
-	Fund          *handler.InvestmentFundHandler
-	OTCOptions    *handler.OTCOptionsHandler
+	Auth             *handler.AuthHandler
+	Employee         *handler.EmployeeHandler
+	Role             *handler.RoleHandler
+	Limit            *handler.LimitHandler
+	Client           *handler.ClientHandler
+	Account          *handler.AccountHandler
+	Card             *handler.CardHandler
+	Tx               *handler.TransactionHandler
+	Exchange         *handler.ExchangeHandler
+	Credit           *handler.CreditHandler
+	Me               *handler.MeHandler
+	Session          *handler.SessionHandler
+	StockExchange    *handler.StockExchangeHandler
+	Securities       *handler.SecuritiesHandler
+	StockOrder       *handler.StockOrderHandler
+	Portfolio        *handler.PortfolioHandler
+	Actuary          *handler.ActuaryHandler
+	Blueprint        *handler.BlueprintHandler
+	Tax              *handler.TaxHandler
+	StockSource      *handler.StockSourceHandler
+	Notification     *handler.NotificationHandler
+	MobileAuth       *handler.MobileAuthHandler
+	Verification     *handler.VerificationHandler
+	OptionsV2        *handler.OptionsV2Handler
+	Fund             *handler.InvestmentFundHandler
+	OTCOptions       *handler.OTCOptionsHandler
 	PeerTxDispatcher *handler.PeerTxDispatcherHandler
 	Changelog        *handler.ChangelogHandler
 
@@ -137,38 +137,38 @@ func NewHandlers(d Deps) *Handlers {
 	// PeerUserHandler which needs an int64 routing-number comparator.
 	ownRouting, _ := strconv.ParseInt(d.OwnBankCode, 10, 64)
 	return &Handlers{
-		Auth:          handler.NewAuthHandler(d.AuthClient),
-		Employee:      handler.NewEmployeeHandler(d.UserClient, d.AuthClient),
-		Role:          handler.NewRoleHandler(d.UserClient),
-		Limit:         handler.NewLimitHandler(d.EmpLimitClient, d.ClientLimitClient),
-		Client:        handler.NewClientHandler(d.ClientClient, d.AuthClient),
-		Account:       handler.NewAccountHandler(d.AccountClient, d.BankAccountClient, d.CardClient, d.TxClient),
-		Card:          handler.NewCardHandler(d.CardClient, d.VirtualCardClient, d.CardRequestClient, d.AccountClient),
-		Tx:            tx,
-		Exchange:      handler.NewExchangeHandler(d.ExchangeClient),
-		Credit:        handler.NewCreditHandler(d.CreditClient),
-		Me:            handler.NewMeHandler(d.ClientClient, d.UserClient, d.AuthClient),
-		Session:       handler.NewSessionHandler(d.AuthClient),
-		StockExchange: handler.NewStockExchangeHandler(d.StockExchangeClient),
-		Securities:    handler.NewSecuritiesHandler(d.SecurityClient),
-		StockOrder:    handler.NewStockOrderHandler(d.OrderClient, d.AccountClient),
-		Portfolio:     handler.NewPortfolioHandler(d.PortfolioClient, d.OTCClient, d.AccountClient),
-		Actuary:       handler.NewActuaryHandler(d.ActuaryClient),
-		Blueprint:     handler.NewBlueprintHandler(d.BlueprintClient),
-		Tax:           handler.NewTaxHandler(d.TaxClient),
-		StockSource:   handler.NewStockSourceHandler(d.SourceAdminClient),
-		Notification:  handler.NewNotificationHandler(d.NotificationClient),
-		MobileAuth:    handler.NewMobileAuthHandler(d.AuthClient),
-		Verification:  handler.NewVerificationHandler(d.VerificationClient, d.NotificationClient),
-		OptionsV2:     handler.NewOptionsV2Handler(d.SecurityClient, d.OrderClient, d.PortfolioClient),
-		Fund:          handler.NewInvestmentFundHandler(d.FundClient),
-		OTCOptions:    handler.NewOTCOptionsHandler(d.OTCOptionsClient),
+		Auth:             handler.NewAuthHandler(d.AuthClient),
+		Employee:         handler.NewEmployeeHandler(d.UserClient, d.AuthClient),
+		Role:             handler.NewRoleHandler(d.UserClient),
+		Limit:            handler.NewLimitHandler(d.EmpLimitClient, d.ClientLimitClient),
+		Client:           handler.NewClientHandler(d.ClientClient, d.AuthClient),
+		Account:          handler.NewAccountHandler(d.AccountClient, d.BankAccountClient, d.CardClient, d.TxClient),
+		Card:             handler.NewCardHandler(d.CardClient, d.VirtualCardClient, d.CardRequestClient, d.AccountClient),
+		Tx:               tx,
+		Exchange:         handler.NewExchangeHandler(d.ExchangeClient),
+		Credit:           handler.NewCreditHandler(d.CreditClient),
+		Me:               handler.NewMeHandler(d.ClientClient, d.UserClient, d.AuthClient),
+		Session:          handler.NewSessionHandler(d.AuthClient),
+		StockExchange:    handler.NewStockExchangeHandler(d.StockExchangeClient),
+		Securities:       handler.NewSecuritiesHandler(d.SecurityClient),
+		StockOrder:       handler.NewStockOrderHandler(d.OrderClient, d.AccountClient),
+		Portfolio:        handler.NewPortfolioHandler(d.PortfolioClient, d.OTCClient, d.AccountClient),
+		Actuary:          handler.NewActuaryHandler(d.ActuaryClient),
+		Blueprint:        handler.NewBlueprintHandler(d.BlueprintClient),
+		Tax:              handler.NewTaxHandler(d.TaxClient),
+		StockSource:      handler.NewStockSourceHandler(d.SourceAdminClient),
+		Notification:     handler.NewNotificationHandler(d.NotificationClient),
+		MobileAuth:       handler.NewMobileAuthHandler(d.AuthClient),
+		Verification:     handler.NewVerificationHandler(d.VerificationClient, d.NotificationClient),
+		OptionsV2:        handler.NewOptionsV2Handler(d.SecurityClient, d.OrderClient, d.PortfolioClient),
+		Fund:             handler.NewInvestmentFundHandler(d.FundClient),
+		OTCOptions:       handler.NewOTCOptionsHandler(d.OTCOptionsClient),
 		PeerTxDispatcher: handler.NewPeerTxDispatcherHandler(tx, d.PeerTxClient, d.OwnBankCode),
 		Changelog:        handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
-		PeerTx:        handler.NewPeerTxHandler(d.PeerTxClient),
-		PeerBankAdmin: handler.NewPeerBankAdminHandler(d.PeerBankAdminClient),
-		PeerAuthMW:    middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),
-		PeerOTC:       handler.NewPeerOTCHandler(d.PeerOTCClient),
-		PeerUser:      handler.NewPeerUserHandler(d.ClientClient, d.UserClient, ownRouting),
+		PeerTx:           handler.NewPeerTxHandler(d.PeerTxClient),
+		PeerBankAdmin:    handler.NewPeerBankAdminHandler(d.PeerBankAdminClient),
+		PeerAuthMW:       middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),
+		PeerOTC:          handler.NewPeerOTCHandler(d.PeerOTCClient),
+		PeerUser:         handler.NewPeerUserHandler(d.ClientClient, d.UserClient, ownRouting),
 	}
 }
