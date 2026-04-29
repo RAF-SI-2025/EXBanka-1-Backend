@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +42,7 @@ import (
 
 	authpb "github.com/exbanka/contract/authpb"
 	clientpb "github.com/exbanka/contract/clientpb"
+	transactionpb "github.com/exbanka/contract/transactionpb"
 	userpb "github.com/exbanka/contract/userpb"
 )
 
@@ -142,7 +144,60 @@ func main() {
 
 	// ── 3. Client bootstrapping ───────────────────────────────────────────────
 	seedClient(ctx, authClient, clientSvcClient, kafka, deriveTestEmail(email, "testclient"), password)
+
+	// ── 4. Peer banks (Celina 5 SI-TX) ────────────────────────────────────────
+	// Seed the three default cohort peer banks so cross-bank dev/integration
+	// flows have the registry pre-populated. Best-effort: a transaction-service
+	// outage at seed time logs a warning instead of aborting the seeder.
+	txAddr := getenv("TRANSACTION_GRPC_ADDR", "transaction-service:50057")
+	adminConn, err := grpc.NewClient(txAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Printf("warn: peer-bank seed skipped (transaction-service unreachable: %v)", err)
+	} else {
+		defer adminConn.Close()
+		if err := seedPeerBanks(ctx, transactionpb.NewPeerBankAdminServiceClient(adminConn)); err != nil {
+			log.Printf("warn: peer-bank seed: %v", err)
+		}
+	}
+
 	log.Println("seeder: all bootstrapping complete")
+}
+
+// seedPeerBanks idempotently registers the three default peer banks
+// (222, 333, 444) for development. Each is given a deterministic dev
+// API token (`dev-token-NNN`) so test fixtures can authenticate against
+// the gateway during integration tests. Production deployments must
+// rotate these tokens via `PUT /api/v3/peer-banks/:id` immediately
+// after first boot.
+func seedPeerBanks(ctx context.Context, c transactionpb.PeerBankAdminServiceClient) error {
+	existing, err := c.ListPeerBanks(ctx, &transactionpb.ListPeerBanksRequest{ActiveOnly: false})
+	if err != nil {
+		return fmt.Errorf("list peer banks: %w", err)
+	}
+	have := map[string]bool{}
+	for _, pb := range existing.GetPeerBanks() {
+		have[pb.GetBankCode()] = true
+	}
+	for _, code := range []string{"222", "333", "444"} {
+		if have[code] {
+			log.Printf("peer_bank %s already present, skipping", code)
+			continue
+		}
+		rn, _ := strconv.ParseInt(code, 10, 64)
+		_, err := c.CreatePeerBank(ctx, &transactionpb.CreatePeerBankRequest{
+			BankCode:      code,
+			RoutingNumber: rn,
+			BaseUrl:       "http://host.docker.internal:7" + code + "/api/v3",
+			ApiToken:      "dev-token-" + code,
+			Active:        true,
+		})
+		if err != nil {
+			log.Printf("warn: create peer_bank %s: %v", code, err)
+			continue
+		}
+		log.Printf("seeded peer_bank %s", code)
+	}
+	return nil
 }
 
 // employeeSpec captures the per-employee parameters for seedEmployee.
