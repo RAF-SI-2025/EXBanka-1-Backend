@@ -173,6 +173,19 @@ func (r *HoldingRepository) FindOldestLongOptionHolding(ownerType model.OwnerTyp
 	return &h, nil
 }
 
+// ListPublic returns all holdings flagged for OTC public trading
+// (public_quantity > 0). Used by PeerOTCGRPCHandler.GetPublicStocks
+// to satisfy SI-TX `GET /public-stock` from peer banks. Unlike
+// ListPublicOffers, this returns *all* matching rows without pagination
+// or ticker filtering — the SI-TX response shape is a flat list.
+func (r *HoldingRepository) ListPublic() ([]model.Holding, error) {
+	var rows []model.Holding
+	if err := r.db.Where("public_quantity > 0 AND security_type = 'stock'").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // ListPublicOffers returns holdings with public_quantity > 0 (for OTC).
 func (r *HoldingRepository) ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error) {
 	var holdings []model.Holding
