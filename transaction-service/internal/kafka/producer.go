@@ -54,10 +54,3 @@ func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage)
 func (p *Producer) PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error {
 	return p.inner.Publish(ctx, kafkamsg.TopicGeneralNotification, msg)
 }
-
-// PublishInterbank publishes an inter-bank transfer event to the named
-// topic. Used by the inter-bank 2PC service for cross-bank lifecycle
-// events (prepared/committed/received/rolled-back).
-func (p *Producer) PublishInterbank(ctx context.Context, topic string, msg kafkamsg.TransferInterbankMessage) error {
-	return p.inner.Publish(ctx, topic, msg)
-}
