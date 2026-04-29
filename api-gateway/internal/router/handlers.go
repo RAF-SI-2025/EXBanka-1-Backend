@@ -5,6 +5,7 @@
 package router
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -66,6 +67,11 @@ type Deps struct {
 	PeerNonces          middleware.PeerNonceClaimer
 	PeerBanks           middleware.PeerBankResolver
 
+	// PeerOTCClient backs the /api/v3/public-stock and
+	// /api/v3/negotiations/* peer OTC routes (Phase 4 Task 8 of the
+	// Celina 5 SI-TX refactor). It is hosted by stock-service.
+	PeerOTCClient stockpb.PeerOTCServiceClient
+
 	// OwnBankCode is the 3-digit bank prefix used by PeerTxDispatcherHandler
 	// to distinguish intra-bank receivers from foreign-bank ones. Foreign-
 	// prefix receivers dispatch to PeerTxService.InitiateOutboundTx
@@ -114,6 +120,12 @@ type Handlers struct {
 	PeerTx        *handler.PeerTxHandler
 	PeerBankAdmin *handler.PeerBankAdminHandler
 	PeerAuthMW    gin.HandlerFunc
+
+	// Phase 4 SI-TX OTC peer-facing handlers (Celina 5).
+	// PeerOTC serves /api/v3/public-stock and /api/v3/negotiations/*;
+	// PeerUser serves /api/v3/user/{rid}/{id}.
+	PeerOTC  *handler.PeerOTCHandler
+	PeerUser *handler.PeerUserHandler
 }
 
 // NewHandlers wires every handler from the supplied gRPC client deps.
@@ -121,6 +133,9 @@ type Handlers struct {
 // future SetupV4) so all versions share the same handler instances.
 func NewHandlers(d Deps) *Handlers {
 	tx := handler.NewTransactionHandler(d.TxClient, d.FeeClient, d.AccountClient, d.ExchangeClient)
+	// OwnBankCode is a 3-digit string ("111"); parse it once for the
+	// PeerUserHandler which needs an int64 routing-number comparator.
+	ownRouting, _ := strconv.ParseInt(d.OwnBankCode, 10, 64)
 	return &Handlers{
 		Auth:          handler.NewAuthHandler(d.AuthClient),
 		Employee:      handler.NewEmployeeHandler(d.UserClient, d.AuthClient),
@@ -153,5 +168,7 @@ func NewHandlers(d Deps) *Handlers {
 		PeerTx:        handler.NewPeerTxHandler(d.PeerTxClient),
 		PeerBankAdmin: handler.NewPeerBankAdminHandler(d.PeerBankAdminClient),
 		PeerAuthMW:    middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),
+		PeerOTC:       handler.NewPeerOTCHandler(d.PeerOTCClient),
+		PeerUser:      handler.NewPeerUserHandler(d.ClientClient, d.UserClient, ownRouting),
 	}
 }

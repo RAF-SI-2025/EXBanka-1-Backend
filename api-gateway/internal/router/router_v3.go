@@ -164,6 +164,18 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 	peer.Use(h.PeerAuthMW)
 	{
 		peer.POST("/interbank", h.PeerTx.PostInterbank)
+
+		// Phase 4 SI-TX OTC peer endpoints (Celina 5). Auth is the same
+		// hybrid X-Api-Key/HMAC bundle as /interbank — peer_bank_code is
+		// stamped on the gin context by middleware.PeerAuth and read
+		// inside each handler.
+		peer.GET("/public-stock", h.PeerOTC.GetPublicStocks)
+		peer.POST("/negotiations", h.PeerOTC.CreateNegotiation)
+		peer.PUT("/negotiations/:rid/:id", h.PeerOTC.UpdateNegotiation)
+		peer.GET("/negotiations/:rid/:id", h.PeerOTC.GetNegotiation)
+		peer.DELETE("/negotiations/:rid/:id", h.PeerOTC.DeleteNegotiation)
+		peer.GET("/negotiations/:rid/:id/accept", h.PeerOTC.AcceptNegotiation)
+		peer.GET("/user/:rid/:id", h.PeerUser.GetUser)
 	}
 
 	// ── Stock exchanges (AnyAuth — market data is browsable) ────

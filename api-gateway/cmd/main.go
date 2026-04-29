@@ -226,6 +226,15 @@ func main() {
 	}
 	defer peerTxConn.Close()
 
+	// PeerOTCService lives on stock-service and backs the
+	// /api/v3/public-stock + /api/v3/negotiations/* peer endpoints
+	// (Phase 4 Task 8 of the SI-TX refactor).
+	peerOTCClient, peerOTCConn, err := grpcclients.NewPeerOTCServiceClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to PeerOTCService: %v", err)
+	}
+	defer peerOTCConn.Close()
+
 	peerBankAdminClient, peerBankAdminConn, err := grpcclients.NewPeerBankAdminServiceClient(cfg.TransactionGRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to connect to PeerBankAdminService: %v", err)
@@ -276,6 +285,7 @@ func main() {
 		PeerNonces:          peerNonceStore,
 		PeerBanks:           peerBankResolver,
 		OwnBankCode:         cfg.OwnBankCode,
+		PeerOTCClient:       peerOTCClient,
 	}
 	h := router.NewHandlers(deps)
 	router.SetupV3(r, h)
