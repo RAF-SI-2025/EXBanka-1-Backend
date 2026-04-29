@@ -40,8 +40,32 @@ func (r *ListingRepository) GetBySecurityIDAndType(securityID uint64, securityTy
 	return &listing, nil
 }
 
+// ListBySecurityIDsAndType returns all listings for the given security IDs of the given type.
+// Used for batch resolution in list handlers.
+func (r *ListingRepository) ListBySecurityIDsAndType(securityIDs []uint64, securityType string) ([]model.Listing, error) {
+	if len(securityIDs) == 0 {
+		return nil, nil
+	}
+	var listings []model.Listing
+	if err := r.db.Where("security_type = ? AND security_id IN ?", securityType, securityIDs).
+		Find(&listings).Error; err != nil {
+		return nil, err
+	}
+	return listings, nil
+}
+
+// Update persists a loaded-then-mutated listing through GORM's Save (UPDATE
+// by primary key). The Listing.BeforeUpdate hook attaches the optimistic-lock
+// WHERE version=? clause and increments Version on the caller's struct.
+//
+// We use Select("*").Save(...) intentionally: bare db.Save in GORM v1.31.1
+// falls back to INSERT...ON CONFLICT(id) DO UPDATE when the initial UPDATE
+// matches zero rows (finisher_api.go:109-110), which would silently overwrite
+// the winner of an optimistic-lock race and hide the conflict. Selecting "*"
+// sets the `selectedUpdate` flag in GORM's Save and disables that fallback
+// path, so RowsAffected==0 correctly indicates an optimistic-lock conflict.
 func (r *ListingRepository) Update(listing *model.Listing) error {
-	result := r.db.Save(listing)
+	result := r.db.Select("*").Save(listing)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -71,7 +95,10 @@ func (r *ListingRepository) UpsertBySecurity(listing *model.Listing) error {
 		existing.Change = listing.Change
 		existing.Volume = listing.Volume
 		existing.LastRefresh = listing.LastRefresh
-		return tx.Save(&existing).Error
+		if err := CheckRowsAffected(tx.Save(&existing)); err != nil {
+			return err
+		}
+		return nil
 	})
 }
 
@@ -96,7 +123,7 @@ func (r *ListingRepository) UpsertForOption(listing *model.Listing) (*model.List
 		existing.ExchangeID = listing.ExchangeID
 		existing.Price = listing.Price
 		existing.LastRefresh = listing.LastRefresh
-		if saveErr := tx.Save(&existing).Error; saveErr != nil {
+		if saveErr := CheckRowsAffected(tx.Save(&existing)); saveErr != nil {
 			return saveErr
 		}
 		result = existing

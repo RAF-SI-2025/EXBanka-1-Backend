@@ -13,6 +13,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
+	sharedsaga "github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -91,10 +92,10 @@ func (s *TransferService) publishTransferFailed(ctx context.Context, transfer *m
 // ValidateTransfer checks that a transfer has distinct accounts and a positive amount.
 func ValidateTransfer(from, to string, amount decimal.Decimal) error {
 	if from == to {
-		return fmt.Errorf("from and to accounts must be different, both are %s", from)
+		return fmt.Errorf("ValidateTransfer: from and to accounts must be different, both are %s: %w", from, ErrSameAccount)
 	}
 	if amount.IsNegative() || amount.IsZero() {
-		return fmt.Errorf("transfer amount must be positive, got %s", amount.StringFixed(4))
+		return fmt.Errorf("ValidateTransfer: amount must be positive, got %s: %w", amount.StringFixed(4), ErrInvalidTransfer)
 	}
 	return nil
 }
@@ -298,62 +299,75 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 			return errors.New(reason)
 		}
 
-		bankToAccount, err := findBankAccountByCurrency(bankAccountsResp.GetAccounts(), transfer.ToCurrency)
+		// Cross-currency saga step 3 debits the bank's to-currency account.
+		// findBankAccountByCurrencyWithBalance picks one with sufficient
+		// available balance so we don't pick a 0-balance account (the
+		// gateway POST /bank-accounts path creates accounts with no
+		// initial balance — see findBankAccountByCurrencyWithBalance for
+		// the full rationale).
+		bankToAccount, err := findBankAccountByCurrencyWithBalance(bankAccountsResp.GetAccounts(), transfer.ToCurrency, convertedAmount)
 		if err != nil {
-			reason := fmt.Sprintf("no bank account for to-currency %s: %v", transfer.ToCurrency, err)
+			reason := fmt.Sprintf("no bank account with sufficient balance for to-currency %s: %v", transfer.ToCurrency, err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
 			s.publishTransferFailed(ctx, transfer, reason)
 			return errors.New(reason)
 		}
 
+		// sagaID for cross-currency transfer steps — derived from transfer.ID
+		// so retries within the same transfer share idempotency keys.
+		xcSagaID := fmt.Sprintf("transfer-xc-%d", transfer.ID)
 		steps := []sagaStep{
 			{
-				name:          "debit_user_from",
+				name:          sharedsaga.StepDebitUserFrom,
 				accountNumber: transfer.FromAccountNumber,
 				amount:        totalDebit.Neg(),
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: transfer.FromAccountNumber, Amount: totalDebit.Neg().StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepDebitUserFrom),
 						})
 						return e
 					})
 				},
 			},
 			{
-				name:          "credit_bank_from",
+				name:          sharedsaga.StepCreditBankFrom,
 				accountNumber: bankFromAccount,
 				amount:        totalDebit,
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: bankFromAccount, Amount: totalDebit.StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepCreditBankFrom),
 						})
 						return e
 					})
 				},
 			},
 			{
-				name:          "debit_bank_to",
+				name:          sharedsaga.StepDebitBankTo,
 				accountNumber: bankToAccount,
 				amount:        convertedAmount.Neg(),
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: bankToAccount, Amount: convertedAmount.Neg().StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepDebitBankTo),
 						})
 						return e
 					})
 				},
 			},
 			{
-				name:          "credit_user_to",
+				name:          sharedsaga.StepCreditUserTo,
 				accountNumber: transfer.ToAccountNumber,
 				amount:        convertedAmount,
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: transfer.ToAccountNumber, Amount: convertedAmount.StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepCreditUserTo),
 						})
 						return e
 					})
@@ -370,28 +384,31 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 	} else {
 		// Same-currency: direct debit/credit, no bank intermediate.
 		if s.accountClient != nil {
+			scSagaID := fmt.Sprintf("transfer-sc-%d", transfer.ID)
 			steps := []sagaStep{
 				{
-					name:          "debit_sender",
+					name:          sharedsaga.StepDebitSender,
 					accountNumber: transfer.FromAccountNumber,
 					amount:        totalDebit.Neg(),
 					execute: func(ctx context.Context) error {
 						return shared.Retry(ctx, s.retryConfig, func() error {
 							_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 								AccountNumber: transfer.FromAccountNumber, Amount: totalDebit.Neg().StringFixed(4), UpdateAvailable: true,
+								IdempotencyKey: sharedsaga.IdempotencyKey(scSagaID, sharedsaga.StepDebitSender),
 							})
 							return e
 						})
 					},
 				},
 				{
-					name:          "credit_recipient",
+					name:          sharedsaga.StepCreditRecipient,
 					accountNumber: transfer.ToAccountNumber,
 					amount:        convertedAmount,
 					execute: func(ctx context.Context) error {
 						return shared.Retry(ctx, s.retryConfig, func() error {
 							_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 								AccountNumber: transfer.ToAccountNumber, Amount: convertedAmount.StringFixed(4), UpdateAvailable: true,
+								IdempotencyKey: sharedsaga.IdempotencyKey(scSagaID, sharedsaga.StepCreditRecipient),
 							})
 							return e
 						})
@@ -471,10 +488,15 @@ func (s *TransferService) runRecoveryTick(ctx context.Context) {
 	for _, comp := range pending {
 		comp := comp
 		retryErr := shared.Retry(ctx, s.retryConfig, func() error {
+			// Per-compensation-row stable key — repeated retries collapse
+			// through the cache, and the account-side ledger
+			// idempotency_key index keeps double-execution out.
+			compKey := fmt.Sprintf("compensate-%d", comp.ID)
 			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 				AccountNumber:   comp.AccountNumber,
 				Amount:          comp.Amount.StringFixed(4),
 				UpdateAvailable: true,
+				IdempotencyKey:  compKey,
 			})
 			return e
 		})
@@ -565,6 +587,41 @@ func findBankAccountByCurrency(accounts []*accountpb.AccountResponse, currency s
 		if a.GetCurrencyCode() == currency {
 			return a.GetAccountNumber(), nil
 		}
+	}
+	return "", fmt.Errorf("no bank account found for currency %s", currency)
+}
+
+// findBankAccountByCurrencyWithBalance returns the first bank account in the
+// list whose currency matches AND whose available balance covers `need`.
+// Falls back to the first matching account if none have enough — preserves
+// the legacy "always return something" behavior so the caller still gets a
+// useful error from the saga's actual debit step rather than a confusing
+// pre-check failure.
+//
+// Why this exists: the gateway's POST /bank-accounts path (admin/test
+// helper) creates bank accounts with no initial balance — the gRPC
+// CreateBankAccountRequest proto has no initial_balance field. Tests
+// using that path leave 0-balance bank accounts in the DB. Without the
+// balance filter, findBankAccountByCurrency would return the first match
+// from ListBankAccounts (insertion order), which can be a 0-balance
+// account, causing every cross-currency transfer to fail with a
+// confusing "insufficient funds on account X" error from a downstream
+// FOR UPDATE check.
+func findBankAccountByCurrencyWithBalance(accounts []*accountpb.AccountResponse, currency string, need decimal.Decimal) (string, error) {
+	var firstMatch string
+	for _, a := range accounts {
+		if a.GetCurrencyCode() != currency {
+			continue
+		}
+		if firstMatch == "" {
+			firstMatch = a.GetAccountNumber()
+		}
+		if avail, err := decimal.NewFromString(a.GetAvailableBalance()); err == nil && avail.GreaterThanOrEqual(need) {
+			return a.GetAccountNumber(), nil
+		}
+	}
+	if firstMatch != "" {
+		return firstMatch, nil
 	}
 	return "", fmt.Errorf("no bank account found for currency %s", currency)
 }

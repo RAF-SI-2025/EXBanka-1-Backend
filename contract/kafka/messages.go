@@ -210,6 +210,23 @@ const (
 	TopicClientLimitsUpdated   = "client.limits-updated"
 )
 
+// Role permissions change event — published by user-service when a role's
+// permission set changes. auth-service consumes this to revoke active sessions
+// of every employee currently holding the role so they pick up the new perms
+// on next request.
+const TopicUserRolePermissionsChanged = "user.role-permissions-changed"
+
+// RolePermissionsChangedMessage carries the role identity and the list of
+// employees who hold that role at the moment of the change. ChangedAt is unix
+// seconds; auth-service uses it as the revocation epoch.
+type RolePermissionsChangedMessage struct {
+	RoleID              int64   `json:"role_id"`
+	RoleName            string  `json:"role_name"`
+	AffectedEmployeeIDs []int64 `json:"affected_employee_ids"`
+	ChangedAt           int64   `json:"changed_at"`
+	Source              string  `json:"source"` // "update_role_permissions" | "create_role"
+}
+
 // EmployeeLimitsUpdatedMessage is published when an employee's limits are set or updated.
 type EmployeeLimitsUpdatedMessage struct {
 	EmployeeID int64  `json:"employee_id"`
@@ -544,13 +561,18 @@ type AuthAccountStatusChangedMessage struct {
 }
 
 // AuthSessionCreatedMessage is published when a new login session is created.
+//
+// PrincipalType + PrincipalID identify the authenticated subject of the session.
+// Renamed from (UserID, SystemType) by Task 9 of plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md to align with the
+// JWT claim names introduced by Tasks 1-2.
 type AuthSessionCreatedMessage struct {
-	SessionID  int64  `json:"session_id"`
-	UserID     int64  `json:"user_id"`
-	SystemType string `json:"system_type"`
-	IPAddress  string `json:"ip_address"`
-	UserAgent  string `json:"user_agent"`
-	DeviceType string `json:"device_type"`
+	SessionID     int64  `json:"session_id"`
+	PrincipalType string `json:"principal_type"`
+	PrincipalID   int64  `json:"principal_id"`
+	IPAddress     string `json:"ip_address"`
+	UserAgent     string `json:"user_agent"`
+	DeviceType    string `json:"device_type"`
 }
 
 // AuthSessionRevokedMessage is published when a session is revoked (logout/force-revoke).
@@ -558,4 +580,200 @@ type AuthSessionRevokedMessage struct {
 	SessionID int64  `json:"session_id"`
 	UserID    int64  `json:"user_id"`
 	Reason    string `json:"reason"` // "logout", "force_revoke", "password_reset", "device_deactivation"
+}
+
+// ==================== Investment Funds (Celina 4) ====================
+
+const (
+	TopicStockFundCreated      = "stock.fund-created"
+	TopicStockFundUpdated      = "stock.fund-updated"
+	TopicStockFundInvested     = "stock.fund-invested"
+	TopicStockFundRedeemed     = "stock.fund-redeemed"
+	TopicStockFundsReassigned  = "stock.funds-reassigned"
+	TopicUserSupervisorDemoted = "user.supervisor-demoted"
+)
+
+type StockFundCreatedMessage struct {
+	MessageID         string `json:"message_id"`
+	OccurredAt        string `json:"occurred_at"`
+	FundID            uint64 `json:"fund_id"`
+	Name              string `json:"name"`
+	ManagerEmployeeID int64  `json:"manager_employee_id"`
+	RSDAccountID      uint64 `json:"rsd_account_id"`
+	CreatedAt         string `json:"created_at"`
+}
+
+type StockFundUpdatedMessage struct {
+	MessageID     string   `json:"message_id"`
+	OccurredAt    string   `json:"occurred_at"`
+	FundID        uint64   `json:"fund_id"`
+	ChangedFields []string `json:"changed_fields"`
+	UpdatedAt     string   `json:"updated_at"`
+}
+
+// StockFundInvestedMessage is published when a fund position is contributed to.
+//
+// OwnerType + OwnerID identify the position holder. OwnerID is nil iff
+// OwnerType == "bank". Renamed from (UserID, SystemType) by Task 9 of plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md.
+type StockFundInvestedMessage struct {
+	MessageID      string  `json:"message_id"`
+	OccurredAt     string  `json:"occurred_at"`
+	FundID         uint64  `json:"fund_id"`
+	OwnerType      string  `json:"owner_type"`
+	OwnerID        *uint64 `json:"owner_id"`
+	AmountNative   string  `json:"amount_native"`
+	NativeCurrency string  `json:"native_currency"`
+	AmountRSD      string  `json:"amount_rsd"`
+	FxRate         string  `json:"fx_rate"`
+	SagaID         string  `json:"saga_id"`
+	ContributionID uint64  `json:"contribution_id"`
+}
+
+// StockFundRedeemedMessage is published when a fund position is redeemed.
+//
+// OwnerType + OwnerID identify the position holder. OwnerID is nil iff
+// OwnerType == "bank". Renamed from (UserID, SystemType) by Task 9 of plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md.
+type StockFundRedeemedMessage struct {
+	MessageID       string  `json:"message_id"`
+	OccurredAt      string  `json:"occurred_at"`
+	FundID          uint64  `json:"fund_id"`
+	OwnerType       string  `json:"owner_type"`
+	OwnerID         *uint64 `json:"owner_id"`
+	AmountRSD       string  `json:"amount_rsd"`
+	FeeRSD          string  `json:"fee_rsd"`
+	TargetAccountID uint64  `json:"target_account_id"`
+	SagaID          string  `json:"saga_id"`
+	ContributionID  uint64  `json:"contribution_id"`
+}
+
+type StockFundsReassignedMessage struct {
+	MessageID    string   `json:"message_id"`
+	OccurredAt   string   `json:"occurred_at"`
+	SupervisorID int64    `json:"supervisor_id"`
+	AdminID      int64    `json:"admin_id"`
+	FundIDs      []uint64 `json:"fund_ids"`
+}
+
+type UserSupervisorDemotedMessage struct {
+	MessageID    string `json:"message_id"`
+	OccurredAt   string `json:"occurred_at"`
+	SupervisorID int64  `json:"supervisor_id"`
+	AdminID      int64  `json:"admin_id"`
+	RevokedAt    string `json:"revoked_at"`
+}
+
+// ==================== Intra-bank OTC Options (Spec 2) ====================
+
+const (
+	TopicOTCOfferCreated      = "otc.offer-created"
+	TopicOTCOfferCountered    = "otc.offer-countered"
+	TopicOTCOfferRejected     = "otc.offer-rejected"
+	TopicOTCOfferExpired      = "otc.offer-expired"
+	TopicOTCContractCreated   = "otc.contract-created"
+	TopicOTCContractExercised = "otc.contract-exercised"
+	TopicOTCContractExpired   = "otc.contract-expired"
+	TopicOTCContractFailed    = "otc.contract-failed"
+)
+
+// OTCParty identifies a participant on an OTC offer/contract event.
+//
+// OwnerType + OwnerID describe the resource owner: "client" with a non-nil
+// OwnerID, or "bank" with a nil OwnerID. Renamed from (UserID, SystemType)
+// by Task 9 of plan docs/superpowers/plans/2026-04-27-owner-type-schema.md.
+//
+// BankCode is only set for cross-bank OTC events to disambiguate which
+// foreign bank the counterparty belongs to.
+type OTCParty struct {
+	OwnerType string  `json:"owner_type"`
+	OwnerID   *uint64 `json:"owner_id"`
+	BankCode  string  `json:"bank_code,omitempty"`
+}
+
+type OTCOfferCreatedMessage struct {
+	MessageID      string    `json:"message_id"`
+	OccurredAt     string    `json:"occurred_at"`
+	OfferID        uint64    `json:"offer_id"`
+	Initiator      OTCParty  `json:"initiator"`
+	Counterparty   *OTCParty `json:"counterparty,omitempty"`
+	StockID        uint64    `json:"stock_id"`
+	Quantity       string    `json:"quantity"`
+	StrikePrice    string    `json:"strike_price"`
+	Premium        string    `json:"premium"`
+	SettlementDate string    `json:"settlement_date"`
+}
+
+type OTCOfferCounteredMessage struct {
+	MessageID      string   `json:"message_id"`
+	OccurredAt     string   `json:"occurred_at"`
+	OfferID        uint64   `json:"offer_id"`
+	RevisionNumber int      `json:"revision_number"`
+	ModifiedBy     OTCParty `json:"modified_by"`
+	OtherParty     OTCParty `json:"other_party"`
+	Quantity       string   `json:"quantity"`
+	StrikePrice    string   `json:"strike_price"`
+	Premium        string   `json:"premium"`
+	SettlementDate string   `json:"settlement_date"`
+	UpdatedAt      string   `json:"updated_at"`
+}
+
+type OTCOfferRejectedMessage struct {
+	MessageID  string   `json:"message_id"`
+	OccurredAt string   `json:"occurred_at"`
+	OfferID    uint64   `json:"offer_id"`
+	RejectedBy OTCParty `json:"rejected_by"`
+	OtherParty OTCParty `json:"other_party"`
+	UpdatedAt  string   `json:"updated_at"`
+}
+
+type OTCOfferExpiredMessage struct {
+	MessageID    string    `json:"message_id"`
+	OccurredAt   string    `json:"occurred_at"`
+	OfferID      uint64    `json:"offer_id"`
+	Initiator    OTCParty  `json:"initiator"`
+	Counterparty *OTCParty `json:"counterparty,omitempty"`
+}
+
+type OTCContractCreatedMessage struct {
+	MessageID      string   `json:"message_id"`
+	OccurredAt     string   `json:"occurred_at"`
+	ContractID     uint64   `json:"contract_id"`
+	OfferID        uint64   `json:"offer_id"`
+	Buyer          OTCParty `json:"buyer"`
+	Seller         OTCParty `json:"seller"`
+	Quantity       string   `json:"quantity"`
+	StrikePrice    string   `json:"strike_price"`
+	PremiumPaid    string   `json:"premium_paid"`
+	SettlementDate string   `json:"settlement_date"`
+	PremiumPaidAt  string   `json:"premium_paid_at"`
+}
+
+type OTCContractExercisedMessage struct {
+	MessageID         string   `json:"message_id"`
+	OccurredAt        string   `json:"occurred_at"`
+	ContractID        uint64   `json:"contract_id"`
+	Buyer             OTCParty `json:"buyer"`
+	Seller            OTCParty `json:"seller"`
+	StrikeAmountPaid  string   `json:"strike_amount_paid"`
+	SharesTransferred string   `json:"shares_transferred"`
+	ExercisedAt       string   `json:"exercised_at"`
+}
+
+type OTCContractExpiredMessage struct {
+	MessageID  string   `json:"message_id"`
+	OccurredAt string   `json:"occurred_at"`
+	ContractID uint64   `json:"contract_id"`
+	Buyer      OTCParty `json:"buyer"`
+	Seller     OTCParty `json:"seller"`
+	ExpiredAt  string   `json:"expired_at"`
+}
+
+type OTCContractFailedMessage struct {
+	MessageID          string `json:"message_id"`
+	OccurredAt         string `json:"occurred_at"`
+	ContractID         uint64 `json:"contract_id"`
+	FailureReason      string `json:"failure_reason"`
+	SagaID             string `json:"saga_id"`
+	CompensationStatus string `json:"compensation_status"`
 }

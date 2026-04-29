@@ -29,8 +29,8 @@ func NewMeHandler(
 }
 
 // GetMe returns the full profile of the currently authenticated user.
-// For clients (system_type == "client"), it calls client-service + auth-service.
-// For employees (system_type == "employee"), it calls user-service + auth-service.
+// For clients (principal_type == "client"), it calls client-service + auth-service.
+// For employees (principal_type == "employee"), it calls user-service + auth-service.
 //
 // @Summary      Get current user profile
 // @Description  Returns the full profile of the authenticated user (client or employee).
@@ -41,17 +41,17 @@ func NewMeHandler(
 // @Failure      401  {object}  map[string]interface{}
 // @Failure      403  {object}  map[string]interface{}
 // @Failure      500  {object}  map[string]interface{}
-// @Router       /api/me [get]
+// @Router       /api/v2/me [get]
 func (h *MeHandler) GetMe(c *gin.Context) {
-	sysType, _ := c.Get("system_type")
-	userID, _ := c.Get("user_id")
-	uid, ok := userID.(int64)
+	pType, _ := c.Get("principal_type")
+	principalID, _ := c.Get("principal_id")
+	uid, ok := principalID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
 		return
 	}
 
-	switch sysType {
+	switch pType {
 	case "client":
 		// GetClient returns (*clientpb.ClientResponse, error) directly — no wrapper
 		resp, err := h.clientClient.GetClient(c.Request.Context(), &clientpb.GetClientRequest{Id: uint64(uid)})
@@ -89,6 +89,6 @@ func (h *MeHandler) GetMe(c *gin.Context) {
 		c.JSON(http.StatusOK, employeeToJSONWithActive(resp, active))
 
 	default:
-		apiError(c, 403, ErrForbidden, "unknown system type")
+		apiError(c, 403, ErrForbidden, "unknown principal type")
 	}
 }

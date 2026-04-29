@@ -19,21 +19,29 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AccountService_CreateAccount_FullMethodName        = "/account.AccountService/CreateAccount"
-	AccountService_GetAccount_FullMethodName           = "/account.AccountService/GetAccount"
-	AccountService_GetAccountByNumber_FullMethodName   = "/account.AccountService/GetAccountByNumber"
-	AccountService_ListAccountsByClient_FullMethodName = "/account.AccountService/ListAccountsByClient"
-	AccountService_ListAllAccounts_FullMethodName      = "/account.AccountService/ListAllAccounts"
-	AccountService_UpdateAccountName_FullMethodName    = "/account.AccountService/UpdateAccountName"
-	AccountService_UpdateAccountLimits_FullMethodName  = "/account.AccountService/UpdateAccountLimits"
-	AccountService_UpdateAccountStatus_FullMethodName  = "/account.AccountService/UpdateAccountStatus"
-	AccountService_UpdateBalance_FullMethodName        = "/account.AccountService/UpdateBalance"
-	AccountService_CreateCompany_FullMethodName        = "/account.AccountService/CreateCompany"
-	AccountService_GetCompany_FullMethodName           = "/account.AccountService/GetCompany"
-	AccountService_UpdateCompany_FullMethodName        = "/account.AccountService/UpdateCompany"
-	AccountService_ListCurrencies_FullMethodName       = "/account.AccountService/ListCurrencies"
-	AccountService_GetCurrency_FullMethodName          = "/account.AccountService/GetCurrency"
-	AccountService_GetLedgerEntries_FullMethodName     = "/account.AccountService/GetLedgerEntries"
+	AccountService_CreateAccount_FullMethodName            = "/account.AccountService/CreateAccount"
+	AccountService_GetAccount_FullMethodName               = "/account.AccountService/GetAccount"
+	AccountService_GetAccountByNumber_FullMethodName       = "/account.AccountService/GetAccountByNumber"
+	AccountService_ListAccountsByClient_FullMethodName     = "/account.AccountService/ListAccountsByClient"
+	AccountService_ListAllAccounts_FullMethodName          = "/account.AccountService/ListAllAccounts"
+	AccountService_UpdateAccountName_FullMethodName        = "/account.AccountService/UpdateAccountName"
+	AccountService_UpdateAccountLimits_FullMethodName      = "/account.AccountService/UpdateAccountLimits"
+	AccountService_UpdateAccountStatus_FullMethodName      = "/account.AccountService/UpdateAccountStatus"
+	AccountService_UpdateBalance_FullMethodName            = "/account.AccountService/UpdateBalance"
+	AccountService_CreateCompany_FullMethodName            = "/account.AccountService/CreateCompany"
+	AccountService_GetCompany_FullMethodName               = "/account.AccountService/GetCompany"
+	AccountService_UpdateCompany_FullMethodName            = "/account.AccountService/UpdateCompany"
+	AccountService_ListCurrencies_FullMethodName           = "/account.AccountService/ListCurrencies"
+	AccountService_GetCurrency_FullMethodName              = "/account.AccountService/GetCurrency"
+	AccountService_GetLedgerEntries_FullMethodName         = "/account.AccountService/GetLedgerEntries"
+	AccountService_ReserveFunds_FullMethodName             = "/account.AccountService/ReserveFunds"
+	AccountService_ReleaseReservation_FullMethodName       = "/account.AccountService/ReleaseReservation"
+	AccountService_PartialSettleReservation_FullMethodName = "/account.AccountService/PartialSettleReservation"
+	AccountService_GetReservation_FullMethodName           = "/account.AccountService/GetReservation"
+	AccountService_ReserveIncoming_FullMethodName          = "/account.AccountService/ReserveIncoming"
+	AccountService_CommitIncoming_FullMethodName           = "/account.AccountService/CommitIncoming"
+	AccountService_ReleaseIncoming_FullMethodName          = "/account.AccountService/ReleaseIncoming"
+	AccountService_ListChangelog_FullMethodName            = "/account.AccountService/ListChangelog"
 )
 
 // AccountServiceClient is the client API for AccountService service.
@@ -48,6 +56,7 @@ type AccountServiceClient interface {
 	UpdateAccountName(ctx context.Context, in *UpdateAccountNameRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	UpdateAccountLimits(ctx context.Context, in *UpdateAccountLimitsRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	UpdateAccountStatus(ctx context.Context, in *UpdateAccountStatusRequest, opts ...grpc.CallOption) (*AccountResponse, error)
+	// idempotent
 	UpdateBalance(ctx context.Context, in *UpdateBalanceRequest, opts ...grpc.CallOption) (*AccountResponse, error)
 	CreateCompany(ctx context.Context, in *CreateCompanyRequest, opts ...grpc.CallOption) (*CompanyResponse, error)
 	GetCompany(ctx context.Context, in *GetCompanyRequest, opts ...grpc.CallOption) (*CompanyResponse, error)
@@ -55,6 +64,25 @@ type AccountServiceClient interface {
 	ListCurrencies(ctx context.Context, in *ListCurrenciesRequest, opts ...grpc.CallOption) (*ListCurrenciesResponse, error)
 	GetCurrency(ctx context.Context, in *GetCurrencyRequest, opts ...grpc.CallOption) (*CurrencyResponse, error)
 	GetLedgerEntries(ctx context.Context, in *GetLedgerEntriesRequest, opts ...grpc.CallOption) (*GetLedgerEntriesResponse, error)
+	// Reservation lifecycle for order placement → fill → release flow (bank-safe settlement).
+	// idempotent
+	ReserveFunds(ctx context.Context, in *ReserveFundsRequest, opts ...grpc.CallOption) (*ReserveFundsResponse, error)
+	// idempotent
+	ReleaseReservation(ctx context.Context, in *ReleaseReservationRequest, opts ...grpc.CallOption) (*ReleaseReservationResponse, error)
+	// idempotent
+	PartialSettleReservation(ctx context.Context, in *PartialSettleReservationRequest, opts ...grpc.CallOption) (*PartialSettleReservationResponse, error)
+	GetReservation(ctx context.Context, in *GetReservationRequest, opts ...grpc.CallOption) (*GetReservationResponse, error)
+	// Credit-side reservation lifecycle for inter-bank inbound transfers
+	// (Spec 3 / docs/superpowers/specs/2026-04-24-interbank-2pc-transfers-design.md §4.3).
+	// idempotent
+	ReserveIncoming(ctx context.Context, in *ReserveIncomingRequest, opts ...grpc.CallOption) (*ReserveIncomingResponse, error)
+	// idempotent
+	CommitIncoming(ctx context.Context, in *CommitIncomingRequest, opts ...grpc.CallOption) (*CommitIncomingResponse, error)
+	// idempotent
+	ReleaseIncoming(ctx context.Context, in *ReleaseIncomingRequest, opts ...grpc.CallOption) (*ReleaseIncomingResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error)
 }
 
 type accountServiceClient struct {
@@ -215,6 +243,86 @@ func (c *accountServiceClient) GetLedgerEntries(ctx context.Context, in *GetLedg
 	return out, nil
 }
 
+func (c *accountServiceClient) ReserveFunds(ctx context.Context, in *ReserveFundsRequest, opts ...grpc.CallOption) (*ReserveFundsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReserveFundsResponse)
+	err := c.cc.Invoke(ctx, AccountService_ReserveFunds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) ReleaseReservation(ctx context.Context, in *ReleaseReservationRequest, opts ...grpc.CallOption) (*ReleaseReservationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseReservationResponse)
+	err := c.cc.Invoke(ctx, AccountService_ReleaseReservation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) PartialSettleReservation(ctx context.Context, in *PartialSettleReservationRequest, opts ...grpc.CallOption) (*PartialSettleReservationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PartialSettleReservationResponse)
+	err := c.cc.Invoke(ctx, AccountService_PartialSettleReservation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) GetReservation(ctx context.Context, in *GetReservationRequest, opts ...grpc.CallOption) (*GetReservationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetReservationResponse)
+	err := c.cc.Invoke(ctx, AccountService_GetReservation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) ReserveIncoming(ctx context.Context, in *ReserveIncomingRequest, opts ...grpc.CallOption) (*ReserveIncomingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReserveIncomingResponse)
+	err := c.cc.Invoke(ctx, AccountService_ReserveIncoming_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) CommitIncoming(ctx context.Context, in *CommitIncomingRequest, opts ...grpc.CallOption) (*CommitIncomingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CommitIncomingResponse)
+	err := c.cc.Invoke(ctx, AccountService_CommitIncoming_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) ReleaseIncoming(ctx context.Context, in *ReleaseIncomingRequest, opts ...grpc.CallOption) (*ReleaseIncomingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReleaseIncomingResponse)
+	err := c.cc.Invoke(ctx, AccountService_ReleaseIncoming_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *accountServiceClient) ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListChangelogResponse)
+	err := c.cc.Invoke(ctx, AccountService_ListChangelog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AccountServiceServer is the server API for AccountService service.
 // All implementations must embed UnimplementedAccountServiceServer
 // for forward compatibility.
@@ -227,6 +335,7 @@ type AccountServiceServer interface {
 	UpdateAccountName(context.Context, *UpdateAccountNameRequest) (*AccountResponse, error)
 	UpdateAccountLimits(context.Context, *UpdateAccountLimitsRequest) (*AccountResponse, error)
 	UpdateAccountStatus(context.Context, *UpdateAccountStatusRequest) (*AccountResponse, error)
+	// idempotent
 	UpdateBalance(context.Context, *UpdateBalanceRequest) (*AccountResponse, error)
 	CreateCompany(context.Context, *CreateCompanyRequest) (*CompanyResponse, error)
 	GetCompany(context.Context, *GetCompanyRequest) (*CompanyResponse, error)
@@ -234,6 +343,25 @@ type AccountServiceServer interface {
 	ListCurrencies(context.Context, *ListCurrenciesRequest) (*ListCurrenciesResponse, error)
 	GetCurrency(context.Context, *GetCurrencyRequest) (*CurrencyResponse, error)
 	GetLedgerEntries(context.Context, *GetLedgerEntriesRequest) (*GetLedgerEntriesResponse, error)
+	// Reservation lifecycle for order placement → fill → release flow (bank-safe settlement).
+	// idempotent
+	ReserveFunds(context.Context, *ReserveFundsRequest) (*ReserveFundsResponse, error)
+	// idempotent
+	ReleaseReservation(context.Context, *ReleaseReservationRequest) (*ReleaseReservationResponse, error)
+	// idempotent
+	PartialSettleReservation(context.Context, *PartialSettleReservationRequest) (*PartialSettleReservationResponse, error)
+	GetReservation(context.Context, *GetReservationRequest) (*GetReservationResponse, error)
+	// Credit-side reservation lifecycle for inter-bank inbound transfers
+	// (Spec 3 / docs/superpowers/specs/2026-04-24-interbank-2pc-transfers-design.md §4.3).
+	// idempotent
+	ReserveIncoming(context.Context, *ReserveIncomingRequest) (*ReserveIncomingResponse, error)
+	// idempotent
+	CommitIncoming(context.Context, *CommitIncomingRequest) (*CommitIncomingResponse, error)
+	// idempotent
+	ReleaseIncoming(context.Context, *ReleaseIncomingRequest) (*ReleaseIncomingResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error)
 	mustEmbedUnimplementedAccountServiceServer()
 }
 
@@ -288,6 +416,30 @@ func (UnimplementedAccountServiceServer) GetCurrency(context.Context, *GetCurren
 }
 func (UnimplementedAccountServiceServer) GetLedgerEntries(context.Context, *GetLedgerEntriesRequest) (*GetLedgerEntriesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetLedgerEntries not implemented")
+}
+func (UnimplementedAccountServiceServer) ReserveFunds(context.Context, *ReserveFundsRequest) (*ReserveFundsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReserveFunds not implemented")
+}
+func (UnimplementedAccountServiceServer) ReleaseReservation(context.Context, *ReleaseReservationRequest) (*ReleaseReservationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseReservation not implemented")
+}
+func (UnimplementedAccountServiceServer) PartialSettleReservation(context.Context, *PartialSettleReservationRequest) (*PartialSettleReservationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PartialSettleReservation not implemented")
+}
+func (UnimplementedAccountServiceServer) GetReservation(context.Context, *GetReservationRequest) (*GetReservationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetReservation not implemented")
+}
+func (UnimplementedAccountServiceServer) ReserveIncoming(context.Context, *ReserveIncomingRequest) (*ReserveIncomingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReserveIncoming not implemented")
+}
+func (UnimplementedAccountServiceServer) CommitIncoming(context.Context, *CommitIncomingRequest) (*CommitIncomingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CommitIncoming not implemented")
+}
+func (UnimplementedAccountServiceServer) ReleaseIncoming(context.Context, *ReleaseIncomingRequest) (*ReleaseIncomingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReleaseIncoming not implemented")
+}
+func (UnimplementedAccountServiceServer) ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListChangelog not implemented")
 }
 func (UnimplementedAccountServiceServer) mustEmbedUnimplementedAccountServiceServer() {}
 func (UnimplementedAccountServiceServer) testEmbeddedByValue()                        {}
@@ -580,6 +732,150 @@ func _AccountService_GetLedgerEntries_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AccountService_ReserveFunds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReserveFundsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ReserveFunds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ReserveFunds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ReserveFunds(ctx, req.(*ReserveFundsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_ReleaseReservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseReservationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ReleaseReservation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ReleaseReservation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ReleaseReservation(ctx, req.(*ReleaseReservationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_PartialSettleReservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PartialSettleReservationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).PartialSettleReservation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_PartialSettleReservation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).PartialSettleReservation(ctx, req.(*PartialSettleReservationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_GetReservation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetReservationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).GetReservation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_GetReservation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).GetReservation(ctx, req.(*GetReservationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_ReserveIncoming_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReserveIncomingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ReserveIncoming(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ReserveIncoming_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ReserveIncoming(ctx, req.(*ReserveIncomingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_CommitIncoming_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CommitIncomingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).CommitIncoming(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_CommitIncoming_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).CommitIncoming(ctx, req.(*CommitIncomingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_ReleaseIncoming_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReleaseIncomingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ReleaseIncoming(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ReleaseIncoming_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ReleaseIncoming(ctx, req.(*ReleaseIncomingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AccountService_ListChangelog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListChangelogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountServiceServer).ListChangelog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountService_ListChangelog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountServiceServer).ListChangelog(ctx, req.(*ListChangelogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AccountService_ServiceDesc is the grpc.ServiceDesc for AccountService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -646,6 +942,38 @@ var AccountService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetLedgerEntries",
 			Handler:    _AccountService_GetLedgerEntries_Handler,
+		},
+		{
+			MethodName: "ReserveFunds",
+			Handler:    _AccountService_ReserveFunds_Handler,
+		},
+		{
+			MethodName: "ReleaseReservation",
+			Handler:    _AccountService_ReleaseReservation_Handler,
+		},
+		{
+			MethodName: "PartialSettleReservation",
+			Handler:    _AccountService_PartialSettleReservation_Handler,
+		},
+		{
+			MethodName: "GetReservation",
+			Handler:    _AccountService_GetReservation_Handler,
+		},
+		{
+			MethodName: "ReserveIncoming",
+			Handler:    _AccountService_ReserveIncoming_Handler,
+		},
+		{
+			MethodName: "CommitIncoming",
+			Handler:    _AccountService_CommitIncoming_Handler,
+		},
+		{
+			MethodName: "ReleaseIncoming",
+			Handler:    _AccountService_ReleaseIncoming_Handler,
+		},
+		{
+			MethodName: "ListChangelog",
+			Handler:    _AccountService_ListChangelog_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

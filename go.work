@@ -10,9 +10,11 @@ use (
 	./credit-service
 	./exchange-service
 	./notification-service
-	./test-app
 	./seeder
 	./stock-service
+	./test-app
+	./tools/perm-codegen
+	./tools/proto-idempotency-check
 	./transaction-service
 	./user-service
 	./verification-service

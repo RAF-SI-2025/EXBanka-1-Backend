@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/exbanka/contract/influx"
+	"github.com/exbanka/contract/shared"
 	"github.com/exbanka/stock-service/internal/cache"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/provider"
@@ -110,8 +111,20 @@ func (s *SecuritySyncService) SeedAll(ctx context.Context, futuresSeedPath strin
 	}
 }
 
-// RefreshPrices updates price data for all securities.
-// Called periodically by the refresh goroutine.
+// RefreshPrices updates price data for all securities. Called periodically by
+// the refresh goroutine.
+//
+// Dispatches based on the currently-active Source:
+//   - "external": use the AlphaVantage + Finnhub legacy direct-API path
+//     (syncStockPrices + refreshForexRates). ExternalSource.RefreshPrices is
+//     a no-op on purpose.
+//   - "generated" / "simulator": delegate to Source.RefreshPrices (which
+//     drifts prices in memory or pulls them from the market-simulator) and
+//     then re-sync every security type so the drifted prices land in the DB.
+//
+// This avoids the bug where selecting "generated" still caused the background
+// loop to call AlphaVantage, overwriting the drifted prices with quota-error
+// zeros.
 func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 	start := time.Now()
 
@@ -119,8 +132,40 @@ func (s *SecuritySyncService) RefreshPrices(ctx context.Context) {
 		log.Println("testing mode enabled — skipping external API price refresh")
 		return
 	}
-	s.syncStockPrices(ctx)
-	s.refreshForexRates()
+
+	src := s.Source()
+	sourceName := ""
+	if src != nil {
+		sourceName = src.Name()
+	}
+
+	switch sourceName {
+	case "external":
+		s.syncStockPrices(ctx)
+		s.refreshForexRates()
+	case "generated", "simulator":
+		if err := src.RefreshPrices(ctx); err != nil {
+			log.Printf("WARN: %s source RefreshPrices failed: %v", sourceName, err)
+		}
+		// Re-fetch securities from the source so the drifted prices are
+		// persisted. Without this step the in-memory drift of GeneratedSource
+		// would never reach the DB.
+		s.syncStocks(ctx)
+		s.seedFutures("")
+		s.seedForexPairs()
+	default:
+		log.Printf("WARN: RefreshPrices: unknown source %q — skipping", sourceName)
+	}
+
+	// Regenerate option chains from the freshly-priced stocks. Needed because
+	// GenerateOptionsForStock short-circuits on stock.Price == 0. If SeedAll
+	// ran before the first price refresh landed (e.g. source-switch during a
+	// brief zero-price window), options were never created. Upsert-by-ticker
+	// makes this idempotent — stocks that already have options get their
+	// premiums refreshed, stocks that were skipped get their options created
+	// on the first refresh that sees non-zero prices.
+	s.generateAllOptions()
+
 	if s.listingSvc != nil {
 		s.listingSvc.SyncListingsFromSecurities()
 	}
@@ -141,19 +186,14 @@ func (s *SecuritySyncService) StartPeriodicRefresh(ctx context.Context, interval
 	if intervalMins <= 0 {
 		intervalMins = 15
 	}
-	ticker := time.NewTicker(time.Duration(intervalMins) * time.Minute)
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				s.RefreshPrices(ctx)
-			case <-ctx.Done():
-				log.Println("stopping periodic security price refresh")
-				return
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "security-price-refresh",
+		Interval: time.Duration(intervalMins) * time.Minute,
+		OnTick: func(ctx context.Context) error {
+			s.RefreshPrices(ctx)
+			return nil
+		},
+	})
 	log.Printf("periodic security price refresh started (every %d min)", intervalMins)
 }
 
@@ -508,18 +548,14 @@ func (s *SecuritySyncService) StartSimulatorRefreshLoopIfActive() {
 func (s *SecuritySyncService) startSimulatorRefreshLoop() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.refreshCtx = cancel
-	go func() {
-		ticker := time.NewTicker(3 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				s.refreshSimulatorPrices(ctx)
-			}
-		}
-	}()
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "simulator-price-refresh",
+		Interval: 3 * time.Second,
+		OnTick: func(ctx context.Context) error {
+			s.refreshSimulatorPrices(ctx)
+			return nil
+		},
+	})
 }
 
 // refreshSimulatorPrices re-fetches the current Source and updates the

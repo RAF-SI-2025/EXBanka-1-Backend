@@ -5,21 +5,40 @@ import (
 	"net/smtp"
 )
 
+// MailTransport abstracts the SMTP send operation so callers can inject a
+// stub for unit tests. The default implementation forwards to net/smtp.SendMail.
+type MailTransport func(addr string, a smtp.Auth, from string, to []string, msg []byte) error
+
 type EmailSender struct {
-	host     string
-	port     string
-	user     string
-	password string
-	from     string
+	host      string
+	port      string
+	user      string
+	password  string
+	from      string
+	transport MailTransport
 }
 
 func NewEmailSender(host, port, user, password, from string) *EmailSender {
 	return &EmailSender{
-		host:     host,
-		port:     port,
-		user:     user,
-		password: password,
-		from:     from,
+		host:      host,
+		port:      port,
+		user:      user,
+		password:  password,
+		from:      from,
+		transport: smtp.SendMail,
+	}
+}
+
+// newEmailSenderWithTransport constructs an EmailSender with a custom transport.
+// Only callable from within the sender package (e.g., package-level tests).
+func newEmailSenderWithTransport(host, port, user, password, from string, t MailTransport) *EmailSender {
+	return &EmailSender{
+		host:      host,
+		port:      port,
+		user:      user,
+		password:  password,
+		from:      from,
+		transport: t,
 	}
 }
 
@@ -30,5 +49,5 @@ func (s *EmailSender) Send(to, subject, body string) error {
 		s.from, to, subject, body)
 
 	addr := s.host + ":" + s.port
-	return smtp.SendMail(addr, auth, s.from, []string{to}, []byte(msg))
+	return s.transport(addr, auth, s.from, []string{to}, []byte(msg))
 }

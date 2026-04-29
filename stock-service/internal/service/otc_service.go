@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -55,21 +56,26 @@ func (s *OTCService) BuyOffer(
 	sellerHolding, err := s.holdingRepo.GetByID(offerID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("OTC offer not found")
+			return nil, fmt.Errorf("OTC offer not found: %w", ErrOTCOfferNotFound)
 		}
 		return nil, err
 	}
 	if sellerHolding.PublicQuantity < quantity {
-		return nil, errors.New("insufficient public quantity for OTC purchase")
+		return nil, fmt.Errorf("insufficient public quantity for OTC purchase: %w", ErrOTCInsufficientPublicQuantity)
 	}
-	if sellerHolding.UserID == buyerID {
-		return nil, errors.New("cannot buy your own OTC offer")
+	// Self-buy guard: compare on the buyer's owner pair vs the seller's
+	// holding owner. Both sides may legitimately be bank-owned in pathological
+	// configurations; the OwnerID nil/non-nil semantics in OwnerFromLegacy
+	// handle that without leaking sentinel-value comparisons.
+	buyerOwnerType, buyerOwnerID := model.OwnerFromLegacy(buyerID, buyerSystemType)
+	if sellerHolding.OwnerType == buyerOwnerType && ownerIDEqual(sellerHolding.OwnerID, buyerOwnerID) {
+		return nil, fmt.Errorf("cannot buy your own OTC offer: %w", ErrOTCBuyOwnOffer)
 	}
 
 	// Get current market price from listing
 	listing, err := s.listingRepo.GetByID(sellerHolding.ListingID)
 	if err != nil {
-		return nil, errors.New("listing not found for OTC offer")
+		return nil, fmt.Errorf("listing not found for OTC offer: %w", ErrListingNotFound)
 	}
 
 	pricePerUnit := listing.Price
@@ -86,7 +92,7 @@ func (s *OTCService) BuyOffer(
 	// Debit buyer's account: total + commission
 	buyerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: buyerAccountID})
 	if err != nil {
-		return nil, errors.New("buyer account not found")
+		return nil, fmt.Errorf("buyer account not found: %w", ErrOTCBuyerAccountNotFound)
 	}
 	_, err = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 		AccountNumber:   buyerAcct.AccountNumber,
@@ -97,8 +103,15 @@ func (s *OTCService) BuyOffer(
 		return nil, errors.New("failed to debit buyer account: " + err.Error())
 	}
 
-	// Credit seller's account: total
-	sellerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: sellerHolding.AccountID})
+	// Credit seller's account: total. Holdings aggregate across accounts and
+	// AccountID is the audit "last-used" account — use that as the proceeds
+	// destination. A seller whose holding has no recorded account cannot
+	// participate in OTC; surface that explicitly.
+	if sellerHolding.AccountID == 0 {
+		return nil, fmt.Errorf("seller holding has no recorded account for OTC: %w", ErrOTCSellerNoAccount)
+	}
+	sellerAccountID := sellerHolding.AccountID
+	sellerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: sellerAccountID})
 	if err != nil {
 		// Compensate: re-credit buyer since debit succeeded
 		_, _ = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
@@ -106,7 +119,7 @@ func (s *OTCService) BuyOffer(
 			Amount:          totalPrice.Add(commission).StringFixed(4),
 			UpdateAvailable: true,
 		})
-		return nil, errors.New("seller account not found")
+		return nil, fmt.Errorf("seller account not found: %w", ErrOTCSellerAccountNotFound)
 	}
 	_, err = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 		AccountNumber:   sellerAcct.AccountNumber,
@@ -126,8 +139,8 @@ func (s *OTCService) BuyOffer(
 	// Record capital gain for seller
 	gain := pricePerUnit.Sub(sellerHolding.AveragePrice).Mul(decimal.NewFromInt(quantity))
 	capitalGain := &model.CapitalGain{
-		UserID:           sellerHolding.UserID,
-		SystemType:       sellerHolding.SystemType,
+		OwnerType:        sellerHolding.OwnerType,
+		OwnerID:          sellerHolding.OwnerID,
 		OTC:              true,
 		SecurityType:     sellerHolding.SecurityType,
 		Ticker:           sellerHolding.Ticker,
@@ -136,7 +149,7 @@ func (s *OTCService) BuyOffer(
 		SellPricePerUnit: pricePerUnit,
 		TotalGain:        gain,
 		Currency:         listing.Exchange.Currency,
-		AccountID:        sellerHolding.AccountID,
+		AccountID:        sellerAccountID,
 		TaxYear:          time.Now().Year(),
 		TaxMonth:         int(time.Now().Month()),
 	}
@@ -171,15 +184,15 @@ func (s *OTCService) BuyOffer(
 	// Create/update buyer's holding
 	buyerFirstName, buyerLastName := "", ""
 	if s.nameResolver != nil {
-		fn, ln, resolveErr := s.nameResolver(buyerID, buyerSystemType)
+		fn, ln, resolveErr := s.nameResolver(buyerOwnerType, buyerOwnerID)
 		if resolveErr == nil {
 			buyerFirstName, buyerLastName = fn, ln
 		}
 	}
 
 	buyerHolding := &model.Holding{
-		UserID:        buyerID,
-		SystemType:    buyerSystemType,
+		OwnerType:     buyerOwnerType,
+		OwnerID:       buyerOwnerID,
 		UserFirstName: buyerFirstName,
 		UserLastName:  buyerLastName,
 		SecurityType:  sellerHolding.SecurityType,
@@ -191,7 +204,7 @@ func (s *OTCService) BuyOffer(
 		AveragePrice:  pricePerUnit,
 		AccountID:     buyerAccountID,
 	}
-	if err := s.holdingRepo.Upsert(buyerHolding); err != nil {
+	if err := s.holdingRepo.Upsert(context.Background(), buyerHolding); err != nil {
 		return nil, err
 	}
 

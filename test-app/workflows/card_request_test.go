@@ -17,7 +17,7 @@ import (
 func TestCardRequest_UnauthenticatedCannotCreateRequest(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/v1/me/cards/requests", map[string]interface{}{
+	resp, err := c.POST("/api/v3/me/cards/requests", map[string]interface{}{
 		"account_number": "265-0000000001-00",
 		"card_brand":     "visa",
 	})
@@ -34,7 +34,7 @@ func TestCardRequest_UnauthenticatedCannotCreateRequest(t *testing.T) {
 func TestCardRequest_EmployeeCannotCreateRequest(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/me/cards/requests", map[string]interface{}{
+	resp, err := c.POST("/api/v3/me/cards/requests", map[string]interface{}{
 		"account_number": "265-0000000001-00",
 		"card_brand":     "visa",
 	})
@@ -52,7 +52,7 @@ func TestCardRequest_EmployeeCannotCreateRequest(t *testing.T) {
 func TestCardRequest_EmployeeCanListRequests(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/v1/cards/requests")
+	resp, err := c.GET("/api/v3/cards/requests")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestCardRequest_EmployeeCanFilterByStatus(t *testing.T) {
 	statuses := []string{"pending", "approved", "rejected"}
 	for _, status := range statuses {
 		t.Run("status_"+status, func(t *testing.T) {
-			resp, err := c.GET(fmt.Sprintf("/api/v1/cards/requests?status=%s", status))
+			resp, err := c.GET(fmt.Sprintf("/api/v3/cards/requests?status=%s", status))
 			if err != nil {
 				t.Fatalf("error: %v", err)
 			}
@@ -81,7 +81,7 @@ func TestCardRequest_EmployeeCanFilterByStatus(t *testing.T) {
 func TestCardRequest_InvalidStatusFilterRejected(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/v1/cards/requests?status=unknown_status")
+	resp, err := c.GET("/api/v3/cards/requests?status=unknown_status")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestCardRequest_InvalidStatusFilterRejected(t *testing.T) {
 func TestCardRequest_GetNonExistentRequest(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/v1/cards/requests/999999")
+	resp, err := c.GET("/api/v3/cards/requests/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestCardRequest_GetNonExistentRequest(t *testing.T) {
 func TestCardRequest_ApproveNonExistentRequest(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/cards/requests/999999/approve", nil)
+	resp, err := c.POST("/api/v3/cards/requests/999999/approve", nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestCardRequest_ApproveNonExistentRequest(t *testing.T) {
 func TestCardRequest_RejectNonExistentRequest(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/cards/requests/999999/reject", map[string]interface{}{
+	resp, err := c.POST("/api/v3/cards/requests/999999/reject", map[string]interface{}{
 		"reason": "Test rejection",
 	})
 	if err != nil {
@@ -139,7 +139,7 @@ func TestCardRequest_RejectNonExistentRequest(t *testing.T) {
 func TestCardRequest_RejectRequiresReason(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/cards/requests/1/reject", map[string]interface{}{})
+	resp, err := c.POST("/api/v3/cards/requests/1/reject", map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestCardRequest_EmployeeApproveAndRejectFlow(t *testing.T) {
 	_, acctNum := createTestAccountForCards(t, c)
 
 	// Verify the employee can list requests (may be empty but endpoint works)
-	listResp, err := c.GET("/api/v1/cards/requests?status=pending")
+	listResp, err := c.GET("/api/v3/cards/requests?status=pending")
 	if err != nil {
 		t.Fatalf("error listing card requests: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	_, accountNumber, clientC, _ := setupActivatedClient(t, adminClient)
 
 	// Client lists their requests before — should be empty or have prior requests
-	listBefore, err := clientC.GET("/api/v1/me/cards/requests")
+	listBefore, err := clientC.GET("/api/v3/me/cards/requests")
 	if err != nil {
 		t.Fatalf("list card requests before error: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	}
 
 	// Client submits a card request for their account (visa brand)
-	cardReqResp, err := clientC.POST("/api/v1/me/cards/requests", map[string]interface{}{
+	cardReqResp, err := clientC.POST("/api/v3/me/cards/requests", map[string]interface{}{
 		"account_number": accountNumber,
 		"card_brand":     "visa",
 	})
@@ -208,7 +208,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	t.Logf("card request id: %d", cardReqID)
 
 	// Client lists their requests — verify pending request appears
-	listAfter, err := clientC.GET("/api/v1/me/cards/requests")
+	listAfter, err := clientC.GET("/api/v3/me/cards/requests")
 	if err != nil {
 		t.Fatalf("list card requests after error: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	}
 
 	// Employee lists all requests — verify it appears
-	empListResp, err := adminClient.GET("/api/v1/cards/requests?status=pending")
+	empListResp, err := adminClient.GET("/api/v3/cards/requests?status=pending")
 	if err != nil {
 		t.Fatalf("employee list card requests error: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 	}
 
 	// Employee approves the request
-	approveResp, err := adminClient.POST(fmt.Sprintf("/api/v1/cards/requests/%d/approve", cardReqID), nil)
+	approveResp, err := adminClient.POST(fmt.Sprintf("/api/v3/cards/requests/%d/approve", cardReqID), nil)
 	if err != nil {
 		t.Fatalf("approve card request error: %v", err)
 	}
@@ -289,8 +289,21 @@ func TestCardRequest_FullLifecycle(t *testing.T) {
 		t.Fatalf("expected card request status approved, got %q (full body: %s)", reqStatus, string(approveResp.RawBody))
 	}
 
-	// Verify an actual card now exists for that account
-	cardsResp, err := adminClient.GET(fmt.Sprintf("/api/v1/cards?account_number=%s", accountNumber))
+	// Verify an actual card now exists for that account.
+	// Resolve account number → ID first (GET /accounts?account_number=X returns array envelope).
+	acctLookup, err := adminClient.GET("/api/v3/accounts?account_number=" + accountNumber)
+	if err != nil {
+		t.Fatalf("lookup account by number error: %v", err)
+	}
+	helpers.RequireStatus(t, acctLookup, 200)
+	acctList, ok := acctLookup.Body["accounts"].([]interface{})
+	if !ok || len(acctList) == 0 {
+		t.Fatalf("no account found for number %s", accountNumber)
+	}
+	acctMap, _ := acctList[0].(map[string]interface{})
+	acctID := int(acctMap["id"].(float64))
+
+	cardsResp, err := adminClient.GET(fmt.Sprintf("/api/v3/accounts/%d/cards", acctID))
 	if err != nil {
 		t.Fatalf("get cards by account error: %v", err)
 	}

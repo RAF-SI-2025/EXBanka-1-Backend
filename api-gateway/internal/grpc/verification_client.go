@@ -3,12 +3,11 @@ package grpc
 import (
 	"google.golang.org/grpc"
 
-	"github.com/exbanka/contract/shared"
 	verificationpb "github.com/exbanka/contract/verificationpb"
 )
 
 func NewVerificationClient(addr string) (verificationpb.VerificationGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}

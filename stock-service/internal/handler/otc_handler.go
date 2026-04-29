@@ -7,15 +7,28 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/exbanka/contract/stockpb"
+	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/service"
 )
 
+// otcSvcFacade is the narrow interface of OTCService used by OTCHandler.
+type otcSvcFacade interface {
+	ListOffers(filter service.OTCFilter) ([]model.Holding, int64, error)
+	BuyOffer(offerID, buyerID uint64, buyerSystemType string, quantity int64, buyerAccountID uint64) (*service.OTCBuyResult, error)
+}
+
 type OTCHandler struct {
 	pb.UnimplementedOTCGRPCServiceServer
-	otcSvc *service.OTCService
+	otcSvc otcSvcFacade
 }
 
 func NewOTCHandler(otcSvc *service.OTCService) *OTCHandler {
+	return &OTCHandler{otcSvc: otcSvc}
+}
+
+// newOTCHandlerForTest constructs an OTCHandler with an interface-typed
+// dependency for use in unit tests.
+func newOTCHandlerForTest(otcSvc otcSvcFacade) *OTCHandler {
 	return &OTCHandler{otcSvc: otcSvc}
 }
 
@@ -36,7 +49,7 @@ func (h *OTCHandler) ListOffers(ctx context.Context, req *pb.ListOTCOffersReques
 	for i, hld := range holdings {
 		offers[i] = &pb.OTCOffer{
 			Id:           hld.ID,
-			SellerId:     hld.UserID,
+			SellerId:     model.OwnerIDOrZero(hld.OwnerID),
 			SellerName:   hld.UserFirstName + " " + hld.UserLastName,
 			SecurityType: hld.SecurityType,
 			Ticker:       hld.Ticker,
@@ -54,20 +67,18 @@ func (h *OTCHandler) ListOffers(ctx context.Context, req *pb.ListOTCOffersReques
 }
 
 func (h *OTCHandler) BuyOffer(ctx context.Context, req *pb.BuyOTCOfferRequest) (*pb.OTCTransaction, error) {
-	// Resolve effective buyer ID: when an employee acts on behalf of a client,
-	// the resulting holding belongs to the client.
-	effectiveBuyerID := req.BuyerId
-	if req.ActingEmployeeId != 0 {
-		if req.OnBehalfOfClientId == 0 {
-			return nil, status.Error(codes.InvalidArgument, "on_behalf_of_client_id required when acting_employee_id is set")
-		}
-		effectiveBuyerID = req.OnBehalfOfClientId
+	// Both the buyer ID and system_type must flip to the client when an
+	// employee acts on behalf, so the resulting holding lands in the
+	// client's portfolio. Same rule as order placement; see resolveOrderOwner.
+	effectiveBuyerID, effectiveSystemType, rerr := resolveOrderOwner(req.BuyerId, req.SystemType, req.ActingEmployeeId, req.OnBehalfOfClientId)
+	if rerr != nil {
+		return nil, rerr
 	}
 
 	result, err := h.otcSvc.BuyOffer(
 		req.OfferId,
 		effectiveBuyerID,
-		req.SystemType,
+		effectiveSystemType,
 		req.Quantity,
 		req.AccountId,
 	)
@@ -85,16 +96,9 @@ func (h *OTCHandler) BuyOffer(ctx context.Context, req *pb.BuyOTCOfferRequest) (
 	}, nil
 }
 
+// mapOTCError is now a passthrough. Service-layer sentinels carry their own
+// gRPC code via svcerr.SentinelError. See internal/service/errors.go for the
+// OTC sentinel set.
 func mapOTCError(err error) error {
-	switch err.Error() {
-	case "OTC offer not found":
-		return status.Error(codes.NotFound, err.Error())
-	case "cannot buy your own OTC offer":
-		return status.Error(codes.PermissionDenied, err.Error())
-	case "insufficient public quantity for OTC purchase",
-		"buyer account not found", "seller account not found":
-		return status.Error(codes.FailedPrecondition, err.Error())
-	default:
-		return status.Error(codes.Internal, err.Error())
-	}
+	return err
 }

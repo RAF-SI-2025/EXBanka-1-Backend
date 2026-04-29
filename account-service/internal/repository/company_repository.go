@@ -1,8 +1,12 @@
 package repository
 
 import (
-	"github.com/exbanka/account-service/internal/model"
+	"fmt"
+
 	"gorm.io/gorm"
+
+	"github.com/exbanka/account-service/internal/model"
+	shared "github.com/exbanka/contract/shared"
 )
 
 type CompanyRepository struct {
@@ -34,5 +38,12 @@ func (r *CompanyRepository) GetByOwnerID(ownerID uint64) (*model.Company, error)
 }
 
 func (r *CompanyRepository) Update(company *model.Company) error {
-	return r.db.Save(company).Error
+	saveRes := r.db.Save(company)
+	if saveRes.Error != nil {
+		return saveRes.Error
+	}
+	if saveRes.RowsAffected == 0 {
+		return fmt.Errorf("update company(id=%d): %w", company.ID, shared.ErrOptimisticLock)
+	}
+	return nil
 }

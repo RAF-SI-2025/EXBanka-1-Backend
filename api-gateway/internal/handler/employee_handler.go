@@ -35,7 +35,7 @@ func NewEmployeeHandler(userClient userpb.UserServiceClient, authClient authpb.A
 // @Success      200  {object}  map[string]interface{}  "employees array and total_count"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error message"
-// @Router       /api/employees [get]
+// @Router       /api/v2/employees [get]
 func (h *EmployeeHandler) ListEmployees(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -90,7 +90,7 @@ func (h *EmployeeHandler) ListEmployees(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}  "employee details"
 // @Failure      400  {object}  map[string]string       "invalid id"
 // @Failure      404  {object}  map[string]string       "not found"
-// @Router       /api/employees/{id} [get]
+// @Router       /api/v2/employees/{id} [get]
 func (h *EmployeeHandler) GetEmployee(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -143,7 +143,7 @@ type createEmployeeRequest struct {
 // @Failure      400  {object}  map[string]string       "validation error"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error message"
-// @Router       /api/employees [post]
+// @Router       /api/v2/employees [post]
 func (h *EmployeeHandler) CreateEmployee(c *gin.Context) {
 	var req createEmployeeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -200,7 +200,7 @@ type updateEmployeeRequest struct {
 // @Failure      400  {object}  map[string]string       "validation error"
 // @Failure      403  {object}  map[string]string       "cannot edit admin"
 // @Failure      404  {object}  map[string]string       "not found"
-// @Router       /api/employees/{id} [put]
+// @Router       /api/v2/employees/{id} [put]
 func (h *EmployeeHandler) UpdateEmployee(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {

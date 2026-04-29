@@ -16,37 +16,43 @@ import (
 	"github.com/exbanka/user-service/internal/service"
 )
 
-// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
-func mapServiceError(err error) codes.Code {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "not found"):
-		return codes.NotFound
-	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"),
-		strings.Contains(msg, "must have"), strings.Contains(msg, "must contain"):
-		return codes.InvalidArgument
-	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
-		return codes.AlreadyExists
-	case strings.Contains(msg, "insufficient funds"), strings.Contains(msg, "limit exceeded"),
-		strings.Contains(msg, "spending limit"):
-		return codes.FailedPrecondition
-	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
-		strings.Contains(msg, "failed attempts"):
-		return codes.ResourceExhausted
-	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
-		return codes.PermissionDenied
-	default:
-		return codes.Internal
-	}
+// employeeFacade is the minimal interface of EmployeeService used by UserGRPCHandler.
+type employeeFacade interface {
+	CreateEmployee(ctx context.Context, emp *model.Employee) error
+	GetEmployee(id int64) (*model.Employee, error)
+	GetByIDs(ids []int64) ([]model.Employee, error)
+	ListEmployees(emailFilter, nameFilter, positionFilter string, page, pageSize int) ([]model.Employee, int64, error)
+	UpdateEmployee(ctx context.Context, id int64, updates map[string]interface{}, changedBy int64) (*model.Employee, error)
+	SetEmployeeRoles(ctx context.Context, employeeID int64, roleNames []string, changedBy int64) error
+	SetEmployeeAdditionalPermissions(ctx context.Context, employeeID int64, permCodes []string, changedBy int64) error
+	ResolvePermissions(emp *model.Employee) []string
+}
+
+// roleFacade is the minimal interface of RoleService used by UserGRPCHandler.
+type roleFacade interface {
+	ListRoles() ([]model.Role, error)
+	GetRole(id int64) (*model.Role, error)
+	CreateRole(name, description string, permissionCodes []string) (*model.Role, error)
+	UpdateRolePermissions(roleID int64, permissionCodes []string) error
+	AssignPermissionToRole(roleID int64, perm string) error
+	RevokePermissionFromRole(roleID int64, perm string) error
+	ListPermissions() ([]model.Permission, error)
 }
 
 type UserGRPCHandler struct {
 	pb.UnimplementedUserServiceServer
-	empService *service.EmployeeService
-	roleSvc    *service.RoleService
+	empService       employeeFacade
+	roleSvc          roleFacade
+	changelogService *service.ChangelogService
 }
 
-func NewUserGRPCHandler(empService *service.EmployeeService, roleSvc *service.RoleService) *UserGRPCHandler {
+func NewUserGRPCHandler(empService *service.EmployeeService, roleSvc *service.RoleService, changelogService *service.ChangelogService) *UserGRPCHandler {
+	return &UserGRPCHandler{empService: empService, roleSvc: roleSvc, changelogService: changelogService}
+}
+
+// newUserHandlerForTest constructs a UserGRPCHandler with interface-typed dependencies
+// for use in unit tests (no concrete service instances needed).
+func newUserHandlerForTest(empService employeeFacade, roleSvc roleFacade) *UserGRPCHandler {
 	return &UserGRPCHandler{empService: empService, roleSvc: roleSvc}
 }
 
@@ -67,12 +73,12 @@ func (h *UserGRPCHandler) CreateEmployee(ctx context.Context, req *pb.CreateEmpl
 	}
 
 	if err := h.empService.CreateEmployee(ctx, emp); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create employee: %v", err)
+		return nil, err
 	}
 
 	if req.Role != "" {
 		if err := h.empService.SetEmployeeRoles(ctx, emp.ID, []string{req.Role}, 0); err != nil {
-			return nil, status.Errorf(mapServiceError(err), "failed to assign role: %v", err)
+			return nil, err
 		}
 		// Reload employee so the response includes the assigned role/permissions.
 		updated, err := h.empService.GetEmployee(emp.ID)
@@ -92,13 +98,28 @@ func (h *UserGRPCHandler) GetEmployee(ctx context.Context, req *pb.GetEmployeeRe
 	return toEmployeeResponse(emp, h.empService), nil
 }
 
+func (h *UserGRPCHandler) ListEmployeeFullNames(ctx context.Context, req *pb.ListEmployeeFullNamesRequest) (*pb.ListEmployeeFullNamesResponse, error) {
+	if len(req.EmployeeIds) == 0 {
+		return &pb.ListEmployeeFullNamesResponse{NamesById: map[int64]string{}}, nil
+	}
+	rows, err := h.empService.GetByIDs(req.EmployeeIds)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list employees: %v", err)
+	}
+	out := make(map[int64]string, len(rows))
+	for _, e := range rows {
+		out[e.ID] = strings.TrimSpace(e.FirstName + " " + e.LastName)
+	}
+	return &pb.ListEmployeeFullNamesResponse{NamesById: out}, nil
+}
+
 func (h *UserGRPCHandler) ListEmployees(ctx context.Context, req *pb.ListEmployeesRequest) (*pb.ListEmployeesResponse, error) {
 	employees, total, err := h.empService.ListEmployees(
 		req.EmailFilter, req.NameFilter, req.PositionFilter,
 		int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list employees: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListEmployeesResponse{TotalCount: int32(total), Employees: make([]*pb.EmployeeResponse, 0, len(employees))}
@@ -136,9 +157,9 @@ func (h *UserGRPCHandler) UpdateEmployee(ctx context.Context, req *pb.UpdateEmpl
 	emp, err := h.empService.UpdateEmployee(ctx, req.Id, updates, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "employee not found")
+			return nil, service.ErrEmployeeNotFound
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to update: %v", err)
+		return nil, err
 	}
 	return toEmployeeResponse(emp, h.empService), nil
 }
@@ -147,7 +168,7 @@ func (h *UserGRPCHandler) UpdateEmployee(ctx context.Context, req *pb.UpdateEmpl
 func (h *UserGRPCHandler) ListRoles(ctx context.Context, req *pb.ListRolesRequest) (*pb.ListRolesResponse, error) {
 	roles, err := h.roleSvc.ListRoles()
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list roles: %v", err)
+		return nil, err
 	}
 	pbRoles := make([]*pb.RoleResponse, 0, len(roles))
 	for _, r := range roles {
@@ -169,7 +190,7 @@ func (h *UserGRPCHandler) GetRole(ctx context.Context, req *pb.GetRoleRequest) (
 func (h *UserGRPCHandler) CreateRole(ctx context.Context, req *pb.CreateRoleRequest) (*pb.RoleResponse, error) {
 	role, err := h.roleSvc.CreateRole(req.Name, req.Description, req.PermissionCodes)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create role: %v", err)
+		return nil, err
 	}
 	return toRoleResponse(role), nil
 }
@@ -177,7 +198,7 @@ func (h *UserGRPCHandler) CreateRole(ctx context.Context, req *pb.CreateRoleRequ
 // UpdateRolePermissions replaces the permissions on a role.
 func (h *UserGRPCHandler) UpdateRolePermissions(ctx context.Context, req *pb.UpdateRolePermissionsRequest) (*pb.RoleResponse, error) {
 	if err := h.roleSvc.UpdateRolePermissions(req.RoleId, req.PermissionCodes); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to update role permissions: %v", err)
+		return nil, err
 	}
 	role, err := h.roleSvc.GetRole(req.RoleId)
 	if err != nil {
@@ -186,11 +207,30 @@ func (h *UserGRPCHandler) UpdateRolePermissions(ctx context.Context, req *pb.Upd
 	return toRoleResponse(role), nil
 }
 
+// AssignPermissionToRole grants a single permission to a role. Validates
+// against the codegened catalog: an unknown permission returns InvalidArgument
+// and a missing role returns NotFound. Sentinels carry their own GRPCStatus.
+func (h *UserGRPCHandler) AssignPermissionToRole(ctx context.Context, req *pb.AssignPermissionToRoleRequest) (*pb.AssignPermissionToRoleResponse, error) {
+	if err := h.roleSvc.AssignPermissionToRole(int64(req.RoleId), req.Permission); err != nil {
+		return nil, err
+	}
+	return &pb.AssignPermissionToRoleResponse{}, nil
+}
+
+// RevokePermissionFromRole removes a single permission grant from a role.
+// Idempotent: revoking a permission that was never granted is a no-op success.
+func (h *UserGRPCHandler) RevokePermissionFromRole(ctx context.Context, req *pb.RevokePermissionFromRoleRequest) (*pb.RevokePermissionFromRoleResponse, error) {
+	if err := h.roleSvc.RevokePermissionFromRole(int64(req.RoleId), req.Permission); err != nil {
+		return nil, err
+	}
+	return &pb.RevokePermissionFromRoleResponse{}, nil
+}
+
 // ListPermissions returns all permissions.
 func (h *UserGRPCHandler) ListPermissions(ctx context.Context, req *pb.ListPermissionsRequest) (*pb.ListPermissionsResponse, error) {
 	perms, err := h.roleSvc.ListPermissions()
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list permissions: %v", err)
+		return nil, err
 	}
 	pbPerms := make([]*pb.PermissionResponse, 0, len(perms))
 	for _, p := range perms {
@@ -208,7 +248,7 @@ func (h *UserGRPCHandler) ListPermissions(ctx context.Context, req *pb.ListPermi
 func (h *UserGRPCHandler) SetEmployeeRoles(ctx context.Context, req *pb.SetEmployeeRolesRequest) (*pb.EmployeeResponse, error) {
 	changedBy := changelog.ExtractChangedBy(ctx)
 	if err := h.empService.SetEmployeeRoles(ctx, req.EmployeeId, req.RoleNames, changedBy); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to set employee roles: %v", err)
+		return nil, err
 	}
 	emp, err := h.empService.GetEmployee(req.EmployeeId)
 	if err != nil {
@@ -221,7 +261,7 @@ func (h *UserGRPCHandler) SetEmployeeRoles(ctx context.Context, req *pb.SetEmplo
 func (h *UserGRPCHandler) SetEmployeeAdditionalPermissions(ctx context.Context, req *pb.SetEmployeePermissionsRequest) (*pb.EmployeeResponse, error) {
 	changedBy := changelog.ExtractChangedBy(ctx)
 	if err := h.empService.SetEmployeeAdditionalPermissions(ctx, req.EmployeeId, req.PermissionCodes, changedBy); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to set employee permissions: %v", err)
+		return nil, err
 	}
 	emp, err := h.empService.GetEmployee(req.EmployeeId)
 	if err != nil {
@@ -230,7 +270,31 @@ func (h *UserGRPCHandler) SetEmployeeAdditionalPermissions(ctx context.Context, 
 	return toEmployeeResponse(emp, h.empService), nil
 }
 
-func toEmployeeResponse(emp *model.Employee, empSvc *service.EmployeeService) *pb.EmployeeResponse {
+// ListChangelog returns paginated audit-log entries for an entity.
+func (h *UserGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangelogRequest) (*pb.ListChangelogResponse, error) {
+	entries, total, err := h.changelogService.ListChangelog(req.GetEntityType(), req.GetEntityId(), int(req.GetPage()), int(req.GetPageSize()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
+}
+
+func toEmployeeResponse(emp *model.Employee, empSvc employeeFacade) *pb.EmployeeResponse {
 	permissions := empSvc.ResolvePermissions(emp)
 	roleNames := extractRoleNames(emp.Roles)
 

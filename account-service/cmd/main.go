@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -26,6 +22,7 @@ import (
 	clientpb "github.com/exbanka/contract/clientpb"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -38,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}, &model.BankOperation{}); err != nil {
+	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}, &model.BankOperation{}, &model.AccountReservation{}, &model.AccountReservationSettlement{}, &model.IncomingReservation{}, &model.IdempotencyRecord{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 	if err := model.SeedCurrencies(db); err != nil {
@@ -50,7 +47,7 @@ func main() {
 
 	// Pre-create Kafka topics before any publishing to avoid
 	// partition assignment race condition for downstream consumers.
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		"account.created",
 		"account.status-changed",
 		"account.name-updated",
@@ -72,7 +69,10 @@ func main() {
 	}
 
 	// Connect to client-service for email lookup on account creation.
-	clientConn, clientConnErr := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	clientConn, clientConnErr := grpc.NewClient(cfg.ClientGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if clientConnErr != nil {
 		log.Printf("warn: failed to connect to client service: %v", clientConnErr)
 	}
@@ -88,12 +88,18 @@ func main() {
 	ledgerRepo := repository.NewLedgerRepository(db)
 	changelogRepo := repository.NewChangelogRepository(db)
 	bankRepo := repository.NewBankAccountRepository(db)
+	reservationRepo := repository.NewAccountReservationRepository(db)
+	incomingReservationRepo := repository.NewIncomingReservationRepository(db)
+	idempRepo := repository.NewIdempotencyRepository(db)
 
 	accountService := service.NewAccountService(accountRepo, db, redisCache, changelogRepo)
 	accountService.SetBankRepo(bankRepo)
 	companyService := service.NewCompanyService(companyRepo)
 	currencyService := service.NewCurrencyService(currencyRepo)
 	ledgerService := service.NewLedgerService(ledgerRepo, db)
+	changelogSvc := service.NewChangelogService(changelogRepo)
+	reservationService := service.NewReservationService(db, accountRepo, reservationRepo, ledgerRepo)
+	incomingReservationService := service.NewIncomingReservationService(db, accountRepo, incomingReservationRepo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -175,22 +181,10 @@ func main() {
 	reconcileSvc := service.NewReconciliationService(db, ledgerService)
 	reconcileSvc.CheckAllBalances(ctx)
 
-	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, producer, clientClient)
+	reservationHandler := handler.NewReservationHandler(reservationService)
+	grpcHandler := handler.NewAccountGRPCHandler(accountService, companyService, currencyService, ledgerService, reservationHandler, incomingReservationService, producer, clientClient, db, idempRepo, changelogSvc)
 	bankAccountHandler := handler.NewBankAccountGRPCHandler(accountService, producer)
 
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	pb.RegisterAccountServiceServer(s, grpcHandler)
-	pb.RegisterBankAccountServiceServer(s, bankAccountHandler)
-	shared.RegisterHealthCheck(s, "account-service")
-	metrics.InitializeGRPCMetrics(s)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -199,21 +193,28 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// Start gRPC server in goroutine
-	markReady()
-	go func() {
-		fmt.Printf("account service listening on %s\n", cfg.GRPCAddr)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("gRPC server failed: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down gracefully...")
-	s.GracefulStop()
-	log.Println("Server stopped")
+	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("account-service"),
+				grpcmw.UnarySagaContextInterceptor(),
+			),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			pb.RegisterAccountServiceServer(s, grpcHandler)
+			pb.RegisterBankAccountServiceServer(s, bankAccountHandler)
+			shared.RegisterHealthCheck(s, "account-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			fmt.Printf("account service listening on %s\n", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
+	}
 }

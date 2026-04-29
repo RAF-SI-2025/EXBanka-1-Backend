@@ -13,9 +13,15 @@ import (
 	kafkago "github.com/segmentio/kafka-go"
 )
 
+// generalNotificationCreator is the minimal subset of
+// *repository.GeneralNotificationRepository used by GeneralNotificationConsumer.
+type generalNotificationCreator interface {
+	Create(n *model.GeneralNotification) error
+}
+
 type GeneralNotificationConsumer struct {
 	reader    *kafkago.Reader
-	notifRepo *repository.GeneralNotificationRepository
+	notifRepo generalNotificationCreator
 }
 
 func NewGeneralNotificationConsumer(brokers string, notifRepo *repository.GeneralNotificationRepository) *GeneralNotificationConsumer {
@@ -27,6 +33,11 @@ func NewGeneralNotificationConsumer(brokers string, notifRepo *repository.Genera
 		MaxBytes: 10e6,
 	})
 	return &GeneralNotificationConsumer{reader: reader, notifRepo: notifRepo}
+}
+
+// newGeneralNotificationConsumerForTest constructs a consumer without a Kafka reader.
+func newGeneralNotificationConsumerForTest(repo generalNotificationCreator) *GeneralNotificationConsumer {
+	return &GeneralNotificationConsumer{notifRepo: repo}
 }
 
 func (c *GeneralNotificationConsumer) Start(ctx context.Context) {

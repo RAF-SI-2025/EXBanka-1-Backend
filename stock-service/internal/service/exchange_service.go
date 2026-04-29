@@ -2,23 +2,30 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"log"
 
 	"gorm.io/gorm"
 
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/provider"
-	"github.com/exbanka/stock-service/internal/repository"
 )
 
+// ExchangeSeedRepo is the repository surface required only for seeding exchanges
+// from CSV. It extends the read-only ExchangeRepo with the upsert method.
+type ExchangeSeedRepo interface {
+	ExchangeRepo
+	UpsertByMICCode(exchange *model.StockExchange) error
+}
+
 type ExchangeService struct {
-	exchangeRepo *repository.ExchangeRepository
-	settingRepo  *repository.SystemSettingRepository
+	exchangeRepo ExchangeSeedRepo
+	settingRepo  SettingRepo
 }
 
 func NewExchangeService(
-	exchangeRepo *repository.ExchangeRepository,
-	settingRepo *repository.SystemSettingRepository,
+	exchangeRepo ExchangeSeedRepo,
+	settingRepo SettingRepo,
 ) *ExchangeService {
 	return &ExchangeService{
 		exchangeRepo: exchangeRepo,
@@ -46,7 +53,7 @@ func (s *ExchangeService) GetExchange(id uint64) (*model.StockExchange, error) {
 	ex, err := s.exchangeRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("exchange not found")
+			return nil, fmt.Errorf("exchange not found: %w", ErrExchangeNotFound)
 		}
 		return nil, err
 	}

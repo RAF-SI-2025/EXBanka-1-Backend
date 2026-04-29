@@ -1,14 +1,30 @@
 package repository
 
 import (
+	"context"
 	"errors"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/shopspring/decimal"
 )
+
+// stampHoldingSaga copies saga_id and saga_step from ctx onto a Holding so
+// cross-service audit queries can find every row a saga touched. Both
+// fields are nullable; non-saga callers leave them empty.
+func stampHoldingSaga(ctx context.Context, h *model.Holding) {
+	if id, ok := saga.SagaIDFromContext(ctx); ok && id != "" {
+		v := id
+		h.SagaID = &v
+	}
+	if step, ok := saga.SagaStepFromContext(ctx); ok && step != "" {
+		v := string(step)
+		h.SagaStep = &v
+	}
+}
 
 type HoldingRepository struct {
 	db *gorm.DB
@@ -20,15 +36,26 @@ func NewHoldingRepository(db *gorm.DB) *HoldingRepository {
 
 // Upsert creates a new holding or updates an existing one with weighted average price.
 // Uses SELECT FOR UPDATE to prevent race conditions on concurrent fills.
-func (r *HoldingRepository) Upsert(holding *model.Holding) error {
+// The aggregation key is (owner_type, owner_id, security_type, security_id)
+// so an owner buying the same security from two different accounts aggregates
+// into a single row. The incoming holding's AccountID is treated as a
+// last-used audit field and overwrites the existing row's value (but never
+// participates in the lookup).
+//
+// Saga context: when ctx carries a saga_id / saga_step (set by the gRPC
+// server saga-context interceptor on incoming RPCs, or by direct in-process
+// saga code), both are stamped onto the holding row for cross-service
+// audit. The most recent saga overwrites prior values on update.
+func (r *HoldingRepository) Upsert(ctx context.Context, holding *model.Holding) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var existing model.Holding
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("user_id = ? AND security_type = ? AND security_id = ? AND account_id = ?",
-				holding.UserID, holding.SecurityType, holding.SecurityID, holding.AccountID).
-			First(&existing).Error
+		q := tx.Clauses(clause.Locking{Strength: "UPDATE"})
+		q = scopeOwner(q, "owner_type", "owner_id", holding.OwnerType, holding.OwnerID)
+		q = q.Where("security_type = ? AND security_id = ?", holding.SecurityType, holding.SecurityID)
+		err := q.First(&existing).Error
 
 		if err == gorm.ErrRecordNotFound {
+			stampHoldingSaga(ctx, holding)
 			return tx.Create(holding).Error
 		}
 		if err != nil {
@@ -47,6 +74,16 @@ func (r *HoldingRepository) Upsert(holding *model.Holding) error {
 		existing.ListingID = holding.ListingID
 		existing.Ticker = holding.Ticker
 		existing.Name = holding.Name
+		// Update the audit "last account used" pointer when the caller
+		// supplied one (zero is treated as "don't overwrite" so a
+		// reservation-only update doesn't wipe the last-used account).
+		if holding.AccountID != 0 {
+			existing.AccountID = holding.AccountID
+		}
+		// Re-stamp saga context on update so the row reflects the most
+		// recent saga that touched it (older sagas remain queryable via
+		// ledger_entries cross-reference).
+		stampHoldingSaga(ctx, &existing)
 
 		result := tx.Save(&existing)
 		if result.Error != nil {
@@ -84,22 +121,25 @@ func (r *HoldingRepository) Delete(id uint64) error {
 	return r.db.Delete(&model.Holding{}, id).Error
 }
 
-func (r *HoldingRepository) GetByUserAndSecurity(userID uint64, securityType string, securityID uint64, accountID uint64) (*model.Holding, error) {
+// GetByOwnerAndSecurity returns the aggregated holding for an owner's
+// (security_type, security_id) tuple. Since holdings are aggregated across
+// accounts, the account_id is no longer part of the key.
+func (r *HoldingRepository) GetByOwnerAndSecurity(ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error) {
 	var holding model.Holding
-	err := r.db.Where("user_id = ? AND security_type = ? AND security_id = ? AND account_id = ?",
-		userID, securityType, securityID, accountID).
-		First(&holding).Error
-	if err != nil {
+	q := r.db.Where("security_type = ? AND security_id = ?", securityType, securityID)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	if err := q.First(&holding).Error; err != nil {
 		return nil, err
 	}
 	return &holding, nil
 }
 
-func (r *HoldingRepository) ListByUser(userID uint64, filter HoldingFilter) ([]model.Holding, int64, error) {
+func (r *HoldingRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter HoldingFilter) ([]model.Holding, int64, error) {
 	var holdings []model.Holding
 	var total int64
 
-	q := r.db.Model(&model.Holding{}).Where("user_id = ? AND quantity > 0", userID)
+	q := r.db.Model(&model.Holding{}).Where("quantity > 0")
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
 	if filter.SecurityType != "" {
 		q = q.Where("security_type = ?", filter.SecurityType)
 	}
@@ -117,14 +157,13 @@ func (r *HoldingRepository) ListByUser(userID uint64, filter HoldingFilter) ([]m
 }
 
 // FindOldestLongOptionHolding returns the oldest (by created_at) holding for
-// a given user and option (security_id) with quantity > 0.
+// a given owner and option (security_id) with quantity > 0.
 // Returns (nil, nil) when no such holding exists.
-func (r *HoldingRepository) FindOldestLongOptionHolding(userID, optionID uint64) (*model.Holding, error) {
+func (r *HoldingRepository) FindOldestLongOptionHolding(ownerType model.OwnerType, ownerID *uint64, optionID uint64) (*model.Holding, error) {
 	var h model.Holding
-	err := r.db.
-		Where("user_id = ? AND security_type = ? AND security_id = ? AND quantity > 0", userID, "option", optionID).
-		Order("created_at ASC").
-		First(&h).Error
+	q := r.db.Where("security_type = ? AND security_id = ? AND quantity > 0", "option", optionID)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	err := q.Order("created_at ASC").First(&h).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
@@ -132,6 +171,19 @@ func (r *HoldingRepository) FindOldestLongOptionHolding(userID, optionID uint64)
 		return nil, err
 	}
 	return &h, nil
+}
+
+// ListPublic returns all holdings flagged for OTC public trading
+// (public_quantity > 0). Used by PeerOTCGRPCHandler.GetPublicStocks
+// to satisfy SI-TX `GET /public-stock` from peer banks. Unlike
+// ListPublicOffers, this returns *all* matching rows without pagination
+// or ticker filtering — the SI-TX response shape is a flat list.
+func (r *HoldingRepository) ListPublic() ([]model.Holding, error) {
+	var rows []model.Holding
+	if err := r.db.Where("public_quantity > 0 AND security_type = 'stock'").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // ListPublicOffers returns holdings with public_quantity > 0 (for OTC).

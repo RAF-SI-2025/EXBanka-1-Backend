@@ -148,7 +148,8 @@ Client (HTTP/JSON) → API Gateway (Gin, :8080)
 
 | Caller | Calls |
 |---|---|
-| api-gateway | auth, user, client, account, card, transaction, credit, exchange, verification, notification |
+| api-gateway | auth, user, client, account, card, transaction, credit, exchange, verification, notification, stock (StockExchange / Security / Order / Portfolio / OTC / Tax / SourceAdmin / **InvestmentFund** (Celina 4) / **OTCOptions** (Spec 2)) |
+| stock-service | account-service (debit/credit/reservations/bank-account), exchange-service (FX), user-service (employee names + actuary limits), client-service (client name resolution), **transaction-service (Spec 3 InterBankService for cross-bank Phase 3 + ReverseInterBankTransfer)** |
 | auth-service | user-service (employee lookup), client-service (client login) |
 | user-service | auth-service (activation tokens) |
 | client-service | auth-service (activation tokens) |
@@ -319,6 +320,8 @@ When adding a new feature that spans the full stack, touch these files in order:
 - [ ] Update `docs/api/REST_API.md`
 - [ ] Add integration tests in `test-app/`
 
+**Saga step naming**: When adding a new saga step, declare the constant in `contract/shared/saga/steps.go` (and add to the `allSteps` registry map). Then add a case to the recovery switch in `stock-service/internal/service/saga_recovery.go` — the switch's panicking `default` will crash startup if you forget.
+
 ---
 
 ## 5. API Gateway Patterns
@@ -458,11 +461,11 @@ func (h *SomeHandler) CreateSomething(c *gin.Context) { ... }
 
 ```json
 {
-  "user_id": 123,
+  "principal_id": 123,
+  "principal_type": "employee",
   "email": "user@example.com",
   "roles": ["EmployeeBasic"],
   "permissions": ["clients.read", "accounts.read"],
-  "system_type": "employee",
   "device_type": "",
   "device_id": "",
   "jti": "uuid",
@@ -470,6 +473,8 @@ func (h *SomeHandler) CreateSomething(c *gin.Context) { ... }
   "exp": 1234567890
 }
 ```
+
+Field rename history (plan 2026-04-27-owner-type-schema.md, Tasks 1-2): `user_id` → `principal_id`, `system_type` → `principal_type`. The names align with the system-wide *principal* concept (the authenticated subject of the token, distinct from the *owner* of any resource it touches — see §6.X Identity Model below).
 
 Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>"`. Mobile refresh tokens have a 90-day expiry (configurable via `MOBILE_REFRESH_EXPIRY`).
 
@@ -488,32 +493,55 @@ Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>
 | `/api/verify/*` | `MobileAuthMiddleware` + `RequireDeviceSignature` | Mobile device with valid JWT + HMAC |
 | `/ws/mobile` | WebSocket auth (JWT + X-Device-ID) | Mobile device |
 
-### Permission Codes
+### Permission Catalog (codegened, Plan D)
 
-| Category | Permissions |
+Permissions are defined in `contract/permissions/catalog.yaml` and code-generated to `contract/permissions/perms.gen.go`. Naming convention: `<resource>.<verb>.<scope>` — three dotted segments, snake_case lowercase (e.g. `clients.read.all`, `roles.permissions.assign`).
+
+The codegen tool (`tools/perm-codegen/`) is invoked via `make permissions` and produces typed Go constants like `perms.Clients.Read.All`. Router gates use these constants directly: `middleware.RequirePermission(perms.Clients.Read.All)`. Drift between handler code and the catalog is caught at `go build` (unknown constant ⇒ compile error).
+
+The catalog is the source of truth for what permissions EXIST. Default role-permission mappings (also in `catalog.yaml` under `default_roles`) are seeded into the `role_permissions` DB table on FIRST startup only — when `role_permissions` is empty. After first startup, the DB is authoritative; admins manage role grants via the runtime API and the seed never re-runs.
+
+**Admin runtime API (granular, one permission per call):**
+
+| Method | Path | Required Permission |
+|---|---|---|
+| `POST` | `/api/v3/roles/:id/permissions` | `roles.permissions.assign` |
+| `DELETE` | `/api/v3/roles/:id/permissions/:permission` | `roles.permissions.revoke` |
+
+The `POST` body is `{"permission": "<code>"}`. The handler validates `<code>` against the catalog — unknown codes return HTTP 400 (`InvalidArgument`). A missing role returns HTTP 404. Both verbs are idempotent and return HTTP 204 No Content on success. Both publish `RolePermissionsChangedMessage` to Kafka so auth-service can revoke active sessions for affected employees.
+
+For bulk replacement (set all permissions on a role at once) the legacy `PUT /api/v3/roles/:id/permissions` endpoint remains available (gated by `roles.update.any`).
+
+**Catalog drift check:** at startup, user-service scans `role_permissions` and logs `WARN: orphan permission in role_permissions: role_id=… perm=…` for any DB row referencing a permission no longer in the catalog. Orphans are NOT auto-cleaned (silent revocation of admin grants would be unsafe); operators clean them manually after reviewing the warning.
+
+**Permission category overview** (truncated — see `contract/permissions/catalog.yaml` for the full 140-permission list):
+
+| Category | Example Permissions |
 |---|---|
-| clients | `clients.create`, `clients.read`, `clients.update` |
-| accounts | `accounts.create`, `accounts.read`, `accounts.update` |
-| cards | `cards.create`, `cards.read`, `cards.update`, `cards.approve` |
-| payments | `payments.read` |
-| credits | `credits.read`, `credits.approve` |
-| securities | `securities.trade`, `securities.read`, `securities.manage` |
-| employees | `employees.create`, `employees.update`, `employees.read`, `employees.permissions` |
-| limits | `limits.manage` |
-| admin | `bank-accounts.manage`, `fees.manage`, `interest-rates.manage` |
-| agent/otc | `agents.manage`, `otc.manage`, `funds.manage` |
+| clients | `clients.create.any`, `clients.read.all`, `clients.update.profile`, `clients.update.contact`, `clients.update.limits` |
+| accounts | `accounts.create.current`, `accounts.create.foreign`, `accounts.read.all`, `accounts.update.name`, `accounts.update.limits`, `accounts.deactivate.any` |
+| cards | `cards.create.physical`, `cards.create.virtual`, `cards.read.all`, `cards.block.any`, `cards.unblock.any`, `cards.approve.physical`, `cards.approve.virtual` |
+| credits | `credits.read.all`, `credits.approve.cash`, `credits.approve.housing`, `credits.disburse.any` |
+| securities | `securities.trade.any`, `securities.read.holdings_all`, `securities.manage.catalog` |
+| employees | `employees.create.any`, `employees.update.any`, `employees.read.all`, `employees.roles.assign`, `employees.permissions.assign` |
+| roles | `roles.read.all`, `roles.update.any`, `roles.permissions.assign`, `roles.permissions.revoke` |
+| limit_templates | `limit_templates.create.any`, `limit_templates.update.any` |
+| limits | `limits.employee.read`, `limits.employee.update` |
+| bank_accounts | `bank_accounts.manage.any` |
+| fees | `fees.create.any`, `fees.update.any` |
+| otc | `otc.trade.accept` |
+| funds | `funds.read.all`, `funds.manage.catalog` |
+| orders | `orders.place.on_behalf_client`, `orders.place.on_behalf_bank`, `orders.read.all`, `orders.cancel.all` |
 | verification | `verification.skip`, `verification.manage` |
-
-**Permission notes:**
-- `securities.manage` — manage stock-service data sources and perform destructive source switches. Assigned to `EmployeeAdmin` only.
+| peer_banks | `peer_banks.manage.any` (Phase 2 SI-TX — admin CRUD on the `peer_banks` registry; `EmployeeAdmin` only via the wildcard `*` grant) |
 
 ### Role Definitions
 
 | Role | Inherits Permissions |
 |---|---|
 | EmployeeBasic | clients.*, accounts.*, cards.*, payments.read, credits.read |
-| EmployeeAgent | EmployeeBasic + securities.* |
-| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, verification.skip, verification.manage |
+| EmployeeAgent | EmployeeBasic + securities.*, otc.trade, orders.place-on-behalf, orders.place.on-behalf-client, orders.place.for-bank |
+| EmployeeSupervisor | EmployeeAgent + agents.manage, otc.manage, funds.manage, funds.bank-position-read, verification.skip, verification.manage |
 | EmployeeAdmin | All permissions (including `securities.manage`) |
 
 ### Context Values Set by Middleware
@@ -521,12 +549,41 @@ Mobile JWTs additionally include `device_type: "mobile"` and `device_id: "<uuid>
 After middleware runs, these are available via `c.GetXxx()`:
 
 ```go
-c.GetInt64("user_id")      // Principal ID (employee or client)
-c.GetString("email")       // Email
-c.GetString("role")        // Primary role name
-c.GetString("system_type") // "employee" or "client"
+c.GetInt64("principal_id")      // Authenticated subject ID (employee or client)
+c.GetString("principal_type")   // "employee" or "client"
+c.GetString("email")            // Email
+c.GetString("role")             // Primary role name
 // "roles" and "permissions" are set as string slices
 ```
+
+After `ResolveIdentity` runs (per-route, see §6.X) the resolved owner is also available:
+
+```go
+identity := middleware.IdentityFromContext(c) // *ResolvedIdentity
+// identity.PrincipalType / PrincipalID  — JWT subject
+// identity.OwnerType / OwnerID          — resource owner per route policy
+// identity.ActingEmployeeID             — employee id when an employee acts
+//                                         on behalf of bank/client (else nil)
+```
+
+### 6.X Identity Model (plan 2026-04-27-owner-type-schema.md)
+
+The system distinguishes two concepts:
+
+- **Principal** — the authenticated caller. JWT carries `principal_type` (`client | employee`) + `principal_id`. Set by `AuthMiddleware` / `AnyAuthMiddleware`.
+- **Owner** — the holder of a resource row. Stock-service models use `(owner_type, owner_id)` where `owner_type ∈ {client, bank}` (employees never own trading resources; bank-owned rows have `owner_id IS NULL`).
+
+The mapping from principal to owner is a per-route policy enforced by `api-gateway/internal/middleware.ResolveIdentity(rule)`:
+
+| Rule | Used by | Mapping |
+|---|---|---|
+| `OwnerIsPrincipal` | `/api/me/profile`, `/api/me/cards`, etc. | Owner == Principal verbatim. |
+| `OwnerIsBankIfEmployee` | `/api/me/orders`, `/api/me/holdings`, `/api/me/funds`, `/api/me/otc/*` | Employee → bank ownership (`OwnerType=bank`, `OwnerID=nil`). Client → self ownership. |
+| `OwnerFromURLParam("client_id")` | Admin-acts-on-client routes | Owner is the URL-named client. Requires the principal to be an employee with the relevant `*.on_behalf.*` permission. |
+
+`ActingEmployeeID` is set on every side-effect row whenever the principal is an employee, regardless of the resolved owner. The actuary-limit gate in stock-service keys on this field — `OwnerIsBankIfEmployee` for an employee correctly resolves Owner=bank but still tags the row with `acting_employee_id=<emp>` so the limit applies.
+
+Helper: `middleware.IdentityFromContext(c) → *ResolvedIdentity`. Handlers should call this once and use the resolved owner — never re-derive ownership from the JWT.
 
 ---
 
@@ -812,11 +869,11 @@ An agent extending an existing service needs to know which gRPC services already
 | `client/client.proto` | `ClientService`, `ClientLimitService` | 5 + 2 |
 | `account/account.proto` | `AccountService`, `BankAccountService` | 14 + 6 |
 | `card/card.proto` | `CardService`, `VirtualCardService`, `CardRequestService` | 9 + 5 + 6 |
-| `transaction/transaction.proto` | `TransactionService`, `FeeService` | 13 + 5 |
+| `transaction/transaction.proto` | `TransactionService`, `FeeService`, `InterBankService` (Spec 3 + Spec 4 `ReverseInterBankTransfer`) | 13 + 5 + 5 |
 | `credit/credit.proto` | `CreditService` | 16 |
 | `exchange/exchange.proto` | `ExchangeService` | 4 |
 | `notification/notification.proto` | `NotificationService` | 2 |
-| `stock/stock.proto` | `SecurityGRPCService`, `OrderGRPCService`, `PortfolioGRPCService`, `OTCGRPCService`, `SourceAdminService` | (see below) |
+| `stock/stock.proto` | `SecurityGRPCService`, `OrderGRPCService`, `PortfolioGRPCService`, `OTCGRPCService`, `SourceAdminService`, **`InvestmentFundService`** (Celina 4, 9 RPCs), **`OTCOptionsService`** (Spec 2, 9 RPCs), **`CrossBankOTCService`** (Spec 4, 12 RPCs) | (see below) |
 
 **account-service BankAccountService additions:**
 
@@ -824,12 +881,21 @@ An agent extending an existing service needs to know which gRPC services already
 - `DebitBankAccount(BankAccountOpRequest) returns (BankAccountOpResponse)` — atomically debits the bank sentinel account for a given currency, with idempotency keyed on `reference + direction`.
 - `CreditBankAccount(BankAccountOpRequest) returns (BankAccountOpResponse)` — atomically credits the bank sentinel account for a given currency, with idempotency keyed on `reference + direction`.
 
+**account-service AccountService reservation RPCs (Phase 2 securities settlement):**
+
+Four new RPCs on `AccountService` back the securities-order reservation system. All run inside `SELECT FOR UPDATE` transactions on the target account.
+
+- `ReserveFunds(account_id, order_id, amount, currency_code) returns (reservation_id, reserved_balance, available_balance)` — creates an `AccountReservation`, increments `Account.ReservedBalance`, decrements `Account.AvailableBalance`. Idempotent on `order_id`: a retry with the same `order_id` returns the existing reservation. Returns `FailedPrecondition` on currency mismatch or insufficient available balance.
+- `ReleaseReservation(order_id) returns (released_amount, reserved_balance)` — transitions the reservation to `released`, rolls `ReservedBalance` back, restores `AvailableBalance`. No-op (with empty response) if the reservation is missing, already released, or already settled.
+- `PartialSettleReservation(order_id, order_transaction_id, amount, memo) returns (settled_amount, remaining_reserved, balance_after, ledger_entry_id)` — settles part (or all) of a reservation against a specific fill. Writes a `LedgerEntry` so the fill appears in transaction history, debits `Balance`, decrements `ReservedBalance`, and when the reservation is fully consumed transitions status to `settled`. Idempotent on `order_transaction_id` via a unique index on `AccountReservationSettlement.order_transaction_id`.
+- `GetReservation(order_id) returns (exists, status, amount, settled_total, settled_transaction_ids)` — read-only; used by stock-service saga recovery to determine which fill saga steps already committed on account-service.
+
 **stock-service gRPC additions:**
 
 `PortfolioGRPCService` — portfolio operations including option exercise:
 - `ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult)` — exercises an option by option ID instead of holding ID. Fields: `option_id uint64` (required), `user_id uint64` (required), `holding_id uint64` (optional; 0 means auto-resolve to the user's most recent unexpired holding for that option).
 
-`OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v1/orders` or `POST /api/v1/otc/admin/offers/:id/buy` endpoints.
+`OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v3/orders` or `POST /api/v3/otc/offers/:id/buy-on-behalf` endpoints.
 
 `SourceAdminService` — destructive data-source management:
 - `SwitchSource(SwitchSourceRequest) returns (SwitchSourceResponse)` — switches the active stock data source. Request field: `source string` (one of `external`, `generated`, `simulator`). Response wraps a `SourceStatus` message.
@@ -1166,6 +1232,12 @@ api-gateway:
 
 > **Ownership lockdown (as of 2026-04-13):** The following `/api/me/*` routes enforce that the requested resource belongs to the JWT caller. Mismatches return `404 not_found` to avoid leaking existence: `GET /api/me/loans/:id`, `GET /api/me/payments/:id`, `GET /api/me/transfers/:id`, `POST /api/me/cards/:id/pin`, `POST /api/me/cards/:id/verify-pin`, `POST /api/me/cards/:id/temporary-block`, `PUT /api/me/payment-recipients/:id`, `DELETE /api/me/payment-recipients/:id`, `POST /api/me/loan-requests` (body `client_id` is ignored; JWT `user_id` is used), `POST /api/me/cards/virtual` (owner derived from JWT), `POST /api/me/orders`, `POST /api/me/otc/offers/:id/buy` (account ownership verified against JWT caller).
 
+> **Securities reservation flow (Phase 2, 2026-04-22):**
+> - `POST /api/v3/me/orders` accepts an optional `security_type` (`stock`|`futures`|`forex`|`option`) and — required when `security_type=forex` — a `base_account_id` (must differ from `account_id` and be owned by the JWT caller). Forex orders must be `direction=buy`. New 400 cases: `forex orders must be direction=buy`, `forex orders require base_account_id`, `base_account_id must differ from account_id`. New 409 case: insufficient available balance on the reservation account.
+> - `GET /api/v3/me/orders/:id` responses include `reservation_amount`, `reservation_currency`, `reservation_account_id`, `base_account_id` (forex), `placement_rate`, and `saga_id`. OrderTransaction rows additionally expose `native_amount`, `native_currency`, `converted_amount`, `account_currency`, `fx_rate` for cross-currency fills.
+> - `GET /api/v3/me/accounts` and `/api/v3/me/accounts/:id` responses include `reserved_balance` and `available_balance` (stored; `available_balance = balance - reserved_balance`).
+> - Settled fills post `LedgerEntry` rows so they appear in `/api/v3/me/accounts/:id/transactions`.
+
 | Method | Path | Middleware Extra | Handler | Description |
 |---|---|---|---|---|
 | GET | `/api/me` | RequireClientToken | meHandler.GetMe | Get own profile |
@@ -1198,10 +1270,10 @@ api-gateway:
 | GET | `/api/me/loans/:id` | - | creditHandler.GetMyLoan | Get own loan |
 | GET | `/api/me/loans/:id/installments` | - | creditHandler.GetMyInstallments | Get loan installments |
 | GET | `/api/me/tax` | - | taxHandler.ListMyTaxRecords | List own capital gains tax records + balance |
-| GET | `/api/v1/me/notifications` | - | notifHandler.ListNotifications | List general notifications (v1 only) |
-| GET | `/api/v1/me/notifications/unread-count` | - | notifHandler.GetUnreadCount | Get unread notification count (v1 only) |
-| POST | `/api/v1/me/notifications/:id/read` | - | notifHandler.MarkRead | Mark notification as read (v1 only) |
-| POST | `/api/v1/me/notifications/read-all` | - | notifHandler.MarkAllRead | Mark all as read (v1 only) |
+| GET | `/api/v3/me/notifications` | - | notifHandler.ListNotifications | List general notifications (v1 only) |
+| GET | `/api/v3/me/notifications/unread-count` | - | notifHandler.GetUnreadCount | Get unread notification count (v1 only) |
+| POST | `/api/v3/me/notifications/:id/read` | - | notifHandler.MarkRead | Mark notification as read (v1 only) |
+| POST | `/api/v3/me/notifications/read-all` | - | notifHandler.MarkAllRead | Mark all as read (v1 only) |
 
 ### Employee/Admin Routes (AuthMiddleware + RequirePermission)
 
@@ -1232,19 +1304,21 @@ api-gateway:
 | GET | `/api/currencies` | (any employee) | accountHandler.ListCurrencies | List currencies |
 | GET | `/api/accounts` | accounts.read | accountHandler.ListAllAccounts | List accounts |
 | GET | `/api/accounts/:id` | accounts.read | accountHandler.GetAccount | Get account |
-| GET | `/api/accounts/by-number/:account_number` | accounts.read | accountHandler.GetAccountByNumber | Get by number |
+| GET | `/api/accounts?account_number=X` | accounts.read | accountHandler.ListAllAccounts | Look up by number (returns array of 0-1 items) |
 | POST | `/api/accounts` | accounts.create | accountHandler.CreateAccount | Create account |
 | PUT | `/api/accounts/:id/name` | accounts.update | accountHandler.UpdateAccountName | Update name |
 | PUT | `/api/accounts/:id/limits` | accounts.update | accountHandler.UpdateAccountLimits | Update limits |
-| PUT | `/api/accounts/:id/status` | accounts.update | accountHandler.UpdateAccountStatus | Update status |
+| POST | `/api/accounts/:id/activate` | accounts.deactivate.any | accountHandler.ActivateAccount | Activate account |
+| POST | `/api/accounts/:id/deactivate` | accounts.deactivate.any | accountHandler.DeactivateAccount | Deactivate account |
 | POST | `/api/companies` | accounts.create | accountHandler.CreateCompany | Create company |
 | GET | `/api/bank-accounts` | bank-accounts.manage | accountHandler.ListBankAccounts | List bank accounts |
 | POST | `/api/bank-accounts` | bank-accounts.manage | accountHandler.CreateBankAccount | Create bank account |
 | DELETE | `/api/bank-accounts/:id` | bank-accounts.manage | accountHandler.DeleteBankAccount | Delete bank account |
-| GET | `/api/cards` | cards.read | cardHandler.ListCards | List cards (filter) |
+| GET | `/api/clients/:id/cards` | cards.read | cardHandler.ListCardsByClientPath | List cards by client |
+| GET | `/api/accounts/:id/cards` | cards.read | cardHandler.ListCardsByAccountPath | List cards by account |
 | GET | `/api/cards/:id` | cards.read | cardHandler.GetCard | Get card |
 | POST | `/api/cards` | cards.create | cardHandler.CreateCard | Create card |
-| POST | `/api/cards/authorized-person` | cards.create | cardHandler.CreateAuthorizedPerson | Add auth person |
+| POST | `/api/cards/authorized-persons` | cards.create | cardHandler.CreateAuthorizedPerson | Add auth person |
 | POST | `/api/cards/:id/block` | cards.update | cardHandler.BlockCard | Block card |
 | POST | `/api/cards/:id/unblock` | cards.update | cardHandler.UnblockCard | Unblock card |
 | POST | `/api/cards/:id/deactivate` | cards.update | cardHandler.DeactivateCard | Deactivate card |
@@ -1252,9 +1326,10 @@ api-gateway:
 | GET | `/api/cards/requests/:id` | cards.approve | cardHandler.GetCardRequest | Get card request |
 | POST | `/api/cards/requests/:id/approve` | cards.approve | cardHandler.ApproveCardRequest | Approve request |
 | POST | `/api/cards/requests/:id/reject` | cards.approve | cardHandler.RejectCardRequest | Reject request |
-| GET | `/api/payments` | payments.read | txHandler.ListPayments | List payments |
+| GET | `/api/clients/:id/payments` | accounts.read | txHandler.ListPaymentsByClientPath | List payments by client |
+| GET | `/api/accounts/:id/payments` | accounts.read | txHandler.ListPaymentsByAccountPath | List payments by account |
 | GET | `/api/payments/:id` | payments.read | txHandler.GetPayment | Get payment |
-| GET | `/api/transfers` | payments.read | txHandler.ListTransfers | List transfers |
+| GET | `/api/clients/:id/transfers` | accounts.read | txHandler.ListTransfersByClientPath | List transfers by client |
 | GET | `/api/transfers/:id` | payments.read | txHandler.GetTransfer | Get transfer |
 | GET | `/api/fees` | fees.manage | txHandler.ListFees | List fee rules |
 | POST | `/api/fees` | fees.manage | txHandler.CreateFee | Create fee rule |
@@ -1274,10 +1349,41 @@ api-gateway:
 | POST | `/api/interest-rate-tiers/:id/apply` | interest-rates.manage | creditHandler.ApplyVariableRateUpdate | Apply rate update |
 | GET | `/api/bank-margins` | interest-rates.manage | creditHandler.ListBankMargins | List margins |
 | PUT | `/api/bank-margins/:id` | interest-rates.manage | creditHandler.UpdateBankMargin | Update margin |
-| POST | `/api/v1/admin/stock-source` | securities.manage | stockSourceHandler.SwitchSource | Switch active stock data source (destructive) |
-| GET | `/api/v1/admin/stock-source` | securities.manage | stockSourceHandler.GetSourceStatus | Get current stock data source and status |
-| POST | `/api/v1/orders` | securities.manage | stockHandler.CreateOrderOnBehalf | Employee places stock order on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
-| POST | `/api/v1/otc/admin/offers/:id/buy` | securities.manage | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| POST | `/api/v3/stock-sources` | securities.manage.catalog | stockSourceHandler.SwitchSource | Switch active stock data source (destructive) |
+| GET | `/api/v3/stock-sources/active` | securities.manage.catalog | stockSourceHandler.GetSourceStatus | Get current stock data source and status |
+| POST | `/api/v3/orders` | orders.place-on-behalf | stockHandler.CreateOrderOnBehalf | Employee places stock order on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| POST | `/api/v3/otc/offers/:id/buy-on-behalf` | otc.trade.accept or orders.place-on-behalf | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| GET | `/api/v3/clients/:id/accounts` | accounts.read | accountHandler.ListAccountsByClientPath | List accounts by client |
+| GET | `/api/v3/clients/:id/loans` | credits.read | creditHandler.ListLoansByClientPath | List loans by client |
+| GET | `/api/v3/accounts/:id/changelog` | accounts.read.all | changelogHandler.GetAccountChangelog | Account audit log |
+| GET | `/api/v3/cards/:id/changelog` | cards.read.all | changelogHandler.GetCardChangelog | Card audit log |
+| GET | `/api/v3/clients/:id/changelog` | clients.read.all | changelogHandler.GetClientChangelog | Client audit log |
+| GET | `/api/v3/loans/:id/changelog` | credits.read.all | changelogHandler.GetLoanChangelog | Loan audit log |
+| GET | `/api/v3/employees/:id/changelog` | employees.read.all | changelogHandler.GetEmployeeChangelog | Employee audit log |
+| DELETE | `/api/v3/me/sessions/:id` | (any auth) | sessionHandler.RevokeSession | Revoke a session by ID |
+| POST | `/api/v3/actuaries/:id/require-approval` | employees.update.any | actuaryHandler.RequireApproval | Require supervisor approval for actuary |
+| POST | `/api/v3/actuaries/:id/skip-approval` | employees.update.any | actuaryHandler.SkipApproval | Remove approval requirement for actuary |
+| POST | `/api/v3/orders/:id/reject` | orders.cancel.all | stockOrderHandler.RejectOrder | Reject a pending order (renamed from /decline) |
+| GET | `/api/v3/peer-banks` | peer_banks.manage.any | PeerBankAdminHandler.List | Admin: list peers. Phase 2 SI-TX. |
+| GET | `/api/v3/peer-banks/:id` | peer_banks.manage.any | PeerBankAdminHandler.Get | Admin: read one. Phase 2 SI-TX. |
+| POST | `/api/v3/peer-banks` | peer_banks.manage.any | PeerBankAdminHandler.Create | Admin: register a peer. Phase 2 SI-TX. |
+| PUT | `/api/v3/peer-banks/:id` | peer_banks.manage.any | PeerBankAdminHandler.Update | Admin: update mutable fields. Phase 2 SI-TX. |
+| DELETE | `/api/v3/peer-banks/:id` | peer_banks.manage.any | PeerBankAdminHandler.Delete | Admin: remove a peer. Phase 2 SI-TX. |
+
+### Peer-Bank Protocol (Celina 5 SI-TX — PeerAuth)
+
+These routes are reached by other banks in the SI-TX cohort, not by employees or clients. Authentication is via `middleware.PeerAuth` (hybrid `X-Api-Key` or HMAC headers — see [§25](#25-inter-bank-cross-bank-communication-celina-5--si-tx)).
+
+| Method | Path | Middleware | Handler | Description |
+|---|---|---|---|---|
+| POST | `/api/v3/interbank` | PeerAuth | PeerTxHandler.PostInterbank | SI-TX `Message<Type>` envelope. Phase 3. |
+| GET | `/api/v3/public-stock` | PeerAuth | PeerOTCHandler.GetPublicStocks | Lists own bank's OTC-public holdings. Phase 4. |
+| POST | `/api/v3/negotiations` | PeerAuth | PeerOTCHandler.CreateNegotiation | Peer-initiated cross-bank OTC offer. Phase 4. |
+| PUT | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.UpdateNegotiation | Counter-offer. Phase 4. |
+| GET | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.GetNegotiation | Read negotiation state. Phase 4. |
+| DELETE | `/api/v3/negotiations/:rid/:id` | PeerAuth | PeerOTCHandler.DeleteNegotiation | Cancel. Phase 4. |
+| GET | `/api/v3/negotiations/:rid/:id/accept` | PeerAuth | PeerOTCHandler.AcceptNegotiation | Triggers 4-posting TX via PeerTxService. Phase 4. |
+| GET | `/api/v3/user/:rid/:id` | PeerAuth | PeerUserHandler.GetUser | Counterparty user info lookup. Phase 4. |
 
 ### Browser Verification (/api/verifications — AnyAuthMiddleware)
 
@@ -1318,6 +1424,8 @@ api-gateway:
 ---
 
 ## 18. Complete Entity Reference
+
+> **New feature entities:** Investment-fund entities are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC option entities (`OTCOffer`, `OTCOfferRevision`, `OptionContract`, `OTCOfferReadReceipt`) are in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank OTC additions (`InterBankSagaLog`; `OTCOffer.Public/Private`; `OptionContract.CrossbankTxID/CrossbankExerciseTxID`; `HoldingReservation.OTCContractID`) are in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation). The `Order` model gained a `FundID *uint64` column for on-behalf-of-fund order placement.
 
 ### Auth Service (auth_db)
 
@@ -1425,13 +1533,27 @@ TransferLimit(decimal,default:50000), SetByEmployee(int64), CreatedAt, UpdatedAt
 **Account**
 ```
 ID(uint64), AccountNumber(unique,18), AccountName, OwnerID(uint64,indexed), OwnerName,
-Balance(numeric18,4), AvailableBalance(numeric18,4), EmployeeID(uint64),
-ExpiresAt, CurrencyCode(3,indexed), Status(active|inactive,indexed),
+Balance(numeric18,4), AvailableBalance(numeric18,4), ReservedBalance(numeric18,4,default:0),
+EmployeeID(uint64), ExpiresAt, CurrencyCode(3,indexed), Status(active|inactive,indexed),
 AccountKind(current|foreign), AccountType(standard|premium|student|youth|pension),
 AccountCategory, MaintenanceFee(numeric18,4), DailyLimit(numeric18,4,default:1000000),
 MonthlyLimit(numeric18,4,default:10000000), DailySpending(numeric18,4),
 MonthlySpending(numeric18,4), CompanyID(nullable), IsBankAccount(bool,indexed),
 Version(int64), CreatedAt, UpdatedAt, DeletedAt(soft delete)
+```
+`ReservedBalance` is the running total of amounts held by active securities-order reservations. Maintained atomically by the reservation RPCs (`ReserveFunds`, `ReleaseReservation`, `PartialSettleReservation`). `AvailableBalance = Balance - ReservedBalance` (logical invariant; the stored `AvailableBalance` column mirrors this after every reservation mutation).
+
+**AccountReservation** — Idempotency + state ledger for an order's hold on an account. Immutable except for `Status`/`Version`.
+```
+ID(uint64), AccountID(uint64,indexed), OrderID(uint64,unique), Amount(numeric18,4),
+CurrencyCode(3), Status(active|released|settled,indexed), CreatedAt, UpdatedAt, Version(int64)
+```
+`OrderID` is the idempotency key — retrying `ReserveFunds` with the same `order_id` is a safe no-op. `Amount` is immutable after insert; only `Status` transitions.
+
+**AccountReservationSettlement** — Append-only; one row per partial settle. The `OrderTransactionID` comes from stock-service's `OrderTransaction.ID` and is the cross-service idempotency key.
+```
+ID(uint64), ReservationID(uint64,indexed), OrderTransactionID(uint64,unique),
+Amount(numeric18,4), CreatedAt
 ```
 
 **Company**
@@ -1530,6 +1652,31 @@ ID(uint64), ClientID(indexed), TransactionID, TransactionType(payment|transfer),
 Code(6), ExpiresAt, Attempts(int), Used(bool)
 ```
 
+**PeerBank** (Phase 2 SI-TX) — Runtime-editable peer-bank registry
+```
+ID(uint64), BankCode(unique), RoutingNumber(unique,3), BaseURL,
+APITokenBcrypt, APITokenPlaintext, HmacInboundKey, HmacOutboundKey,
+Active(bool,indexed), CreatedAt, UpdatedAt
+```
+`APITokenPlaintext` is only readable via the internal `ResolvePeerByAPIToken` RPC (never exposed via REST). Admins manage via `/api/v3/peer-banks` (gated by `peer_banks.manage.any`).
+
+**PeerIdempotenceRecord** (Phase 2 SI-TX) — Receiver-side replay cache for inbound TXs
+```
+ID(uint64), PeerBankCode(indexed), LocallyGeneratedKey, MessageType(NEW_TX|COMMIT_TX|ROLLBACK_TX),
+ResponsePayloadJSON, CreatedAt
+Composite-unique: (peer_bank_code, locally_generated_key)
+```
+Cached `response_payload_json` is returned verbatim on retries so receivers vote consistently.
+
+**OutboundPeerTx** (Phase 3 SI-TX) — Sender-side state for outbound SI-TX TXs
+```
+ID(uint64), IdempotenceKey(unique,36), PeerBankCode(indexed), TxKind(transfer|otc-accept|otc-exercise),
+PostingsJSON, Status(pending|committing|committed|rolled_back|failed,indexed),
+AttemptCount(int,default:0), LastAttemptAt(nullable,indexed), LastError(text),
+CreatedAt, UpdatedAt
+```
+`OutboundReplayCron` (30s tick, 4-attempt cap) resumes rows in `pending` whose `last_attempt_at` is older than 60s.
+
 ### Credit Service (credit_db)
 
 **LoanRequest**
@@ -1602,6 +1749,8 @@ Status(pending|delivered|expired), ExpiresAt, DeliveredAt(nullable), CreatedAt
 
 ### Stock Service (stock_db)
 
+> **Phase 2 complete (2026-04-22):** The securities fill path is now bank-safe. Funds are reserved at placement (`AccountReservation` + `Account.ReservedBalance`), holdings are reserved for sells (`HoldingReservation` + `Holding.ReservedQuantity`), every fill runs through a saga log with idempotent settlement, and Kafka events publish only after the fill saga commits. See `docs/superpowers/plans/2026-04-22-bank-safe-settlement.md`.
+
 **StockExchange** — A stock exchange (e.g. NYSE, NASDAQ)
 ```
 ID(uint64), Name, Acronym(unique), MicCode(unique), Country, Currency, TimeZone,
@@ -1647,21 +1796,67 @@ Volume, SettlementDate, ContractSize(int64), MaintenanceMarginRate(numeric 10,6)
 LastRefresh, Version(int64), CreatedAt, UpdatedAt
 ```
 
-**Holding** — A user's current position in a security
+**Holding** — A current position in a security, owned by a client or by the bank.
 ```
-ID(uint64), UserID(indexed), SecurityType(stock|futures|forex|option),
-SecurityID(indexed), Quantity(int64), AveragePrice(numeric 18,8),
-PublicQuantity(int64), AccountID(uint64), Version(int64), CreatedAt, UpdatedAt
+ID(uint64), OwnerType(client|bank,indexed), OwnerID(*uint64,indexed),
+SecurityType(stock|futures|forex|option), SecurityID(indexed), Quantity(int64),
+AveragePrice(numeric 18,8), PublicQuantity(int64), ReservedQuantity(int64,default:0),
+AccountID(uint64), Version(int64), CreatedAt, UpdatedAt
+```
+`OwnerType`+`OwnerID` replaces the pre-Task-4 (UserID, SystemType) pair (plan 2026-04-27-owner-type-schema.md). Bank-owned holdings have `OwnerType="bank"` with `OwnerID IS NULL`; client-owned holdings have `OwnerType="client"` with a non-null `OwnerID`. The `BeforeSave` hook calls `model.ValidateOwner` to enforce the invariant. Unique index `idx_holding_per_owner_security` keys on `(owner_type, COALESCE(owner_id, 0), security_type, security_id)` so each (owner, security) pair rolls up to a single row.
+
+`ReservedQuantity` is the running total of units locked by active sell-side `HoldingReservation` rows. `AvailableQuantity = Quantity - ReservedQuantity`. Sell orders are rejected at placement if `AvailableQuantity` is insufficient; filled sells decrement both `Quantity` and `ReservedQuantity` atomically.
+
+**HoldingReservation** — Quantity-based mirror of `AccountReservation`. Locks shares on a holding for the duration of a sell order. Immutable except for `Status`/`Version`.
+```
+ID(uint64), HoldingID(uint64,indexed), OrderID(uint64,unique), Quantity(int64),
+Status(active|released|settled,indexed), CreatedAt, UpdatedAt, Version(int64)
 ```
 
-**Order** — A buy/sell order placed by a user
+**HoldingReservationSettlement** — Append-only; one row per partial sell fill.
 ```
-ID(uint64), UserID, ListingID(→Listing), Direction(buy|sell), OrderType(market|limit|stop|stop_limit),
+ID(uint64), HoldingReservationID(uint64,indexed), OrderTransactionID(uint64,unique),
+Quantity(int64), CreatedAt
+```
+
+**Order** — A buy/sell order placed against a listing on behalf of a client or the bank.
+```
+ID(uint64), OwnerType(client|bank,indexed), OwnerID(*uint64,indexed),
+ListingID(→Listing), Direction(buy|sell), OrderType(market|limit|stop|stop_limit),
 Quantity(int64), FilledQuantity(int64), Price(nullable), StopPrice(nullable),
-Status(pending|executed|cancelled|rejected), AccountID, ActingEmployeeID(uint64,nullable),
+Status(pending|executed|cancelled|rejected), AccountID, ActingEmployeeID(*uint64,indexed),
+ReservationAmount(numeric18,4,nullable), ReservationCurrency(3,nullable),
+ReservationAccountID(uint64,nullable), BaseAccountID(uint64,nullable,forex-only),
+PlacementRate(numeric18,8,nullable), SagaID(string,36,indexed),
 Version(int64), CreatedAt, UpdatedAt
 ```
-`ActingEmployeeID` — nullable audit column set when an employee places a trade on behalf of a client via `POST /api/v1/orders` or `POST /api/v1/otc/admin/offers/:id/buy`.
+`OwnerType`+`OwnerID` describe the owner of the resulting holding (plan 2026-04-27-owner-type-schema.md). Bank-owned orders have `OwnerType="bank"`, `OwnerID IS NULL`. Client-owned orders have `OwnerType="client"`, `OwnerID = client_id`.
+`ActingEmployeeID` — nullable audit column set whenever the *principal* who placed the order is an employee. The actuary-limit gate keys on this field, so `OwnerIsBankIfEmployee` (an employee placing through `/api/me/orders`) correctly resolves Owner=bank but still records the employee for limit enforcement.
+`ReservationAmount`/`ReservationCurrency`/`ReservationAccountID` — populated by the placement saga's `reserve_funds` step; read on cancellation and recovery. Nullable for historical orders pre-dating Phase 2.
+`BaseAccountID` — forex orders only; the user's base-currency account credited on fill. Must differ from `AccountID` (the quote-currency account where funds are reserved).
+`PlacementRate` — audit snapshot of the FX rate used at placement time for cross-currency securities orders. Nullable for same-currency orders.
+`SagaID` — UUID linking the order to its placement-saga + fill-saga rows in `saga_logs`.
+
+**OrderTransaction** — One executed portion of an order (an order may have multiple partial fills).
+```
+ID(uint64), OrderID(uint64,indexed), Quantity(int64), PricePerUnit(numeric18,4),
+TotalPrice(numeric18,4), NativeAmount(numeric18,4,nullable), NativeCurrency(3,nullable),
+ConvertedAmount(numeric18,4,nullable), AccountCurrency(3,nullable),
+FxRate(numeric18,8,nullable), ExecutedAt
+```
+Currency-conversion audit fields (`NativeAmount`, `NativeCurrency`, `ConvertedAmount`, `AccountCurrency`, `FxRate`) are populated by the fill saga's `convert_amount` step. For same-currency fills `NativeAmount` mirrors `TotalPrice` and `FxRate`/`ConvertedAmount` may be empty. `OrderTransaction.ID` is the cross-service idempotency key for `PartialSettleReservation` and the holding decrement step.
+
+**SagaLog** (stock-service) — Mirrors `transaction-service/internal/model/saga_log.go`. One row per saga step. Stock-service runs two saga types: the placement saga (scoped to `order_id`) and the fill saga (one per partial fill, scoped to `order_id` + `order_transaction_id`).
+```
+ID(uint64), SagaID(uuid,36,indexed), OrderID(uint64,indexed),
+OrderTransactionID(uint64,nullable,indexed), StepNumber(int), StepName(size:64),
+Status(pending|completed|failed|compensating|compensated,indexed),
+IsCompensation(bool,default:false), CompensationOf(uint64,nullable),
+Amount(numeric18,4,nullable), CurrencyCode(3,nullable), Payload(JSONB),
+ErrorMessage(text), RetryCount(int,default:0),
+CreatedAt, UpdatedAt, Version(int64)
+```
+Placement saga steps: `validate_listing` → ... → `reserve_funds` → `persist_order`. Fill saga steps: `record_transaction` → `convert_amount` → `settle_reservation` → `update_holding` → `credit_commission` → `publish_kafka`. Compensating rows set `IsCompensation=true` and `CompensationOf` pointing at the forward step.
 
 **SystemSetting** — Global key-value configuration (key = primary key)
 ```
@@ -1670,9 +1865,22 @@ Key(string, PK, size:64), Value(string)
 `system_settings.active_stock_source` — persists the currently active stock data source
 (`external`, `generated`, or `simulator`) across service restarts.
 
+**PeerOtcNegotiation** (Phase 4 SI-TX) — Receiver-side persistence of inbound peer OTC negotiations
+```
+ID(uuid,PK), PeerBankCode(indexed), ForeignID(indexed),
+BuyerRoutingNumber(3), BuyerID, SellerRoutingNumber(3), SellerID,
+OfferJSON(serialised contractsitx.OtcOffer),
+Status(ongoing|accepted|cancelled|expired,indexed),
+CreatedAt, UpdatedAt
+Composite-unique: (peer_bank_code, foreign_id)
+```
+Reached via the peer-facing `/api/v3/negotiations/:rid/:id` routes; acceptance triggers a 4-posting `Transaction` dispatched through `PeerTxService.InitiateOutboundTxWithPostings`.
+
 ---
 
 ## 19. Complete Kafka Topic Reference
+
+> **New feature topics:** Investment-fund topics are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC topics (`otc.offer-created/-countered/-rejected/-expired`, `otc.contract-created/-exercised/-expired/-failed`) live in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank topics (`otc.crossbank-saga-started/-committed/-rolled-back/-stuck-rollback`, `otc.contract-{exercised,expired}-crossbank`, `otc.contract-expiry-stuck`, `otc.local-offer-changed`) live in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation).
 
 ### All Topics
 
@@ -1683,6 +1891,8 @@ Key(string, PK, size:64), Value(string)
 | `notification.send-push` | (future) | notification-service | (future) |
 | `notification.push-sent` | notification-service | (logging) | (future) |
 | `auth.account-status-changed` | auth-service | (consumers) | AuthAccountStatusChangedMessage |
+| `auth.session-created` | auth-service | (audit/consumers) | `AuthSessionCreatedMessage` — payload carries `principal_type`/`principal_id` (renamed from `system_type`/`user_id` by Task 9 of plan 2026-04-27-owner-type-schema.md) plus session metadata (ip, user-agent, device type) |
+| `auth.session-revoked` | auth-service | (audit/consumers) | `AuthSessionRevokedMessage` — `session_id`, `user_id`, `reason` |
 | `auth.dead-letter` | auth-service | (monitoring) | (failed events) |
 | `user.employee-created` | user-service | notification-service | EmployeeCreatedMessage |
 | `user.employee-updated` | user-service | (consumers) | (generic) |
@@ -1691,6 +1901,7 @@ Key(string, PK, size:64), Value(string)
 | `user.limit-template-updated` | user-service | (consumers) | LimitTemplateMessage |
 | `user.limit-template-deleted` | user-service | (consumers) | LimitTemplateMessage |
 | `user.client-limits-updated` | user-service | (consumers) | ClientLimitsUpdatedMessage |
+| `user.role-permissions-changed` | user-service | auth-service | RolePermissionsChangedMessage |
 | `client.created` | client-service | notification-service | ClientCreatedMessage |
 | `client.updated` | client-service | (consumers) | (generic) |
 | `account.created` | account-service | notification-service | AccountCreatedMessage |
@@ -1726,6 +1937,11 @@ Key(string, PK, size:64), Value(string)
 | `verification.challenge-failed` | verification-service | transaction-service | VerificationChallengeFailedMessage |
 | `notification.mobile-push` | notification-service | api-gateway | MobilePushMessage |
 | `notification.general` | account/card/credit/auth/transaction-service | notification-service | GeneralNotificationMessage |
+| `stock.order-created` | stock-service | (consumers) | OrderCreatedMessage |
+| `stock.order-approved` | stock-service | (consumers) | OrderApprovedMessage |
+| `stock.order-declined` | stock-service | (consumers) | OrderDeclinedMessage |
+| `stock.order-filled` | stock-service | (consumers) | OrderFilledMessage (payload below) |
+| `stock.order-cancelled` | stock-service | (consumers) | OrderCancelledMessage |
 
 ### General Notification Types
 
@@ -1786,7 +2002,56 @@ type LoanDisbursedMessage struct {
 }
 ```
 
+**RolePermissionsChangedMessage** — published to `user.role-permissions-changed` after a role's permissions are updated; auth-service consumes and invalidates sessions for all affected employees:
+```go
+type RolePermissionsChangedMessage struct {
+    RoleID              int64   `json:"role_id"`
+    RoleName            string  `json:"role_name"`
+    AffectedEmployeeIDs []int64 `json:"affected_employee_ids"`
+    ChangedAt           int64   `json:"changed_at"`        // unix seconds
+    Source              string  `json:"source"`            // "update_role_permissions" | "create_role"
+}
+```
+
+**`stock.order-filled` payload** — published synchronously by stock-service after the fill saga's final step commits. A failed fill does NOT emit this event (stuck saga rows are reconciled on recovery). The payload is a JSON object (not a typed struct in `contract/kafka/messages.go`):
+
+| Field | Type | Notes |
+|---|---|---|
+| `saga_id` | string (UUID) | Links the fill to its saga_logs rows |
+| `order_id` | uint64 | |
+| `order_txn_id` | uint64 | `OrderTransaction.ID`; idempotency key for downstream consumers |
+| `owner_type` | string | `client` or `bank` (canonical owner — added by plan 2026-04-27-owner-type-schema.md, Task 9) |
+| `owner_id` | uint64\|null | Client ID, or `null` for bank-owned orders |
+| `user_id` | uint64 | Legacy compatibility shim — equals `owner_id` for client owners, `0` for bank-owned. Will be retired after one or two deploy cycles. |
+| `direction` | string | `buy` or `sell` |
+| `security_type` | string | `stock`, `futures`, `forex`, `option` |
+| `ticker` | string | |
+| `filled_qty` | int64 | Quantity filled in this partial |
+| `remaining_qty` | int64 | Quantity left on the order |
+| `price` | string (decimal) | Execution price per unit |
+| `total_price` | string (decimal) | `filled_qty × price × contract_size` in native currency |
+| `native_amount` | string (decimal) | May be empty for same-currency fills |
+| `native_currency` | string (3) | May be empty for same-currency fills |
+| `converted_amount` | string (decimal) | Populated for cross-currency fills |
+| `account_currency` | string (3) | May be empty for same-currency fills |
+| `fx_rate` | string (decimal) | May be empty for same-currency fills |
+| `is_done` | bool | True when the order's remaining portions reach zero |
+| `kafka_key` | string | Format `order-fill-{order_txn_id}` |
+| `timestamp` | int64 | Unix seconds at publish time |
+
+Note: Phase 2 intentionally did not introduce a `stock.order-failed` topic. Failed fills stay as stuck saga rows and are retried by the saga recovery reconciler on startup rather than emitting a failure event.
+
 When adding a new message type: define the struct in `contract/kafka/messages.go`, add a topic constant string, and follow the existing naming pattern (`{Entity}{Action}Message`).
+
+### Cross-Bank Saga Persistence
+
+Cross-bank sagas (accept, exercise, expire) are orchestrated by `contract/shared/saga.Saga` with `stock-service/internal/saga.CrossBankRecorder` writing to the `inter_bank_saga_logs` table (keyed on `tx_id, phase, role`).
+
+Step names are typed via `contract/shared/saga.StepKind`. The recovery switch in `stock-service/internal/service/saga_recovery.go` panics on any unknown `StepKind`, forcing every new step to be added explicitly.
+
+Lifecycle Kafka events (`crossbank.{accept|exercise|expire}-{started|committed|rolled-back}`) are emitted via the per-saga `LifecyclePublisher` adapter wired through `Saga.WithPublisher(...)`.
+
+Saga IDs are minted by `Saga.NewSaga(recorder)`. Sub-sagas derive a deterministic ≤36-char child ID from `sha256(parent_id + ":" + child_kind)` via `Saga.NewSubSaga(kind)`.
 
 ---
 
@@ -1822,9 +2087,23 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 | `currency_code` | `RSD`, `EUR`, `CHF`, `USD`, `GBP`, `JPY`, `CAD`, `AUD` |
 | `listing_security_type` | `stock`, `futures`, `forex`, `option` |
 | `stock_source` | `external`, `generated`, `simulator` |
+| `reservation_status` | `active`, `released`, `settled` |
+| `saga_step_status` | `pending`, `completed`, `failed`, `compensating`, `compensated` |
 | `verification_method` | `code_pull` (default), `email` — active; `qr_scan`, `number_match` — planned but not yet active |
 | `verification_status` | `pending`, `verified`, `expired`, `failed` |
 | `mobile_device_status` | `pending`, `active`, `deactivated` |
+| `on_behalf_of_type` (funds invest/redeem) | `self`, `bank` |
+| `on_behalf_of_type` (orders) | `self`, `bank`, `fund` (Celina 4) |
+| `fund_contribution_direction` | `invest`, `redeem` |
+| `fund_contribution_status` | `pending`, `completed`, `failed` |
+| `otc_offer_status` | `PENDING`, `COUNTERED`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `FAILED` |
+| `otc_offer_direction` | `sell_initiated`, `buy_initiated` |
+| `otc_offer_action` (revision history) | `CREATE`, `COUNTER`, `ACCEPT`, `REJECT` |
+| `option_contract_status` | `ACTIVE`, `EXERCISED`, `EXPIRED`, `FAILED` |
+| `inter_bank_saga_kind` | `accept`, `exercise`, `expire` |
+| `inter_bank_saga_role` | `initiator`, `responder` |
+| `inter_bank_saga_phase` | `reserve_buyer_funds`, `reserve_seller_shares`, `transfer_funds`, `transfer_ownership`, `finalize`, `expire_notify`, `expire_apply` |
+| `inter_bank_saga_status` | `pending`, `completed`, `failed`, `compensating`, `compensated` |
 | `mobile_inbox_status` | `pending`, `delivered`, `expired` |
 | `device_type` (JWT) | `mobile` |
 
@@ -1836,8 +2115,10 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 
 | Value | Meaning |
 |---|---|
-| `owner_id = 1_000_000_000` | Bank-owned account |
-| `owner_id = 2_000_000_000` | State-owned entity |
+| `account.owner_id = 1_000_000_000` | Bank-owned account (account-service only — see note below) |
+| `account.owner_id = 2_000_000_000` | State-owned entity (account-service) |
+
+**Stock-service** no longer uses the bank-owner sentinel. Per plan 2026-04-27-owner-type-schema.md (Tasks 4-11) every stock-service model that previously carried `(user_id=1_000_000_000, system_type="employee")` now uses `(OwnerType="bank", OwnerID IS NULL)` with a `BeforeSave` `model.ValidateOwner` hook enforcing the invariant. The api-gateway middleware `ResolveIdentity` (§6.X) computes the resolved owner per route and stock-service repositories filter on `(owner_type, owner_id)` directly; the legacy columns + the `BankSentinelUserID` constant have been removed. See §6.X (Identity Model) for the full principal-vs-owner separation.
 
 ### Key Business Rules
 
@@ -1877,6 +2158,7 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - 5 failed login attempts → 30-min lockout
 - Password: 8-32 chars, 2+ digits, 1 uppercase, 1 lowercase
 - JMBG: exactly 13 digits
+- Role permission updates revoke active sessions for affected employees within seconds via the `user.role-permissions-changed` Kafka event; auth-service rejects access tokens whose `iat` predates the per-user revocation epoch (`user_revoked_at:<id>` Redis key, TTL = `JWT_ACCESS_EXPIRY`) and revokes their refresh tokens to force a full re-login.
 
 **Exchange Rates:**
 - Synced every 6 hours from open.er-api.com
@@ -1895,8 +2177,12 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - Exchange rate sync failure → log warning, keep seed rates
 
 **Ownership & On-Behalf Trading:**
-- All `/api/me/*` routes derive resource ownership from the JWT. Any resource ID from URL, query, or body is verified against the caller's `user_id` before any read or write. Mismatches return `404 not_found` to avoid leaking existence.
-- Employee on-behalf trading routes (`POST /api/v1/orders`, `POST /api/v1/otc/admin/offers/:id/buy`) verify that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. Mismatch returns 403.
+- All `/api/me/*` routes derive resource ownership from the JWT through the `ResolveIdentity` middleware (§6.X). The middleware applies a per-route policy:
+  - `OwnerIsPrincipal` — owner == authenticated principal (used by `/me/profile`, `/me/cards`, etc.).
+  - `OwnerIsBankIfEmployee` — employee principal → owner=bank; client principal → owner=self (used by `/me/orders`, `/me/holdings`, `/me/funds`, `/me/otc/*`).
+- Any resource ID from URL, query, or body is verified against the resolved owner before any read or write. Mismatches return `404 not_found` to avoid leaking existence.
+- The acting employee's id is recorded on every side-effect row (`acting_employee_id`) regardless of resolved owner; stock-service's actuary-limit gate keys on this column so an employee placing a /me/order is correctly rate-limited even though the order is bank-owned.
+- Employee on-behalf trading routes (`POST /api/v3/orders`, `POST /api/v3/otc/offers/:id/buy-on-behalf`) use `OwnerFromURLParam("client_id")` and verify that the specified `account_id` belongs to the specified `client_id` before forwarding to stock-service. Mismatch returns 403.
 
 **Stock Data Sources:**
 - Three sources supported: `external` (live API), `generated` (deterministic synthetic data), `simulator` (simulated market prices backed by the Market Simulator Service).
@@ -1904,6 +2190,44 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - On startup, stock-service reads `system_settings.active_stock_source` and restores that source automatically. Default source when no setting exists is `external`.
 - When the active source is `simulator`, a background goroutine refreshes prices every 3 seconds. Switching away from `simulator` cancels this goroutine via `context.Context` cancellation.
 - The `SourceAdminService.SwitchSource` RPC rejects unknown source names with `codes.InvalidArgument`.
+
+**Securities & Trading (Phase 2 bank-safe settlement):**
+- Buy orders for securities reserve funds at placement (converted to the account currency via exchange-service for cross-currency listings). Reservations are released on cancellation; released partially when an order completes under the reserved amount due to market slippage.
+- Sell orders for securities reserve holdings at placement; sells are rejected if `AvailableQuantity = Quantity - ReservedQuantity` is insufficient. Filling decrements both `Quantity` and `ReservedQuantity` atomically via the holding reservation ledger.
+- Forex orders are **buy-only**, reserve on the quote-currency account, and credit the base-currency account on fill. No holdings are created; exchange-service is NOT called — stock-service computes the debit/credit using the forex listing's own price.
+- Forex `listing.Price`/`High`/`Low` for a pair represent the price of 1 base-currency unit denominated in quote-currency. Changing this convention breaks forex settlement math.
+- Securities order commissions are charged to the bank's commission account as a separate saga step per fill. Commission failures are logged and retried by the saga recovery reconciler; the underlying trade remains valid.
+- Kafka fill events (`stock.order-filled`) are published synchronously, only after the fill saga's final step commits. Failed fills do NOT emit events.
+- Fill saga steps are idempotent: account settlements are keyed on `order_transaction_id` (`AccountReservationSettlement.order_transaction_id` unique); holding decrements are keyed on `order_transaction_id` (`HoldingReservationSettlement.order_transaction_id` unique). Recovery retries after crashes are safe no-ops if the step already committed on the target service.
+- `GetReservation` returns the authoritative list of `settled_transaction_ids` so stock-service's saga recovery can distinguish "step already committed remotely" from "step never ran."
+- Only whole-remaining-order cancellation is supported; partial-cancel-during-fill is out of scope.
+
+### 21.1 gRPC Error Sentinels
+
+Service errors carry typed sentinels defined in `<service>/internal/service/errors.go`. Each sentinel embeds a gRPC code via `contract/shared/svcerr.SentinelError`, so wrapping with `fmt.Errorf("Op: %w", sentinel)` automatically resolves to the correct wire status code via `status.FromError`.
+
+Handlers do NOT map errors — they return wrapped service errors directly. The `contract/shared/grpcmw.UnaryLoggingInterceptor` records the full wrap chain (with the original underlying error) for any non-OK response, before the wire status is sent.
+
+The api-gateway maps gRPC status codes to HTTP via `api-gateway/internal/handler/validation.go:grpcToHTTPError`. Distinct sentinels surface as distinct HTTP error codes, so a client can distinguish "wrong password" (401 unauthorized) from "account locked" (403 forbidden) from "account pending" (409 business_rule_violation), etc.
+
+Email-not-found and bcrypt-mismatch deliberately collapse to the same `ErrInvalidCredentials` sentinel for security (prevents email enumeration). All other failure modes are distinct.
+
+### 21.2 Cross-Service Saga Coordination
+
+Sagas that span multiple services (most stock-service crossbank/OTC/fund sagas, transaction-service inter-bank transfers) coordinate via three guarantees. Together they make distributed steps safe to retry on transient failure, debuggable via single-key joins across services, and durable across crashes between business commit and Kafka publish.
+
+**Idempotency contract** — every saga-callee gRPC method (marked `// idempotent` in its proto) accepts a `string idempotency_key` field. Callees enforce the contract via a per-service `idempotency_records` table plus the `repository.Run[T]` wrapper, which atomically reserves the key inside the same transaction as the business write and caches the response payload. Saga callers populate the key as `saga.IdempotencyKey(saga_id, step_kind)` (deterministic). Retried saga steps return the cached response without re-executing — no double-debit, no double-credit, no double-create. Renaming the `idempotency_key` field or weakening the cache semantics is a wire-protocol breaking change and requires explicit user authorization.
+
+**Saga context propagation** — outbound gRPC calls from inside a saga step carry `x-saga-id`, `x-saga-step`, and `x-acting-employee-id` metadata via `contract/shared/grpcmw.UnaryClientSagaContextInterceptor`. The callee's `UnarySagaContextInterceptor` extracts these into `context.Context`. Side-effect tables (`account_ledger_entries`, `stock_holdings`, plus the reservation/settlement debit ledger row) stamp `saga_id` + `saga_step` from the context, enabling cross-service auditing via a single SQL JOIN:
+
+```sql
+SELECT * FROM account_ledger_entries WHERE saga_id = '<id>';
+SELECT * FROM stock_holdings        WHERE saga_id = '<id>';
+```
+
+Non-saga writes (REST handlers, crons that don't run a saga) leave both columns NULL. The metadata interceptors are part of the wire protocol and may not be removed without explicit user authorization.
+
+**Outbox pattern** — saga-published Kafka events route through `contract/shared/outbox`. The `Enqueue(tx, topic, payload, saga_id)` write goes into the same DB transaction as the saga step's business action, so the event row commits atomically with the side effect or doesn't commit at all. A per-service `OutboxDrainer` goroutine reads pending rows (ticks every 500ms, batch up to 100), publishes to Kafka, marks `published_at`. Failures bump `attempt` + capture `last_error` and leave the row pending for the next tick. Crash between commit and publish is safe: the drainer picks up unpublished rows on restart. Stock-service routes every saga publisher (cross-bank accept/exercise/expire lifecycle, OTC offer create/counter/reject/accept/exercise, OTC contract/offer expiry, fund create/update/invest/redeem) through the outbox; services without an outbox fall back to direct best-effort `producer.PublishRaw`.
 
 ## 22. Concurrency & Transaction Safety
 
@@ -2009,46 +2333,327 @@ Reference these when adding new concurrent code:
 
 ## 23. API Versioning
 
-The API gateway supports versioned routes alongside the original unversioned routes:
+The API gateway exposes a single live version: `/api/v3/`. v1 and v2 were retired by plan E (2026-04-27, route consolidation). Any request to `/api/v1/*` or `/api/v2/*` returns HTTP 404.
 
-| Prefix | Description |
+| Prefix | Status |
 |---|---|
-| `/api/` | Original unversioned routes (frozen, backward-compatible) |
-| `/api/v1/` | Version 1 routes (mirrors `/api/` plus new endpoints) |
-| `/api/v2/` | Version 2 routes (v2-only endpoints + transparent fallback to v1 for everything else) |
-| `/api/latest/` | Alias that rewrites to the highest version (`/api/v1/`) |
+| `/api/v3/` | **Live.** The only supported API version. Hosts every route the gateway serves. |
+| `/api/v1/`, `/api/v2/` | **Retired.** Returns 404. Removed in plan E. |
+| `/api/` (unversioned) | **Removed.** Use `/api/v3/`. |
+| `/api/latest/` | **Removed.** Use `/api/v3/` directly; aliases hide version drift. |
 
 **Implementation files:**
-- `api-gateway/internal/router/router.go` — frozen, unversioned `/api/` routes
-- `api-gateway/internal/router/router_v1.go` — `/api/v1/` routes (mirrors router.go + new endpoints)
-- `api-gateway/internal/router/router_v2.go` — `/api/v2/` routes + NoRoute fallback that rewrites unknown v2 paths to v1 via `HandleContext`
-- `api-gateway/internal/router/router_latest.go` — `/api/latest/*` rewrite alias
+- `api-gateway/internal/router/router_v3.go` — defines `SetupV3(r *gin.Engine, h *Handlers)`; registers every route grouped by identity rule.
+- `api-gateway/internal/router/handlers.go` — `Deps` (gRPC client bundle) and `Handlers` (HTTP handler bundle); shared by every router version.
+- `api-gateway/internal/router/router_versioning.md` — pattern documentation for adding a v4 (or any future version) and the sunset policy.
 
-**v2 fallback rule:** Any `/api/v2/...` path not explicitly registered under v2 is transparently rewritten to `/api/v1/...` and re-dispatched internally via `r.HandleContext`. v2 clients can use any v1 route without change.
+**Per-version pattern:** each `/api/vN` is its own explicit, self-contained router file. There is **no transparent fallback** between versions — adding a v4 means creating a new `router_v4.go` with its own `SetupV4` and wiring it side-by-side in `cmd/main.go`. Routes that don't change shape between versions call the same `h.X.Y` handler from the bundle. Routes that change shape bind to a new handler variant. v3 keeps working untouched.
 
-**API versioning contract:** v2 routes must not break v1 contracts. Adding optional fields to v1 responses (e.g., `Option.listing_id`) is allowed. Breaking changes require a new version.
+**Why no fallback?** The previous v1 → v2 setup transparently delegated unknown v2 routes to v1 via `HandleContext`. This led to silent identity bugs (e.g., the actuary-limit regression fixed in spec C) when v2 added new identity rules but v1's handler kept v1 assumptions. Explicit per-version registration prevents that class of bug.
 
-### v1-only endpoints
+**Identity middleware** (spec C, plan 2026-04-27 part C) — every route group declares an identity rule via `middleware.ResolveIdentity`. The three rules in use:
 
-These endpoints exist only under `/api/v1/` and are not available on the unversioned `/api/`:
+- `OwnerIsPrincipal` — owner = JWT principal. Used for `/me/profile`, `/me/cards`, etc.
+- `OwnerIsBankIfEmployee` — if the JWT principal is an employee, owner = bank (`OwnerType="bank"`, `OwnerID=nil`); the JWT id is carried as `ActingEmployeeID` for per-actuary limits. If the principal is a client, owner = principal. Used for trading routes (`/me/orders`, OTC, funds).
+- `OwnerFromURLParam` — owner = client identified by a URL path parameter (`:client_id`). Used for employee-on-behalf-of-client endpoints.
 
-| Method | Path | Status | Plan |
-|---|---|---|---|
-| GET | /api/v1/accounts/:id/changelog | 501 placeholder | Plan 2 |
-| GET | /api/v1/employees/:id/changelog | 501 placeholder | Plan 2 |
-| GET | /api/v1/clients/:id/changelog | 501 placeholder | Plan 2 |
-| GET | /api/v1/cards/:id/changelog | 501 placeholder | Plan 2 |
-| GET | /api/v1/loans/:id/changelog | 501 placeholder | Plan 2 |
-| POST | /api/v1/admin/stock-source | live | stock source abstraction |
-| GET | /api/v1/admin/stock-source | live | stock source abstraction |
-| POST | /api/v1/orders | live | ownership lockdown + employee on-behalf trading |
-| POST | /api/v1/otc/admin/offers/:id/buy | live | ownership lockdown + employee on-behalf trading |
+Identity is read by handlers via the bound `ResolvedIdentity` context key. Handlers must not derive owner identity from request bodies or invent ad-hoc per-handler logic.
 
-### v2-only endpoints
+**API versioning contract** (going forward): newer versions must not break older versions unless the user has explicitly permitted it. Adding optional fields to v3 response bodies is allowed and does not count as a breaking change, provided existing clients that ignore unknown fields continue to work.
 
-These endpoints exist only under `/api/v2/` and are not available on v1 or unversioned:
+### Notable v3 endpoint groups
+
+The full endpoint reference is in `docs/api/REST_API_v1.md` (kept under that filename per the project's REST-doc-naming rule even though it now describes v3 routes). Highlights:
 
 | Method | Path | Middleware | Handler | Description |
 |---|---|---|---|---|
-| POST | `/api/v2/options/:option_id/orders` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.CreateOrder | Place an order on an option by option ID |
-| POST | `/api/v2/options/:option_id/exercise` | AnyAuthMiddleware + RequirePermission(`securities.trade`) | optionsV2.Exercise | Exercise an option by option ID (optional `holding_id` in body; auto-resolved when omitted) |
+| POST | `/api/v3/investment-funds` | AuthMiddleware + RequirePermission(`funds.manage`) | InvestmentFundHandler.CreateFund | Create a new investment fund (provisions a bank-side RSD account) |
+| GET | `/api/v3/investment-funds` | AnyAuthMiddleware | InvestmentFundHandler.ListFunds | List funds (page / page_size / search / active_only) |
+| GET | `/api/v3/investment-funds/:id` | AnyAuthMiddleware | InvestmentFundHandler.GetFund | Fund detail |
+| PUT | `/api/v3/investment-funds/:id` | AuthMiddleware + RequirePermission(`funds.manage`) | InvestmentFundHandler.UpdateFund | Update fund (name/description/minimum/active) |
+| POST | `/api/v3/investment-funds/:id/invest` | AnyAuthMiddleware | InvestmentFundHandler.Invest | Invest in fund (RSD or cross-currency via exchange-service) |
+| POST | `/api/v3/investment-funds/:id/redeem` | AnyAuthMiddleware | InvestmentFundHandler.Redeem | Redeem from fund (rejects with `insufficient_fund_cash` when fund cash short — liquidation TODO) |
+| GET | `/api/v3/me/investment-funds` | AnyAuthMiddleware | InvestmentFundHandler.ListMyPositions | Caller's fund positions |
+| GET | `/api/v3/investment-funds/positions` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ListBankPositions | Bank-owned positions |
+| GET | `/api/v3/actuaries/performance` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ActuaryPerformance | Realised profit per acting employee |
+| POST | `/api/v3/otc/offers` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.CreateOffer | Create OTC option offer (Spec 2) |
+| POST | `/api/v3/otc/offers/:id/counter` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.CounterOffer | Counter offer terms |
+| POST | `/api/v3/otc/offers/:id/accept` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.AcceptOffer | Accept offer (premium-payment saga; cross-bank dispatches via Spec 4) |
+| POST | `/api/v3/otc/offers/:id/reject` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.RejectOffer | Reject offer |
+| POST | `/api/v3/otc/contracts/:id/exercise` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.ExerciseContract | Exercise option (cross-bank dispatches via Spec 4) |
+| GET | `/api/v3/otc/offers/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetOffer | Offer detail with revisions |
+| GET | `/api/v3/otc/contracts/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetContract | Contract detail |
+| GET | `/api/v3/me/otc/offers` | AnyAuthMiddleware | OTCOptionsHandler.ListMyOffers | Caller's OTC offers |
+| GET | `/api/v3/me/otc/contracts` | AnyAuthMiddleware | OTCOptionsHandler.ListMyContracts | Caller's OTC contracts |
+
+## 24. Investment Funds (Celina 4)
+
+### Entities (stock-service)
+
+| Entity | Table | Purpose |
+|---|---|---|
+| `InvestmentFund` | `investment_funds` | Supervisor-managed pool. One bank-owned RSD account, manager_employee_id, minimum contribution. Optimistic locking via Version. |
+| `ClientFundPosition` | `client_fund_positions` | One row per (fund, owner). Owner identified by (`OwnerType`, `OwnerID`) — `bank` with `OwnerID IS NULL` for the bank's own stake, `client` with non-null `OwnerID` for clients. (Renamed from the pre-Task-4 `(UserID=1_000_000_000, SystemType="employee")` sentinel pattern by plan 2026-04-27-owner-type-schema.md.) TotalContributedRSD accumulates contributions and decrements on redeem. |
+| `FundContribution` | `fund_contributions` | Append-mostly history of every invest/redeem event. Owner identified by (`OwnerType`, `OwnerID`); status pending → completed/failed under the saga that produced it. SagaID is a UUID string referencing saga_logs. |
+| `FundHolding` | `fund_holdings` | Fund-side analogue of Holding. Increments on on-behalf-of-fund order fills, decrements on liquidation. FIFO order-by created_at for liquidation. |
+| `Order.FundID` | `orders.fund_id` | New optional column. Non-nil when the order was placed on behalf of a fund — `OwnerType="bank"`/`OwnerID IS NULL` and fills credit `fund_holdings` instead of `holdings`. |
+
+### Kafka topics
+
+| Topic | Producer | Consumer | Payload |
+|---|---|---|---|
+| `stock.fund-created` | stock-service | (none yet) | StockFundCreatedMessage |
+| `stock.fund-updated` | stock-service | (none yet) | StockFundUpdatedMessage |
+| `stock.fund-invested` | stock-service | (none yet) | `StockFundInvestedMessage` — payload carries `owner_type` (`client`\|`bank`) + `owner_id` (`*uint64`, null when `owner_type=bank`); renamed from `(user_id, system_type)` by Task 9 of plan 2026-04-27-owner-type-schema.md |
+| `stock.fund-redeemed` | stock-service | (none yet) | `StockFundRedeemedMessage` — same owner_type/owner_id rename |
+| `stock.funds-reassigned` | stock-service | (none yet) | StockFundsReassignedMessage |
+| `user.supervisor-demoted` | user-service (via outbox relay) | stock-service (SupervisorDemotedConsumer) | UserSupervisorDemotedMessage |
+
+### Permissions
+
+- `funds.manage` (existing) — create / update funds. Granted to `EmployeeSupervisor` and `EmployeeAdmin`.
+- `funds.bank-position-read` (new) — view the bank's positions and actuary performance. Granted to `EmployeeSupervisor` and `EmployeeAdmin`.
+
+### gRPC service: `InvestmentFundService`
+
+Defined in `contract/proto/stock/stock.proto`. RPCs:
+- `CreateFund` / `ListFunds` / `GetFund` / `UpdateFund` (CRUD)
+- `InvestInFund` / `RedeemFromFund` (saga-orchestrated money flow)
+- `ListMyPositions` / `ListBankPositions` (per-owner reads)
+- `GetActuaryPerformance` (aggregated realised gains per acting employee)
+
+Shared message: `OnBehalfOf { type: "self"|"bank"|"fund"; fund_id: uint64 }` — used both by InvestInFund/RedeemFromFund (self vs bank) and by `Order.OnBehalfOf` (Task 18, follow-up) for placing orders on behalf of a fund.
+
+### Settings
+
+| Key | Default | Set by | Used by |
+|---|---|---|---|
+| `fund_redemption_fee_pct` | `0.005` (0.5%) | stock-service main.go on first boot | Redeem saga; bank redeems pay 0 |
+
+### Saga shapes
+
+**Invest:** `debit_source` → `credit_fund` → `upsert_position`. Cross-currency invest converts via exchange-service.Convert before the debit. Failure of step 2 reverses step 1; failure of step 3 reverses both.
+
+**Redeem:** `debit_fund` (amount + fee) → `credit_target` → optional `credit_bank_fee` → `decrement_position`. When fund cash is short, returns `ErrInsufficientFundCash` (HTTP 409). Liquidation sub-saga that sells securities to free cash is a follow-up.
+
+### Outbox + cross-service event flow
+
+Permission revoke that drops `funds.manage` → user-service writes a `user.supervisor-demoted` row to its `outbox_events` table inside the same TX → relay goroutine drains to Kafka → stock-service's SupervisorDemotedConsumer reassigns every fund managed by that supervisor to the demoting admin in a single TX, then publishes `stock.funds-reassigned`.
+
+### Open follow-ups
+
+- Task 14: invest-saga compensation matrix tests
+- Tasks 16–17: liquidation sub-saga (FIFO sell-orders + fill polling) wired into Redeem
+- Task 18: extend `POST /me/orders` with `on_behalf_of=fund` (routes order through fund's RSD account; fills credit `fund_holdings`)
+- Task 20: position-reads service (mark-to-market value, profit, percentage_fund)
+- Task 21: actuary-performance aggregation
+- Task 25: integration tests in test-app/workflows
+
+## 25. Inter-Bank Cross-Bank Communication (Celina 5 / SI-TX)
+
+Cross-bank money movement and OTC trading conform to the SI-TX cohort wire protocol (https://arsen.srht.site/si-tx-proto/) referenced by Celina 5. The implementation landed in Phases 2-4 of the SI-TX refactor; design doc: `docs/superpowers/specs/2026-04-29-celina5-sitx-refactor-design.md`. Phase plans: `docs/superpowers/plans/2026-04-29-celina5-sitx-phase{1,2,3,4}-*.md`.
+
+§25 covers the **transfer-side** SI-TX implementation. Cross-bank OTC (negotiations + acceptance) is in §27.
+
+### Public peer-facing routes (api-gateway)
+
+Hosted on api-gateway, gated by `middleware.PeerAuth` (hybrid auth — see "Authentication" below).
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v3/interbank` | Receives `Message<Type>` envelope. Decodes by `messageType` and dispatches to `transaction-service.PeerTxService` via gRPC. |
+
+### Admin REST routes (api-gateway, employee JWT)
+
+Hosted on api-gateway, gated by employee JWT + `peer_banks.manage.any` permission. Allows ops to add/update/remove peer banks at runtime without redeploys.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v3/peer-banks` | List registered peers (optional `?active_only=true`). |
+| GET | `/api/v3/peer-banks/:id` | Read one. |
+| POST | `/api/v3/peer-banks` | Register a new peer (bank_code, routing_number, base_url, api_token, optional HMAC keys, active flag). |
+| PUT | `/api/v3/peer-banks/:id` | Update mutable fields. |
+| DELETE | `/api/v3/peer-banks/:id` | Remove. |
+
+API tokens are bcrypt-hashed before persist. The plaintext `api_token` is also stored alongside (only readable via the internal `ResolvePeerByAPIToken` RPC, never via REST) so the api-gateway middleware can resolve incoming tokens to peer-bank records.
+
+### Authentication
+
+`middleware.PeerAuth` accepts either:
+
+1. **`X-Api-Key: <token>`** — looked up via `transaction-service.PeerBankAdminService.ResolvePeerByAPIToken` (internal gRPC; constant-time compare against `peer_banks.api_token_plaintext` for active peers only).
+2. **`X-Bank-Code: <code>` + `X-Bank-Signature: <hex SHA-256>` + `X-Timestamp: <RFC3339>` + `X-Nonce: <single-use>`** — looked up via `ResolvePeerByBankCode`. Signature verified against `peer_banks.hmac_inbound_key`; timestamp window ±5 min; nonce dedup window 10 min in Redis (`cache.PeerNonceStore`).
+
+On success the middleware sets `peer_bank_code` and `peer_routing_number` on the gin context. On any failure: 401 with empty body (no info leak; constant-time compare).
+
+### gRPC services
+
+- **`PeerTxService`** (transaction-service): 4 RPCs — `HandleNewTx`, `HandleCommitTx`, `HandleRollbackTx`, `InitiateOutboundTx`, plus `InitiateOutboundTxWithPostings` (Phase 4).
+- **`PeerBankAdminService`** (transaction-service): 5 admin RPCs (List/Get/Create/Update/Delete) + 2 internal-resolve RPCs (`ResolvePeerByAPIToken`, `ResolvePeerByBankCode`) returning `PeerBankFull` (with HMAC keys + plaintext token, never exposed via REST).
+
+### TX execution
+
+**Receiver side** (`HandleNewTx`):
+1. Replay-cache lookup on `(peer_bank_code, locally_generated_key)` in `peer_idempotence_records`. Hit → return cached vote.
+2. `vote_builder.BuildPrelimVote(postings)` — cheap balance check (UNBALANCED_TX if Σ debits ≠ Σ credits per `assetId`).
+3. `posting_executor.Reserve(...)` — per-posting checks: `NO_SUCH_ACCOUNT` (account not found), `UNACCEPTABLE_ASSET` (debit on our routing, or inactive account), `NO_SUCH_ASSET` (currency mismatch), `INSUFFICIENT_ASSET` (reserve fails). On YES, `account-service.ReserveIncoming(reservation_key="<peer>:<idem>")` per credit posting.
+4. Record cached response in `peer_idempotence_records` (same DB tx as the local commit per SI-TX §"R must record the idempotence key").
+5. Return 200 + `TransactionVote`.
+
+**Receiver side** (`HandleCommitTx` / `HandleRollbackTx`): look up idem record; `account-service.CommitIncoming` / `ReleaseIncoming` on the reservation key. Return 204.
+
+**Sender side** (`InitiateOutboundTx`):
+1. Detect peer routing from receiver-account 3-digit prefix. `peerLookup` reads `peer_banks` table.
+2. Generate UUID idempotence key. Persist `outbound_peer_txs` row in `pending`.
+3. **Sender-debit-immediate**: `account-service.UpdateBalance(amount=-X)` to debit sender now (preserves intra-bank transfer semantics).
+4. Best-effort dispatch via `sitx.PeerHTTPClient` to peer's `/interbank` (`Message<NEW_TX>`); on YES response, follow up with `Message<COMMIT_TX>`. On any error, leave row `pending` and `OutboundReplayCron` resumes.
+
+`InitiateOutboundTxWithPostings` is the same flow but accepts a pre-composed `[]Posting` (used by cross-bank OTC accept — see §27).
+
+### Database tables
+
+- **`peer_banks`** — runtime-editable registry. Columns: `id`, `bank_code`, `routing_number`, `base_url`, `api_token_bcrypt`, `api_token_plaintext`, `hmac_inbound_key`, `hmac_outbound_key`, `active`, timestamps.
+- **`peer_idempotence_records`** — receiver-side replay cache. Composite-unique on `(peer_bank_code, locally_generated_key)`. Stores cached `response_payload_json`.
+- **`outbound_peer_txs`** — sender-side state. Columns: `id`, `idempotence_key`, `peer_bank_code`, `tx_kind` (`transfer` | `otc-accept` | `otc-exercise`), `postings_json`, `status` (`pending` | `committing` | `committed` | `rolled_back` | `failed`), `attempt_count`, `last_attempt_at`, `last_error`, timestamps.
+
+### Retry / replay policy
+
+`OutboundReplayCron` (transaction-service): 30s tick. Scans `outbound_peer_txs` rows in `pending` whose `last_attempt_at` is older than 60s (or NULL — never attempted). 4-attempt cap; rows that exceed get marked `failed`. Receiver returns the same cached vote on every retry due to idempotence-key dedup.
+
+### NoVote reason codes
+
+Verbatim from SI-TX (each emitted with optional posting index for posting-scoped reasons):
+
+| Reason | Trigger |
+|---|---|
+| `UNBALANCED_TX` | Σ debits ≠ Σ credits per `assetId` |
+| `NO_SUCH_ACCOUNT` | account_id not found locally |
+| `NO_SUCH_ASSET` | account currency ≠ posting `assetId` |
+| `UNACCEPTABLE_ASSET` | inactive account, or debit-posting on our routing (peer can't order us to debit) |
+| `INSUFFICIENT_ASSET` | balance check / reserve failed |
+| `OPTION_AMOUNT_INCORRECT` | OTC posting amount drift (Phase 4) |
+| `OPTION_USED_OR_EXPIRED` | OTC contract already exercised / past settlement (Phase 4) |
+| `OPTION_NEGOTIATION_NOT_FOUND` | OTC negotiation reference invalid (Phase 4) |
+
+### Permission
+
+- **`peer_banks.manage.any`** — admin CRUD on `peer_banks`. Granted to `EmployeeAdmin` only (via the wildcard `*` grant).
+
+### Authentication failure semantics
+
+All `PeerAuth` failures return 401 with empty body. Constant-time comparison via `crypto/hmac.Equal` for the HMAC path; the API-token path uses a custom constant-time string compare. No info leak about which header failed, whether the bank is registered, or whether the timestamp/nonce is out-of-window.
+
+### Out of scope
+
+- TLS termination is the deployment platform's responsibility (gateway accepts plaintext HTTP on the internal network).
+- HMAC key rotation: admins use `PUT /api/v3/peer-banks/:id` to rotate keys; the old key is invalidated immediately on commit. Mid-flight requests using the old key fail 401 — peer banks must coordinate rotations.
+
+## 26. Intra-bank OTC Options (Celina 4 / Spec 2)
+
+### Entities (stock-service)
+
+| Entity | Table | Purpose |
+|---|---|---|
+| `OTCOffer` | `otc_offers` | One negotiation thread between two parties on a stock-option contract. Carries direction, stock_id, qty, strike, premium, settlement_date, status. Initiator + counterparty identified by (`InitiatorOwnerType`, `InitiatorOwnerID`) / (`CounterpartyOwnerType`, `CounterpartyOwnerID`); `LastModifiedByPrincipalType`/`LastModifiedByPrincipalID` records the actor (principal) of the latest revision. (Renamed from the pre-Task-4 `(user_id, system_type)` triples by plan 2026-04-27-owner-type-schema.md.) Optimistic-locked. |
+| `OTCOfferRevision` | `otc_offer_revisions` | Append-only history of every CREATE/COUNTER/ACCEPT/REJECT action on an offer. Carries `ModifiedByPrincipalType`/`ModifiedByPrincipalID` (the principal who issued the revision, not the resource owner). (offer_id, revision_number) is unique. |
+| `OptionContract` | `option_contracts` | The premium-paid executed option produced by the accept saga. Buyer + seller identified by (`BuyerOwnerType`, `BuyerOwnerID`) / (`SellerOwnerType`, `SellerOwnerID`); status ∈ {ACTIVE, EXERCISED, EXPIRED, FAILED}. |
+| `OTCOfferReadReceipt` | `otc_offer_read_receipts` | Composite-PK row tracking the most recent updated_at the owner has seen for an offer. PK is (`OwnerType`, `OwnerID`, `OfferID`); bank readers materialise as `OwnerID=0` because Postgres disallows NULL in primary keys. Drives the `unread` flag. |
+| `HoldingReservation.OTCContractID` | `holding_reservations.otc_contract_id` | New nullable column. Either OrderID or OTCContractID is set; CHECK constraint enforces the XOR. |
+
+### Permissions
+
+- `otc.trade` (new) — required for create/counter/accept/reject/exercise. Granted to `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin` (which already have `securities.trade`).
+
+### gRPC service: `OTCOptionsService`
+
+Defined in `contract/proto/stock/stock.proto`. RPCs: CreateOffer, ListMyOffers, GetOffer, CounterOffer, AcceptOffer, RejectOffer, ListMyContracts, GetContract, ExerciseContract.
+
+### Kafka topics
+
+All OTC payloads embed one or more `OTCParty { owner_type, owner_id, bank_code? }` structs (renamed from `(user_id, system_type)` by plan 2026-04-27-owner-type-schema.md, Task 9). `owner_id` is `*uint64` and is `null` when `owner_type == "bank"`. For events whose semantic field is the *actor* of an action (e.g. `ModifiedBy`/`RejectedBy`), employee actors materialise as `owner_type="bank"`/`owner_id=null` because employees never own resources in this domain.
+
+| Topic | Producer | Payload |
+|---|---|---|
+| `otc.offer-created` | stock-service | OTCOfferCreatedMessage |
+| `otc.offer-countered` | stock-service | OTCOfferCounteredMessage |
+| `otc.offer-rejected` | stock-service | OTCOfferRejectedMessage |
+| `otc.offer-expired` | stock-service (cron) | OTCOfferExpiredMessage |
+| `otc.contract-created` | stock-service | OTCContractCreatedMessage |
+| `otc.contract-exercised` | stock-service | OTCContractExercisedMessage |
+| `otc.contract-expired` | stock-service (cron) | OTCContractExpiredMessage |
+| `otc.contract-failed` | stock-service | OTCContractFailedMessage |
+
+### Sagas
+
+**Accept saga** (premium-payment, §6.1 of design): reserve_seller_shares + create OptionContract → ReserveFunds(buyer) → PartialSettle(buyer) → CreditAccount(seller) → mark_offer_accepted → kafka. On post-step-1 failure compensations reverse the prior side effects.
+
+**Exercise saga** (§6.2 of design): ReserveFunds(buyer, strike) → settle → credit seller → ConsumeForOTCContract → upsert buyer's holding → mark EXERCISED + kafka.
+
+**Expiry cron**: daily 02:00 UTC. Pass A: ACTIVE contracts past settlement_date → release seller's reservation, mark EXPIRED, publish event. Pass B: PENDING/COUNTERED offers past settlement_date → mark EXPIRED, publish event.
+
+### Cross-currency support
+
+Both Accept and Exercise convert through `exchange-service.Convert` when buyer + seller account currencies differ:
+
+- Premium / strike are denominated in the seller's currency
+- Buyer-side reserve, settle, and compensation legs run in the buyer's currency at the live rate
+- Seller is credited in their currency
+
+Same-currency flows skip the conversion call entirely.
+
+## 27. Cross-Bank OTC Options (Celina 5 / SI-TX)
+
+Cross-bank OTC negotiation + acceptance follows SI-TX. Phase 4 of the SI-TX refactor; plan: `docs/superpowers/plans/2026-04-29-celina5-sitx-phase4-otc-peer.md`.
+
+§27 covers the OTC layer; the underlying TX dispatch reuses the §25 SI-TX flow.
+
+### Public peer-facing routes (api-gateway)
+
+Same `PeerAuth` as §25.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v3/public-stock` | Returns this bank's OTC-public-flagged holdings (queries `holdings` where `public_quantity > 0 AND security_type = 'stock'`). |
+| POST | `/api/v3/negotiations` | Peer-initiated cross-bank offer. Persists in `peer_otc_negotiations` and returns a fresh negotiation id (UUID). |
+| PUT | `/api/v3/negotiations/:rid/:id` | Counter-offer. Updates the offer JSON on an existing negotiation row. |
+| GET | `/api/v3/negotiations/:rid/:id` | Read negotiation state (offer + buyer/seller ids + status). |
+| DELETE | `/api/v3/negotiations/:rid/:id` | Cancel — sets status to `cancelled`. |
+| GET | `/api/v3/negotiations/:rid/:id/accept` | Accept — composes the 4-posting `Transaction` and dispatches via `PeerTxService.InitiateOutboundTxWithPostings`. |
+| GET | `/api/v3/user/:rid/:id` | Counterparty user info lookup. Returns 404 if `rid` ≠ `OWN_BANK_CODE`'s routing (we don't proxy across banks). For own routing, dispatches to `client-service.GetClient` for `client-N` ids and `user-service.GetEmployee` for `employee-N` ids. |
+
+### gRPC service
+
+- **`PeerOTCService`** (stock-service): 6 RPCs mirroring the public routes — `GetPublicStocks`, `CreateNegotiation`, `UpdateNegotiation`, `GetNegotiation`, `DeleteNegotiation`, `AcceptNegotiation`.
+
+### Acceptance flow
+
+`AcceptNegotiation` (stock-service handler):
+1. Look up the negotiation in `peer_otc_negotiations`.
+2. Decode the offer.
+3. Compose 4 postings:
+   - Buyer debits premium (in `premiumCurrency`).
+   - Seller credits premium.
+   - Seller debits 1× `OptionDescription` (asset_id is the JSON-encoded `OptionDescription` per cohort convention — captures ticker, amount, strike, settlement, negotiation_id).
+   - Buyer credits 1× `OptionDescription`.
+4. Call `transaction-service.PeerTxService.InitiateOutboundTxWithPostings` with `tx_kind="otc-accept"`. The TX runs through the standard `NEW_TX` → `COMMIT_TX` flow on the SI-TX wire.
+5. Mark negotiation `accepted`. Return `transaction_id` to caller.
+
+### Database table
+
+- **`peer_otc_negotiations`** — receiver-side persistence of inbound peer negotiations. Composite-unique on `(peer_bank_code, foreign_id)`. Columns: `id`, `peer_bank_code`, `foreign_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `offer_json` (serialised `contractsitx.OtcOffer`), `status` (`ongoing` | `accepted` | `cancelled` | `expired`), timestamps.
+
+### SI-TX wire types
+
+Defined in `contract/sitx/otc_types.go`:
+
+- `OtcOffer` — ticker, amount, pricePerStock, currency, premium, premiumCurrency, settlementDate, lastModifiedBy.
+- `OtcNegotiation` — full record (id, buyer/seller ids, offer, status, updatedAt).
+- `OptionDescription` — used as a posting `assetId` for OTC TX formation (ticker, amount, strikePrice, currency, settlementDate, negotiationId).
+- `UserInformation` — response shape of `GET /user/{rid}/{id}`.
+- `PublicStocksResponse` + `PublicStock` — response shape of `GET /public-stock`.
+- `ForeignBankId` — `(routingNumber, id)` tuple used wherever cross-bank resource identity is needed.
+
+### Out of scope
+
+- Liquidation of underlying stocks at exercise time — Phase 4 covers acceptance (TX formation); exercise of the resulting option contract is a follow-up.
+- Cross-bank price discovery / quote streaming — `GET /public-stock` is poll-driven; sub-second updates are not in scope.

@@ -14,7 +14,7 @@ import (
 func TestRoles_ListRoles(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/v1/roles")
+	resp, err := c.GET("/api/v3/roles")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestRoles_ListRoles(t *testing.T) {
 func TestRoles_GetRole(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/v1/roles/1")
+	resp, err := c.GET("/api/v3/roles/1")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -36,10 +36,10 @@ func TestRoles_GetRole(t *testing.T) {
 func TestRoles_CreateCustomRole(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/roles", map[string]interface{}{
+	resp, err := c.POST("/api/v3/roles", map[string]interface{}{
 		"name":        fmt.Sprintf("CustomRole_%d", helpers.DateOfBirthUnix()),
 		"description": "A test custom role",
-		"permissions": []string{"clients.read", "accounts.read"},
+		"permissions": []string{"clients.read.all", "accounts.read.all"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -53,10 +53,10 @@ func TestRoles_UpdateRolePermissions(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// Create a role first
-	createResp, err := c.POST("/api/v1/roles", map[string]interface{}{
+	createResp, err := c.POST("/api/v3/roles", map[string]interface{}{
 		"name":        fmt.Sprintf("UpdRole_%d", helpers.DateOfBirthUnix()),
 		"description": "Role to update",
-		"permissions": []string{"clients.read"},
+		"permissions": []string{"clients.read.all"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -65,8 +65,8 @@ func TestRoles_UpdateRolePermissions(t *testing.T) {
 	roleID := helpers.GetNumberField(t, createResp, "id")
 
 	// Update permissions
-	resp, err := c.PUT(fmt.Sprintf("/api/v1/roles/%d/permissions", int(roleID)), map[string]interface{}{
-		"permission_codes": []string{"clients.read", "accounts.read", "cards.manage"},
+	resp, err := c.PUT(fmt.Sprintf("/api/v3/roles/%d/permissions", int(roleID)), map[string]interface{}{
+		"permission_codes": []string{"clients.read.all", "accounts.read.all", "cards.create.physical"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -77,7 +77,7 @@ func TestRoles_UpdateRolePermissions(t *testing.T) {
 func TestRoles_ListPermissions(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/v1/permissions")
+	resp, err := c.GET("/api/v3/permissions")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestRoles_SetEmployeeRoles(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// Create employee
-	createResp, err := c.POST("/api/v1/employees", map[string]interface{}{
+	createResp, err := c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Multi"),
 		"last_name":     helpers.RandomName("Role"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -106,7 +106,7 @@ func TestRoles_SetEmployeeRoles(t *testing.T) {
 	empID := helpers.GetNumberField(t, createResp, "id")
 
 	// Set multiple roles
-	resp, err := c.PUT(fmt.Sprintf("/api/v1/employees/%d/roles", int(empID)), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v3/employees/%d/roles", int(empID)), map[string]interface{}{
 		"role_names": []string{"EmployeeBasic", "EmployeeAgent"},
 	})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestRoles_SetEmployeeAdditionalPermissions(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 
-	createResp, err := c.POST("/api/v1/employees", map[string]interface{}{
+	createResp, err := c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Extra"),
 		"last_name":     helpers.RandomName("Perm"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -135,8 +135,8 @@ func TestRoles_SetEmployeeAdditionalPermissions(t *testing.T) {
 	helpers.RequireStatus(t, createResp, 201)
 	empID := helpers.GetNumberField(t, createResp, "id")
 
-	resp, err := c.PUT(fmt.Sprintf("/api/v1/employees/%d/permissions", int(empID)), map[string]interface{}{
-		"permission_codes": []string{"securities.trade", "otc.manage"},
+	resp, err := c.PUT(fmt.Sprintf("/api/v3/employees/%d/permissions", int(empID)), map[string]interface{}{
+		"permission_codes": []string{"securities.trade.any", "otc.read.all"},
 	})
 	if err != nil {
 		t.Fatalf("error: %v", err)
@@ -148,7 +148,7 @@ func TestRoles_NonAdminCannotManageRoles(t *testing.T) {
 	t.Parallel()
 	// Test that unauthenticated access fails.
 	c := newClient() // no token
-	resp, err := c.GET("/api/v1/roles")
+	resp, err := c.GET("/api/v3/roles")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

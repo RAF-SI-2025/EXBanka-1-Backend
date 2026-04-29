@@ -21,6 +21,242 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type ListChangelogRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EntityType    string                 `protobuf:"bytes,1,opt,name=entity_type,json=entityType,proto3" json:"entity_type,omitempty"` // e.g. "client" or "client_limit"
+	EntityId      int64                  `protobuf:"varint,2,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	Page          int32                  `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize      int32                  `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListChangelogRequest) Reset() {
+	*x = ListChangelogRequest{}
+	mi := &file_client_client_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListChangelogRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListChangelogRequest) ProtoMessage() {}
+
+func (x *ListChangelogRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_client_client_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListChangelogRequest.ProtoReflect.Descriptor instead.
+func (*ListChangelogRequest) Descriptor() ([]byte, []int) {
+	return file_client_client_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ListChangelogRequest) GetEntityType() string {
+	if x != nil {
+		return x.EntityType
+	}
+	return ""
+}
+
+func (x *ListChangelogRequest) GetEntityId() int64 {
+	if x != nil {
+		return x.EntityId
+	}
+	return 0
+}
+
+func (x *ListChangelogRequest) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *ListChangelogRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+type ChangelogEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	EntityType    string                 `protobuf:"bytes,2,opt,name=entity_type,json=entityType,proto3" json:"entity_type,omitempty"`
+	EntityId      int64                  `protobuf:"varint,3,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	Action        string                 `protobuf:"bytes,4,opt,name=action,proto3" json:"action,omitempty"`
+	FieldName     string                 `protobuf:"bytes,5,opt,name=field_name,json=fieldName,proto3" json:"field_name,omitempty"`
+	OldValue      string                 `protobuf:"bytes,6,opt,name=old_value,json=oldValue,proto3" json:"old_value,omitempty"`
+	NewValue      string                 `protobuf:"bytes,7,opt,name=new_value,json=newValue,proto3" json:"new_value,omitempty"`
+	ChangedBy     int64                  `protobuf:"varint,8,opt,name=changed_by,json=changedBy,proto3" json:"changed_by,omitempty"`
+	ChangedAt     int64                  `protobuf:"varint,9,opt,name=changed_at,json=changedAt,proto3" json:"changed_at,omitempty"`
+	Reason        string                 `protobuf:"bytes,10,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChangelogEntry) Reset() {
+	*x = ChangelogEntry{}
+	mi := &file_client_client_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChangelogEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChangelogEntry) ProtoMessage() {}
+
+func (x *ChangelogEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_client_client_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChangelogEntry.ProtoReflect.Descriptor instead.
+func (*ChangelogEntry) Descriptor() ([]byte, []int) {
+	return file_client_client_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ChangelogEntry) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *ChangelogEntry) GetEntityType() string {
+	if x != nil {
+		return x.EntityType
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetEntityId() int64 {
+	if x != nil {
+		return x.EntityId
+	}
+	return 0
+}
+
+func (x *ChangelogEntry) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetFieldName() string {
+	if x != nil {
+		return x.FieldName
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetOldValue() string {
+	if x != nil {
+		return x.OldValue
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetNewValue() string {
+	if x != nil {
+		return x.NewValue
+	}
+	return ""
+}
+
+func (x *ChangelogEntry) GetChangedBy() int64 {
+	if x != nil {
+		return x.ChangedBy
+	}
+	return 0
+}
+
+func (x *ChangelogEntry) GetChangedAt() int64 {
+	if x != nil {
+		return x.ChangedAt
+	}
+	return 0
+}
+
+func (x *ChangelogEntry) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type ListChangelogResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Entries       []*ChangelogEntry      `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListChangelogResponse) Reset() {
+	*x = ListChangelogResponse{}
+	mi := &file_client_client_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListChangelogResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListChangelogResponse) ProtoMessage() {}
+
+func (x *ListChangelogResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_client_client_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListChangelogResponse.ProtoReflect.Descriptor instead.
+func (*ListChangelogResponse) Descriptor() ([]byte, []int) {
+	return file_client_client_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListChangelogResponse) GetEntries() []*ChangelogEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *ListChangelogResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 type CreateClientRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FirstName     string                 `protobuf:"bytes,1,opt,name=first_name,json=firstName,proto3" json:"first_name,omitempty"`
@@ -37,7 +273,7 @@ type CreateClientRequest struct {
 
 func (x *CreateClientRequest) Reset() {
 	*x = CreateClientRequest{}
-	mi := &file_client_client_proto_msgTypes[0]
+	mi := &file_client_client_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -49,7 +285,7 @@ func (x *CreateClientRequest) String() string {
 func (*CreateClientRequest) ProtoMessage() {}
 
 func (x *CreateClientRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[0]
+	mi := &file_client_client_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62,7 +298,7 @@ func (x *CreateClientRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateClientRequest.ProtoReflect.Descriptor instead.
 func (*CreateClientRequest) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{0}
+	return file_client_client_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateClientRequest) GetFirstName() string {
@@ -130,7 +366,7 @@ type GetClientRequest struct {
 
 func (x *GetClientRequest) Reset() {
 	*x = GetClientRequest{}
-	mi := &file_client_client_proto_msgTypes[1]
+	mi := &file_client_client_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -142,7 +378,7 @@ func (x *GetClientRequest) String() string {
 func (*GetClientRequest) ProtoMessage() {}
 
 func (x *GetClientRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[1]
+	mi := &file_client_client_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -155,7 +391,7 @@ func (x *GetClientRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetClientRequest.ProtoReflect.Descriptor instead.
 func (*GetClientRequest) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{1}
+	return file_client_client_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetClientRequest) GetId() uint64 {
@@ -174,7 +410,7 @@ type GetClientByEmailRequest struct {
 
 func (x *GetClientByEmailRequest) Reset() {
 	*x = GetClientByEmailRequest{}
-	mi := &file_client_client_proto_msgTypes[2]
+	mi := &file_client_client_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -186,7 +422,7 @@ func (x *GetClientByEmailRequest) String() string {
 func (*GetClientByEmailRequest) ProtoMessage() {}
 
 func (x *GetClientByEmailRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[2]
+	mi := &file_client_client_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -199,7 +435,7 @@ func (x *GetClientByEmailRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetClientByEmailRequest.ProtoReflect.Descriptor instead.
 func (*GetClientByEmailRequest) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{2}
+	return file_client_client_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetClientByEmailRequest) GetEmail() string {
@@ -221,7 +457,7 @@ type ListClientsRequest struct {
 
 func (x *ListClientsRequest) Reset() {
 	*x = ListClientsRequest{}
-	mi := &file_client_client_proto_msgTypes[3]
+	mi := &file_client_client_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -233,7 +469,7 @@ func (x *ListClientsRequest) String() string {
 func (*ListClientsRequest) ProtoMessage() {}
 
 func (x *ListClientsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[3]
+	mi := &file_client_client_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -246,7 +482,7 @@ func (x *ListClientsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListClientsRequest.ProtoReflect.Descriptor instead.
 func (*ListClientsRequest) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{3}
+	return file_client_client_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListClientsRequest) GetEmailFilter() string {
@@ -287,7 +523,7 @@ type ListClientsResponse struct {
 
 func (x *ListClientsResponse) Reset() {
 	*x = ListClientsResponse{}
-	mi := &file_client_client_proto_msgTypes[4]
+	mi := &file_client_client_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -299,7 +535,7 @@ func (x *ListClientsResponse) String() string {
 func (*ListClientsResponse) ProtoMessage() {}
 
 func (x *ListClientsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[4]
+	mi := &file_client_client_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -312,7 +548,7 @@ func (x *ListClientsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListClientsResponse.ProtoReflect.Descriptor instead.
 func (*ListClientsResponse) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{4}
+	return file_client_client_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListClientsResponse) GetClients() []*ClientResponse {
@@ -345,7 +581,7 @@ type UpdateClientRequest struct {
 
 func (x *UpdateClientRequest) Reset() {
 	*x = UpdateClientRequest{}
-	mi := &file_client_client_proto_msgTypes[5]
+	mi := &file_client_client_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -357,7 +593,7 @@ func (x *UpdateClientRequest) String() string {
 func (*UpdateClientRequest) ProtoMessage() {}
 
 func (x *UpdateClientRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[5]
+	mi := &file_client_client_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -370,7 +606,7 @@ func (x *UpdateClientRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateClientRequest.ProtoReflect.Descriptor instead.
 func (*UpdateClientRequest) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{5}
+	return file_client_client_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UpdateClientRequest) GetId() uint64 {
@@ -447,7 +683,7 @@ type ClientResponse struct {
 
 func (x *ClientResponse) Reset() {
 	*x = ClientResponse{}
-	mi := &file_client_client_proto_msgTypes[6]
+	mi := &file_client_client_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -459,7 +695,7 @@ func (x *ClientResponse) String() string {
 func (*ClientResponse) ProtoMessage() {}
 
 func (x *ClientResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[6]
+	mi := &file_client_client_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -472,7 +708,7 @@ func (x *ClientResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientResponse.ProtoReflect.Descriptor instead.
 func (*ClientResponse) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{6}
+	return file_client_client_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ClientResponse) GetId() uint64 {
@@ -554,7 +790,7 @@ type GetClientLimitRequest struct {
 
 func (x *GetClientLimitRequest) Reset() {
 	*x = GetClientLimitRequest{}
-	mi := &file_client_client_proto_msgTypes[7]
+	mi := &file_client_client_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -566,7 +802,7 @@ func (x *GetClientLimitRequest) String() string {
 func (*GetClientLimitRequest) ProtoMessage() {}
 
 func (x *GetClientLimitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[7]
+	mi := &file_client_client_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -579,7 +815,7 @@ func (x *GetClientLimitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetClientLimitRequest.ProtoReflect.Descriptor instead.
 func (*GetClientLimitRequest) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{7}
+	return file_client_client_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetClientLimitRequest) GetClientId() int64 {
@@ -602,7 +838,7 @@ type SetClientLimitRequest struct {
 
 func (x *SetClientLimitRequest) Reset() {
 	*x = SetClientLimitRequest{}
-	mi := &file_client_client_proto_msgTypes[8]
+	mi := &file_client_client_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -614,7 +850,7 @@ func (x *SetClientLimitRequest) String() string {
 func (*SetClientLimitRequest) ProtoMessage() {}
 
 func (x *SetClientLimitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[8]
+	mi := &file_client_client_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -627,7 +863,7 @@ func (x *SetClientLimitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetClientLimitRequest.ProtoReflect.Descriptor instead.
 func (*SetClientLimitRequest) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{8}
+	return file_client_client_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SetClientLimitRequest) GetClientId() int64 {
@@ -679,7 +915,7 @@ type ClientLimitResponse struct {
 
 func (x *ClientLimitResponse) Reset() {
 	*x = ClientLimitResponse{}
-	mi := &file_client_client_proto_msgTypes[9]
+	mi := &file_client_client_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -691,7 +927,7 @@ func (x *ClientLimitResponse) String() string {
 func (*ClientLimitResponse) ProtoMessage() {}
 
 func (x *ClientLimitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_client_client_proto_msgTypes[9]
+	mi := &file_client_client_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -704,7 +940,7 @@ func (x *ClientLimitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientLimitResponse.ProtoReflect.Descriptor instead.
 func (*ClientLimitResponse) Descriptor() ([]byte, []int) {
-	return file_client_client_proto_rawDescGZIP(), []int{9}
+	return file_client_client_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ClientLimitResponse) GetId() int64 {
@@ -753,7 +989,32 @@ var File_client_client_proto protoreflect.FileDescriptor
 
 const file_client_client_proto_rawDesc = "" +
 	"\n" +
-	"\x13client/client.proto\x12\x06client\"\xe7\x01\n" +
+	"\x13client/client.proto\x12\x06client\"\x85\x01\n" +
+	"\x14ListChangelogRequest\x12\x1f\n" +
+	"\ventity_type\x18\x01 \x01(\tR\n" +
+	"entityType\x12\x1b\n" +
+	"\tentity_id\x18\x02 \x01(\x03R\bentityId\x12\x12\n" +
+	"\x04page\x18\x03 \x01(\x05R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\x04 \x01(\x05R\bpageSize\"\xa5\x02\n" +
+	"\x0eChangelogEntry\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1f\n" +
+	"\ventity_type\x18\x02 \x01(\tR\n" +
+	"entityType\x12\x1b\n" +
+	"\tentity_id\x18\x03 \x01(\x03R\bentityId\x12\x16\n" +
+	"\x06action\x18\x04 \x01(\tR\x06action\x12\x1d\n" +
+	"\n" +
+	"field_name\x18\x05 \x01(\tR\tfieldName\x12\x1b\n" +
+	"\told_value\x18\x06 \x01(\tR\boldValue\x12\x1b\n" +
+	"\tnew_value\x18\a \x01(\tR\bnewValue\x12\x1d\n" +
+	"\n" +
+	"changed_by\x18\b \x01(\x03R\tchangedBy\x12\x1d\n" +
+	"\n" +
+	"changed_at\x18\t \x01(\x03R\tchangedAt\x12\x16\n" +
+	"\x06reason\x18\n" +
+	" \x01(\tR\x06reason\"_\n" +
+	"\x15ListChangelogResponse\x120\n" +
+	"\aentries\x18\x01 \x03(\v2\x16.client.ChangelogEntryR\aentries\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xe7\x01\n" +
 	"\x13CreateClientRequest\x12\x1d\n" +
 	"\n" +
 	"first_name\x18\x01 \x01(\tR\tfirstName\x12\x1b\n" +
@@ -825,13 +1086,14 @@ const file_client_client_proto_rawDesc = "" +
 	"dailyLimit\x12#\n" +
 	"\rmonthly_limit\x18\x04 \x01(\tR\fmonthlyLimit\x12%\n" +
 	"\x0etransfer_limit\x18\x05 \x01(\tR\rtransferLimit\x12&\n" +
-	"\x0fset_by_employee\x18\x06 \x01(\x03R\rsetByEmployee2\xed\x02\n" +
+	"\x0fset_by_employee\x18\x06 \x01(\x03R\rsetByEmployee2\xbb\x03\n" +
 	"\rClientService\x12C\n" +
 	"\fCreateClient\x12\x1b.client.CreateClientRequest\x1a\x16.client.ClientResponse\x12=\n" +
 	"\tGetClient\x12\x18.client.GetClientRequest\x1a\x16.client.ClientResponse\x12K\n" +
 	"\x10GetClientByEmail\x12\x1f.client.GetClientByEmailRequest\x1a\x16.client.ClientResponse\x12F\n" +
 	"\vListClients\x12\x1a.client.ListClientsRequest\x1a\x1b.client.ListClientsResponse\x12C\n" +
-	"\fUpdateClient\x12\x1b.client.UpdateClientRequest\x1a\x16.client.ClientResponse2\xb2\x01\n" +
+	"\fUpdateClient\x12\x1b.client.UpdateClientRequest\x1a\x16.client.ClientResponse\x12L\n" +
+	"\rListChangelog\x12\x1c.client.ListChangelogRequest\x1a\x1d.client.ListChangelogResponse2\xb2\x01\n" +
 	"\x12ClientLimitService\x12M\n" +
 	"\x0fGetClientLimits\x12\x1d.client.GetClientLimitRequest\x1a\x1b.client.ClientLimitResponse\x12M\n" +
 	"\x0fSetClientLimits\x12\x1d.client.SetClientLimitRequest\x1a\x1b.client.ClientLimitResponseB/Z-github.com/exbanka/contract/clientpb;clientpbb\x06proto3"
@@ -848,40 +1110,46 @@ func file_client_client_proto_rawDescGZIP() []byte {
 	return file_client_client_proto_rawDescData
 }
 
-var file_client_client_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_client_client_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_client_client_proto_goTypes = []any{
-	(*CreateClientRequest)(nil),     // 0: client.CreateClientRequest
-	(*GetClientRequest)(nil),        // 1: client.GetClientRequest
-	(*GetClientByEmailRequest)(nil), // 2: client.GetClientByEmailRequest
-	(*ListClientsRequest)(nil),      // 3: client.ListClientsRequest
-	(*ListClientsResponse)(nil),     // 4: client.ListClientsResponse
-	(*UpdateClientRequest)(nil),     // 5: client.UpdateClientRequest
-	(*ClientResponse)(nil),          // 6: client.ClientResponse
-	(*GetClientLimitRequest)(nil),   // 7: client.GetClientLimitRequest
-	(*SetClientLimitRequest)(nil),   // 8: client.SetClientLimitRequest
-	(*ClientLimitResponse)(nil),     // 9: client.ClientLimitResponse
+	(*ListChangelogRequest)(nil),    // 0: client.ListChangelogRequest
+	(*ChangelogEntry)(nil),          // 1: client.ChangelogEntry
+	(*ListChangelogResponse)(nil),   // 2: client.ListChangelogResponse
+	(*CreateClientRequest)(nil),     // 3: client.CreateClientRequest
+	(*GetClientRequest)(nil),        // 4: client.GetClientRequest
+	(*GetClientByEmailRequest)(nil), // 5: client.GetClientByEmailRequest
+	(*ListClientsRequest)(nil),      // 6: client.ListClientsRequest
+	(*ListClientsResponse)(nil),     // 7: client.ListClientsResponse
+	(*UpdateClientRequest)(nil),     // 8: client.UpdateClientRequest
+	(*ClientResponse)(nil),          // 9: client.ClientResponse
+	(*GetClientLimitRequest)(nil),   // 10: client.GetClientLimitRequest
+	(*SetClientLimitRequest)(nil),   // 11: client.SetClientLimitRequest
+	(*ClientLimitResponse)(nil),     // 12: client.ClientLimitResponse
 }
 var file_client_client_proto_depIdxs = []int32{
-	6, // 0: client.ListClientsResponse.clients:type_name -> client.ClientResponse
-	0, // 1: client.ClientService.CreateClient:input_type -> client.CreateClientRequest
-	1, // 2: client.ClientService.GetClient:input_type -> client.GetClientRequest
-	2, // 3: client.ClientService.GetClientByEmail:input_type -> client.GetClientByEmailRequest
-	3, // 4: client.ClientService.ListClients:input_type -> client.ListClientsRequest
-	5, // 5: client.ClientService.UpdateClient:input_type -> client.UpdateClientRequest
-	7, // 6: client.ClientLimitService.GetClientLimits:input_type -> client.GetClientLimitRequest
-	8, // 7: client.ClientLimitService.SetClientLimits:input_type -> client.SetClientLimitRequest
-	6, // 8: client.ClientService.CreateClient:output_type -> client.ClientResponse
-	6, // 9: client.ClientService.GetClient:output_type -> client.ClientResponse
-	6, // 10: client.ClientService.GetClientByEmail:output_type -> client.ClientResponse
-	4, // 11: client.ClientService.ListClients:output_type -> client.ListClientsResponse
-	6, // 12: client.ClientService.UpdateClient:output_type -> client.ClientResponse
-	9, // 13: client.ClientLimitService.GetClientLimits:output_type -> client.ClientLimitResponse
-	9, // 14: client.ClientLimitService.SetClientLimits:output_type -> client.ClientLimitResponse
-	8, // [8:15] is the sub-list for method output_type
-	1, // [1:8] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1,  // 0: client.ListChangelogResponse.entries:type_name -> client.ChangelogEntry
+	9,  // 1: client.ListClientsResponse.clients:type_name -> client.ClientResponse
+	3,  // 2: client.ClientService.CreateClient:input_type -> client.CreateClientRequest
+	4,  // 3: client.ClientService.GetClient:input_type -> client.GetClientRequest
+	5,  // 4: client.ClientService.GetClientByEmail:input_type -> client.GetClientByEmailRequest
+	6,  // 5: client.ClientService.ListClients:input_type -> client.ListClientsRequest
+	8,  // 6: client.ClientService.UpdateClient:input_type -> client.UpdateClientRequest
+	0,  // 7: client.ClientService.ListChangelog:input_type -> client.ListChangelogRequest
+	10, // 8: client.ClientLimitService.GetClientLimits:input_type -> client.GetClientLimitRequest
+	11, // 9: client.ClientLimitService.SetClientLimits:input_type -> client.SetClientLimitRequest
+	9,  // 10: client.ClientService.CreateClient:output_type -> client.ClientResponse
+	9,  // 11: client.ClientService.GetClient:output_type -> client.ClientResponse
+	9,  // 12: client.ClientService.GetClientByEmail:output_type -> client.ClientResponse
+	7,  // 13: client.ClientService.ListClients:output_type -> client.ListClientsResponse
+	9,  // 14: client.ClientService.UpdateClient:output_type -> client.ClientResponse
+	2,  // 15: client.ClientService.ListChangelog:output_type -> client.ListChangelogResponse
+	12, // 16: client.ClientLimitService.GetClientLimits:output_type -> client.ClientLimitResponse
+	12, // 17: client.ClientLimitService.SetClientLimits:output_type -> client.ClientLimitResponse
+	10, // [10:18] is the sub-list for method output_type
+	2,  // [2:10] is the sub-list for method input_type
+	2,  // [2:2] is the sub-list for extension type_name
+	2,  // [2:2] is the sub-list for extension extendee
+	0,  // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_client_client_proto_init() }
@@ -889,14 +1157,14 @@ func file_client_client_proto_init() {
 	if File_client_client_proto != nil {
 		return
 	}
-	file_client_client_proto_msgTypes[5].OneofWrappers = []any{}
+	file_client_client_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_client_client_proto_rawDesc), len(file_client_client_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

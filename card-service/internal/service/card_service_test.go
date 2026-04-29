@@ -215,7 +215,7 @@ func TestBlockCard_AlreadyBlocked_Error(t *testing.T) {
 
 	_, err := svc.BlockCard(card.ID, 0)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already blocked")
+	assert.ErrorIs(t, err, ErrCardBlocked)
 }
 
 func TestBlockCard_Deactivated_Error(t *testing.T) {
@@ -296,7 +296,7 @@ func TestDeactivateCard_AlreadyDeactivated_Error(t *testing.T) {
 
 	_, err := svc.DeactivateCard(card.ID, 0)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already deactivated")
+	assert.ErrorIs(t, err, ErrCardDeactivated)
 }
 
 func TestDeactivateCard_ThenUnblock_Error(t *testing.T) {

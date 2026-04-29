@@ -55,7 +55,7 @@ type createAccountRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/accounts [post]
+// @Router       /api/v2/accounts [post]
 func (h *AccountHandler) CreateAccount(c *gin.Context) {
 	var req createAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -130,42 +130,40 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 }
 
 // @Summary      List accounts
+// @Description  Lists all accounts (employee read). Filter by ?account_number=X for exact-match lookup, or by name/type filters. To list a single client's accounts, use GET /api/v3/clients/{id}/accounts.
 // @Tags         accounts
 // @Produce      json
 // @Param        page                  query  int     false  "Page number (default 1)"
 // @Param        page_size             query  int     false  "Items per page (default 20)"
+// @Param        account_number        query  string  false  "Filter by exact account number"
 // @Param        name_filter           query  string  false  "Filter by account name"
-// @Param        account_number_filter query  string  false  "Filter by account number"
+// @Param        account_number_filter query  string  false  "Filter by account number substring"
 // @Param        type_filter           query  string  false  "Filter by account type"
 // @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/accounts [get]
+// @Router       /api/v3/accounts [get]
 func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
-	// Query-param filtering: ?client_id=X
-	if clientIDStr := c.Query("client_id"); clientIDStr != "" {
-		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
-		if err != nil {
-			apiError(c, 400, ErrValidation, "invalid client_id query parameter")
-			return
-		}
-		page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 32)
-		pageSize, _ := strconv.ParseInt(c.DefaultQuery("page_size", "50"), 10, 32)
-		resp, err := h.accountClient.ListAccountsByClient(c.Request.Context(), &accountpb.ListAccountsByClientRequest{
-			ClientId: clientID,
-			Page:     int32(page),
-			PageSize: int32(pageSize),
+	accountNumber := c.Query("account_number")
+
+	// Query-param filtering: ?account_number=X — exact-match single lookup.
+	// Wraps GetAccountByNumber to keep the response shape consistent with the
+	// list endpoint. NotFound → empty result rather than a hard 404.
+	if accountNumber != "" {
+		resp, err := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{
+			AccountNumber: accountNumber,
 		})
 		if err != nil {
+			if isNotFound(err) {
+				c.JSON(http.StatusOK, gin.H{"accounts": []gin.H{}, "total": 0})
+				return
+			}
 			handleGRPCError(c, err)
 			return
 		}
-		accounts := make([]gin.H, 0, len(resp.Accounts))
-		for _, acc := range resp.Accounts {
-			accounts = append(accounts, accountToJSON(acc))
-		}
-		c.JSON(http.StatusOK, gin.H{"accounts": accounts, "total": resp.Total})
+		c.JSON(http.StatusOK, gin.H{"accounts": []gin.H{accountToJSON(resp)}, "total": 1})
 		return
 	}
 
@@ -194,6 +192,46 @@ func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 	})
 }
 
+// @Summary      List accounts by client (path-scoped)
+// @Description  Returns all accounts for a given client. Mounted under /clients/:id/accounts.
+// @Tags         accounts
+// @Produce      json
+// @Param        id         path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Items per page (default 50)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/clients/{id}/accounts [get]
+func (h *AccountHandler) ListAccountsByClientPath(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid client id")
+		return
+	}
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
+	page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 32)
+	pageSize, _ := strconv.ParseInt(c.DefaultQuery("page_size", "50"), 10, 32)
+	resp, err := h.accountClient.ListAccountsByClient(c.Request.Context(), &accountpb.ListAccountsByClientRequest{
+		ClientId: clientID,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	accounts := make([]gin.H, 0, len(resp.Accounts))
+	for _, acc := range resp.Accounts {
+		accounts = append(accounts, accountToJSON(acc))
+	}
+	c.JSON(http.StatusOK, gin.H{"accounts": accounts, "total": resp.Total})
+}
+
 // @Summary      Get account by ID
 // @Tags         accounts
 // @Produce      json
@@ -202,7 +240,7 @@ func (h *AccountHandler) ListAllAccounts(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/accounts/{id} [get]
+// @Router       /api/v2/accounts/{id} [get]
 func (h *AccountHandler) GetAccount(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -211,27 +249,6 @@ func (h *AccountHandler) GetAccount(c *gin.Context) {
 	}
 
 	resp, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: id})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, accountToJSON(resp))
-}
-
-// @Summary      Get account by number
-// @Tags         accounts
-// @Produce      json
-// @Param        account_number  path  string  true  "Account number"
-// @Security     BearerAuth
-// @Success      200  {object}  map[string]interface{}
-// @Failure      401  {object}  map[string]string
-// @Failure      404  {object}  map[string]string
-// @Router       /api/accounts/by-number/{account_number} [get]
-func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
-	accountNumber := c.Param("account_number")
-	resp, err := h.accountClient.GetAccountByNumber(c.Request.Context(), &accountpb.GetAccountByNumberRequest{
-		AccountNumber: accountNumber,
-	})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
@@ -250,7 +267,7 @@ func (h *AccountHandler) GetAccountByNumber(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/accounts/client/{client_id} [get]
+// @Router       /api/v2/accounts/client/{client_id} [get]
 func (h *AccountHandler) ListAccountsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -300,7 +317,7 @@ type updateAccountNameRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/accounts/{id}/name [put]
+// @Router       /api/v2/accounts/{id}/name [put]
 func (h *AccountHandler) UpdateAccountName(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -343,7 +360,7 @@ type updateAccountLimitsRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/accounts/{id}/limits [put]
+// @Router       /api/v2/accounts/{id}/limits [put]
 func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -387,39 +404,13 @@ func (h *AccountHandler) UpdateAccountLimits(c *gin.Context) {
 	c.JSON(http.StatusOK, accountToJSON(resp))
 }
 
-type updateAccountStatusRequest struct {
-	Status string `json:"status" binding:"required"`
-}
-
-// @Summary      Update account status
-// @Description  Updates the active/inactive status of a bank account. Requires accounts.update permission.
-// @Tags         accounts
-// @Accept       json
-// @Produce      json
-// @Param        id    path  int                         true  "Account ID"
-// @Param        body  body  updateAccountStatusRequest  true  "New status"
-// @Security     BearerAuth
-// @Success      200   {object}  map[string]interface{}
-// @Failure      400   {object}  map[string]string
-// @Failure      401   {object}  map[string]string
-// @Failure      500   {object}  map[string]string
-// @Router       /api/accounts/{id}/status [put]
-func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
+// setAccountStatus is the shared core for the activate/deactivate action pair.
+// The HTTP verb is POST and the desired status is hard-coded by the caller —
+// no body is read.
+func (h *AccountHandler) setAccountStatus(c *gin.Context, status string) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		apiError(c, 400, ErrValidation, "invalid id")
-		return
-	}
-
-	var req updateAccountStatusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, 400, ErrValidation, err.Error())
-		return
-	}
-
-	status, err := oneOf("status", req.Status, "active", "inactive")
-	if err != nil {
-		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
 	resp, err := h.accountClient.UpdateAccountStatus(middleware.GRPCContextWithChangedBy(c), &accountpb.UpdateAccountStatusRequest{
@@ -433,6 +424,40 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, accountToJSON(resp))
 }
 
+// ActivateAccount godoc
+// @Summary      Activate an account
+// @Description  Marks the account as active. Idempotent. Requires accounts.deactivate permission (status changes cluster under deactivate).
+// @Tags         accounts
+// @Produce      json
+// @Param        id    path  int  true  "Account ID"
+// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      404   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /api/v3/accounts/{id}/activate [post]
+func (h *AccountHandler) ActivateAccount(c *gin.Context) {
+	h.setAccountStatus(c, "active")
+}
+
+// DeactivateAccount godoc
+// @Summary      Deactivate an account
+// @Description  Marks the account as inactive. Idempotent. Requires accounts.deactivate permission.
+// @Tags         accounts
+// @Produce      json
+// @Param        id    path  int  true  "Account ID"
+// @Security     BearerAuth
+// @Success      200   {object}  map[string]interface{}
+// @Failure      400   {object}  map[string]string
+// @Failure      401   {object}  map[string]string
+// @Failure      404   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /api/v3/accounts/{id}/deactivate [post]
+func (h *AccountHandler) DeactivateAccount(c *gin.Context) {
+	h.setAccountStatus(c, "inactive")
+}
+
 // @Summary      List currencies
 // @Tags         accounts
 // @Produce      json
@@ -440,7 +465,7 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/currencies [get]
+// @Router       /api/v2/currencies [get]
 func (h *AccountHandler) ListCurrencies(c *gin.Context) {
 	resp, err := h.accountClient.ListCurrencies(c.Request.Context(), &accountpb.ListCurrenciesRequest{})
 	if err != nil {
@@ -478,7 +503,7 @@ type createCompanyRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/companies [post]
+// @Router       /api/v2/companies [post]
 func (h *AccountHandler) CreateCompany(c *gin.Context) {
 	var req createCompanyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -525,7 +550,7 @@ func (h *AccountHandler) CreateCompany(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}  "bank accounts"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/bank-accounts [get]
+// @Router       /api/v2/bank-accounts [get]
 func (h *AccountHandler) ListBankAccounts(c *gin.Context) {
 	resp, err := h.bankAccountClient.ListBankAccounts(c.Request.Context(), &accountpb.ListBankAccountsRequest{})
 	if err != nil {
@@ -547,7 +572,7 @@ func (h *AccountHandler) ListBankAccounts(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/bank-accounts [post]
+// @Router       /api/v2/bank-accounts [post]
 func (h *AccountHandler) CreateBankAccount(c *gin.Context) {
 	var body createBankAccountBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -583,7 +608,7 @@ func (h *AccountHandler) CreateBankAccount(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/bank-accounts/{id} [delete]
+// @Router       /api/v2/bank-accounts/{id} [delete]
 func (h *AccountHandler) DeleteBankAccount(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -600,7 +625,7 @@ func (h *AccountHandler) DeleteBankAccount(c *gin.Context) {
 
 // ListMyAccounts serves GET /api/me/accounts.
 func (h *AccountHandler) ListMyAccounts(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -627,7 +652,7 @@ func (h *AccountHandler) ListMyAccounts(c *gin.Context) {
 
 // GetMyAccount serves GET /api/me/accounts/:id — fetches account and verifies ownership.
 func (h *AccountHandler) GetMyAccount(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -650,6 +675,89 @@ func (h *AccountHandler) GetMyAccount(c *gin.Context) {
 	c.JSON(http.StatusOK, accountToJSON(resp))
 }
 
+// GetMyAccountActivity godoc
+// @Summary      List activity on one of my accounts
+// @Description  Returns every balance-affecting event on the account in reverse-chronological order. Includes securities buys/sells (`reference_type=order`), tax collection (`reference_type=tax`), commission debits, transfers, payments, and interest. Ownership enforced against the JWT.
+// @Tags         accounts
+// @Produce      json
+// @Param        id         path   int true  "Account ID"
+// @Param        page       query  int false "Page number (default 1)"
+// @Param        page_size  query  int false "Page size (default 20, max 200)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "entries, total_count"
+// @Failure      400  {object}  map[string]interface{}  "validation_error"
+// @Failure      401  {object}  map[string]interface{}
+// @Failure      403  {object}  map[string]interface{}  "account does not belong to caller"
+// @Failure      404  {object}  map[string]interface{}
+// @Router       /api/v2/me/accounts/{id}/activity [get]
+func (h *AccountHandler) GetMyAccountActivity(c *gin.Context) {
+	userID, _ := c.Get("principal_id")
+	uid, ok := userID.(int64)
+	if !ok {
+		apiError(c, 401, ErrUnauthorized, "invalid token claims")
+		return
+	}
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	acct, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	if acct.OwnerId != uint64(uid) {
+		apiError(c, 403, ErrForbidden, "access denied")
+		return
+	}
+
+	resp, err := h.accountClient.GetLedgerEntries(c.Request.Context(), &accountpb.GetLedgerEntriesRequest{
+		AccountNumber: acct.AccountNumber,
+		Page:          int32(page),
+		PageSize:      int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	out := make([]gin.H, 0, len(resp.Entries))
+	for _, e := range resp.Entries {
+		out = append(out, ledgerEntryToJSON(e, acct.CurrencyCode))
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"entries":     out,
+		"total_count": resp.TotalCount,
+	})
+}
+
+// ledgerEntryToJSON trims the raw LedgerEntryResponse to fields the client
+// cares about. Internal fields like idempotency keys are not exposed. The
+// ledger entry's account currency isn't carried on the entry itself — we
+// stamp it from the parent account so consumers can format amounts without
+// a second lookup.
+func ledgerEntryToJSON(e *accountpb.LedgerEntryResponse, currency string) gin.H {
+	return gin.H{
+		"id":             e.Id,
+		"entry_type":     e.EntryType, // "debit" or "credit"
+		"amount":         e.Amount,
+		"currency":       currency,
+		"balance_before": e.BalanceBefore,
+		"balance_after":  e.BalanceAfter,
+		"description":    e.Description,
+		"reference_id":   e.ReferenceId,
+		"reference_type": e.ReferenceType, // e.g. "order", "tax", "commission", "transfer", "payment", "interest"
+		"occurred_at":    e.CreatedAt,     // unix seconds
+	}
+}
+
 func accountToJSON(acc *accountpb.AccountResponse) gin.H {
 	return gin.H{
 		"id":                acc.Id,
@@ -659,6 +767,7 @@ func accountToJSON(acc *accountpb.AccountResponse) gin.H {
 		"owner_name":        acc.OwnerName,
 		"balance":           acc.Balance,
 		"available_balance": acc.AvailableBalance,
+		"reserved_balance":  acc.ReservedBalance,
 		"employee_id":       acc.EmployeeId,
 		"created_at":        acc.CreatedAt,
 		"expires_at":        acc.ExpiresAt,

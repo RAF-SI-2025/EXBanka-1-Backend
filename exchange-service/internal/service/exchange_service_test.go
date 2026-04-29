@@ -50,6 +50,45 @@ func seedRates(t *testing.T, repo *repository.ExchangeRateRepository) {
 	require.NoError(t, repo.Upsert("RSD", "USD", decimal.NewFromFloat(0.00916), decimal.NewFromFloat(0.00926)))
 }
 
+// ── ListRates / GetRate ─────────────────────────────────────────────────────
+
+func TestListRates_ReturnsAllStored(t *testing.T) {
+	svc, repo := newTestService(t)
+	seedRates(t, repo)
+	rates, err := svc.ListRates()
+	require.NoError(t, err)
+	if len(rates) < 4 {
+		t.Errorf("expected at least 4 rates, got %d", len(rates))
+	}
+}
+
+func TestListRates_EmptyRepo(t *testing.T) {
+	svc, _ := newTestService(t)
+	rates, err := svc.ListRates()
+	require.NoError(t, err)
+	if len(rates) != 0 {
+		t.Errorf("expected empty list, got %d", len(rates))
+	}
+}
+
+func TestGetRate_Success(t *testing.T) {
+	svc, repo := newTestService(t)
+	seedRates(t, repo)
+	rate, err := svc.GetRate("EUR", "RSD")
+	require.NoError(t, err)
+	if !rate.SellRate.Equal(decimal.NewFromFloat(118.5)) {
+		t.Errorf("unexpected sell rate: %s", rate.SellRate.String())
+	}
+}
+
+func TestGetRate_NotFound(t *testing.T) {
+	svc, _ := newTestService(t)
+	_, err := svc.GetRate("XYZ", "RSD")
+	if err == nil {
+		t.Fatal("expected error for unknown currency, got nil")
+	}
+}
+
 // ── Convert (no commission) ───────────────────────────────────────────────────
 
 func TestConvert_SameCurrency(t *testing.T) {

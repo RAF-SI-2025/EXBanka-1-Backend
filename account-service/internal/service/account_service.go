@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -64,19 +63,19 @@ func maintenanceFeeByType(accountType string) decimal.Decimal {
 
 func (s *AccountService) CreateAccount(account *model.Account) error {
 	if account.OwnerID == 0 {
-		return errors.New("owner_id is required")
+		return fmt.Errorf("CreateAccount: owner_id is required: %w", ErrInvalidAccount)
 	}
 	if account.CurrencyCode == "" {
-		return errors.New("currency_code is required")
+		return fmt.Errorf("CreateAccount: currency_code is required: %w", ErrInvalidAccount)
 	}
 	if account.AccountKind != "current" && account.AccountKind != "foreign" {
-		return fmt.Errorf("account kind must be 'current' or 'foreign'; got: %s", account.AccountKind)
+		return fmt.Errorf("CreateAccount: account kind must be 'current' or 'foreign'; got: %s: %w", account.AccountKind, ErrInvalidAccount)
 	}
 	if account.AccountKind == "current" && account.CurrencyCode != "RSD" {
-		return fmt.Errorf("current accounts can only use RSD currency; got: %s", account.CurrencyCode)
+		return fmt.Errorf("CreateAccount: current accounts can only use RSD currency; got: %s: %w", account.CurrencyCode, ErrInvalidAccount)
 	}
 	if account.AccountKind == "foreign" && account.CurrencyCode == "RSD" {
-		return errors.New("foreign accounts cannot use RSD; supported currencies: EUR, CHF, USD, GBP, JPY, CAD, AUD")
+		return fmt.Errorf("CreateAccount: foreign accounts cannot use RSD; supported currencies: EUR, CHF, USD, GBP, JPY, CAD, AUD: %w", ErrInvalidAccount)
 	}
 
 	// Check for duplicate account name for the same owner.
@@ -86,7 +85,7 @@ func (s *AccountService) CreateAccount(account *model.Account) error {
 			return fmt.Errorf("failed to check account name uniqueness: %w", err)
 		}
 		if exists {
-			return fmt.Errorf("an account with name %q already exists for this client", account.AccountName)
+			return fmt.Errorf("CreateAccount: an account with name %q already exists for this client: %w", account.AccountName, ErrCompanyDuplicate)
 		}
 	}
 
@@ -174,7 +173,7 @@ func (s *AccountService) UpdateAccountName(id, clientID uint64, newName string, 
 	// Fetch current state for changelog.
 	account, err := s.repo.GetByID(id)
 	if err != nil {
-		return fmt.Errorf("account %d not found", id)
+		return fmt.Errorf("UpdateAccountName(id=%d): %w", id, ErrAccountNotFound)
 	}
 	oldName := account.AccountName
 
@@ -184,7 +183,7 @@ func (s *AccountService) UpdateAccountName(id, clientID uint64, newName string, 
 		return fmt.Errorf("failed to check account name uniqueness: %w", err)
 	}
 	if exists {
-		return fmt.Errorf("an account with name %q already exists for this client", newName)
+		return fmt.Errorf("UpdateAccountName(id=%d): an account with name %q already exists for this client: %w", id, newName, ErrCompanyDuplicate)
 	}
 	if err := s.repo.UpdateName(id, clientID, newName); err != nil {
 		return err
@@ -205,7 +204,7 @@ func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit
 	// Fetch current state for changelog.
 	account, err := s.repo.GetByID(id)
 	if err != nil {
-		return fmt.Errorf("account %d not found", id)
+		return fmt.Errorf("UpdateAccountLimits(id=%d): %w", id, ErrAccountNotFound)
 	}
 
 	var changes []changelog.FieldChange
@@ -214,10 +213,10 @@ func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit
 	if dailyLimit != nil && *dailyLimit != "" {
 		d, err := decimal.NewFromString(*dailyLimit)
 		if err != nil {
-			return errors.New("invalid daily_limit value")
+			return fmt.Errorf("UpdateAccountLimits(id=%d): invalid daily_limit value: %w", id, ErrInvalidAccount)
 		}
 		if d.IsNegative() || d.IsZero() {
-			return errors.New("daily_limit must be greater than 0")
+			return fmt.Errorf("UpdateAccountLimits(id=%d): daily_limit must be greater than 0: %w", id, ErrInvalidAccount)
 		}
 		changes = append(changes, changelog.FieldChange{
 			Field: "daily_limit", OldValue: account.DailyLimit.String(), NewValue: d.String(),
@@ -227,10 +226,10 @@ func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit
 	if monthlyLimit != nil && *monthlyLimit != "" {
 		m, err := decimal.NewFromString(*monthlyLimit)
 		if err != nil {
-			return errors.New("invalid monthly_limit value")
+			return fmt.Errorf("UpdateAccountLimits(id=%d): invalid monthly_limit value: %w", id, ErrInvalidAccount)
 		}
 		if m.IsNegative() || m.IsZero() {
-			return errors.New("monthly_limit must be greater than 0")
+			return fmt.Errorf("UpdateAccountLimits(id=%d): monthly_limit must be greater than 0: %w", id, ErrInvalidAccount)
 		}
 		changes = append(changes, changelog.FieldChange{
 			Field: "monthly_limit", OldValue: account.MonthlyLimit.String(), NewValue: m.String(),
@@ -256,17 +255,17 @@ func (s *AccountService) UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit
 
 func (s *AccountService) UpdateAccountStatus(id uint64, newStatus string, changedBy int64) error {
 	if newStatus != "active" && newStatus != "inactive" {
-		return fmt.Errorf("account status must be 'active' or 'inactive'; got: %s", newStatus)
+		return fmt.Errorf("UpdateAccountStatus(id=%d, status=%s): status must be 'active' or 'inactive': %w", id, newStatus, ErrInvalidStatus)
 	}
 
 	account, err := s.repo.GetByID(id)
 	if err != nil {
-		return fmt.Errorf("account %d not found", id)
+		return fmt.Errorf("UpdateAccountStatus(id=%d): %w", id, ErrAccountNotFound)
 	}
 
 	oldStatus := account.Status
 	if oldStatus == newStatus {
-		return fmt.Errorf("account %d is already %s", id, newStatus)
+		return fmt.Errorf("UpdateAccountStatus(id=%d): account is already %s: %w", id, newStatus, ErrAccountInactive)
 	}
 
 	if err := s.repo.UpdateStatus(id, newStatus); err != nil {
@@ -284,9 +283,23 @@ func (s *AccountService) UpdateAccountStatus(id uint64, newStatus string, change
 }
 
 func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
+	return s.UpdateBalanceWithOpts(accountNumber, amount, updateAvailable, repository.UpdateBalanceOpts{})
+}
+
+// UpdateBalanceWithOpts is the memo/idempotency-aware entry point. Callers that
+// pass a non-empty IdempotencyKey get "at-most-once" semantics: a retry with
+// the same key short-circuits via the partial unique index on ledger_entries
+// and returns success without mutating the account. Callers that pass a non-
+// empty Memo get a ledger_entries row with that description so the balance
+// change is visible in transaction history.
+//
+// Backward compatible: UpdateBalance with no opts remains pure balance
+// mutation (no ledger row written), so existing transaction-service /
+// payment-service flows that write their own ledger entries are unaffected.
+func (s *AccountService) UpdateBalanceWithOpts(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts repository.UpdateBalanceOpts) error {
 	// All checks (funds, spending limits) and updates (balance, spending) are
 	// performed atomically inside a single SELECT FOR UPDATE transaction in the repo.
-	if err := s.repo.UpdateBalance(accountNumber, amount, updateAvailable); err != nil {
+	if _, err := s.repo.UpdateBalance(accountNumber, amount, updateAvailable, opts); err != nil {
 		return err
 	}
 	// Invalidate cached read-only data after balance change.
@@ -298,10 +311,10 @@ func (s *AccountService) UpdateBalance(accountNumber string, amount decimal.Deci
 
 func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountName string, initialBalance decimal.Decimal) (*model.Account, error) {
 	if accountKind != "current" && accountKind != "foreign" {
-		return nil, fmt.Errorf("account kind must be 'current' or 'foreign'; got: %s", accountKind)
+		return nil, fmt.Errorf("CreateBankAccount: account kind must be 'current' or 'foreign'; got: %s: %w", accountKind, ErrInvalidAccount)
 	}
 	if currencyCode == "" {
-		return nil, errors.New("currency_code is required")
+		return nil, fmt.Errorf("CreateBankAccount: currency_code is required: %w", ErrInvalidAccount)
 	}
 	// Check for duplicate account name for the bank owner.
 	if accountName != "" {
@@ -310,7 +323,7 @@ func (s *AccountService) CreateBankAccount(currencyCode, accountKind, accountNam
 			return nil, fmt.Errorf("failed to check account name uniqueness: %w", err)
 		}
 		if exists {
-			return nil, fmt.Errorf("an account with name %q already exists for this client", accountName)
+			return nil, fmt.Errorf("CreateBankAccount: an account with name %q already exists for this client: %w", accountName, ErrCompanyDuplicate)
 		}
 	}
 
@@ -367,16 +380,16 @@ func (s *AccountService) DeleteBankAccount(id uint64) error {
 			}
 		}
 		if target == nil {
-			return fmt.Errorf("bank account %d not found", id)
+			return fmt.Errorf("DeleteBankAccount(id=%d): %w", id, ErrAccountNotFound)
 		}
 		if !target.IsBankAccount {
-			return fmt.Errorf("account %d is not a bank account", id)
+			return fmt.Errorf("DeleteBankAccount(id=%d): account is not a bank account: %w", id, ErrInvalidAccount)
 		}
 		if target.CurrencyCode == "RSD" && rsdCount == 0 {
-			return errors.New("cannot delete: bank must maintain at least one RSD account")
+			return fmt.Errorf("DeleteBankAccount(id=%d): bank must maintain at least one RSD account: %w", id, ErrLastBankAccount)
 		}
 		if target.CurrencyCode != "RSD" && foreignCount == 0 {
-			return errors.New("cannot delete: bank must maintain at least one foreign currency account")
+			return fmt.Errorf("DeleteBankAccount(id=%d): bank must maintain at least one foreign currency account: %w", id, ErrLastBankAccount)
 		}
 		return tx.Delete(target).Error
 	})
@@ -385,7 +398,7 @@ func (s *AccountService) DeleteBankAccount(id uint64) error {
 func (s *AccountService) GetBankRSDAccount() (*model.Account, error) {
 	accounts, err := s.repo.ListBankAccountsByCurrency("RSD")
 	if err != nil || len(accounts) == 0 {
-		return nil, errors.New("no bank RSD account found")
+		return nil, fmt.Errorf("GetBankRSDAccount: no bank RSD account found: %w", ErrAccountNotFound)
 	}
 	return &accounts[0], nil
 }

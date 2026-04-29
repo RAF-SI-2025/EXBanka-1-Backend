@@ -13,6 +13,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
+	sharedsaga "github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -83,7 +84,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 
 	// 2. Validate amount is positive
 	if payment.InitialAmount.IsNegative() || payment.InitialAmount.IsZero() {
-		return fmt.Errorf("payment amount must be positive, got %s", payment.InitialAmount.StringFixed(4))
+		return fmt.Errorf("CreatePayment: amount must be positive, got %s: %w", payment.InitialAmount.StringFixed(4), ErrInvalidPayment)
 	}
 
 	currency := payment.CurrencyCode
@@ -92,8 +93,9 @@ func (s *PaymentService) CreatePayment(ctx context.Context, payment *model.Payme
 	}
 	commission, err := s.feeSvc.CalculateFee(payment.InitialAmount, "payment", currency)
 	if err != nil {
-		return fmt.Errorf("fee calculation failed for payment of %s %s from account %s: %w",
+		log.Printf("CreatePayment fee lookup failed: amount=%s currency=%s from=%s err=%v",
 			payment.InitialAmount.StringFixed(4), currency, payment.FromAccountNumber, err)
+		return fmt.Errorf("CreatePayment: %w", ErrFeeLookupFailed)
 	}
 	payment.Commission = commission
 	payment.FinalAmount = payment.InitialAmount.Add(payment.Commission)
@@ -220,28 +222,31 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 	// Debit sender, credit recipient, and (when commission applies) credit bank — all
 	// as saga-logged steps so compensation is automatic if any step fails.
 	if s.accountClient != nil {
+		paySagaID := fmt.Sprintf("payment-%d", payment.ID)
 		steps := []sagaStep{
 			{
-				name:          "debit_sender",
+				name:          sharedsaga.StepDebitSender,
 				accountNumber: payment.FromAccountNumber,
 				amount:        totalDebit.Neg(),
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: payment.FromAccountNumber, Amount: totalDebit.Neg().StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(paySagaID, sharedsaga.StepDebitSender),
 						})
 						return e
 					})
 				},
 			},
 			{
-				name:          "credit_recipient",
+				name:          sharedsaga.StepCreditRecipient,
 				accountNumber: payment.ToAccountNumber,
 				amount:        payment.InitialAmount,
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: payment.ToAccountNumber, Amount: payment.InitialAmount.StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(paySagaID, sharedsaga.StepCreditRecipient),
 						})
 						return e
 					})
@@ -254,7 +259,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 			commAmt := payment.Commission
 			bankAcct := s.bankRSDAccount
 			steps = append(steps, sagaStep{
-				name:          "credit_bank_commission",
+				name:          sharedsaga.StepCreditBankCommission,
 				accountNumber: bankAcct,
 				amount:        commAmt,
 				execute: func(ctx context.Context) error {
@@ -263,6 +268,7 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 							AccountNumber:   bankAcct,
 							Amount:          commAmt.StringFixed(4),
 							UpdateAvailable: true,
+							IdempotencyKey:  sharedsaga.IdempotencyKey(paySagaID, sharedsaga.StepCreditBankCommission),
 						})
 						return e
 					})

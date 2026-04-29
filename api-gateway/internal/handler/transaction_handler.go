@@ -61,7 +61,7 @@ type createPaymentRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/me/payments [post]
+// @Router       /api/v2/me/payments [post]
 func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 	var req createPaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -84,7 +84,7 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 		apiError(c, 400, ErrValidation, err.Error())
 		return
 	}
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, _ := userID.(int64)
 	emailVal, _ := c.Get("email")
 	clientEmail, _ := emailVal.(string)
@@ -114,7 +114,7 @@ func (h *TransactionHandler) CreatePayment(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/payments/{id} [get]
+// @Router       /api/v2/payments/{id} [get]
 func (h *TransactionHandler) GetPayment(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -145,7 +145,7 @@ func (h *TransactionHandler) GetPayment(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/payments/account/{account_number} [get]
+// @Router       /api/v2/payments/account/{account_number} [get]
 func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
 	accountNumber := c.Param("account_number")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -188,7 +188,7 @@ func (h *TransactionHandler) ListPaymentsByAccount(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/payments/client/{client_id} [get]
+// @Router       /api/v2/payments/client/{client_id} [get]
 func (h *TransactionHandler) ListPaymentsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -246,7 +246,7 @@ type executePaymentRequest struct {
 // @Failure      401   {object}  map[string]string
 // @Failure      422   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/payments/{id}/execute [post]
+// @Router       /api/v2/payments/{id}/execute [post]
 func (h *TransactionHandler) ExecutePayment(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -260,7 +260,7 @@ func (h *TransactionHandler) ExecutePayment(c *gin.Context) {
 		return
 	}
 
-	uid, _ := c.Get("user_id")
+	uid, _ := c.Get("principal_id")
 	clientID, ok := uid.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "not authenticated")
@@ -297,7 +297,7 @@ type createTransferRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/me/transfers [post]
+// @Router       /api/v2/me/transfers [post]
 func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	var req createTransferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -329,7 +329,7 @@ func (h *TransactionHandler) CreateTransfer(c *gin.Context) {
 	}
 	toCurrency = toAcc.CurrencyCode
 
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, _ := userID.(int64)
 	emailVal, _ := c.Get("email")
 	clientEmail, _ := emailVal.(string)
@@ -366,7 +366,7 @@ type executeTransferRequest struct {
 // @Failure      401   {object}  map[string]string
 // @Failure      422   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/transfers/{id}/execute [post]
+// @Router       /api/v2/transfers/{id}/execute [post]
 func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -380,7 +380,7 @@ func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
 		return
 	}
 
-	uid, _ := c.Get("user_id")
+	uid, _ := c.Get("principal_id")
 	clientID, ok := uid.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "not authenticated")
@@ -408,7 +408,7 @@ func (h *TransactionHandler) ExecuteTransfer(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/transfers/{id} [get]
+// @Router       /api/v2/transfers/{id} [get]
 func (h *TransactionHandler) GetTransfer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -435,7 +435,7 @@ func (h *TransactionHandler) GetTransfer(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/transfers/client/{client_id} [get]
+// @Router       /api/v2/transfers/client/{client_id} [get]
 func (h *TransactionHandler) ListTransfersByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -492,7 +492,7 @@ type createPaymentRecipientRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/payment-recipients [post]
+// @Router       /api/v2/payment-recipients [post]
 func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 	var req createPaymentRecipientRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -521,7 +521,7 @@ func (h *TransactionHandler) CreatePaymentRecipient(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/payment-recipients/{client_id} [get]
+// @Router       /api/v2/payment-recipients/{client_id} [get]
 func (h *TransactionHandler) ListPaymentRecipients(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -560,7 +560,7 @@ type updatePaymentRecipientRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/payment-recipients/{id} [put]
+// @Router       /api/v2/payment-recipients/{id} [put]
 func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -598,7 +598,7 @@ func (h *TransactionHandler) UpdatePaymentRecipient(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/payment-recipients/{id} [delete]
+// @Router       /api/v2/payment-recipients/{id} [delete]
 func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -620,7 +620,7 @@ func (h *TransactionHandler) DeletePaymentRecipient(c *gin.Context) {
 
 // ListMyPayments serves GET /api/me/payments.
 func (h *TransactionHandler) ListMyPayments(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -670,7 +670,7 @@ func (h *TransactionHandler) GetMyPayment(c *gin.Context) {
 
 // ListMyTransfers serves GET /api/me/transfers.
 func (h *TransactionHandler) ListMyTransfers(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -720,7 +720,7 @@ func (h *TransactionHandler) GetMyTransfer(c *gin.Context) {
 
 // ListMyPaymentRecipients serves GET /api/me/payment-recipients.
 func (h *TransactionHandler) ListMyPaymentRecipients(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -740,14 +740,14 @@ func (h *TransactionHandler) ListMyPaymentRecipients(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"recipients": recipients})
 }
 
-// CreateMyPaymentRecipient serves POST /api/me/payment-recipients — uses JWT user_id as client_id.
+// CreateMyPaymentRecipient serves POST /api/me/payment-recipients — uses JWT principal_id as client_id.
 type createMyPaymentRecipientRequest struct {
 	RecipientName string `json:"recipient_name" binding:"required"`
 	AccountNumber string `json:"account_number" binding:"required"`
 }
 
 func (h *TransactionHandler) CreateMyPaymentRecipient(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -770,97 +770,134 @@ func (h *TransactionHandler) CreateMyPaymentRecipient(c *gin.Context) {
 	c.JSON(http.StatusCreated, recipientToJSON(resp))
 }
 
-// ListPayments serves GET /api/payments — filters via ?client_id=X or ?account_number=X.
-func (h *TransactionHandler) ListPayments(c *gin.Context) {
-	clientIDStr := c.Query("client_id")
-	accountNumber := c.Query("account_number")
-
-	if clientIDStr != "" && accountNumber != "" {
-		apiError(c, 400, ErrValidation, "provide either client_id or account_number, not both")
-		return
-	}
-
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	if clientIDStr != "" {
-		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
-		if err != nil {
-			apiError(c, 400, ErrValidation, "invalid client_id")
-			return
-		}
-		accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		resp, err := h.txClient.ListPaymentsByClient(c.Request.Context(), &transactionpb.ListPaymentsByClientRequest{
-			ClientId:       clientID,
-			Page:           int32(page),
-			PageSize:       int32(pageSize),
-			AccountNumbers: accountNumbers,
-		})
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		payments := make([]gin.H, 0, len(resp.Payments))
-		for _, p := range resp.Payments {
-			payments = append(payments, paymentToJSON(p))
-		}
-		c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
-		return
-	}
-
-	if accountNumber != "" {
-		resp, err := h.txClient.ListPaymentsByAccount(c.Request.Context(), &transactionpb.ListPaymentsByAccountRequest{
-			AccountNumber: accountNumber,
-			DateFrom:      c.Query("date_from"),
-			DateTo:        c.Query("date_to"),
-			StatusFilter:  c.Query("status_filter"),
-			AmountMin:     c.Query("amount_min"),
-			AmountMax:     c.Query("amount_max"),
-			Page:          int32(page),
-			PageSize:      int32(pageSize),
-		})
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		payments := make([]gin.H, 0, len(resp.Payments))
-		for _, p := range resp.Payments {
-			payments = append(payments, paymentToJSON(p))
-		}
-		c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
-		return
-	}
-
-	apiError(c, 400, ErrValidation, "provide client_id or account_number query parameter")
-}
-
-// ListTransfers serves GET /api/transfers — filters via ?client_id=X.
-func (h *TransactionHandler) ListTransfers(c *gin.Context) {
-	clientIDStr := c.Query("client_id")
-	if clientIDStr == "" {
-		apiError(c, 400, ErrValidation, "provide client_id query parameter")
-		return
-	}
-
-	clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
+// @Summary      List payments by client (path-scoped)
+// @Description  Returns all payments for a given client. Mounted under /clients/:id/payments.
+// @Tags         payments
+// @Produce      json
+// @Param        id         path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/clients/{id}/payments [get]
+func (h *TransactionHandler) ListPaymentsByClientPath(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		apiError(c, 400, ErrValidation, "invalid client_id")
+		apiError(c, 400, ErrValidation, "invalid client id")
 		return
 	}
-
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
 	accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
 	if err != nil {
 		handleGRPCError(c, err)
 		return
 	}
-
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.txClient.ListPaymentsByClient(c.Request.Context(), &transactionpb.ListPaymentsByClientRequest{
+		ClientId:       clientID,
+		Page:           int32(page),
+		PageSize:       int32(pageSize),
+		AccountNumbers: accountNumbers,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	payments := make([]gin.H, 0, len(resp.Payments))
+	for _, p := range resp.Payments {
+		payments = append(payments, paymentToJSON(p))
+	}
+	c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
+}
 
+// @Summary      List payments by account (path-scoped)
+// @Description  Returns payments for a given account ID. Resolves account_number from ID via account-service.
+// @Tags         payments
+// @Produce      json
+// @Param        id             path   int     true   "Account ID"
+// @Param        page           query  int     false  "Page number (default 1)"
+// @Param        page_size      query  int     false  "Items per page (default 20)"
+// @Param        date_from      query  string  false  "Start date (RFC3339 or YYYY-MM-DD)"
+// @Param        date_to        query  string  false  "End date (RFC3339 or YYYY-MM-DD)"
+// @Param        status_filter  query  string  false  "Filter by status"
+// @Param        amount_min     query  number  false  "Minimum amount"
+// @Param        amount_max     query  number  false  "Maximum amount"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/accounts/{id}/payments [get]
+func (h *TransactionHandler) ListPaymentsByAccountPath(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid account id")
+		return
+	}
+	acct, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.txClient.ListPaymentsByAccount(c.Request.Context(), &transactionpb.ListPaymentsByAccountRequest{
+		AccountNumber: acct.AccountNumber,
+		DateFrom:      c.Query("date_from"),
+		DateTo:        c.Query("date_to"),
+		StatusFilter:  c.Query("status_filter"),
+		AmountMin:     c.Query("amount_min"),
+		AmountMax:     c.Query("amount_max"),
+		Page:          int32(page),
+		PageSize:      int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	payments := make([]gin.H, 0, len(resp.Payments))
+	for _, p := range resp.Payments {
+		payments = append(payments, paymentToJSON(p))
+	}
+	c.JSON(http.StatusOK, gin.H{"payments": payments, "total": resp.Total})
+}
+
+// @Summary      List transfers by client (path-scoped)
+// @Description  Returns all transfers for a given client. Mounted under /clients/:id/transfers.
+// @Tags         transfers
+// @Produce      json
+// @Param        id         path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/clients/{id}/transfers [get]
+func (h *TransactionHandler) ListTransfersByClientPath(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid client id")
+		return
+	}
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
+	accountNumbers, err := h.resolveClientAccountNumbers(c, clientID)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	resp, err := h.txClient.ListTransfersByClient(c.Request.Context(), &transactionpb.ListTransfersByClientRequest{
 		ClientId:       clientID,
 		Page:           int32(page),
@@ -871,7 +908,6 @@ func (h *TransactionHandler) ListTransfers(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-
 	transfers := make([]gin.H, 0, len(resp.Transfers))
 	for _, t := range resp.Transfers {
 		transfers = append(transfers, transferToJSON(t))
@@ -977,7 +1013,7 @@ type updateFeeBody struct {
 // @Success      200  {object}  map[string]interface{}  "fee rules"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/fees [get]
+// @Router       /api/v2/fees [get]
 func (h *TransactionHandler) ListFees(c *gin.Context) {
 	resp, err := h.feeClient.ListFees(c.Request.Context(), &transactionpb.ListFeesRequest{})
 	if err != nil {
@@ -999,7 +1035,7 @@ func (h *TransactionHandler) ListFees(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/fees [post]
+// @Router       /api/v2/fees [post]
 func (h *TransactionHandler) CreateFee(c *gin.Context) {
 	var body createFeeBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -1046,7 +1082,7 @@ func (h *TransactionHandler) CreateFee(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/fees/{id} [put]
+// @Router       /api/v2/fees/{id} [put]
 func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -1103,7 +1139,7 @@ func (h *TransactionHandler) UpdateFee(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      404  {object}  map[string]string       "not found"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/fees/{id} [delete]
+// @Router       /api/v2/fees/{id} [delete]
 func (h *TransactionHandler) DeleteFee(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -1135,7 +1171,7 @@ type previewTransferRequest struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/v1/me/transfers/preview [post]
+// @Router       /api/v2/me/transfers/preview [post]
 func (h *TransactionHandler) PreviewTransfer(c *gin.Context) {
 	var req previewTransferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

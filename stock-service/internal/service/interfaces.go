@@ -78,6 +78,7 @@ type ListingRepo interface {
 	Create(listing *model.Listing) error
 	GetByID(id uint64) (*model.Listing, error)
 	GetBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error)
+	ListBySecurityIDsAndType(securityIDs []uint64, securityType string) ([]model.Listing, error)
 	Update(listing *model.Listing) error
 	UpsertBySecurity(listing *model.Listing) error
 	UpsertForOption(listing *model.Listing) (*model.Listing, error)
@@ -101,15 +102,27 @@ type DailyPriceRepo interface {
 type OrderRepo interface {
 	Create(order *model.Order) error
 	GetByID(id uint64) (*model.Order, error)
+	GetByIDWithOwner(id uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error)
 	Update(order *model.Order) error
-	ListByUser(userID uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
+	Delete(id uint64) error
+	ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
 	ListAll(filter repository.OrderFilter) ([]model.Order, int64, error)
 	ListActiveApproved() ([]model.Order, error)
 }
 
 type OrderTransactionRepo interface {
 	Create(tx *model.OrderTransaction) error
+	Update(tx *model.OrderTransaction) error
 	ListByOrderID(orderID uint64) ([]model.OrderTransaction, error)
+}
+
+// HoldingTransactionRepo is the narrow read-side interface the portfolio
+// service uses for the Part-B per-holding history endpoint. Kept separate
+// from OrderTransactionRepo so existing mocks (stubbed Create/Update/ListByOrderID)
+// stay backwards compatible.
+type HoldingTransactionRepo interface {
+	ListByHolding(ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64,
+		direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
 }
 
 // --- Portfolio ---
@@ -122,34 +135,45 @@ type AccountGainSummary = repository.AccountGainSummary
 type TaxUserSummary = repository.TaxUserSummary
 
 type HoldingRepo interface {
-	Upsert(holding *model.Holding) error // INSERT or UPDATE (weighted average)
+	// Upsert inserts a new holding or updates an existing one with a
+	// weighted-average price. Ctx is read for saga_id / saga_step (set
+	// by the gRPC server saga-context interceptor on incoming saga-callee
+	// RPCs) and stamped onto the row for cross-service audit.
+	Upsert(ctx context.Context, holding *model.Holding) error
 	GetByID(id uint64) (*model.Holding, error)
 	Update(holding *model.Holding) error
 	Delete(id uint64) error
-	GetByUserAndSecurity(userID uint64, securityType string, securityID uint64, accountID uint64) (*model.Holding, error)
-	ListByUser(userID uint64, filter HoldingFilter) ([]model.Holding, int64, error)
+	GetByOwnerAndSecurity(ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error)
+	ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter HoldingFilter) ([]model.Holding, int64, error)
 	ListPublicOffers(filter OTCFilter) ([]model.Holding, int64, error)
-	// FindOldestLongOptionHolding returns the oldest (by created_at) holding with
-	// security_type="option", security_id=optionID, user_id=userID, quantity>0.
-	// Returns (nil, nil) when no such holding exists.
-	FindOldestLongOptionHolding(userID, optionID uint64) (*model.Holding, error)
+	// FindOldestLongOptionHolding returns the oldest (by created_at) holding
+	// with security_type="option", security_id=optionID, (owner_type, owner_id),
+	// quantity>0. Returns (nil, nil) when no such holding exists.
+	FindOldestLongOptionHolding(ownerType model.OwnerType, ownerID *uint64, optionID uint64) (*model.Holding, error)
 }
 
 // --- Tax ---
 
 type CapitalGainRepo interface {
 	Create(gain *model.CapitalGain) error
-	ListByUser(userID uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
-	SumByUserMonth(userID uint64, year, month int) ([]AccountGainSummary, error) // grouped by account_id, currency
-	SumByUserYear(userID uint64, year int) ([]AccountGainSummary, error)
+	ListByOwner(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.CapitalGain, int64, error)
+	SumByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) ([]AccountGainSummary, error) // grouped by account_id, currency
+	SumUncollectedByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) ([]AccountGainSummary, error)
+	SumByOwnerYear(ownerType model.OwnerType, ownerID *uint64, year int) ([]AccountGainSummary, error)
+	SumByOwnerAllTime(ownerType model.OwnerType, ownerID *uint64) ([]AccountGainSummary, error)
+	CountByOwnerYear(ownerType model.OwnerType, ownerID *uint64, year int) (int64, error)
+	MarkCollected(ownerType model.OwnerType, ownerID *uint64, year, month int, accountID uint64, currency string, taxCollectionID uint64) error
 }
 
 type TaxCollectionRepo interface {
 	Create(collection *model.TaxCollection) error
-	SumByUserYear(userID uint64, year int) (decimal.Decimal, error) // total RSD collected
-	SumByUserMonth(userID uint64, year, month int) (decimal.Decimal, error)
-	GetLastCollection(userID uint64) (*model.TaxCollection, error)
-	ListUsersWithGains(year, month int, filter TaxFilter) ([]TaxUserSummary, int64, error)
+	SumByOwnerYear(ownerType model.OwnerType, ownerID *uint64, year int) (decimal.Decimal, error) // total RSD collected
+	SumByOwnerMonth(ownerType model.OwnerType, ownerID *uint64, year, month int) (decimal.Decimal, error)
+	SumByOwnerAllTime(ownerType model.OwnerType, ownerID *uint64) (decimal.Decimal, error)
+	CountByKey(ownerType model.OwnerType, ownerID *uint64, year, month int, accountID uint64, currency string) (int64, error)
+	GetLastCollection(ownerType model.OwnerType, ownerID *uint64) (*model.TaxCollection, error)
+	ListByOwner(ownerType model.OwnerType, ownerID *uint64, page, pageSize int) ([]model.TaxCollection, int64, error)
+	ListOwnersWithGains(year, month int, filter TaxFilter) ([]TaxUserSummary, int64, error)
 }
 
 // --- Fill Handler (for order execution integration) ---
@@ -157,8 +181,41 @@ type TaxCollectionRepo interface {
 type FillHandler interface {
 	ProcessBuyFill(order *model.Order, txn *model.OrderTransaction) error
 	ProcessSellFill(order *model.Order, txn *model.OrderTransaction) error
+	// ReleaseResidualReservation is called by the execution engine once a buy
+	// order has fully filled. It drops the slippage+commission buffer that
+	// was reserved at placement but not consumed by partial-settle calls.
+	// Implementations must be safe to call with nothing left to release.
+	ReleaseResidualReservation(ctx context.Context, orderID uint64) error
 }
 
-// --- Name Resolver (for user name lookup) ---
+// --- Name Resolver (for owner name lookup) ---
 
-type UserNameResolver func(userID uint64, systemType string) (firstName, lastName string, err error)
+// UserNameResolver resolves an owner's display name. The bank owner (OwnerType
+// = bank, ownerID = nil) typically resolves to the bank's display name; client
+// owners resolve via client-service.
+type UserNameResolver func(ownerType model.OwnerType, ownerID *uint64) (firstName, lastName string, err error)
+
+// ptrIfNonZero converts a uint64 (proto3 zero-value semantics) into a *uint64
+// suitable for nullable model columns: 0 → nil, non-zero → &v. Used at the
+// service-layer boundary where legacy gRPC requests still pack optional ids
+// as plain uint64 (e.g., ActingEmployeeID).
+func ptrIfNonZero(v uint64) *uint64 {
+	if v == 0 {
+		return nil
+	}
+	out := v
+	return &out
+}
+
+// ownerIDEqual reports whether two nullable owner-id pointers reference the
+// same logical id. Both nil → equal (both bank). One nil → not equal. Both
+// non-nil → compare values.
+func ownerIDEqual(a, b *uint64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}

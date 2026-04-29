@@ -24,6 +24,7 @@ const (
 	ClientService_GetClientByEmail_FullMethodName = "/client.ClientService/GetClientByEmail"
 	ClientService_ListClients_FullMethodName      = "/client.ClientService/ListClients"
 	ClientService_UpdateClient_FullMethodName     = "/client.ClientService/UpdateClient"
+	ClientService_ListChangelog_FullMethodName    = "/client.ClientService/ListChangelog"
 )
 
 // ClientServiceClient is the client API for ClientService service.
@@ -35,6 +36,9 @@ type ClientServiceClient interface {
 	GetClientByEmail(ctx context.Context, in *GetClientByEmailRequest, opts ...grpc.CallOption) (*ClientResponse, error)
 	ListClients(ctx context.Context, in *ListClientsRequest, opts ...grpc.CallOption) (*ListClientsResponse, error)
 	UpdateClient(ctx context.Context, in *UpdateClientRequest, opts ...grpc.CallOption) (*ClientResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error)
 }
 
 type clientServiceClient struct {
@@ -95,6 +99,16 @@ func (c *clientServiceClient) UpdateClient(ctx context.Context, in *UpdateClient
 	return out, nil
 }
 
+func (c *clientServiceClient) ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListChangelogResponse)
+	err := c.cc.Invoke(ctx, ClientService_ListChangelog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClientServiceServer is the server API for ClientService service.
 // All implementations must embed UnimplementedClientServiceServer
 // for forward compatibility.
@@ -104,6 +118,9 @@ type ClientServiceServer interface {
 	GetClientByEmail(context.Context, *GetClientByEmailRequest) (*ClientResponse, error)
 	ListClients(context.Context, *ListClientsRequest) (*ListClientsResponse, error)
 	UpdateClient(context.Context, *UpdateClientRequest) (*ClientResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error)
 	mustEmbedUnimplementedClientServiceServer()
 }
 
@@ -128,6 +145,9 @@ func (UnimplementedClientServiceServer) ListClients(context.Context, *ListClient
 }
 func (UnimplementedClientServiceServer) UpdateClient(context.Context, *UpdateClientRequest) (*ClientResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateClient not implemented")
+}
+func (UnimplementedClientServiceServer) ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListChangelog not implemented")
 }
 func (UnimplementedClientServiceServer) mustEmbedUnimplementedClientServiceServer() {}
 func (UnimplementedClientServiceServer) testEmbeddedByValue()                       {}
@@ -240,6 +260,24 @@ func _ClientService_UpdateClient_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClientService_ListChangelog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListChangelogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClientServiceServer).ListChangelog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClientService_ListChangelog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClientServiceServer).ListChangelog(ctx, req.(*ListChangelogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClientService_ServiceDesc is the grpc.ServiceDesc for ClientService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +304,10 @@ var ClientService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateClient",
 			Handler:    _ClientService_UpdateClient_Handler,
+		},
+		{
+			MethodName: "ListChangelog",
+			Handler:    _ClientService_ListChangelog_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

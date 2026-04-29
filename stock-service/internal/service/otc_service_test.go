@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -29,7 +30,7 @@ func buildOTCService() (*OTCService, *otcMocks) {
 		accountClient:   newMockAccountClient(),
 	}
 
-	nameResolver := func(userID uint64, systemType string) (string, string, error) {
+	nameResolver := func(ownerType model.OwnerType, ownerID *uint64) (string, string, error) {
 		return "Jane", "Buyer", nil
 	}
 
@@ -74,8 +75,8 @@ func TestOTC_BuyOffer_Success(t *testing.T) {
 
 	// Seller has 20 shares, 10 public, avg price $40
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         10,
-		SystemType:     "employee",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(10),
 		SecurityType:   "stock",
 		SecurityID:     100,
 		ListingID:      1,
@@ -121,7 +122,7 @@ func TestOTC_BuyOffer_Success(t *testing.T) {
 	}
 
 	// Verify buyer got a holding
-	buyerHolding, err := mocks.holdingRepo.GetByUserAndSecurity(20, "stock", 100, 5)
+	buyerHolding, err := mocks.holdingRepo.GetByOwnerAndSecurity(model.OwnerClient, ptrU64(20), "stock", 100)
 	if err != nil {
 		t.Fatalf("buyer holding not found: %v", err)
 	}
@@ -148,8 +149,8 @@ func TestOTC_BuyOffer_CommissionBelowCap(t *testing.T) {
 	mocks.listingRepo.addListing(listing)
 
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         10,
-		SystemType:     "employee",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(10),
 		SecurityType:   "stock",
 		SecurityID:     100,
 		ListingID:      1,
@@ -198,8 +199,8 @@ func TestOTC_BuyOffer_CommissionAtCap(t *testing.T) {
 	mocks.listingRepo.addListing(listing)
 
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         10,
-		SystemType:     "employee",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(10),
 		SecurityType:   "stock",
 		SecurityID:     100,
 		ListingID:      1,
@@ -237,8 +238,8 @@ func TestOTC_BuyOffer_CapitalGainRecorded(t *testing.T) {
 	mocks.listingRepo.addListing(listing)
 
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         10,
-		SystemType:     "employee",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(10),
 		SecurityType:   "stock",
 		SecurityID:     100,
 		ListingID:      1,
@@ -263,8 +264,8 @@ func TestOTC_BuyOffer_CapitalGainRecorded(t *testing.T) {
 		t.Fatalf("expected 1 capital gain, got %d", len(mocks.capitalGainRepo.gains))
 	}
 	cg := mocks.capitalGainRepo.gains[0]
-	if cg.UserID != 10 {
-		t.Errorf("expected capital gain for seller (user 10), got user %d", cg.UserID)
+	if cg.OwnerID == nil || *cg.OwnerID != 10 {
+		t.Errorf("expected capital gain for seller (owner 10), got owner_id=%v", cg.OwnerID)
 	}
 	if !cg.OTC {
 		t.Error("expected OTC flag to be true")
@@ -296,8 +297,8 @@ func TestOTC_BuyOffer_InsufficientPublicQuantity(t *testing.T) {
 	mocks.listingRepo.addListing(listing)
 
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         10,
-		SystemType:     "employee",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(10),
 		SecurityType:   "stock",
 		SecurityID:     100,
 		ListingID:      1,
@@ -316,7 +317,7 @@ func TestOTC_BuyOffer_InsufficientPublicQuantity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for insufficient public quantity")
 	}
-	if err.Error() != "insufficient public quantity for OTC purchase" {
+	if !strings.Contains(err.Error(), "insufficient public quantity for OTC purchase") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -330,8 +331,8 @@ func TestOTC_ListOffers_OnlyPublicHoldings(t *testing.T) {
 
 	// Holding with public quantity (should appear)
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         10,
-		SystemType:     "employee",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(10),
 		SecurityType:   "stock",
 		SecurityID:     100,
 		ListingID:      1,
@@ -345,8 +346,8 @@ func TestOTC_ListOffers_OnlyPublicHoldings(t *testing.T) {
 
 	// Holding without public quantity (should NOT appear)
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         20,
-		SystemType:     "client",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(20),
 		SecurityType:   "stock",
 		SecurityID:     200,
 		ListingID:      2,
@@ -388,8 +389,8 @@ func TestOTC_BuyOffer_CompensatesBuyerOnSellerCreditFailure(t *testing.T) {
 	mocks.listingRepo.addListing(listing)
 
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         10,
-		SystemType:     "employee",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(10),
 		SecurityType:   "stock",
 		SecurityID:     100,
 		ListingID:      1,
@@ -451,8 +452,8 @@ func TestOTC_BuyOffer_CompensatesBothOnCapitalGainFailure(t *testing.T) {
 	mocks.listingRepo.addListing(listing)
 
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         10,
-		SystemType:     "employee",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(10),
 		SecurityType:   "stock",
 		SecurityID:     100,
 		ListingID:      1,
@@ -528,8 +529,8 @@ func TestOTC_BuyOffer_HoldingUpsertFailure_ReturnsError(t *testing.T) {
 	mocks.listingRepo.addListing(listing)
 
 	mocks.holdingRepo.addHolding(&model.Holding{
-		UserID:         10,
-		SystemType:     "employee",
+		OwnerType:      model.OwnerClient,
+		OwnerID:        ptrU64(10),
 		SecurityType:   "stock",
 		SecurityID:     100,
 		ListingID:      1,

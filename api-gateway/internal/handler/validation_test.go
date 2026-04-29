@@ -130,8 +130,8 @@ func TestEnforceOwnership_Match_ReturnsNil(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("system_type", "client")
-	c.Set("user_id", int64(42))
+	c.Set("principal_type", "client")
+	c.Set("principal_id", int64(42))
 
 	err := enforceOwnership(c, 42)
 	require.NoError(t, err)
@@ -142,8 +142,8 @@ func TestEnforceOwnership_Mismatch_Writes404(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("system_type", "client")
-	c.Set("user_id", int64(42))
+	c.Set("principal_type", "client")
+	c.Set("principal_id", int64(42))
 
 	err := enforceOwnership(c, 99)
 	require.Error(t, err)
@@ -155,8 +155,8 @@ func TestEnforceOwnership_EmployeeBypass_ReturnsNil(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("system_type", "employee")
-	c.Set("user_id", int64(1))
+	c.Set("principal_type", "employee")
+	c.Set("principal_id", int64(1))
 
 	err := enforceOwnership(c, 9999)
 	require.NoError(t, err, "employees must bypass ownership check")
@@ -171,4 +171,37 @@ func TestEnforceOwnership_MissingSystemType_ReturnsNil(t *testing.T) {
 	err := enforceOwnership(c, 9999)
 	require.NoError(t, err)
 	require.Equal(t, 200, w.Code)
+}
+
+// ---------------------------------------------------------------------------
+// owner-type-schema legacy converters
+// ---------------------------------------------------------------------------
+
+// TestOwnerToLegacyUserID_NilIsBank locks the contract that a bank owner
+// (OwnerID==nil on ResolvedIdentity) flattens to the legacy uint64 sentinel
+// 0 used by stock-service proto request shapes pending Task 9 of the
+// 2026-04-27 owner-type-schema plan.
+func TestOwnerToLegacyUserID_NilIsBank(t *testing.T) {
+	require.Equal(t, uint64(0), ownerToLegacyUserID(nil),
+		"bank owner has nil OwnerID; legacy form is 0")
+}
+
+func TestOwnerToLegacyUserID_PtrPassThrough(t *testing.T) {
+	v := uint64(42)
+	require.Equal(t, uint64(42), ownerToLegacyUserID(&v),
+		"client/owner ID flattens to its uint64 value")
+}
+
+func TestOwnerToLegacySystemType_PassThrough(t *testing.T) {
+	require.Equal(t, "client", ownerToLegacySystemType("client"))
+	require.Equal(t, "bank", ownerToLegacySystemType("bank"))
+}
+
+func TestDerefU64Ptr_NilIsZero(t *testing.T) {
+	require.Equal(t, uint64(0), derefU64Ptr(nil))
+}
+
+func TestDerefU64Ptr_PtrPassThrough(t *testing.T) {
+	v := uint64(11)
+	require.Equal(t, uint64(11), derefU64Ptr(&v))
 }

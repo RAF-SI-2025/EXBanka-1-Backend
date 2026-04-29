@@ -26,7 +26,7 @@ type MobileDeviceService struct {
 	accountRepo         *repository.AccountRepository
 	tokenRepo           *repository.TokenRepository
 	jwtService          *JWTService
-	producer            *kafkaprod.Producer
+	producer            eventProducer
 	mobileRefreshExp    time.Duration
 	mobileActivationExp time.Duration
 	frontendBaseURL     string
@@ -56,14 +56,41 @@ func NewMobileDeviceService(
 	}
 }
 
+// newMobileDeviceServiceForTest constructs a MobileDeviceService with a
+// pluggable event producer. Used by package tests to swap in an in-process
+// fake (no live broker required).
+func newMobileDeviceServiceForTest(
+	deviceRepo *repository.MobileDeviceRepository,
+	activationRepo *repository.MobileActivationRepository,
+	accountRepo *repository.AccountRepository,
+	tokenRepo *repository.TokenRepository,
+	jwtService *JWTService,
+	producer eventProducer,
+	mobileRefreshExp time.Duration,
+	mobileActivationExp time.Duration,
+	frontendBaseURL string,
+) *MobileDeviceService {
+	return &MobileDeviceService{
+		deviceRepo:          deviceRepo,
+		activationRepo:      activationRepo,
+		accountRepo:         accountRepo,
+		tokenRepo:           tokenRepo,
+		jwtService:          jwtService,
+		producer:            producer,
+		mobileRefreshExp:    mobileRefreshExp,
+		mobileActivationExp: mobileActivationExp,
+		frontendBaseURL:     frontendBaseURL,
+	}
+}
+
 // RequestActivation sends a 6-digit activation code to the user's email.
 func (s *MobileDeviceService) RequestActivation(ctx context.Context, email string) error {
 	account, err := s.accountRepo.GetByEmail(email)
 	if err != nil {
-		return errors.New("account not found")
+		return fmt.Errorf("RequestActivation: lookup account by email: %v: %w", err, ErrAccountNotFound)
 	}
 	if account.Status != "active" {
-		return errors.New("account is not active")
+		return fmt.Errorf("RequestActivation: account %d status=%s: %w", account.ID, account.Status, ErrAccountDisabled)
 	}
 
 	code := generateActivationCode()
@@ -95,7 +122,7 @@ func (s *MobileDeviceService) ActivateDevice(ctx context.Context, email, code, d
 	// Look up account first (read-only, no lock needed)
 	account, err := s.accountRepo.GetByEmail(email)
 	if err != nil {
-		return "", "", "", "", errors.New("account not found")
+		return "", "", "", "", fmt.Errorf("ActivateDevice: lookup account: %v: %w", err, ErrAccountNotFound)
 	}
 
 	// Generate device credentials outside the transaction
@@ -108,29 +135,29 @@ func (s *MobileDeviceService) ActivateDevice(ctx context.Context, email, code, d
 		// SELECT FOR UPDATE on activation code — prevents concurrent validation
 		activationCode, err := s.activationRepo.GetLatestByEmailForUpdate(tx, email)
 		if err != nil {
-			return errors.New("activation code not found")
+			return fmt.Errorf("ActivateDevice: lookup activation code: %v: %w", err, ErrActivationCodeNotFound)
 		}
 		if activationCode.Used {
-			return errors.New("activation code already used")
+			return fmt.Errorf("ActivateDevice: activation code id=%d already used: %w", activationCode.ID, ErrActivationCodeUsed)
 		}
 		if time.Now().After(activationCode.ExpiresAt) {
-			return errors.New("activation code expired")
+			return fmt.Errorf("ActivateDevice: activation code id=%d expired at %s: %w", activationCode.ID, activationCode.ExpiresAt.Format(time.RFC3339), ErrActivationCodeExpired)
 		}
 		if activationCode.Attempts >= 3 {
-			return errors.New("max attempts exceeded for activation code")
+			return fmt.Errorf("ActivateDevice: activation code id=%d attempts=%d (cap=3): %w", activationCode.ID, activationCode.Attempts, ErrActivationCodeMaxAttempts)
 		}
 
 		// Increment attempts atomically within the transaction
 		if err := s.activationRepo.IncrementAttemptsInTx(tx, activationCode.ID); err != nil {
-			return fmt.Errorf("failed to increment attempts: %w", err)
+			return fmt.Errorf("ActivateDevice: increment attempts: %w", err)
 		}
 
 		if activationCode.Code != code {
 			remaining := 2 - activationCode.Attempts
 			if remaining <= 0 {
-				return errors.New("max attempts exceeded for activation code")
+				return fmt.Errorf("ActivateDevice: activation code id=%d max attempts exhausted: %w", activationCode.ID, ErrActivationCodeMaxAttempts)
 			}
-			return fmt.Errorf("invalid activation code, %d attempts remaining", remaining)
+			return fmt.Errorf("ActivateDevice: invalid activation code id=%d, %d attempts remaining: %w", activationCode.ID, remaining, ErrActivationCodeInvalid)
 		}
 
 		// Mark code as used within the same transaction
@@ -214,26 +241,26 @@ func (s *MobileDeviceService) ActivateDevice(ctx context.Context, email, code, d
 func (s *MobileDeviceService) ValidateDeviceSignature(deviceID, timestamp, method, path, bodySHA256, signature string) (bool, error) {
 	device, err := s.deviceRepo.GetByDeviceID(deviceID)
 	if err != nil {
-		return false, errors.New("device not found")
+		return false, fmt.Errorf("ValidateDeviceSignature: lookup device %q: %v: %w", deviceID, err, ErrDeviceNotFound)
 	}
 	if device.Status != "active" {
-		return false, errors.New("device is not active")
+		return false, fmt.Errorf("ValidateDeviceSignature: device %q status=%s: %w", deviceID, device.Status, ErrDeviceInactive)
 	}
 
 	// Check timestamp freshness (30 second window)
 	ts, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
-		return false, errors.New("invalid timestamp")
+		return false, fmt.Errorf("ValidateDeviceSignature: parse timestamp %q: %v: %w", timestamp, err, ErrInvalidSignature)
 	}
 	if abs64(time.Now().Unix()-ts) > 30 {
-		return false, errors.New("request timestamp too old")
+		return false, fmt.Errorf("ValidateDeviceSignature: timestamp %d too old: %w", ts, ErrInvalidSignature)
 	}
 
 	// Reconstruct payload and verify HMAC
 	payload := timestamp + ":" + method + ":" + path + ":" + bodySHA256
 	secretBytes, err := hex.DecodeString(device.DeviceSecret)
 	if err != nil {
-		return false, errors.New("invalid device secret")
+		return false, fmt.Errorf("ValidateDeviceSignature: decode device secret: %v: %w", err, ErrInvalidSignature)
 	}
 
 	mac := hmac.New(sha256.New, secretBytes)
@@ -242,11 +269,11 @@ func (s *MobileDeviceService) ValidateDeviceSignature(deviceID, timestamp, metho
 
 	sigBytes, err := hex.DecodeString(signature)
 	if err != nil {
-		return false, errors.New("invalid signature format")
+		return false, fmt.Errorf("ValidateDeviceSignature: decode signature: %v: %w", err, ErrInvalidSignature)
 	}
 
 	if !hmac.Equal(sigBytes, expectedBytes) {
-		return false, errors.New("signature mismatch")
+		return false, fmt.Errorf("ValidateDeviceSignature: HMAC mismatch for device %q: %w", deviceID, ErrInvalidSignature)
 	}
 
 	return true, nil
@@ -257,7 +284,7 @@ func (s *MobileDeviceService) GetDeviceInfo(userID int64) (*model.MobileDevice, 
 	device, err := s.deviceRepo.GetActiveByUserID(userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("no active device found")
+			return nil, fmt.Errorf("GetDeviceInfo: no active device for user %d: %w", userID, ErrDeviceNotFound)
 		}
 		return nil, err
 	}
@@ -268,20 +295,20 @@ func (s *MobileDeviceService) GetDeviceInfo(userID int64) (*model.MobileDevice, 
 func (s *MobileDeviceService) DeactivateDevice(userID int64, deviceID string) error {
 	device, err := s.deviceRepo.GetByDeviceID(deviceID)
 	if err != nil {
-		return errors.New("device not found")
+		return fmt.Errorf("DeactivateDevice: lookup device %q: %v: %w", deviceID, err, ErrDeviceNotFound)
 	}
 	if device.UserID != userID {
-		return errors.New("device does not belong to user")
+		return fmt.Errorf("DeactivateDevice: device %q owner=%d caller=%d: %w", deviceID, device.UserID, userID, ErrDeviceMismatch)
 	}
 	if device.Status != "active" {
-		return errors.New("device is already deactivated")
+		return fmt.Errorf("DeactivateDevice: device %q status=%s: %w", deviceID, device.Status, ErrDeviceInactive)
 	}
 
 	now := time.Now()
 	device.Status = "deactivated"
 	device.DeactivatedAt = &now
 	if err := s.deviceRepo.Update(device); err != nil {
-		return fmt.Errorf("failed to deactivate device: %w", err)
+		return fmt.Errorf("DeactivateDevice: update device %q: %w", deviceID, err)
 	}
 
 	// Revoke all refresh tokens for this account
@@ -319,18 +346,18 @@ func (s *MobileDeviceService) UpdateLastSeen(deviceID string) {
 func (s *MobileDeviceService) SetBiometricsEnabled(userID int64, deviceID string, enabled bool) error {
 	device, err := s.deviceRepo.GetByDeviceID(deviceID)
 	if err != nil {
-		return errors.New("device not found")
+		return fmt.Errorf("SetBiometricsEnabled: lookup device %q: %v: %w", deviceID, err, ErrDeviceNotFound)
 	}
 	if device.UserID != userID {
-		return errors.New("device does not belong to user")
+		return fmt.Errorf("SetBiometricsEnabled: device %q owner=%d caller=%d: %w", deviceID, device.UserID, userID, ErrDeviceMismatch)
 	}
 	if device.Status != "active" {
-		return errors.New("device is not active")
+		return fmt.Errorf("SetBiometricsEnabled: device %q status=%s: %w", deviceID, device.Status, ErrDeviceInactive)
 	}
 
 	device.BiometricsEnabled = enabled
 	if err := s.deviceRepo.Update(device); err != nil {
-		return fmt.Errorf("failed to update biometrics setting: %w", err)
+		return fmt.Errorf("SetBiometricsEnabled: update device %q: %w", deviceID, err)
 	}
 	return nil
 }
@@ -339,13 +366,13 @@ func (s *MobileDeviceService) SetBiometricsEnabled(userID int64, deviceID string
 func (s *MobileDeviceService) GetBiometricsEnabled(userID int64, deviceID string) (bool, error) {
 	device, err := s.deviceRepo.GetByDeviceID(deviceID)
 	if err != nil {
-		return false, errors.New("device not found")
+		return false, fmt.Errorf("GetBiometricsEnabled: lookup device %q: %v: %w", deviceID, err, ErrDeviceNotFound)
 	}
 	if device.UserID != userID {
-		return false, errors.New("device does not belong to user")
+		return false, fmt.Errorf("GetBiometricsEnabled: device %q owner=%d caller=%d: %w", deviceID, device.UserID, userID, ErrDeviceMismatch)
 	}
 	if device.Status != "active" {
-		return false, errors.New("device is not active")
+		return false, fmt.Errorf("GetBiometricsEnabled: device %q status=%s: %w", deviceID, device.Status, ErrDeviceInactive)
 	}
 	return device.BiometricsEnabled, nil
 }
@@ -355,10 +382,10 @@ func (s *MobileDeviceService) GetBiometricsEnabled(userID int64, deviceID string
 func (s *MobileDeviceService) CheckBiometricsEnabled(deviceID string) (bool, error) {
 	device, err := s.deviceRepo.GetByDeviceID(deviceID)
 	if err != nil {
-		return false, errors.New("device not found")
+		return false, fmt.Errorf("CheckBiometricsEnabled: lookup device %q: %v: %w", deviceID, err, ErrDeviceNotFound)
 	}
 	if device.Status != "active" {
-		return false, errors.New("device is not active")
+		return false, fmt.Errorf("CheckBiometricsEnabled: device %q status=%s: %w", deviceID, device.Status, ErrDeviceInactive)
 	}
 	return device.BiometricsEnabled, nil
 }

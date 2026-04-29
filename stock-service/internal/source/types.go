@@ -48,6 +48,7 @@ type StockWithListing struct {
 	Price       decimal.Decimal
 	High        decimal.Decimal
 	Low         decimal.Decimal
+	Volume      int64
 	LastRefresh time.Time
 }
 
@@ -58,6 +59,7 @@ type FuturesWithListing struct {
 	Price       decimal.Decimal
 	High        decimal.Decimal
 	Low         decimal.Decimal
+	Volume      int64
 	LastRefresh time.Time
 }
 
@@ -68,5 +70,19 @@ type ForexWithListing struct {
 	Price       decimal.Decimal
 	High        decimal.Decimal
 	Low         decimal.Decimal
+	Volume      int64
 	LastRefresh time.Time
+}
+
+// NormalizeExchangeCurrency returns a currency code exchange-service can
+// handle. Any input not in the 8-currency set (empty string, unknown ISO
+// codes, EODHD free-tier artefacts) collapses to "USD" so downstream buy/sell
+// orders on that listing don't fail with "XXX is not a supported currency"
+// at the exchange.Convert gRPC call.
+//
+// Delegates to model.NormalizeCurrency so there is one canonical definition
+// of the supported set. Kept as a thin wrapper to preserve the existing
+// source-package API.
+func NormalizeExchangeCurrency(code string) string {
+	return model.NormalizeCurrency(code)
 }

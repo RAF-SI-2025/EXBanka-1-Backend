@@ -28,6 +28,7 @@ const (
 	CardService_DeactivateCard_FullMethodName         = "/card.CardService/DeactivateCard"
 	CardService_CreateAuthorizedPerson_FullMethodName = "/card.CardService/CreateAuthorizedPerson"
 	CardService_GetAuthorizedPerson_FullMethodName    = "/card.CardService/GetAuthorizedPerson"
+	CardService_ListChangelog_FullMethodName          = "/card.CardService/ListChangelog"
 )
 
 // CardServiceClient is the client API for CardService service.
@@ -43,6 +44,9 @@ type CardServiceClient interface {
 	DeactivateCard(ctx context.Context, in *DeactivateCardRequest, opts ...grpc.CallOption) (*CardResponse, error)
 	CreateAuthorizedPerson(ctx context.Context, in *CreateAuthorizedPersonRequest, opts ...grpc.CallOption) (*AuthorizedPersonResponse, error)
 	GetAuthorizedPerson(ctx context.Context, in *GetAuthorizedPersonRequest, opts ...grpc.CallOption) (*AuthorizedPersonResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error)
 }
 
 type cardServiceClient struct {
@@ -143,6 +147,16 @@ func (c *cardServiceClient) GetAuthorizedPerson(ctx context.Context, in *GetAuth
 	return out, nil
 }
 
+func (c *cardServiceClient) ListChangelog(ctx context.Context, in *ListChangelogRequest, opts ...grpc.CallOption) (*ListChangelogResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListChangelogResponse)
+	err := c.cc.Invoke(ctx, CardService_ListChangelog_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CardServiceServer is the server API for CardService service.
 // All implementations must embed UnimplementedCardServiceServer
 // for forward compatibility.
@@ -156,6 +170,9 @@ type CardServiceServer interface {
 	DeactivateCard(context.Context, *DeactivateCardRequest) (*CardResponse, error)
 	CreateAuthorizedPerson(context.Context, *CreateAuthorizedPersonRequest) (*AuthorizedPersonResponse, error)
 	GetAuthorizedPerson(context.Context, *GetAuthorizedPersonRequest) (*AuthorizedPersonResponse, error)
+	// Audit-trail reads. Returns changelog rows scoped by entity_type +
+	// entity_id; pagination matches list endpoints (1-based page).
+	ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error)
 	mustEmbedUnimplementedCardServiceServer()
 }
 
@@ -192,6 +209,9 @@ func (UnimplementedCardServiceServer) CreateAuthorizedPerson(context.Context, *C
 }
 func (UnimplementedCardServiceServer) GetAuthorizedPerson(context.Context, *GetAuthorizedPersonRequest) (*AuthorizedPersonResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAuthorizedPerson not implemented")
+}
+func (UnimplementedCardServiceServer) ListChangelog(context.Context, *ListChangelogRequest) (*ListChangelogResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListChangelog not implemented")
 }
 func (UnimplementedCardServiceServer) mustEmbedUnimplementedCardServiceServer() {}
 func (UnimplementedCardServiceServer) testEmbeddedByValue()                     {}
@@ -376,6 +396,24 @@ func _CardService_GetAuthorizedPerson_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CardService_ListChangelog_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListChangelogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CardServiceServer).ListChangelog(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CardService_ListChangelog_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CardServiceServer).ListChangelog(ctx, req.(*ListChangelogRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CardService_ServiceDesc is the grpc.ServiceDesc for CardService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -418,6 +456,10 @@ var CardService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetAuthorizedPerson",
 			Handler:    _CardService_GetAuthorizedPerson_Handler,
+		},
+		{
+			MethodName: "ListChangelog",
+			Handler:    _CardService_ListChangelog_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

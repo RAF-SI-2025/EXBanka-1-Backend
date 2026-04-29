@@ -17,11 +17,21 @@ import (
 	"gorm.io/datatypes"
 )
 
+// genericPublisher is the minimal Producer subset used by VerificationConsumer.
+type genericPublisher interface {
+	Publish(ctx context.Context, topic string, msg interface{}) error
+}
+
+// inboxItemCreator is the minimal MobileInboxRepository subset used here.
+type inboxItemCreator interface {
+	Create(item *model.MobileInboxItem) error
+}
+
 type VerificationConsumer struct {
 	reader    *kafkago.Reader
-	sender    *sender.EmailSender
-	producer  *kafkaprod.Producer
-	inboxRepo *repository.MobileInboxRepository
+	sender    emailDispatcher
+	producer  genericPublisher
+	inboxRepo inboxItemCreator
 }
 
 func NewVerificationConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer, inboxRepo *repository.MobileInboxRepository) *VerificationConsumer {
@@ -38,6 +48,11 @@ func NewVerificationConsumer(brokers string, emailSender *sender.EmailSender, pr
 		producer:  producer,
 		inboxRepo: inboxRepo,
 	}
+}
+
+// newVerificationConsumerForTest constructs a consumer with mocks; no reader.
+func newVerificationConsumerForTest(s emailDispatcher, p genericPublisher, repo inboxItemCreator) *VerificationConsumer {
+	return &VerificationConsumer{sender: s, producer: p, inboxRepo: repo}
 }
 
 func (c *VerificationConsumer) Start(ctx context.Context) {

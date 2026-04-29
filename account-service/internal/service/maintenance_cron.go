@@ -35,11 +35,11 @@ func (s *MaintenanceCronService) runMonthlyCharge(ctx context.Context) {
 			return
 		case <-timer.C:
 		}
-		s.chargeMaintenanceFees()
+		s.chargeMaintenanceFees(ctx)
 	}
 }
 
-func (s *MaintenanceCronService) chargeMaintenanceFees() {
+func (s *MaintenanceCronService) chargeMaintenanceFees(ctx context.Context) {
 	accounts, err := s.accountRepo.ListActiveAccountsWithMaintenanceFee()
 	if err != nil {
 		log.Printf("error listing accounts for maintenance fee: %v", err)
@@ -76,7 +76,7 @@ func (s *MaintenanceCronService) chargeMaintenanceFees() {
 		// Use LedgerService.Transfer for atomic debit+credit in a single transaction.
 		// If the credit step fails, the entire TX is rolled back and no money is lost.
 		refID := fmt.Sprintf("maint-%s-%s", acc.AccountNumber, time.Now().Format("2006-01"))
-		if err := s.ledgerSvc.Transfer(acc.AccountNumber, bankRSDNumber, acc.MaintenanceFee,
+		if err := s.ledgerSvc.Transfer(ctx, acc.AccountNumber, bankRSDNumber, acc.MaintenanceFee,
 			"Monthly maintenance fee", refID, "maintenance"); err != nil {
 			log.Printf("error charging maintenance fee for %s: %v", acc.AccountNumber, err)
 			continue

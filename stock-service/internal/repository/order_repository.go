@@ -26,6 +26,20 @@ func (r *OrderRepository) GetByID(id uint64) (*model.Order, error) {
 	return &order, nil
 }
 
+// GetByIDWithOwner loads an order and verifies (owner_type, owner_id) ownership.
+// Use for /me/* endpoints. Returns gorm.ErrRecordNotFound on any mismatch so
+// callers can map the response to 404 without leaking order existence to a
+// different owner. ownerID is *uint64 — pass nil for OwnerBank.
+func (r *OrderRepository) GetByIDWithOwner(id uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error) {
+	var order model.Order
+	q := r.db.Preload("Listing").Preload("Listing.Exchange").Where("id = ?", id)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	if err := q.First(&order).Error; err != nil {
+		return nil, err
+	}
+	return &order, nil
+}
+
 func (r *OrderRepository) Update(order *model.Order) error {
 	result := r.db.Save(order)
 	if result.Error != nil {
@@ -37,11 +51,19 @@ func (r *OrderRepository) Update(order *model.Order) error {
 	return nil
 }
 
-func (r *OrderRepository) ListByUser(userID uint64, filter OrderFilter) ([]model.Order, int64, error) {
+// Delete removes an order by id. Used by placement-saga compensation when a
+// later step fails after the order row was persisted. No-op if the row does
+// not exist (returns nil) so compensation paths can be called unconditionally.
+func (r *OrderRepository) Delete(id uint64) error {
+	return r.db.Delete(&model.Order{}, id).Error
+}
+
+func (r *OrderRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter OrderFilter) ([]model.Order, int64, error) {
 	var orders []model.Order
 	var total int64
 
-	q := r.db.Model(&model.Order{}).Where("user_id = ?", userID)
+	q := r.db.Model(&model.Order{})
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
 	q = applyOrderFilters(q, filter)
 
 	if err := q.Count(&total).Error; err != nil {
@@ -85,9 +107,21 @@ func (r *OrderRepository) ListActiveApproved() ([]model.Order, error) {
 
 func applyOrderFilters(q *gorm.DB, filter OrderFilter) *gorm.DB {
 	if filter.Status != "" {
-		if filter.Status == "done" {
+		switch filter.Status {
+		case "done":
+			// Alias: all orders that reached a terminal state (filled, cancelled,
+			// or declined). is_done flips true on any terminal transition.
 			q = q.Where("is_done = ?", true)
-		} else {
+		case "filling":
+			// Alias: approved orders that are still being worked by the
+			// execution engine (not yet fully filled and not terminated).
+			q = q.Where("status = ? AND is_done = ?", "approved", false)
+		case "filled":
+			// Alias: orders that were fully filled on the happy path — approved
+			// AND done. Distinguishes "filled" from "cancelled/declined but
+			// terminal" that `done` includes.
+			q = q.Where("status = ? AND is_done = ?", "approved", true)
+		default:
 			q = q.Where("status = ?", filter.Status)
 		}
 	}

@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 
 	authpb "github.com/exbanka/contract/authpb"
+	perms "github.com/exbanka/contract/permissions"
 )
 
 // ---------------------------------------------------------------------------
@@ -129,7 +130,7 @@ func TestRequirePermission_NoPermissions(t *testing.T) {
 		c.Set("permissions", []string{})
 		c.Next()
 	})
-	r.Use(RequirePermission("employees.read"))
+	r.Use(RequirePermission(perms.Employees.Read.All))
 	r.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
@@ -151,10 +152,10 @@ func TestRequirePermission_HasPermission(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set("permissions", []string{"employees.read", "clients.read"})
+		c.Set("permissions", []string{"employees.read.all", "clients.read.all"})
 		c.Next()
 	})
-	r.Use(RequirePermission("employees.read"))
+	r.Use(RequirePermission(perms.Employees.Read.All))
 	r.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
@@ -173,10 +174,10 @@ func TestRequirePermission_MissingPermission(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		c.Set("permissions", []string{"clients.read"})
+		c.Set("permissions", []string{"clients.read.all"})
 		c.Next()
 	})
-	r.Use(RequirePermission("employees.create"))
+	r.Use(RequirePermission(perms.Employees.Create.Any))
 	r.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
@@ -201,10 +202,10 @@ func TestRequirePermission_MissingPermission(t *testing.T) {
 func TestAnyAuthMiddleware_EmployeeToken_SetsUserID(t *testing.T) {
 	client := &mockAuthClient{
 		resp: &authpb.ValidateTokenResponse{
-			Valid:      true,
-			UserId:     42,
-			SystemType: "employee",
-			Email:      "emp@example.com",
+			Valid:         true,
+			PrincipalId:   42,
+			PrincipalType: "employee",
+			Email:         "emp@example.com",
 		},
 	}
 	r, w, req := serveWithMiddleware(AnyAuthMiddleware(client))
@@ -213,11 +214,11 @@ func TestAnyAuthMiddleware_EmployeeToken_SetsUserID(t *testing.T) {
 	r2 := gin.New()
 	r2.Use(AnyAuthMiddleware(client))
 	r2.GET("/test", func(c *gin.Context) {
-		uid, exists := c.Get("user_id")
-		require.True(t, exists, "user_id should be set in context")
+		uid, exists := c.Get("principal_id")
+		require.True(t, exists, "principal_id should be set in context")
 		assert.Equal(t, int64(42), uid)
-		sysType, _ := c.Get("system_type")
-		assert.Equal(t, "employee", sysType)
+		pType, _ := c.Get("principal_type")
+		assert.Equal(t, "employee", pType)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 	req.Header.Set("Authorization", "Bearer valid-employee-token")
@@ -231,21 +232,21 @@ func TestAnyAuthMiddleware_EmployeeToken_SetsUserID(t *testing.T) {
 func TestAnyAuthMiddleware_ClientToken_SetsUserID(t *testing.T) {
 	client := &mockAuthClient{
 		resp: &authpb.ValidateTokenResponse{
-			Valid:      true,
-			UserId:     99,
-			SystemType: "client",
-			Email:      "client@example.com",
+			Valid:         true,
+			PrincipalId:   99,
+			PrincipalType: "client",
+			Email:         "client@example.com",
 		},
 	}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(AnyAuthMiddleware(client))
 	r.GET("/test", func(c *gin.Context) {
-		uid, exists := c.Get("user_id")
-		require.True(t, exists, "user_id should be set in context for client tokens")
+		uid, exists := c.Get("principal_id")
+		require.True(t, exists, "principal_id should be set in context for client tokens")
 		assert.Equal(t, int64(99), uid)
-		sysType, _ := c.Get("system_type")
-		assert.Equal(t, "client", sysType)
+		pType, _ := c.Get("principal_type")
+		assert.Equal(t, "client", pType)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 	req, _ := http.NewRequest("GET", "/test", nil)
@@ -262,9 +263,9 @@ func TestAnyAuthMiddleware_ClientToken_SetsUserID(t *testing.T) {
 func TestAuthMiddleware_RejectsClientToken(t *testing.T) {
 	client := &mockAuthClient{
 		resp: &authpb.ValidateTokenResponse{
-			Valid:      true,
-			UserId:     99,
-			SystemType: "client",
+			Valid:         true,
+			PrincipalId:   99,
+			PrincipalType: "client",
 		},
 	}
 	gin.SetMode(gin.TestMode)
@@ -287,4 +288,115 @@ func TestAuthMiddleware_RejectsClientToken(t *testing.T) {
 	errObj, ok := resp["error"].(map[string]interface{})
 	assert.True(t, ok)
 	assert.Equal(t, "forbidden", errObj["code"])
+}
+
+// ---------------------------------------------------------------------------
+// RequireClientToken
+// ---------------------------------------------------------------------------
+
+func TestRequireClientToken_AllowsClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("principal_type", "client")
+		c.Next()
+	})
+	r.Use(RequireClientToken())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRequireClientToken_RejectsEmployee(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("principal_type", "employee")
+		c.Next()
+	})
+	r.Use(RequireClientToken())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRequireClientToken_RejectsMissingType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequireClientToken())
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// ---------------------------------------------------------------------------
+// RequirePermission additional branches
+// ---------------------------------------------------------------------------
+
+func TestRequirePermission_PermissionsKeyMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequirePermission(perms.Permission("foo.bar")))
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRequirePermission_WrongType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("permissions", "not-a-slice")
+		c.Next()
+	})
+	r.Use(RequirePermission(perms.Permission("foo.bar")))
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRequirePermission_Insufficient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("permissions", []string{"other.perm"})
+		c.Next()
+	})
+	r.Use(RequirePermission(perms.Permission("foo.bar")))
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRequirePermission_Allowed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("permissions", []string{"foo.bar", "baz.qux"}) // raw strings — middleware doesn't validate against catalog
+		c.Next()
+	})
+	r.Use(RequirePermission(perms.Permission("foo.bar")))
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	req, _ := http.NewRequest("GET", "/test", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
 }

@@ -13,9 +13,48 @@ service UserService {
   rpc GetRole(GetRoleRequest) returns (RoleResponse);
   rpc CreateRole(CreateRoleRequest) returns (RoleResponse);
   rpc UpdateRolePermissions(UpdateRolePermissionsRequest) returns (RoleResponse);
+  rpc AssignPermissionToRole(AssignPermissionToRoleRequest) returns (AssignPermissionToRoleResponse);
+  rpc RevokePermissionFromRole(RevokePermissionFromRoleRequest) returns (RevokePermissionFromRoleResponse);
   rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse);
   rpc SetEmployeeRoles(SetEmployeeRolesRequest) returns (EmployeeResponse);
   rpc SetEmployeeAdditionalPermissions(SetEmployeePermissionsRequest) returns (EmployeeResponse);
+  rpc ListEmployeeFullNames(ListEmployeeFullNamesRequest) returns (ListEmployeeFullNamesResponse);
+
+  // Audit-trail reads. Returns changelog rows scoped by entity_type +
+  // entity_id; pagination matches list endpoints (1-based page).
+  rpc ListChangelog(ListChangelogRequest) returns (ListChangelogResponse);
+}
+
+message ListChangelogRequest {
+  string entity_type = 1; // e.g. "employee" or "employee_limit"
+  int64  entity_id   = 2;
+  int32  page        = 3;
+  int32  page_size   = 4;
+}
+
+message ChangelogEntry {
+  uint64 id          = 1;
+  string entity_type = 2;
+  int64  entity_id   = 3;
+  string action      = 4;
+  string field_name  = 5;
+  string old_value   = 6;
+  string new_value   = 7;
+  int64  changed_by  = 8;
+  int64  changed_at  = 9;
+  string reason      = 10;
+}
+
+message ListChangelogResponse {
+  repeated ChangelogEntry entries = 1;
+  int64                   total   = 2;
+}
+
+message ListEmployeeFullNamesRequest {
+  repeated int64 employee_ids = 1;
+}
+message ListEmployeeFullNamesResponse {
+  map<int64, string> names_by_id = 1;
 }
 
 message CreateEmployeeRequest {
@@ -102,6 +141,18 @@ message UpdateRolePermissionsRequest {
   int64 role_id = 1;
   repeated string permission_codes = 2;
 }
+
+message AssignPermissionToRoleRequest {
+  uint64 role_id = 1;
+  string permission = 2;
+}
+message AssignPermissionToRoleResponse {}
+
+message RevokePermissionFromRoleRequest {
+  uint64 role_id = 1;
+  string permission = 2;
+}
+message RevokePermissionFromRoleResponse {}
 
 message PermissionResponse {
   int64 id = 1;

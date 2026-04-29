@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -14,6 +13,7 @@ import (
 
 	kafkaprod "github.com/exbanka/account-service/internal/kafka"
 	"github.com/exbanka/account-service/internal/model"
+	"github.com/exbanka/account-service/internal/repository"
 	"github.com/exbanka/account-service/internal/service"
 	pb "github.com/exbanka/contract/accountpb"
 	"github.com/exbanka/contract/changelog"
@@ -21,40 +21,61 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
-// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
-func mapServiceError(err error) codes.Code {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "not found"):
-		return codes.NotFound
-	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"),
-		strings.Contains(msg, "is required"), strings.Contains(msg, "cannot use"):
-		return codes.InvalidArgument
-	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"),
-		strings.Contains(msg, "already has"):
-		return codes.AlreadyExists
-	case strings.Contains(msg, "already "), strings.Contains(msg, "cannot delete"),
-		strings.Contains(msg, "insufficient funds"), strings.Contains(msg, "limit exceeded"),
-		strings.Contains(msg, "spending limit"), strings.Contains(msg, "is not a bank account"):
-		return codes.FailedPrecondition
-	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
-		strings.Contains(msg, "failed attempts"):
-		return codes.ResourceExhausted
-	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
-		return codes.PermissionDenied
-	default:
-		return codes.Internal
-	}
+// accountSvcFacade is the subset of *service.AccountService used by AccountGRPCHandler.
+type accountSvcFacade interface {
+	CreateAccount(account *model.Account) error
+	GetAccount(id uint64) (*model.Account, error)
+	GetAccountByNumber(accountNumber string) (*model.Account, error)
+	ListAccountsByClient(clientID uint64, page, pageSize int) ([]model.Account, int64, error)
+	ListAllAccounts(nameFilter, numberFilter, typeFilter string, page, pageSize int) ([]model.Account, int64, error)
+	UpdateAccountName(id, clientID uint64, newName string, changedBy int64) error
+	UpdateAccountLimits(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error
+	UpdateAccountStatus(id uint64, newStatus string, changedBy int64) error
+	UpdateBalanceWithOpts(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts repository.UpdateBalanceOpts) error
+}
+
+// companySvcFacade is the subset of *service.CompanyService used by AccountGRPCHandler.
+type companySvcFacade interface {
+	Create(company *model.Company) error
+	Get(id uint64) (*model.Company, error)
+	Update(company *model.Company) error
+}
+
+// currencySvcFacade is the subset of *service.CurrencyService used by AccountGRPCHandler.
+type currencySvcFacade interface {
+	List() ([]model.Currency, error)
+	GetByCode(code string) (*model.Currency, error)
+}
+
+// ledgerSvcFacade is the subset of *service.LedgerService used by AccountGRPCHandler.
+type ledgerSvcFacade interface {
+	GetLedgerEntries(accountNumber string, page, pageSize int) ([]model.LedgerEntry, int64, error)
+}
+
+// accountProducer is the subset of *kafkaprod.Producer used by AccountGRPCHandler.
+type accountProducer interface {
+	PublishAccountCreated(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
+	PublishAccountStatusChanged(ctx context.Context, msg kafkaprod.AccountStatusChangedMsg) error
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+	SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error
 }
 
 type AccountGRPCHandler struct {
 	pb.UnimplementedAccountServiceServer
-	accountService  *service.AccountService
-	companyService  *service.CompanyService
-	currencyService *service.CurrencyService
-	ledgerService   *service.LedgerService
-	producer        *kafkaprod.Producer
-	clientClient    clientpb.ClientServiceClient
+	accountService      accountSvcFacade
+	companyService      companySvcFacade
+	currencyService     currencySvcFacade
+	ledgerService       ledgerSvcFacade
+	reservation         *ReservationHandler
+	incomingReservation *service.IncomingReservationService
+	producer            accountProducer
+	clientClient        clientpb.ClientServiceClient
+	changelogService    *service.ChangelogService
+	// db + idem wire saga-step idempotency for handlers that follow the
+	// IdempotencyRepository.Run pattern (UpdateBalance is the lighthouse
+	// case). Other RPCs leave them nil and use their existing dedup paths.
+	db   *gorm.DB
+	idem *repository.IdempotencyRepository
 }
 
 func NewAccountGRPCHandler(
@@ -62,17 +83,229 @@ func NewAccountGRPCHandler(
 	companyService *service.CompanyService,
 	currencyService *service.CurrencyService,
 	ledgerService *service.LedgerService,
+	reservation *ReservationHandler,
+	incomingReservation *service.IncomingReservationService,
 	producer *kafkaprod.Producer,
 	clientClient clientpb.ClientServiceClient,
+	db *gorm.DB,
+	idem *repository.IdempotencyRepository,
+	changelogService *service.ChangelogService,
 ) *AccountGRPCHandler {
 	return &AccountGRPCHandler{
-		accountService:  accountService,
-		companyService:  companyService,
-		currencyService: currencyService,
-		ledgerService:   ledgerService,
-		producer:        producer,
-		clientClient:    clientClient,
+		accountService:      accountService,
+		companyService:      companyService,
+		currencyService:     currencyService,
+		ledgerService:       ledgerService,
+		reservation:         reservation,
+		incomingReservation: incomingReservation,
+		producer:            producer,
+		clientClient:        clientClient,
+		changelogService:    changelogService,
+		db:                  db,
+		idem:                idem,
 	}
+}
+
+// ReserveFunds wraps the reservation handler in the saga-step idempotency
+// contract. See UpdateBalance for a full explanation of the two-layer
+// dedup strategy.
+func (h *AccountGRPCHandler) ReserveFunds(ctx context.Context, req *pb.ReserveFundsRequest) (*pb.ReserveFundsResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReserveFundsResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReserveFundsResponse { return &pb.ReserveFundsResponse{} },
+			func() (*pb.ReserveFundsResponse, error) {
+				return h.reservation.ReserveFunds(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+// ReleaseReservation wraps the reservation handler in the saga-step
+// idempotency contract.
+func (h *AccountGRPCHandler) ReleaseReservation(ctx context.Context, req *pb.ReleaseReservationRequest) (*pb.ReleaseReservationResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReleaseReservationResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReleaseReservationResponse { return &pb.ReleaseReservationResponse{} },
+			func() (*pb.ReleaseReservationResponse, error) {
+				return h.reservation.ReleaseReservation(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+// PartialSettleReservation wraps the reservation handler in the saga-step
+// idempotency contract. NOTE: order_transaction_id remains the authoritative
+// domain dedup key inside the service; idempotency_key here is the response
+// cache for retried saga steps.
+func (h *AccountGRPCHandler) PartialSettleReservation(ctx context.Context, req *pb.PartialSettleReservationRequest) (*pb.PartialSettleReservationResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.PartialSettleReservationResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.PartialSettleReservationResponse { return &pb.PartialSettleReservationResponse{} },
+			func() (*pb.PartialSettleReservationResponse, error) {
+				return h.reservation.PartialSettleReservation(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+// GetReservation forwards to the reservation handler. Read-only — no
+// idempotency wrap needed.
+func (h *AccountGRPCHandler) GetReservation(ctx context.Context, req *pb.GetReservationRequest) (*pb.GetReservationResponse, error) {
+	return h.reservation.GetReservation(ctx, req)
+}
+
+// ReserveIncoming creates a pending credit reservation for an inter-bank
+// inbound transfer. Does not change the account balance. Wrapped in the
+// saga-step idempotency contract; reservation_key remains the authoritative
+// domain dedup key on the service side.
+func (h *AccountGRPCHandler) ReserveIncoming(ctx context.Context, req *pb.ReserveIncomingRequest) (*pb.ReserveIncomingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReserveIncomingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReserveIncomingResponse { return &pb.ReserveIncomingResponse{} },
+			func() (*pb.ReserveIncomingResponse, error) {
+				return h.executeReserveIncoming(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeReserveIncoming(ctx context.Context, req *pb.ReserveIncomingRequest) (*pb.ReserveIncomingResponse, error) {
+	amt, err := decimal.NewFromString(req.Amount)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "amount: %v", err)
+	}
+	res, err := h.incomingReservation.ReserveIncoming(ctx, req.AccountNumber, amt, req.Currency, req.ReservationKey)
+	if err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, err
+	}
+	acct, _ := h.accountService.GetAccountByNumber(res.AccountNumber)
+	balanceAfter := ""
+	if acct != nil {
+		balanceAfter = acct.Balance.StringFixed(4)
+	}
+	return &pb.ReserveIncomingResponse{ReservationKey: res.ReservationKey, BalanceAfter: balanceAfter}, nil
+}
+
+// CommitIncoming finalizes the credit and writes a ledger entry. Wrapped
+// in the saga-step idempotency contract.
+func (h *AccountGRPCHandler) CommitIncoming(ctx context.Context, req *pb.CommitIncomingRequest) (*pb.CommitIncomingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.CommitIncomingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.CommitIncomingResponse { return &pb.CommitIncomingResponse{} },
+			func() (*pb.CommitIncomingResponse, error) {
+				return h.executeCommitIncoming(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeCommitIncoming(ctx context.Context, req *pb.CommitIncomingRequest) (*pb.CommitIncomingResponse, error) {
+	acct, err := h.incomingReservation.CommitIncoming(ctx, req.ReservationKey)
+	if err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, err
+	}
+	return &pb.CommitIncomingResponse{BalanceAfter: acct.Balance.StringFixed(4)}, nil
+}
+
+// ReleaseIncoming cancels a pending credit reservation. Wrapped in the
+// saga-step idempotency contract.
+func (h *AccountGRPCHandler) ReleaseIncoming(ctx context.Context, req *pb.ReleaseIncomingRequest) (*pb.ReleaseIncomingResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+	var resp *pb.ReleaseIncomingResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.ReleaseIncomingResponse { return &pb.ReleaseIncomingResponse{} },
+			func() (*pb.ReleaseIncomingResponse, error) {
+				return h.executeReleaseIncoming(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+func (h *AccountGRPCHandler) executeReleaseIncoming(ctx context.Context, req *pb.ReleaseIncomingRequest) (*pb.ReleaseIncomingResponse, error) {
+	if err := h.incomingReservation.ReleaseIncoming(ctx, req.ReservationKey); err != nil {
+		if s, ok := status.FromError(err); ok {
+			return nil, s.Err()
+		}
+		return nil, err
+	}
+	return &pb.ReleaseIncomingResponse{Released: true}, nil
 }
 
 func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAccountRequest) (*pb.AccountResponse, error) {
@@ -90,7 +323,7 @@ func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAc
 	}
 
 	if err := h.accountService.CreateAccount(account); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create account: %v", err)
+		return nil, err
 	}
 
 	_ = h.producer.PublishAccountCreated(ctx, kafkamsg.AccountCreatedMessage{
@@ -140,7 +373,7 @@ func (h *AccountGRPCHandler) GetAccount(ctx context.Context, req *pb.GetAccountR
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get account: %v", err)
+		return nil, err
 	}
 	return toAccountResponse(account), nil
 }
@@ -151,7 +384,7 @@ func (h *AccountGRPCHandler) GetAccountByNumber(ctx context.Context, req *pb.Get
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get account: %v", err)
+		return nil, err
 	}
 	return toAccountResponse(account), nil
 }
@@ -161,7 +394,7 @@ func (h *AccountGRPCHandler) ListAccountsByClient(ctx context.Context, req *pb.L
 		req.ClientId, int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list accounts: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListAccountsResponse{Total: total, Accounts: make([]*pb.AccountResponse, 0, len(accounts))}
@@ -178,7 +411,7 @@ func (h *AccountGRPCHandler) ListAllAccounts(ctx context.Context, req *pb.ListAl
 		int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list accounts: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListAccountsResponse{Total: total, Accounts: make([]*pb.AccountResponse, 0, len(accounts))}
@@ -195,7 +428,7 @@ func (h *AccountGRPCHandler) UpdateAccountName(ctx context.Context, req *pb.Upda
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found or not owned by client")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to update account name: %v", err)
+		return nil, err
 	}
 
 	account, err := h.accountService.GetAccount(req.Id)
@@ -211,7 +444,7 @@ func (h *AccountGRPCHandler) UpdateAccountLimits(ctx context.Context, req *pb.Up
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to update account limits: %v", err)
+		return nil, err
 	}
 
 	account, err := h.accountService.GetAccount(req.Id)
@@ -227,7 +460,7 @@ func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.Up
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to update account status: %v", err)
+		return nil, err
 	}
 
 	account, err := h.accountService.GetAccount(req.Id)
@@ -243,13 +476,65 @@ func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.Up
 	return toAccountResponse(account), nil
 }
 
+// UpdateBalance is the lighthouse for the saga-step idempotency contract
+// (Plan 2026-04-27 Task 8). The request MUST carry idempotency_key — saga
+// steps may be retried after caller crash, compensator restart, or network
+// timeout, and the cache lets retries return the cached AccountResponse
+// without re-running the balance mutation.
+//
+// Two layers of dedup cooperate:
+//   - IdempotencyRepository.Run caches the wire response under the key in
+//     the idempotency_records table and returns it verbatim on retry.
+//   - The existing repository.UpdateBalance partial unique index on
+//     ledger_entries.idempotency_key remains the authoritative side-effect
+//     dedup, so even bypasses of this handler stay safe.
+//
+// The Run cache claim is opened in its own outer transaction; the inner
+// service call still opens its own balance transaction. Nested gorm
+// transactions become savepoints, so a failure inside the business logic
+// rolls back both the balance change AND the cache claim, leaving retries
+// free to re-execute fresh.
 func (h *AccountGRPCHandler) UpdateBalance(ctx context.Context, req *pb.UpdateBalanceRequest) (*pb.AccountResponse, error) {
+	if req.GetIdempotencyKey() == "" {
+		return nil, service.ErrIdempotencyMissing
+	}
+	if h.db == nil || h.idem == nil {
+		// Defensive: the constructor always wires both, but tests that
+		// build the handler with the older signature would skip them.
+		return nil, status.Errorf(codes.Internal, "idempotency repository not wired")
+	}
+
+	var resp *pb.AccountResponse
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		out, runErr := repository.Run(h.idem, tx, req.GetIdempotencyKey(),
+			func() *pb.AccountResponse { return &pb.AccountResponse{} },
+			func() (*pb.AccountResponse, error) {
+				return h.executeUpdateBalance(ctx, req)
+			})
+		if runErr != nil {
+			return runErr
+		}
+		resp = out
+		return nil
+	})
+	return resp, err
+}
+
+// executeUpdateBalance is the original UpdateBalance body — extracted so
+// the IdempotencyRepository.Run wrapper above can call it as the cached
+// fn. It opens its own balance transaction inside the service layer.
+func (h *AccountGRPCHandler) executeUpdateBalance(ctx context.Context, req *pb.UpdateBalanceRequest) (*pb.AccountResponse, error) {
+	_ = ctx
 	amount, _ := decimal.NewFromString(req.Amount)
-	if err := h.accountService.UpdateBalance(req.AccountNumber, amount, req.UpdateAvailable); err != nil {
+	opts := repository.UpdateBalanceOpts{
+		Memo:           req.GetMemo(),
+		IdempotencyKey: req.GetIdempotencyKey(),
+	}
+	if err := h.accountService.UpdateBalanceWithOpts(req.AccountNumber, amount, req.UpdateAvailable, opts); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "account not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to update balance: %v", err)
+		return nil, err
 	}
 
 	account, err := h.accountService.GetAccountByNumber(req.AccountNumber)
@@ -270,7 +555,7 @@ func (h *AccountGRPCHandler) CreateCompany(ctx context.Context, req *pb.CreateCo
 	}
 
 	if err := h.companyService.Create(company); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create company: %v", err)
+		return nil, err
 	}
 	return toCompanyResponse(company), nil
 }
@@ -281,7 +566,7 @@ func (h *AccountGRPCHandler) GetCompany(ctx context.Context, req *pb.GetCompanyR
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "company not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get company: %v", err)
+		return nil, err
 	}
 	return toCompanyResponse(company), nil
 }
@@ -292,7 +577,7 @@ func (h *AccountGRPCHandler) UpdateCompany(ctx context.Context, req *pb.UpdateCo
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "company not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get company: %v", err)
+		return nil, err
 	}
 
 	if req.CompanyName != nil {
@@ -309,7 +594,7 @@ func (h *AccountGRPCHandler) UpdateCompany(ctx context.Context, req *pb.UpdateCo
 	}
 
 	if err := h.companyService.Update(company); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to update company: %v", err)
+		return nil, err
 	}
 	return toCompanyResponse(company), nil
 }
@@ -317,7 +602,7 @@ func (h *AccountGRPCHandler) UpdateCompany(ctx context.Context, req *pb.UpdateCo
 func (h *AccountGRPCHandler) ListCurrencies(ctx context.Context, req *pb.ListCurrenciesRequest) (*pb.ListCurrenciesResponse, error) {
 	currencies, err := h.currencyService.List()
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list currencies: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListCurrenciesResponse{Currencies: make([]*pb.CurrencyResponse, 0, len(currencies))}
@@ -334,9 +619,33 @@ func (h *AccountGRPCHandler) GetCurrency(ctx context.Context, req *pb.GetCurrenc
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "currency not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get currency: %v", err)
+		return nil, err
 	}
 	return toCurrencyResponse(currency), nil
+}
+
+// ListChangelog returns paginated audit-log entries for an entity.
+func (h *AccountGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangelogRequest) (*pb.ListChangelogResponse, error) {
+	entries, total, err := h.changelogService.ListChangelog(req.GetEntityType(), req.GetEntityId(), int(req.GetPage()), int(req.GetPageSize()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
 func (h *AccountGRPCHandler) GetLedgerEntries(ctx context.Context, req *pb.GetLedgerEntriesRequest) (*pb.GetLedgerEntriesResponse, error) {
@@ -351,7 +660,7 @@ func (h *AccountGRPCHandler) GetLedgerEntries(ctx context.Context, req *pb.GetLe
 
 	entries, total, err := h.ledgerService.GetLedgerEntries(req.AccountNumber, page, pageSize)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to get ledger entries: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.GetLedgerEntriesResponse{TotalCount: total, Entries: make([]*pb.LedgerEntryResponse, 0, len(entries))}
@@ -395,6 +704,7 @@ func toAccountResponse(a *model.Account) *pb.AccountResponse {
 		DailySpending:    a.DailySpending.StringFixed(4),
 		MonthlySpending:  a.MonthlySpending.StringFixed(4),
 		CompanyId:        a.CompanyID,
+		ReservedBalance:  a.ReservedBalance.StringFixed(4),
 	}
 	return resp
 }

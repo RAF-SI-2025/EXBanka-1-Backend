@@ -125,9 +125,10 @@ func TestWipeAll_DeletesAllStockAndTradingState(t *testing.T) {
 	require.NoError(t, db.Create(&opt).Error)
 
 	// 7. Order (child of Listing)
+	wipeUID := uint64(1)
 	order := model.Order{
-		UserID:            1,
-		SystemType:        "employee",
+		OwnerType:         model.OwnerClient,
+		OwnerID:           &wipeUID,
 		ListingID:         listing.ID,
 		SecurityType:      "stock",
 		Ticker:            "TSTK",
@@ -145,8 +146,8 @@ func TestWipeAll_DeletesAllStockAndTradingState(t *testing.T) {
 
 	// 8. Holding (independent)
 	holding := model.Holding{
-		UserID:        1,
-		SystemType:    "employee",
+		OwnerType:     model.OwnerClient,
+		OwnerID:       &wipeUID,
 		UserFirstName: "Test",
 		UserLastName:  "User",
 		SecurityType:  "stock",
@@ -172,8 +173,8 @@ func TestWipeAll_DeletesAllStockAndTradingState(t *testing.T) {
 
 	// 10. CapitalGain (independent)
 	cg := model.CapitalGain{
-		UserID:             1,
-		SystemType:         "employee",
+		OwnerType:          model.OwnerClient,
+		OwnerID:            &wipeUID,
 		OrderTransactionID: orderTx.ID,
 		SecurityType:       "stock",
 		Ticker:             "TSTK",
@@ -190,8 +191,8 @@ func TestWipeAll_DeletesAllStockAndTradingState(t *testing.T) {
 
 	// 11. TaxCollection (independent)
 	tc := model.TaxCollection{
-		UserID:       1,
-		SystemType:   "employee",
+		OwnerType:    model.OwnerClient,
+		OwnerID:      &wipeUID,
 		Year:         2026,
 		Month:        4,
 		AccountID:    1,

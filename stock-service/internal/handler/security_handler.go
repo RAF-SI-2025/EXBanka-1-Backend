@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -16,15 +17,86 @@ import (
 	"github.com/exbanka/stock-service/internal/service"
 )
 
-type SecurityHandler struct {
-	pb.UnimplementedSecurityGRPCServiceServer
-	secSvc     *service.SecurityService
-	listingSvc *service.ListingService
-	candleSvc  *service.CandleService
+// SecurityListingRepo is the subset of the listing repository that the
+// security handler needs to resolve listing IDs for securities. Exposed as an
+// interface so tests can supply a fake without constructing a full repo.
+type SecurityListingRepo interface {
+	GetBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error)
+	ListBySecurityIDsAndType(securityIDs []uint64, securityType string) ([]model.Listing, error)
 }
 
-func NewSecurityHandler(secSvc *service.SecurityService, listingSvc *service.ListingService, candleSvc *service.CandleService) *SecurityHandler {
-	return &SecurityHandler{secSvc: secSvc, listingSvc: listingSvc, candleSvc: candleSvc}
+// securitySvcFacade is the narrow interface of SecurityService used by SecurityHandler.
+type securitySvcFacade interface {
+	ListStocks(filter repository.StockFilter) ([]model.Stock, int64, error)
+	GetStockWithOptions(id uint64) (*model.Stock, []model.Option, error)
+	ListFutures(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error)
+	GetFutures(id uint64) (*model.FuturesContract, error)
+	ListForexPairs(filter repository.ForexFilter) ([]model.ForexPair, int64, error)
+	GetForexPair(id uint64) (*model.ForexPair, error)
+	ListOptions(filter repository.OptionFilter) ([]model.Option, int64, error)
+	GetOption(id uint64) (*model.Option, error)
+}
+
+// listingSvcFacade is the narrow interface of ListingService used by SecurityHandler.
+type listingSvcFacade interface {
+	GetPriceHistoryForSecurity(securityID uint64, securityType, period string, page, pageSize int) ([]model.ListingDailyPriceInfo, int64, error)
+}
+
+// candleSvcFacade is the narrow interface of CandleService used by SecurityHandler.
+type candleSvcFacade interface {
+	GetCandles(ctx context.Context, listingID uint64, interval string, from, to time.Time) ([]service.CandlePoint, error)
+}
+
+type SecurityHandler struct {
+	pb.UnimplementedSecurityGRPCServiceServer
+	secSvc      securitySvcFacade
+	listingSvc  listingSvcFacade
+	candleSvc   candleSvcFacade
+	listingRepo SecurityListingRepo
+}
+
+func NewSecurityHandler(secSvc *service.SecurityService, listingSvc *service.ListingService, candleSvc *service.CandleService, listingRepo SecurityListingRepo) *SecurityHandler {
+	return &SecurityHandler{secSvc: secSvc, listingSvc: listingSvc, candleSvc: candleSvc, listingRepo: listingRepo}
+}
+
+// newSecurityHandlerForTest constructs a SecurityHandler with interface-typed
+// dependencies for use in unit tests.
+func newSecurityHandlerForTest(secSvc securitySvcFacade, listingSvc listingSvcFacade, candleSvc candleSvcFacade, listingRepo SecurityListingRepo) *SecurityHandler {
+	return &SecurityHandler{secSvc: secSvc, listingSvc: listingSvc, candleSvc: candleSvc, listingRepo: listingRepo}
+}
+
+// resolveListingIDs batch-resolves listing IDs for a slice of securities of the
+// given type. Returns map[securityID]listingID; any security without a listing
+// maps to 0 (logged as a warning). Used by list handlers to populate
+// ListingInfo.Id on every item with a single DB query.
+func (h *SecurityHandler) resolveListingIDs(securityIDs []uint64, securityType string) map[uint64]uint64 {
+	out := make(map[uint64]uint64, len(securityIDs))
+	if len(securityIDs) == 0 || h.listingRepo == nil {
+		return out
+	}
+	listings, err := h.listingRepo.ListBySecurityIDsAndType(securityIDs, securityType)
+	if err != nil {
+		log.Printf("WARN: batch listing lookup failed for %s: %v", securityType, err)
+		return out
+	}
+	for _, l := range listings {
+		out[l.SecurityID] = l.ID
+	}
+	return out
+}
+
+// resolveListingID resolves a single listing ID for a security. Returns 0 and
+// logs a warning if lookup fails. Used by single-item (Get*) handlers.
+func (h *SecurityHandler) resolveListingID(securityID uint64, securityType string) uint64 {
+	if h.listingRepo == nil {
+		return 0
+	}
+	listing, err := h.listingRepo.GetBySecurityIDAndType(securityID, securityType)
+	if err != nil {
+		log.Printf("WARN: listing not found for %s %d: %v", securityType, securityID, err)
+		return 0
+	}
+	return listing.ID
 }
 
 // --- Stocks ---
@@ -66,9 +138,16 @@ func (h *SecurityHandler) ListStocks(ctx context.Context, req *pb.ListStocksRequ
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	ids := make([]uint64, len(stocks))
+	for i, s := range stocks {
+		ids[i] = s.ID
+	}
+	listingMap := h.resolveListingIDs(ids, "stock")
+
 	items := make([]*pb.StockItem, len(stocks))
 	for i, s := range stocks {
-		items[i] = toStockItem(&s)
+		stock := s
+		items[i] = toStockItem(&stock, listingMap[s.ID])
 	}
 	return &pb.ListStocksResponse{Stocks: items, TotalCount: total}, nil
 }
@@ -76,15 +155,16 @@ func (h *SecurityHandler) ListStocks(ctx context.Context, req *pb.ListStocksRequ
 func (h *SecurityHandler) GetStock(ctx context.Context, req *pb.GetStockRequest) (*pb.StockDetail, error) {
 	stock, options, err := h.secSvc.GetStockWithOptions(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
-	return toStockDetail(stock, options), nil
+	lid := h.resolveListingID(stock.ID, "stock")
+	return toStockDetail(stock, options, lid), nil
 }
 
 func (h *SecurityHandler) GetStockHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {
 	history, total, err := h.listingSvc.GetPriceHistoryForSecurity(req.Id, "stock", req.Period, int(req.Page), int(req.PageSize))
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return toPriceHistoryResponse(history, total), nil
 }
@@ -136,9 +216,16 @@ func (h *SecurityHandler) ListFutures(ctx context.Context, req *pb.ListFuturesRe
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	ids := make([]uint64, len(futures))
+	for i, f := range futures {
+		ids[i] = f.ID
+	}
+	listingMap := h.resolveListingIDs(ids, "futures")
+
 	items := make([]*pb.FuturesItem, len(futures))
 	for i, f := range futures {
-		items[i] = toFuturesItem(&f)
+		fc := f
+		items[i] = toFuturesItem(&fc, listingMap[f.ID])
 	}
 	return &pb.ListFuturesResponse{Futures: items, TotalCount: total}, nil
 }
@@ -146,15 +233,16 @@ func (h *SecurityHandler) ListFutures(ctx context.Context, req *pb.ListFuturesRe
 func (h *SecurityHandler) GetFutures(ctx context.Context, req *pb.GetFuturesRequest) (*pb.FuturesDetail, error) {
 	f, err := h.secSvc.GetFutures(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
-	return toFuturesDetail(f), nil
+	lid := h.resolveListingID(f.ID, "futures")
+	return toFuturesDetail(f, lid), nil
 }
 
 func (h *SecurityHandler) GetFuturesHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {
 	history, total, err := h.listingSvc.GetPriceHistoryForSecurity(req.Id, "futures", req.Period, int(req.Page), int(req.PageSize))
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return toPriceHistoryResponse(history, total), nil
 }
@@ -178,9 +266,16 @@ func (h *SecurityHandler) ListForexPairs(ctx context.Context, req *pb.ListForexP
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	ids := make([]uint64, len(pairs))
+	for i, fp := range pairs {
+		ids[i] = fp.ID
+	}
+	listingMap := h.resolveListingIDs(ids, "forex")
+
 	items := make([]*pb.ForexPairItem, len(pairs))
 	for i, fp := range pairs {
-		items[i] = toForexPairItem(&fp)
+		pair := fp
+		items[i] = toForexPairItem(&pair, listingMap[fp.ID])
 	}
 	return &pb.ListForexPairsResponse{ForexPairs: items, TotalCount: total}, nil
 }
@@ -188,15 +283,16 @@ func (h *SecurityHandler) ListForexPairs(ctx context.Context, req *pb.ListForexP
 func (h *SecurityHandler) GetForexPair(ctx context.Context, req *pb.GetForexPairRequest) (*pb.ForexPairDetail, error) {
 	fp, err := h.secSvc.GetForexPair(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
-	return toForexPairDetail(fp), nil
+	lid := h.resolveListingID(fp.ID, "forex")
+	return toForexPairDetail(fp, lid), nil
 }
 
 func (h *SecurityHandler) GetForexPairHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {
 	history, total, err := h.listingSvc.GetPriceHistoryForSecurity(req.Id, "forex", req.Period, int(req.Page), int(req.PageSize))
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return toPriceHistoryResponse(history, total), nil
 }
@@ -246,7 +342,7 @@ func (h *SecurityHandler) ListOptions(ctx context.Context, req *pb.ListOptionsRe
 func (h *SecurityHandler) GetOption(ctx context.Context, req *pb.GetOptionRequest) (*pb.OptionDetail, error) {
 	o, err := h.secSvc.GetOption(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return toOptionDetail(o), nil
 }
@@ -272,7 +368,7 @@ func (h *SecurityHandler) GetCandles(ctx context.Context, req *pb.GetCandlesRequ
 
 	candles, err := h.candleSvc.GetCandles(ctx, req.ListingId, req.Interval, from, to)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	pbCandles := make([]*pb.CandlePoint, len(candles))
@@ -295,11 +391,22 @@ func (h *SecurityHandler) GetCandles(ctx context.Context, req *pb.GetCandlesRequ
 
 // --- Mapping helpers ---
 
-func toListingInfo(exchangeID uint64, exchangeAcronym string, price, high, low, change decimal.Decimal, volume int64, initialMarginCost decimal.Decimal, lastRefresh time.Time) *pb.ListingInfo {
+func toListingInfo(
+	listingID uint64,
+	exchangeID uint64,
+	exchangeAcronym string,
+	exchangeCurrency string,
+	price, high, low, change decimal.Decimal,
+	volume int64,
+	initialMarginCost decimal.Decimal,
+	lastRefresh time.Time,
+) *pb.ListingInfo {
 	changePercent := service.StockChangePercent(price, change)
 	return &pb.ListingInfo{
+		Id:                listingID,
 		ExchangeId:        exchangeID,
 		ExchangeAcronym:   exchangeAcronym,
+		Currency:          exchangeCurrency,
 		Price:             price.StringFixed(4),
 		High:              high.StringFixed(4),
 		Low:               low.StringFixed(4),
@@ -311,7 +418,7 @@ func toListingInfo(exchangeID uint64, exchangeAcronym string, price, high, low, 
 	}
 }
 
-func toStockItem(s *model.Stock) *pb.StockItem {
+func toStockItem(s *model.Stock, listingID uint64) *pb.StockItem {
 	return &pb.StockItem{
 		Id:                s.ID,
 		Ticker:            s.Ticker,
@@ -319,14 +426,15 @@ func toStockItem(s *model.Stock) *pb.StockItem {
 		OutstandingShares: s.OutstandingShares,
 		DividendYield:     s.DividendYield.StringFixed(6),
 		Listing: toListingInfo(
-			s.ExchangeID, s.Exchange.Acronym,
+			listingID,
+			s.ExchangeID, s.Exchange.Acronym, s.Exchange.Currency,
 			s.Price, s.High, s.Low, s.Change, s.Volume,
 			s.InitialMarginCost(), s.LastRefresh,
 		),
 	}
 }
 
-func toStockDetail(s *model.Stock, options []model.Option) *pb.StockDetail {
+func toStockDetail(s *model.Stock, options []model.Option, listingID uint64) *pb.StockDetail {
 	optItems := make([]*pb.OptionItem, len(options))
 	for i, o := range options {
 		optItems[i] = toOptionItem(&o)
@@ -339,7 +447,8 @@ func toStockDetail(s *model.Stock, options []model.Option) *pb.StockDetail {
 		DividendYield:     s.DividendYield.StringFixed(6),
 		MarketCap:         s.MarketCap().StringFixed(2),
 		Listing: toListingInfo(
-			s.ExchangeID, s.Exchange.Acronym,
+			listingID,
+			s.ExchangeID, s.Exchange.Acronym, s.Exchange.Currency,
 			s.Price, s.High, s.Low, s.Change, s.Volume,
 			s.InitialMarginCost(), s.LastRefresh,
 		),
@@ -347,7 +456,7 @@ func toStockDetail(s *model.Stock, options []model.Option) *pb.StockDetail {
 	}
 }
 
-func toFuturesItem(f *model.FuturesContract) *pb.FuturesItem {
+func toFuturesItem(f *model.FuturesContract, listingID uint64) *pb.FuturesItem {
 	return &pb.FuturesItem{
 		Id:             f.ID,
 		Ticker:         f.Ticker,
@@ -356,14 +465,15 @@ func toFuturesItem(f *model.FuturesContract) *pb.FuturesItem {
 		ContractUnit:   f.ContractUnit,
 		SettlementDate: f.SettlementDate.Format("2006-01-02"),
 		Listing: toListingInfo(
-			f.ExchangeID, f.Exchange.Acronym,
+			listingID,
+			f.ExchangeID, f.Exchange.Acronym, f.Exchange.Currency,
 			f.Price, f.High, f.Low, f.Change, f.Volume,
 			f.InitialMarginCost(), f.LastRefresh,
 		),
 	}
 }
 
-func toFuturesDetail(f *model.FuturesContract) *pb.FuturesDetail {
+func toFuturesDetail(f *model.FuturesContract, listingID uint64) *pb.FuturesDetail {
 	return &pb.FuturesDetail{
 		Id:                f.ID,
 		Ticker:            f.Ticker,
@@ -373,14 +483,15 @@ func toFuturesDetail(f *model.FuturesContract) *pb.FuturesDetail {
 		SettlementDate:    f.SettlementDate.Format("2006-01-02"),
 		MaintenanceMargin: f.MaintenanceMargin().StringFixed(2),
 		Listing: toListingInfo(
-			f.ExchangeID, f.Exchange.Acronym,
+			listingID,
+			f.ExchangeID, f.Exchange.Acronym, f.Exchange.Currency,
 			f.Price, f.High, f.Low, f.Change, f.Volume,
 			f.InitialMarginCost(), f.LastRefresh,
 		),
 	}
 }
 
-func toForexPairItem(fp *model.ForexPair) *pb.ForexPairItem {
+func toForexPairItem(fp *model.ForexPair, listingID uint64) *pb.ForexPairItem {
 	return &pb.ForexPairItem{
 		Id:            fp.ID,
 		Ticker:        fp.Ticker,
@@ -391,14 +502,15 @@ func toForexPairItem(fp *model.ForexPair) *pb.ForexPairItem {
 		Liquidity:     fp.Liquidity,
 		ContractSize:  fp.ContractSizeValue(),
 		Listing: toListingInfo(
-			fp.ExchangeID, fp.Exchange.Acronym,
+			listingID,
+			fp.ExchangeID, fp.Exchange.Acronym, fp.Exchange.Currency,
 			fp.ExchangeRate, fp.High, fp.Low, fp.Change, fp.Volume,
 			fp.InitialMarginCost(), fp.LastRefresh,
 		),
 	}
 }
 
-func toForexPairDetail(fp *model.ForexPair) *pb.ForexPairDetail {
+func toForexPairDetail(fp *model.ForexPair, listingID uint64) *pb.ForexPairDetail {
 	return &pb.ForexPairDetail{
 		Id:                fp.ID,
 		Ticker:            fp.Ticker,
@@ -410,7 +522,8 @@ func toForexPairDetail(fp *model.ForexPair) *pb.ForexPairDetail {
 		ContractSize:      fp.ContractSizeValue(),
 		MaintenanceMargin: fp.MaintenanceMargin().StringFixed(2),
 		Listing: toListingInfo(
-			fp.ExchangeID, fp.Exchange.Acronym,
+			listingID,
+			fp.ExchangeID, fp.Exchange.Acronym, fp.Exchange.Currency,
 			fp.ExchangeRate, fp.High, fp.Low, fp.Change, fp.Volume,
 			fp.InitialMarginCost(), fp.LastRefresh,
 		),

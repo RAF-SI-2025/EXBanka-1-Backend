@@ -55,11 +55,11 @@ message ValidateTokenRequest {
 
 message ValidateTokenResponse {
   bool valid = 1;
-  int64 user_id = 2;
+  int64 principal_id = 2;     // was: user_id (Spec C Task 2: JWT claim rename)
   string email = 3;
   string role = 4;
   repeated string permissions = 5;
-  string system_type = 6;
+  string principal_type = 6;  // was: system_type (Spec C Task 2: JWT claim rename)
   repeated string roles = 7;
   string device_type = 8;   // "mobile" or empty for browser
   string device_id = 9;     // UUID of mobile device or empty

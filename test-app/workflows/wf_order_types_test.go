@@ -22,17 +22,19 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 
 	// Step 2: Get a stock listing
 	_, listingID := getFirstStockListingID(t, supervisorC)
-	t.Logf("WF-7: using stock listing_id=%d", listingID)
+	bankAcctID := getBankRSDAccountID(t, adminC)
+	t.Logf("WF-7: using stock listing_id=%d bank_rsd_account_id=%d", listingID, bankAcctID)
 
 	// Step 3: Place limit buy with absurdly low limit_value so it stays pending
-	limitResp, err := supervisorC.POST("/api/v1/me/orders", map[string]interface{}{
+	limitResp, err := supervisorC.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "limit",
 		"quantity":    1,
-		"limit_value": 0.01,
+		"limit_value": "0.01",
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-7: create limit order: %v", err)
@@ -43,7 +45,7 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 
 	// Give a moment and verify order is NOT yet done
 	time.Sleep(2 * time.Second)
-	orderResp, err := supervisorC.GET(fmt.Sprintf("/api/v1/me/orders/%d", limitOrderID))
+	orderResp, err := supervisorC.GET(fmt.Sprintf("/api/v3/me/orders/%d", limitOrderID))
 	if err != nil {
 		t.Fatalf("WF-7: get limit order: %v", err)
 	}
@@ -55,7 +57,7 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 	}
 
 	// Step 4: Cancel the limit order
-	cancelResp, err := supervisorC.POST(fmt.Sprintf("/api/v1/me/orders/%d/cancel", limitOrderID), nil)
+	cancelResp, err := supervisorC.POST(fmt.Sprintf("/api/v3/me/orders/%d/cancel", limitOrderID), nil)
 	if err != nil {
 		t.Fatalf("WF-7: cancel limit order: %v", err)
 	}
@@ -67,7 +69,7 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 
 	// Verify cancelled state if it was still pending
 	if cancelResp.StatusCode == 200 {
-		checkResp, err := supervisorC.GET(fmt.Sprintf("/api/v1/me/orders/%d", limitOrderID))
+		checkResp, err := supervisorC.GET(fmt.Sprintf("/api/v3/me/orders/%d", limitOrderID))
 		if err != nil {
 			t.Fatalf("WF-7: get cancelled order: %v", err)
 		}
@@ -82,7 +84,7 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 		t.Logf("WF-7: using futures_id=%d", futuresID)
 
 		// Futures use listing ID — fetch the listing for this futures contract
-		futuresResp, err := supervisorC.GET(fmt.Sprintf("/api/v1/securities/futures?page=1&page_size=1"))
+		futuresResp, err := supervisorC.GET(fmt.Sprintf("/api/v3/securities/futures?page=1&page_size=1"))
 		if err != nil {
 			t.Fatalf("WF-7: get futures: %v", err)
 		}
@@ -93,13 +95,14 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 		futuresListing := futuresObj["listing"].(map[string]interface{})
 		futuresListingID := uint64(futuresListing["id"].(float64))
 
-		buyResp, err := supervisorC.POST("/api/v1/me/orders", map[string]interface{}{
+		buyResp, err := supervisorC.POST("/api/v3/me/orders", map[string]interface{}{
 			"listing_id":  futuresListingID,
 			"direction":   "buy",
 			"order_type":  "market",
 			"quantity":    1,
 			"all_or_none": false,
 			"margin":      false,
+			"account_id":  bankAcctID,
 		})
 		if err != nil {
 			t.Fatalf("WF-7: create futures buy order: %v", err)
@@ -111,7 +114,7 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 		waitForOrderFill(t, supervisorC, futuresOrderID, 30*time.Second)
 
 		// Verify holding exists
-		portfolioResp, err := supervisorC.GET("/api/v1/me/portfolio")
+		portfolioResp, err := supervisorC.GET("/api/v3/me/portfolio")
 		if err != nil {
 			t.Fatalf("WF-7: list portfolio: %v", err)
 		}

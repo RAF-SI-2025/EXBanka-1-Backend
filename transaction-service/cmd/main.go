@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
+	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -20,6 +18,7 @@ import (
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	pb "github.com/exbanka/contract/transactionpb"
 	verificationpb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/transaction-service/internal/config"
@@ -28,6 +27,7 @@ import (
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
 	"github.com/exbanka/transaction-service/internal/service"
+	"github.com/exbanka/transaction-service/internal/sitx"
 )
 
 func main() {
@@ -40,12 +40,27 @@ func main() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 
+	// Phase 1 SI-TX cleanup: drop legacy tables that previously held
+	// InterBankTransaction / Bank rows. The corresponding GORM models
+	// have been deleted; AutoMigrate no longer recreates them. The DROPs
+	// run on every startup but are idempotent. Replaced in Phase 2 with
+	// SI-TX-shape peer_banks / peer_idempotence_records / outbound_peer_txs.
+	if err := db.Exec("DROP TABLE IF EXISTS inter_bank_transactions").Error; err != nil {
+		log.Printf("warn: drop inter_bank_transactions failed: %v", err)
+	}
+	if err := db.Exec("DROP TABLE IF EXISTS banks").Error; err != nil {
+		log.Printf("warn: drop banks failed: %v", err)
+	}
+
 	if err := db.AutoMigrate(
 		&model.Payment{},
 		&model.Transfer{},
 		&model.PaymentRecipient{},
 		&model.TransferFee{},
 		&model.SagaLog{},
+		&model.PeerBank{},              // new (Phase 2 Task 8, SI-TX)
+		&model.PeerIdempotenceRecord{}, // new (Phase 2 Task 8, SI-TX)
+		&model.OutboundPeerTx{},        // new (Phase 3 Task 10, SI-TX)
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -55,7 +70,7 @@ func main() {
 
 	// Pre-create Kafka topics before any publishing to avoid
 	// partition assignment race condition for downstream consumers.
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		"transaction.payment-created",
 		"transaction.payment-completed",
 		"transaction.payment-failed",
@@ -68,7 +83,10 @@ func main() {
 	)
 
 	// Connect to account-service
-	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	accountConn, err := grpc.NewClient(cfg.AccountGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to account service: %v", err)
 	}
@@ -76,7 +94,10 @@ func main() {
 	accountClient := accountpb.NewAccountServiceClient(accountConn)
 
 	// Connect to exchange-service
-	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	exchangeConn, err := grpc.NewClient(cfg.ExchangeGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to exchange service: %v", err)
 	}
@@ -85,7 +106,10 @@ func main() {
 	exchangeClient := service.NewGRPCExchangeClient(exchangeGRPCClient)
 
 	// Connect to verification-service
-	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	verificationConn, err := grpc.NewClient(cfg.VerificationGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to verification service: %v", err)
 	}
@@ -152,19 +176,46 @@ func main() {
 
 	feeHandler := handler.NewFeeGRPCHandler(feeSvc)
 
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+	// Phase 2 Task 8 (SI-TX): peer-bank admin + peer-tx stubs.
+	peerBankRepo := repository.NewPeerBankRepository(db)
+	peerIdemRepo := repository.NewPeerIdempotenceRepository(db)
+
+	peerBankAdminHandler := handler.NewPeerBankAdminGRPCHandler(peerBankRepo)
+
+	// SI-TX Phase 3 sender-side wiring.
+	ownRouting, _ := strconv.ParseInt(cfg.OwnBankCode, 10, 64)
+	peerExecutor := sitx.NewPostingExecutor(accountClient, ownRouting)
+	outRepo := repository.NewOutboundPeerTxRepository(db)
+	peerHTTPClient := sitx.NewPeerHTTPClient(&http.Client{Timeout: 30 * time.Second})
+
+	// peerLookup resolves a peer-bank-code to a PeerHTTPTarget by reading
+	// from the local peer_banks table.
+	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
+		row, err := peerBankRepo.GetByBankCode(code)
+		if err != nil {
+			return nil, err
+		}
+		if !row.Active {
+			return nil, fmt.Errorf("peer bank %s inactive", code)
+		}
+		return &sitx.PeerHTTPTarget{
+			BankCode:        row.BankCode,
+			RoutingNumber:   row.RoutingNumber,
+			OwnRouting:      ownRouting,
+			BaseURL:         row.BaseURL,
+			APIToken:        row.APITokenPlaintext,
+			HMACOutboundKey: row.HMACOutboundKey,
+		}, nil
 	}
 
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+	peerTxHandler := handler.NewPeerTxGRPCHandler(
+		peerIdemRepo, peerExecutor, accountClient,
+		outRepo, peerHTTPClient, handler.PeerLookupFunc(peerLookup), ownRouting,
 	)
-	pb.RegisterTransactionServiceServer(s, grpcHandler)
-	pb.RegisterFeeServiceServer(s, feeHandler)
-	shared.RegisterHealthCheck(s, "transaction-service")
-	metrics.InitializeGRPCMetrics(s)
+
+	replayCron := service.NewOutboundReplayCron(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup))
+	replayCron.Start(ctx)
+
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -173,21 +224,30 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// Start gRPC server in goroutine
-	markReady()
-	go func() {
-		fmt.Printf("transaction service listening on %s\n", cfg.GRPCAddr)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("gRPC server failed: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down gracefully...")
-	s.GracefulStop()
-	log.Println("Server stopped")
+	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("transaction-service"),
+				grpcmw.UnarySagaContextInterceptor(),
+			),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			pb.RegisterTransactionServiceServer(s, grpcHandler)
+			pb.RegisterFeeServiceServer(s, feeHandler)
+			pb.RegisterPeerBankAdminServiceServer(s, peerBankAdminHandler)
+			pb.RegisterPeerTxServiceServer(s, peerTxHandler)
+			shared.RegisterHealthCheck(s, "transaction-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			fmt.Printf("transaction service listening on %s\n", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
+	}
 }

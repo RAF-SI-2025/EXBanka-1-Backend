@@ -91,6 +91,16 @@ func (m *mockRepo) GetByIDWithRoles(id int64) (*model.Employee, error) {
 	return m.GetByID(id)
 }
 
+func (m *mockRepo) GetByIDs(ids []int64) ([]model.Employee, error) {
+	out := make([]model.Employee, 0, len(ids))
+	for _, id := range ids {
+		if emp, ok := m.employees[id]; ok {
+			out = append(out, *emp)
+		}
+	}
+	return out, nil
+}
+
 func (m *mockRepo) GetByEmail(email string) (*model.Employee, error) {
 	for _, emp := range m.employees {
 		if emp.Email == email {
@@ -201,6 +211,36 @@ func TestGetEmployee_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestGetEmployeeByEmail_Found(t *testing.T) {
+	repo := newMockRepo()
+	repo.employees[1] = &model.Employee{ID: 1, Email: "alice@example.com", FirstName: "Alice"}
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	emp, err := svc.GetEmployeeByEmail("alice@example.com")
+	assert.NoError(t, err)
+	assert.Equal(t, "Alice", emp.FirstName)
+}
+
+func TestGetEmployeeByEmail_NotFound(t *testing.T) {
+	repo := newMockRepo()
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	_, err := svc.GetEmployeeByEmail("missing@example.com")
+	assert.Error(t, err)
+}
+
+func TestListEmployees_ReturnsAll(t *testing.T) {
+	repo := newMockRepo()
+	repo.employees[1] = &model.Employee{ID: 1, Email: "a@x.com"}
+	repo.employees[2] = &model.Employee{ID: 2, Email: "b@x.com"}
+	svc := NewEmployeeService(repo, nil, nil, nil)
+
+	emps, total, err := svc.ListEmployees("", "", "", 1, 10)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, emps, 2)
+}
+
 func TestUpdateEmployee_InvalidJMBG(t *testing.T) {
 	repo := newMockRepo()
 	repo.employees[1] = &model.Employee{ID: 1, JMBG: "0101990710024"}
@@ -228,8 +268,8 @@ func TestSetEmployeeRoles(t *testing.T) {
 	}
 	_ = repo.Create(emp)
 
-	// Seed roles
-	_ = roleSvc.SeedRolesAndPermissions()
+	// Seed roles into the mock repos using the codegened catalog.
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
 
 	err := svc.SetEmployeeRoles(context.Background(), emp.ID, []string{"EmployeeAgent"}, 0)
 	assert.NoError(t, err)
@@ -257,10 +297,11 @@ func TestSetEmployeeAdditionalPermissions(t *testing.T) {
 	}
 	_ = repo.Create(emp)
 
-	// Seed permissions
-	_ = roleSvc.SeedRolesAndPermissions()
+	// Seed permissions into the mock repos using the codegened catalog.
+	seedDefaultRolesIntoMocks(t, roleRepo, permRepo)
 
-	err := svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID, []string{"clients.read", "securities.trade"}, 0)
+	err := svc.SetEmployeeAdditionalPermissions(context.Background(), emp.ID,
+		[]string{"clients.read.all", "securities.trade.any"}, 0)
 	assert.NoError(t, err)
 
 	updated, err := repo.GetByID(emp.ID)
@@ -277,25 +318,25 @@ func TestResolvePermissions(t *testing.T) {
 			{
 				Name: "EmployeeBasic",
 				Permissions: []model.Permission{
-					{Code: "clients.read"},
-					{Code: "accounts.read"},
+					{Code: "clients.read.all"},
+					{Code: "accounts.read.all"},
 				},
 			},
 		},
 		AdditionalPermissions: []model.Permission{
-			{Code: "securities.trade"},
-			{Code: "clients.read"}, // duplicate — should be deduplicated
+			{Code: "securities.trade.any"},
+			{Code: "clients.read.all"}, // duplicate — should be deduplicated
 		},
 	}
 
 	perms := svc.ResolvePermissions(emp)
-	assert.Contains(t, perms, "clients.read")
-	assert.Contains(t, perms, "accounts.read")
-	assert.Contains(t, perms, "securities.trade")
-	// "clients.read" should appear only once
+	assert.Contains(t, perms, "clients.read.all")
+	assert.Contains(t, perms, "accounts.read.all")
+	assert.Contains(t, perms, "securities.trade.any")
+	// "clients.read.all" should appear only once
 	count := 0
 	for _, p := range perms {
-		if p == "clients.read" {
+		if p == "clients.read.all" {
 			count++
 		}
 	}

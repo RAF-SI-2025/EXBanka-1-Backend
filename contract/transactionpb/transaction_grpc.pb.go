@@ -867,3 +867,609 @@ var FeeService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "transaction/transaction.proto",
 }
+
+const (
+	PeerTxService_HandleNewTx_FullMethodName                    = "/transaction.PeerTxService/HandleNewTx"
+	PeerTxService_HandleCommitTx_FullMethodName                 = "/transaction.PeerTxService/HandleCommitTx"
+	PeerTxService_HandleRollbackTx_FullMethodName               = "/transaction.PeerTxService/HandleRollbackTx"
+	PeerTxService_InitiateOutboundTx_FullMethodName             = "/transaction.PeerTxService/InitiateOutboundTx"
+	PeerTxService_InitiateOutboundTxWithPostings_FullMethodName = "/transaction.PeerTxService/InitiateOutboundTxWithPostings"
+)
+
+// PeerTxServiceClient is the client API for PeerTxService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// PeerTxService backs the SI-TX `POST /api/v3/interbank` endpoint. Each
+// RPC corresponds to one messageType in the SI-TX envelope. Phase 2
+// stubs the TX RPCs as Unimplemented; Phase 3 fills them in.
+type PeerTxServiceClient interface {
+	HandleNewTx(ctx context.Context, in *SiTxNewTxRequest, opts ...grpc.CallOption) (*SiTxVoteResponse, error)
+	HandleCommitTx(ctx context.Context, in *SiTxCommitRequest, opts ...grpc.CallOption) (*SiTxAckResponse, error)
+	HandleRollbackTx(ctx context.Context, in *SiTxRollbackRequest, opts ...grpc.CallOption) (*SiTxAckResponse, error)
+	InitiateOutboundTx(ctx context.Context, in *SiTxInitiateRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error)
+	InitiateOutboundTxWithPostings(ctx context.Context, in *SiTxInitiateWithPostingsRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error)
+}
+
+type peerTxServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPeerTxServiceClient(cc grpc.ClientConnInterface) PeerTxServiceClient {
+	return &peerTxServiceClient{cc}
+}
+
+func (c *peerTxServiceClient) HandleNewTx(ctx context.Context, in *SiTxNewTxRequest, opts ...grpc.CallOption) (*SiTxVoteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SiTxVoteResponse)
+	err := c.cc.Invoke(ctx, PeerTxService_HandleNewTx_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerTxServiceClient) HandleCommitTx(ctx context.Context, in *SiTxCommitRequest, opts ...grpc.CallOption) (*SiTxAckResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SiTxAckResponse)
+	err := c.cc.Invoke(ctx, PeerTxService_HandleCommitTx_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerTxServiceClient) HandleRollbackTx(ctx context.Context, in *SiTxRollbackRequest, opts ...grpc.CallOption) (*SiTxAckResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SiTxAckResponse)
+	err := c.cc.Invoke(ctx, PeerTxService_HandleRollbackTx_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerTxServiceClient) InitiateOutboundTx(ctx context.Context, in *SiTxInitiateRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SiTxInitiateResponse)
+	err := c.cc.Invoke(ctx, PeerTxService_InitiateOutboundTx_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerTxServiceClient) InitiateOutboundTxWithPostings(ctx context.Context, in *SiTxInitiateWithPostingsRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SiTxInitiateResponse)
+	err := c.cc.Invoke(ctx, PeerTxService_InitiateOutboundTxWithPostings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PeerTxServiceServer is the server API for PeerTxService service.
+// All implementations must embed UnimplementedPeerTxServiceServer
+// for forward compatibility.
+//
+// PeerTxService backs the SI-TX `POST /api/v3/interbank` endpoint. Each
+// RPC corresponds to one messageType in the SI-TX envelope. Phase 2
+// stubs the TX RPCs as Unimplemented; Phase 3 fills them in.
+type PeerTxServiceServer interface {
+	HandleNewTx(context.Context, *SiTxNewTxRequest) (*SiTxVoteResponse, error)
+	HandleCommitTx(context.Context, *SiTxCommitRequest) (*SiTxAckResponse, error)
+	HandleRollbackTx(context.Context, *SiTxRollbackRequest) (*SiTxAckResponse, error)
+	InitiateOutboundTx(context.Context, *SiTxInitiateRequest) (*SiTxInitiateResponse, error)
+	InitiateOutboundTxWithPostings(context.Context, *SiTxInitiateWithPostingsRequest) (*SiTxInitiateResponse, error)
+	mustEmbedUnimplementedPeerTxServiceServer()
+}
+
+// UnimplementedPeerTxServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedPeerTxServiceServer struct{}
+
+func (UnimplementedPeerTxServiceServer) HandleNewTx(context.Context, *SiTxNewTxRequest) (*SiTxVoteResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleNewTx not implemented")
+}
+func (UnimplementedPeerTxServiceServer) HandleCommitTx(context.Context, *SiTxCommitRequest) (*SiTxAckResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleCommitTx not implemented")
+}
+func (UnimplementedPeerTxServiceServer) HandleRollbackTx(context.Context, *SiTxRollbackRequest) (*SiTxAckResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HandleRollbackTx not implemented")
+}
+func (UnimplementedPeerTxServiceServer) InitiateOutboundTx(context.Context, *SiTxInitiateRequest) (*SiTxInitiateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InitiateOutboundTx not implemented")
+}
+func (UnimplementedPeerTxServiceServer) InitiateOutboundTxWithPostings(context.Context, *SiTxInitiateWithPostingsRequest) (*SiTxInitiateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InitiateOutboundTxWithPostings not implemented")
+}
+func (UnimplementedPeerTxServiceServer) mustEmbedUnimplementedPeerTxServiceServer() {}
+func (UnimplementedPeerTxServiceServer) testEmbeddedByValue()                       {}
+
+// UnsafePeerTxServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PeerTxServiceServer will
+// result in compilation errors.
+type UnsafePeerTxServiceServer interface {
+	mustEmbedUnimplementedPeerTxServiceServer()
+}
+
+func RegisterPeerTxServiceServer(s grpc.ServiceRegistrar, srv PeerTxServiceServer) {
+	// If the following call panics, it indicates UnimplementedPeerTxServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&PeerTxService_ServiceDesc, srv)
+}
+
+func _PeerTxService_HandleNewTx_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SiTxNewTxRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerTxServiceServer).HandleNewTx(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerTxService_HandleNewTx_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerTxServiceServer).HandleNewTx(ctx, req.(*SiTxNewTxRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerTxService_HandleCommitTx_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SiTxCommitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerTxServiceServer).HandleCommitTx(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerTxService_HandleCommitTx_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerTxServiceServer).HandleCommitTx(ctx, req.(*SiTxCommitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerTxService_HandleRollbackTx_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SiTxRollbackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerTxServiceServer).HandleRollbackTx(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerTxService_HandleRollbackTx_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerTxServiceServer).HandleRollbackTx(ctx, req.(*SiTxRollbackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerTxService_InitiateOutboundTx_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SiTxInitiateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerTxServiceServer).InitiateOutboundTx(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerTxService_InitiateOutboundTx_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerTxServiceServer).InitiateOutboundTx(ctx, req.(*SiTxInitiateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerTxService_InitiateOutboundTxWithPostings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SiTxInitiateWithPostingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerTxServiceServer).InitiateOutboundTxWithPostings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerTxService_InitiateOutboundTxWithPostings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerTxServiceServer).InitiateOutboundTxWithPostings(ctx, req.(*SiTxInitiateWithPostingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PeerTxService_ServiceDesc is the grpc.ServiceDesc for PeerTxService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PeerTxService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "transaction.PeerTxService",
+	HandlerType: (*PeerTxServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "HandleNewTx",
+			Handler:    _PeerTxService_HandleNewTx_Handler,
+		},
+		{
+			MethodName: "HandleCommitTx",
+			Handler:    _PeerTxService_HandleCommitTx_Handler,
+		},
+		{
+			MethodName: "HandleRollbackTx",
+			Handler:    _PeerTxService_HandleRollbackTx_Handler,
+		},
+		{
+			MethodName: "InitiateOutboundTx",
+			Handler:    _PeerTxService_InitiateOutboundTx_Handler,
+		},
+		{
+			MethodName: "InitiateOutboundTxWithPostings",
+			Handler:    _PeerTxService_InitiateOutboundTxWithPostings_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "transaction/transaction.proto",
+}
+
+const (
+	PeerBankAdminService_ListPeerBanks_FullMethodName         = "/transaction.PeerBankAdminService/ListPeerBanks"
+	PeerBankAdminService_GetPeerBank_FullMethodName           = "/transaction.PeerBankAdminService/GetPeerBank"
+	PeerBankAdminService_CreatePeerBank_FullMethodName        = "/transaction.PeerBankAdminService/CreatePeerBank"
+	PeerBankAdminService_UpdatePeerBank_FullMethodName        = "/transaction.PeerBankAdminService/UpdatePeerBank"
+	PeerBankAdminService_DeletePeerBank_FullMethodName        = "/transaction.PeerBankAdminService/DeletePeerBank"
+	PeerBankAdminService_ResolvePeerByAPIToken_FullMethodName = "/transaction.PeerBankAdminService/ResolvePeerByAPIToken"
+	PeerBankAdminService_ResolvePeerByBankCode_FullMethodName = "/transaction.PeerBankAdminService/ResolvePeerByBankCode"
+)
+
+// PeerBankAdminServiceClient is the client API for PeerBankAdminService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// PeerBankAdminService is the runtime-editable peer-bank registry. Lets
+// admins add/update/remove peer banks without redeploys. Gated by the
+// peer_banks.manage.any permission.
+type PeerBankAdminServiceClient interface {
+	ListPeerBanks(ctx context.Context, in *ListPeerBanksRequest, opts ...grpc.CallOption) (*ListPeerBanksResponse, error)
+	GetPeerBank(ctx context.Context, in *GetPeerBankRequest, opts ...grpc.CallOption) (*PeerBank, error)
+	CreatePeerBank(ctx context.Context, in *CreatePeerBankRequest, opts ...grpc.CallOption) (*PeerBank, error)
+	UpdatePeerBank(ctx context.Context, in *UpdatePeerBankRequest, opts ...grpc.CallOption) (*PeerBank, error)
+	DeletePeerBank(ctx context.Context, in *DeletePeerBankRequest, opts ...grpc.CallOption) (*DeletePeerBankResponse, error)
+	// Phase 3 internal RPCs (Celina 5 SI-TX): return full peer-bank record
+	// including HMAC keys + plaintext API token. NOT exposed via REST —
+	// gateway-internal use only.
+	ResolvePeerByAPIToken(ctx context.Context, in *ResolvePeerByAPITokenRequest, opts ...grpc.CallOption) (*ResolvePeerByAPITokenResponse, error)
+	ResolvePeerByBankCode(ctx context.Context, in *ResolvePeerByBankCodeRequest, opts ...grpc.CallOption) (*ResolvePeerByBankCodeResponse, error)
+}
+
+type peerBankAdminServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPeerBankAdminServiceClient(cc grpc.ClientConnInterface) PeerBankAdminServiceClient {
+	return &peerBankAdminServiceClient{cc}
+}
+
+func (c *peerBankAdminServiceClient) ListPeerBanks(ctx context.Context, in *ListPeerBanksRequest, opts ...grpc.CallOption) (*ListPeerBanksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListPeerBanksResponse)
+	err := c.cc.Invoke(ctx, PeerBankAdminService_ListPeerBanks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerBankAdminServiceClient) GetPeerBank(ctx context.Context, in *GetPeerBankRequest, opts ...grpc.CallOption) (*PeerBank, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PeerBank)
+	err := c.cc.Invoke(ctx, PeerBankAdminService_GetPeerBank_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerBankAdminServiceClient) CreatePeerBank(ctx context.Context, in *CreatePeerBankRequest, opts ...grpc.CallOption) (*PeerBank, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PeerBank)
+	err := c.cc.Invoke(ctx, PeerBankAdminService_CreatePeerBank_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerBankAdminServiceClient) UpdatePeerBank(ctx context.Context, in *UpdatePeerBankRequest, opts ...grpc.CallOption) (*PeerBank, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PeerBank)
+	err := c.cc.Invoke(ctx, PeerBankAdminService_UpdatePeerBank_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerBankAdminServiceClient) DeletePeerBank(ctx context.Context, in *DeletePeerBankRequest, opts ...grpc.CallOption) (*DeletePeerBankResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeletePeerBankResponse)
+	err := c.cc.Invoke(ctx, PeerBankAdminService_DeletePeerBank_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerBankAdminServiceClient) ResolvePeerByAPIToken(ctx context.Context, in *ResolvePeerByAPITokenRequest, opts ...grpc.CallOption) (*ResolvePeerByAPITokenResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolvePeerByAPITokenResponse)
+	err := c.cc.Invoke(ctx, PeerBankAdminService_ResolvePeerByAPIToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerBankAdminServiceClient) ResolvePeerByBankCode(ctx context.Context, in *ResolvePeerByBankCodeRequest, opts ...grpc.CallOption) (*ResolvePeerByBankCodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolvePeerByBankCodeResponse)
+	err := c.cc.Invoke(ctx, PeerBankAdminService_ResolvePeerByBankCode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PeerBankAdminServiceServer is the server API for PeerBankAdminService service.
+// All implementations must embed UnimplementedPeerBankAdminServiceServer
+// for forward compatibility.
+//
+// PeerBankAdminService is the runtime-editable peer-bank registry. Lets
+// admins add/update/remove peer banks without redeploys. Gated by the
+// peer_banks.manage.any permission.
+type PeerBankAdminServiceServer interface {
+	ListPeerBanks(context.Context, *ListPeerBanksRequest) (*ListPeerBanksResponse, error)
+	GetPeerBank(context.Context, *GetPeerBankRequest) (*PeerBank, error)
+	CreatePeerBank(context.Context, *CreatePeerBankRequest) (*PeerBank, error)
+	UpdatePeerBank(context.Context, *UpdatePeerBankRequest) (*PeerBank, error)
+	DeletePeerBank(context.Context, *DeletePeerBankRequest) (*DeletePeerBankResponse, error)
+	// Phase 3 internal RPCs (Celina 5 SI-TX): return full peer-bank record
+	// including HMAC keys + plaintext API token. NOT exposed via REST —
+	// gateway-internal use only.
+	ResolvePeerByAPIToken(context.Context, *ResolvePeerByAPITokenRequest) (*ResolvePeerByAPITokenResponse, error)
+	ResolvePeerByBankCode(context.Context, *ResolvePeerByBankCodeRequest) (*ResolvePeerByBankCodeResponse, error)
+	mustEmbedUnimplementedPeerBankAdminServiceServer()
+}
+
+// UnimplementedPeerBankAdminServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedPeerBankAdminServiceServer struct{}
+
+func (UnimplementedPeerBankAdminServiceServer) ListPeerBanks(context.Context, *ListPeerBanksRequest) (*ListPeerBanksResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListPeerBanks not implemented")
+}
+func (UnimplementedPeerBankAdminServiceServer) GetPeerBank(context.Context, *GetPeerBankRequest) (*PeerBank, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetPeerBank not implemented")
+}
+func (UnimplementedPeerBankAdminServiceServer) CreatePeerBank(context.Context, *CreatePeerBankRequest) (*PeerBank, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreatePeerBank not implemented")
+}
+func (UnimplementedPeerBankAdminServiceServer) UpdatePeerBank(context.Context, *UpdatePeerBankRequest) (*PeerBank, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdatePeerBank not implemented")
+}
+func (UnimplementedPeerBankAdminServiceServer) DeletePeerBank(context.Context, *DeletePeerBankRequest) (*DeletePeerBankResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeletePeerBank not implemented")
+}
+func (UnimplementedPeerBankAdminServiceServer) ResolvePeerByAPIToken(context.Context, *ResolvePeerByAPITokenRequest) (*ResolvePeerByAPITokenResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolvePeerByAPIToken not implemented")
+}
+func (UnimplementedPeerBankAdminServiceServer) ResolvePeerByBankCode(context.Context, *ResolvePeerByBankCodeRequest) (*ResolvePeerByBankCodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolvePeerByBankCode not implemented")
+}
+func (UnimplementedPeerBankAdminServiceServer) mustEmbedUnimplementedPeerBankAdminServiceServer() {}
+func (UnimplementedPeerBankAdminServiceServer) testEmbeddedByValue()                              {}
+
+// UnsafePeerBankAdminServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PeerBankAdminServiceServer will
+// result in compilation errors.
+type UnsafePeerBankAdminServiceServer interface {
+	mustEmbedUnimplementedPeerBankAdminServiceServer()
+}
+
+func RegisterPeerBankAdminServiceServer(s grpc.ServiceRegistrar, srv PeerBankAdminServiceServer) {
+	// If the following call panics, it indicates UnimplementedPeerBankAdminServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&PeerBankAdminService_ServiceDesc, srv)
+}
+
+func _PeerBankAdminService_ListPeerBanks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPeerBanksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerBankAdminServiceServer).ListPeerBanks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerBankAdminService_ListPeerBanks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerBankAdminServiceServer).ListPeerBanks(ctx, req.(*ListPeerBanksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerBankAdminService_GetPeerBank_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPeerBankRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerBankAdminServiceServer).GetPeerBank(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerBankAdminService_GetPeerBank_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerBankAdminServiceServer).GetPeerBank(ctx, req.(*GetPeerBankRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerBankAdminService_CreatePeerBank_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreatePeerBankRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerBankAdminServiceServer).CreatePeerBank(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerBankAdminService_CreatePeerBank_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerBankAdminServiceServer).CreatePeerBank(ctx, req.(*CreatePeerBankRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerBankAdminService_UpdatePeerBank_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdatePeerBankRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerBankAdminServiceServer).UpdatePeerBank(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerBankAdminService_UpdatePeerBank_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerBankAdminServiceServer).UpdatePeerBank(ctx, req.(*UpdatePeerBankRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerBankAdminService_DeletePeerBank_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeletePeerBankRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerBankAdminServiceServer).DeletePeerBank(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerBankAdminService_DeletePeerBank_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerBankAdminServiceServer).DeletePeerBank(ctx, req.(*DeletePeerBankRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerBankAdminService_ResolvePeerByAPIToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolvePeerByAPITokenRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerBankAdminServiceServer).ResolvePeerByAPIToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerBankAdminService_ResolvePeerByAPIToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerBankAdminServiceServer).ResolvePeerByAPIToken(ctx, req.(*ResolvePeerByAPITokenRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerBankAdminService_ResolvePeerByBankCode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolvePeerByBankCodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerBankAdminServiceServer).ResolvePeerByBankCode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerBankAdminService_ResolvePeerByBankCode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerBankAdminServiceServer).ResolvePeerByBankCode(ctx, req.(*ResolvePeerByBankCodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PeerBankAdminService_ServiceDesc is the grpc.ServiceDesc for PeerBankAdminService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PeerBankAdminService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "transaction.PeerBankAdminService",
+	HandlerType: (*PeerBankAdminServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "ListPeerBanks",
+			Handler:    _PeerBankAdminService_ListPeerBanks_Handler,
+		},
+		{
+			MethodName: "GetPeerBank",
+			Handler:    _PeerBankAdminService_GetPeerBank_Handler,
+		},
+		{
+			MethodName: "CreatePeerBank",
+			Handler:    _PeerBankAdminService_CreatePeerBank_Handler,
+		},
+		{
+			MethodName: "UpdatePeerBank",
+			Handler:    _PeerBankAdminService_UpdatePeerBank_Handler,
+		},
+		{
+			MethodName: "DeletePeerBank",
+			Handler:    _PeerBankAdminService_DeletePeerBank_Handler,
+		},
+		{
+			MethodName: "ResolvePeerByAPIToken",
+			Handler:    _PeerBankAdminService_ResolvePeerByAPIToken_Handler,
+		},
+		{
+			MethodName: "ResolvePeerByBankCode",
+			Handler:    _PeerBankAdminService_ResolvePeerByBankCode_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "transaction/transaction.proto",
+}

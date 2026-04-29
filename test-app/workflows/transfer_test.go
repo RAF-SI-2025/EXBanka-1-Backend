@@ -14,7 +14,7 @@ import (
 func TestTransfer_UnauthenticatedCannotCreateTransfer(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/v1/me/transfers", map[string]interface{}{
+	resp, err := c.POST("/api/v3/me/transfers", map[string]interface{}{
 		"from_account_number": "123",
 		"to_account_number":   "456",
 		"amount":              "100.00",
@@ -30,7 +30,7 @@ func TestTransfer_UnauthenticatedCannotCreateTransfer(t *testing.T) {
 func TestTransfer_EmployeeCanReadTransfers(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/v1/transfers/999999")
+	resp, err := c.GET("/api/v3/transfers/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestTransfer_ListByClient(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 	clientID := createTestClient(t, c)
-	resp, err := c.GET(fmt.Sprintf("/api/v1/transfers?client_id=%d", clientID))
+	resp, err := c.GET(fmt.Sprintf("/api/v3/clients/%d/transfers", clientID))
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	email1 := helpers.RandomEmail()
 	password1 := helpers.RandomPassword()
 
-	createResp1, err := adminClient.POST("/api/v1/clients", map[string]interface{}{
+	createResp1, err := adminClient.POST("/api/v3/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("TrfA"),
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -75,7 +75,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	client1ID := int(helpers.GetNumberField(t, createResp1, "id"))
 
 	// Create RSD account for client 1 with 100000 RSD
-	acct1Resp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
+	acct1Resp, err := adminClient.POST("/api/v3/accounts", map[string]interface{}{
 		"owner_id":        client1ID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -89,7 +89,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	acctNum1 := helpers.GetStringField(t, acct1Resp, "account_number")
 
 	// Create second RSD account for client 1 (transfers are same-client only)
-	acct2Resp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
+	acct2Resp, err := adminClient.POST("/api/v3/accounts", map[string]interface{}{
 		"owner_id":        client1ID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -118,7 +118,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	getBankRSDAccount(t, adminClient) // warm up; balance not asserted
 
 	// Client 1 creates transfer of 5000 RSD (above 1000 fee threshold)
-	tfrResp, err := client1.POST("/api/v1/me/transfers", map[string]interface{}{
+	tfrResp, err := client1.POST("/api/v3/me/transfers", map[string]interface{}{
 		"from_account_number": acctNum1,
 		"to_account_number":   acctNum2,
 		"amount":              5000,
@@ -133,7 +133,7 @@ func TestTransfer_SameCurrency_EndToEnd(t *testing.T) {
 	challengeID := createVerificationAndGetChallengeID(t, client1, "transfer", transferID)
 
 	// Execute transfer
-	execResp, err := client1.POST(fmt.Sprintf("/api/v1/me/transfers/%d/execute", transferID), map[string]interface{}{
+	execResp, err := client1.POST(fmt.Sprintf("/api/v3/me/transfers/%d/execute", transferID), map[string]interface{}{
 		"verification_code": "111111",
 		"challenge_id":      challengeID,
 	})
@@ -169,7 +169,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	email1 := helpers.RandomEmail()
 	password1 := helpers.RandomPassword()
 
-	createResp1, err := adminClient.POST("/api/v1/clients", map[string]interface{}{
+	createResp1, err := adminClient.POST("/api/v3/clients", map[string]interface{}{
 		"first_name":    helpers.RandomName("XCurA"),
 		"last_name":     helpers.RandomName("Client"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -186,7 +186,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	client1ID := int(helpers.GetNumberField(t, createResp1, "id"))
 
 	// RSD account (source) with 100000 RSD
-	rsdAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
+	rsdAcctResp, err := adminClient.POST("/api/v3/accounts", map[string]interface{}{
 		"owner_id":        client1ID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -200,7 +200,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	rsdAccountNumber := helpers.GetStringField(t, rsdAcctResp, "account_number")
 
 	// EUR account (destination) — seed with 10000 EUR to cover cross-currency fees
-	eurAcctResp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
+	eurAcctResp, err := adminClient.POST("/api/v3/accounts", map[string]interface{}{
 		"owner_id":        client1ID,
 		"account_kind":    "foreign",
 		"account_type":    "personal",
@@ -226,7 +226,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 	rsdBalBefore := getAccountBalance(t, adminClient, rsdAccountNumber)
 
 	// Transfer 10000 RSD to EUR account (cross-currency)
-	tfrResp, err := client1.POST("/api/v1/me/transfers", map[string]interface{}{
+	tfrResp, err := client1.POST("/api/v3/me/transfers", map[string]interface{}{
 		"from_account_number": rsdAccountNumber,
 		"to_account_number":   eurAccountNumber,
 		"amount":              10000,
@@ -239,7 +239,7 @@ func TestTransfer_CrossCurrencyRSDtoEUR(t *testing.T) {
 
 	challengeID := createVerificationAndGetChallengeID(t, client1, "transfer", transferID)
 
-	execResp, err := client1.POST(fmt.Sprintf("/api/v1/me/transfers/%d/execute", transferID), map[string]interface{}{
+	execResp, err := client1.POST(fmt.Sprintf("/api/v3/me/transfers/%d/execute", transferID), map[string]interface{}{
 		"verification_code": "111111",
 		"challenge_id":      challengeID,
 	})
@@ -267,7 +267,7 @@ func TestTransfer_PaymentRecipientCRUD(t *testing.T) {
 	clientID, _, clientC, _ := setupActivatedClient(t, adminClient)
 
 	// Create a payment recipient — handler requires client_id, recipient_name, account_number
-	createResp, err := clientC.POST("/api/v1/me/payment-recipients", map[string]interface{}{
+	createResp, err := clientC.POST("/api/v3/me/payment-recipients", map[string]interface{}{
 		"client_id":      clientID,
 		"account_number": "908-0000000001-00",
 		"recipient_name": "John Doe",
@@ -284,7 +284,7 @@ func TestTransfer_PaymentRecipientCRUD(t *testing.T) {
 	t.Logf("payment recipient created: id=%d", recipientID)
 
 	// List payment recipients — client-scoped route
-	listResp, err := clientC.GET("/api/v1/me/payment-recipients")
+	listResp, err := clientC.GET("/api/v3/me/payment-recipients")
 	if err != nil {
 		t.Fatalf("list payment recipients error: %v", err)
 	}
@@ -297,14 +297,14 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 	_, accountNumber, clientC, clientEmail := setupActivatedClient(t, adminClient)
 
 	// Second account for same client
-	meResp, err := clientC.GET("/api/v1/me")
+	meResp, err := clientC.GET("/api/v3/me")
 	if err != nil {
 		t.Fatalf("get me error: %v", err)
 	}
 	helpers.RequireStatus(t, meResp, 200)
 	meClientID := int(helpers.GetNumberField(t, meResp, "id"))
 
-	acct2Resp, err := adminClient.POST("/api/v1/accounts", map[string]interface{}{
+	acct2Resp, err := adminClient.POST("/api/v3/accounts", map[string]interface{}{
 		"owner_id":        meClientID,
 		"account_kind":    "current",
 		"account_type":    "personal",
@@ -318,7 +318,7 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 	acctNum2 := helpers.GetStringField(t, acct2Resp, "account_number")
 
 	// Attempt to transfer more than the balance (100000 RSD available)
-	tfrResp, err := clientC.POST("/api/v1/me/transfers", map[string]interface{}{
+	tfrResp, err := clientC.POST("/api/v3/me/transfers", map[string]interface{}{
 		"from_account_number": accountNumber,
 		"to_account_number":   acctNum2,
 		"amount":              9999999,
@@ -331,7 +331,7 @@ func TestTransfer_InsufficientBalance(t *testing.T) {
 		t.Logf("transfer created (amount > balance); verifying execution fails")
 		transferID := int(helpers.GetNumberField(t, tfrResp, "id"))
 		challengeID := createVerificationAndGetChallengeID(t, clientC, "transfer", transferID)
-		execResp, err := clientC.POST(fmt.Sprintf("/api/v1/me/transfers/%d/execute", transferID), map[string]interface{}{
+		execResp, err := clientC.POST(fmt.Sprintf("/api/v3/me/transfers/%d/execute", transferID), map[string]interface{}{
 			"verification_code": "111111",
 			"challenge_id":      challengeID,
 		})

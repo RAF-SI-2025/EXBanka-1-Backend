@@ -16,6 +16,8 @@ import (
 )
 
 // --- stub SecurityGRPCServiceClient ---
+// For new tests needing additional method overrides, prefer secStub from
+// securities_handler_test.go which uses the function-field pattern.
 
 type stubSecurityClient struct {
 	getOptionFn func(req *stockpb.GetOptionRequest) *stockpb.OptionDetail
@@ -64,23 +66,43 @@ func (s *stubSecurityClient) GetCandles(ctx context.Context, in *stockpb.GetCand
 // --- stub OrderGRPCServiceClient ---
 
 type stubOrderClient struct {
-	createFn func(req *stockpb.CreateOrderRequest) *stockpb.Order
+	createFn      func(req *stockpb.CreateOrderRequest) *stockpb.Order
+	getOrderFn    func(req *stockpb.GetOrderRequest) *stockpb.OrderDetail
+	listMyFn      func(req *stockpb.ListMyOrdersRequest) *stockpb.ListOrdersResponse
+	cancelFn      func(req *stockpb.CancelOrderRequest) *stockpb.Order
+	lastCreateReq *stockpb.CreateOrderRequest
+	lastGetReq    *stockpb.GetOrderRequest
+	lastListReq   *stockpb.ListMyOrdersRequest
+	lastCancelReq *stockpb.CancelOrderRequest
 }
 
 func (s *stubOrderClient) CreateOrder(ctx context.Context, in *stockpb.CreateOrderRequest, opts ...grpc.CallOption) (*stockpb.Order, error) {
+	s.lastCreateReq = in
 	if s.createFn != nil {
 		return s.createFn(in), nil
 	}
-	return nil, nil
+	return &stockpb.Order{Id: 1, Status: "approved"}, nil
 }
 func (s *stubOrderClient) GetOrder(ctx context.Context, in *stockpb.GetOrderRequest, opts ...grpc.CallOption) (*stockpb.OrderDetail, error) {
-	return nil, nil
+	s.lastGetReq = in
+	if s.getOrderFn != nil {
+		return s.getOrderFn(in), nil
+	}
+	return &stockpb.OrderDetail{Order: &stockpb.Order{Id: in.Id}}, nil
 }
 func (s *stubOrderClient) ListMyOrders(ctx context.Context, in *stockpb.ListMyOrdersRequest, opts ...grpc.CallOption) (*stockpb.ListOrdersResponse, error) {
-	return nil, nil
+	s.lastListReq = in
+	if s.listMyFn != nil {
+		return s.listMyFn(in), nil
+	}
+	return &stockpb.ListOrdersResponse{}, nil
 }
 func (s *stubOrderClient) CancelOrder(ctx context.Context, in *stockpb.CancelOrderRequest, opts ...grpc.CallOption) (*stockpb.Order, error) {
-	return nil, nil
+	s.lastCancelReq = in
+	if s.cancelFn != nil {
+		return s.cancelFn(in), nil
+	}
+	return &stockpb.Order{Id: in.Id}, nil
 }
 func (s *stubOrderClient) ListOrders(ctx context.Context, in *stockpb.ListOrdersRequest, opts ...grpc.CallOption) (*stockpb.ListOrdersResponse, error) {
 	return nil, nil
@@ -93,6 +115,8 @@ func (s *stubOrderClient) DeclineOrder(ctx context.Context, in *stockpb.DeclineO
 }
 
 // --- stub PortfolioGRPCServiceClient ---
+// For new tests needing additional method overrides, prefer portfolioStub from
+// portfolio_handler_test.go which uses the function-field pattern.
 
 type stubPortfolioClient struct {
 	exerciseByOptionIDFn func(req *stockpb.ExerciseOptionByOptionIDRequest) *stockpb.ExerciseResult
@@ -110,6 +134,9 @@ func (s *stubPortfolioClient) MakePublic(ctx context.Context, in *stockpb.MakePu
 func (s *stubPortfolioClient) ExerciseOption(ctx context.Context, in *stockpb.ExerciseOptionRequest, opts ...grpc.CallOption) (*stockpb.ExerciseResult, error) {
 	return nil, nil
 }
+func (s *stubPortfolioClient) ListHoldingTransactions(ctx context.Context, in *stockpb.ListHoldingTransactionsRequest, opts ...grpc.CallOption) (*stockpb.ListHoldingTransactionsResponse, error) {
+	return nil, nil
+}
 func (s *stubPortfolioClient) ExerciseOptionByOptionID(ctx context.Context, in *stockpb.ExerciseOptionByOptionIDRequest, opts ...grpc.CallOption) (*stockpb.ExerciseResult, error) {
 	if s.exerciseByOptionIDFn != nil {
 		return s.exerciseByOptionIDFn(in), nil
@@ -123,8 +150,10 @@ func makeOptionsV2Router(h *handler.OptionsV2Handler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/api/v2/options/:option_id/orders", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "client")
+		clientIdentity(1)(c)
+		if c.IsAborted() {
+			return
+		}
 		h.CreateOrder(c)
 	})
 	return router
@@ -209,11 +238,7 @@ func TestOptionsV2_Exercise_HappyPath(t *testing.T) {
 	h := handler.NewOptionsV2Handler(&stubSecurityClient{}, &stubOrderClient{}, port)
 
 	router := gin.New()
-	router.POST("/api/v2/options/:option_id/exercise", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "client")
-		h.Exercise(c)
-	})
+	router.POST("/api/v2/options/:option_id/exercise", clientIdentity(1), h.Exercise)
 
 	body := `{"holding_id":0}`
 	req := httptest.NewRequest("POST", "/api/v2/options/5/exercise", strings.NewReader(body))
@@ -227,11 +252,7 @@ func TestOptionsV2_Exercise_HappyPath(t *testing.T) {
 func TestOptionsV2_Exercise_InvalidOptionID(t *testing.T) {
 	h := handler.NewOptionsV2Handler(&stubSecurityClient{}, &stubOrderClient{}, &stubPortfolioClient{})
 	router := gin.New()
-	router.POST("/api/v2/options/:option_id/exercise", func(c *gin.Context) {
-		c.Set("user_id", int64(1))
-		c.Set("system_type", "client")
-		h.Exercise(c)
-	})
+	router.POST("/api/v2/options/:option_id/exercise", clientIdentity(1), h.Exercise)
 	req := httptest.NewRequest("POST", "/api/v2/options/0/exercise", strings.NewReader(`{}`))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)

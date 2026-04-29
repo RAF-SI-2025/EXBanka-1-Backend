@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/gin-gonic/gin"
@@ -24,7 +25,7 @@ func NewPortfolioHandler(
 }
 
 func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	id := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
 
@@ -37,7 +38,11 @@ func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
 	}
 
 	resp, err := h.portfolioClient.ListHoldings(c.Request.Context(), &stockpb.ListHoldingsRequest{
-		UserId: uint64(userID), SecurityType: secType, Page: int32(page), PageSize: int32(pageSize),
+		UserId:       ownerToLegacyUserID(id.OwnerID),
+		SystemType:   ownerToLegacySystemType(id.OwnerType),
+		SecurityType: secType,
+		Page:         int32(page),
+		PageSize:     int32(pageSize),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -47,9 +52,10 @@ func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
 }
 
 func (h *PortfolioHandler) GetPortfolioSummary(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	id := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.portfolioClient.GetPortfolioSummary(c.Request.Context(), &stockpb.GetPortfolioSummaryRequest{
-		UserId: uint64(userID),
+		UserId:     ownerToLegacyUserID(id.OwnerID),
+		SystemType: ownerToLegacySystemType(id.OwnerType),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -75,10 +81,13 @@ func (h *PortfolioHandler) MakePublic(c *gin.Context) {
 		apiError(c, 400, ErrValidation, "quantity must be positive")
 		return
 	}
-	userID := c.GetInt64("user_id")
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
 	resp, err := h.portfolioClient.MakePublic(c.Request.Context(), &stockpb.MakePublicRequest{
-		HoldingId: id, UserId: uint64(userID), Quantity: req.Quantity,
+		HoldingId:  id,
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
+		Quantity:   req.Quantity,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -87,16 +96,68 @@ func (h *PortfolioHandler) MakePublic(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// ListHoldingTransactions godoc
+// @Summary      List per-purchase history for a holding
+// @Description  Returns the OrderTransactions that contributed to a holding — when each buy/sell executed, price per unit, native vs account currency, FX rate, commission, and which account was used. Replaces the per-purchase detail removed from /me/portfolio in Part C.
+// @Tags         portfolio
+// @Produce      json
+// @Param        id         path   integer true  "Holding ID"
+// @Param        direction  query  string  false "Filter by direction (buy|sell); empty for both"
+// @Param        page       query  int     false "Page number (default 1)"
+// @Param        page_size  query  int     false "Page size (default 10)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "transactions + total_count"
+// @Failure      400  {object}  map[string]interface{}  "validation_error"
+// @Failure      401  {object}  map[string]interface{}
+// @Failure      404  {object}  map[string]interface{}  "not_found — holding does not exist or does not belong to caller"
+// @Router       /api/v2/me/holdings/{id}/transactions [get]
+func (h *PortfolioHandler) ListHoldingTransactions(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid holding id")
+		return
+	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	direction := c.Query("direction")
+	if direction != "" {
+		if _, err := oneOf("direction", direction, "buy", "sell"); err != nil {
+			apiError(c, 400, ErrValidation, err.Error())
+			return
+		}
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+
+	resp, err := h.portfolioClient.ListHoldingTransactions(c.Request.Context(), &stockpb.ListHoldingTransactionsRequest{
+		HoldingId:  id,
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
+		Direction:  direction,
+		Page:       int32(page),
+		PageSize:   int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"transactions": emptyIfNil(resp.Transactions),
+		"total_count":  resp.TotalCount,
+	})
+}
+
 func (h *PortfolioHandler) ExerciseOption(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		apiError(c, 400, ErrValidation, "invalid holding id")
 		return
 	}
-	userID := c.GetInt64("user_id")
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
 	resp, err := h.portfolioClient.ExerciseOption(c.Request.Context(), &stockpb.ExerciseOptionRequest{
-		HoldingId: id, UserId: uint64(userID),
+		HoldingId:  id,
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -131,7 +192,7 @@ func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 
 // BuyOTCOfferOnBehalf godoc
 // @Summary      Buy an OTC offer on behalf of a client
-// @Description  Employee-only. Gateway verifies the account belongs to the named client.
+// @Description  Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client.
 // @Tags         otc
 // @Accept       json
 // @Produce      json
@@ -142,7 +203,7 @@ func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 // @Failure      400 {object} map[string]interface{}
 // @Failure      403 {object} map[string]interface{}
 // @Failure      404 {object} map[string]interface{}
-// @Router       /api/v1/otc/admin/offers/{id}/buy [post]
+// @Router       /api/v2/otc/admin/offers/{id}/buy [post]
 func (h *PortfolioHandler) BuyOTCOfferOnBehalf(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -177,14 +238,14 @@ func (h *PortfolioHandler) BuyOTCOfferOnBehalf(c *gin.Context) {
 		return
 	}
 
-	employeeID := uint64(c.GetInt64("user_id"))
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.otcClient.BuyOffer(c.Request.Context(), &stockpb.BuyOTCOfferRequest{
 		OfferId:            id,
 		BuyerId:            req.ClientID,
 		SystemType:         "employee",
 		Quantity:           req.Quantity,
 		AccountId:          req.AccountID,
-		ActingEmployeeId:   employeeID,
+		ActingEmployeeId:   derefU64Ptr(identity.ActingEmployeeID),
 		OnBehalfOfClientId: req.ClientID,
 	})
 	if err != nil {
@@ -226,12 +287,14 @@ func (h *PortfolioHandler) BuyOTCOffer(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt64("user_id")
-	systemType := c.GetString("system_type")
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
 	resp, err := h.otcClient.BuyOffer(c.Request.Context(), &stockpb.BuyOTCOfferRequest{
-		OfferId: id, BuyerId: uint64(userID), SystemType: systemType,
-		Quantity: req.Quantity, AccountId: req.AccountID,
+		OfferId:    id,
+		BuyerId:    ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
+		Quantity:   req.Quantity,
+		AccountId:  req.AccountID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)

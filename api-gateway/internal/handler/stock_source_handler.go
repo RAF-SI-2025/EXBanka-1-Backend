@@ -34,7 +34,7 @@ type switchSourceRequest struct {
 // @Failure      400 {object} map[string]interface{}
 // @Failure      403 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/admin/stock-source [post]
+// @Router       /api/v3/stock-sources [post]
 func (h *StockSourceHandler) SwitchSource(c *gin.Context) {
 	var req switchSourceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -67,7 +67,7 @@ func (h *StockSourceHandler) SwitchSource(c *gin.Context) {
 // @Success      200 {object} map[string]interface{}
 // @Failure      403 {object} map[string]interface{}
 // @Failure      500 {object} map[string]interface{}
-// @Router       /api/v1/admin/stock-source [get]
+// @Router       /api/v3/stock-sources/active [get]
 func (h *StockSourceHandler) GetSourceStatus(c *gin.Context) {
 	resp, err := h.client.GetSourceStatus(c.Request.Context(), &stockpb.GetSourceStatusRequest{})
 	if err != nil {

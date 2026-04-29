@@ -24,6 +24,9 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&model.Account{},
 		&model.LedgerEntry{},
 		&model.BankOperation{},
+		&model.AccountReservation{},
+		&model.AccountReservationSettlement{},
+		&model.IdempotencyRecord{},
 	))
 	return db
 }

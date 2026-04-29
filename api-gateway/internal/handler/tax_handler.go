@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/exbanka/api-gateway/internal/middleware"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/gin-gonic/gin"
 )
@@ -31,7 +32,7 @@ func NewTaxHandler(client stockpb.TaxGRPCServiceClient) *TaxHandler {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      500  {object}  map[string]string       "internal error"
-// @Router       /api/tax [get]
+// @Router       /api/v2/tax [get]
 func (h *TaxHandler) ListTaxRecords(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
@@ -65,14 +66,17 @@ func (h *TaxHandler) ListTaxRecords(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}  "records, total_count, tax_paid_this_year, tax_unpaid_this_month"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "internal error"
-// @Router       /api/me/tax [get]
+// @Router       /api/v2/me/tax [get]
 func (h *TaxHandler) ListMyTaxRecords(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
 
 	resp, err := h.client.ListUserTaxRecords(c.Request.Context(), &stockpb.ListUserTaxRecordsRequest{
-		UserId: uint64(userID), Page: int32(page), PageSize: int32(pageSize),
+		UserId:     ownerToLegacyUserID(identity.OwnerID),
+		SystemType: ownerToLegacySystemType(identity.OwnerType),
+		Page:       int32(page),
+		PageSize:   int32(pageSize),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -83,6 +87,7 @@ func (h *TaxHandler) ListMyTaxRecords(c *gin.Context) {
 		"total_count":           resp.TotalCount,
 		"tax_paid_this_year":    resp.TaxPaidThisYear,
 		"tax_unpaid_this_month": resp.TaxUnpaidThisMonth,
+		"collections":           emptyIfNil(resp.Collections),
 	})
 }
 
@@ -96,7 +101,7 @@ func (h *TaxHandler) ListMyTaxRecords(c *gin.Context) {
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      403  {object}  map[string]string       "forbidden"
 // @Failure      500  {object}  map[string]string       "internal error"
-// @Router       /api/tax/collect [post]
+// @Router       /api/v2/tax/collect [post]
 func (h *TaxHandler) CollectTax(c *gin.Context) {
 	resp, err := h.client.CollectTax(c.Request.Context(), &stockpb.CollectTaxRequest{})
 	if err != nil {

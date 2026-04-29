@@ -2,6 +2,18 @@ syntax = "proto3";
 package stock;
 option go_package = "github.com/exbanka/contract/stockpb;stockpb";
 
+import "google/protobuf/wrappers.proto";
+
+// OwnerType discriminates resource ownership: clients have a non-null owner_id;
+// the bank as owner has owner_id == NULL. Replaces the legacy
+// (user_id, system_type) ownership pair. See plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md (Spec C).
+enum OwnerType {
+    OWNER_TYPE_UNSPECIFIED = 0;
+    OWNER_TYPE_CLIENT      = 1;
+    OWNER_TYPE_BANK        = 2;
+}
+
 // ==================== Exchange (Stock Exchanges) ====================
 
 service StockExchangeGRPCService {
@@ -68,6 +80,10 @@ message ListingInfo {
   int64 volume = 9;
   string initial_margin_cost = 10;
   string last_refresh = 11;
+  // currency is the listing currency (derived from the exchange). Same code
+  // that flows into cross-currency conversion on order placement. So users
+  // know whether "price: 155.0000" is 155 USD, 155 EUR, etc.
+  string currency = 12;
 }
 
 message DerivedData {
@@ -379,6 +395,13 @@ message Order {
   optional string limit_value = 24;
   optional string stop_value = 25;
   uint64 acting_employee_id = 26;  // non-zero when the order was placed by an employee on behalf
+  // Part D: computed state field derived from (status, is_done, has_fills).
+  // Values: "pending" | "approved" | "filling" | "filled" | "cancelled" |
+  // "declined". Raw "status" is retained for backwards compatibility.
+  string state = 27;
+  // filled_quantity is Quantity - RemainingPortions. Surfaced so the UI can
+  // render "3 of 10 filled" without re-calling /orders/{id}.
+  int64 filled_quantity = 28;
 }
 
 message OrderTransaction {
@@ -409,11 +432,24 @@ message CreateOrderRequest {
   uint64 account_id = 12;
   uint64 acting_employee_id    = 13;  // set when an employee places on behalf of a client
   uint64 on_behalf_of_client_id = 14;  // required when acting_employee_id is set; target client
+  // base_account_id is required for forex buy orders. Points at the user's
+  // base-currency account that will be credited when the order fills. Ignored
+  // for non-forex orders.
+  optional uint64 base_account_id = 15;
+  // on_behalf_of_fund_id, when non-zero, places the order against the fund's
+  // RSD account; owner becomes the bank sentinel and fills credit
+  // fund_holdings instead of the user's holdings. Caller must be the fund's
+  // manager (or an admin). account_id must equal the fund's RSD account id.
+  uint64 on_behalf_of_fund_id = 16;
 }
 
 message GetOrderRequest {
   uint64 id = 1;
   uint64 user_id = 2;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ListMyOrdersRequest {
@@ -423,6 +459,10 @@ message ListMyOrdersRequest {
   string order_type = 4;
   int32 page = 5;
   int32 page_size = 6;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ListOrdersRequest {
@@ -442,6 +482,10 @@ message ListOrdersResponse {
 message CancelOrderRequest {
   uint64 id = 1;
   uint64 user_id = 2;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ApproveOrderRequest {
@@ -462,6 +506,12 @@ service PortfolioGRPCService {
   rpc MakePublic(MakePublicRequest) returns (Holding);
   rpc ExerciseOption(ExerciseOptionRequest) returns (ExerciseResult);
   rpc ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult);
+  // ListHoldingTransactions returns the executed order-transactions that
+  // contributed to a given holding. Since holdings aggregate per
+  // (user_id, system_type, security_type, security_id) (see Part A), this
+  // surfaces the full buy/sell history for that security across every
+  // account the owner used.
+  rpc ListHoldingTransactions(ListHoldingTransactionsRequest) returns (ListHoldingTransactionsResponse);
 }
 
 message Holding {
@@ -483,6 +533,10 @@ message ListHoldingsRequest {
   string security_type = 2;
   int32 page = 3;
   int32 page_size = 4;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ListHoldingsResponse {
@@ -492,30 +546,77 @@ message ListHoldingsResponse {
 
 message GetPortfolioSummaryRequest {
   uint64 user_id = 1;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message PortfolioSummary {
+  // total_profit is the combined realised (lifetime, closed positions,
+  // converted to RSD) + unrealised (current holdings at the native listing
+  // currency) P&L. Kept for backwards compat; prefer the split fields below
+  // when you need to distinguish the two. String-encoded decimal.
   string total_profit = 1;
+  // total_profit_rsd is the same value as total_profit. The "_rsd" suffix is
+  // historical — the unrealised half is actually native-currency. Use
+  // realized_profit_lifetime_rsd + unrealized_profit fields below for clarity.
   string total_profit_rsd = 2;
+  // Tax paid this calendar year, in RSD.
   string tax_paid_this_year = 3;
+  // Tax owed for the current calendar month, in RSD, not yet collected.
   string tax_unpaid_this_month = 4;
+
+  // Realised gains from closed positions (capital_gains rows) — positive
+  // gains are profit, negative are losses; the sum here is net. All amounts
+  // are converted to RSD via exchange-service.Convert.
+  string realized_profit_this_month_rsd = 5;
+  string realized_profit_this_year_rsd = 6;
+  string realized_profit_lifetime_rsd = 7;
+
+  // Unrealised gain on current holdings. Computed as (current_price −
+  // average_price) × quantity per holding, summed in the listing's native
+  // currency. Included so the client doesn't have to recompute, even though
+  // cross-currency portfolios may blend currencies here.
+  string unrealized_profit = 8;
+
+  // Tax owed across every month, not just the current one, in RSD.
+  string tax_unpaid_total_rsd = 9;
+
+  // Number of holdings with quantity > 0.
+  int64 open_positions_count = 10;
+
+  // Number of closed trades this calendar year (count of capital_gains rows).
+  int64 closed_trades_this_year = 11;
 }
 
 message MakePublicRequest {
   uint64 holding_id = 1;
   uint64 user_id = 2;
   int64 quantity = 3;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ExerciseOptionRequest {
   uint64 holding_id = 1;
   uint64 user_id = 2;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ExerciseOptionByOptionIDRequest {
   uint64 option_id  = 1;
   uint64 user_id    = 2;
   uint64 holding_id = 3; // optional; 0 means auto-resolve
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ExerciseResult {
@@ -524,6 +625,41 @@ message ExerciseResult {
   int64 exercised_quantity = 3;
   int64 shares_affected = 4;
   string profit = 5;
+}
+
+// HoldingTransaction is one executed order-transaction that touched a holding.
+// Populated from model.OrderTransaction plus lookup fields from the parent
+// Order. Post-Part-A (rollup) these can span multiple accounts for the same
+// holding, so account_id is returned per row for audit purposes.
+message HoldingTransaction {
+  uint64 id = 1;                 // order_transactions.id
+  uint64 order_id = 2;
+  string executed_at = 3;        // RFC3339
+  string direction = 4;          // "buy" | "sell"
+  int64  quantity = 5;
+  string price_per_unit = 6;
+  string native_amount = 7;
+  string native_currency = 8;
+  string converted_amount = 9;
+  string account_currency = 10;
+  string fx_rate = 11;
+  string commission = 12;
+  uint64 account_id = 13;
+  string ticker = 14;
+}
+
+message ListHoldingTransactionsRequest {
+  uint64 holding_id = 1;
+  uint64 user_id    = 2;
+  string system_type = 3;        // "client" | "employee"
+  string direction  = 4;         // "" | "buy" | "sell"
+  int32  page       = 5;
+  int32  page_size  = 6;
+}
+
+message ListHoldingTransactionsResponse {
+  repeated HoldingTransaction transactions = 1;
+  int64 total_count = 2;
 }
 
 // ==================== OTC Trading ====================
@@ -617,6 +753,10 @@ message ListUserTaxRecordsRequest {
   uint64 user_id = 1;
   int32 page = 2;
   int32 page_size = 3;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message UserTaxRecord {
@@ -638,6 +778,24 @@ message ListUserTaxRecordsResponse {
   int64 total_count = 2;
   string tax_paid_this_year = 3;
   string tax_unpaid_this_month = 4;
+  // collections lists when capital-gains tax was actually taken from this
+  // user's accounts (one row per per-account-currency-month collection).
+  repeated TaxCollectionRecord collections = 5;
+}
+
+// TaxCollectionRecord surfaces one row from the tax_collections table so the
+// owner can see exactly when tax was collected, from which account, and how
+// much was converted into RSD.
+message TaxCollectionRecord {
+  uint64 id = 1;
+  int32 year = 2;
+  int32 month = 3;
+  uint64 account_id = 4;
+  string currency = 5;
+  string total_gain = 6;
+  string tax_amount = 7;
+  string tax_amount_rsd = 8;
+  string collected_at = 9;
 }
 
 // ==================== Source Admin ====================
@@ -662,4 +820,425 @@ message SourceStatus {
   string status     = 2; // "idle" | "reseeding" | "failed"
   string started_at = 3; // RFC3339 timestamp of the last switch
   string last_error = 4; // populated when status=failed
+}
+
+// ==================== Investment Funds (Celina 4) ====================
+
+service InvestmentFundService {
+  rpc CreateFund(CreateFundRequest) returns (FundResponse);
+  rpc ListFunds(ListFundsRequest) returns (ListFundsResponse);
+  rpc GetFund(GetFundRequest) returns (FundDetailResponse);
+  rpc UpdateFund(UpdateFundRequest) returns (FundResponse);
+
+  rpc InvestInFund(InvestInFundRequest) returns (ContributionResponse);
+  rpc RedeemFromFund(RedeemFromFundRequest) returns (ContributionResponse);
+
+  rpc ListMyPositions(ListMyPositionsRequest) returns (ListPositionsResponse);
+  rpc ListBankPositions(ListBankPositionsRequest) returns (ListPositionsResponse);
+  rpc GetActuaryPerformance(GetActuaryPerformanceRequest) returns (GetActuaryPerformanceResponse);
+}
+
+message OnBehalfOf {
+  string type = 1;        // "self" | "bank" | "fund"
+  uint64 fund_id = 2;     // required when type == "fund"
+}
+
+message CreateFundRequest {
+  int64 actor_employee_id = 1;
+  string name = 2;
+  string description = 3;
+  string minimum_contribution_rsd = 4;
+}
+
+message FundResponse {
+  uint64 id = 1;
+  string name = 2;
+  string description = 3;
+  int64  manager_employee_id = 4;
+  string manager_full_name = 5;
+  string minimum_contribution_rsd = 6;
+  uint64 rsd_account_id = 7;
+  string rsd_account_number = 8;
+  bool   active = 9;
+  string created_at = 10;
+  string updated_at = 11;
+  string value_rsd = 12;
+  string liquid_rsd = 13;
+  string profit_rsd = 14;
+}
+
+message ListFundsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string search = 3;
+  bool   active_only = 4;
+}
+message ListFundsResponse {
+  repeated FundResponse funds = 1;
+  int64 total = 2;
+}
+
+message GetFundRequest { uint64 fund_id = 1; }
+message FundDetailResponse {
+  FundResponse fund = 1;
+  repeated FundHoldingItem holdings = 2;
+}
+message FundHoldingItem {
+  string security_type = 1;
+  uint64 security_id = 2;
+  string ticker = 3;
+  int64  quantity = 4;
+  string average_price_rsd = 5;
+  string current_price_rsd = 6;
+  string acquired_at = 7;
+}
+
+message UpdateFundRequest {
+  int64  actor_employee_id = 1;
+  uint64 fund_id = 2;
+  string name = 3;
+  string description = 4;
+  string minimum_contribution_rsd = 5;
+  bool   active = 6;
+  bool   active_set = 7;
+}
+
+message InvestInFundRequest {
+  uint64 fund_id = 1;
+  uint64 actor_user_id = 2;
+  string actor_system_type = 3;
+  uint64 source_account_id = 4;
+  string amount = 5;
+  string currency = 6;
+  OnBehalfOf on_behalf_of = 7;
+}
+message RedeemFromFundRequest {
+  uint64 fund_id = 1;
+  uint64 actor_user_id = 2;
+  string actor_system_type = 3;
+  string amount_rsd = 4;
+  uint64 target_account_id = 5;
+  OnBehalfOf on_behalf_of = 6;
+}
+
+message ContributionResponse {
+  uint64 id = 1;
+  uint64 fund_id = 2;
+  string direction = 3;
+  string amount_native = 4;
+  string native_currency = 5;
+  string amount_rsd = 6;
+  string fx_rate = 7;
+  string fee_rsd = 8;
+  string status = 9;
+  uint64 saga_id = 10;
+}
+
+message ListMyPositionsRequest {
+  uint64 actor_user_id = 1;
+  string actor_system_type = 2;
+}
+message ListBankPositionsRequest {}
+message ListPositionsResponse {
+  repeated PositionItem positions = 1;
+}
+message PositionItem {
+  uint64 fund_id = 1;
+  string fund_name = 2;
+  string manager_full_name = 3;
+  string contribution_rsd = 4;
+  string percentage_fund = 5;
+  string current_value_rsd = 6;
+  string profit_rsd = 7;
+  string last_changed_at = 8;
+}
+
+message GetActuaryPerformanceRequest {}
+message GetActuaryPerformanceResponse {
+  repeated ActuaryPerformance actuaries = 1;
+}
+message ActuaryPerformance {
+  int64  employee_id = 1;
+  string full_name = 2;
+  string role = 3;
+  string realized_profit_rsd = 4;
+}
+
+// ==================== Intra-bank OTC Options (Spec 2) ====================
+
+service OTCOptionsService {
+  rpc CreateOffer(CreateOTCOfferRequest)   returns (OTCOfferResponse);
+  rpc ListMyOffers(ListMyOTCOffersRequest) returns (ListMyOTCOffersResponse);
+  rpc GetOffer(GetOTCOfferRequest)         returns (OTCOfferDetailResponse);
+  rpc CounterOffer(CounterOTCOfferRequest) returns (OTCOfferResponse);
+  rpc AcceptOffer(AcceptOTCOfferRequest)   returns (AcceptOfferResponse);
+  rpc RejectOffer(RejectOTCOfferRequest)   returns (OTCOfferResponse);
+
+  rpc ListMyContracts(ListMyContractsRequest)   returns (ListContractsResponse);
+  rpc GetContract(GetContractRequest)           returns (OptionContractResponse);
+  rpc ExerciseContract(ExerciseContractRequest) returns (ExerciseResponse);
+}
+
+message PartyRef {
+  int64  user_id = 1;
+  string system_type = 2;
+  string display_name = 3;
+  string bank_code = 4;
+}
+
+message CreateOTCOfferRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string direction = 3;
+  uint64 stock_id = 4;
+  string quantity = 5;
+  string strike_price = 6;
+  string premium = 7;
+  string settlement_date = 8;
+  PartyRef counterparty = 9;
+}
+
+message OTCOfferResponse {
+  uint64  id = 1;
+  string  direction = 2;
+  uint64  stock_id = 3;
+  string  stock_ticker = 4;
+  string  quantity = 5;
+  string  strike_price = 6;
+  string  premium = 7;
+  string  settlement_date = 8;
+  string  status = 9;
+  PartyRef initiator = 10;
+  PartyRef counterparty = 11;
+  PartyRef last_modified_by = 12;
+  string  market_reference_price = 13;
+  string  created_at = 14;
+  string  updated_at = 15;
+  int64   version = 16;
+  bool    unread = 17;
+}
+
+message OTCOfferRevisionItem {
+  int32  revision_number = 1;
+  string quantity = 2;
+  string strike_price = 3;
+  string premium = 4;
+  string settlement_date = 5;
+  string action = 6;
+  PartyRef modified_by = 7;
+  string created_at = 8;
+}
+
+message OTCOfferDetailResponse {
+  OTCOfferResponse offer = 1;
+  repeated OTCOfferRevisionItem revisions = 2;
+}
+
+message ListMyOTCOffersRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string role = 3;
+  repeated string statuses = 4;
+  uint64 stock_id = 5;
+  int32  page = 6;
+  int32  page_size = 7;
+}
+message ListMyOTCOffersResponse {
+  repeated OTCOfferResponse offers = 1;
+  int64 total = 2;
+}
+
+message GetOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message CounterOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  string quantity = 4;
+  string strike_price = 5;
+  string premium = 6;
+  string settlement_date = 7;
+}
+
+message AcceptOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  // Buyer's account that pays the premium.
+  uint64 buyer_account_id = 4;
+  // Seller's account that receives the premium.
+  uint64 seller_account_id = 5;
+}
+message AcceptOfferResponse {
+  uint64 offer_id = 1;
+  uint64 contract_id = 2;
+  string status = 3;
+  string saga_id = 4;
+  OptionContractResponse contract = 5;
+}
+
+message RejectOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message OptionContractResponse {
+  uint64  id = 1;
+  uint64  offer_id = 2;
+  uint64  stock_id = 3;
+  string  stock_ticker = 4;
+  string  quantity = 5;
+  string  strike_price = 6;
+  string  premium_paid = 7;
+  string  premium_currency = 8;
+  string  strike_currency = 9;
+  string  settlement_date = 10;
+  string  status = 11;
+  PartyRef buyer = 12;
+  PartyRef seller = 13;
+  string  market_reference_price = 14;
+  string  premium_paid_at = 15;
+  string  exercised_at = 16;
+  string  expired_at = 17;
+  string  created_at = 18;
+  string  updated_at = 19;
+  int64   version = 20;
+}
+
+message ListMyContractsRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string role = 3;
+  repeated string statuses = 4;
+  int32  page = 5;
+  int32  page_size = 6;
+}
+message ListContractsResponse {
+  repeated OptionContractResponse contracts = 1;
+  int64 total = 2;
+}
+
+message GetContractRequest {
+  uint64 contract_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message ExerciseContractRequest {
+  uint64 contract_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  // Buyer's account that pays the strike (and gets the shares).
+  uint64 buyer_account_id = 4;
+  // Seller's account that receives the strike funds.
+  uint64 seller_account_id = 5;
+}
+message ExerciseResponse {
+  uint64 contract_id = 1;
+  string status = 2;
+  string saga_id = 3;
+  string strike_amount_seller_ccy = 4;
+  string strike_amount_buyer_ccy = 5;
+  string ccy_rate_used = 6;
+  string seller_currency = 7;
+  string buyer_currency = 8;
+  string shares_transferred = 9;
+}
+
+// PeerOTCService backs the api-gateway /api/v3/public-stock and
+// /api/v3/negotiations/{rid}/{id} routes (Phase 4, Celina 5 SI-TX).
+service PeerOTCService {
+  rpc GetPublicStocks(GetPublicStocksRequest) returns (GetPublicStocksResponse);
+  rpc CreateNegotiation(CreateNegotiationRequest) returns (CreateNegotiationResponse);
+  rpc UpdateNegotiation(UpdateNegotiationRequest) returns (UpdateNegotiationResponse);
+  rpc GetNegotiation(GetNegotiationRequest) returns (GetNegotiationResponse);
+  rpc DeleteNegotiation(DeleteNegotiationRequest) returns (DeleteNegotiationResponse);
+  rpc AcceptNegotiation(AcceptNegotiationRequest) returns (AcceptNegotiationResponse);
+}
+
+message PeerForeignBankId {
+  int64 routing_number = 1;
+  string id = 2;
+}
+
+message PeerOtcOffer {
+  string ticker = 1;
+  int64 amount = 2;
+  string price_per_stock = 3;
+  string currency = 4;
+  string premium = 5;
+  string premium_currency = 6;
+  string settlement_date = 7;
+  PeerForeignBankId last_modified_by = 8;
+}
+
+message GetPublicStocksRequest {
+  string peer_bank_code = 1;
+}
+
+message PeerPublicStock {
+  PeerForeignBankId owner_id = 1;
+  string ticker = 2;
+  int64 amount = 3;
+  string price_per_stock = 4;
+  string currency = 5;
+}
+
+message GetPublicStocksResponse {
+  repeated PeerPublicStock stocks = 1;
+}
+
+message CreateNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerOtcOffer offer = 2;
+  PeerForeignBankId buyer_id = 3;
+  PeerForeignBankId seller_id = 4;
+}
+
+message CreateNegotiationResponse {
+  PeerForeignBankId negotiation_id = 1;
+}
+
+message UpdateNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+  PeerOtcOffer offer = 3;
+}
+
+message UpdateNegotiationResponse {}
+
+message GetNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+
+message GetNegotiationResponse {
+  PeerForeignBankId id = 1;
+  PeerForeignBankId buyer_id = 2;
+  PeerForeignBankId seller_id = 3;
+  PeerOtcOffer offer = 4;
+  string status = 5;
+  string updated_at = 6;
+}
+
+message DeleteNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+
+message DeleteNegotiationResponse {}
+
+message AcceptNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+
+message AcceptNegotiationResponse {
+  string transaction_id = 1;
+  string status = 2;
 }

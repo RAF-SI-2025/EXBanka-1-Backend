@@ -4,43 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	pb "github.com/exbanka/contract/verificationpb"
+	"github.com/exbanka/verification-service/internal/model"
 	"github.com/exbanka/verification-service/internal/service"
 )
 
-// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
-func mapServiceError(err error) codes.Code {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "not found"):
-		return codes.NotFound
-	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"):
-		return codes.InvalidArgument
-	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
-		return codes.AlreadyExists
-	case strings.Contains(msg, "already "), strings.Contains(msg, "expired"),
-		strings.Contains(msg, "max attempts"), strings.Contains(msg, "only allowed"):
-		return codes.FailedPrecondition
-	case strings.Contains(msg, "bound to a different device"),
-		strings.Contains(msg, "biometrics not enabled"),
-		strings.Contains(msg, "does not belong to this user"):
-		return codes.PermissionDenied
-	case strings.Contains(msg, "optimistic lock"):
-		return codes.Aborted
-	default:
-		return codes.Internal
-	}
+// verificationService is the minimal subset of *service.VerificationService that
+// this handler depends on. Defined to allow hand-written stubs in tests; the
+// concrete service satisfies it.
+type verificationService interface {
+	CreateChallenge(ctx context.Context, userID uint64, sourceService string, sourceID uint64, method string, deviceID string) (*model.VerificationChallenge, error)
+	GetChallengeStatus(challengeID uint64) (*model.VerificationChallenge, error)
+	GetPendingChallenge(userID uint64) (*model.VerificationChallenge, error)
+	SubmitVerification(ctx context.Context, challengeID uint64, deviceID string, response string) (bool, int, string, error)
+	SubmitCode(ctx context.Context, challengeID uint64, code string) (bool, int, error)
+	VerifyByBiometric(ctx context.Context, challengeID uint64, userID uint64, deviceID string) error
 }
 
 type VerificationGRPCHandler struct {
 	pb.UnimplementedVerificationGRPCServiceServer
-	svc *service.VerificationService
+	svc verificationService
 }
 
 func NewVerificationGRPCHandler(svc *service.VerificationService) *VerificationGRPCHandler {
@@ -50,7 +35,7 @@ func NewVerificationGRPCHandler(svc *service.VerificationService) *VerificationG
 func (h *VerificationGRPCHandler) CreateChallenge(ctx context.Context, req *pb.CreateChallengeRequest) (*pb.CreateChallengeResponse, error) {
 	vc, err := h.svc.CreateChallenge(ctx, req.GetUserId(), req.GetSourceService(), req.GetSourceId(), req.GetMethod(), req.GetDeviceId())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	// Build response challenge_data based on method.
@@ -89,7 +74,7 @@ func (h *VerificationGRPCHandler) CreateChallenge(ctx context.Context, req *pb.C
 func (h *VerificationGRPCHandler) GetChallengeStatus(ctx context.Context, req *pb.GetChallengeStatusRequest) (*pb.GetChallengeStatusResponse, error) {
 	vc, err := h.svc.GetChallengeStatus(req.GetChallengeId())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	resp := &pb.GetChallengeStatusResponse{
@@ -145,7 +130,7 @@ func (h *VerificationGRPCHandler) GetPendingChallenge(ctx context.Context, req *
 func (h *VerificationGRPCHandler) SubmitVerification(ctx context.Context, req *pb.SubmitVerificationRequest) (*pb.SubmitVerificationResponse, error) {
 	success, remaining, newChallengeData, err := h.svc.SubmitVerification(ctx, req.GetChallengeId(), req.GetDeviceId(), req.GetResponse())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	return &pb.SubmitVerificationResponse{
@@ -158,7 +143,7 @@ func (h *VerificationGRPCHandler) SubmitVerification(ctx context.Context, req *p
 func (h *VerificationGRPCHandler) SubmitCode(ctx context.Context, req *pb.SubmitCodeRequest) (*pb.SubmitCodeResponse, error) {
 	success, remaining, err := h.svc.SubmitCode(ctx, req.GetChallengeId(), req.GetCode())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 
 	return &pb.SubmitCodeResponse{
@@ -170,7 +155,7 @@ func (h *VerificationGRPCHandler) SubmitCode(ctx context.Context, req *pb.Submit
 func (h *VerificationGRPCHandler) VerifyByBiometric(ctx context.Context, req *pb.VerifyByBiometricRequest) (*pb.VerifyByBiometricResponse, error) {
 	err := h.svc.VerifyByBiometric(ctx, req.GetChallengeId(), req.GetUserId(), req.GetDeviceId())
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "%v", err)
+		return nil, err
 	}
 	return &pb.VerifyByBiometricResponse{Success: true}, nil
 }

@@ -85,13 +85,13 @@ func notEqual(field1, val1, field2, val2 string) error {
 }
 
 // enforceClientSelf checks that a client can only access their own resources.
-// If the caller is a client (system_type == "client"), the path client_id must match their JWT user_id.
+// If the caller is a client (principal_type == "client"), the path client_id must match their JWT principal_id.
 // Employees are allowed to access any client_id.
 // Returns true if the request should continue, false if it was aborted.
 func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
-	sysType, _ := c.Get("system_type")
-	if sysType == "client" {
-		uid, _ := c.Get("user_id")
+	pType, _ := c.Get("principal_type")
+	if pType == "client" {
+		uid, _ := c.Get("principal_id")
 		userID, ok := uid.(int64)
 		if !ok || uint64(userID) != pathClientID {
 			c.AbortWithStatusJSON(403, gin.H{"error": gin.H{"code": "forbidden", "message": "clients can only access their own resources"}})
@@ -103,8 +103,8 @@ func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
 
 // enforceOwnership verifies that a fetched resource belongs to the caller.
 // Used inside /api/me/* handlers AFTER fetching a resource by an ID provided
-// in the URL or body. If the caller is a client (system_type == "client") and
-// the resource owner does not match their JWT user_id, a 404 not_found
+// in the URL or body. If the caller is a client (principal_type == "client") and
+// the resource owner does not match their JWT principal_id, a 404 not_found
 // response is written and a non-nil error is returned — callers must return
 // immediately. Employees bypass the check because their permissions gate
 // access at the middleware layer.
@@ -112,17 +112,49 @@ func enforceClientSelf(c *gin.Context, pathClientID uint64) bool {
 // We return 404 (not 403) because confirming existence of another client's
 // resource is itself a data leak.
 func enforceOwnership(c *gin.Context, ownerID uint64) error {
-	sysType, _ := c.Get("system_type")
-	if sysType != "client" {
+	pType, _ := c.Get("principal_type")
+	if pType != "client" {
 		return nil
 	}
-	uid, _ := c.Get("user_id")
+	uid, _ := c.Get("principal_id")
 	userID, ok := uid.(int64)
 	if !ok || uint64(userID) != ownerID {
 		apiError(c, 404, ErrNotFound, "resource not found")
 		return fmt.Errorf("ownership mismatch: resource owner %d does not match caller %d", ownerID, userID)
 	}
 	return nil
+}
+
+// ownerToLegacyUserID converts a ResolvedIdentity OwnerID pointer to the
+// legacy uint64 form still used by stock-service proto request shapes.
+// Bank owners (OwnerID==nil) surface as 0; the proto rename is queued for
+// Task 9 of the 2026-04-27 owner-type-schema plan, after which this helper
+// can be deleted.
+func ownerToLegacyUserID(p *uint64) uint64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// ownerToLegacySystemType converts an owner_type string to the legacy
+// SystemType wire value carried by stock-service proto requests. The two
+// vocabularies coincide today ("client"/"bank"); kept as an explicit
+// helper so call sites read symmetrically with ownerToLegacyUserID and
+// the eventual Task 9 rename has one place to delete.
+func ownerToLegacySystemType(t string) string {
+	return t
+}
+
+// derefU64Ptr returns *p when non-nil, else 0. Used to flatten the
+// optional pointer fields on middleware.ResolvedIdentity (OwnerID,
+// ActingEmployeeID) into the uint64 fields the gRPC requests still
+// carry.
+func derefU64Ptr(p *uint64) uint64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // ---------------------------------------------------------------------------
@@ -182,6 +214,15 @@ func grpcToHTTPError(err error) (int, string, string) {
 func handleGRPCError(c *gin.Context, err error) {
 	httpStatus, code, message := grpcToHTTPError(err)
 	apiError(c, httpStatus, code, message)
+}
+
+// isNotFound reports whether err is a gRPC NotFound status.
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	s, ok := status.FromError(err)
+	return ok && s.Code() == codes.NotFound
 }
 
 // emptyIfNil returns an initialized empty slice when s is nil.

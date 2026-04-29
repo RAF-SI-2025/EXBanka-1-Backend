@@ -252,6 +252,22 @@ func (m *syncMockListingRepo) ListBySecurityType(securityType string) ([]model.L
 	}
 	return result, nil
 }
+func (m *syncMockListingRepo) ListBySecurityIDsAndType(securityIDs []uint64, securityType string) ([]model.Listing, error) {
+	idSet := make(map[uint64]struct{}, len(securityIDs))
+	for _, id := range securityIDs {
+		idSet[id] = struct{}{}
+	}
+	var result []model.Listing
+	for _, l := range m.listings {
+		if l.SecurityType != securityType {
+			continue
+		}
+		if _, ok := idSet[l.SecurityID]; ok {
+			result = append(result, *l)
+		}
+	}
+	return result, nil
+}
 func (m *syncMockListingRepo) UpdatePriceByTicker(securityType, ticker string, price, high, low decimal.Decimal) error {
 	return nil
 }
@@ -266,6 +282,7 @@ type stubSource struct {
 	stocksCalled    int
 	futuresCalled   int
 	forexCalled     int
+	refreshCalled   int
 	exchanges       []model.StockExchange
 	stocks          []source.StockWithListing
 	futures         []source.FuturesWithListing
@@ -292,7 +309,10 @@ func (s *stubSource) FetchForex(_ context.Context) ([]source.ForexWithListing, e
 func (s *stubSource) FetchOptions(_ context.Context, _ *model.Stock) ([]model.Option, error) {
 	return nil, nil
 }
-func (s *stubSource) RefreshPrices(_ context.Context) error { return nil }
+func (s *stubSource) RefreshPrices(_ context.Context) error {
+	s.refreshCalled++
+	return nil
+}
 
 // syncMockFuturesRepo is a minimal in-memory stub for FuturesRepo.
 type syncMockFuturesRepo struct{}
@@ -502,4 +522,158 @@ func TestSwitchSource_GeneratedSucceeds(t *testing.T) {
 	svc.switchMu.Unlock()
 	require.Error(t, err2, "concurrent switch should fail")
 	require.Contains(t, err2.Error(), "another source switch is in progress")
+}
+
+// newSyncServiceForRefreshTest wires a SecuritySyncService around a stubSource
+// with just enough repo stubs that RefreshPrices can run end-to-end without
+// hitting a real DB. Used by the dispatch tests below.
+func newSyncServiceForRefreshTest(t *testing.T, src source.Source) *SecuritySyncService {
+	t.Helper()
+	stockRepo := &syncMockStockRepo{}
+	futuresRepo := &syncMockFuturesRepo{}
+	forexRepo := &syncMockForexRepo{}
+	listingRepo := newSyncMockListingRepo()
+	listingSvc := NewListingService(listingRepo, nil, stockRepo, futuresRepo, forexRepo)
+	return NewSecuritySyncService(
+		stockRepo,
+		futuresRepo,
+		forexRepo,
+		newSyncMockOptionRepo(),
+		nil,
+		&syncMockSettingRepo{},
+		listingSvc,
+		nil, // redisCache
+		nil, // influxClient
+		nil, // avClient — ensures the external legacy path is effectively no-op if taken
+		nil, // finnhubClient
+		src,
+		nil, // wipe
+	)
+}
+
+// TestRefreshPrices_GeneratedSource_CallsSourceRefresh_NotExternalAPI verifies
+// that when the active source is "generated", RefreshPrices dispatches through
+// the Source abstraction and re-syncs from it — it does NOT fall back to the
+// external AlphaVantage/Finnhub path. Without this guarantee the background
+// loop overwrites drifted prices with quota-error zeros.
+func TestRefreshPrices_GeneratedSource_CallsSourceRefresh_NotExternalAPI(t *testing.T) {
+	stub := &stubSource{name: "generated"}
+	svc := newSyncServiceForRefreshTest(t, stub)
+
+	// Reset counters in case any setup work bumped them.
+	stub.refreshCalled, stub.stocksCalled, stub.futuresCalled, stub.forexCalled = 0, 0, 0, 0
+
+	svc.RefreshPrices(context.Background())
+
+	require.Equal(t, 1, stub.refreshCalled, "generated source must have RefreshPrices called exactly once")
+	require.Equal(t, 1, stub.stocksCalled, "RefreshPrices must re-fetch stocks from the source after drift")
+	require.Equal(t, 1, stub.futuresCalled, "RefreshPrices must re-fetch futures from the source after drift")
+	require.Equal(t, 1, stub.forexCalled, "RefreshPrices must re-fetch forex from the source after drift")
+}
+
+// TestRefreshPrices_SimulatorSource_CallsSourceRefresh mirrors the generated
+// check for "simulator" — same dispatch rules apply.
+func TestRefreshPrices_SimulatorSource_CallsSourceRefresh(t *testing.T) {
+	stub := &stubSource{name: "simulator"}
+	svc := newSyncServiceForRefreshTest(t, stub)
+	stub.refreshCalled, stub.stocksCalled, stub.futuresCalled, stub.forexCalled = 0, 0, 0, 0
+
+	svc.RefreshPrices(context.Background())
+
+	require.Equal(t, 1, stub.refreshCalled)
+	require.Equal(t, 1, stub.stocksCalled)
+	require.Equal(t, 1, stub.futuresCalled)
+	require.Equal(t, 1, stub.forexCalled)
+}
+
+// TestRefreshPrices_ExternalSource_SkipsSourceRefresh verifies the legacy
+// external path still bypasses Source.RefreshPrices. ExternalSource's own
+// RefreshPrices is a no-op on purpose; the direct AV / Finnhub calls handle
+// the actual refresh.
+func TestRefreshPrices_ExternalSource_SkipsSourceRefresh(t *testing.T) {
+	stub := &stubSource{name: "external"}
+	svc := newSyncServiceForRefreshTest(t, stub)
+	stub.refreshCalled, stub.stocksCalled, stub.futuresCalled, stub.forexCalled = 0, 0, 0, 0
+
+	svc.RefreshPrices(context.Background())
+
+	require.Equal(t, 0, stub.refreshCalled, "external path must not invoke Source.RefreshPrices")
+	require.Equal(t, 0, stub.stocksCalled, "external path must not re-fetch stocks via the source abstraction")
+	require.Equal(t, 0, stub.futuresCalled)
+	require.Equal(t, 0, stub.forexCalled)
+}
+
+// TestRefreshPrices_RegeneratesOptions_AfterInitialZeroPrice covers the
+// option-seeding gap: SeedAll runs once at boot; if stock prices happened
+// to be zero at that instant (e.g. a source switch landed in the middle of
+// a price sync), GenerateOptionsForStock short-circuited to nil and the
+// options table stayed empty. A later RefreshPrices bumped stock prices
+// but never re-ran option generation. This test seeds a stock with a
+// non-zero price + a matching listing and asserts RefreshPrices produces
+// option rows via the generator's idempotent upsert path.
+func TestRefreshPrices_RegeneratesOptions_AfterInitialZeroPrice(t *testing.T) {
+	stub := &stubSource{name: "generated"}
+	stockRepo := &syncMockStockRepo{stocks: []model.Stock{{
+		ID:     1,
+		Ticker: "TEST",
+		Name:   "Test Inc.",
+		Price:  decimal.NewFromInt(100),
+	}}}
+	futuresRepo := &syncMockFuturesRepo{}
+	forexRepo := &syncMockForexRepo{}
+	optionRepo := newSyncMockOptionRepo()
+	listingRepo := newSyncMockListingRepo()
+	// Seed a stock listing so listingSvc.FindByStock(1) returns it inside
+	// generateAllOptions.
+	listingRepo.addListing(&model.Listing{
+		ID:           1,
+		SecurityID:   1,
+		SecurityType: "stock",
+		ExchangeID:   42,
+		Price:        decimal.NewFromInt(100),
+	})
+	listingRepo.nextID = 2
+	listingSvc := NewListingService(listingRepo, nil, stockRepo, futuresRepo, forexRepo)
+	svc := NewSecuritySyncService(
+		stockRepo, futuresRepo, forexRepo, optionRepo,
+		nil, &syncMockSettingRepo{}, listingSvc,
+		nil, nil, nil, nil, stub, nil,
+	)
+
+	svc.RefreshPrices(context.Background())
+
+	require.NotZero(t, len(optionRepo.options), "RefreshPrices should generate options for stocks with non-zero price")
+	// Each call to GenerateOptionsForStock produces settlementDates × strikes ×
+	// 2 (call+put). With the current generator defaults (5 dates × 11 strikes
+	// × 2), we expect 110 options. Keep the assertion loose so the test
+	// survives generator tuning.
+	require.GreaterOrEqual(t, len(optionRepo.options), 10, "expected at least a handful of options")
+}
+
+// TestRefreshPrices_SkipsOptionGenWhenStockPriceZero locks in the
+// short-circuit at option_generator.go:18 — stocks still at zero price
+// after RefreshPrices must not get option rows.
+func TestRefreshPrices_SkipsOptionGenWhenStockPriceZero(t *testing.T) {
+	stub := &stubSource{name: "generated"}
+	stockRepo := &syncMockStockRepo{stocks: []model.Stock{{
+		ID: 1, Ticker: "ZERO", Name: "Zero Co.", Price: decimal.Zero,
+	}}}
+	optionRepo := newSyncMockOptionRepo()
+	listingRepo := newSyncMockListingRepo()
+	listingRepo.addListing(&model.Listing{
+		ID: 1, SecurityID: 1, SecurityType: "stock", ExchangeID: 42, Price: decimal.Zero,
+	})
+	listingRepo.nextID = 2
+	futuresRepo := &syncMockFuturesRepo{}
+	forexRepo := &syncMockForexRepo{}
+	listingSvc := NewListingService(listingRepo, nil, stockRepo, futuresRepo, forexRepo)
+	svc := NewSecuritySyncService(
+		stockRepo, futuresRepo, forexRepo, optionRepo,
+		nil, &syncMockSettingRepo{}, listingSvc,
+		nil, nil, nil, nil, stub, nil,
+	)
+
+	svc.RefreshPrices(context.Background())
+
+	require.Equal(t, 0, len(optionRepo.options), "zero-price stocks must not produce options")
 }

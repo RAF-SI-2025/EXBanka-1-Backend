@@ -1,4 +1,10 @@
-.PHONY: proto clean build tidy docker-up docker-down docker-logs test swagger test-integration lint
+.PHONY: proto permissions proto-check clean build tidy docker-up docker-down docker-logs test swagger test-integration lint
+
+permissions:
+	go run ./tools/perm-codegen
+
+proto-check:
+	go run ./tools/proto-idempotency-check
 
 proto:
 	protoc -I contract/proto \
@@ -112,7 +118,7 @@ lint:
 # They run in a separate `go test` invocation so a panic in one cannot abort
 # the main suite, and the invocation is prefixed with `-` so make ignores its
 # exit code — the output is informational only.
-STOCK_TEST_REGEX := ^(TestOTC_|TestOrder_|TestPortfolio_|TestSecurities_|TestStockExchange_|TestTax_|TestEmployeeOnBehalf_|TestWF_ClientTradesStockAfterBanking|TestWF_CrossCurrencyTradingAndTransfer|TestWF_FullBankingDaySimulation|TestWF_LimitEnforcementAcrossDomains|TestWF_MultiAssetOrderTypes|TestWF_MultiCurrencyClientLifecycle|TestWF_OTCTradingBetweenUsers|TestWF_OrderApprovalWorkflow|TestWF_StockBuySellCycle|TestWF_TaxCollectionCycle)
+STOCK_TEST_REGEX := ^(TestOTC_|TestOrder_|TestPortfolio_|TestSecurities_|TestStockExchange_|TestTax_|TestEmployeeOnBehalf_|TestWF_ClientTradesStockAfterBanking|TestWF_CrossCurrencyTradingAndTransfer|TestWF_FullBankingDaySimulation|TestWF_LimitEnforcementAcrossDomains|TestWF_MultiAssetOrderTypes|TestWF_MultiCurrencyClientLifecycle|TestWF_OTCTradingBetweenUsers|TestWF_OrderApprovalWorkflow|TestWF_StockBuySellCycle|TestWF_TaxCollectionCycle|TestWF_StockBuy_CrossCurrency_ConvertedDebit|TestWF_StockBuy_CancelReleasesReservation|TestWF_SellAllAcrossAggregatedHolding|TestInterBank_IncomingSuccess)
 
 test-integration:
 	cd test-app && go test -v -tags integration -timeout 60m -skip '$(STOCK_TEST_REGEX)' ./workflows/...

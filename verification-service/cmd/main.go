@@ -3,10 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -18,6 +14,7 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	pb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/verification-service/internal/config"
 	"github.com/exbanka/verification-service/internal/handler"
@@ -52,7 +49,10 @@ func main() {
 	defer producer.Close()
 
 	// Connect to auth-service for biometrics checks
-	authConn, err := grpc.NewClient(cfg.AuthGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	authConn, err := grpc.NewClient(cfg.AuthGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to auth service: %v", err)
 	}
@@ -68,20 +68,6 @@ func main() {
 	// 6. Create gRPC handler
 	grpcHandler := handler.NewVerificationGRPCHandler(svc)
 
-	// 7. Create TCP listener
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	// 8. Create gRPC server and register services
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	pb.RegisterVerificationGRPCServiceServer(s, grpcHandler)
-	shared.RegisterHealthCheck(s, "verification-service")
-	metrics.InitializeGRPCMetrics(s)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -90,54 +76,51 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// 9. Ensure Kafka topics exist (produces to)
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		kafkamsg.TopicVerificationChallengeCreated,
 		kafkamsg.TopicVerificationChallengeVerified,
 		kafkamsg.TopicVerificationChallengeFailed,
 		kafkamsg.TopicSendEmail,
 	)
 
-	// 10. Create cancellable context for background goroutines
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	runExpiryLoop(ctx, svc)
 
-	// 11. Start background expiry goroutine
-	go runExpiryLoop(ctx, svc)
-
-	// 12. Start gRPC server
-	markReady()
-	go func() {
-		log.Printf("verification-service listening on %s", cfg.GRPCAddr)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
-		}
-	}()
-
-	// 13. Wait for interrupt signal and shut down gracefully
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down verification-service gracefully...")
-	cancel()
-	s.GracefulStop()
-	log.Println("Server stopped")
+	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("verification-service"),
+				grpcmw.UnarySagaContextInterceptor(),
+			),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			pb.RegisterVerificationGRPCServiceServer(s, grpcHandler)
+			shared.RegisterHealthCheck(s, "verification-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			log.Printf("verification-service listening on %s", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
+	}
 }
 
 // runExpiryLoop runs every 60 seconds to expire old pending challenges.
-// It respects context cancellation for graceful shutdown.
+// Delegates to shared.RunScheduled which honors ctx cancellation.
 func runExpiryLoop(ctx context.Context, svc *service.VerificationService) {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:     "verification-challenge-expiry",
+		Interval: 1 * time.Minute,
+		OnTick: func(ctx context.Context) error {
 			svc.ExpireOldChallenges(ctx)
-		case <-ctx.Done():
-			log.Println("verification-service: expiry loop stopped")
-			return
-		}
-	}
+			return nil
+		},
+	})
 }

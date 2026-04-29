@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -67,6 +68,30 @@ func (m *mockAccountClientForRequest) GetCurrency(_ context.Context, _ *accountp
 	return nil, nil
 }
 func (m *mockAccountClientForRequest) GetLedgerEntries(_ context.Context, _ *accountpb.GetLedgerEntriesRequest, _ ...grpc.CallOption) (*accountpb.GetLedgerEntriesResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) ReserveFunds(_ context.Context, _ *accountpb.ReserveFundsRequest, _ ...grpc.CallOption) (*accountpb.ReserveFundsResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) ReleaseReservation(_ context.Context, _ *accountpb.ReleaseReservationRequest, _ ...grpc.CallOption) (*accountpb.ReleaseReservationResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) PartialSettleReservation(_ context.Context, _ *accountpb.PartialSettleReservationRequest, _ ...grpc.CallOption) (*accountpb.PartialSettleReservationResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) GetReservation(_ context.Context, _ *accountpb.GetReservationRequest, _ ...grpc.CallOption) (*accountpb.GetReservationResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) ReserveIncoming(_ context.Context, _ *accountpb.ReserveIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReserveIncomingResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) CommitIncoming(_ context.Context, _ *accountpb.CommitIncomingRequest, _ ...grpc.CallOption) (*accountpb.CommitIncomingResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) ReleaseIncoming(_ context.Context, _ *accountpb.ReleaseIncomingRequest, _ ...grpc.CallOption) (*accountpb.ReleaseIncomingResponse, error) {
+	return nil, nil
+}
+func (m *mockAccountClientForRequest) ListChangelog(_ context.Context, _ *accountpb.ListChangelogRequest, _ ...grpc.CallOption) (*accountpb.ListChangelogResponse, error) {
 	return nil, nil
 }
 
@@ -187,7 +212,7 @@ func TestCreateLoanRequest_InvalidRepaymentPeriod_Cash(t *testing.T) {
 	}
 	err := svc.CreateLoanRequest(req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not allowed for cash loans")
+	assert.True(t, errors.Is(err, ErrInvalidRepaymentPeriod))
 }
 
 func TestCreateLoanRequest_AccountCurrencyMismatch(t *testing.T) {
@@ -201,7 +226,7 @@ func TestCreateLoanRequest_AccountCurrencyMismatch(t *testing.T) {
 	}
 	err := svc.CreateLoanRequest(req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must match account currency")
+	assert.True(t, errors.Is(err, ErrCurrencyMismatch))
 }
 
 func TestCreateLoanRequest_InvalidLoanType(t *testing.T) {
@@ -213,7 +238,7 @@ func TestCreateLoanRequest_InvalidLoanType(t *testing.T) {
 	}
 	err := svc.CreateLoanRequest(req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "loan type must be one of")
+	assert.True(t, errors.Is(err, ErrInvalidLoanType))
 }
 
 func TestCreateLoanRequest_ZeroAmount(t *testing.T) {
@@ -225,7 +250,7 @@ func TestCreateLoanRequest_ZeroAmount(t *testing.T) {
 	}
 	err := svc.CreateLoanRequest(req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must be greater than 0")
+	assert.True(t, errors.Is(err, ErrInvalidAmount))
 }
 
 // --- ApproveLoanRequest tests -------------------------------------------------
@@ -293,5 +318,5 @@ func TestRejectLoanRequest_AlreadyRejected(t *testing.T) {
 
 	_, err := svc.RejectLoanRequest(req.ID, 0, "")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already rejected")
+	assert.True(t, errors.Is(err, ErrLoanRequestNotPending))
 }

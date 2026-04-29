@@ -23,12 +23,14 @@ func NewLedgerService(ledgerRepo *repository.LedgerRepository, db *gorm.DB) *Led
 
 // Transfer moves amount from fromAccount to toAccount atomically.
 // Creates two ledger entries (debit + credit) in a single DB transaction.
-func (s *LedgerService) Transfer(fromAccount, toAccount string, amount decimal.Decimal, description, refID, refType string) error {
+// Ctx is propagated into the repository so saga_id / saga_step (if set by
+// the gRPC server interceptor) get stamped onto both entries.
+func (s *LedgerService) Transfer(ctx context.Context, fromAccount, toAccount string, amount decimal.Decimal, description, refID, refType string) error {
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if _, err := s.ledgerRepo.DebitWithLock(tx, fromAccount, amount, description, refID, refType); err != nil {
+		if _, err := s.ledgerRepo.DebitWithLock(ctx, tx, fromAccount, amount, description, refID, refType); err != nil {
 			return err
 		}
-		_, err := s.ledgerRepo.CreditWithLock(tx, toAccount, amount, description, refID, refType)
+		_, err := s.ledgerRepo.CreditWithLock(ctx, tx, toAccount, amount, description, refID, refType)
 		return err
 	})
 	if err == nil {
@@ -39,9 +41,9 @@ func (s *LedgerService) Transfer(fromAccount, toAccount string, amount decimal.D
 }
 
 // Credit adds funds to an account atomically.
-func (s *LedgerService) Credit(accountNumber string, amount decimal.Decimal, description, refID, refType string) error {
+func (s *LedgerService) Credit(ctx context.Context, accountNumber string, amount decimal.Decimal, description, refID, refType string) error {
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		_, err := s.ledgerRepo.CreditWithLock(tx, accountNumber, amount, description, refID, refType)
+		_, err := s.ledgerRepo.CreditWithLock(ctx, tx, accountNumber, amount, description, refID, refType)
 		return err
 	})
 	if err == nil {
@@ -51,9 +53,9 @@ func (s *LedgerService) Credit(accountNumber string, amount decimal.Decimal, des
 }
 
 // Debit removes funds from an account atomically.
-func (s *LedgerService) Debit(accountNumber string, amount decimal.Decimal, description, refID, refType string) error {
+func (s *LedgerService) Debit(ctx context.Context, accountNumber string, amount decimal.Decimal, description, refID, refType string) error {
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		_, err := s.ledgerRepo.DebitWithLock(tx, accountNumber, amount, description, refID, refType)
+		_, err := s.ledgerRepo.DebitWithLock(ctx, tx, accountNumber, amount, description, refID, refType)
 		return err
 	})
 	if err == nil {

@@ -21,7 +21,7 @@ func NewCreditHandler(creditClient creditpb.CreditServiceClient) *CreditHandler 
 
 type createLoanRequestBody struct {
 	// ClientID is accepted from the body for backwards compatibility but silently
-	// ignored — the gateway always derives the client identity from the JWT user_id.
+	// ignored — the gateway always derives the client identity from the JWT principal_id.
 	ClientID         uint64  `json:"client_id"`
 	LoanType         string  `json:"loan_type" binding:"required"`
 	InterestType     string  `json:"interest_type" binding:"required"`
@@ -46,7 +46,7 @@ type createLoanRequestBody struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/loans/requests [post]
+// @Router       /api/v2/loans/requests [post]
 func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 	var req createLoanRequestBody
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -89,7 +89,7 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 		}
 	}
 	// Always derive ClientId from the JWT — never trust the request body.
-	uid := c.GetInt64("user_id")
+	uid := c.GetInt64("principal_id")
 	resp, err := h.creditClient.CreateLoanRequest(c.Request.Context(), &creditpb.CreateLoanRequestReq{
 		ClientId:         uint64(uid),
 		LoanType:         loanType,
@@ -120,7 +120,7 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/loans/requests/{id} [get]
+// @Router       /api/v2/loans/requests/{id} [get]
 func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -149,7 +149,7 @@ func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/requests [get]
+// @Router       /api/v2/loans/requests [get]
 func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -196,7 +196,7 @@ func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/requests/{id}/approve [put]
+// @Router       /api/v2/loans/requests/{id}/approve [put]
 func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -205,7 +205,7 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 	}
 
 	// Get employee ID from JWT context for limit enforcement
-	uid, _ := c.Get("user_id")
+	uid, _ := c.Get("principal_id")
 	employeeID := uid.(int64)
 
 	resp, err := h.creditClient.ApproveLoanRequest(middleware.GRPCContextWithChangedBy(c), &creditpb.ApproveLoanRequestReq{
@@ -228,7 +228,7 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/requests/{id}/reject [put]
+// @Router       /api/v2/loans/requests/{id}/reject [put]
 func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -253,7 +253,7 @@ func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 // @Failure      401  {object}  map[string]string
 // @Failure      403  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/v1/loans/{id} [get]
+// @Router       /api/v2/loans/{id} [get]
 func (h *CreditHandler) GetLoan(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -280,7 +280,7 @@ func (h *CreditHandler) GetLoan(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/client/{client_id} [get]
+// @Router       /api/v2/loans/client/{client_id} [get]
 func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -314,6 +314,7 @@ func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 }
 
 // @Summary      List all loans
+// @Description  Lists all loans (employee read). Filter by loan_type/account_number/status. To list one client's loans, use GET /api/v3/clients/{id}/loans.
 // @Tags         loans
 // @Produce      json
 // @Param        page                  query  int     false  "Page number (default 1)"
@@ -325,34 +326,8 @@ func (h *CreditHandler) ListLoansByClient(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans [get]
+// @Router       /api/v3/loans [get]
 func (h *CreditHandler) ListAllLoans(c *gin.Context) {
-	// Query-param filtering: ?client_id=X
-	if clientIDStr := c.Query("client_id"); clientIDStr != "" {
-		clientID, err := strconv.ParseUint(clientIDStr, 10, 64)
-		if err != nil {
-			apiError(c, 400, ErrValidation, "invalid client_id query parameter")
-			return
-		}
-		page, _ := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 32)
-		pageSize, _ := strconv.ParseInt(c.DefaultQuery("page_size", "20"), 10, 32)
-		resp, err := h.creditClient.ListLoansByClient(c.Request.Context(), &creditpb.ListLoansByClientReq{
-			ClientId: clientID,
-			Page:     int32(page),
-			PageSize: int32(pageSize),
-		})
-		if err != nil {
-			handleGRPCError(c, err)
-			return
-		}
-		loans := make([]gin.H, 0, len(resp.Loans))
-		for _, l := range resp.Loans {
-			loans = append(loans, loanToJSON(l))
-		}
-		c.JSON(http.StatusOK, gin.H{"loans": loans, "total": resp.Total})
-		return
-	}
-
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
@@ -378,6 +353,46 @@ func (h *CreditHandler) ListAllLoans(c *gin.Context) {
 	})
 }
 
+// @Summary      List loans by client (path-scoped)
+// @Description  Returns all loans for a given client. Mounted under /clients/:id/loans.
+// @Tags         loans
+// @Produce      json
+// @Param        id         path   int  true   "Client ID"
+// @Param        page       query  int  false  "Page number (default 1)"
+// @Param        page_size  query  int  false  "Items per page (default 20)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]string
+// @Failure      401  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /api/v3/clients/{id}/loans [get]
+func (h *CreditHandler) ListLoansByClientPath(c *gin.Context) {
+	clientID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid client id")
+		return
+	}
+	if !enforceClientSelf(c, clientID) {
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.creditClient.ListLoansByClient(c.Request.Context(), &creditpb.ListLoansByClientReq{
+		ClientId: clientID,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	loans := make([]gin.H, 0, len(resp.Loans))
+	for _, l := range resp.Loans {
+		loans = append(loans, loanToJSON(l))
+	}
+	c.JSON(http.StatusOK, gin.H{"loans": loans, "total": resp.Total})
+}
+
 // @Summary      Get installments by loan
 // @Tags         loans
 // @Produce      json
@@ -387,7 +402,7 @@ func (h *CreditHandler) ListAllLoans(c *gin.Context) {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/{id}/installments [get]
+// @Router       /api/v2/loans/{id}/installments [get]
 func (h *CreditHandler) GetInstallmentsByLoan(c *gin.Context) {
 	loanID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -429,7 +444,7 @@ func (h *CreditHandler) GetInstallmentsByLoan(c *gin.Context) {
 // @Failure      401  {object}  map[string]string
 // @Failure      403  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/loans/requests/client/{client_id} [get]
+// @Router       /api/v2/loans/requests/client/{client_id} [get]
 func (h *CreditHandler) ListLoanRequestsByClient(c *gin.Context) {
 	clientID, err := strconv.ParseUint(c.Param("client_id"), 10, 64)
 	if err != nil {
@@ -492,7 +507,7 @@ func loanRequestToJSON(r *creditpb.LoanRequestResponse) gin.H {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers [get]
+// @Router       /api/v2/interest-rate-tiers [get]
 func (h *CreditHandler) ListInterestRateTiers(c *gin.Context) {
 	resp, err := h.creditClient.ListInterestRateTiers(c.Request.Context(), &creditpb.ListInterestRateTiersRequest{})
 	if err != nil {
@@ -525,7 +540,7 @@ type createInterestRateTierBody struct {
 // @Failure      400  {object}  map[string]string
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers [post]
+// @Router       /api/v2/interest-rate-tiers [post]
 func (h *CreditHandler) CreateInterestRateTier(c *gin.Context) {
 	var req createInterestRateTierBody
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -582,7 +597,7 @@ type updateInterestRateTierBody struct {
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers/{id} [put]
+// @Router       /api/v2/interest-rate-tiers/{id} [put]
 func (h *CreditHandler) UpdateInterestRateTier(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -637,7 +652,7 @@ func (h *CreditHandler) UpdateInterestRateTier(c *gin.Context) {
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers/{id} [delete]
+// @Router       /api/v2/interest-rate-tiers/{id} [delete]
 func (h *CreditHandler) DeleteInterestRateTier(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -663,7 +678,7 @@ func (h *CreditHandler) DeleteInterestRateTier(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/bank-margins [get]
+// @Router       /api/v2/bank-margins [get]
 func (h *CreditHandler) ListBankMargins(c *gin.Context) {
 	resp, err := h.creditClient.ListBankMargins(c.Request.Context(), &creditpb.ListBankMarginsRequest{})
 	if err != nil {
@@ -695,7 +710,7 @@ type updateBankMarginBody struct {
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/bank-margins/{id} [put]
+// @Router       /api/v2/bank-margins/{id} [put]
 func (h *CreditHandler) UpdateBankMargin(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -735,7 +750,7 @@ func (h *CreditHandler) UpdateBankMargin(c *gin.Context) {
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/interest-rate-tiers/{id}/apply [post]
+// @Router       /api/v2/interest-rate-tiers/{id}/apply [post]
 func (h *CreditHandler) ApplyVariableRateUpdate(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -777,7 +792,7 @@ func bankMarginToJSON(m *creditpb.BankMarginResponse) gin.H {
 
 // ListMyLoans serves GET /api/me/loans.
 func (h *CreditHandler) ListMyLoans(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")
@@ -849,7 +864,7 @@ func (h *CreditHandler) GetMyInstallments(c *gin.Context) {
 
 // ListMyLoanRequests serves GET /api/me/loan-requests.
 func (h *CreditHandler) ListMyLoanRequests(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, 401, ErrUnauthorized, "invalid token claims")

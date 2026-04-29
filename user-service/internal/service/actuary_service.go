@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 
 	"gorm.io/gorm"
@@ -31,6 +32,48 @@ func (s *ActuaryService) ListActuaries(search, position string, page, pageSize i
 	return s.actuaryRepo.ListActuaries(search, position, page, pageSize)
 }
 
+// BackfillDefaultLimits applies the role-based default ActuaryLimit to any
+// existing rows whose Limit is zero. Safe to call on every startup: rows
+// that already have a non-zero limit are skipped. Needed because the
+// defaultActuaryLimit path only fires on row creation — legacy rows
+// created before role-based defaults existed (or via a SetActuaryLimit(0)
+// call) stay at zero otherwise.
+func (s *ActuaryService) BackfillDefaultLimits() error {
+	rows, _, err := s.actuaryRepo.ListActuaries("", "", 1, 100000)
+	if err != nil {
+		return err
+	}
+	updated := 0
+	for _, row := range rows {
+		if row.Limit != 0 {
+			continue
+		}
+		emp, err := s.empRepo.GetByIDWithRoles(row.EmployeeID)
+		if err != nil {
+			log.Printf("WARN: actuary backfill: employee %d lookup failed: %v", row.EmployeeID, err)
+			continue
+		}
+		def := defaultActuaryLimit(emp)
+		if def.IsZero() {
+			continue
+		}
+		limit, err := s.actuaryRepo.GetByEmployeeID(row.EmployeeID)
+		if err != nil {
+			continue
+		}
+		limit.Limit = def
+		if err := s.actuaryRepo.Save(limit); err != nil {
+			log.Printf("WARN: actuary backfill: save failed for employee %d: %v", row.EmployeeID, err)
+			continue
+		}
+		updated++
+	}
+	if updated > 0 {
+		log.Printf("actuary backfill: seeded default limit on %d legacy rows", updated)
+	}
+	return nil
+}
+
 func (s *ActuaryService) GetActuaryInfo(employeeID int64) (*model.ActuaryLimit, *model.Employee, error) {
 	return s.getOrCreateActuaryLimit(employeeID)
 }
@@ -42,7 +85,7 @@ func (s *ActuaryService) SetActuaryLimit(ctx context.Context, employeeID int64, 
 	}
 
 	if limitAmount.IsNegative() {
-		return nil, errors.New("limit must not be negative")
+		return nil, fmt.Errorf("SetActuaryLimit(employee=%d, amount=%s): %w", employeeID, limitAmount.String(), ErrInvalidActuaryLimit)
 	}
 	limit, _, err := s.getOrCreateActuaryLimit(employeeID)
 	if err != nil {
@@ -92,17 +135,25 @@ func (s *ActuaryService) SetNeedApproval(ctx context.Context, employeeID int64, 
 	return limit, nil
 }
 
-// UpdateUsedLimit atomically adds the given RSD amount to the actuary's used limit.
-// Called by stock-service after an order is placed.
+// UpdateUsedLimit atomically adjusts the actuary's used_limit by the signed
+// RSD amount. Positive values increment (e.g., on successful order placement
+// or supervisor approval); negative values decrement (e.g., on order
+// cancellation). The floor is clamped at zero to guard against double-refunds.
+// Called by stock-service as part of the actuary limit enforcement flow.
 func (s *ActuaryService) UpdateUsedLimit(ctx context.Context, id int64, amountRSD decimal.Decimal) (*model.ActuaryLimit, error) {
 	limit, err := s.actuaryRepo.GetByID(id)
 	if err != nil {
 		return nil, err
 	}
-	limit.UsedLimit = limit.UsedLimit.Add(amountRSD)
+	next := limit.UsedLimit.Add(amountRSD)
+	if next.IsNegative() {
+		next = decimal.NewFromInt(0)
+	}
+	limit.UsedLimit = next
 	if err := s.actuaryRepo.Save(limit); err != nil {
 		return nil, err
 	}
+	s.publishActuaryEvent(ctx, limit.EmployeeID, "used_limit_updated")
 	return limit, nil
 }
 
@@ -125,12 +176,12 @@ func (s *ActuaryService) getOrCreateActuaryLimit(employeeID int64) (*model.Actua
 	emp, err := s.empRepo.GetByIDWithRoles(employeeID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil, errors.New("employee not found")
+			return nil, nil, fmt.Errorf("getOrCreateActuaryLimit(employee=%d): %w", employeeID, ErrEmployeeNotFound)
 		}
 		return nil, nil, err
 	}
 	if !isActuary(emp) {
-		return nil, nil, errors.New("employee is not an actuary (must have EmployeeAgent or EmployeeSupervisor role)")
+		return nil, nil, fmt.Errorf("getOrCreateActuaryLimit(employee=%d): employee is not an actuary (must have EmployeeAgent or EmployeeSupervisor role): %w", employeeID, ErrNotActuary)
 	}
 
 	limit, err := s.actuaryRepo.GetByEmployeeID(employeeID)
@@ -138,7 +189,7 @@ func (s *ActuaryService) getOrCreateActuaryLimit(employeeID int64) (*model.Actua
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			limit = &model.ActuaryLimit{
 				EmployeeID:   employeeID,
-				Limit:        decimal.NewFromInt(0),
+				Limit:        defaultActuaryLimit(emp),
 				UsedLimit:    decimal.NewFromInt(0),
 				NeedApproval: !isSupervisor(emp),
 			}
@@ -150,6 +201,34 @@ func (s *ActuaryService) getOrCreateActuaryLimit(employeeID int64) (*model.Actua
 		}
 	}
 	return limit, emp, nil
+}
+
+// defaultActuaryLimit seeds the per-role RSD trading budget when an
+// ActuaryLimit row is first auto-created. Mirrors the scale of
+// EmployeeLimit.MaxDailyTransaction so the two limit systems don't get
+// wildly out of sync. Supervisors / admins get an effectively-unlimited
+// number so the gate never triggers for them (they also have
+// NeedApproval=false so it wouldn't matter anyway, but keeping numbers
+// sensible helps reporting).
+func defaultActuaryLimit(emp *model.Employee) decimal.Decimal {
+	switch {
+	case hasRole(emp, "EmployeeAdmin"):
+		return decimal.NewFromInt(999_999_999)
+	case hasRole(emp, "EmployeeSupervisor"):
+		return decimal.NewFromInt(50_000_000)
+	case hasRole(emp, "EmployeeAgent"):
+		return decimal.NewFromInt(5_000_000)
+	}
+	return decimal.NewFromInt(0)
+}
+
+func hasRole(emp *model.Employee, name string) bool {
+	for _, r := range emp.Roles {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func isActuary(emp *model.Employee) bool {

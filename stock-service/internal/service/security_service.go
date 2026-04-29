@@ -65,7 +65,7 @@ func (s *SecurityService) GetStock(id uint64) (*model.Stock, error) {
 	stock, err := s.stockRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("stock not found")
+			return nil, fmt.Errorf("stock not found: %w", ErrStockNotFound)
 		}
 		return nil, err
 	}
@@ -117,7 +117,7 @@ func (s *SecurityService) GetFutures(id uint64) (*model.FuturesContract, error) 
 	f, err := s.futuresRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("futures contract not found")
+			return nil, fmt.Errorf("futures contract not found: %w", ErrFuturesNotFound)
 		}
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (s *SecurityService) GetForexPair(id uint64) (*model.ForexPair, error) {
 	fp, err := s.forexRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("forex pair not found")
+			return nil, fmt.Errorf("forex pair not found: %w", ErrForexPairNotFound)
 		}
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (s *SecurityService) GetOption(id uint64) (*model.Option, error) {
 	o, err := s.optionRepo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("option not found")
+			return nil, fmt.Errorf("option not found: %w", ErrOptionNotFound)
 		}
 		return nil, err
 	}

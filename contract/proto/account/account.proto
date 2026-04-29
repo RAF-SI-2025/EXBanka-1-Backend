@@ -11,6 +11,7 @@ service AccountService {
   rpc UpdateAccountName(UpdateAccountNameRequest) returns (AccountResponse);
   rpc UpdateAccountLimits(UpdateAccountLimitsRequest) returns (AccountResponse);
   rpc UpdateAccountStatus(UpdateAccountStatusRequest) returns (AccountResponse);
+  // idempotent
   rpc UpdateBalance(UpdateBalanceRequest) returns (AccountResponse);
 
   rpc CreateCompany(CreateCompanyRequest) returns (CompanyResponse);
@@ -21,6 +22,53 @@ service AccountService {
   rpc GetCurrency(GetCurrencyRequest) returns (CurrencyResponse);
 
   rpc GetLedgerEntries(GetLedgerEntriesRequest) returns (GetLedgerEntriesResponse);
+
+  // Reservation lifecycle for order placement → fill → release flow (bank-safe settlement).
+  // idempotent
+  rpc ReserveFunds(ReserveFundsRequest) returns (ReserveFundsResponse);
+  // idempotent
+  rpc ReleaseReservation(ReleaseReservationRequest) returns (ReleaseReservationResponse);
+  // idempotent
+  rpc PartialSettleReservation(PartialSettleReservationRequest) returns (PartialSettleReservationResponse);
+  rpc GetReservation(GetReservationRequest) returns (GetReservationResponse);
+
+  // Credit-side reservation lifecycle for inter-bank inbound transfers
+  // (Spec 3 / docs/superpowers/specs/2026-04-24-interbank-2pc-transfers-design.md §4.3).
+  // idempotent
+  rpc ReserveIncoming(ReserveIncomingRequest) returns (ReserveIncomingResponse);
+  // idempotent
+  rpc CommitIncoming(CommitIncomingRequest)   returns (CommitIncomingResponse);
+  // idempotent
+  rpc ReleaseIncoming(ReleaseIncomingRequest) returns (ReleaseIncomingResponse);
+
+  // Audit-trail reads. Returns changelog rows scoped by entity_type +
+  // entity_id; pagination matches list endpoints (1-based page).
+  rpc ListChangelog(ListChangelogRequest) returns (ListChangelogResponse);
+}
+
+message ListChangelogRequest {
+  string entity_type = 1; // e.g. "account"
+  int64  entity_id   = 2;
+  int32  page        = 3;
+  int32  page_size   = 4;
+}
+
+message ChangelogEntry {
+  uint64 id          = 1;
+  string entity_type = 2;
+  int64  entity_id   = 3;
+  string action      = 4; // create|update|delete|status_change
+  string field_name  = 5;
+  string old_value   = 6; // JSON-encoded string
+  string new_value   = 7; // JSON-encoded string
+  int64  changed_by  = 8; // user_id (0 = system)
+  int64  changed_at  = 9; // unix seconds
+  string reason      = 10;
+}
+
+message ListChangelogResponse {
+  repeated ChangelogEntry entries = 1;
+  int64                   total   = 2;
 }
 
 message CreateAccountRequest {
@@ -78,6 +126,18 @@ message UpdateBalanceRequest {
   string account_number = 1;
   string amount = 2;
   bool update_available = 3;
+  // memo is written to the resulting ledger entry's description so the
+  // account owner can see what the balance change was for. Only persisted
+  // when a ledger entry is created (i.e. when idempotency_key or memo is
+  // provided — callers that don't opt in keep the pre-existing no-ledger
+  // behaviour).
+  string memo = 4;
+  // idempotency_key, when set, guarantees the request is processed at most
+  // once. Retries with the same key return the cached response without
+  // mutating state. Used by stock-service's saga recovery to safely retry
+  // credit/debit steps after a crash. Uniqueness is enforced by a partial
+  // unique index on ledger_entries; an empty string opts out of dedup.
+  string idempotency_key = 5;
 }
 
 message AccountResponse {
@@ -102,6 +162,10 @@ message AccountResponse {
   string daily_spending = 19;
   string monthly_spending = 20;
   optional uint64 company_id = 21;
+  // reserved_balance is the running total of active holds on this account.
+  // AvailableBalance = Balance - ReservedBalance (both are stored columns
+  // kept in sync by the reservation service in account-service).
+  string reserved_balance = 22;
 }
 
 message CreateCompanyRequest {
@@ -214,3 +278,74 @@ message BankAccountOpResponse {
   string new_balance    = 2;
   bool   replayed       = 3;
 }
+
+message ReserveFundsRequest {
+    uint64 account_id = 1;
+    uint64 order_id = 2;
+    string amount = 3;         // decimal string
+    string currency_code = 4;  // must equal account currency
+    string idempotency_key = 5;  // saga step idempotency
+}
+message ReserveFundsResponse {
+    uint64 reservation_id = 1;
+    string reserved_balance = 2;
+    string available_balance = 3;
+}
+
+message ReleaseReservationRequest {
+    uint64 order_id = 1;
+    string idempotency_key = 2;  // saga step idempotency
+}
+message ReleaseReservationResponse {
+    string released_amount = 1;
+    string reserved_balance = 2;
+}
+
+message PartialSettleReservationRequest {
+    uint64 order_id = 1;
+    uint64 order_transaction_id = 2;   // domain dedup key (per-reservation settle sequence)
+    string amount = 3;
+    string memo = 4;                    // written to ledger_entries
+    string idempotency_key = 5;        // saga step idempotency
+}
+message PartialSettleReservationResponse {
+    string settled_amount = 1;
+    string remaining_reserved = 2;
+    string balance_after = 3;
+    uint64 ledger_entry_id = 4;
+}
+
+message GetReservationRequest {
+    uint64 order_id = 1;
+}
+message GetReservationResponse {
+    bool exists = 1;
+    string status = 2;           // active|released|settled
+    string amount = 3;
+    string settled_total = 4;
+    repeated uint64 settled_transaction_ids = 5;
+}
+
+message ReserveIncomingRequest {
+    string account_number  = 1;
+    string amount          = 2;  // decimal string
+    string currency        = 3;
+    string reservation_key = 4;  // domain dedup key (typically "interbank-in-<txID>")
+    string idempotency_key = 5;  // saga step idempotency
+}
+message ReserveIncomingResponse {
+    string reservation_key = 1;
+    string balance_after   = 2;  // unchanged at reserve time, echoed for caller
+}
+
+message CommitIncomingRequest  {
+    string reservation_key = 1;
+    string idempotency_key = 2;  // saga step idempotency
+}
+message CommitIncomingResponse { string balance_after   = 1; }
+
+message ReleaseIncomingRequest  {
+    string reservation_key = 1;
+    string idempotency_key = 2;  // saga step idempotency
+}
+message ReleaseIncomingResponse { bool   released        = 1; }

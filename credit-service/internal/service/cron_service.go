@@ -51,23 +51,19 @@ func NewCronService(
 	}
 }
 
-// Start runs the daily installment collection job
+// Start runs the daily installment collection job using the shared
+// scheduled runner. Returns immediately; the loop runs until ctx is
+// cancelled. RunOnStart fires the first collection without waiting a day.
 func (c *CronService) Start(ctx context.Context) {
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-
-	// Run immediately on start
-	c.collectDueInstallments(ctx)
-
-	for {
-		select {
-		case <-ticker.C:
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:       "credit-installment-collection",
+		Interval:   24 * time.Hour,
+		RunOnStart: true,
+		OnTick: func(ctx context.Context) error {
 			c.collectDueInstallments(ctx)
-		case <-ctx.Done():
-			log.Println("CronService: stopping")
-			return
-		}
-	}
+			return nil
+		},
+	})
 }
 
 func (c *CronService) collectDueInstallments(ctx context.Context) {
@@ -106,6 +102,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 	}
 
 	retryDeadline := time.Now().Add(72 * time.Hour).Format(time.RFC3339)
+	installRef := fmt.Sprintf("installment:%d", installmentID)
 
 	// Debit the loan's account via account-service
 	debitErr := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
@@ -118,6 +115,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			AccountNumber:   loan.AccountNumber,
 			Amount:          debitAmt,
 			UpdateAvailable: true,
+			IdempotencyKey:  installRef + ":debit",
 		})
 		return e
 	})
@@ -182,8 +180,10 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 
 				// Wrap both writes in a single transaction to prevent partial updates.
 				txErr := c.db.Transaction(func(tx *gorm.DB) error {
-					if e := tx.Save(loan).Error; e != nil {
-						return e
+					if saveRes := tx.Save(loan); saveRes.Error != nil {
+						return saveRes.Error
+					} else if saveRes.RowsAffected == 0 {
+						return fmt.Errorf("optimistic lock conflict: loan %d was modified concurrently", loan.ID)
 					}
 					return tx.Session(&gorm.Session{SkipHooks: true}).
 						Model(&model.Installment{}).
@@ -211,6 +211,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			AccountNumber:   c.bankRSDAccount,
 			Amount:          amount,
 			UpdateAvailable: true,
+			IdempotencyKey:  installRef + ":bank-credit",
 		})
 		if creditErr != nil {
 			log.Printf("CronService: failed to credit bank RSD account for installment %d: %v — reversing client debit", installmentID, creditErr)
@@ -218,6 +219,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				AccountNumber:   loan.AccountNumber,
 				Amount:          amount, // positive = credit back to client
 				UpdateAvailable: true,
+				IdempotencyKey:  installRef + ":debit-compensate",
 			})
 			if compErr != nil {
 				log.Printf("CronService: CRITICAL: compensation for installment %d failed: %v — manual intervention required", installmentID, compErr)
@@ -246,6 +248,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				AccountNumber:   c.bankRSDAccount,
 				Amount:          amtDecimal.Neg().StringFixed(4),
 				UpdateAvailable: true,
+				IdempotencyKey:  installRef + ":bank-credit-compensate",
 			}); compErr != nil {
 				log.Printf("CronService: CRITICAL: bank compensation failed for installment %d: %v — manual review required", installmentID, compErr)
 			}
@@ -256,6 +259,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				AccountNumber:   loan.AccountNumber,
 				Amount:          amtDecimal.StringFixed(4),
 				UpdateAvailable: true,
+				IdempotencyKey:  installRef + ":debit-compensate-2",
 			}); compErr != nil {
 				log.Printf("CronService: CRITICAL: client compensation failed for installment %d: %v — manual review required", installmentID, compErr)
 			}

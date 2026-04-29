@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -18,6 +14,7 @@ import (
 	clientpb "github.com/exbanka/contract/clientpb"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/cache"
 	"github.com/exbanka/user-service/internal/config"
@@ -47,6 +44,7 @@ func main() {
 		&model.ActuaryLimit{},
 		&model.LimitBlueprint{},
 		&model.Changelog{},
+		&model.OutboxEvent{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -56,7 +54,7 @@ func main() {
 
 	// Pre-create Kafka topics before any publishing to avoid
 	// partition assignment race condition for downstream consumers.
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		"user.employee-created",
 		"user.employee-updated",
 		"user.employee-limits-updated",
@@ -69,6 +67,8 @@ func main() {
 		"user.blueprint-deleted",
 		"user.blueprint-applied",
 		"user.changelog",
+		"user.role-permissions-changed",
+		"user.supervisor-demoted",
 		"notification.send-email",
 	)
 
@@ -87,15 +87,20 @@ func main() {
 	employeeLimitRepo := repository.NewEmployeeLimitRepository(db)
 	limitTemplateRepo := repository.NewLimitTemplateRepository(db)
 
-	roleSvc := service.NewRoleService(roleRepo, permRepo)
+	roleSvc := service.NewRoleService(roleRepo, permRepo).
+		WithPublisher(producer).
+		WithDB(db)
 
-	// Seed roles and permissions on startup
+	// Seed roles and permissions on startup. The slim seed only inserts
+	// the default role↔permission mappings on a truly fresh DB; subsequent
+	// startups are no-ops so admin-managed grants survive restarts.
 	if err := roleSvc.SeedRolesAndPermissions(); err != nil {
 		log.Fatalf("failed to seed roles and permissions: %v", err)
 	}
 
 	changelogRepo := repository.NewChangelogRepository(db)
 	empService := service.NewEmployeeService(repo, producer, redisCache, roleSvc, changelogRepo)
+	changelogSvc := service.NewChangelogService(changelogRepo)
 	limitSvc := service.NewLimitService(employeeLimitRepo, limitTemplateRepo, repo, producer, changelogRepo)
 
 	if err := limitSvc.SeedDefaultTemplates(); err != nil {
@@ -108,9 +113,23 @@ func main() {
 	limitCron := service.NewLimitCronService(employeeLimitRepo)
 	limitCron.Start(ctx)
 
+	// Outbox relay (Celina 4) — drains transactionally-written cross-service
+	// events (e.g. user.supervisor-demoted) to Kafka in the background.
+	outboxRepo := repository.NewOutboxRepository(db)
+	outboxRelay := service.NewOutboxRelay(outboxRepo, producer, 2*time.Second)
+	outboxRelay.Start(ctx)
+	empService = empService.WithOutbox(outboxRepo)
+
 	actuaryRepo := repository.NewActuaryRepository(db)
 	actuarySvc := service.NewActuaryService(actuaryRepo, repo, producer)
 	actuaryHandler := handler.NewActuaryGRPCHandler(actuarySvc)
+
+	// One-shot: seed role-based default Limit onto any ActuaryLimit rows that
+	// predate the default (Limit == 0). Safe to re-run; skips rows that
+	// already have a limit set.
+	if err := actuarySvc.BackfillDefaultLimits(); err != nil {
+		log.Printf("warn: actuary default-limit backfill failed: %v", err)
+	}
 
 	actuaryCron := service.NewActuaryCronService(actuaryRepo)
 	actuaryCron.Start(ctx)
@@ -119,7 +138,10 @@ func main() {
 	blueprintRepo := repository.NewLimitBlueprintRepository(db)
 
 	// Connect to client-service for client blueprint apply
-	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	clientConn, err := grpc.NewClient(cfg.ClientGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Printf("warn: failed to connect to client service: %v (client blueprints will not work)", err)
 	}
@@ -146,24 +168,9 @@ func main() {
 		}
 	}
 
-	grpcHandler := handler.NewUserGRPCHandler(empService, roleSvc)
+	grpcHandler := handler.NewUserGRPCHandler(empService, roleSvc, changelogSvc)
 	limitHandler := handler.NewLimitGRPCHandler(limitSvc)
 
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	pb.RegisterUserServiceServer(s, grpcHandler)
-	pb.RegisterEmployeeLimitServiceServer(s, limitHandler)
-	pb.RegisterActuaryServiceServer(s, actuaryHandler)
-	pb.RegisterBlueprintServiceServer(s, blueprintHandler)
-	shared.RegisterHealthCheck(s, "user-service")
-	metrics.InitializeGRPCMetrics(s)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -172,21 +179,30 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// Start gRPC server in goroutine
-	markReady()
-	go func() {
-		fmt.Printf("user service listening on %s\n", cfg.GRPCAddr)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("gRPC server failed: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down gracefully...")
-	s.GracefulStop()
-	log.Println("Server stopped")
+	if err := shared.RunGRPCServer(context.Background(), shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("user-service"),
+				grpcmw.UnarySagaContextInterceptor(),
+			),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			pb.RegisterUserServiceServer(s, grpcHandler)
+			pb.RegisterEmployeeLimitServiceServer(s, limitHandler)
+			pb.RegisterActuaryServiceServer(s, actuaryHandler)
+			pb.RegisterBlueprintServiceServer(s, blueprintHandler)
+			shared.RegisterHealthCheck(s, "user-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			fmt.Printf("user service listening on %s\n", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
+	}
 }

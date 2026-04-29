@@ -71,11 +71,11 @@ func (s *RateConfigService) SeedDefaults() error {
 func (s *RateConfigService) GetNominalRate(loanType, interestType string, amountRSD decimal.Decimal) (decimal.Decimal, error) {
 	tier, err := s.tierRepo.FindByAmount(amountRSD)
 	if err != nil {
-		return decimal.Zero, fmt.Errorf("no interest rate tier found for amount %s: %w", amountRSD, err)
+		return decimal.Zero, fmt.Errorf("GetNominalRate(amount=%s): %v: %w", amountRSD, err, ErrInterestRateTierNotFound)
 	}
 	margin, err := s.marginRepo.FindByLoanType(loanType)
 	if err != nil {
-		return decimal.Zero, fmt.Errorf("no bank margin found for loan type %s: %w", loanType, err)
+		return decimal.Zero, fmt.Errorf("GetNominalRate(loan_type=%s): %v: %w", loanType, err, ErrBankMarginNotFound)
 	}
 
 	var baseRate decimal.Decimal
@@ -92,11 +92,11 @@ func (s *RateConfigService) GetNominalRate(loanType, interestType string, amount
 func (s *RateConfigService) GetNominalRateComponents(loanType, interestType string, amountRSD decimal.Decimal) (baseRate, bankMargin, nominalRate decimal.Decimal, err error) {
 	tier, findErr := s.tierRepo.FindByAmount(amountRSD)
 	if findErr != nil {
-		return decimal.Zero, decimal.Zero, decimal.Zero, fmt.Errorf("no interest rate tier found for amount %s: %w", amountRSD, findErr)
+		return decimal.Zero, decimal.Zero, decimal.Zero, fmt.Errorf("GetNominalRateComponents(amount=%s): %v: %w", amountRSD, findErr, ErrInterestRateTierNotFound)
 	}
 	margin, marginErr := s.marginRepo.FindByLoanType(loanType)
 	if marginErr != nil {
-		return decimal.Zero, decimal.Zero, decimal.Zero, fmt.Errorf("no bank margin found for loan type %s: %w", loanType, marginErr)
+		return decimal.Zero, decimal.Zero, decimal.Zero, fmt.Errorf("GetNominalRateComponents(loan_type=%s): %v: %w", loanType, marginErr, ErrBankMarginNotFound)
 	}
 
 	if interestType == "fixed" {
@@ -112,30 +112,30 @@ func (s *RateConfigService) GetNominalRateComponents(loanType, interestType stri
 func (s *RateConfigService) ListTiers() ([]model.InterestRateTier, error) {
 	tiers, err := s.tierRepo.ListAll()
 	if err != nil {
-		return nil, fmt.Errorf("failed to list interest rate tiers: %w", err)
+		return nil, fmt.Errorf("ListTiers: %v: %w", err, ErrInstallmentLookup)
 	}
 	return tiers, nil
 }
 
 func (s *RateConfigService) CreateTier(tier *model.InterestRateTier) error {
 	if tier.FixedRate.IsNegative() {
-		return fmt.Errorf("fixed_rate must not be negative")
+		return fmt.Errorf("CreateTier: fixed_rate must not be negative: %w", ErrInvalidRateConfig)
 	}
 	if tier.VariableBase.IsNegative() {
-		return fmt.Errorf("variable_base must not be negative")
+		return fmt.Errorf("CreateTier: variable_base must not be negative: %w", ErrInvalidRateConfig)
 	}
 	if tier.AmountFrom.IsNegative() {
-		return fmt.Errorf("amount_from must not be negative")
+		return fmt.Errorf("CreateTier: amount_from must not be negative: %w", ErrInvalidRateConfig)
 	}
 	if tier.AmountTo.IsNegative() {
-		return fmt.Errorf("amount_to must not be negative")
+		return fmt.Errorf("CreateTier: amount_to must not be negative: %w", ErrInvalidRateConfig)
 	}
 	if !tier.AmountTo.IsZero() && tier.AmountTo.LessThanOrEqual(tier.AmountFrom) {
-		return fmt.Errorf("amount_to must be greater than amount_from (or 0 for unlimited)")
+		return fmt.Errorf("CreateTier: amount_to must be greater than amount_from: %w", ErrInvalidRateConfig)
 	}
 	tier.Active = true
 	if err := s.tierRepo.Create(tier); err != nil {
-		return fmt.Errorf("failed to create interest rate tier: %w", err)
+		return fmt.Errorf("CreateTier persist: %v: %w", err, ErrRateConfigPersistFailed)
 	}
 	return nil
 }
@@ -143,22 +143,22 @@ func (s *RateConfigService) CreateTier(tier *model.InterestRateTier) error {
 func (s *RateConfigService) UpdateTier(tier *model.InterestRateTier) error {
 	existing, err := s.tierRepo.GetByID(tier.ID)
 	if err != nil {
-		return fmt.Errorf("interest rate tier %d not found: %w", tier.ID, err)
+		return fmt.Errorf("UpdateTier(id=%d): %v: %w", tier.ID, err, ErrInterestRateTierNotFound)
 	}
 	if tier.FixedRate.IsNegative() {
-		return fmt.Errorf("fixed_rate must not be negative")
+		return fmt.Errorf("UpdateTier(id=%d): fixed_rate must not be negative: %w", tier.ID, ErrInvalidRateConfig)
 	}
 	if tier.VariableBase.IsNegative() {
-		return fmt.Errorf("variable_base must not be negative")
+		return fmt.Errorf("UpdateTier(id=%d): variable_base must not be negative: %w", tier.ID, ErrInvalidRateConfig)
 	}
 	if tier.AmountFrom.IsNegative() {
-		return fmt.Errorf("amount_from must not be negative")
+		return fmt.Errorf("UpdateTier(id=%d): amount_from must not be negative: %w", tier.ID, ErrInvalidRateConfig)
 	}
 	if tier.AmountTo.IsNegative() {
-		return fmt.Errorf("amount_to must not be negative")
+		return fmt.Errorf("UpdateTier(id=%d): amount_to must not be negative: %w", tier.ID, ErrInvalidRateConfig)
 	}
 	if !tier.AmountTo.IsZero() && tier.AmountTo.LessThanOrEqual(tier.AmountFrom) {
-		return fmt.Errorf("amount_to must be greater than amount_from (or 0 for unlimited)")
+		return fmt.Errorf("UpdateTier(id=%d): amount_to must be greater than amount_from: %w", tier.ID, ErrInvalidRateConfig)
 	}
 
 	existing.AmountFrom = tier.AmountFrom
@@ -167,7 +167,7 @@ func (s *RateConfigService) UpdateTier(tier *model.InterestRateTier) error {
 	existing.VariableBase = tier.VariableBase
 
 	if err := s.tierRepo.Update(existing); err != nil {
-		return fmt.Errorf("failed to update interest rate tier %d: %w", tier.ID, err)
+		return fmt.Errorf("UpdateTier(id=%d) persist: %v: %w", tier.ID, err, ErrRateConfigPersistFailed)
 	}
 	// Copy back full record so caller has all fields (timestamps, active, etc.)
 	*tier = *existing
@@ -177,10 +177,10 @@ func (s *RateConfigService) UpdateTier(tier *model.InterestRateTier) error {
 func (s *RateConfigService) DeleteTier(id uint64) error {
 	_, err := s.tierRepo.GetByID(id)
 	if err != nil {
-		return fmt.Errorf("interest rate tier %d not found: %w", id, err)
+		return fmt.Errorf("DeleteTier(id=%d): %v: %w", id, err, ErrInterestRateTierNotFound)
 	}
 	if err := s.tierRepo.Delete(id); err != nil {
-		return fmt.Errorf("failed to delete interest rate tier %d: %w", id, err)
+		return fmt.Errorf("DeleteTier(id=%d) persist: %v: %w", id, err, ErrRateConfigPersistFailed)
 	}
 	return nil
 }
@@ -190,7 +190,7 @@ func (s *RateConfigService) DeleteTier(id uint64) error {
 func (s *RateConfigService) ListMargins() ([]model.BankMargin, error) {
 	margins, err := s.marginRepo.ListAll()
 	if err != nil {
-		return nil, fmt.Errorf("failed to list bank margins: %w", err)
+		return nil, fmt.Errorf("ListMargins: %v: %w", err, ErrInstallmentLookup)
 	}
 	return margins, nil
 }
@@ -202,12 +202,12 @@ func (s *RateConfigService) ListMargins() ([]model.BankMargin, error) {
 func (s *RateConfigService) ApplyVariableRateUpdate(tierID uint64, loanRepo *repository.LoanRepository, installRepo *repository.InstallmentRepository) (int, error) {
 	tier, err := s.tierRepo.GetByID(tierID)
 	if err != nil {
-		return 0, fmt.Errorf("interest rate tier %d not found: %w", tierID, err)
+		return 0, fmt.Errorf("ApplyVariableRateUpdate(tier_id=%d): %v: %w", tierID, err, ErrInterestRateTierNotFound)
 	}
 
 	loans, err := loanRepo.FindActiveVariableLoansInAmountRange(tier.AmountFrom, tier.AmountTo)
 	if err != nil {
-		return 0, fmt.Errorf("failed to find variable-rate loans for tier %d: %w", tierID, err)
+		return 0, fmt.Errorf("ApplyVariableRateUpdate(tier_id=%d) find loans: %v: %w", tierID, err, ErrLoanLookup)
 	}
 
 	count := 0
@@ -270,16 +270,16 @@ func (s *RateConfigService) ApplyVariableRateUpdate(tierID uint64, loanRepo *rep
 func (s *RateConfigService) UpdateMargin(margin *model.BankMargin) error {
 	existing, err := s.marginRepo.GetByID(margin.ID)
 	if err != nil {
-		return fmt.Errorf("bank margin %d not found: %w", margin.ID, err)
+		return fmt.Errorf("UpdateMargin(id=%d): %v: %w", margin.ID, err, ErrBankMarginNotFound)
 	}
 	if margin.Margin.IsNegative() {
-		return fmt.Errorf("margin must not be negative")
+		return fmt.Errorf("UpdateMargin(id=%d): margin must not be negative: %w", margin.ID, ErrInvalidRateConfig)
 	}
 
 	existing.Margin = margin.Margin
 
 	if err := s.marginRepo.Update(existing); err != nil {
-		return fmt.Errorf("failed to update bank margin %d: %w", margin.ID, err)
+		return fmt.Errorf("UpdateMargin(id=%d) persist: %v: %w", margin.ID, err, ErrRateConfigPersistFailed)
 	}
 	// Copy back full record so caller has all fields (timestamps, active, loan_type, etc.)
 	*margin = *existing

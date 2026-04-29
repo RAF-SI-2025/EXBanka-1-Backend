@@ -2,15 +2,12 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"gorm.io/gorm"
 
 	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/creditpb"
@@ -21,39 +18,58 @@ import (
 	"github.com/exbanka/credit-service/internal/service"
 )
 
-// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
-func mapServiceError(err error) codes.Code {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "not found"):
-		return codes.NotFound
-	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"):
-		return codes.InvalidArgument
-	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
-		return codes.AlreadyExists
-	case strings.Contains(msg, "already "), strings.Contains(msg, "exceeds"),
-		strings.Contains(msg, "insufficient funds"), strings.Contains(msg, "limit exceeded"),
-		strings.Contains(msg, "spending limit"), strings.Contains(msg, "only pending"):
-		return codes.FailedPrecondition
-	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
-		strings.Contains(msg, "failed attempts"):
-		return codes.ResourceExhausted
-	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
-		return codes.PermissionDenied
-	default:
-		return codes.Internal
-	}
+// loanRequestFacade is the subset of *service.LoanRequestService that the
+// gRPC handler invokes. Extracted as an interface to allow stub-based tests.
+type loanRequestFacade interface {
+	CreateLoanRequest(req *model.LoanRequest) error
+	GetLoanRequest(id uint64) (*model.LoanRequest, error)
+	ListLoanRequests(loanTypeFilter, accountFilter, statusFilter string, clientID uint64, page, pageSize int) ([]model.LoanRequest, int64, error)
+	ApproveLoanRequest(ctx context.Context, requestID uint64, employeeID uint64) (*model.Loan, error)
+	RejectLoanRequest(requestID uint64, changedBy int64, reason string) (*model.LoanRequest, error)
+}
+
+// loanFacade is the subset of *service.LoanService used by the gRPC handler.
+type loanFacade interface {
+	GetLoan(id uint64) (*model.Loan, error)
+	ListLoansByClient(clientID uint64, page, pageSize int) ([]model.Loan, int64, error)
+	ListAllLoans(loanTypeFilter, accountFilter, statusFilter string, page, pageSize int) ([]model.Loan, int64, error)
+}
+
+// installmentFacade is the subset of *service.InstallmentService used by the gRPC handler.
+type installmentFacade interface {
+	GetInstallmentsByLoan(loanID uint64) ([]model.Installment, error)
+}
+
+// rateConfigFacade is the subset of *service.RateConfigService used by the gRPC handler.
+type rateConfigFacade interface {
+	ListTiers() ([]model.InterestRateTier, error)
+	CreateTier(tier *model.InterestRateTier) error
+	UpdateTier(tier *model.InterestRateTier) error
+	DeleteTier(id uint64) error
+	ListMargins() ([]model.BankMargin, error)
+	UpdateMargin(margin *model.BankMargin) error
+	ApplyVariableRateUpdate(tierID uint64, loanRepo *repository.LoanRepository, installRepo *repository.InstallmentRepository) (int, error)
+}
+
+// creditProducer is the subset of *kafkaprod.Producer used by the gRPC handler.
+type creditProducer interface {
+	PublishLoanRequested(ctx context.Context, msg kafkamsg.LoanStatusMessage) error
+	PublishLoanApproved(ctx context.Context, msg kafkamsg.LoanStatusMessage) error
+	PublishLoanRejected(ctx context.Context, msg kafkamsg.LoanStatusMessage) error
+	PublishLoanDisbursed(ctx context.Context, msg kafkamsg.LoanDisbursedMessage) error
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
 }
 
 type CreditGRPCHandler struct {
 	pb.UnimplementedCreditServiceServer
-	loanRequestService *service.LoanRequestService
-	loanService        *service.LoanService
-	installmentService *service.InstallmentService
-	rateConfigService  *service.RateConfigService
+	loanRequestService loanRequestFacade
+	loanService        loanFacade
+	installmentService installmentFacade
+	rateConfigService  rateConfigFacade
 	loanRepo           *repository.LoanRepository
 	installRepo        *repository.InstallmentRepository
-	producer           *kafkaprod.Producer
+	producer           creditProducer
+	changelogService   *service.ChangelogService
 }
 
 func NewCreditGRPCHandler(
@@ -64,6 +80,7 @@ func NewCreditGRPCHandler(
 	loanRepo *repository.LoanRepository,
 	installRepo *repository.InstallmentRepository,
 	producer *kafkaprod.Producer,
+	changelogService *service.ChangelogService,
 ) *CreditGRPCHandler {
 	return &CreditGRPCHandler{
 		loanRequestService: loanRequestService,
@@ -73,6 +90,7 @@ func NewCreditGRPCHandler(
 		loanRepo:           loanRepo,
 		installRepo:        installRepo,
 		producer:           producer,
+		changelogService:   changelogService,
 	}
 }
 
@@ -95,7 +113,7 @@ func (h *CreditGRPCHandler) CreateLoanRequest(ctx context.Context, req *pb.Creat
 	}
 
 	if err := h.loanRequestService.CreateLoanRequest(loanReq); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create loan request: %v", err)
+		return nil, err
 	}
 
 	_ = h.producer.PublishLoanRequested(ctx, kafkamsg.LoanStatusMessage{
@@ -111,10 +129,7 @@ func (h *CreditGRPCHandler) CreateLoanRequest(ctx context.Context, req *pb.Creat
 func (h *CreditGRPCHandler) GetLoanRequest(ctx context.Context, req *pb.GetLoanRequestReq) (*pb.LoanRequestResponse, error) {
 	loanReq, err := h.loanRequestService.GetLoanRequest(req.Id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "loan request not found")
-		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get loan request: %v", err)
+		return nil, err
 	}
 	return toLoanRequestResponse(loanReq), nil
 }
@@ -125,7 +140,7 @@ func (h *CreditGRPCHandler) ListLoanRequests(ctx context.Context, req *pb.ListLo
 		req.ClientIdFilter, int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list loan requests: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListLoanRequestsResponse{Total: total, Requests: make([]*pb.LoanRequestResponse, 0, len(requests))}
@@ -139,10 +154,7 @@ func (h *CreditGRPCHandler) ListLoanRequests(ctx context.Context, req *pb.ListLo
 func (h *CreditGRPCHandler) ApproveLoanRequest(ctx context.Context, req *pb.ApproveLoanRequestReq) (*pb.LoanResponse, error) {
 	loan, err := h.loanRequestService.ApproveLoanRequest(ctx, req.RequestId, req.EmployeeId)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "loan request not found")
-		}
-		return nil, status.Errorf(mapServiceError(err), "failed to approve loan request: %v", err)
+		return nil, err
 	}
 
 	_ = h.producer.PublishLoanApproved(ctx, kafkamsg.LoanStatusMessage{
@@ -185,10 +197,7 @@ func (h *CreditGRPCHandler) RejectLoanRequest(ctx context.Context, req *pb.Rejec
 	changedBy := changelog.ExtractChangedBy(ctx)
 	loanReq, err := h.loanRequestService.RejectLoanRequest(req.RequestId, changedBy, "")
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "loan request not found")
-		}
-		return nil, status.Errorf(mapServiceError(err), "failed to reject loan request: %v", err)
+		return nil, err
 	}
 
 	_ = h.producer.PublishLoanRejected(ctx, kafkamsg.LoanStatusMessage{
@@ -213,10 +222,7 @@ func (h *CreditGRPCHandler) RejectLoanRequest(ctx context.Context, req *pb.Rejec
 func (h *CreditGRPCHandler) GetLoan(ctx context.Context, req *pb.GetLoanReq) (*pb.LoanResponse, error) {
 	loan, err := h.loanService.GetLoan(req.Id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "loan not found")
-		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get loan: %v", err)
+		return nil, err
 	}
 	return toLoanResponse(loan), nil
 }
@@ -224,7 +230,7 @@ func (h *CreditGRPCHandler) GetLoan(ctx context.Context, req *pb.GetLoanReq) (*p
 func (h *CreditGRPCHandler) ListLoansByClient(ctx context.Context, req *pb.ListLoansByClientReq) (*pb.ListLoansResponse, error) {
 	loans, total, err := h.loanService.ListLoansByClient(req.ClientId, int(req.Page), int(req.PageSize))
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list loans: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListLoansResponse{Total: total, Loans: make([]*pb.LoanResponse, 0, len(loans))}
@@ -241,7 +247,7 @@ func (h *CreditGRPCHandler) ListAllLoans(ctx context.Context, req *pb.ListAllLoa
 		int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list all loans: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListLoansResponse{Total: total, Loans: make([]*pb.LoanResponse, 0, len(loans))}
@@ -255,7 +261,7 @@ func (h *CreditGRPCHandler) ListAllLoans(ctx context.Context, req *pb.ListAllLoa
 func (h *CreditGRPCHandler) GetInstallmentsByLoan(ctx context.Context, req *pb.GetInstallmentsByLoanReq) (*pb.ListInstallmentsResponse, error) {
 	installments, err := h.installmentService.GetInstallmentsByLoan(req.LoanId)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to get installments: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListInstallmentsResponse{Installments: make([]*pb.InstallmentResponse, 0, len(installments))}
@@ -330,7 +336,7 @@ func toInstallmentResponse(inst *model.Installment) *pb.InstallmentResponse {
 func (h *CreditGRPCHandler) ListInterestRateTiers(ctx context.Context, req *pb.ListInterestRateTiersRequest) (*pb.ListInterestRateTiersResponse, error) {
 	tiers, err := h.rateConfigService.ListTiers()
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list interest rate tiers: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListInterestRateTiersResponse{Tiers: make([]*pb.InterestRateTierResponse, 0, len(tiers))}
@@ -354,7 +360,7 @@ func (h *CreditGRPCHandler) CreateInterestRateTier(ctx context.Context, req *pb.
 	}
 
 	if err := h.rateConfigService.CreateTier(tier); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create interest rate tier: %v", err)
+		return nil, err
 	}
 
 	return toInterestRateTierResponse(tier), nil
@@ -375,7 +381,7 @@ func (h *CreditGRPCHandler) UpdateInterestRateTier(ctx context.Context, req *pb.
 	}
 
 	if err := h.rateConfigService.UpdateTier(tier); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to update interest rate tier: %v", err)
+		return nil, err
 	}
 
 	return toInterestRateTierResponse(tier), nil
@@ -383,7 +389,7 @@ func (h *CreditGRPCHandler) UpdateInterestRateTier(ctx context.Context, req *pb.
 
 func (h *CreditGRPCHandler) DeleteInterestRateTier(ctx context.Context, req *pb.DeleteInterestRateTierRequest) (*pb.DeleteResponse, error) {
 	if err := h.rateConfigService.DeleteTier(req.Id); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to delete interest rate tier: %v", err)
+		return nil, err
 	}
 	return &pb.DeleteResponse{Success: true}, nil
 }
@@ -393,7 +399,7 @@ func (h *CreditGRPCHandler) DeleteInterestRateTier(ctx context.Context, req *pb.
 func (h *CreditGRPCHandler) ListBankMargins(ctx context.Context, req *pb.ListBankMarginsRequest) (*pb.ListBankMarginsResponse, error) {
 	margins, err := h.rateConfigService.ListMargins()
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list bank margins: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListBankMarginsResponse{Margins: make([]*pb.BankMarginResponse, 0, len(margins))}
@@ -412,7 +418,7 @@ func (h *CreditGRPCHandler) UpdateBankMargin(ctx context.Context, req *pb.Update
 	}
 
 	if err := h.rateConfigService.UpdateMargin(bm); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to update bank margin: %v", err)
+		return nil, err
 	}
 
 	return toBankMarginResponse(bm), nil
@@ -423,9 +429,33 @@ func (h *CreditGRPCHandler) UpdateBankMargin(ctx context.Context, req *pb.Update
 func (h *CreditGRPCHandler) ApplyVariableRateUpdate(ctx context.Context, req *pb.ApplyVariableRateUpdateRequest) (*pb.ApplyVariableRateUpdateResponse, error) {
 	affected, err := h.rateConfigService.ApplyVariableRateUpdate(req.TierId, h.loanRepo, h.installRepo)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to apply variable rate update: %v", err)
+		return nil, err
 	}
 	return &pb.ApplyVariableRateUpdateResponse{AffectedLoans: int32(affected)}, nil
+}
+
+// ListChangelog returns paginated audit-log entries for an entity.
+func (h *CreditGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangelogRequest) (*pb.ListChangelogResponse, error) {
+	entries, total, err := h.changelogService.ListChangelog(req.GetEntityType(), req.GetEntityId(), int(req.GetPage()), int(req.GetPageSize()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
 func toInterestRateTierResponse(t *model.InterestRateTier) *pb.InterestRateTierResponse {

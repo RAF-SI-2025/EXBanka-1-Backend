@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -34,11 +33,11 @@ type ClientRepo interface {
 // ValidateJMBG validates that the JMBG is exactly 13 numeric digits.
 func ValidateJMBG(jmbg string) error {
 	if len(jmbg) != 13 {
-		return errors.New("JMBG must be exactly 13 digits")
+		return fmt.Errorf("ValidateJMBG: JMBG must be exactly 13 digits: %w", ErrInvalidJMBG)
 	}
 	for _, c := range jmbg {
 		if c < '0' || c > '9' {
-			return errors.New("JMBG must contain only digits")
+			return fmt.Errorf("ValidateJMBG: JMBG must contain only digits: %w", ErrInvalidJMBG)
 		}
 	}
 	return nil
@@ -47,15 +46,15 @@ func ValidateJMBG(jmbg string) error {
 // ValidateEmail validates that the email has @ with content on both sides.
 func ValidateEmail(email string) error {
 	if email == "" {
-		return errors.New("email must not be empty")
+		return fmt.Errorf("ValidateEmail: email must not be empty: %w", ErrInvalidEmail)
 	}
 	at := strings.Index(email, "@")
 	if at < 1 {
-		return errors.New("email must contain @ with content before it")
+		return fmt.Errorf("ValidateEmail: email must contain @ with content before it: %w", ErrInvalidEmail)
 	}
 	domain := email[at+1:]
 	if domain == "" {
-		return errors.New("email must have a domain after @")
+		return fmt.Errorf("ValidateEmail: email must have a domain after @: %w", ErrInvalidEmail)
 	}
 	return nil
 }

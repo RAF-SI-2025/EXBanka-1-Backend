@@ -10,7 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	redis "github.com/redis/go-redis/v9"
+
 	_ "github.com/exbanka/api-gateway/docs"
+	"github.com/exbanka/api-gateway/internal/cache"
 	"github.com/exbanka/api-gateway/internal/config"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
 	"github.com/exbanka/api-gateway/internal/handler"
@@ -19,8 +22,8 @@ import (
 )
 
 // @title           EXBanka API
-// @version         1.0
-// @description     EXBanka Banking Microservices API Gateway
+// @version         3.0
+// @description     EXBanka Banking Microservices API Gateway. All endpoints are served under /api/v3 — v1 and v2 have been retired (plan E, 2026-04-27). Future versions (v4+) will be added as separate explicit router files with no transparent fallback. See api-gateway/internal/router/router_versioning.md.
 // @host            localhost:8080
 // @BasePath        /
 // @securityDefinitions.apikey  BearerAuth
@@ -162,6 +165,18 @@ func main() {
 	}
 	defer sourceAdminConn.Close()
 
+	fundClient, fundConn, err := grpcclients.NewInvestmentFundClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to investment fund service: %v", err)
+	}
+	defer fundConn.Close()
+
+	otcOptionsClient, otcOptionsConn, err := grpcclients.NewOTCOptionsClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to OTC options service: %v", err)
+	}
+	defer otcOptionsConn.Close()
+
 	// Blueprint service reuses the user-service connection
 	blueprintClient, blueprintConn, err := grpcclients.NewBlueprintClient(cfg.UserGRPCAddr)
 	if err != nil {
@@ -196,9 +211,86 @@ func main() {
 	markReady, _, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
+	// Inter-bank wiring — Phase 3 Task 11 of the SI-TX refactor wires
+	// PeerTxDispatcherHandler (in router.NewHandlers) to serve
+	// /api/v3/me/transfers. Intra-bank receivers delegate to
+	// TransactionHandler; foreign-prefix receivers dispatch to
+	// PeerTxService.InitiateOutboundTx and return 202 Accepted with a
+	// poll URL. See docs/superpowers/specs/2026-04-29-celina5-sitx-
+	// refactor-design.md.
+
+	// SI-TX peer-bank gRPC clients + nonce store + resolver (Phase 2 Task 14).
+	peerTxClient, peerTxConn, err := grpcclients.NewPeerTxServiceClient(cfg.TransactionGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to PeerTxService: %v", err)
+	}
+	defer peerTxConn.Close()
+
+	// PeerOTCService lives on stock-service and backs the
+	// /api/v3/public-stock + /api/v3/negotiations/* peer endpoints
+	// (Phase 4 Task 8 of the SI-TX refactor).
+	peerOTCClient, peerOTCConn, err := grpcclients.NewPeerOTCServiceClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to PeerOTCService: %v", err)
+	}
+	defer peerOTCConn.Close()
+
+	peerBankAdminClient, peerBankAdminConn, err := grpcclients.NewPeerBankAdminServiceClient(cfg.TransactionGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to PeerBankAdminService: %v", err)
+	}
+	defer peerBankAdminConn.Close()
+
+	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	defer redisClient.Close()
+	peerNonceStore := cache.NewPeerNonceStore(redisClient, 10*time.Minute)
+	peerBankResolver := &grpcclients.PeerBankResolverAdapter{Client: peerBankAdminClient}
+
 	r := router.NewRouter()
-	router.SetupV1Routes(r, authClient, userClient, clientClient, accountClient, cardClient, txClient, creditClient, empLimitClient, clientLimitClient, virtualCardClient, bankAccountClient, feeClient, cardRequestClient, exchangeClient, stockExchangeClient, securityClient, orderClient, portfolioClient, otcClient, taxClient, actuaryClient, blueprintClient, verificationClient, notificationClient, sourceAdminClient)
-	router.SetupV2Routes(r, authClient, securityClient, orderClient, portfolioClient)
+
+	// Wire every gRPC client into the router-level Deps bundle, then
+	// build the cross-version Handlers bundle. v3 is the only live
+	// version — see api-gateway/internal/router/router_versioning.md
+	// for the v4-add-later pattern.
+	deps := router.Deps{
+		AuthClient:          authClient,
+		UserClient:          userClient,
+		ClientClient:        clientClient,
+		AccountClient:       accountClient,
+		CardClient:          cardClient,
+		TxClient:            txClient,
+		CreditClient:        creditClient,
+		EmpLimitClient:      empLimitClient,
+		ClientLimitClient:   clientLimitClient,
+		VirtualCardClient:   virtualCardClient,
+		BankAccountClient:   bankAccountClient,
+		FeeClient:           feeClient,
+		CardRequestClient:   cardRequestClient,
+		ExchangeClient:      exchangeClient,
+		StockExchangeClient: stockExchangeClient,
+		SecurityClient:      securityClient,
+		OrderClient:         orderClient,
+		PortfolioClient:     portfolioClient,
+		OTCClient:           otcClient,
+		TaxClient:           taxClient,
+		ActuaryClient:       actuaryClient,
+		BlueprintClient:     blueprintClient,
+		VerificationClient:  verificationClient,
+		NotificationClient:  notificationClient,
+		SourceAdminClient:   sourceAdminClient,
+		FundClient:          fundClient,
+		OTCOptionsClient:    otcOptionsClient,
+		PeerTxClient:        peerTxClient,
+		PeerBankAdminClient: peerBankAdminClient,
+		PeerNonces:          peerNonceStore,
+		PeerBanks:           peerBankResolver,
+		OwnBankCode:         cfg.OwnBankCode,
+		PeerOTCClient:       peerOTCClient,
+	}
+	h := router.NewHandlers(deps)
+	router.SetupV3(r, h)
+	// When v4 ships:
+	//   router.SetupV4(r, h)
 
 	srv := &http.Server{
 		Addr:    cfg.HTTPAddr,
