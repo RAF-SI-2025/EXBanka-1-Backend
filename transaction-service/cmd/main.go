@@ -55,6 +55,8 @@ func main() {
 		&model.PaymentRecipient{},
 		&model.TransferFee{},
 		&model.SagaLog{},
+		&model.PeerBank{},              // new (Phase 2 Task 8, SI-TX)
+		&model.PeerIdempotenceRecord{}, // new (Phase 2 Task 8, SI-TX)
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -170,6 +172,14 @@ func main() {
 
 	feeHandler := handler.NewFeeGRPCHandler(feeSvc)
 
+	// Phase 2 Task 8 (SI-TX): peer-bank admin + peer-tx stubs.
+	peerBankRepo := repository.NewPeerBankRepository(db)
+	peerIdemRepo := repository.NewPeerIdempotenceRepository(db)
+	_ = peerIdemRepo // wired into PeerTxService in Phase 3
+
+	peerBankAdminHandler := handler.NewPeerBankAdminGRPCHandler(peerBankRepo)
+	peerTxHandler := handler.NewPeerTxGRPCHandler()
+
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -191,6 +201,8 @@ func main() {
 		Register: func(s *grpc.Server) {
 			pb.RegisterTransactionServiceServer(s, grpcHandler)
 			pb.RegisterFeeServiceServer(s, feeHandler)
+			pb.RegisterPeerBankAdminServiceServer(s, peerBankAdminHandler)
+			pb.RegisterPeerTxServiceServer(s, peerTxHandler)
 			shared.RegisterHealthCheck(s, "transaction-service")
 			metrics.InitializeGRPCMetrics(s)
 		},
