@@ -64,7 +64,7 @@ func newPeerTxHandler(t *testing.T) (*handler.PeerTxGRPCHandler, *gorm.DB, *stub
 	stub := &stubAccountForHandler{}
 	idemRepo := repository.NewPeerIdempotenceRepository(db)
 	exec := sitx.NewPostingExecutor(stub, 111)
-	return handler.NewPeerTxGRPCHandler(idemRepo, exec, stub), db, stub
+	return handler.NewPeerTxGRPCHandler(idemRepo, exec, stub, nil, nil, nil, 111), db, stub
 }
 
 func TestHandleNewTx_HappyPath_YES(t *testing.T) {

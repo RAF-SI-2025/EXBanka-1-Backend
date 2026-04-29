@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -58,6 +60,7 @@ func main() {
 		&model.SagaLog{},
 		&model.PeerBank{},              // new (Phase 2 Task 8, SI-TX)
 		&model.PeerIdempotenceRecord{}, // new (Phase 2 Task 8, SI-TX)
+		&model.OutboundPeerTx{},        // new (Phase 3 Task 10, SI-TX)
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -178,10 +181,40 @@ func main() {
 	peerIdemRepo := repository.NewPeerIdempotenceRepository(db)
 
 	peerBankAdminHandler := handler.NewPeerBankAdminGRPCHandler(peerBankRepo)
-	// Phase 3 Task 6: real PeerTxGRPCHandler. ownRouting placeholder until Task 10
-	// extracts it from config.
-	peerExecutor := sitx.NewPostingExecutor(accountClient, 111)
-	peerTxHandler := handler.NewPeerTxGRPCHandler(peerIdemRepo, peerExecutor, accountClient)
+
+	// SI-TX Phase 3 sender-side wiring.
+	ownRouting, _ := strconv.ParseInt(cfg.OwnBankCode, 10, 64)
+	peerExecutor := sitx.NewPostingExecutor(accountClient, ownRouting)
+	outRepo := repository.NewOutboundPeerTxRepository(db)
+	peerHTTPClient := sitx.NewPeerHTTPClient(&http.Client{Timeout: 30 * time.Second})
+
+	// peerLookup resolves a peer-bank-code to a PeerHTTPTarget by reading
+	// from the local peer_banks table.
+	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
+		row, err := peerBankRepo.GetByBankCode(code)
+		if err != nil {
+			return nil, err
+		}
+		if !row.Active {
+			return nil, fmt.Errorf("peer bank %s inactive", code)
+		}
+		return &sitx.PeerHTTPTarget{
+			BankCode:        row.BankCode,
+			RoutingNumber:   row.RoutingNumber,
+			OwnRouting:      ownRouting,
+			BaseURL:         row.BaseURL,
+			APIToken:        row.APITokenPlaintext,
+			HMACOutboundKey: row.HMACOutboundKey,
+		}, nil
+	}
+
+	peerTxHandler := handler.NewPeerTxGRPCHandler(
+		peerIdemRepo, peerExecutor, accountClient,
+		outRepo, peerHTTPClient, handler.PeerLookupFunc(peerLookup), ownRouting,
+	)
+
+	replayCron := service.NewOutboundReplayCron(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup))
+	replayCron.Start(ctx)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()

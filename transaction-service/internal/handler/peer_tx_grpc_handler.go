@@ -19,21 +19,42 @@ import (
 
 // PeerTxGRPCHandler implements transactionpb.PeerTxServiceServer.
 // Phase 3 Task 6: real NEW_TX / COMMIT_TX / ROLLBACK_TX implementations.
-// InitiateOutboundTx remains Unimplemented until Tasks 7-10 wire the
-// sender-side outbound HTTP client + replay cron.
+// Phase 3 Task 10 wires InitiateOutboundTx by injecting the outbound
+// repository, HTTP client, peer-bank lookup, and our routing number.
 type PeerTxGRPCHandler struct {
 	transactionpb.UnimplementedPeerTxServiceServer
-	idemRepo *repository.PeerIdempotenceRepository
-	executor *sitx.PostingExecutor
-	client   sitx.AccountClient
+	idemRepo   *repository.PeerIdempotenceRepository
+	executor   *sitx.PostingExecutor
+	client     sitx.AccountClient
+	outRepo    *repository.OutboundPeerTxRepository
+	httpClient *sitx.PeerHTTPClient
+	peerLookup PeerLookupFunc
+	ownRouting int64
 }
+
+// PeerLookupFunc resolves a peer-bank-code to a PeerHTTPTarget for outbound
+// dispatch. Injected so the handler doesn't depend on the peer-bank
+// repository directly.
+type PeerLookupFunc func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error)
 
 func NewPeerTxGRPCHandler(
 	idemRepo *repository.PeerIdempotenceRepository,
 	executor *sitx.PostingExecutor,
 	accountClient sitx.AccountClient,
+	outRepo *repository.OutboundPeerTxRepository,
+	httpClient *sitx.PeerHTTPClient,
+	peerLookup PeerLookupFunc,
+	ownRouting int64,
 ) *PeerTxGRPCHandler {
-	return &PeerTxGRPCHandler{idemRepo: idemRepo, executor: executor, client: accountClient}
+	return &PeerTxGRPCHandler{
+		idemRepo:   idemRepo,
+		executor:   executor,
+		client:     accountClient,
+		outRepo:    outRepo,
+		httpClient: httpClient,
+		peerLookup: peerLookup,
+		ownRouting: ownRouting,
+	}
 }
 
 // HandleNewTx validates the inbound NEW_TX envelope, runs the cheap
@@ -147,9 +168,88 @@ func (h *PeerTxGRPCHandler) HandleRollbackTx(ctx context.Context, req *transacti
 	return &transactionpb.SiTxAckResponse{}, nil
 }
 
-// InitiateOutboundTx is implemented in Tasks 7-10 (sender-side scaffolding).
-// Phase 3 Task 6 leaves the inherited UnimplementedPeerTxServiceServer
-// stub in place so callers receive codes.Unimplemented until then.
+// InitiateOutboundTx is the sender-side entry point: gateway → here →
+// peer bank. Persists an outbound row, debits the sender immediately,
+// then attempts a best-effort NEW_TX → COMMIT_TX dispatch. Failures
+// leave the row in `pending` for OutboundReplayCron to resume.
+func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transactionpb.SiTxInitiateRequest) (*transactionpb.SiTxInitiateResponse, error) {
+	if h.outRepo == nil || h.httpClient == nil || h.peerLookup == nil {
+		return nil, status.Error(codes.Unimplemented, "outbound deps not wired")
+	}
+	if len(req.GetToAccountNumber()) < 3 {
+		return nil, status.Error(codes.InvalidArgument, "to_account_number too short")
+	}
+	peerCode := req.GetToAccountNumber()[:3]
+	target, err := h.peerLookup(ctx, peerCode)
+	if err != nil || target == nil {
+		return nil, status.Errorf(codes.NotFound, "peer bank %s not registered", peerCode)
+	}
+
+	idem := uuid.NewString()
+	amt, err := decimal.NewFromString(req.GetAmount())
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "amount: %v", err)
+	}
+	postings := []contractsitx.Posting{
+		{RoutingNumber: h.ownRouting, AccountID: req.GetFromAccountNumber(), AssetID: req.GetCurrency(), Amount: amt, Direction: contractsitx.DirectionDebit},
+		{RoutingNumber: target.RoutingNumber, AccountID: req.GetToAccountNumber(), AssetID: req.GetCurrency(), Amount: amt, Direction: contractsitx.DirectionCredit},
+	}
+	postingsJSON, _ := json.Marshal(postings)
+	row := &model.OutboundPeerTx{
+		IdempotenceKey: idem,
+		PeerBankCode:   peerCode,
+		TxKind:         "transfer",
+		PostingsJSON:   string(postingsJSON),
+		Status:         "pending",
+	}
+	if err := h.outRepo.Create(row); err != nil {
+		return nil, status.Errorf(codes.Internal, "outbound row: %v", err)
+	}
+
+	// Sender-debit-immediate: take the money from the sender now; credit
+	// it back on rollback.
+	if _, err := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+		AccountNumber:   req.GetFromAccountNumber(),
+		Amount:          "-" + req.GetAmount(),
+		UpdateAvailable: true,
+	}); err != nil {
+		return nil, status.Errorf(codes.Internal, "debit: %v", err)
+	}
+
+	// Best-effort dispatch. On any error, the row stays pending and the
+	// replay cron picks it up on next tick.
+	envelope := contractsitx.Message[contractsitx.Transaction]{
+		IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: h.ownRouting, LocallyGeneratedKey: idem},
+		MessageType:    contractsitx.MessageTypeNewTx,
+		Message:        contractsitx.Transaction{Postings: postings},
+	}
+	if vote, err := h.httpClient.PostNewTx(ctx, target, envelope); err != nil {
+		_ = h.outRepo.MarkAttempt(idem, err.Error())
+	} else if vote.Type == contractsitx.VoteYes {
+		commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
+			IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: h.ownRouting, LocallyGeneratedKey: idem},
+			MessageType:    contractsitx.MessageTypeCommitTx,
+			Message:        contractsitx.CommitTransaction{TransactionID: idem},
+		}
+		if err := h.httpClient.PostCommitTx(ctx, target, commitEnvelope); err != nil {
+			_ = h.outRepo.MarkAttempt(idem, "commit: "+err.Error())
+		} else {
+			_ = h.outRepo.MarkCommitted(idem)
+		}
+	} else {
+		reason := "peer voted NO"
+		if len(vote.NoVotes) > 0 {
+			reason = "peer voted NO: " + vote.NoVotes[0].Reason
+		}
+		_ = h.outRepo.MarkRolledBack(idem, reason)
+	}
+
+	return &transactionpb.SiTxInitiateResponse{
+		TransactionId: idem,
+		PollUrl:       "/api/v3/me/transfers/" + idem,
+		Status:        "pending",
+	}, nil
+}
 
 func protoToPostings(in []*transactionpb.SiTxPosting) []contractsitx.Posting {
 	out := make([]contractsitx.Posting, len(in))
