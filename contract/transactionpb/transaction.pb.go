@@ -2729,6 +2729,66 @@ func (x *SiTxInitiateResponse) GetStatus() string {
 	return ""
 }
 
+type SiTxInitiateWithPostingsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerBankCode  string                 `protobuf:"bytes,1,opt,name=peer_bank_code,json=peerBankCode,proto3" json:"peer_bank_code,omitempty"`
+	Postings      []*SiTxPosting         `protobuf:"bytes,2,rep,name=postings,proto3" json:"postings,omitempty"`
+	TxKind        string                 `protobuf:"bytes,3,opt,name=tx_kind,json=txKind,proto3" json:"tx_kind,omitempty"` // "transfer" | "otc-accept" | "otc-exercise"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SiTxInitiateWithPostingsRequest) Reset() {
+	*x = SiTxInitiateWithPostingsRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxInitiateWithPostingsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxInitiateWithPostingsRequest) ProtoMessage() {}
+
+func (x *SiTxInitiateWithPostingsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxInitiateWithPostingsRequest.ProtoReflect.Descriptor instead.
+func (*SiTxInitiateWithPostingsRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *SiTxInitiateWithPostingsRequest) GetPeerBankCode() string {
+	if x != nil {
+		return x.PeerBankCode
+	}
+	return ""
+}
+
+func (x *SiTxInitiateWithPostingsRequest) GetPostings() []*SiTxPosting {
+	if x != nil {
+		return x.Postings
+	}
+	return nil
+}
+
+func (x *SiTxInitiateWithPostingsRequest) GetTxKind() string {
+	if x != nil {
+		return x.TxKind
+	}
+	return ""
+}
+
 type PeerBank struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -2746,7 +2806,7 @@ type PeerBank struct {
 
 func (x *PeerBank) Reset() {
 	*x = PeerBank{}
-	mi := &file_transaction_transaction_proto_msgTypes[41]
+	mi := &file_transaction_transaction_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2758,7 +2818,7 @@ func (x *PeerBank) String() string {
 func (*PeerBank) ProtoMessage() {}
 
 func (x *PeerBank) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[41]
+	mi := &file_transaction_transaction_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2771,7 +2831,7 @@ func (x *PeerBank) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerBank.ProtoReflect.Descriptor instead.
 func (*PeerBank) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{41}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *PeerBank) GetId() uint64 {
@@ -2846,7 +2906,7 @@ type ListPeerBanksRequest struct {
 
 func (x *ListPeerBanksRequest) Reset() {
 	*x = ListPeerBanksRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[42]
+	mi := &file_transaction_transaction_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2858,7 +2918,7 @@ func (x *ListPeerBanksRequest) String() string {
 func (*ListPeerBanksRequest) ProtoMessage() {}
 
 func (x *ListPeerBanksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[42]
+	mi := &file_transaction_transaction_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2871,7 +2931,7 @@ func (x *ListPeerBanksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPeerBanksRequest.ProtoReflect.Descriptor instead.
 func (*ListPeerBanksRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{42}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ListPeerBanksRequest) GetActiveOnly() bool {
@@ -2890,7 +2950,7 @@ type ListPeerBanksResponse struct {
 
 func (x *ListPeerBanksResponse) Reset() {
 	*x = ListPeerBanksResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[43]
+	mi := &file_transaction_transaction_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2902,7 +2962,7 @@ func (x *ListPeerBanksResponse) String() string {
 func (*ListPeerBanksResponse) ProtoMessage() {}
 
 func (x *ListPeerBanksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[43]
+	mi := &file_transaction_transaction_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2915,7 +2975,7 @@ func (x *ListPeerBanksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListPeerBanksResponse.ProtoReflect.Descriptor instead.
 func (*ListPeerBanksResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{43}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ListPeerBanksResponse) GetPeerBanks() []*PeerBank {
@@ -2934,7 +2994,7 @@ type GetPeerBankRequest struct {
 
 func (x *GetPeerBankRequest) Reset() {
 	*x = GetPeerBankRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[44]
+	mi := &file_transaction_transaction_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2946,7 +3006,7 @@ func (x *GetPeerBankRequest) String() string {
 func (*GetPeerBankRequest) ProtoMessage() {}
 
 func (x *GetPeerBankRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[44]
+	mi := &file_transaction_transaction_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2959,7 +3019,7 @@ func (x *GetPeerBankRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPeerBankRequest.ProtoReflect.Descriptor instead.
 func (*GetPeerBankRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{44}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *GetPeerBankRequest) GetId() uint64 {
@@ -2984,7 +3044,7 @@ type CreatePeerBankRequest struct {
 
 func (x *CreatePeerBankRequest) Reset() {
 	*x = CreatePeerBankRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[45]
+	mi := &file_transaction_transaction_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2996,7 +3056,7 @@ func (x *CreatePeerBankRequest) String() string {
 func (*CreatePeerBankRequest) ProtoMessage() {}
 
 func (x *CreatePeerBankRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[45]
+	mi := &file_transaction_transaction_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3009,7 +3069,7 @@ func (x *CreatePeerBankRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePeerBankRequest.ProtoReflect.Descriptor instead.
 func (*CreatePeerBankRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{45}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *CreatePeerBankRequest) GetBankCode() string {
@@ -3080,7 +3140,7 @@ type UpdatePeerBankRequest struct {
 
 func (x *UpdatePeerBankRequest) Reset() {
 	*x = UpdatePeerBankRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[46]
+	mi := &file_transaction_transaction_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3092,7 +3152,7 @@ func (x *UpdatePeerBankRequest) String() string {
 func (*UpdatePeerBankRequest) ProtoMessage() {}
 
 func (x *UpdatePeerBankRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[46]
+	mi := &file_transaction_transaction_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3105,7 +3165,7 @@ func (x *UpdatePeerBankRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdatePeerBankRequest.ProtoReflect.Descriptor instead.
 func (*UpdatePeerBankRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{46}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *UpdatePeerBankRequest) GetId() uint64 {
@@ -3194,7 +3254,7 @@ type DeletePeerBankRequest struct {
 
 func (x *DeletePeerBankRequest) Reset() {
 	*x = DeletePeerBankRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[47]
+	mi := &file_transaction_transaction_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3206,7 +3266,7 @@ func (x *DeletePeerBankRequest) String() string {
 func (*DeletePeerBankRequest) ProtoMessage() {}
 
 func (x *DeletePeerBankRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[47]
+	mi := &file_transaction_transaction_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3219,7 +3279,7 @@ func (x *DeletePeerBankRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePeerBankRequest.ProtoReflect.Descriptor instead.
 func (*DeletePeerBankRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{47}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *DeletePeerBankRequest) GetId() uint64 {
@@ -3237,7 +3297,7 @@ type DeletePeerBankResponse struct {
 
 func (x *DeletePeerBankResponse) Reset() {
 	*x = DeletePeerBankResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[48]
+	mi := &file_transaction_transaction_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3249,7 +3309,7 @@ func (x *DeletePeerBankResponse) String() string {
 func (*DeletePeerBankResponse) ProtoMessage() {}
 
 func (x *DeletePeerBankResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[48]
+	mi := &file_transaction_transaction_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3262,7 +3322,7 @@ func (x *DeletePeerBankResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePeerBankResponse.ProtoReflect.Descriptor instead.
 func (*DeletePeerBankResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{48}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{49}
 }
 
 type PeerBankFull struct {
@@ -3281,7 +3341,7 @@ type PeerBankFull struct {
 
 func (x *PeerBankFull) Reset() {
 	*x = PeerBankFull{}
-	mi := &file_transaction_transaction_proto_msgTypes[49]
+	mi := &file_transaction_transaction_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3293,7 +3353,7 @@ func (x *PeerBankFull) String() string {
 func (*PeerBankFull) ProtoMessage() {}
 
 func (x *PeerBankFull) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[49]
+	mi := &file_transaction_transaction_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3306,7 +3366,7 @@ func (x *PeerBankFull) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerBankFull.ProtoReflect.Descriptor instead.
 func (*PeerBankFull) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{49}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *PeerBankFull) GetId() uint64 {
@@ -3374,7 +3434,7 @@ type ResolvePeerByAPITokenRequest struct {
 
 func (x *ResolvePeerByAPITokenRequest) Reset() {
 	*x = ResolvePeerByAPITokenRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[50]
+	mi := &file_transaction_transaction_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3386,7 +3446,7 @@ func (x *ResolvePeerByAPITokenRequest) String() string {
 func (*ResolvePeerByAPITokenRequest) ProtoMessage() {}
 
 func (x *ResolvePeerByAPITokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[50]
+	mi := &file_transaction_transaction_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3399,7 +3459,7 @@ func (x *ResolvePeerByAPITokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolvePeerByAPITokenRequest.ProtoReflect.Descriptor instead.
 func (*ResolvePeerByAPITokenRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{50}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ResolvePeerByAPITokenRequest) GetApiToken() string {
@@ -3419,7 +3479,7 @@ type ResolvePeerByAPITokenResponse struct {
 
 func (x *ResolvePeerByAPITokenResponse) Reset() {
 	*x = ResolvePeerByAPITokenResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[51]
+	mi := &file_transaction_transaction_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3431,7 +3491,7 @@ func (x *ResolvePeerByAPITokenResponse) String() string {
 func (*ResolvePeerByAPITokenResponse) ProtoMessage() {}
 
 func (x *ResolvePeerByAPITokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[51]
+	mi := &file_transaction_transaction_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3444,7 +3504,7 @@ func (x *ResolvePeerByAPITokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolvePeerByAPITokenResponse.ProtoReflect.Descriptor instead.
 func (*ResolvePeerByAPITokenResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{51}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *ResolvePeerByAPITokenResponse) GetPeerBank() *PeerBankFull {
@@ -3470,7 +3530,7 @@ type ResolvePeerByBankCodeRequest struct {
 
 func (x *ResolvePeerByBankCodeRequest) Reset() {
 	*x = ResolvePeerByBankCodeRequest{}
-	mi := &file_transaction_transaction_proto_msgTypes[52]
+	mi := &file_transaction_transaction_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3482,7 +3542,7 @@ func (x *ResolvePeerByBankCodeRequest) String() string {
 func (*ResolvePeerByBankCodeRequest) ProtoMessage() {}
 
 func (x *ResolvePeerByBankCodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[52]
+	mi := &file_transaction_transaction_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3495,7 +3555,7 @@ func (x *ResolvePeerByBankCodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolvePeerByBankCodeRequest.ProtoReflect.Descriptor instead.
 func (*ResolvePeerByBankCodeRequest) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{52}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *ResolvePeerByBankCodeRequest) GetBankCode() string {
@@ -3515,7 +3575,7 @@ type ResolvePeerByBankCodeResponse struct {
 
 func (x *ResolvePeerByBankCodeResponse) Reset() {
 	*x = ResolvePeerByBankCodeResponse{}
-	mi := &file_transaction_transaction_proto_msgTypes[53]
+	mi := &file_transaction_transaction_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3527,7 +3587,7 @@ func (x *ResolvePeerByBankCodeResponse) String() string {
 func (*ResolvePeerByBankCodeResponse) ProtoMessage() {}
 
 func (x *ResolvePeerByBankCodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_transaction_transaction_proto_msgTypes[53]
+	mi := &file_transaction_transaction_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3540,7 +3600,7 @@ func (x *ResolvePeerByBankCodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolvePeerByBankCodeResponse.ProtoReflect.Descriptor instead.
 func (*ResolvePeerByBankCodeResponse) Descriptor() ([]byte, []int) {
-	return file_transaction_transaction_proto_rawDescGZIP(), []int{53}
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *ResolvePeerByBankCodeResponse) GetPeerBank() *PeerBankFull {
@@ -3777,7 +3837,11 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\x14SiTxInitiateResponse\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x19\n" +
 	"\bpoll_url\x18\x02 \x01(\tR\apollUrl\x12\x16\n" +
-	"\x06status\x18\x03 \x01(\tR\x06status\"\x9e\x02\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\"\x96\x01\n" +
+	"\x1fSiTxInitiateWithPostingsRequest\x12$\n" +
+	"\x0epeer_bank_code\x18\x01 \x01(\tR\fpeerBankCode\x124\n" +
+	"\bpostings\x18\x02 \x03(\v2\x18.transaction.SiTxPostingR\bpostings\x12\x17\n" +
+	"\atx_kind\x18\x03 \x01(\tR\x06txKind\"\x9e\x02\n" +
 	"\bPeerBank\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1b\n" +
 	"\tbank_code\x18\x02 \x01(\tR\bbankCode\x12%\n" +
@@ -3866,12 +3930,13 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\tCreateFee\x12\x1d.transaction.CreateFeeRequest\x1a .transaction.TransferFeeResponse\x12L\n" +
 	"\tUpdateFee\x12\x1d.transaction.UpdateFeeRequest\x1a .transaction.TransferFeeResponse\x12J\n" +
 	"\tDeleteFee\x12\x1d.transaction.DeleteFeeRequest\x1a\x1e.transaction.DeleteFeeResponse\x12S\n" +
-	"\fCalculateFee\x12 .transaction.CalculateFeeRequest\x1a!.transaction.CalculateFeeResponse2\xdb\x02\n" +
+	"\fCalculateFee\x12 .transaction.CalculateFeeRequest\x1a!.transaction.CalculateFeeResponse2\xce\x03\n" +
 	"\rPeerTxService\x12K\n" +
 	"\vHandleNewTx\x12\x1d.transaction.SiTxNewTxRequest\x1a\x1d.transaction.SiTxVoteResponse\x12N\n" +
 	"\x0eHandleCommitTx\x12\x1e.transaction.SiTxCommitRequest\x1a\x1c.transaction.SiTxAckResponse\x12R\n" +
 	"\x10HandleRollbackTx\x12 .transaction.SiTxRollbackRequest\x1a\x1c.transaction.SiTxAckResponse\x12Y\n" +
-	"\x12InitiateOutboundTx\x12 .transaction.SiTxInitiateRequest\x1a!.transaction.SiTxInitiateResponse2\x8a\x05\n" +
+	"\x12InitiateOutboundTx\x12 .transaction.SiTxInitiateRequest\x1a!.transaction.SiTxInitiateResponse\x12q\n" +
+	"\x1eInitiateOutboundTxWithPostings\x12,.transaction.SiTxInitiateWithPostingsRequest\x1a!.transaction.SiTxInitiateResponse2\x8a\x05\n" +
 	"\x14PeerBankAdminService\x12V\n" +
 	"\rListPeerBanks\x12!.transaction.ListPeerBanksRequest\x1a\".transaction.ListPeerBanksResponse\x12E\n" +
 	"\vGetPeerBank\x12\x1f.transaction.GetPeerBankRequest\x1a\x15.transaction.PeerBank\x12K\n" +
@@ -3893,62 +3958,63 @@ func file_transaction_transaction_proto_rawDescGZIP() []byte {
 	return file_transaction_transaction_proto_rawDescData
 }
 
-var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_transaction_transaction_proto_goTypes = []any{
-	(*CreatePaymentRequest)(nil),           // 0: transaction.CreatePaymentRequest
-	(*GetPaymentRequest)(nil),              // 1: transaction.GetPaymentRequest
-	(*ListPaymentsByAccountRequest)(nil),   // 2: transaction.ListPaymentsByAccountRequest
-	(*ListPaymentsResponse)(nil),           // 3: transaction.ListPaymentsResponse
-	(*ListPaymentsByClientRequest)(nil),    // 4: transaction.ListPaymentsByClientRequest
-	(*PaymentResponse)(nil),                // 5: transaction.PaymentResponse
-	(*CreateTransferRequest)(nil),          // 6: transaction.CreateTransferRequest
-	(*GetTransferRequest)(nil),             // 7: transaction.GetTransferRequest
-	(*ListTransfersByClientRequest)(nil),   // 8: transaction.ListTransfersByClientRequest
-	(*ListTransfersResponse)(nil),          // 9: transaction.ListTransfersResponse
-	(*TransferResponse)(nil),               // 10: transaction.TransferResponse
-	(*CreatePaymentRecipientRequest)(nil),  // 11: transaction.CreatePaymentRecipientRequest
-	(*GetPaymentRecipientRequest)(nil),     // 12: transaction.GetPaymentRecipientRequest
-	(*ListPaymentRecipientsRequest)(nil),   // 13: transaction.ListPaymentRecipientsRequest
-	(*ListPaymentRecipientsResponse)(nil),  // 14: transaction.ListPaymentRecipientsResponse
-	(*UpdatePaymentRecipientRequest)(nil),  // 15: transaction.UpdatePaymentRecipientRequest
-	(*DeletePaymentRecipientRequest)(nil),  // 16: transaction.DeletePaymentRecipientRequest
-	(*DeletePaymentRecipientResponse)(nil), // 17: transaction.DeletePaymentRecipientResponse
-	(*PaymentRecipientResponse)(nil),       // 18: transaction.PaymentRecipientResponse
-	(*ExecutePaymentRequest)(nil),          // 19: transaction.ExecutePaymentRequest
-	(*ExecuteTransferRequest)(nil),         // 20: transaction.ExecuteTransferRequest
-	(*ListFeesRequest)(nil),                // 21: transaction.ListFeesRequest
-	(*ListFeesResponse)(nil),               // 22: transaction.ListFeesResponse
-	(*CreateFeeRequest)(nil),               // 23: transaction.CreateFeeRequest
-	(*UpdateFeeRequest)(nil),               // 24: transaction.UpdateFeeRequest
-	(*DeleteFeeRequest)(nil),               // 25: transaction.DeleteFeeRequest
-	(*DeleteFeeResponse)(nil),              // 26: transaction.DeleteFeeResponse
-	(*CalculateFeeRequest)(nil),            // 27: transaction.CalculateFeeRequest
-	(*CalculateFeeResponse)(nil),           // 28: transaction.CalculateFeeResponse
-	(*FeeBreakdown)(nil),                   // 29: transaction.FeeBreakdown
-	(*TransferFeeResponse)(nil),            // 30: transaction.TransferFeeResponse
-	(*SiTxIdempotenceKey)(nil),             // 31: transaction.SiTxIdempotenceKey
-	(*SiTxPosting)(nil),                    // 32: transaction.SiTxPosting
-	(*SiTxNewTxRequest)(nil),               // 33: transaction.SiTxNewTxRequest
-	(*SiTxNoVote)(nil),                     // 34: transaction.SiTxNoVote
-	(*SiTxVoteResponse)(nil),               // 35: transaction.SiTxVoteResponse
-	(*SiTxCommitRequest)(nil),              // 36: transaction.SiTxCommitRequest
-	(*SiTxRollbackRequest)(nil),            // 37: transaction.SiTxRollbackRequest
-	(*SiTxAckResponse)(nil),                // 38: transaction.SiTxAckResponse
-	(*SiTxInitiateRequest)(nil),            // 39: transaction.SiTxInitiateRequest
-	(*SiTxInitiateResponse)(nil),           // 40: transaction.SiTxInitiateResponse
-	(*PeerBank)(nil),                       // 41: transaction.PeerBank
-	(*ListPeerBanksRequest)(nil),           // 42: transaction.ListPeerBanksRequest
-	(*ListPeerBanksResponse)(nil),          // 43: transaction.ListPeerBanksResponse
-	(*GetPeerBankRequest)(nil),             // 44: transaction.GetPeerBankRequest
-	(*CreatePeerBankRequest)(nil),          // 45: transaction.CreatePeerBankRequest
-	(*UpdatePeerBankRequest)(nil),          // 46: transaction.UpdatePeerBankRequest
-	(*DeletePeerBankRequest)(nil),          // 47: transaction.DeletePeerBankRequest
-	(*DeletePeerBankResponse)(nil),         // 48: transaction.DeletePeerBankResponse
-	(*PeerBankFull)(nil),                   // 49: transaction.PeerBankFull
-	(*ResolvePeerByAPITokenRequest)(nil),   // 50: transaction.ResolvePeerByAPITokenRequest
-	(*ResolvePeerByAPITokenResponse)(nil),  // 51: transaction.ResolvePeerByAPITokenResponse
-	(*ResolvePeerByBankCodeRequest)(nil),   // 52: transaction.ResolvePeerByBankCodeRequest
-	(*ResolvePeerByBankCodeResponse)(nil),  // 53: transaction.ResolvePeerByBankCodeResponse
+	(*CreatePaymentRequest)(nil),            // 0: transaction.CreatePaymentRequest
+	(*GetPaymentRequest)(nil),               // 1: transaction.GetPaymentRequest
+	(*ListPaymentsByAccountRequest)(nil),    // 2: transaction.ListPaymentsByAccountRequest
+	(*ListPaymentsResponse)(nil),            // 3: transaction.ListPaymentsResponse
+	(*ListPaymentsByClientRequest)(nil),     // 4: transaction.ListPaymentsByClientRequest
+	(*PaymentResponse)(nil),                 // 5: transaction.PaymentResponse
+	(*CreateTransferRequest)(nil),           // 6: transaction.CreateTransferRequest
+	(*GetTransferRequest)(nil),              // 7: transaction.GetTransferRequest
+	(*ListTransfersByClientRequest)(nil),    // 8: transaction.ListTransfersByClientRequest
+	(*ListTransfersResponse)(nil),           // 9: transaction.ListTransfersResponse
+	(*TransferResponse)(nil),                // 10: transaction.TransferResponse
+	(*CreatePaymentRecipientRequest)(nil),   // 11: transaction.CreatePaymentRecipientRequest
+	(*GetPaymentRecipientRequest)(nil),      // 12: transaction.GetPaymentRecipientRequest
+	(*ListPaymentRecipientsRequest)(nil),    // 13: transaction.ListPaymentRecipientsRequest
+	(*ListPaymentRecipientsResponse)(nil),   // 14: transaction.ListPaymentRecipientsResponse
+	(*UpdatePaymentRecipientRequest)(nil),   // 15: transaction.UpdatePaymentRecipientRequest
+	(*DeletePaymentRecipientRequest)(nil),   // 16: transaction.DeletePaymentRecipientRequest
+	(*DeletePaymentRecipientResponse)(nil),  // 17: transaction.DeletePaymentRecipientResponse
+	(*PaymentRecipientResponse)(nil),        // 18: transaction.PaymentRecipientResponse
+	(*ExecutePaymentRequest)(nil),           // 19: transaction.ExecutePaymentRequest
+	(*ExecuteTransferRequest)(nil),          // 20: transaction.ExecuteTransferRequest
+	(*ListFeesRequest)(nil),                 // 21: transaction.ListFeesRequest
+	(*ListFeesResponse)(nil),                // 22: transaction.ListFeesResponse
+	(*CreateFeeRequest)(nil),                // 23: transaction.CreateFeeRequest
+	(*UpdateFeeRequest)(nil),                // 24: transaction.UpdateFeeRequest
+	(*DeleteFeeRequest)(nil),                // 25: transaction.DeleteFeeRequest
+	(*DeleteFeeResponse)(nil),               // 26: transaction.DeleteFeeResponse
+	(*CalculateFeeRequest)(nil),             // 27: transaction.CalculateFeeRequest
+	(*CalculateFeeResponse)(nil),            // 28: transaction.CalculateFeeResponse
+	(*FeeBreakdown)(nil),                    // 29: transaction.FeeBreakdown
+	(*TransferFeeResponse)(nil),             // 30: transaction.TransferFeeResponse
+	(*SiTxIdempotenceKey)(nil),              // 31: transaction.SiTxIdempotenceKey
+	(*SiTxPosting)(nil),                     // 32: transaction.SiTxPosting
+	(*SiTxNewTxRequest)(nil),                // 33: transaction.SiTxNewTxRequest
+	(*SiTxNoVote)(nil),                      // 34: transaction.SiTxNoVote
+	(*SiTxVoteResponse)(nil),                // 35: transaction.SiTxVoteResponse
+	(*SiTxCommitRequest)(nil),               // 36: transaction.SiTxCommitRequest
+	(*SiTxRollbackRequest)(nil),             // 37: transaction.SiTxRollbackRequest
+	(*SiTxAckResponse)(nil),                 // 38: transaction.SiTxAckResponse
+	(*SiTxInitiateRequest)(nil),             // 39: transaction.SiTxInitiateRequest
+	(*SiTxInitiateResponse)(nil),            // 40: transaction.SiTxInitiateResponse
+	(*SiTxInitiateWithPostingsRequest)(nil), // 41: transaction.SiTxInitiateWithPostingsRequest
+	(*PeerBank)(nil),                        // 42: transaction.PeerBank
+	(*ListPeerBanksRequest)(nil),            // 43: transaction.ListPeerBanksRequest
+	(*ListPeerBanksResponse)(nil),           // 44: transaction.ListPeerBanksResponse
+	(*GetPeerBankRequest)(nil),              // 45: transaction.GetPeerBankRequest
+	(*CreatePeerBankRequest)(nil),           // 46: transaction.CreatePeerBankRequest
+	(*UpdatePeerBankRequest)(nil),           // 47: transaction.UpdatePeerBankRequest
+	(*DeletePeerBankRequest)(nil),           // 48: transaction.DeletePeerBankRequest
+	(*DeletePeerBankResponse)(nil),          // 49: transaction.DeletePeerBankResponse
+	(*PeerBankFull)(nil),                    // 50: transaction.PeerBankFull
+	(*ResolvePeerByAPITokenRequest)(nil),    // 51: transaction.ResolvePeerByAPITokenRequest
+	(*ResolvePeerByAPITokenResponse)(nil),   // 52: transaction.ResolvePeerByAPITokenResponse
+	(*ResolvePeerByBankCodeRequest)(nil),    // 53: transaction.ResolvePeerByBankCodeRequest
+	(*ResolvePeerByBankCodeResponse)(nil),   // 54: transaction.ResolvePeerByBankCodeResponse
 }
 var file_transaction_transaction_proto_depIdxs = []int32{
 	5,  // 0: transaction.ListPaymentsResponse.payments:type_name -> transaction.PaymentResponse
@@ -3961,74 +4027,77 @@ var file_transaction_transaction_proto_depIdxs = []int32{
 	34, // 7: transaction.SiTxVoteResponse.no_votes:type_name -> transaction.SiTxNoVote
 	31, // 8: transaction.SiTxCommitRequest.idempotence_key:type_name -> transaction.SiTxIdempotenceKey
 	31, // 9: transaction.SiTxRollbackRequest.idempotence_key:type_name -> transaction.SiTxIdempotenceKey
-	41, // 10: transaction.ListPeerBanksResponse.peer_banks:type_name -> transaction.PeerBank
-	49, // 11: transaction.ResolvePeerByAPITokenResponse.peer_bank:type_name -> transaction.PeerBankFull
-	49, // 12: transaction.ResolvePeerByBankCodeResponse.peer_bank:type_name -> transaction.PeerBankFull
-	0,  // 13: transaction.TransactionService.CreatePayment:input_type -> transaction.CreatePaymentRequest
-	19, // 14: transaction.TransactionService.ExecutePayment:input_type -> transaction.ExecutePaymentRequest
-	1,  // 15: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
-	2,  // 16: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
-	4,  // 17: transaction.TransactionService.ListPaymentsByClient:input_type -> transaction.ListPaymentsByClientRequest
-	6,  // 18: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
-	20, // 19: transaction.TransactionService.ExecuteTransfer:input_type -> transaction.ExecuteTransferRequest
-	7,  // 20: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
-	8,  // 21: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
-	11, // 22: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
-	12, // 23: transaction.TransactionService.GetPaymentRecipient:input_type -> transaction.GetPaymentRecipientRequest
-	13, // 24: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
-	15, // 25: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
-	16, // 26: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
-	21, // 27: transaction.FeeService.ListFees:input_type -> transaction.ListFeesRequest
-	23, // 28: transaction.FeeService.CreateFee:input_type -> transaction.CreateFeeRequest
-	24, // 29: transaction.FeeService.UpdateFee:input_type -> transaction.UpdateFeeRequest
-	25, // 30: transaction.FeeService.DeleteFee:input_type -> transaction.DeleteFeeRequest
-	27, // 31: transaction.FeeService.CalculateFee:input_type -> transaction.CalculateFeeRequest
-	33, // 32: transaction.PeerTxService.HandleNewTx:input_type -> transaction.SiTxNewTxRequest
-	36, // 33: transaction.PeerTxService.HandleCommitTx:input_type -> transaction.SiTxCommitRequest
-	37, // 34: transaction.PeerTxService.HandleRollbackTx:input_type -> transaction.SiTxRollbackRequest
-	39, // 35: transaction.PeerTxService.InitiateOutboundTx:input_type -> transaction.SiTxInitiateRequest
-	42, // 36: transaction.PeerBankAdminService.ListPeerBanks:input_type -> transaction.ListPeerBanksRequest
-	44, // 37: transaction.PeerBankAdminService.GetPeerBank:input_type -> transaction.GetPeerBankRequest
-	45, // 38: transaction.PeerBankAdminService.CreatePeerBank:input_type -> transaction.CreatePeerBankRequest
-	46, // 39: transaction.PeerBankAdminService.UpdatePeerBank:input_type -> transaction.UpdatePeerBankRequest
-	47, // 40: transaction.PeerBankAdminService.DeletePeerBank:input_type -> transaction.DeletePeerBankRequest
-	50, // 41: transaction.PeerBankAdminService.ResolvePeerByAPIToken:input_type -> transaction.ResolvePeerByAPITokenRequest
-	52, // 42: transaction.PeerBankAdminService.ResolvePeerByBankCode:input_type -> transaction.ResolvePeerByBankCodeRequest
-	5,  // 43: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
-	5,  // 44: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
-	5,  // 45: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
-	3,  // 46: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
-	3,  // 47: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
-	10, // 48: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
-	10, // 49: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
-	10, // 50: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
-	9,  // 51: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
-	18, // 52: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	18, // 53: transaction.TransactionService.GetPaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	14, // 54: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
-	18, // 55: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	17, // 56: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
-	22, // 57: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
-	30, // 58: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
-	30, // 59: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
-	26, // 60: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
-	28, // 61: transaction.FeeService.CalculateFee:output_type -> transaction.CalculateFeeResponse
-	35, // 62: transaction.PeerTxService.HandleNewTx:output_type -> transaction.SiTxVoteResponse
-	38, // 63: transaction.PeerTxService.HandleCommitTx:output_type -> transaction.SiTxAckResponse
-	38, // 64: transaction.PeerTxService.HandleRollbackTx:output_type -> transaction.SiTxAckResponse
-	40, // 65: transaction.PeerTxService.InitiateOutboundTx:output_type -> transaction.SiTxInitiateResponse
-	43, // 66: transaction.PeerBankAdminService.ListPeerBanks:output_type -> transaction.ListPeerBanksResponse
-	41, // 67: transaction.PeerBankAdminService.GetPeerBank:output_type -> transaction.PeerBank
-	41, // 68: transaction.PeerBankAdminService.CreatePeerBank:output_type -> transaction.PeerBank
-	41, // 69: transaction.PeerBankAdminService.UpdatePeerBank:output_type -> transaction.PeerBank
-	48, // 70: transaction.PeerBankAdminService.DeletePeerBank:output_type -> transaction.DeletePeerBankResponse
-	51, // 71: transaction.PeerBankAdminService.ResolvePeerByAPIToken:output_type -> transaction.ResolvePeerByAPITokenResponse
-	53, // 72: transaction.PeerBankAdminService.ResolvePeerByBankCode:output_type -> transaction.ResolvePeerByBankCodeResponse
-	43, // [43:73] is the sub-list for method output_type
-	13, // [13:43] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	32, // 10: transaction.SiTxInitiateWithPostingsRequest.postings:type_name -> transaction.SiTxPosting
+	42, // 11: transaction.ListPeerBanksResponse.peer_banks:type_name -> transaction.PeerBank
+	50, // 12: transaction.ResolvePeerByAPITokenResponse.peer_bank:type_name -> transaction.PeerBankFull
+	50, // 13: transaction.ResolvePeerByBankCodeResponse.peer_bank:type_name -> transaction.PeerBankFull
+	0,  // 14: transaction.TransactionService.CreatePayment:input_type -> transaction.CreatePaymentRequest
+	19, // 15: transaction.TransactionService.ExecutePayment:input_type -> transaction.ExecutePaymentRequest
+	1,  // 16: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
+	2,  // 17: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
+	4,  // 18: transaction.TransactionService.ListPaymentsByClient:input_type -> transaction.ListPaymentsByClientRequest
+	6,  // 19: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
+	20, // 20: transaction.TransactionService.ExecuteTransfer:input_type -> transaction.ExecuteTransferRequest
+	7,  // 21: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
+	8,  // 22: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
+	11, // 23: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
+	12, // 24: transaction.TransactionService.GetPaymentRecipient:input_type -> transaction.GetPaymentRecipientRequest
+	13, // 25: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
+	15, // 26: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
+	16, // 27: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
+	21, // 28: transaction.FeeService.ListFees:input_type -> transaction.ListFeesRequest
+	23, // 29: transaction.FeeService.CreateFee:input_type -> transaction.CreateFeeRequest
+	24, // 30: transaction.FeeService.UpdateFee:input_type -> transaction.UpdateFeeRequest
+	25, // 31: transaction.FeeService.DeleteFee:input_type -> transaction.DeleteFeeRequest
+	27, // 32: transaction.FeeService.CalculateFee:input_type -> transaction.CalculateFeeRequest
+	33, // 33: transaction.PeerTxService.HandleNewTx:input_type -> transaction.SiTxNewTxRequest
+	36, // 34: transaction.PeerTxService.HandleCommitTx:input_type -> transaction.SiTxCommitRequest
+	37, // 35: transaction.PeerTxService.HandleRollbackTx:input_type -> transaction.SiTxRollbackRequest
+	39, // 36: transaction.PeerTxService.InitiateOutboundTx:input_type -> transaction.SiTxInitiateRequest
+	41, // 37: transaction.PeerTxService.InitiateOutboundTxWithPostings:input_type -> transaction.SiTxInitiateWithPostingsRequest
+	43, // 38: transaction.PeerBankAdminService.ListPeerBanks:input_type -> transaction.ListPeerBanksRequest
+	45, // 39: transaction.PeerBankAdminService.GetPeerBank:input_type -> transaction.GetPeerBankRequest
+	46, // 40: transaction.PeerBankAdminService.CreatePeerBank:input_type -> transaction.CreatePeerBankRequest
+	47, // 41: transaction.PeerBankAdminService.UpdatePeerBank:input_type -> transaction.UpdatePeerBankRequest
+	48, // 42: transaction.PeerBankAdminService.DeletePeerBank:input_type -> transaction.DeletePeerBankRequest
+	51, // 43: transaction.PeerBankAdminService.ResolvePeerByAPIToken:input_type -> transaction.ResolvePeerByAPITokenRequest
+	53, // 44: transaction.PeerBankAdminService.ResolvePeerByBankCode:input_type -> transaction.ResolvePeerByBankCodeRequest
+	5,  // 45: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
+	5,  // 46: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
+	5,  // 47: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
+	3,  // 48: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
+	3,  // 49: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
+	10, // 50: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
+	10, // 51: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
+	10, // 52: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
+	9,  // 53: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
+	18, // 54: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	18, // 55: transaction.TransactionService.GetPaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	14, // 56: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
+	18, // 57: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	17, // 58: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
+	22, // 59: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
+	30, // 60: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
+	30, // 61: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
+	26, // 62: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
+	28, // 63: transaction.FeeService.CalculateFee:output_type -> transaction.CalculateFeeResponse
+	35, // 64: transaction.PeerTxService.HandleNewTx:output_type -> transaction.SiTxVoteResponse
+	38, // 65: transaction.PeerTxService.HandleCommitTx:output_type -> transaction.SiTxAckResponse
+	38, // 66: transaction.PeerTxService.HandleRollbackTx:output_type -> transaction.SiTxAckResponse
+	40, // 67: transaction.PeerTxService.InitiateOutboundTx:output_type -> transaction.SiTxInitiateResponse
+	40, // 68: transaction.PeerTxService.InitiateOutboundTxWithPostings:output_type -> transaction.SiTxInitiateResponse
+	44, // 69: transaction.PeerBankAdminService.ListPeerBanks:output_type -> transaction.ListPeerBanksResponse
+	42, // 70: transaction.PeerBankAdminService.GetPeerBank:output_type -> transaction.PeerBank
+	42, // 71: transaction.PeerBankAdminService.CreatePeerBank:output_type -> transaction.PeerBank
+	42, // 72: transaction.PeerBankAdminService.UpdatePeerBank:output_type -> transaction.PeerBank
+	49, // 73: transaction.PeerBankAdminService.DeletePeerBank:output_type -> transaction.DeletePeerBankResponse
+	52, // 74: transaction.PeerBankAdminService.ResolvePeerByAPIToken:output_type -> transaction.ResolvePeerByAPITokenResponse
+	54, // 75: transaction.PeerBankAdminService.ResolvePeerByBankCode:output_type -> transaction.ResolvePeerByBankCodeResponse
+	45, // [45:76] is the sub-list for method output_type
+	14, // [14:45] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_transaction_transaction_proto_init() }
@@ -4043,7 +4112,7 @@ func file_transaction_transaction_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_transaction_transaction_proto_rawDesc), len(file_transaction_transaction_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   54,
+			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   4,
 		},

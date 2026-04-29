@@ -869,10 +869,11 @@ var FeeService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	PeerTxService_HandleNewTx_FullMethodName        = "/transaction.PeerTxService/HandleNewTx"
-	PeerTxService_HandleCommitTx_FullMethodName     = "/transaction.PeerTxService/HandleCommitTx"
-	PeerTxService_HandleRollbackTx_FullMethodName   = "/transaction.PeerTxService/HandleRollbackTx"
-	PeerTxService_InitiateOutboundTx_FullMethodName = "/transaction.PeerTxService/InitiateOutboundTx"
+	PeerTxService_HandleNewTx_FullMethodName                    = "/transaction.PeerTxService/HandleNewTx"
+	PeerTxService_HandleCommitTx_FullMethodName                 = "/transaction.PeerTxService/HandleCommitTx"
+	PeerTxService_HandleRollbackTx_FullMethodName               = "/transaction.PeerTxService/HandleRollbackTx"
+	PeerTxService_InitiateOutboundTx_FullMethodName             = "/transaction.PeerTxService/InitiateOutboundTx"
+	PeerTxService_InitiateOutboundTxWithPostings_FullMethodName = "/transaction.PeerTxService/InitiateOutboundTxWithPostings"
 )
 
 // PeerTxServiceClient is the client API for PeerTxService service.
@@ -887,6 +888,7 @@ type PeerTxServiceClient interface {
 	HandleCommitTx(ctx context.Context, in *SiTxCommitRequest, opts ...grpc.CallOption) (*SiTxAckResponse, error)
 	HandleRollbackTx(ctx context.Context, in *SiTxRollbackRequest, opts ...grpc.CallOption) (*SiTxAckResponse, error)
 	InitiateOutboundTx(ctx context.Context, in *SiTxInitiateRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error)
+	InitiateOutboundTxWithPostings(ctx context.Context, in *SiTxInitiateWithPostingsRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error)
 }
 
 type peerTxServiceClient struct {
@@ -937,6 +939,16 @@ func (c *peerTxServiceClient) InitiateOutboundTx(ctx context.Context, in *SiTxIn
 	return out, nil
 }
 
+func (c *peerTxServiceClient) InitiateOutboundTxWithPostings(ctx context.Context, in *SiTxInitiateWithPostingsRequest, opts ...grpc.CallOption) (*SiTxInitiateResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SiTxInitiateResponse)
+	err := c.cc.Invoke(ctx, PeerTxService_InitiateOutboundTxWithPostings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerTxServiceServer is the server API for PeerTxService service.
 // All implementations must embed UnimplementedPeerTxServiceServer
 // for forward compatibility.
@@ -949,6 +961,7 @@ type PeerTxServiceServer interface {
 	HandleCommitTx(context.Context, *SiTxCommitRequest) (*SiTxAckResponse, error)
 	HandleRollbackTx(context.Context, *SiTxRollbackRequest) (*SiTxAckResponse, error)
 	InitiateOutboundTx(context.Context, *SiTxInitiateRequest) (*SiTxInitiateResponse, error)
+	InitiateOutboundTxWithPostings(context.Context, *SiTxInitiateWithPostingsRequest) (*SiTxInitiateResponse, error)
 	mustEmbedUnimplementedPeerTxServiceServer()
 }
 
@@ -970,6 +983,9 @@ func (UnimplementedPeerTxServiceServer) HandleRollbackTx(context.Context, *SiTxR
 }
 func (UnimplementedPeerTxServiceServer) InitiateOutboundTx(context.Context, *SiTxInitiateRequest) (*SiTxInitiateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InitiateOutboundTx not implemented")
+}
+func (UnimplementedPeerTxServiceServer) InitiateOutboundTxWithPostings(context.Context, *SiTxInitiateWithPostingsRequest) (*SiTxInitiateResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InitiateOutboundTxWithPostings not implemented")
 }
 func (UnimplementedPeerTxServiceServer) mustEmbedUnimplementedPeerTxServiceServer() {}
 func (UnimplementedPeerTxServiceServer) testEmbeddedByValue()                       {}
@@ -1064,6 +1080,24 @@ func _PeerTxService_InitiateOutboundTx_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerTxService_InitiateOutboundTxWithPostings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SiTxInitiateWithPostingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerTxServiceServer).InitiateOutboundTxWithPostings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerTxService_InitiateOutboundTxWithPostings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerTxServiceServer).InitiateOutboundTxWithPostings(ctx, req.(*SiTxInitiateWithPostingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PeerTxService_ServiceDesc is the grpc.ServiceDesc for PeerTxService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1086,6 +1120,10 @@ var PeerTxService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitiateOutboundTx",
 			Handler:    _PeerTxService_InitiateOutboundTx_Handler,
+		},
+		{
+			MethodName: "InitiateOutboundTxWithPostings",
+			Handler:    _PeerTxService_InitiateOutboundTxWithPostings_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

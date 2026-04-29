@@ -240,6 +240,7 @@ service PeerTxService {
   rpc HandleCommitTx(SiTxCommitRequest) returns (SiTxAckResponse);
   rpc HandleRollbackTx(SiTxRollbackRequest) returns (SiTxAckResponse);
   rpc InitiateOutboundTx(SiTxInitiateRequest) returns (SiTxInitiateResponse);
+  rpc InitiateOutboundTxWithPostings(SiTxInitiateWithPostingsRequest) returns (SiTxInitiateResponse);
 }
 
 message SiTxIdempotenceKey {
@@ -300,6 +301,12 @@ message SiTxInitiateResponse {
   string transaction_id = 1;
   string poll_url = 2;
   string status = 3;
+}
+
+message SiTxInitiateWithPostingsRequest {
+  string peer_bank_code = 1;
+  repeated SiTxPosting postings = 2;
+  string tx_kind = 3; // "transfer" | "otc-accept" | "otc-exercise"
 }
 
 // PeerBankAdminService is the runtime-editable peer-bank registry. Lets

@@ -251,6 +251,89 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 	}, nil
 }
 
+// InitiateOutboundTxWithPostings is the OTC-friendly variant of
+// InitiateOutboundTx — accepts a pre-composed posting list (typically
+// 4 postings for OTC accept: premium money + 1× OptionDescription both
+// directions) instead of building from {fromAccount, toAccount, amount}.
+//
+// Reuses the same outbound_peer_txs / PeerHTTPClient / OutboundReplayCron
+// flow as the simple-transfer InitiateOutboundTx; the only difference is
+// the postings come from the caller and the tx_kind column reflects the
+// originating intent (transfer / otc-accept / otc-exercise).
+func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, req *transactionpb.SiTxInitiateWithPostingsRequest) (*transactionpb.SiTxInitiateResponse, error) {
+	if h.outRepo == nil || h.httpClient == nil || h.peerLookup == nil {
+		return nil, status.Error(codes.Unimplemented, "outbound deps not wired")
+	}
+	if len(req.GetPostings()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "postings required")
+	}
+	target, err := h.peerLookup(ctx, req.GetPeerBankCode())
+	if err != nil || target == nil {
+		return nil, status.Errorf(codes.NotFound, "peer bank %s not registered", req.GetPeerBankCode())
+	}
+
+	idem := uuid.NewString()
+	postings := make([]contractsitx.Posting, 0, len(req.GetPostings()))
+	for _, p := range req.GetPostings() {
+		amt, _ := decimal.NewFromString(p.GetAmount())
+		postings = append(postings, contractsitx.Posting{
+			RoutingNumber: p.GetRoutingNumber(),
+			AccountID:     p.GetAccountId(),
+			AssetID:       p.GetAssetId(),
+			Amount:        amt,
+			Direction:     p.GetDirection(),
+		})
+	}
+	postingsJSON, _ := json.Marshal(postings)
+
+	txKind := req.GetTxKind()
+	if txKind == "" {
+		txKind = "transfer"
+	}
+	row := &model.OutboundPeerTx{
+		IdempotenceKey: idem,
+		PeerBankCode:   req.GetPeerBankCode(),
+		TxKind:         txKind,
+		PostingsJSON:   string(postingsJSON),
+		Status:         "pending",
+	}
+	if err := h.outRepo.Create(row); err != nil {
+		return nil, status.Errorf(codes.Internal, "outbound row: %v", err)
+	}
+
+	envelope := contractsitx.Message[contractsitx.Transaction]{
+		IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: h.ownRouting, LocallyGeneratedKey: idem},
+		MessageType:    contractsitx.MessageTypeNewTx,
+		Message:        contractsitx.Transaction{Postings: postings},
+	}
+	if vote, err := h.httpClient.PostNewTx(ctx, target, envelope); err != nil {
+		_ = h.outRepo.MarkAttempt(idem, err.Error())
+	} else if vote.Type == contractsitx.VoteYes {
+		commitEnvelope := contractsitx.Message[contractsitx.CommitTransaction]{
+			IdempotenceKey: contractsitx.IdempotenceKey{RoutingNumber: h.ownRouting, LocallyGeneratedKey: idem},
+			MessageType:    contractsitx.MessageTypeCommitTx,
+			Message:        contractsitx.CommitTransaction{TransactionID: idem},
+		}
+		if err := h.httpClient.PostCommitTx(ctx, target, commitEnvelope); err != nil {
+			_ = h.outRepo.MarkAttempt(idem, "commit: "+err.Error())
+		} else {
+			_ = h.outRepo.MarkCommitted(idem)
+		}
+	} else {
+		reason := "peer voted NO"
+		if len(vote.NoVotes) > 0 {
+			reason = "peer voted NO: " + vote.NoVotes[0].Reason
+		}
+		_ = h.outRepo.MarkRolledBack(idem, reason)
+	}
+
+	return &transactionpb.SiTxInitiateResponse{
+		TransactionId: idem,
+		PollUrl:       "/api/v3/me/transfers/" + idem,
+		Status:        "pending",
+	}, nil
+}
+
 func protoToPostings(in []*transactionpb.SiTxPosting) []contractsitx.Posting {
 	out := make([]contractsitx.Posting, len(in))
 	for i, p := range in {

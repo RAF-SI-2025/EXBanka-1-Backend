@@ -2,6 +2,9 @@ package handler_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	accountpb "github.com/exbanka/contract/accountpb"
@@ -181,5 +184,75 @@ func TestHandleRollbackTx_AfterYes(t *testing.T) {
 	}
 	if !called {
 		t.Errorf("expected ReleaseIncoming call")
+	}
+}
+
+func TestInitiateOutboundTxWithPostings_HappyPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var probe map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&probe)
+		if probe["messageType"] == "NEW_TX" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"type":"YES"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err := db.AutoMigrate(&model.PeerIdempotenceRecord{}, &model.OutboundPeerTx{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	stub := &stubAccountForHandler{}
+	idemRepo := repository.NewPeerIdempotenceRepository(db)
+	outRepo := repository.NewOutboundPeerTxRepository(db)
+	exec := sitx.NewPostingExecutor(stub, 111)
+	httpClient := sitx.NewPeerHTTPClient(http.DefaultClient)
+	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
+		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: srv.URL, APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
+	}
+	h := handler.NewPeerTxGRPCHandler(idemRepo, exec, stub, outRepo, httpClient, handler.PeerLookupFunc(peerLookup), 111)
+
+	resp, err := h.InitiateOutboundTxWithPostings(context.Background(), &transactionpb.SiTxInitiateWithPostingsRequest{
+		PeerBankCode: "222",
+		TxKind:       "otc-accept",
+		Postings: []*transactionpb.SiTxPosting{
+			{RoutingNumber: 111, AccountId: "111-A", AssetId: "USD", Amount: "700", Direction: "DEBIT"},
+			{RoutingNumber: 222, AccountId: "222-A", AssetId: "USD", Amount: "700", Direction: "CREDIT"},
+			{RoutingNumber: 222, AccountId: "222-B", AssetId: "OPT_AAPL", Amount: "1", Direction: "DEBIT"},
+			{RoutingNumber: 111, AccountId: "111-B", AssetId: "OPT_AAPL", Amount: "1", Direction: "CREDIT"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("InitiateOutboundTxWithPostings: %v", err)
+	}
+	if resp.GetTransactionId() == "" {
+		t.Errorf("expected transaction_id, got %+v", resp)
+	}
+	if resp.GetStatus() != "pending" {
+		t.Errorf("status: %s", resp.GetStatus())
+	}
+}
+
+func TestInitiateOutboundTxWithPostings_NoPostings_400(t *testing.T) {
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = db.AutoMigrate(&model.PeerIdempotenceRecord{}, &model.OutboundPeerTx{})
+	stub := &stubAccountForHandler{}
+	idemRepo := repository.NewPeerIdempotenceRepository(db)
+	outRepo := repository.NewOutboundPeerTxRepository(db)
+	exec := sitx.NewPostingExecutor(stub, 111)
+	httpClient := sitx.NewPeerHTTPClient(http.DefaultClient)
+	peerLookup := func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error) {
+		return &sitx.PeerHTTPTarget{BankCode: code, BaseURL: "http://x", APIToken: "tok", OwnRouting: 111, RoutingNumber: 222}, nil
+	}
+	h := handler.NewPeerTxGRPCHandler(idemRepo, exec, stub, outRepo, httpClient, handler.PeerLookupFunc(peerLookup), 111)
+
+	_, err := h.InitiateOutboundTxWithPostings(context.Background(), &transactionpb.SiTxInitiateWithPostingsRequest{
+		PeerBankCode: "222",
+		TxKind:       "otc-accept",
+	})
+	if err == nil {
+		t.Fatalf("expected error for empty postings")
 	}
 }
