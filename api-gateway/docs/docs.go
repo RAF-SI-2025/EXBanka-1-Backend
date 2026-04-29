@@ -9870,7 +9870,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Foreign-prefix receivers return 501 not_implemented while the SI-TX implementation is being built. Intra-bank receivers (own 3-digit prefix) delegate to the standard transfer flow.",
+                "description": "Intra-bank receivers (own 3-digit prefix) delegate to the standard transfer flow and return 201. Foreign-prefix receivers dispatch to PeerTxService.InitiateOutboundTx and return 202 Accepted with {transaction_id, poll_url, status}.",
                 "consumes": [
                     "application/json"
                 ],
@@ -9880,7 +9880,7 @@ const docTemplate = `{
                 "tags": [
                     "transfers"
                 ],
-                "summary": "Create a transfer (intra-bank only during SI-TX refactor)",
+                "summary": "Create a transfer (dispatches intra-bank or inter-bank SI-TX)",
                 "parameters": [
                     {
                         "description": "Transfer request — see TransactionHandler.CreateTransfer",
@@ -9898,6 +9898,13 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
@@ -9905,8 +9912,8 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
-                    "501": {
-                        "description": "Not Implemented",
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -9922,14 +9929,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Delegates to the intra-bank GetMyTransfer handler. UUID-style transaction IDs return 404 since the inter-bank lookup path is temporarily removed.",
+                "description": "Delegates to the intra-bank GetMyTransfer handler. UUID-style transaction IDs return 404 since the inter-bank lookup path is not yet wired.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "transfers"
                 ],
-                "summary": "Get a transfer by ID (intra-bank only during SI-TX refactor)",
+                "summary": "Get a transfer by ID",
                 "parameters": [
                     {
                         "type": "string",

@@ -21,6 +21,7 @@ type stubPeerTxClient struct {
 	newTxFn    func(ctx context.Context, in *transactionpb.SiTxNewTxRequest, opts ...grpc.CallOption) (*transactionpb.SiTxVoteResponse, error)
 	commitFn   func(ctx context.Context, in *transactionpb.SiTxCommitRequest, opts ...grpc.CallOption) (*transactionpb.SiTxAckResponse, error)
 	rollbackFn func(ctx context.Context, in *transactionpb.SiTxRollbackRequest, opts ...grpc.CallOption) (*transactionpb.SiTxAckResponse, error)
+	initiateFn func(ctx context.Context, in *transactionpb.SiTxInitiateRequest, opts ...grpc.CallOption) (*transactionpb.SiTxInitiateResponse, error)
 }
 
 func (s *stubPeerTxClient) HandleNewTx(ctx context.Context, in *transactionpb.SiTxNewTxRequest, opts ...grpc.CallOption) (*transactionpb.SiTxVoteResponse, error) {
@@ -38,6 +39,12 @@ func (s *stubPeerTxClient) HandleCommitTx(ctx context.Context, in *transactionpb
 func (s *stubPeerTxClient) HandleRollbackTx(ctx context.Context, in *transactionpb.SiTxRollbackRequest, opts ...grpc.CallOption) (*transactionpb.SiTxAckResponse, error) {
 	if s.rollbackFn != nil {
 		return s.rollbackFn(ctx, in, opts...)
+	}
+	return nil, status.Error(codes.Unimplemented, "stub")
+}
+func (s *stubPeerTxClient) InitiateOutboundTx(ctx context.Context, in *transactionpb.SiTxInitiateRequest, opts ...grpc.CallOption) (*transactionpb.SiTxInitiateResponse, error) {
+	if s.initiateFn != nil {
+		return s.initiateFn(ctx, in, opts...)
 	}
 	return nil, status.Error(codes.Unimplemented, "stub")
 }

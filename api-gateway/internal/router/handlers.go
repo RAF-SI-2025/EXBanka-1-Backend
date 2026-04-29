@@ -66,11 +66,11 @@ type Deps struct {
 	PeerNonces          middleware.PeerNonceClaimer
 	PeerBanks           middleware.PeerBankResolver
 
-	// OwnBankCode is the 3-digit bank prefix used by PeerDisabledHandler
-	// to distinguish intra-bank receivers from foreign-bank ones while
-	// the SI-TX implementation is being built (Phase 1 of the SI-TX
-	// refactor; see docs/superpowers/specs/2026-04-29-celina5-sitx-
-	// refactor-design.md).
+	// OwnBankCode is the 3-digit bank prefix used by PeerTxDispatcherHandler
+	// to distinguish intra-bank receivers from foreign-bank ones. Foreign-
+	// prefix receivers dispatch to PeerTxService.InitiateOutboundTx
+	// (Phase 3 Task 11 of the SI-TX refactor; see docs/superpowers/specs/
+	// 2026-04-29-celina5-sitx-refactor-design.md).
 	OwnBankCode string
 }
 
@@ -104,8 +104,8 @@ type Handlers struct {
 	OptionsV2     *handler.OptionsV2Handler
 	Fund          *handler.InvestmentFundHandler
 	OTCOptions    *handler.OTCOptionsHandler
-	PeerDisabled  *handler.PeerDisabledHandler
-	Changelog     *handler.ChangelogHandler
+	PeerTxDispatcher *handler.PeerTxDispatcherHandler
+	Changelog        *handler.ChangelogHandler
 
 	// SI-TX peer-facing wiring (Phase 2 Task 14). PeerTx serves
 	// POST /api/v3/interbank, PeerBankAdmin serves /api/v3/peer-banks
@@ -148,8 +148,8 @@ func NewHandlers(d Deps) *Handlers {
 		OptionsV2:     handler.NewOptionsV2Handler(d.SecurityClient, d.OrderClient, d.PortfolioClient),
 		Fund:          handler.NewInvestmentFundHandler(d.FundClient),
 		OTCOptions:    handler.NewOTCOptionsHandler(d.OTCOptionsClient),
-		PeerDisabled:  handler.NewPeerDisabledHandler(tx, d.OwnBankCode),
-		Changelog:     handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
+		PeerTxDispatcher: handler.NewPeerTxDispatcherHandler(tx, d.PeerTxClient, d.OwnBankCode),
+		Changelog:        handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
 		PeerTx:        handler.NewPeerTxHandler(d.PeerTxClient),
 		PeerBankAdmin: handler.NewPeerBankAdminHandler(d.PeerBankAdminClient),
 		PeerAuthMW:    middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),

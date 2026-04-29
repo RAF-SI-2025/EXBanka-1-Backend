@@ -211,12 +211,13 @@ func main() {
 	markReady, _, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
-	// Inter-bank wiring removed — Phase 1 of the SI-TX refactor unwires
-	// the wrong-assumption InterBankService routes. PeerDisabledHandler
-	// (in router.NewHandlers) serves /api/v3/me/transfers and returns
-	// 501 for foreign-prefix receivers until the SI-TX-conformant
-	// replacement ships in Phase 2. See docs/superpowers/specs/
-	// 2026-04-29-celina5-sitx-refactor-design.md.
+	// Inter-bank wiring — Phase 3 Task 11 of the SI-TX refactor wires
+	// PeerTxDispatcherHandler (in router.NewHandlers) to serve
+	// /api/v3/me/transfers. Intra-bank receivers delegate to
+	// TransactionHandler; foreign-prefix receivers dispatch to
+	// PeerTxService.InitiateOutboundTx and return 202 Accepted with a
+	// poll URL. See docs/superpowers/specs/2026-04-29-celina5-sitx-
+	// refactor-design.md.
 
 	// SI-TX peer-bank gRPC clients + nonce store + resolver (Phase 2 Task 14).
 	peerTxClient, peerTxConn, err := grpcclients.NewPeerTxServiceClient(cfg.TransactionGRPCAddr)

@@ -2404,7 +2404,7 @@ The replacement implementation conforms to the SI-TX cohort wire protocol refere
 
 Design doc: `docs/superpowers/specs/2026-04-29-celina5-sitx-refactor-design.md`. Phase 1 plan: `docs/superpowers/plans/2026-04-29-celina5-sitx-phase1-demolition.md`.
 
-During this transition `POST /api/v3/me/transfers` works for intra-bank receivers (own 3-digit prefix). Foreign-prefix receivers receive `501 not_implemented` from `PeerDisabledHandler`.
+`POST /api/v3/me/transfers` is served by `PeerTxDispatcherHandler`. Intra-bank receivers (own 3-digit prefix) delegate to the standard intra-bank transfer flow and return `201`. Foreign-prefix receivers dispatch to `PeerTxService.InitiateOutboundTx` via gRPC and return `202 Accepted` with `{transaction_id, poll_url, status}` (Phase 3 Task 11).
 
 ## 26. Intra-bank OTC Options (Celina 4 / Spec 2)
 

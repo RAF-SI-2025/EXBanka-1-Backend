@@ -1801,6 +1801,8 @@ Initiate a currency transfer between accounts.
 
 > **Note:** Transfer is created in `pending_verification` status. The browser must create a verification challenge via `POST /api/v3/verifications` and then poll `GET /api/v3/verifications/:id/status` until verified. Once verified, call `POST /api/v3/me/transfers/:id/execute` with the `challenge_id`. Users with `verification.skip` permission skip verification entirely.
 
+> **Inter-bank dispatch (Phase 3):** When `to_account_number`'s 3-digit prefix differs from this bank's `OWN_BANK_CODE`, the request is dispatched to `PeerTxService.InitiateOutboundTx` via gRPC and returns `202 Accepted` with `{transaction_id, poll_url, status}`. Poll the returned URL for SI-TX completion status. Intra-bank receivers (own prefix) keep the legacy `201 Created` shape above.
+
 ---
 
 ### POST /api/v3/me/transfers/preview
