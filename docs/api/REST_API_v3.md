@@ -75,9 +75,10 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 35. [Sessions & Login History](#35-sessions--login-history)
 36. [Notifications](#36-notifications)
 37. [Stock Data Source](#37-stock-data-source)
-38. [Error Response Format](#error-response-format)
-39. [Password Requirements](#password-requirements)
-40. [Notes for Frontend Developers](#notes-for-frontend-developers)
+38. [Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)](#38-peer-banks-admin--si-tx-cross-bank-registry-celina-5)
+39. [Error Response Format](#error-response-format)
+40. [Password Requirements](#password-requirements)
+41. [Notes for Frontend Developers](#notes-for-frontend-developers)
 
 ---
 
@@ -6930,6 +6931,160 @@ Return the current active source and the most recent switch status.
 ```
 
 When `status=failed`, `last_error` contains the failure reason. The admin can retry by issuing a new POST.
+
+---
+
+## 38. Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)
+
+Runtime registry of cross-bank peer banks. Backs the SI-TX `POST /api/v3/interbank` middleware, which looks up peer authentication credentials in this table. EmployeeAdmin only (`peer_banks.manage.any` permission).
+
+> **Phase 2 status:** the table + admin CRUD is fully wired. The `POST /api/v3/interbank` endpoint exists but returns `501 Not Implemented` because the underlying TX execution is implemented in Phase 3. The `X-Api-Key` auth path on `/api/v3/interbank` is also stubbed in Phase 2 — Phase 3 introduces a dedicated internal RPC for plaintext-token lookup.
+
+### GET /api/v3/peer-banks
+
+List all registered peer banks.
+
+**Authentication:** Employee JWT + `peer_banks.manage.any` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `active_only` | bool | When `true`, hide inactive peers |
+
+**Response 200:**
+```json
+{
+  "peer_banks": [
+    {
+      "id": 1,
+      "bank_code": "222",
+      "routing_number": 222,
+      "base_url": "http://peer-222/api/v3",
+      "api_token_preview": "…-222",
+      "hmac_enabled": false,
+      "active": true,
+      "created_at": 1714345200,
+      "updated_at": 1714345200
+    }
+  ]
+}
+```
+
+`api_token_preview` returns only the last 4 characters of the token. The full token is never exposed via this endpoint.
+
+---
+
+### GET /api/v3/peer-banks/:id
+
+Read one peer bank by ID.
+
+**Authentication:** Employee JWT + `peer_banks.manage.any` permission
+
+**Response 200:** Peer bank object (same shape as List).
+**Response 404:** When the peer bank doesn't exist.
+
+---
+
+### POST /api/v3/peer-banks
+
+Register a new peer bank.
+
+**Authentication:** Employee JWT + `peer_banks.manage.any` permission
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `bank_code` | string | Yes | 3-digit prefix (e.g. "222") |
+| `routing_number` | int64 | Yes | Numeric form of bank_code |
+| `base_url` | string | Yes | Peer's `/api/v3` base URL |
+| `api_token` | string | Yes | Plaintext API token issued by peer; bcrypt-hashed before persist |
+| `hmac_inbound_key` | string | No | HMAC key to verify inbound HMAC-mode requests from this peer |
+| `hmac_outbound_key` | string | No | HMAC key to sign outbound requests to this peer |
+| `active` | bool | Yes | Whether this peer accepts traffic |
+
+**Example Request:**
+```json
+{
+  "bank_code": "222",
+  "routing_number": 222,
+  "base_url": "http://peer-222/api/v3",
+  "api_token": "secret-token-from-peer-222",
+  "active": true
+}
+```
+
+**Response 201:** Peer bank object (`api_token_preview` returned, never the full token).
+**Response 400:** Validation error (missing required field).
+
+---
+
+### PUT /api/v3/peer-banks/:id
+
+Update mutable fields. Only fields present in the body are updated.
+
+**Authentication:** Employee JWT + `peer_banks.manage.any` permission
+
+**Request Body (all fields optional):**
+
+| Field | Type | Description |
+|---|---|---|
+| `base_url` | string | New base URL |
+| `api_token` | string | New plaintext token (bcrypt re-hashed on persist) |
+| `hmac_inbound_key` | string | New inbound HMAC key |
+| `hmac_outbound_key` | string | New outbound HMAC key |
+| `active` | bool | Toggle peer on/off |
+
+**Response 200:** Updated peer bank object.
+**Response 404:** When the peer bank doesn't exist.
+
+---
+
+### DELETE /api/v3/peer-banks/:id
+
+Remove a peer bank.
+
+**Authentication:** Employee JWT + `peer_banks.manage.any` permission
+
+**Response 204:** Success, no body.
+
+---
+
+### POST /api/v3/interbank — Phase 2 stub
+
+Receives the SI-TX `Message<Type>` envelope from peer banks. Phase 2 returns `501 Not Implemented` (the underlying `PeerTxService` gRPC backend is stubbed). Phase 3 will implement actual `NEW_TX` / `COMMIT_TX` / `ROLLBACK_TX` posting execution.
+
+**Authentication:** Hybrid `PeerAuth` middleware. Either:
+- `X-Api-Key: <token>` (Phase 2: stubbed, returns 401), OR
+- `X-Bank-Code: <code>` + `X-Bank-Signature: <hex SHA-256>` + `X-Timestamp: <RFC3339, ±5min>` + `X-Nonce: <single-use>` (Phase 2: structurally wired but `HMACInboundKey` resolution is a Phase 3 stub).
+
+**Request Body:** SI-TX `Message<Type>` envelope. Shape verbatim from the cohort spec at https://arsen.srht.site/si-tx-proto/.
+
+```json
+{
+  "idempotenceKey": {
+    "routingNumber": 222,
+    "locallyGeneratedKey": "abc-123"
+  },
+  "messageType": "NEW_TX",
+  "message": {
+    "postings": [
+      {"routingNumber": 222, "accountId": "222000001", "assetId": "RSD", "amount": "100.00", "direction": "DEBIT"},
+      {"routingNumber": 111, "accountId": "111000001", "assetId": "RSD", "amount": "100.00", "direction": "CREDIT"}
+    ]
+  }
+}
+```
+
+**Response 501:** Phase 2 default — TX execution pending Phase 3.
+```json
+{ "error": "NEW_TX handling pending Phase 3" }
+```
+
+When Phase 3 lands, expected responses become:
+- **200 OK** with `TransactionVote` body for `NEW_TX`.
+- **204 No Content** for `COMMIT_TX` / `ROLLBACK_TX`.
 
 ---
 
