@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -246,7 +247,23 @@ func (h *StockOrderHandler) GetMyOrder(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	// REST_API_v3.md specifies the order fields at root with optional
+	// `order_transactions` nested. The proto OrderDetail wraps Order in an
+	// envelope, so we flatten here.
+	out := make(map[string]interface{})
+	if resp.Order != nil {
+		data, mErr := json.Marshal(resp.Order)
+		if mErr != nil {
+			apiError(c, 500, ErrInternal, "failed to encode order")
+			return
+		}
+		if uErr := json.Unmarshal(data, &out); uErr != nil {
+			apiError(c, 500, ErrInternal, "failed to encode order")
+			return
+		}
+	}
+	out["order_transactions"] = emptyIfNil(resp.Transactions)
+	c.JSON(http.StatusOK, out)
 }
 
 func (h *StockOrderHandler) CancelOrder(c *gin.Context) {

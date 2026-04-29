@@ -133,7 +133,7 @@ func TestSecurities_GetFutures(t *testing.T) {
 		t.Fatalf("error: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 200)
-	helpers.RequireField(t, resp, "contract_name")
+	helpers.RequireField(t, resp, "name")
 }
 
 func TestSecurities_GetFutures_NotFound(t *testing.T) {
