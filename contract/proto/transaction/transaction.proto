@@ -231,3 +231,140 @@ message TransferFeeResponse {
   string currency_code = 8;
   bool active = 9;
 }
+
+// PeerTxService backs the SI-TX `POST /api/v3/interbank` endpoint. Each
+// RPC corresponds to one messageType in the SI-TX envelope. Phase 2
+// stubs the TX RPCs as Unimplemented; Phase 3 fills them in.
+service PeerTxService {
+  rpc HandleNewTx(SiTxNewTxRequest) returns (SiTxVoteResponse);
+  rpc HandleCommitTx(SiTxCommitRequest) returns (SiTxAckResponse);
+  rpc HandleRollbackTx(SiTxRollbackRequest) returns (SiTxAckResponse);
+  rpc InitiateOutboundTx(SiTxInitiateRequest) returns (SiTxInitiateResponse);
+}
+
+message SiTxIdempotenceKey {
+  int64 routing_number = 1;
+  string locally_generated_key = 2;
+}
+
+message SiTxPosting {
+  int64 routing_number = 1;
+  string account_id = 2;
+  string asset_id = 3;
+  string amount = 4; // decimal as string
+  string direction = 5; // DEBIT | CREDIT
+}
+
+message SiTxNewTxRequest {
+  SiTxIdempotenceKey idempotence_key = 1;
+  string peer_bank_code = 2;
+  repeated SiTxPosting postings = 3;
+}
+
+message SiTxNoVote {
+  string reason = 1;
+  int32 posting_index = 2; // -1 when not posting-scoped
+  bool posting_index_set = 3;
+}
+
+message SiTxVoteResponse {
+  string type = 1; // YES | NO
+  repeated SiTxNoVote no_votes = 2;
+  string transaction_id = 3; // opaque receiver-side id, set on YES
+}
+
+message SiTxCommitRequest {
+  SiTxIdempotenceKey idempotence_key = 1;
+  string peer_bank_code = 2;
+  string transaction_id = 3;
+}
+
+message SiTxRollbackRequest {
+  SiTxIdempotenceKey idempotence_key = 1;
+  string peer_bank_code = 2;
+  string transaction_id = 3;
+}
+
+message SiTxAckResponse {
+  // Empty by design (HTTP 204 response).
+}
+
+message SiTxInitiateRequest {
+  string from_account_number = 1;
+  string to_account_number = 2;
+  string amount = 3;
+  string currency = 4;
+}
+
+message SiTxInitiateResponse {
+  string transaction_id = 1;
+  string poll_url = 2;
+  string status = 3;
+}
+
+// PeerBankAdminService is the runtime-editable peer-bank registry. Lets
+// admins add/update/remove peer banks without redeploys. Gated by the
+// peer_banks.manage.any permission.
+service PeerBankAdminService {
+  rpc ListPeerBanks(ListPeerBanksRequest) returns (ListPeerBanksResponse);
+  rpc GetPeerBank(GetPeerBankRequest) returns (PeerBank);
+  rpc CreatePeerBank(CreatePeerBankRequest) returns (PeerBank);
+  rpc UpdatePeerBank(UpdatePeerBankRequest) returns (PeerBank);
+  rpc DeletePeerBank(DeletePeerBankRequest) returns (DeletePeerBankResponse);
+}
+
+message PeerBank {
+  uint64 id = 1;
+  string bank_code = 2;
+  int64 routing_number = 3;
+  string base_url = 4;
+  string api_token_preview = 5;
+  bool hmac_enabled = 6;
+  bool active = 7;
+  int64 created_at = 8;
+  int64 updated_at = 9;
+}
+
+message ListPeerBanksRequest {
+  bool active_only = 1;
+}
+
+message ListPeerBanksResponse {
+  repeated PeerBank peer_banks = 1;
+}
+
+message GetPeerBankRequest {
+  uint64 id = 1;
+}
+
+message CreatePeerBankRequest {
+  string bank_code = 1;
+  int64 routing_number = 2;
+  string base_url = 3;
+  string api_token = 4;
+  string hmac_inbound_key = 5;
+  string hmac_outbound_key = 6;
+  bool active = 7;
+}
+
+message UpdatePeerBankRequest {
+  uint64 id = 1;
+  string base_url = 2;
+  bool base_url_set = 3;
+  string api_token = 4;
+  bool api_token_set = 5;
+  string hmac_inbound_key = 6;
+  bool hmac_inbound_key_set = 7;
+  string hmac_outbound_key = 8;
+  bool hmac_outbound_key_set = 9;
+  bool active = 10;
+  bool active_set = 11;
+}
+
+message DeletePeerBankRequest {
+  uint64 id = 1;
+}
+
+message DeletePeerBankResponse {
+  // Empty.
+}

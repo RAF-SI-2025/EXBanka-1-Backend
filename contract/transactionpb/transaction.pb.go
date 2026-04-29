@@ -2137,6 +2137,1134 @@ func (x *TransferFeeResponse) GetActive() bool {
 	return false
 }
 
+type SiTxIdempotenceKey struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	RoutingNumber       int64                  `protobuf:"varint,1,opt,name=routing_number,json=routingNumber,proto3" json:"routing_number,omitempty"`
+	LocallyGeneratedKey string                 `protobuf:"bytes,2,opt,name=locally_generated_key,json=locallyGeneratedKey,proto3" json:"locally_generated_key,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *SiTxIdempotenceKey) Reset() {
+	*x = SiTxIdempotenceKey{}
+	mi := &file_transaction_transaction_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxIdempotenceKey) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxIdempotenceKey) ProtoMessage() {}
+
+func (x *SiTxIdempotenceKey) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxIdempotenceKey.ProtoReflect.Descriptor instead.
+func (*SiTxIdempotenceKey) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *SiTxIdempotenceKey) GetRoutingNumber() int64 {
+	if x != nil {
+		return x.RoutingNumber
+	}
+	return 0
+}
+
+func (x *SiTxIdempotenceKey) GetLocallyGeneratedKey() string {
+	if x != nil {
+		return x.LocallyGeneratedKey
+	}
+	return ""
+}
+
+type SiTxPosting struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RoutingNumber int64                  `protobuf:"varint,1,opt,name=routing_number,json=routingNumber,proto3" json:"routing_number,omitempty"`
+	AccountId     string                 `protobuf:"bytes,2,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	AssetId       string                 `protobuf:"bytes,3,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	Amount        string                 `protobuf:"bytes,4,opt,name=amount,proto3" json:"amount,omitempty"`       // decimal as string
+	Direction     string                 `protobuf:"bytes,5,opt,name=direction,proto3" json:"direction,omitempty"` // DEBIT | CREDIT
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SiTxPosting) Reset() {
+	*x = SiTxPosting{}
+	mi := &file_transaction_transaction_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxPosting) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxPosting) ProtoMessage() {}
+
+func (x *SiTxPosting) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxPosting.ProtoReflect.Descriptor instead.
+func (*SiTxPosting) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *SiTxPosting) GetRoutingNumber() int64 {
+	if x != nil {
+		return x.RoutingNumber
+	}
+	return 0
+}
+
+func (x *SiTxPosting) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *SiTxPosting) GetAssetId() string {
+	if x != nil {
+		return x.AssetId
+	}
+	return ""
+}
+
+func (x *SiTxPosting) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *SiTxPosting) GetDirection() string {
+	if x != nil {
+		return x.Direction
+	}
+	return ""
+}
+
+type SiTxNewTxRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IdempotenceKey *SiTxIdempotenceKey    `protobuf:"bytes,1,opt,name=idempotence_key,json=idempotenceKey,proto3" json:"idempotence_key,omitempty"`
+	PeerBankCode   string                 `protobuf:"bytes,2,opt,name=peer_bank_code,json=peerBankCode,proto3" json:"peer_bank_code,omitempty"`
+	Postings       []*SiTxPosting         `protobuf:"bytes,3,rep,name=postings,proto3" json:"postings,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SiTxNewTxRequest) Reset() {
+	*x = SiTxNewTxRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxNewTxRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxNewTxRequest) ProtoMessage() {}
+
+func (x *SiTxNewTxRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxNewTxRequest.ProtoReflect.Descriptor instead.
+func (*SiTxNewTxRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *SiTxNewTxRequest) GetIdempotenceKey() *SiTxIdempotenceKey {
+	if x != nil {
+		return x.IdempotenceKey
+	}
+	return nil
+}
+
+func (x *SiTxNewTxRequest) GetPeerBankCode() string {
+	if x != nil {
+		return x.PeerBankCode
+	}
+	return ""
+}
+
+func (x *SiTxNewTxRequest) GetPostings() []*SiTxPosting {
+	if x != nil {
+		return x.Postings
+	}
+	return nil
+}
+
+type SiTxNoVote struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Reason          string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	PostingIndex    int32                  `protobuf:"varint,2,opt,name=posting_index,json=postingIndex,proto3" json:"posting_index,omitempty"` // -1 when not posting-scoped
+	PostingIndexSet bool                   `protobuf:"varint,3,opt,name=posting_index_set,json=postingIndexSet,proto3" json:"posting_index_set,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SiTxNoVote) Reset() {
+	*x = SiTxNoVote{}
+	mi := &file_transaction_transaction_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxNoVote) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxNoVote) ProtoMessage() {}
+
+func (x *SiTxNoVote) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxNoVote.ProtoReflect.Descriptor instead.
+func (*SiTxNoVote) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *SiTxNoVote) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *SiTxNoVote) GetPostingIndex() int32 {
+	if x != nil {
+		return x.PostingIndex
+	}
+	return 0
+}
+
+func (x *SiTxNoVote) GetPostingIndexSet() bool {
+	if x != nil {
+		return x.PostingIndexSet
+	}
+	return false
+}
+
+type SiTxVoteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"` // YES | NO
+	NoVotes       []*SiTxNoVote          `protobuf:"bytes,2,rep,name=no_votes,json=noVotes,proto3" json:"no_votes,omitempty"`
+	TransactionId string                 `protobuf:"bytes,3,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // opaque receiver-side id, set on YES
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SiTxVoteResponse) Reset() {
+	*x = SiTxVoteResponse{}
+	mi := &file_transaction_transaction_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxVoteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxVoteResponse) ProtoMessage() {}
+
+func (x *SiTxVoteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxVoteResponse.ProtoReflect.Descriptor instead.
+func (*SiTxVoteResponse) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *SiTxVoteResponse) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *SiTxVoteResponse) GetNoVotes() []*SiTxNoVote {
+	if x != nil {
+		return x.NoVotes
+	}
+	return nil
+}
+
+func (x *SiTxVoteResponse) GetTransactionId() string {
+	if x != nil {
+		return x.TransactionId
+	}
+	return ""
+}
+
+type SiTxCommitRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IdempotenceKey *SiTxIdempotenceKey    `protobuf:"bytes,1,opt,name=idempotence_key,json=idempotenceKey,proto3" json:"idempotence_key,omitempty"`
+	PeerBankCode   string                 `protobuf:"bytes,2,opt,name=peer_bank_code,json=peerBankCode,proto3" json:"peer_bank_code,omitempty"`
+	TransactionId  string                 `protobuf:"bytes,3,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SiTxCommitRequest) Reset() {
+	*x = SiTxCommitRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxCommitRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxCommitRequest) ProtoMessage() {}
+
+func (x *SiTxCommitRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxCommitRequest.ProtoReflect.Descriptor instead.
+func (*SiTxCommitRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *SiTxCommitRequest) GetIdempotenceKey() *SiTxIdempotenceKey {
+	if x != nil {
+		return x.IdempotenceKey
+	}
+	return nil
+}
+
+func (x *SiTxCommitRequest) GetPeerBankCode() string {
+	if x != nil {
+		return x.PeerBankCode
+	}
+	return ""
+}
+
+func (x *SiTxCommitRequest) GetTransactionId() string {
+	if x != nil {
+		return x.TransactionId
+	}
+	return ""
+}
+
+type SiTxRollbackRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	IdempotenceKey *SiTxIdempotenceKey    `protobuf:"bytes,1,opt,name=idempotence_key,json=idempotenceKey,proto3" json:"idempotence_key,omitempty"`
+	PeerBankCode   string                 `protobuf:"bytes,2,opt,name=peer_bank_code,json=peerBankCode,proto3" json:"peer_bank_code,omitempty"`
+	TransactionId  string                 `protobuf:"bytes,3,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SiTxRollbackRequest) Reset() {
+	*x = SiTxRollbackRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxRollbackRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxRollbackRequest) ProtoMessage() {}
+
+func (x *SiTxRollbackRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxRollbackRequest.ProtoReflect.Descriptor instead.
+func (*SiTxRollbackRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *SiTxRollbackRequest) GetIdempotenceKey() *SiTxIdempotenceKey {
+	if x != nil {
+		return x.IdempotenceKey
+	}
+	return nil
+}
+
+func (x *SiTxRollbackRequest) GetPeerBankCode() string {
+	if x != nil {
+		return x.PeerBankCode
+	}
+	return ""
+}
+
+func (x *SiTxRollbackRequest) GetTransactionId() string {
+	if x != nil {
+		return x.TransactionId
+	}
+	return ""
+}
+
+type SiTxAckResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SiTxAckResponse) Reset() {
+	*x = SiTxAckResponse{}
+	mi := &file_transaction_transaction_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxAckResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxAckResponse) ProtoMessage() {}
+
+func (x *SiTxAckResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxAckResponse.ProtoReflect.Descriptor instead.
+func (*SiTxAckResponse) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{38}
+}
+
+type SiTxInitiateRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	FromAccountNumber string                 `protobuf:"bytes,1,opt,name=from_account_number,json=fromAccountNumber,proto3" json:"from_account_number,omitempty"`
+	ToAccountNumber   string                 `protobuf:"bytes,2,opt,name=to_account_number,json=toAccountNumber,proto3" json:"to_account_number,omitempty"`
+	Amount            string                 `protobuf:"bytes,3,opt,name=amount,proto3" json:"amount,omitempty"`
+	Currency          string                 `protobuf:"bytes,4,opt,name=currency,proto3" json:"currency,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SiTxInitiateRequest) Reset() {
+	*x = SiTxInitiateRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxInitiateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxInitiateRequest) ProtoMessage() {}
+
+func (x *SiTxInitiateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxInitiateRequest.ProtoReflect.Descriptor instead.
+func (*SiTxInitiateRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *SiTxInitiateRequest) GetFromAccountNumber() string {
+	if x != nil {
+		return x.FromAccountNumber
+	}
+	return ""
+}
+
+func (x *SiTxInitiateRequest) GetToAccountNumber() string {
+	if x != nil {
+		return x.ToAccountNumber
+	}
+	return ""
+}
+
+func (x *SiTxInitiateRequest) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *SiTxInitiateRequest) GetCurrency() string {
+	if x != nil {
+		return x.Currency
+	}
+	return ""
+}
+
+type SiTxInitiateResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransactionId string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	PollUrl       string                 `protobuf:"bytes,2,opt,name=poll_url,json=pollUrl,proto3" json:"poll_url,omitempty"`
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SiTxInitiateResponse) Reset() {
+	*x = SiTxInitiateResponse{}
+	mi := &file_transaction_transaction_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SiTxInitiateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SiTxInitiateResponse) ProtoMessage() {}
+
+func (x *SiTxInitiateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SiTxInitiateResponse.ProtoReflect.Descriptor instead.
+func (*SiTxInitiateResponse) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *SiTxInitiateResponse) GetTransactionId() string {
+	if x != nil {
+		return x.TransactionId
+	}
+	return ""
+}
+
+func (x *SiTxInitiateResponse) GetPollUrl() string {
+	if x != nil {
+		return x.PollUrl
+	}
+	return ""
+}
+
+func (x *SiTxInitiateResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type PeerBank struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	BankCode        string                 `protobuf:"bytes,2,opt,name=bank_code,json=bankCode,proto3" json:"bank_code,omitempty"`
+	RoutingNumber   int64                  `protobuf:"varint,3,opt,name=routing_number,json=routingNumber,proto3" json:"routing_number,omitempty"`
+	BaseUrl         string                 `protobuf:"bytes,4,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	ApiTokenPreview string                 `protobuf:"bytes,5,opt,name=api_token_preview,json=apiTokenPreview,proto3" json:"api_token_preview,omitempty"`
+	HmacEnabled     bool                   `protobuf:"varint,6,opt,name=hmac_enabled,json=hmacEnabled,proto3" json:"hmac_enabled,omitempty"`
+	Active          bool                   `protobuf:"varint,7,opt,name=active,proto3" json:"active,omitempty"`
+	CreatedAt       int64                  `protobuf:"varint,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt       int64                  `protobuf:"varint,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *PeerBank) Reset() {
+	*x = PeerBank{}
+	mi := &file_transaction_transaction_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PeerBank) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PeerBank) ProtoMessage() {}
+
+func (x *PeerBank) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PeerBank.ProtoReflect.Descriptor instead.
+func (*PeerBank) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *PeerBank) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *PeerBank) GetBankCode() string {
+	if x != nil {
+		return x.BankCode
+	}
+	return ""
+}
+
+func (x *PeerBank) GetRoutingNumber() int64 {
+	if x != nil {
+		return x.RoutingNumber
+	}
+	return 0
+}
+
+func (x *PeerBank) GetBaseUrl() string {
+	if x != nil {
+		return x.BaseUrl
+	}
+	return ""
+}
+
+func (x *PeerBank) GetApiTokenPreview() string {
+	if x != nil {
+		return x.ApiTokenPreview
+	}
+	return ""
+}
+
+func (x *PeerBank) GetHmacEnabled() bool {
+	if x != nil {
+		return x.HmacEnabled
+	}
+	return false
+}
+
+func (x *PeerBank) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *PeerBank) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+func (x *PeerBank) GetUpdatedAt() int64 {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return 0
+}
+
+type ListPeerBanksRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ActiveOnly    bool                   `protobuf:"varint,1,opt,name=active_only,json=activeOnly,proto3" json:"active_only,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPeerBanksRequest) Reset() {
+	*x = ListPeerBanksRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPeerBanksRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPeerBanksRequest) ProtoMessage() {}
+
+func (x *ListPeerBanksRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPeerBanksRequest.ProtoReflect.Descriptor instead.
+func (*ListPeerBanksRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *ListPeerBanksRequest) GetActiveOnly() bool {
+	if x != nil {
+		return x.ActiveOnly
+	}
+	return false
+}
+
+type ListPeerBanksResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerBanks     []*PeerBank            `protobuf:"bytes,1,rep,name=peer_banks,json=peerBanks,proto3" json:"peer_banks,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListPeerBanksResponse) Reset() {
+	*x = ListPeerBanksResponse{}
+	mi := &file_transaction_transaction_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListPeerBanksResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListPeerBanksResponse) ProtoMessage() {}
+
+func (x *ListPeerBanksResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListPeerBanksResponse.ProtoReflect.Descriptor instead.
+func (*ListPeerBanksResponse) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ListPeerBanksResponse) GetPeerBanks() []*PeerBank {
+	if x != nil {
+		return x.PeerBanks
+	}
+	return nil
+}
+
+type GetPeerBankRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPeerBankRequest) Reset() {
+	*x = GetPeerBankRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPeerBankRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPeerBankRequest) ProtoMessage() {}
+
+func (x *GetPeerBankRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPeerBankRequest.ProtoReflect.Descriptor instead.
+func (*GetPeerBankRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *GetPeerBankRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+type CreatePeerBankRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	BankCode        string                 `protobuf:"bytes,1,opt,name=bank_code,json=bankCode,proto3" json:"bank_code,omitempty"`
+	RoutingNumber   int64                  `protobuf:"varint,2,opt,name=routing_number,json=routingNumber,proto3" json:"routing_number,omitempty"`
+	BaseUrl         string                 `protobuf:"bytes,3,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	ApiToken        string                 `protobuf:"bytes,4,opt,name=api_token,json=apiToken,proto3" json:"api_token,omitempty"`
+	HmacInboundKey  string                 `protobuf:"bytes,5,opt,name=hmac_inbound_key,json=hmacInboundKey,proto3" json:"hmac_inbound_key,omitempty"`
+	HmacOutboundKey string                 `protobuf:"bytes,6,opt,name=hmac_outbound_key,json=hmacOutboundKey,proto3" json:"hmac_outbound_key,omitempty"`
+	Active          bool                   `protobuf:"varint,7,opt,name=active,proto3" json:"active,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CreatePeerBankRequest) Reset() {
+	*x = CreatePeerBankRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreatePeerBankRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreatePeerBankRequest) ProtoMessage() {}
+
+func (x *CreatePeerBankRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreatePeerBankRequest.ProtoReflect.Descriptor instead.
+func (*CreatePeerBankRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *CreatePeerBankRequest) GetBankCode() string {
+	if x != nil {
+		return x.BankCode
+	}
+	return ""
+}
+
+func (x *CreatePeerBankRequest) GetRoutingNumber() int64 {
+	if x != nil {
+		return x.RoutingNumber
+	}
+	return 0
+}
+
+func (x *CreatePeerBankRequest) GetBaseUrl() string {
+	if x != nil {
+		return x.BaseUrl
+	}
+	return ""
+}
+
+func (x *CreatePeerBankRequest) GetApiToken() string {
+	if x != nil {
+		return x.ApiToken
+	}
+	return ""
+}
+
+func (x *CreatePeerBankRequest) GetHmacInboundKey() string {
+	if x != nil {
+		return x.HmacInboundKey
+	}
+	return ""
+}
+
+func (x *CreatePeerBankRequest) GetHmacOutboundKey() string {
+	if x != nil {
+		return x.HmacOutboundKey
+	}
+	return ""
+}
+
+func (x *CreatePeerBankRequest) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+type UpdatePeerBankRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Id                 uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	BaseUrl            string                 `protobuf:"bytes,2,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	BaseUrlSet         bool                   `protobuf:"varint,3,opt,name=base_url_set,json=baseUrlSet,proto3" json:"base_url_set,omitempty"`
+	ApiToken           string                 `protobuf:"bytes,4,opt,name=api_token,json=apiToken,proto3" json:"api_token,omitempty"`
+	ApiTokenSet        bool                   `protobuf:"varint,5,opt,name=api_token_set,json=apiTokenSet,proto3" json:"api_token_set,omitempty"`
+	HmacInboundKey     string                 `protobuf:"bytes,6,opt,name=hmac_inbound_key,json=hmacInboundKey,proto3" json:"hmac_inbound_key,omitempty"`
+	HmacInboundKeySet  bool                   `protobuf:"varint,7,opt,name=hmac_inbound_key_set,json=hmacInboundKeySet,proto3" json:"hmac_inbound_key_set,omitempty"`
+	HmacOutboundKey    string                 `protobuf:"bytes,8,opt,name=hmac_outbound_key,json=hmacOutboundKey,proto3" json:"hmac_outbound_key,omitempty"`
+	HmacOutboundKeySet bool                   `protobuf:"varint,9,opt,name=hmac_outbound_key_set,json=hmacOutboundKeySet,proto3" json:"hmac_outbound_key_set,omitempty"`
+	Active             bool                   `protobuf:"varint,10,opt,name=active,proto3" json:"active,omitempty"`
+	ActiveSet          bool                   `protobuf:"varint,11,opt,name=active_set,json=activeSet,proto3" json:"active_set,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *UpdatePeerBankRequest) Reset() {
+	*x = UpdatePeerBankRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdatePeerBankRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdatePeerBankRequest) ProtoMessage() {}
+
+func (x *UpdatePeerBankRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdatePeerBankRequest.ProtoReflect.Descriptor instead.
+func (*UpdatePeerBankRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *UpdatePeerBankRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *UpdatePeerBankRequest) GetBaseUrl() string {
+	if x != nil {
+		return x.BaseUrl
+	}
+	return ""
+}
+
+func (x *UpdatePeerBankRequest) GetBaseUrlSet() bool {
+	if x != nil {
+		return x.BaseUrlSet
+	}
+	return false
+}
+
+func (x *UpdatePeerBankRequest) GetApiToken() string {
+	if x != nil {
+		return x.ApiToken
+	}
+	return ""
+}
+
+func (x *UpdatePeerBankRequest) GetApiTokenSet() bool {
+	if x != nil {
+		return x.ApiTokenSet
+	}
+	return false
+}
+
+func (x *UpdatePeerBankRequest) GetHmacInboundKey() string {
+	if x != nil {
+		return x.HmacInboundKey
+	}
+	return ""
+}
+
+func (x *UpdatePeerBankRequest) GetHmacInboundKeySet() bool {
+	if x != nil {
+		return x.HmacInboundKeySet
+	}
+	return false
+}
+
+func (x *UpdatePeerBankRequest) GetHmacOutboundKey() string {
+	if x != nil {
+		return x.HmacOutboundKey
+	}
+	return ""
+}
+
+func (x *UpdatePeerBankRequest) GetHmacOutboundKeySet() bool {
+	if x != nil {
+		return x.HmacOutboundKeySet
+	}
+	return false
+}
+
+func (x *UpdatePeerBankRequest) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *UpdatePeerBankRequest) GetActiveSet() bool {
+	if x != nil {
+		return x.ActiveSet
+	}
+	return false
+}
+
+type DeletePeerBankRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeletePeerBankRequest) Reset() {
+	*x = DeletePeerBankRequest{}
+	mi := &file_transaction_transaction_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeletePeerBankRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeletePeerBankRequest) ProtoMessage() {}
+
+func (x *DeletePeerBankRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeletePeerBankRequest.ProtoReflect.Descriptor instead.
+func (*DeletePeerBankRequest) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *DeletePeerBankRequest) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+type DeletePeerBankResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeletePeerBankResponse) Reset() {
+	*x = DeletePeerBankResponse{}
+	mi := &file_transaction_transaction_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeletePeerBankResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeletePeerBankResponse) ProtoMessage() {}
+
+func (x *DeletePeerBankResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_transaction_transaction_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeletePeerBankResponse.ProtoReflect.Descriptor instead.
+func (*DeletePeerBankResponse) Descriptor() ([]byte, []int) {
+	return file_transaction_transaction_proto_rawDescGZIP(), []int{48}
+}
+
 var File_transaction_transaction_proto protoreflect.FileDescriptor
 
 const file_transaction_transaction_proto_rawDesc = "" +
@@ -2316,7 +3444,94 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\amax_fee\x18\x06 \x01(\tR\x06maxFee\x12)\n" +
 	"\x10transaction_type\x18\a \x01(\tR\x0ftransactionType\x12#\n" +
 	"\rcurrency_code\x18\b \x01(\tR\fcurrencyCode\x12\x16\n" +
-	"\x06active\x18\t \x01(\bR\x06active2\xd9\n" +
+	"\x06active\x18\t \x01(\bR\x06active\"o\n" +
+	"\x12SiTxIdempotenceKey\x12%\n" +
+	"\x0erouting_number\x18\x01 \x01(\x03R\rroutingNumber\x122\n" +
+	"\x15locally_generated_key\x18\x02 \x01(\tR\x13locallyGeneratedKey\"\xa4\x01\n" +
+	"\vSiTxPosting\x12%\n" +
+	"\x0erouting_number\x18\x01 \x01(\x03R\rroutingNumber\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x02 \x01(\tR\taccountId\x12\x19\n" +
+	"\basset_id\x18\x03 \x01(\tR\aassetId\x12\x16\n" +
+	"\x06amount\x18\x04 \x01(\tR\x06amount\x12\x1c\n" +
+	"\tdirection\x18\x05 \x01(\tR\tdirection\"\xb8\x01\n" +
+	"\x10SiTxNewTxRequest\x12H\n" +
+	"\x0fidempotence_key\x18\x01 \x01(\v2\x1f.transaction.SiTxIdempotenceKeyR\x0eidempotenceKey\x12$\n" +
+	"\x0epeer_bank_code\x18\x02 \x01(\tR\fpeerBankCode\x124\n" +
+	"\bpostings\x18\x03 \x03(\v2\x18.transaction.SiTxPostingR\bpostings\"u\n" +
+	"\n" +
+	"SiTxNoVote\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\x12#\n" +
+	"\rposting_index\x18\x02 \x01(\x05R\fpostingIndex\x12*\n" +
+	"\x11posting_index_set\x18\x03 \x01(\bR\x0fpostingIndexSet\"\x81\x01\n" +
+	"\x10SiTxVoteResponse\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x122\n" +
+	"\bno_votes\x18\x02 \x03(\v2\x17.transaction.SiTxNoVoteR\anoVotes\x12%\n" +
+	"\x0etransaction_id\x18\x03 \x01(\tR\rtransactionId\"\xaa\x01\n" +
+	"\x11SiTxCommitRequest\x12H\n" +
+	"\x0fidempotence_key\x18\x01 \x01(\v2\x1f.transaction.SiTxIdempotenceKeyR\x0eidempotenceKey\x12$\n" +
+	"\x0epeer_bank_code\x18\x02 \x01(\tR\fpeerBankCode\x12%\n" +
+	"\x0etransaction_id\x18\x03 \x01(\tR\rtransactionId\"\xac\x01\n" +
+	"\x13SiTxRollbackRequest\x12H\n" +
+	"\x0fidempotence_key\x18\x01 \x01(\v2\x1f.transaction.SiTxIdempotenceKeyR\x0eidempotenceKey\x12$\n" +
+	"\x0epeer_bank_code\x18\x02 \x01(\tR\fpeerBankCode\x12%\n" +
+	"\x0etransaction_id\x18\x03 \x01(\tR\rtransactionId\"\x11\n" +
+	"\x0fSiTxAckResponse\"\xa5\x01\n" +
+	"\x13SiTxInitiateRequest\x12.\n" +
+	"\x13from_account_number\x18\x01 \x01(\tR\x11fromAccountNumber\x12*\n" +
+	"\x11to_account_number\x18\x02 \x01(\tR\x0ftoAccountNumber\x12\x16\n" +
+	"\x06amount\x18\x03 \x01(\tR\x06amount\x12\x1a\n" +
+	"\bcurrency\x18\x04 \x01(\tR\bcurrency\"p\n" +
+	"\x14SiTxInitiateResponse\x12%\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x19\n" +
+	"\bpoll_url\x18\x02 \x01(\tR\apollUrl\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\"\x9e\x02\n" +
+	"\bPeerBank\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1b\n" +
+	"\tbank_code\x18\x02 \x01(\tR\bbankCode\x12%\n" +
+	"\x0erouting_number\x18\x03 \x01(\x03R\rroutingNumber\x12\x19\n" +
+	"\bbase_url\x18\x04 \x01(\tR\abaseUrl\x12*\n" +
+	"\x11api_token_preview\x18\x05 \x01(\tR\x0fapiTokenPreview\x12!\n" +
+	"\fhmac_enabled\x18\x06 \x01(\bR\vhmacEnabled\x12\x16\n" +
+	"\x06active\x18\a \x01(\bR\x06active\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\b \x01(\x03R\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\t \x01(\x03R\tupdatedAt\"7\n" +
+	"\x14ListPeerBanksRequest\x12\x1f\n" +
+	"\vactive_only\x18\x01 \x01(\bR\n" +
+	"activeOnly\"M\n" +
+	"\x15ListPeerBanksResponse\x124\n" +
+	"\n" +
+	"peer_banks\x18\x01 \x03(\v2\x15.transaction.PeerBankR\tpeerBanks\"$\n" +
+	"\x12GetPeerBankRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\"\x81\x02\n" +
+	"\x15CreatePeerBankRequest\x12\x1b\n" +
+	"\tbank_code\x18\x01 \x01(\tR\bbankCode\x12%\n" +
+	"\x0erouting_number\x18\x02 \x01(\x03R\rroutingNumber\x12\x19\n" +
+	"\bbase_url\x18\x03 \x01(\tR\abaseUrl\x12\x1b\n" +
+	"\tapi_token\x18\x04 \x01(\tR\bapiToken\x12(\n" +
+	"\x10hmac_inbound_key\x18\x05 \x01(\tR\x0ehmacInboundKey\x12*\n" +
+	"\x11hmac_outbound_key\x18\x06 \x01(\tR\x0fhmacOutboundKey\x12\x16\n" +
+	"\x06active\x18\a \x01(\bR\x06active\"\x96\x03\n" +
+	"\x15UpdatePeerBankRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x19\n" +
+	"\bbase_url\x18\x02 \x01(\tR\abaseUrl\x12 \n" +
+	"\fbase_url_set\x18\x03 \x01(\bR\n" +
+	"baseUrlSet\x12\x1b\n" +
+	"\tapi_token\x18\x04 \x01(\tR\bapiToken\x12\"\n" +
+	"\rapi_token_set\x18\x05 \x01(\bR\vapiTokenSet\x12(\n" +
+	"\x10hmac_inbound_key\x18\x06 \x01(\tR\x0ehmacInboundKey\x12/\n" +
+	"\x14hmac_inbound_key_set\x18\a \x01(\bR\x11hmacInboundKeySet\x12*\n" +
+	"\x11hmac_outbound_key\x18\b \x01(\tR\x0fhmacOutboundKey\x121\n" +
+	"\x15hmac_outbound_key_set\x18\t \x01(\bR\x12hmacOutboundKeySet\x12\x16\n" +
+	"\x06active\x18\n" +
+	" \x01(\bR\x06active\x12\x1d\n" +
+	"\n" +
+	"active_set\x18\v \x01(\bR\tactiveSet\"'\n" +
+	"\x15DeletePeerBankRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\"\x18\n" +
+	"\x16DeletePeerBankResponse2\xd9\n" +
 	"\n" +
 	"\x12TransactionService\x12P\n" +
 	"\rCreatePayment\x12!.transaction.CreatePaymentRequest\x1a\x1c.transaction.PaymentResponse\x12R\n" +
@@ -2340,7 +3555,18 @@ const file_transaction_transaction_proto_rawDesc = "" +
 	"\tCreateFee\x12\x1d.transaction.CreateFeeRequest\x1a .transaction.TransferFeeResponse\x12L\n" +
 	"\tUpdateFee\x12\x1d.transaction.UpdateFeeRequest\x1a .transaction.TransferFeeResponse\x12J\n" +
 	"\tDeleteFee\x12\x1d.transaction.DeleteFeeRequest\x1a\x1e.transaction.DeleteFeeResponse\x12S\n" +
-	"\fCalculateFee\x12 .transaction.CalculateFeeRequest\x1a!.transaction.CalculateFeeResponseB9Z7github.com/exbanka/contract/transactionpb;transactionpbb\x06proto3"
+	"\fCalculateFee\x12 .transaction.CalculateFeeRequest\x1a!.transaction.CalculateFeeResponse2\xdb\x02\n" +
+	"\rPeerTxService\x12K\n" +
+	"\vHandleNewTx\x12\x1d.transaction.SiTxNewTxRequest\x1a\x1d.transaction.SiTxVoteResponse\x12N\n" +
+	"\x0eHandleCommitTx\x12\x1e.transaction.SiTxCommitRequest\x1a\x1c.transaction.SiTxAckResponse\x12R\n" +
+	"\x10HandleRollbackTx\x12 .transaction.SiTxRollbackRequest\x1a\x1c.transaction.SiTxAckResponse\x12Y\n" +
+	"\x12InitiateOutboundTx\x12 .transaction.SiTxInitiateRequest\x1a!.transaction.SiTxInitiateResponse2\xaa\x03\n" +
+	"\x14PeerBankAdminService\x12V\n" +
+	"\rListPeerBanks\x12!.transaction.ListPeerBanksRequest\x1a\".transaction.ListPeerBanksResponse\x12E\n" +
+	"\vGetPeerBank\x12\x1f.transaction.GetPeerBankRequest\x1a\x15.transaction.PeerBank\x12K\n" +
+	"\x0eCreatePeerBank\x12\".transaction.CreatePeerBankRequest\x1a\x15.transaction.PeerBank\x12K\n" +
+	"\x0eUpdatePeerBank\x12\".transaction.UpdatePeerBankRequest\x1a\x15.transaction.PeerBank\x12Y\n" +
+	"\x0eDeletePeerBank\x12\".transaction.DeletePeerBankRequest\x1a#.transaction.DeletePeerBankResponseB9Z7github.com/exbanka/contract/transactionpb;transactionpbb\x06proto3"
 
 var (
 	file_transaction_transaction_proto_rawDescOnce sync.Once
@@ -2354,7 +3580,7 @@ func file_transaction_transaction_proto_rawDescGZIP() []byte {
 	return file_transaction_transaction_proto_rawDescData
 }
 
-var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_transaction_transaction_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_transaction_transaction_proto_goTypes = []any{
 	(*CreatePaymentRequest)(nil),           // 0: transaction.CreatePaymentRequest
 	(*GetPaymentRequest)(nil),              // 1: transaction.GetPaymentRequest
@@ -2387,6 +3613,24 @@ var file_transaction_transaction_proto_goTypes = []any{
 	(*CalculateFeeResponse)(nil),           // 28: transaction.CalculateFeeResponse
 	(*FeeBreakdown)(nil),                   // 29: transaction.FeeBreakdown
 	(*TransferFeeResponse)(nil),            // 30: transaction.TransferFeeResponse
+	(*SiTxIdempotenceKey)(nil),             // 31: transaction.SiTxIdempotenceKey
+	(*SiTxPosting)(nil),                    // 32: transaction.SiTxPosting
+	(*SiTxNewTxRequest)(nil),               // 33: transaction.SiTxNewTxRequest
+	(*SiTxNoVote)(nil),                     // 34: transaction.SiTxNoVote
+	(*SiTxVoteResponse)(nil),               // 35: transaction.SiTxVoteResponse
+	(*SiTxCommitRequest)(nil),              // 36: transaction.SiTxCommitRequest
+	(*SiTxRollbackRequest)(nil),            // 37: transaction.SiTxRollbackRequest
+	(*SiTxAckResponse)(nil),                // 38: transaction.SiTxAckResponse
+	(*SiTxInitiateRequest)(nil),            // 39: transaction.SiTxInitiateRequest
+	(*SiTxInitiateResponse)(nil),           // 40: transaction.SiTxInitiateResponse
+	(*PeerBank)(nil),                       // 41: transaction.PeerBank
+	(*ListPeerBanksRequest)(nil),           // 42: transaction.ListPeerBanksRequest
+	(*ListPeerBanksResponse)(nil),          // 43: transaction.ListPeerBanksResponse
+	(*GetPeerBankRequest)(nil),             // 44: transaction.GetPeerBankRequest
+	(*CreatePeerBankRequest)(nil),          // 45: transaction.CreatePeerBankRequest
+	(*UpdatePeerBankRequest)(nil),          // 46: transaction.UpdatePeerBankRequest
+	(*DeletePeerBankRequest)(nil),          // 47: transaction.DeletePeerBankRequest
+	(*DeletePeerBankResponse)(nil),         // 48: transaction.DeletePeerBankResponse
 }
 var file_transaction_transaction_proto_depIdxs = []int32{
 	5,  // 0: transaction.ListPaymentsResponse.payments:type_name -> transaction.PaymentResponse
@@ -2394,49 +3638,73 @@ var file_transaction_transaction_proto_depIdxs = []int32{
 	18, // 2: transaction.ListPaymentRecipientsResponse.recipients:type_name -> transaction.PaymentRecipientResponse
 	30, // 3: transaction.ListFeesResponse.fees:type_name -> transaction.TransferFeeResponse
 	29, // 4: transaction.CalculateFeeResponse.applied_fees:type_name -> transaction.FeeBreakdown
-	0,  // 5: transaction.TransactionService.CreatePayment:input_type -> transaction.CreatePaymentRequest
-	19, // 6: transaction.TransactionService.ExecutePayment:input_type -> transaction.ExecutePaymentRequest
-	1,  // 7: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
-	2,  // 8: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
-	4,  // 9: transaction.TransactionService.ListPaymentsByClient:input_type -> transaction.ListPaymentsByClientRequest
-	6,  // 10: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
-	20, // 11: transaction.TransactionService.ExecuteTransfer:input_type -> transaction.ExecuteTransferRequest
-	7,  // 12: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
-	8,  // 13: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
-	11, // 14: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
-	12, // 15: transaction.TransactionService.GetPaymentRecipient:input_type -> transaction.GetPaymentRecipientRequest
-	13, // 16: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
-	15, // 17: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
-	16, // 18: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
-	21, // 19: transaction.FeeService.ListFees:input_type -> transaction.ListFeesRequest
-	23, // 20: transaction.FeeService.CreateFee:input_type -> transaction.CreateFeeRequest
-	24, // 21: transaction.FeeService.UpdateFee:input_type -> transaction.UpdateFeeRequest
-	25, // 22: transaction.FeeService.DeleteFee:input_type -> transaction.DeleteFeeRequest
-	27, // 23: transaction.FeeService.CalculateFee:input_type -> transaction.CalculateFeeRequest
-	5,  // 24: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
-	5,  // 25: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
-	5,  // 26: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
-	3,  // 27: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
-	3,  // 28: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
-	10, // 29: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
-	10, // 30: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
-	10, // 31: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
-	9,  // 32: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
-	18, // 33: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	18, // 34: transaction.TransactionService.GetPaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	14, // 35: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
-	18, // 36: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
-	17, // 37: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
-	22, // 38: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
-	30, // 39: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
-	30, // 40: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
-	26, // 41: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
-	28, // 42: transaction.FeeService.CalculateFee:output_type -> transaction.CalculateFeeResponse
-	24, // [24:43] is the sub-list for method output_type
-	5,  // [5:24] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	31, // 5: transaction.SiTxNewTxRequest.idempotence_key:type_name -> transaction.SiTxIdempotenceKey
+	32, // 6: transaction.SiTxNewTxRequest.postings:type_name -> transaction.SiTxPosting
+	34, // 7: transaction.SiTxVoteResponse.no_votes:type_name -> transaction.SiTxNoVote
+	31, // 8: transaction.SiTxCommitRequest.idempotence_key:type_name -> transaction.SiTxIdempotenceKey
+	31, // 9: transaction.SiTxRollbackRequest.idempotence_key:type_name -> transaction.SiTxIdempotenceKey
+	41, // 10: transaction.ListPeerBanksResponse.peer_banks:type_name -> transaction.PeerBank
+	0,  // 11: transaction.TransactionService.CreatePayment:input_type -> transaction.CreatePaymentRequest
+	19, // 12: transaction.TransactionService.ExecutePayment:input_type -> transaction.ExecutePaymentRequest
+	1,  // 13: transaction.TransactionService.GetPayment:input_type -> transaction.GetPaymentRequest
+	2,  // 14: transaction.TransactionService.ListPaymentsByAccount:input_type -> transaction.ListPaymentsByAccountRequest
+	4,  // 15: transaction.TransactionService.ListPaymentsByClient:input_type -> transaction.ListPaymentsByClientRequest
+	6,  // 16: transaction.TransactionService.CreateTransfer:input_type -> transaction.CreateTransferRequest
+	20, // 17: transaction.TransactionService.ExecuteTransfer:input_type -> transaction.ExecuteTransferRequest
+	7,  // 18: transaction.TransactionService.GetTransfer:input_type -> transaction.GetTransferRequest
+	8,  // 19: transaction.TransactionService.ListTransfersByClient:input_type -> transaction.ListTransfersByClientRequest
+	11, // 20: transaction.TransactionService.CreatePaymentRecipient:input_type -> transaction.CreatePaymentRecipientRequest
+	12, // 21: transaction.TransactionService.GetPaymentRecipient:input_type -> transaction.GetPaymentRecipientRequest
+	13, // 22: transaction.TransactionService.ListPaymentRecipients:input_type -> transaction.ListPaymentRecipientsRequest
+	15, // 23: transaction.TransactionService.UpdatePaymentRecipient:input_type -> transaction.UpdatePaymentRecipientRequest
+	16, // 24: transaction.TransactionService.DeletePaymentRecipient:input_type -> transaction.DeletePaymentRecipientRequest
+	21, // 25: transaction.FeeService.ListFees:input_type -> transaction.ListFeesRequest
+	23, // 26: transaction.FeeService.CreateFee:input_type -> transaction.CreateFeeRequest
+	24, // 27: transaction.FeeService.UpdateFee:input_type -> transaction.UpdateFeeRequest
+	25, // 28: transaction.FeeService.DeleteFee:input_type -> transaction.DeleteFeeRequest
+	27, // 29: transaction.FeeService.CalculateFee:input_type -> transaction.CalculateFeeRequest
+	33, // 30: transaction.PeerTxService.HandleNewTx:input_type -> transaction.SiTxNewTxRequest
+	36, // 31: transaction.PeerTxService.HandleCommitTx:input_type -> transaction.SiTxCommitRequest
+	37, // 32: transaction.PeerTxService.HandleRollbackTx:input_type -> transaction.SiTxRollbackRequest
+	39, // 33: transaction.PeerTxService.InitiateOutboundTx:input_type -> transaction.SiTxInitiateRequest
+	42, // 34: transaction.PeerBankAdminService.ListPeerBanks:input_type -> transaction.ListPeerBanksRequest
+	44, // 35: transaction.PeerBankAdminService.GetPeerBank:input_type -> transaction.GetPeerBankRequest
+	45, // 36: transaction.PeerBankAdminService.CreatePeerBank:input_type -> transaction.CreatePeerBankRequest
+	46, // 37: transaction.PeerBankAdminService.UpdatePeerBank:input_type -> transaction.UpdatePeerBankRequest
+	47, // 38: transaction.PeerBankAdminService.DeletePeerBank:input_type -> transaction.DeletePeerBankRequest
+	5,  // 39: transaction.TransactionService.CreatePayment:output_type -> transaction.PaymentResponse
+	5,  // 40: transaction.TransactionService.ExecutePayment:output_type -> transaction.PaymentResponse
+	5,  // 41: transaction.TransactionService.GetPayment:output_type -> transaction.PaymentResponse
+	3,  // 42: transaction.TransactionService.ListPaymentsByAccount:output_type -> transaction.ListPaymentsResponse
+	3,  // 43: transaction.TransactionService.ListPaymentsByClient:output_type -> transaction.ListPaymentsResponse
+	10, // 44: transaction.TransactionService.CreateTransfer:output_type -> transaction.TransferResponse
+	10, // 45: transaction.TransactionService.ExecuteTransfer:output_type -> transaction.TransferResponse
+	10, // 46: transaction.TransactionService.GetTransfer:output_type -> transaction.TransferResponse
+	9,  // 47: transaction.TransactionService.ListTransfersByClient:output_type -> transaction.ListTransfersResponse
+	18, // 48: transaction.TransactionService.CreatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	18, // 49: transaction.TransactionService.GetPaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	14, // 50: transaction.TransactionService.ListPaymentRecipients:output_type -> transaction.ListPaymentRecipientsResponse
+	18, // 51: transaction.TransactionService.UpdatePaymentRecipient:output_type -> transaction.PaymentRecipientResponse
+	17, // 52: transaction.TransactionService.DeletePaymentRecipient:output_type -> transaction.DeletePaymentRecipientResponse
+	22, // 53: transaction.FeeService.ListFees:output_type -> transaction.ListFeesResponse
+	30, // 54: transaction.FeeService.CreateFee:output_type -> transaction.TransferFeeResponse
+	30, // 55: transaction.FeeService.UpdateFee:output_type -> transaction.TransferFeeResponse
+	26, // 56: transaction.FeeService.DeleteFee:output_type -> transaction.DeleteFeeResponse
+	28, // 57: transaction.FeeService.CalculateFee:output_type -> transaction.CalculateFeeResponse
+	35, // 58: transaction.PeerTxService.HandleNewTx:output_type -> transaction.SiTxVoteResponse
+	38, // 59: transaction.PeerTxService.HandleCommitTx:output_type -> transaction.SiTxAckResponse
+	38, // 60: transaction.PeerTxService.HandleRollbackTx:output_type -> transaction.SiTxAckResponse
+	40, // 61: transaction.PeerTxService.InitiateOutboundTx:output_type -> transaction.SiTxInitiateResponse
+	43, // 62: transaction.PeerBankAdminService.ListPeerBanks:output_type -> transaction.ListPeerBanksResponse
+	41, // 63: transaction.PeerBankAdminService.GetPeerBank:output_type -> transaction.PeerBank
+	41, // 64: transaction.PeerBankAdminService.CreatePeerBank:output_type -> transaction.PeerBank
+	41, // 65: transaction.PeerBankAdminService.UpdatePeerBank:output_type -> transaction.PeerBank
+	48, // 66: transaction.PeerBankAdminService.DeletePeerBank:output_type -> transaction.DeletePeerBankResponse
+	39, // [39:67] is the sub-list for method output_type
+	11, // [11:39] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_transaction_transaction_proto_init() }
@@ -2451,9 +3719,9 @@ func file_transaction_transaction_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_transaction_transaction_proto_rawDesc), len(file_transaction_transaction_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   31,
+			NumMessages:   49,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   4,
 		},
 		GoTypes:           file_transaction_transaction_proto_goTypes,
 		DependencyIndexes: file_transaction_transaction_proto_depIdxs,
