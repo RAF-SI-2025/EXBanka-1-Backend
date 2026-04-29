@@ -10,7 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	redis "github.com/redis/go-redis/v9"
+
 	_ "github.com/exbanka/api-gateway/docs"
+	"github.com/exbanka/api-gateway/internal/cache"
 	"github.com/exbanka/api-gateway/internal/config"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
 	"github.com/exbanka/api-gateway/internal/handler"
@@ -215,6 +218,24 @@ func main() {
 	// replacement ships in Phase 2. See docs/superpowers/specs/
 	// 2026-04-29-celina5-sitx-refactor-design.md.
 
+	// SI-TX peer-bank gRPC clients + nonce store + resolver (Phase 2 Task 14).
+	peerTxClient, peerTxConn, err := grpcclients.NewPeerTxServiceClient(cfg.TransactionGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to PeerTxService: %v", err)
+	}
+	defer peerTxConn.Close()
+
+	peerBankAdminClient, peerBankAdminConn, err := grpcclients.NewPeerBankAdminServiceClient(cfg.TransactionGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to PeerBankAdminService: %v", err)
+	}
+	defer peerBankAdminConn.Close()
+
+	redisClient := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	defer redisClient.Close()
+	peerNonceStore := cache.NewPeerNonceStore(redisClient, 10*time.Minute)
+	peerBankResolver := &grpcclients.PeerBankResolverAdapter{Client: peerBankAdminClient}
+
 	r := router.NewRouter()
 
 	// Wire every gRPC client into the router-level Deps bundle, then
@@ -249,6 +270,10 @@ func main() {
 		SourceAdminClient:   sourceAdminClient,
 		FundClient:          fundClient,
 		OTCOptionsClient:    otcOptionsClient,
+		PeerTxClient:        peerTxClient,
+		PeerBankAdminClient: peerBankAdminClient,
+		PeerNonces:          peerNonceStore,
+		PeerBanks:           peerBankResolver,
 		OwnBankCode:         cfg.OwnBankCode,
 	}
 	h := router.NewHandlers(deps)

@@ -20,6 +20,11 @@ type Config struct {
 	KafkaBrokers         string
 	MetricsPort          string
 
+	// RedisAddr is the address of the Redis instance used by the gateway.
+	// Currently used by the SI-TX PeerNonceStore (HMAC nonce dedup window;
+	// Phase 2 Task 14).
+	RedisAddr string
+
 	OwnBankCode string
 }
 
@@ -39,6 +44,8 @@ func Load() *Config {
 		NotificationGRPCAddr: getEnv("NOTIFICATION_GRPC_ADDR", "localhost:50053"),
 		KafkaBrokers:         getEnv("KAFKA_BROKERS", "localhost:9092"),
 		MetricsPort:          getEnv("METRICS_PORT", "9100"),
+
+		RedisAddr: getEnv("REDIS_ADDR", "localhost:6379"),
 
 		OwnBankCode: getEnv("OWN_BANK_CODE", "111"),
 	}

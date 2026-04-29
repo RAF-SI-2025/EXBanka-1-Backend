@@ -5,7 +5,12 @@
 package router
 
 import (
+	"time"
+
+	"github.com/gin-gonic/gin"
+
 	"github.com/exbanka/api-gateway/internal/handler"
+	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
 	authpb "github.com/exbanka/contract/authpb"
 	cardpb "github.com/exbanka/contract/cardpb"
@@ -50,6 +55,17 @@ type Deps struct {
 	FundClient          stockpb.InvestmentFundServiceClient
 	OTCOptionsClient    stockpb.OTCOptionsServiceClient
 
+	// SI-TX peer-bank wiring (Phase 2 Task 14). PeerTxClient dispatches
+	// decoded SI-TX envelopes from POST /api/v3/interbank to
+	// transaction-service. PeerBankAdminClient backs the
+	// /api/v3/peer-banks admin routes. PeerNonces is the Redis-backed
+	// nonce dedup window for the HMAC auth path; PeerBanks resolves a
+	// peer-bank record from a bank code or API token.
+	PeerTxClient        transactionpb.PeerTxServiceClient
+	PeerBankAdminClient transactionpb.PeerBankAdminServiceClient
+	PeerNonces          middleware.PeerNonceClaimer
+	PeerBanks           middleware.PeerBankResolver
+
 	// OwnBankCode is the 3-digit bank prefix used by PeerDisabledHandler
 	// to distinguish intra-bank receivers from foreign-bank ones while
 	// the SI-TX implementation is being built (Phase 1 of the SI-TX
@@ -90,6 +106,14 @@ type Handlers struct {
 	OTCOptions    *handler.OTCOptionsHandler
 	PeerDisabled  *handler.PeerDisabledHandler
 	Changelog     *handler.ChangelogHandler
+
+	// SI-TX peer-facing wiring (Phase 2 Task 14). PeerTx serves
+	// POST /api/v3/interbank, PeerBankAdmin serves /api/v3/peer-banks
+	// admin routes, and PeerAuthMW is the hybrid auth middleware
+	// (X-Api-Key OR HMAC bundle) that protects /interbank.
+	PeerTx        *handler.PeerTxHandler
+	PeerBankAdmin *handler.PeerBankAdminHandler
+	PeerAuthMW    gin.HandlerFunc
 }
 
 // NewHandlers wires every handler from the supplied gRPC client deps.
@@ -126,5 +150,8 @@ func NewHandlers(d Deps) *Handlers {
 		OTCOptions:    handler.NewOTCOptionsHandler(d.OTCOptionsClient),
 		PeerDisabled:  handler.NewPeerDisabledHandler(tx, d.OwnBankCode),
 		Changelog:     handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
+		PeerTx:        handler.NewPeerTxHandler(d.PeerTxClient),
+		PeerBankAdmin: handler.NewPeerBankAdminHandler(d.PeerBankAdminClient),
+		PeerAuthMW:    middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),
 	}
 }

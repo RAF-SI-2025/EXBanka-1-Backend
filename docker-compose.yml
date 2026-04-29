@@ -670,6 +670,7 @@ services:
       NOTIFICATION_GRPC_ADDR: "notification-service:50053"
       KAFKA_BROKERS: kafka:9092
       METRICS_PORT: "9100"
+      REDIS_ADDR: "redis:6379"
       OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
     extra_hosts:
       - "host.docker.internal:host-gateway"

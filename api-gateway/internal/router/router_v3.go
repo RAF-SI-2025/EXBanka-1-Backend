@@ -158,6 +158,17 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.GET("/otc/contracts", bankIfEmp, h.OTCOptions.ListMyContracts)
 	}
 
+	// ── SI-TX peer-facing route (Phase 2 Task 14) ────────────────────
+	// POST /api/v3/interbank: receives Message<Type> envelope from peer
+	// banks, dispatches by messageType to PeerTxService gRPC. Phase 2
+	// returns 501 (Unimplemented passthrough); Phase 3 fills in actual
+	// TX execution.
+	peer := v3.Group("")
+	peer.Use(h.PeerAuthMW)
+	{
+		peer.POST("/interbank", h.PeerTx.PostInterbank)
+	}
+
 	// ── Stock exchanges (AnyAuth — market data is browsable) ────
 	stockExchanges := v3.Group("/stock-exchanges")
 	stockExchanges.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
@@ -493,6 +504,17 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		bankAccountsDeactivate.Use(middleware.RequirePermission(perms.BankAccounts.Manage.Any))
 		{
 			bankAccountsDeactivate.DELETE("/:id", h.Account.DeleteBankAccount)
+		}
+
+		// ── SI-TX peer-banks admin (Phase 2 Task 14) ───────────────────
+		peerBanksAdmin := protected.Group("/peer-banks")
+		peerBanksAdmin.Use(middleware.RequirePermission(perms.PeerBanks.Manage.Any))
+		{
+			peerBanksAdmin.GET("", h.PeerBankAdmin.List)
+			peerBanksAdmin.GET("/:id", h.PeerBankAdmin.Get)
+			peerBanksAdmin.POST("", h.PeerBankAdmin.Create)
+			peerBanksAdmin.PUT("/:id", h.PeerBankAdmin.Update)
+			peerBanksAdmin.DELETE("/:id", h.PeerBankAdmin.Delete)
 		}
 
 		// Cards management — list endpoints moved to path-scoped variants:
