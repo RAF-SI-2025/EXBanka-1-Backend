@@ -2392,128 +2392,19 @@ Permission revoke that drops `funds.manage` → user-service writes a `user.supe
 - Task 21: actuary-performance aggregation
 - Task 25: integration tests in test-app/workflows
 
-## 25. Inter-Bank 2PC Transfers (Celina 5 / Spec 3)
+## 25. Inter-Bank Cross-Bank Communication (Celina 5) — Pending SI-TX Implementation
 
-Cross-bank money movement using a Prepare → Ready/NotReady → Commit → Committed state machine. Sender bank routes transfers whose receiver-account 3-digit prefix is not `OWN_BANK_CODE` to a peer bank over HMAC-authenticated HTTP. Spec source: `docs/superpowers/specs/2026-04-24-interbank-2pc-transfers-design.md`. Wire-protocol field-name table: `docs/superpowers/refs/si-tx-proto-mapping.md`.
+The previous in-house 2PC inter-bank transfer protocol (HMAC headers, `Prepare` / `Ready` / `NotReady` / `Commit` / `Committed` / `CheckStatus` action enum, three split routes under `/internal/inter-bank/*`, status state machine, reconciler cron) was removed in the Phase 1 demolition of the SI-TX refactor.
 
-### Public REST routes (api-gateway)
+The replacement implementation conforms to the SI-TX cohort wire protocol referenced by Celina 5 (`https://arsen.srht.site/si-tx-proto/`) and is being built in subsequent phases:
 
-| Method | Path | Auth | Handler | Notes |
-|---|---|---|---|---|
-| POST | `/api/v3/me/transfers` | `AnyAuth` | `InterBankPublicHandler.CreateTransfer` | Detects inter-bank by receiver-account prefix. Intra-bank → forwards to existing v1 path; inter-bank → `202 Accepted` with `pollUrl`. |
-| GET | `/api/v3/me/transfers/{id}` | `AnyAuth` | `InterBankPublicHandler.GetTransferByID` | Looks up `transfers` first, falls back to `inter_bank_transactions`. Numeric ids → intra; UUID ids → inter. |
+- **Phase 2 (foundation):** `Message<Type>` envelope, hybrid `X-Api-Key` / HMAC peer auth middleware, `peer_banks` registry table, `peer_idempotence_records` replay cache. Skeleton `POST /api/v3/interbank` (501). Admin CRUD on peer_banks via `/api/v3/peer-banks` routes.
+- **Phase 3 (TX execution):** `NEW_TX` / `COMMIT_TX` / `ROLLBACK_TX` posting executor, vote builder with the 8 SI-TX `NoVote` reasons, sender-side `outbound_peer_txs` + replay cron. Restores inter-bank transfer functionality.
+- **Phase 4 (OTC negotiations):** `GET /api/v3/public-stock`, the 5 `/api/v3/negotiations/{rid}/{id}` routes, `GET /api/v3/user/{rid}/{id}`. Restores cross-bank OTC functionality.
 
-### Internal HMAC-authenticated routes (api-gateway, peer-bank only)
+Design doc: `docs/superpowers/specs/2026-04-29-celina5-sitx-refactor-design.md`. Phase 1 plan: `docs/superpowers/plans/2026-04-29-celina5-sitx-phase1-demolition.md`.
 
-NOT under any `/api/v*` prefix; secured by `middleware.HMACMiddleware` + Redis nonce store.
-
-| Method | Path | Auth | Handler | Body |
-|---|---|---|---|---|
-| POST | `/internal/inter-bank/transfer/prepare` | `HMACMiddleware` | `InterBankInternalHandler.Prepare` | Prepare envelope → forwards to gRPC `HandlePrepare`. |
-| POST | `/internal/inter-bank/transfer/commit` | `HMACMiddleware` | `InterBankInternalHandler.Commit` | Commit envelope → forwards to gRPC `HandleCommit`. |
-| POST | `/internal/inter-bank/check-status` | `HMACMiddleware` | `InterBankInternalHandler.CheckStatus` | CheckStatus envelope → forwards to gRPC `HandleCheckStatus`. |
-
-### gRPC service: `InterBankService`
-
-Defined in `contract/proto/transaction/transaction.proto`. Hosted on transaction-service.
-
-| RPC | Caller | Purpose |
-|---|---|---|
-| `InitiateInterBankTransfer` | api-gateway (POST `/api/v3/me/transfers`) | Sender-side entry point. Validates, debits, sends Prepare, follows through to commit or reconciling. |
-| `HandlePrepare` | api-gateway (`/internal/inter-bank/transfer/prepare`) | Receiver-side validation, FX + fees, ReserveIncoming. |
-| `HandleCommit` | api-gateway (`/internal/inter-bank/transfer/commit`) | Receiver-side commit; CommitIncoming; idempotent on transactionId. |
-| `HandleCheckStatus` | api-gateway (`/internal/inter-bank/check-status`) | Bidirectional status probe used by both sides' reconcilers. |
-| `GetInterBankTransfer` | api-gateway (GET `/api/v3/me/transfers/{id}`) | Read-side helper for the unified transfer view. |
-
-### account-service additions
-
-New gRPC RPCs (`contract/proto/account/account.proto`):
-
-| RPC | Purpose |
-|---|---|
-| `ReserveIncoming` | Creates a pending credit reservation (no balance change). Idempotent on `reservation_key`. |
-| `CommitIncoming` | Finalizes the credit; locks the account, adds to Balance + AvailableBalance, writes a credit ledger entry, marks the reservation committed. Idempotent. |
-| `ReleaseIncoming` | Cancels a pending reservation; no ledger impact. Idempotent. |
-
-### New entities
-
-| Entity | Service | Table | Purpose |
-|---|---|---|---|
-| `IncomingReservation` | account-service | `incoming_reservations` | Credit-side reservation for inter-bank inbound transfers. Lifecycle: `pending → committed | released`. Keyed off the inter-bank `transactionId` via `reservation_key`. Optimistic locking via Version. |
-| `Bank` | transaction-service | `banks` | Peer-bank registry. `code` is the 3-digit prefix, `base_url` is the peer's `/internal/inter-bank` root, `api_key_bcrypted` and `inbound_api_key_bcrypted` hold bcrypt hashes of the outbound and inbound HMAC keys (plaintext lives in env). Seeded at startup from per-peer env vars. |
-| `InterBankTransaction` | transaction-service | `inter_bank_transactions` | Durable 2PC state. Composite key `(tx_id, role)` — same `tx_id` may have a sender row on this side and (in local-loopback testing) a receiver row. `phase`, `status`, `error_reason`, `retry_count`, `payload_json`, FX/fees columns. Enforces transition matrix in `InterBankTxRepository.UpdateStatus`. Optimistic locking via Version. |
-
-### Status enum (Spec 3 §5.3)
-
-Sender side: `initiated`, `preparing`, `ready_received`, `notready_received`, `committing`, `committed`, `rolled_back`, `reconciling`.
-
-Receiver side: `prepare_received`, `validated`, `ready_sent`, `notready_sent`, `final_notready`, `commit_received`, `committed`, `abandoned`.
-
-Terminal: `committed`, `rolled_back`, `final_notready`, `abandoned`.
-
-Roles: `sender`, `receiver`. Phases: `prepare`, `commit`, `reconcile`, `done`.
-
-Action enums (wire format, case-sensitive): `Prepare`, `Ready`, `NotReady`, `Commit`, `Committed`, `CheckStatus`, `Status`.
-
-NotReady reasons: `account_not_found`, `account_inactive`, `currency_not_supported`, `limit_exceeded`, `fees_exceed_amount`, `bank_inactive`, `commit_mismatch`, `unknown`.
-
-### Kafka topics
-
-| Topic | Producer | Consumer | Payload | When published |
-|---|---|---|---|---|
-| `transfer.interbank-prepared` | transaction-service | (notification + audit) | `TransferInterbankMessage` | Sender: after Ready received. Receiver: after Ready sent. |
-| `transfer.interbank-committed` | transaction-service | (notification + audit) | `TransferInterbankMessage` | Sender: after local debit + peer 200. |
-| `transfer.interbank-received` | transaction-service | (notification + audit) | `TransferInterbankMessage` | Receiver: after CommitIncoming. |
-| `transfer.interbank-rolled-back` | transaction-service | (notification + audit) | `TransferInterbankMessage` | Any side, on terminal failure / reconciled rollback / receiver abandon. |
-
-### Crons (transaction-service)
-
-| Cron | Interval | Purpose |
-|---|---|---|
-| `InterBankReconciler` | `INTERBANK_RECONCILE_INTERVAL` (60s default) | Probes peers for sender rows in `reconciling`. Branches per Spec 3 §9.4. Gives up after `INTERBANK_RECONCILE_MAX_RETRIES` (10) or `INTERBANK_RECONCILE_STALE_AFTER` (24h). |
-| `InterBankTimeoutCron` | `INTERBANK_RECONCILE_INTERVAL` | Releases incoming reservations whose `ready_sent` age exceeds `INTERBANK_RECEIVER_WAIT` (90s). |
-| `InterBankRecovery` | once at startup | Sender rows in `preparing` / `committing` past timeout → `reconciling`. Receiver rows in `commit_received` → re-run CommitIncoming. |
-
-### Authentication (Spec 3 §8)
-
-Every inbound `/internal/inter-bank/*` request carries: `X-Bank-Code`, `X-Bank-Signature` (hex HMAC-SHA256 of body), `X-Idempotency-Key` (= `transactionId`), `X-Timestamp` (RFC3339, ±5 min skew), `X-Nonce` (16 random bytes hex). The middleware verifies the bank code is registered + active, the timestamp is within window, the nonce is single-use within a 10-minute window in Redis (`inter_bank_nonce:<code>:<nonce>`), and the HMAC matches when computed with the plaintext inbound key from env (`PEER_<CODE>_INBOUND_KEY`). Constant-time comparison via `crypto/hmac.Equal`.
-
-Outbound traffic uses the symmetric outbound key (`PEER_<CODE>_OUTBOUND_KEY`) and sets the same five headers. Bcrypt hashes in `banks.api_key_bcrypted` / `inbound_api_key_bcrypted` exist for audit + rotation only — runtime verification uses the plaintext keys held in env.
-
-### Sender debit semantics
-
-Inter-bank sender-side reservations use direct `UpdateBalance` on account-service rather than the existing AccountReservation table (which is keyed on numeric OrderID and used by stock-trading). On Initiate, the sender is debited immediately via `UpdateBalance(amount=-X, idempotency_key="interbank-out-debit-<txID>")`. On rollback (NotReady or reconciler-initiated), credit-back uses `idempotency_key="interbank-out-credit-back-<txID>"` — a different key so the credit is not deduplicated against the original debit. Both calls land idempotent ledger entries.
-
-### Configuration
-
-transaction-service env vars:
-
-| Var | Default | Notes |
-|---|---|---|
-| `OWN_BANK_CODE` | `111` | This bank's 3-digit prefix. |
-| `INTERBANK_PREPARE_TIMEOUT` | `30s` | HTTP client timeout for outbound Prepare. |
-| `INTERBANK_COMMIT_TIMEOUT` | `30s` | HTTP client timeout for outbound Commit. |
-| `INTERBANK_RECEIVER_WAIT` | `90s` | Receiver gives up on Commit and abandons after this. |
-| `INTERBANK_RECONCILE_INTERVAL` | `60s` | Reconciler + receiver-timeout cron tick interval. |
-| `INTERBANK_RECONCILE_MAX_RETRIES` | `10` | Per-row CheckStatus attempts before give-up. |
-| `INTERBANK_RECONCILE_STALE_AFTER` | `24h` | Wallclock cap on a row in `reconciling`. |
-| `PEER_<CODE>_BASE_URL` | (unset) | Per-peer `/internal/inter-bank` root, e.g. `http://peer-222/internal/inter-bank`. |
-| `PEER_<CODE>_INBOUND_KEY` | (unset) | Plaintext HMAC key the peer signs requests TO us with. |
-| `PEER_<CODE>_OUTBOUND_KEY` | (unset) | Plaintext HMAC key WE sign requests TO that peer with. |
-
-api-gateway env vars (in addition to existing): `REDIS_ADDR`, `OWN_BANK_CODE`, `PEER_<CODE>_INBOUND_KEY` (one per peer).
-
-### Permissions
-
-No new permissions. `transfers.create` (existing) gates POST `/api/v3/me/transfers` for both intra and inter cases. The `/internal/inter-bank/*` routes are HMAC-only — not permission-gated. Authorization of the destination side is the peer bank's responsibility once Prepare leaves this bank.
-
-### Business rules
-
-- Receiver bank computes FX rate + fees at Prepare time; those terms are locked for Commit. Any drift on Commit → `409 commit_mismatch` and sender transitions to `reconciling`.
-- Sender debit is immediate (not a reservation hold) — the user's balance drops at Initiate; rollback credits it back via a different idempotency key.
-- All status transitions go through `InterBankTxRepository.UpdateStatus(from, to)`, which validates against the `validTransitions` matrix and uses `WHERE status = from` for compare-and-swap.
-- Kafka events are published AFTER the relevant DB transaction commits (CLAUDE.md §Concurrency requirement).
-- HMAC verification is fail-closed in production: missing or mismatched signature → 401 with no information leaked. Unknown or inactive bank also returns 401 (not 503) so peers cannot probe for activity.
+During this transition `POST /api/v3/me/transfers` works for intra-bank receivers (own 3-digit prefix). Foreign-prefix receivers receive `501 not_implemented` from `PeerDisabledHandler`.
 
 ## 26. Intra-bank OTC Options (Celina 4 / Spec 2)
 
@@ -2568,58 +2459,20 @@ Both Accept and Exercise convert through `exchange-service.Convert` when buyer +
 
 Same-currency flows skip the conversion call entirely.
 
-## 27. Cross-bank OTC Options (Celina 5 / Spec 4) — Foundation
+## 27. Cross-Bank OTC Options (Celina 5) — Pending SI-TX Implementation
 
-### Status
+The previous in-house cross-bank OTC saga (12-RPC `CrossBankOTCService`, `CrossbankAcceptSaga` / `CrossbankExerciseSaga` / `CrossbankExpireSaga`, `InterBankSagaLog` durable audit table, `CrossbankCheckStatusCron` / `CrossbankOrphanReservationCron` / `CrossbankExpiryCron`) was removed in the Phase 1 demolition of the SI-TX refactor.
 
-The foundation layer landed in this commit set. Saga internals, gateway routes, and crons are deferred — they need the faculty-cohort wire shapes locked in writing (`docs/superpowers/refs/crossbank-otc-wire.md`) before the final implementation can be built and tested against real peer banks.
+The SI-TX-conformant replacement is built in Phase 4 of the refactor (see §25). It exposes peer-facing OTC endpoints at:
 
-### Foundation entities (stock-service)
+- `GET /api/v3/public-stock` — peer OTC discovery
+- `POST /api/v3/negotiations` — initiate cross-bank offer
+- `PUT /api/v3/negotiations/{rid}/{id}` — counter-offer
+- `GET /api/v3/negotiations/{rid}/{id}` — read
+- `DELETE /api/v3/negotiations/{rid}/{id}` — cancel
+- `GET /api/v3/negotiations/{rid}/{id}/accept` — accept (triggers SI-TX TX formation via `POST /api/v3/interbank` `NEW_TX`)
+- `GET /api/v3/user/{rid}/{id}` — user info
 
-| Entity | Table | Purpose |
-|---|---|---|
-| `OTCOffer.Public` / `Private` / `PrivateToBankCode` | `otc_offers` | Visibility flags for peer discovery — public offers fan out, private offers are restricted to a named bank |
-| `OptionContract.CrossbankTxID` / `CrossbankExerciseTxID` | `option_contracts` | Saga-id linkage so the contract row can be traced back to its accept / exercise saga |
-| `InterBankSagaLog` | `inter_bank_saga_logs` | Durable per-step audit. One row per `(TxID, Phase, Role)`. Optimistic-locked. Idempotency key is `<saga_kind>-<tx_id>-<phase>-<role>` (unique). |
+Design doc: `docs/superpowers/specs/2026-04-29-celina5-sitx-refactor-design.md`.
 
-### Helpers
-
-- `model.IsCrossBankOffer(o, selfBankCode)` — true if either side's bank code is set and not the self code
-- `OptionContract.IsCrossBank()` — true if buyer + seller bank codes differ
-
-### Saga executor
-
-`service.CrossbankSagaExecutor` provides idempotent `BeginPhase` / `CompletePhase` / `FailPhase` / `IsPhaseCompleted` plus Kafka publishers for the four saga lifecycle topics (`otc.crossbank-saga-{started, committed, rolled-back, stuck-rollback}`).
-
-### gRPC + Kafka contract
-
-Defined in `contract/proto/stock/stock.proto` (`CrossBankOTCService`, 12 RPCs, 22 messages) and `contract/kafka/messages.go` (8 new `otc.*` topics + payload structs). `contract/proto/transaction/transaction.proto` adds `ReverseInterBankTransfer` to `InterBankService` for the compensation path on accept-saga ownership-transfer failure.
-
-### Implementation status
-
-All 21 tasks of the plan landed. Sagas, crons, and gateway dispatch are wired end-to-end. The peer router starts empty by default — peers are added at deployment time once the cohort wire shapes are locked. Until then, cross-bank Accept / Exercise return a clear "no peer client configured for code XYZ" error instead of running the distributed saga.
-
-| Task | Status | What |
-|---|---|---|
-| 1–3 | ✅ | OTCOffer / OptionContract bank-code columns + helpers, InterBankSagaLog model + repo |
-| 4 | ✅ | CrossBankOTCService proto (12 RPCs, 22 messages) + ReverseInterBankTransfer + 8 otc.* topics |
-| 5 | ✅ | transaction-service ReverseInterBankTransfer — looks up original tx, swaps sender/receiver, drives PREPARE/COMMIT idempotency-keyed on `reverse-<original_tx_id>` |
-| 6 | ✅ | CrossbankSagaExecutor — idempotent BeginPhase/CompletePhase/FailPhase + 4 saga-lifecycle Kafka publishers |
-| 7–11 | ✅ | CrossbankAcceptSaga — 5-phase initiator-side driver. Each phase persisted in InterBankSagaLog. Compensations walk completed phases in reverse |
-| 12 | ✅ | CrossbankExerciseSaga — same 5 phases keyed on strike instead of premium |
-| 13 | ✅ | CrossbankExpireSaga — 3-phase (notify peer → release local reservation / mark EXPIRED → kafka) |
-| 14 | ✅ | CrossbankCheckStatusCron — polls pending rows past timeout, asks peer, transitions our row |
-| 15 | ✅ | CrossbankOrphanReservationCron — sweeps responder-side phase-2 reservations with no contract within 30 min |
-| 16 | ✅ | CrossbankExpiryCron — daily 02:30 UTC scan for cross-bank ACTIVE contracts past settlement_date |
-| 17 | ✅ | CrossbankDiscovery — 60s in-process cache merging remote offers; Invalidate() hook for the otc.local-offer-changed Kafka consumer |
-| 18 | ✅ | OTCOfferService.WithCrossbank — Accept and ExerciseContract dispatch to the cross-bank saga when bank codes differ |
-| 19 | ✅ | CrossbankInternalHandler — gRPC server-side for 10/12 RPCs; PeerReviseOffer + PeerAcceptIntent stubbed pending cohort lock-down |
-| 20 | ✅ | Smoke tests in test-app/workflows/crossbank_otc_test.go (skip on 404) |
-| 21 | ✅ | This Specification entry |
-
-### Operational notes
-
-- Peer router (`StaticCrossbankPeerRouter`) is constructed empty in `stock-service/cmd/main.go`. To enable cross-bank trading at deploy time, populate the map with one `CrossbankPeerClient` per peer bank code, then wire the dispatchers via `OTCOfferService.WithCrossbank`.
-- The two unimplemented RPCs (`PeerReviseOffer`, `PeerAcceptIntent`) return Unimplemented until the faculty cohort agrees on payload shapes for offer revision and accept-intent. Lock those in `docs/superpowers/refs/crossbank-otc-wire.md` before flipping them on.
-- The cross-bank saga reuses Spec 3's `InitiateInterBankTransfer` (Phase 3 `transfer_funds`) and `ReverseInterBankTransfer` (compensation path) — no parallel implementation.
-- Each `InterBankSagaLog` row's `IdempotencyKey` is `<saga_kind>-<tx_id>-<phase>-<role>` and is unique. Retries on the same tuple coalesce; the executor's `IsPhaseCompleted` lets restart logic skip already-finished phases.
+During this transition cross-bank OTC is unavailable; intra-bank OTC (Celina 4 / §26) continues to work.
