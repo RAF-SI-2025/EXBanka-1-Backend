@@ -7053,13 +7053,13 @@ Remove a peer bank.
 
 ---
 
-### POST /api/v3/interbank — Phase 2 stub
+### POST /api/v3/interbank
 
-Receives the SI-TX `Message<Type>` envelope from peer banks. Phase 2 returns `501 Not Implemented` (the underlying `PeerTxService` gRPC backend is stubbed). Phase 3 will implement actual `NEW_TX` / `COMMIT_TX` / `ROLLBACK_TX` posting execution.
+Receives the SI-TX `Message<Type>` envelope from peer banks. Phase 3 implementation is fully wired: `NEW_TX` validates postings (UNBALANCED_TX check + per-posting account/asset/active checks), reserves credit-postings via `account-service.ReserveIncoming`, and emits `TransactionVote`. `COMMIT_TX` finalises reservations; `ROLLBACK_TX` releases them. Idempotence-key replay returns the cached vote.
 
 **Authentication:** Hybrid `PeerAuth` middleware. Either:
-- `X-Api-Key: <token>` (Phase 2: stubbed, returns 401), OR
-- `X-Bank-Code: <code>` + `X-Bank-Signature: <hex SHA-256>` + `X-Timestamp: <RFC3339, ±5min>` + `X-Nonce: <single-use>` (Phase 2: structurally wired but `HMACInboundKey` resolution is a Phase 3 stub).
+- `X-Api-Key: <token>` — looked up against `peer_banks.api_token_plaintext` via the internal `ResolvePeerByAPIToken` RPC.
+- `X-Bank-Code: <code>` + `X-Bank-Signature: <hex SHA-256>` + `X-Timestamp: <RFC3339, ±5min>` + `X-Nonce: <single-use>` — verified against `peer_banks.hmac_inbound_key` via `ResolvePeerByBankCode`.
 
 **Request Body:** SI-TX `Message<Type>` envelope. Shape verbatim from the cohort spec at https://arsen.srht.site/si-tx-proto/.
 
@@ -7079,14 +7079,149 @@ Receives the SI-TX `Message<Type>` envelope from peer banks. Phase 2 returns `50
 }
 ```
 
-**Response 501:** Phase 2 default — TX execution pending Phase 3.
+**Responses:**
+- **200 OK** for `NEW_TX` — body is a `TransactionVote` (`{type: "YES", transactionId: "..."}` or `{type: "NO", noVotes: [...]}` with one or more of the 8 SI-TX reasons: `UNBALANCED_TX`, `NO_SUCH_ACCOUNT`, `NO_SUCH_ASSET`, `UNACCEPTABLE_ASSET`, `INSUFFICIENT_ASSET`, `OPTION_AMOUNT_INCORRECT`, `OPTION_USED_OR_EXPIRED`, `OPTION_NEGOTIATION_NOT_FOUND`).
+- **204 No Content** for `COMMIT_TX` / `ROLLBACK_TX` (both idempotent).
+- **401 Unauthorized** with empty body when auth fails (constant-time compare; no info leak).
+
+---
+
+### GET /api/v3/public-stock
+
+Peer-facing OTC discovery — returns stock holdings on this bank flagged for OTC public trading. Used by peer banks to populate their OTC discovery pages.
+
+**Authentication:** PeerAuth (X-Api-Key or HMAC bundle).
+
+**Response 200:**
 ```json
-{ "error": "NEW_TX handling pending Phase 3" }
+{
+  "stocks": [
+    {
+      "ownerId": {"routingNumber": 111, "id": "client-7"},
+      "ticker": "AAPL",
+      "amount": 50,
+      "pricePerStock": "180.50",
+      "currency": "USD"
+    }
+  ]
+}
 ```
 
-When Phase 3 lands, expected responses become:
-- **200 OK** with `TransactionVote` body for `NEW_TX`.
-- **204 No Content** for `COMMIT_TX` / `ROLLBACK_TX`.
+---
+
+### POST /api/v3/negotiations
+
+Peer initiates a cross-bank OTC negotiation against a publicly-listed holding on this bank. The peer's offer is persisted in `peer_otc_negotiations` and gets a fresh negotiation ID owned by this bank.
+
+**Authentication:** PeerAuth.
+
+**Request Body:**
+```json
+{
+  "offer": {
+    "ticker": "AAPL",
+    "amount": 50,
+    "pricePerStock": "180.50",
+    "currency": "USD",
+    "premium": "700",
+    "premiumCurrency": "USD",
+    "settlementDate": "2026-12-31",
+    "lastModifiedBy": {"routingNumber": 222, "id": "user-1"}
+  },
+  "buyerId":  {"routingNumber": 222, "id": "buyer-1"},
+  "sellerId": {"routingNumber": 111, "id": "seller-1"}
+}
+```
+
+**Response 201:**
+```json
+{ "negotiationId": {"routingNumber": 111, "id": "neg-uuid"} }
+```
+
+---
+
+### PUT /api/v3/negotiations/:rid/:id
+
+Counter-offer on an existing negotiation. The negotiation must have been created via `POST /api/v3/negotiations` first.
+
+**Authentication:** PeerAuth.
+
+**Path Parameters:**
+- `rid` — peer's routing number (int64)
+- `id` — peer's negotiation id (string)
+
+**Request Body:** Same `offer` shape as POST.
+
+**Response 200:** Empty body on success.
+
+---
+
+### GET /api/v3/negotiations/:rid/:id
+
+Read a negotiation's current state.
+
+**Authentication:** PeerAuth.
+
+**Response 200:**
+```json
+{
+  "id":       {"routingNumber": 111, "id": "neg-uuid"},
+  "buyerId":  {"routingNumber": 222, "id": "buyer-1"},
+  "sellerId": {"routingNumber": 111, "id": "seller-1"},
+  "offer":    { /* same shape as POST.offer */ },
+  "status":   "ongoing",
+  "updatedAt": "2026-04-29T12:00:00Z"
+}
+```
+
+**Response 404:** Negotiation not found.
+
+---
+
+### DELETE /api/v3/negotiations/:rid/:id
+
+Cancel a negotiation. Either side may delete; status flips to `cancelled`.
+
+**Authentication:** PeerAuth.
+**Response 204:** Success, no body.
+
+---
+
+### GET /api/v3/negotiations/:rid/:id/accept
+
+Accept a negotiation. Composes a 4-posting `Transaction` (premium money debit-buyer/credit-seller + 1× `OptionDescription` debit-seller/credit-buyer) and dispatches via `PeerTxService.InitiateOutboundTxWithPostings`. The resulting SI-TX TX runs through the normal `NEW_TX` → `COMMIT_TX` flow.
+
+**Authentication:** PeerAuth.
+
+**Response 200:**
+```json
+{ "transactionId": "tx-uuid", "status": "pending" }
+```
+
+The `transactionId` is the same idempotence-key the OutboundReplayCron uses; clients can poll `/api/v3/me/transfers/{transactionId}` for terminal status (transfer endpoints recognise OTC tx ids by id format).
+
+---
+
+### GET /api/v3/user/:rid/:id
+
+Returns identity info for a counterparty user. Peers call this when displaying user names alongside OTC negotiations or transfer history.
+
+**Authentication:** PeerAuth.
+
+**Path Parameters:**
+- `rid` — must match `OWN_BANK_CODE`'s routing number; otherwise 404 (we don't proxy lookups across banks).
+- `id` — `client-<n>` or `employee-<n>` format; routes to client-service or user-service accordingly.
+
+**Response 200:**
+```json
+{
+  "id":        {"routingNumber": 111, "id": "client-7"},
+  "firstName": "Marko",
+  "lastName":  "Marković"
+}
+```
+
+**Response 404:** Foreign rid or unknown user id.
 
 ---
 
