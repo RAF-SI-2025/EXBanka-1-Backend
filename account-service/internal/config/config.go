@@ -15,6 +15,7 @@ type Config struct {
 	RedisAddr      string
 	ClientGRPCAddr string
 	MetricsPort    string
+	OwnBankCode    string
 }
 
 func Load() *Config {
@@ -29,6 +30,7 @@ func Load() *Config {
 		RedisAddr:      getEnv("REDIS_ADDR", "localhost:6379"),
 		ClientGRPCAddr: getEnv("CLIENT_GRPC_ADDR", "localhost:50054"),
 		MetricsPort:    getEnv("METRICS_PORT", "9105"),
+		OwnBankCode:    getEnv("OWN_BANK_CODE", "111"),
 	}
 }
 

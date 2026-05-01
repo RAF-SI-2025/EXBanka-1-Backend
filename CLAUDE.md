@@ -56,6 +56,12 @@ cd auth-service         && go build -o bin/auth-service         ./cmd
 cd notification-service && go build -o bin/notification-service ./cmd
 ```
 
+**Running a second bank instance (Celina 5 cohort):** `docker-compose.bank-b.yml` is an override that clears every published host port except the api-gateway's, so a second stack can run alongside the default one without colliding. Copy `.env.bank-b.example` to `.env.bank-b`, adjust `OWN_BANK_CODE` and gateway ports, then:
+```bash
+docker compose --env-file .env.bank-b -f docker-compose.yml -f docker-compose.bank-b.yml up
+```
+After both stacks are healthy, register each as a peer in the other via `POST /api/v3/peer-banks` using `http://host.docker.internal:<gateway-port>` as the `base_url`. Requires docker compose v2.24+ for the `!override` tag.
+
 ## Environment
 
 Each service reads its `.env` file by walking up the directory tree from its working directory until it finds one. Place a `.env` file at the repo root (or within the service directory) containing the required variables. Key variables:
@@ -85,6 +91,7 @@ Each service reads its `.env` file by walking up the directory tree from its wor
 | `SMTP_USER` / `SMTP_PASSWORD` | *(must set)* | Gmail app password |
 | `SMTP_FROM` | *(must set)* | Sender email address |
 | `FRONTEND_BASE_URL` | http://localhost:3000 | Base URL for links in emails |
+| `OWN_BANK_CODE` | 111 | 3-digit bank prefix for minted account numbers and SI-TX routing; must match across `account-service` and `transaction-service` of the same instance, and must be unique across peer banks in a Celina 5 cohort |
 
 **New service DB ports (if running separate DBs):**
 

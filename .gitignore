@@ -1,5 +1,10 @@
 .worktrees/
 .env
+# Per-instance env files for multi-bank docker compose runs. The .example
+# templates are committed; the populated copies are gitignored so each
+# operator can keep their own admin credentials and api-token values.
+.env.bank-*
+!.env.bank-*.example
 *.exe
 *.test
 vendor/

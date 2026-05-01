@@ -417,6 +417,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       REDIS_ADDR: redis:6379
       METRICS_PORT: "9105"
+      OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
     ports:
       - "50055:50055"
       - "9105:9105"
