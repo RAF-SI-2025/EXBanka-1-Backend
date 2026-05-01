@@ -23,9 +23,12 @@ import (
 )
 
 // HoldingReader is the subset of HoldingRepository methods that
-// PeerOTCGRPCHandler needs for GetPublicStocks. Decoupled for testability.
+// PeerOTCGRPCHandler needs. Decoupled for testability.
+//   - ListPublic backs GetPublicStocks.
+//   - GetByOwnerAndTicker backs CheckSellerCanDeliver.
 type HoldingReader interface {
 	ListPublic() ([]model.Holding, error)
+	GetByOwnerAndTicker(ownerType model.OwnerType, ownerID *uint64, securityType, ticker string) (*model.Holding, error)
 }
 
 // PeerOTCGRPCHandler implements stockpb.PeerOTCServiceServer.
@@ -371,6 +374,42 @@ func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stoc
 	}
 
 	return &stockpb.RecordOptionContractResponse{ContractId: row.ID}, nil
+}
+
+// CheckSellerCanDeliver validates that a seller participant has at
+// least `quantity` unreserved shares of the requested ticker. Used by
+// transaction-service at NEW_TX time to vote NO with INSUFFICIENT_ASSET
+// before money moves, instead of degrading silently at COMMIT_TX.
+//
+// ok=true means the seller has the holding AND
+// (quantity - reserved_quantity) >= req.quantity. Any other condition
+// (no holding, insufficient available, unparseable seller_id) returns
+// ok=false with available_quantity=0. This is information-leak-safe:
+// the caller learns "can deliver?" but not how short the seller is or
+// whether they exist on this bank at all.
+func (h *PeerOTCGRPCHandler) CheckSellerCanDeliver(ctx context.Context, req *stockpb.CheckSellerCanDeliverRequest) (*stockpb.CheckSellerCanDeliverResponse, error) {
+	if req.GetSellerId() == nil || req.GetTicker() == "" || req.GetQuantity() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "seller_id, ticker, and positive quantity are required")
+	}
+	ownerType, ownerID, parseErr := parseSellerOwner(req.GetSellerId().GetId())
+	if parseErr != nil {
+		return &stockpb.CheckSellerCanDeliverResponse{Ok: false, AvailableQuantity: 0}, nil
+	}
+	holding, err := h.holdings.GetByOwnerAndTicker(ownerType, ownerID, "stock", req.GetTicker())
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &stockpb.CheckSellerCanDeliverResponse{Ok: false, AvailableQuantity: 0}, nil
+		}
+		return nil, status.Errorf(codes.Internal, "lookup holding: %v", err)
+	}
+	available := holding.Quantity - holding.ReservedQuantity
+	if available < 0 {
+		available = 0
+	}
+	return &stockpb.CheckSellerCanDeliverResponse{
+		Ok:                available >= req.GetQuantity(),
+		AvailableQuantity: available,
+	}, nil
 }
 
 // parseSellerOwner maps an SI-TX participant id ("client-<n>",

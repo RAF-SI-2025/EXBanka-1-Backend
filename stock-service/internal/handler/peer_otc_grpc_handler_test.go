@@ -22,6 +22,26 @@ type fakeHoldingReader struct {
 	err  error
 }
 
+func (f *fakeHoldingReader) GetByOwnerAndTicker(ownerType model.OwnerType, ownerID *uint64, securityType, ticker string) (*model.Holding, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	for i := range f.rows {
+		hd := f.rows[i]
+		if hd.SecurityType != securityType || hd.Ticker != ticker || hd.OwnerType != ownerType {
+			continue
+		}
+		if (ownerID == nil) != (hd.OwnerID == nil) {
+			continue
+		}
+		if ownerID != nil && *ownerID != *hd.OwnerID {
+			continue
+		}
+		return &hd, nil
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 func (f *fakeHoldingReader) ListPublic() ([]model.Holding, error) {
 	if f.err != nil {
 		return nil, f.err

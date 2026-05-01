@@ -2,12 +2,14 @@ package sitx
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	contractsitx "github.com/exbanka/contract/sitx"
+	stockpb "github.com/exbanka/contract/stockpb"
 	"google.golang.org/grpc"
 )
 
@@ -62,17 +64,44 @@ type ReserveResult struct {
 	OptionItems     []OptionItem  // populated on YES; one per option-asset posting on our routing
 }
 
+// SellerHoldingChecker is the subset of stockpb.PeerOTCServiceClient
+// the executor depends on for the NEW_TX-time seller-side holdings
+// pre-check. Decoupled for testability — production wires the real
+// gRPC client; tests can supply a stub.
+type SellerHoldingChecker interface {
+	CheckSellerCanDeliver(ctx context.Context, in *stockpb.CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*stockpb.CheckSellerCanDeliverResponse, error)
+}
+
+// optionDescriptionForCheck mirrors the fields of contract.sitx.OptionDescription
+// that the executor's pre-check needs. Local copy avoids importing the full
+// option-description type just for two fields and keeps the executor
+// independent of stock-service's option model.
+type optionDescriptionForCheck struct {
+	Ticker string `json:"ticker"`
+	Amount int64  `json:"amount"`
+}
+
 // PostingExecutor walks an accepted NEW_TX's postings and applies the
 // receiver-side reservations via account-service. ownRouting is this
 // bank's routing number — postings with a different routing are not
 // executed locally (they're the responsibility of the other bank).
 type PostingExecutor struct {
-	client     AccountClient
-	ownRouting int64
+	client         AccountClient
+	holdingChecker SellerHoldingChecker // optional; nil disables seller-side option pre-check
+	ownRouting     int64
 }
 
 func NewPostingExecutor(client AccountClient, ownRouting int64) *PostingExecutor {
 	return &PostingExecutor{client: client, ownRouting: ownRouting}
+}
+
+// SetHoldingChecker wires the stock-service-backed seller pre-check.
+// Optional — left nil, the executor still emits OptionItems for option-
+// asset postings but does not validate seller holdings at NEW_TX time
+// (sufficiency is enforced best-effort at COMMIT_TX time via the
+// holding lock in stock-service.RecordOptionContract).
+func (e *PostingExecutor) SetHoldingChecker(c SellerHoldingChecker) {
+	e.holdingChecker = c
 }
 
 // Reserve runs the receive-side reserve phase of a NEW_TX. It walks each
@@ -133,7 +162,31 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 		// SI-TX semantics keep all observable side effects bounded by
 		// the reservation/commit pair, and contracts shouldn't appear
 		// before COMMIT.
+		//
+		// For DEBIT option postings on our routing (this bank holds the
+		// seller), pre-check that the seller has enough unreserved
+		// shares now — voting NO with INSUFFICIENT_ASSET here means
+		// money never moves on a contract the seller can't fulfil.
+		// Without the holdingChecker wired, we skip the pre-check and
+		// fall back to the COMMIT_TX-time best-effort lock.
 		if strings.HasPrefix(p.AssetID, "{") {
+			if p.Direction == contractsitx.DirectionDebit && e.holdingChecker != nil {
+				var od optionDescriptionForCheck
+				if err := json.Unmarshal([]byte(p.AssetID), &od); err == nil && od.Ticker != "" && od.Amount > 0 {
+					seller := sellerByDesc[p.AssetID]
+					resp, err := e.holdingChecker.CheckSellerCanDeliver(ctx, &stockpb.CheckSellerCanDeliverRequest{
+						SellerId: &stockpb.PeerForeignBankId{
+							RoutingNumber: seller.RoutingNumber,
+							Id:            seller.ID,
+						},
+						Ticker:   od.Ticker,
+						Quantity: od.Amount,
+					})
+					if err != nil || resp == nil || !resp.GetOk() {
+						return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
+					}
+				}
+			}
 			options = append(options, OptionItem{
 				PostingIndex:          i,
 				Direction:             p.Direction,

@@ -134,6 +134,20 @@ func (r *HoldingRepository) GetByOwnerAndSecurity(ownerType model.OwnerType, own
 	return &holding, nil
 }
 
+// GetByOwnerAndTicker is the cross-bank-friendly variant: locates a
+// holding by ticker rather than by local security_id, since the SI-TX
+// OptionDescription only carries the ticker. Used by the seller-side
+// pre-check on NEW_TX.
+func (r *HoldingRepository) GetByOwnerAndTicker(ownerType model.OwnerType, ownerID *uint64, securityType, ticker string) (*model.Holding, error) {
+	var holding model.Holding
+	q := r.db.Where("security_type = ? AND ticker = ?", securityType, ticker)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	if err := q.First(&holding).Error; err != nil {
+		return nil, err
+	}
+	return &holding, nil
+}
+
 func (r *HoldingRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter HoldingFilter) ([]model.Holding, int64, error) {
 	var holdings []model.Holding
 	var total int64

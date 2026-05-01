@@ -204,6 +204,13 @@ func main() {
 	// SI-TX Phase 3 sender-side wiring.
 	ownRouting, _ := strconv.ParseInt(cfg.OwnBankCode, 10, 64)
 	peerExecutor := sitx.NewPostingExecutor(accountClient, ownRouting)
+	// Wire the seller-side option-holdings pre-check (NEW_TX time).
+	// Reuses the same stock-service connection as the option recorder;
+	// optional for the same reason — degrades to COMMIT_TX-time
+	// best-effort lock when stock-service is unreachable.
+	if stockConn != nil {
+		peerExecutor.SetHoldingChecker(stockpb.NewPeerOTCServiceClient(stockConn))
+	}
 	outRepo := repository.NewOutboundPeerTxRepository(db)
 	peerHTTPClient := sitx.NewPeerHTTPClient(&http.Client{Timeout: 30 * time.Second})
 

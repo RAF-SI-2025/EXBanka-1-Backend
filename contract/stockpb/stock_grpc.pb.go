@@ -2668,13 +2668,14 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	PeerOTCService_GetPublicStocks_FullMethodName      = "/stock.PeerOTCService/GetPublicStocks"
-	PeerOTCService_CreateNegotiation_FullMethodName    = "/stock.PeerOTCService/CreateNegotiation"
-	PeerOTCService_UpdateNegotiation_FullMethodName    = "/stock.PeerOTCService/UpdateNegotiation"
-	PeerOTCService_GetNegotiation_FullMethodName       = "/stock.PeerOTCService/GetNegotiation"
-	PeerOTCService_DeleteNegotiation_FullMethodName    = "/stock.PeerOTCService/DeleteNegotiation"
-	PeerOTCService_AcceptNegotiation_FullMethodName    = "/stock.PeerOTCService/AcceptNegotiation"
-	PeerOTCService_RecordOptionContract_FullMethodName = "/stock.PeerOTCService/RecordOptionContract"
+	PeerOTCService_GetPublicStocks_FullMethodName       = "/stock.PeerOTCService/GetPublicStocks"
+	PeerOTCService_CreateNegotiation_FullMethodName     = "/stock.PeerOTCService/CreateNegotiation"
+	PeerOTCService_UpdateNegotiation_FullMethodName     = "/stock.PeerOTCService/UpdateNegotiation"
+	PeerOTCService_GetNegotiation_FullMethodName        = "/stock.PeerOTCService/GetNegotiation"
+	PeerOTCService_DeleteNegotiation_FullMethodName     = "/stock.PeerOTCService/DeleteNegotiation"
+	PeerOTCService_AcceptNegotiation_FullMethodName     = "/stock.PeerOTCService/AcceptNegotiation"
+	PeerOTCService_RecordOptionContract_FullMethodName  = "/stock.PeerOTCService/RecordOptionContract"
+	PeerOTCService_CheckSellerCanDeliver_FullMethodName = "/stock.PeerOTCService/CheckSellerCanDeliver"
 )
 
 // PeerOTCServiceClient is the client API for PeerOTCService service.
@@ -2688,6 +2689,12 @@ const (
 // time for each option-asset posting that landed on this bank — one
 // call per (DEBIT-on-seller, CREDIT-on-buyer) leg. Idempotent on
 // (crossbank_tx_id, posting_index).
+//
+// CheckSellerCanDeliver is called by transaction-service at NEW_TX
+// time for each DEBIT-direction option-asset posting on this bank,
+// to validate that the seller has enough unreserved shares to back
+// the contract. A NO answer drives an INSUFFICIENT_ASSET NoVote so
+// money never moves on a contract the seller can't fulfil.
 type PeerOTCServiceClient interface {
 	GetPublicStocks(ctx context.Context, in *GetPublicStocksRequest, opts ...grpc.CallOption) (*GetPublicStocksResponse, error)
 	CreateNegotiation(ctx context.Context, in *CreateNegotiationRequest, opts ...grpc.CallOption) (*CreateNegotiationResponse, error)
@@ -2696,6 +2703,7 @@ type PeerOTCServiceClient interface {
 	DeleteNegotiation(ctx context.Context, in *DeleteNegotiationRequest, opts ...grpc.CallOption) (*DeleteNegotiationResponse, error)
 	AcceptNegotiation(ctx context.Context, in *AcceptNegotiationRequest, opts ...grpc.CallOption) (*AcceptNegotiationResponse, error)
 	RecordOptionContract(ctx context.Context, in *RecordOptionContractRequest, opts ...grpc.CallOption) (*RecordOptionContractResponse, error)
+	CheckSellerCanDeliver(ctx context.Context, in *CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*CheckSellerCanDeliverResponse, error)
 }
 
 type peerOTCServiceClient struct {
@@ -2776,6 +2784,16 @@ func (c *peerOTCServiceClient) RecordOptionContract(ctx context.Context, in *Rec
 	return out, nil
 }
 
+func (c *peerOTCServiceClient) CheckSellerCanDeliver(ctx context.Context, in *CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*CheckSellerCanDeliverResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckSellerCanDeliverResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_CheckSellerCanDeliver_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerOTCServiceServer is the server API for PeerOTCService service.
 // All implementations must embed UnimplementedPeerOTCServiceServer
 // for forward compatibility.
@@ -2787,6 +2805,12 @@ func (c *peerOTCServiceClient) RecordOptionContract(ctx context.Context, in *Rec
 // time for each option-asset posting that landed on this bank — one
 // call per (DEBIT-on-seller, CREDIT-on-buyer) leg. Idempotent on
 // (crossbank_tx_id, posting_index).
+//
+// CheckSellerCanDeliver is called by transaction-service at NEW_TX
+// time for each DEBIT-direction option-asset posting on this bank,
+// to validate that the seller has enough unreserved shares to back
+// the contract. A NO answer drives an INSUFFICIENT_ASSET NoVote so
+// money never moves on a contract the seller can't fulfil.
 type PeerOTCServiceServer interface {
 	GetPublicStocks(context.Context, *GetPublicStocksRequest) (*GetPublicStocksResponse, error)
 	CreateNegotiation(context.Context, *CreateNegotiationRequest) (*CreateNegotiationResponse, error)
@@ -2795,6 +2819,7 @@ type PeerOTCServiceServer interface {
 	DeleteNegotiation(context.Context, *DeleteNegotiationRequest) (*DeleteNegotiationResponse, error)
 	AcceptNegotiation(context.Context, *AcceptNegotiationRequest) (*AcceptNegotiationResponse, error)
 	RecordOptionContract(context.Context, *RecordOptionContractRequest) (*RecordOptionContractResponse, error)
+	CheckSellerCanDeliver(context.Context, *CheckSellerCanDeliverRequest) (*CheckSellerCanDeliverResponse, error)
 	mustEmbedUnimplementedPeerOTCServiceServer()
 }
 
@@ -2825,6 +2850,9 @@ func (UnimplementedPeerOTCServiceServer) AcceptNegotiation(context.Context, *Acc
 }
 func (UnimplementedPeerOTCServiceServer) RecordOptionContract(context.Context, *RecordOptionContractRequest) (*RecordOptionContractResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RecordOptionContract not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) CheckSellerCanDeliver(context.Context, *CheckSellerCanDeliverRequest) (*CheckSellerCanDeliverResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CheckSellerCanDeliver not implemented")
 }
 func (UnimplementedPeerOTCServiceServer) mustEmbedUnimplementedPeerOTCServiceServer() {}
 func (UnimplementedPeerOTCServiceServer) testEmbeddedByValue()                        {}
@@ -2973,6 +3001,24 @@ func _PeerOTCService_RecordOptionContract_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerOTCService_CheckSellerCanDeliver_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckSellerCanDeliverRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).CheckSellerCanDeliver(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_CheckSellerCanDeliver_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).CheckSellerCanDeliver(ctx, req.(*CheckSellerCanDeliverRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PeerOTCService_ServiceDesc is the grpc.ServiceDesc for PeerOTCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3007,6 +3053,10 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RecordOptionContract",
 			Handler:    _PeerOTCService_RecordOptionContract_Handler,
+		},
+		{
+			MethodName: "CheckSellerCanDeliver",
+			Handler:    _PeerOTCService_CheckSellerCanDeliver_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

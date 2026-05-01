@@ -1157,6 +1157,12 @@ message ExerciseResponse {
 // time for each option-asset posting that landed on this bank — one
 // call per (DEBIT-on-seller, CREDIT-on-buyer) leg. Idempotent on
 // (crossbank_tx_id, posting_index).
+//
+// CheckSellerCanDeliver is called by transaction-service at NEW_TX
+// time for each DEBIT-direction option-asset posting on this bank,
+// to validate that the seller has enough unreserved shares to back
+// the contract. A NO answer drives an INSUFFICIENT_ASSET NoVote so
+// money never moves on a contract the seller can't fulfil.
 service PeerOTCService {
   rpc GetPublicStocks(GetPublicStocksRequest) returns (GetPublicStocksResponse);
   rpc CreateNegotiation(CreateNegotiationRequest) returns (CreateNegotiationResponse);
@@ -1165,6 +1171,7 @@ service PeerOTCService {
   rpc DeleteNegotiation(DeleteNegotiationRequest) returns (DeleteNegotiationResponse);
   rpc AcceptNegotiation(AcceptNegotiationRequest) returns (AcceptNegotiationResponse);
   rpc RecordOptionContract(RecordOptionContractRequest) returns (RecordOptionContractResponse);
+  rpc CheckSellerCanDeliver(CheckSellerCanDeliverRequest) returns (CheckSellerCanDeliverResponse);
 }
 
 message PeerForeignBankId {
@@ -1271,4 +1278,20 @@ message RecordOptionContractRequest {
 
 message RecordOptionContractResponse {
   uint64 contract_id = 1;
+}
+
+// CheckSellerCanDeliverRequest asks whether the seller participant
+// has at least `quantity` unreserved shares of the given ticker.
+// seller_id is the SI-TX participant identifier ("client-<n>" or
+// "bank"); ticker is the stock ticker; quantity is the option's
+// underlying share count.
+message CheckSellerCanDeliverRequest {
+  PeerForeignBankId seller_id = 1;
+  string ticker = 2;
+  int64 quantity = 3;
+}
+
+message CheckSellerCanDeliverResponse {
+  bool ok = 1;
+  int64 available_quantity = 2;
 }
