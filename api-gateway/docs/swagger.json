@@ -9760,6 +9760,53 @@
                 }
             }
         },
+        "/api/v3/me/otc/contracts/peer/{id}/exercise": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Buyer-only. Initiates the SI-TX exercise flow: strike money buyer→seller + option markers carrying intent=exercise. Both banks transition the contract to status=exercised on COMMIT_TX, the seller's reservation is consumed and the buyer's holding is credited.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Exercise a cross-bank OTC option contract",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "peer_option_contracts row id on this bank",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "buyer's currency account number that pays the strike",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.exercisePeerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/otc/offers": {
             "get": {
                 "security": [
@@ -9785,6 +9832,46 @@
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/peer-otc/negotiations": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Buyer-side client-facing endpoint. Composes an SI-TX OtcOffer with buyerId from the caller's JWT and sellerId from the body, then HTTP POSTs to the seller's bank's /api/v3/negotiations. Returns the foreign negotiation id assigned by the seller's bank.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Initiate a cross-bank OTC negotiation",
+                "parameters": [
+                    {
+                        "description": "negotiation terms",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.initiateNegotiationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -11273,6 +11360,14 @@
                 }
             }
         },
+        "handler.exercisePeerRequest": {
+            "type": "object",
+            "properties": {
+                "buyer_account_number": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.exerciseRequest": {
             "type": "object",
             "properties": {
@@ -11281,6 +11376,53 @@
                 },
                 "seller_account_id": {
                     "type": "integer"
+                }
+            }
+        },
+        "handler.initiateNegotiationRequest": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer"
+                },
+                "premium": {
+                    "type": "object",
+                    "properties": {
+                        "amount": {
+                            "type": "string"
+                        },
+                        "currency": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "price_per_unit": {
+                    "type": "object",
+                    "properties": {
+                        "amount": {
+                            "type": "string"
+                        },
+                        "currency": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "seller_bank_code": {
+                    "type": "string"
+                },
+                "seller_id": {
+                    "type": "string"
+                },
+                "settlement_date": {
+                    "type": "string"
+                },
+                "stock": {
+                    "type": "object",
+                    "properties": {
+                        "ticker": {
+                            "type": "string"
+                        }
+                    }
                 }
             }
         },

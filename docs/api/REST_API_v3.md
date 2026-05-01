@@ -5714,9 +5714,93 @@ List the caller's option contracts.
 ```json
 {
   "contracts": [ { "id": 5001, "status": "ACTIVE", ... } ],
-  "total": 1
+  "total": 1,
+  "peer_contracts": [
+    {
+      "id": 6,
+      "crossbank_tx_id": "222:abc-123",
+      "posting_index": 3,
+      "negotiation_routing_number": 222,
+      "negotiation_id": "neg-uuid",
+      "buyer_id":  { "routing_number": 111, "id": "client-1" },
+      "seller_id": { "routing_number": 222, "id": "client-1" },
+      "ticker": "AAPL",
+      "quantity": 5,
+      "strike_price": "180",
+      "currency": "USD",
+      "settlement_date": "2027-05-01T00:00:00Z",
+      "direction": "CREDIT",
+      "status": "active",
+      "created_at_unix": 1777595867
+    }
+  ],
+  "peer_total": 1
 }
 ```
+
+The `peer_contracts` array surfaces cross-bank (Celina 5) option contracts where the caller is a participant. `direction=CREDIT` means this bank holds the buyer side of the contract; `direction=DEBIT` means this bank holds the seller side. `status` values: `active`, `exercised`, `expired`.
+
+---
+
+### POST /api/v3/me/otc/contracts/peer/:id/exercise
+
+Exercise a cross-bank OTC option contract (Celina 5 SI-TX). Buyer-only — only callable on the bank that holds the buyer side (i.e. the row in this bank's `peer_option_contracts` has `direction=CREDIT`).
+
+**Authentication:** Any JWT (`OwnerIsBankIfEmployee`)
+
+**Path Parameters:**
+- `id` — the local `peer_option_contracts` row id (the same `id` returned by `GET /api/v3/me/otc/contracts`'s `peer_contracts`).
+
+**Request Body:**
+```json
+{ "buyer_account_number": "111000192244743221" }
+```
+
+The caller specifies the currency account that pays the strike. The seller's currency account is resolved on the seller's bank from the contract's `seller_id` participant.
+
+**Response 200:**
+```json
+{ "transaction_id": "<uuid>", "status": "pending" }
+```
+
+The exercise dispatches a 4-posting SI-TX (strike money buyer→seller + option markers carrying `intent="exercise"`). Both banks transition the contract to `status=exercised` on COMMIT_TX; the seller's reservation is consumed and the buyer's holding is credited the contract quantity.
+
+**Response 412:** Contract not in status `active` (already exercised / expired) or this bank doesn't hold the buyer side.
+**Response 500:** Insufficient buyer funds or other dispatch failure (the SI-TX local-reserve aborts before money moves).
+
+---
+
+### POST /api/v3/me/peer-otc/negotiations
+
+Initiate a cross-bank OTC negotiation against a peer bank's listing. Buyer-side client-facing entry point — composes an SI-TX `OtcOffer` with `buyerId` derived from the caller's JWT and HTTP-POSTs to the seller bank's `/api/v3/negotiations` endpoint.
+
+**Authentication:** Any JWT (`AnyAuthMiddleware`)
+
+**Request Body:**
+```json
+{
+  "seller_bank_code": "222",
+  "seller_id":        "client-1",
+  "stock":            { "ticker": "AAPL" },
+  "settlement_date":  "2027-08-01T00:00:00Z",
+  "price_per_unit":   { "amount": "175", "currency": "USD" },
+  "premium":          { "amount": "40",  "currency": "USD" },
+  "amount":           2
+}
+```
+
+`seller_bank_code` must be a registered peer (see Section 38), not own bank. `seller_id` is an SI-TX participant id (`client-<n>` or `bank`).
+
+**Response 201:** `ForeignBankId` directly — the negotiation id assigned by the seller's bank.
+```json
+{ "routingNumber": 222, "id": "<uuid>" }
+```
+
+After creation, both banks have a negotiation row. Either side can counter via `PUT /api/v3/negotiations/{rid}/{id}` (peer-facing, called bank-to-bank), cancel via `DELETE` (soft-cancel — sets `isOngoing=false`), or accept via `GET /api/v3/negotiations/{rid}/{id}/accept` which dispatches the option-formation SI-TX.
+
+**Response 400:** Validation error (unknown peer, missing fields, seller_bank_code = own bank).
+**Response 404:** Peer bank not registered.
+**Response 502:** Peer transport failure (network error, timeout).
 
 ---
 
