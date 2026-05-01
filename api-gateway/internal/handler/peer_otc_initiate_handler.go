@@ -29,11 +29,11 @@ import (
 // base URL + API token + HMAC keys → HTTP POST to
 // {peer}/api/v3/negotiations carrying the SI-TX OtcOffer payload.
 type PeerOTCInitiateHandler struct {
-	peerAdmin    transactionpb.PeerBankAdminServiceClient
-	httpClient   *http.Client
-	ownRouting   int64
-	ownBankCode  string
-	hmacWindow   time.Duration
+	peerAdmin   transactionpb.PeerBankAdminServiceClient
+	httpClient  *http.Client
+	ownRouting  int64
+	ownBankCode string
+	hmacWindow  time.Duration
 }
 
 func NewPeerOTCInitiateHandler(peerAdmin transactionpb.PeerBankAdminServiceClient, ownRouting int64, ownBankCode string) *PeerOTCInitiateHandler {

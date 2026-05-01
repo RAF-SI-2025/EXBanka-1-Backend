@@ -49,9 +49,9 @@ type DebitedItem struct {
 // direction): a CREDIT option posting identifies the buyer; the DEBIT
 // option posting (same OptionDescription) identifies the seller.
 type OptionItem struct {
-	PostingIndex          int                       `json:"postingIndex"`
-	Direction             string                    `json:"direction"` // local-side direction: DEBIT or CREDIT
-	OptionDescriptionJSON string                    `json:"optionDescriptionJson"`
+	PostingIndex          int                        `json:"postingIndex"`
+	Direction             string                     `json:"direction"` // local-side direction: DEBIT or CREDIT
+	OptionDescriptionJSON string                     `json:"optionDescriptionJson"`
 	Buyer                 contractsitx.ForeignBankId `json:"buyer"`
 	Seller                contractsitx.ForeignBankId `json:"seller"`
 }

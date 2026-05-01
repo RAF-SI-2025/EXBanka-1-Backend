@@ -11,11 +11,11 @@ import "time"
 //
 // Composite-unique: (peer_bank_code, locally_generated_key).
 type PeerIdempotenceRecord struct {
-	ID                  uint64    `gorm:"primaryKey"`
-	PeerBankCode        string    `gorm:"size:8;not null;uniqueIndex:idx_peer_idem_keys"`
-	LocallyGeneratedKey string    `gorm:"size:128;not null;uniqueIndex:idx_peer_idem_keys"`
-	TransactionID       string    `gorm:"size:128;not null"`
-	ResponsePayloadJSON string    `gorm:"type:text;not null"`
+	ID                  uint64 `gorm:"primaryKey"`
+	PeerBankCode        string `gorm:"size:8;not null;uniqueIndex:idx_peer_idem_keys"`
+	LocallyGeneratedKey string `gorm:"size:128;not null;uniqueIndex:idx_peer_idem_keys"`
+	TransactionID       string `gorm:"size:128;not null"`
+	ResponsePayloadJSON string `gorm:"type:text;not null"`
 	// DebitsJSON is the list of immediate-debits performed during the
 	// vote-YES phase of NEW_TX (one entry per DEBIT posting on this
 	// bank's routing). Persisted so HandleRollbackTx can credit each
