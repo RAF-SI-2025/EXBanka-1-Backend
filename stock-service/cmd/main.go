@@ -626,8 +626,6 @@ func main() {
 	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC).WithOutbox(ob, db)
 	otcExpiry.Start(ctx)
 
-	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).WithListings(listingRepo)
-
 	// --- Cross-bank OTC (Phase 4 SI-TX) ---
 	// PeerOTCService backs the api-gateway /api/v3/public-stock and
 	// /api/v3/negotiations endpoints. GetPublicStocks reads from holdings
@@ -642,6 +640,10 @@ func main() {
 	peerOptionRepo := repository.NewPeerOptionContractRepository(db)
 	peerOtcHandler := handler.NewPeerOTCGRPCHandler(peerOtcRepo, peerOptionRepo, holdingRepo, peerTxClient, ownRouting)
 	peerOtcHandler.SetHoldingReserver(holdingReservationSvc)
+
+	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).
+		WithListings(listingRepo).
+		WithPeerContracts(peerOptionRepo, ownRouting)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()

@@ -265,7 +265,12 @@ func (h *OTCOptionsHandler) ListMyContracts(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"contracts": resp.Contracts, "total": resp.Total})
+	c.JSON(http.StatusOK, gin.H{
+		"contracts":      resp.Contracts,
+		"total":          resp.Total,
+		"peer_contracts": resp.PeerContracts,
+		"peer_total":     resp.PeerTotal,
+	})
 }
 
 // GetContract godoc

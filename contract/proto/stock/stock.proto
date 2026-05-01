@@ -1121,6 +1121,34 @@ message ListMyContractsRequest {
 message ListContractsResponse {
   repeated OptionContractResponse contracts = 1;
   int64 total = 2;
+  // Cross-bank (Celina 5 SI-TX) option contracts where this user is
+  // either the buyer or the seller. Rendered alongside intra-bank
+  // contracts above so clients see one merged list.
+  repeated PeerOptionContractResponse peer_contracts = 3;
+  int64 peer_total = 4;
+}
+
+// PeerOptionContractResponse is the on-the-wire shape of a row from
+// peer_option_contracts. Keyed on (crossbank_tx_id, posting_index),
+// mirrors the SI-TX OptionDescription terms plus the cross-bank
+// participant identifiers.
+message PeerOptionContractResponse {
+  uint64 id = 1;
+  string crossbank_tx_id = 2;
+  int32 posting_index = 3;
+  int64 negotiation_routing_number = 4;
+  string negotiation_id = 5;
+  PeerForeignBankId buyer_id = 6;
+  PeerForeignBankId seller_id = 7;
+  string ticker = 8;
+  int64 quantity = 9;
+  string strike_price = 10;
+  string currency = 11;
+  string settlement_date = 12;
+  // "DEBIT" → this bank holds the seller side; "CREDIT" → buyer side.
+  string direction = 13;
+  string status = 14;
+  int64 created_at_unix = 15;
 }
 
 message GetContractRequest {

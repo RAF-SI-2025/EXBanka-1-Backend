@@ -51,3 +51,50 @@ func (r *PeerOptionContractRepository) GetByCrossbankTxAndPosting(crossbankTxID 
 	}
 	return &pc, nil
 }
+
+// ListByLocalParticipant returns rows where the user is a participant
+// on this bank's side of the contract: a CREDIT row keyed on the user
+// when this bank holds the buyer, or a DEBIT row keyed on the user
+// when this bank holds the seller. participantID is the SI-TX
+// participant identifier (e.g. "client-1"); ownRouting is the local
+// bank's routing number used as the discriminator. role can be
+// "buyer", "seller", or anything else (= "either"). Pagination is
+// 1-based; pageSize <= 0 disables limit.
+func (r *PeerOptionContractRepository) ListByLocalParticipant(
+	participantID string,
+	ownRouting int64,
+	role string,
+	page, pageSize int,
+) ([]model.PeerOptionContract, int64, error) {
+	q := r.db.Model(&model.PeerOptionContract{})
+	switch role {
+	case "buyer":
+		q = q.Where("direction = ? AND buyer_routing_number = ? AND buyer_id = ?", "CREDIT", ownRouting, participantID)
+	case "seller":
+		q = q.Where("direction = ? AND seller_routing_number = ? AND seller_id = ?", "DEBIT", ownRouting, participantID)
+	default:
+		q = q.Where(
+			"(direction = ? AND buyer_routing_number = ? AND buyer_id = ?) OR (direction = ? AND seller_routing_number = ? AND seller_id = ?)",
+			"CREDIT", ownRouting, participantID,
+			"DEBIT", ownRouting, participantID,
+		)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if pageSize > 0 {
+		offset := (page - 1) * pageSize
+		if offset < 0 {
+			offset = 0
+		}
+		q = q.Order("id DESC").Offset(offset).Limit(pageSize)
+	} else {
+		q = q.Order("id DESC")
+	}
+	var rows []model.PeerOptionContract
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	return rows, total, nil
+}
