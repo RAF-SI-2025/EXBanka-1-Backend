@@ -476,6 +476,7 @@ services:
       KAFKA_BROKERS: kafka:9092
       EXCHANGE_GRPC_ADDR: "exchange-service:50059"
       VERIFICATION_GRPC_ADDR: "verification-service:50061"
+      STOCK_GRPC_ADDR: "stock-service:50060"
       METRICS_PORT: "9107"
       OWN_BANK_CODE: "${OWN_BANK_CODE:-111}"
     extra_hosts:
@@ -494,6 +495,12 @@ services:
         condition: service_started
       verification-service:
         condition: service_started
+      # stock-service intentionally NOT in depends_on: stock-service
+      # already depends on transaction-service (cross-bank dispatch path),
+      # so making it a hard dep here would cycle. The stock gRPC client
+      # is best-effort at startup — option-leg materialisation degrades
+      # gracefully (logs warning, transfer flows still work) when
+      # stock-service is unreachable.
 
   credit-service:
     build:

@@ -6,11 +6,13 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	contractsitx "github.com/exbanka/contract/sitx"
+	stockpb "github.com/exbanka/contract/stockpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -18,19 +20,28 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// PeerOptionRecorder is the subset of stockpb.PeerOTCServiceClient
+// that this handler depends on, to record option contracts at
+// COMMIT_TX time. Decoupled for testability — production wiring uses
+// the real gRPC client; tests can supply a stub.
+type PeerOptionRecorder interface {
+	RecordOptionContract(ctx context.Context, in *stockpb.RecordOptionContractRequest, opts ...grpc.CallOption) (*stockpb.RecordOptionContractResponse, error)
+}
+
 // PeerTxGRPCHandler implements transactionpb.PeerTxServiceServer.
 // Phase 3 Task 6: real NEW_TX / COMMIT_TX / ROLLBACK_TX implementations.
 // Phase 3 Task 10 wires InitiateOutboundTx by injecting the outbound
 // repository, HTTP client, peer-bank lookup, and our routing number.
 type PeerTxGRPCHandler struct {
 	transactionpb.UnimplementedPeerTxServiceServer
-	idemRepo   *repository.PeerIdempotenceRepository
-	executor   *sitx.PostingExecutor
-	client     sitx.AccountClient
-	outRepo    *repository.OutboundPeerTxRepository
-	httpClient *sitx.PeerHTTPClient
-	peerLookup PeerLookupFunc
-	ownRouting int64
+	idemRepo       *repository.PeerIdempotenceRepository
+	executor       *sitx.PostingExecutor
+	client         sitx.AccountClient
+	outRepo        *repository.OutboundPeerTxRepository
+	httpClient     *sitx.PeerHTTPClient
+	peerLookup     PeerLookupFunc
+	ownRouting     int64
+	optionRecorder PeerOptionRecorder // optional; nil disables option-leg materialisation
 }
 
 // PeerLookupFunc resolves a peer-bank-code to a PeerHTTPTarget for outbound
@@ -56,6 +67,13 @@ func NewPeerTxGRPCHandler(
 		peerLookup: peerLookup,
 		ownRouting: ownRouting,
 	}
+}
+
+// SetOptionRecorder wires the cross-bank option-contract recorder.
+// Optional — left nil, the handler falls back to logging that an
+// option leg was committed but not materialised.
+func (h *PeerTxGRPCHandler) SetOptionRecorder(r PeerOptionRecorder) {
+	h.optionRecorder = r
 }
 
 // HandleNewTx validates the inbound NEW_TX envelope, runs the cheap
@@ -87,18 +105,18 @@ func (h *PeerTxGRPCHandler) HandleNewTx(ctx context.Context, req *transactionpb.
 	// Cheap balance check first — avoids hitting account-service for
 	// trivially-rejectable envelopes.
 	if vote := sitx.BuildPrelimVote(postings); vote.Type == contractsitx.VoteNo {
-		return cacheAndReturn(h.idemRepo, peerCode, idem, "", nil, voteToProto(vote))
+		return cacheAndReturn(h.idemRepo, peerCode, idem, "", nil, nil, voteToProto(vote))
 	}
 
 	// Execute reservations.
 	res := h.executor.Reserve(ctx, postings, peerCode, idem)
 	if res.Vote.Type == contractsitx.VoteNo {
-		return cacheAndReturn(h.idemRepo, peerCode, idem, "", nil, voteToProto(res.Vote))
+		return cacheAndReturn(h.idemRepo, peerCode, idem, "", nil, nil, voteToProto(res.Vote))
 	}
 
 	txID := uuid.NewString()
 	resp := &transactionpb.SiTxVoteResponse{Type: contractsitx.VoteYes, TransactionId: txID}
-	return cacheAndReturn(h.idemRepo, peerCode, idem, txID, res.DebitedItems, resp)
+	return cacheAndReturn(h.idemRepo, peerCode, idem, txID, res.DebitedItems, res.OptionItems, resp)
 }
 
 // cacheAndReturn inserts the idempotence record and returns the response.
@@ -110,13 +128,20 @@ func (h *PeerTxGRPCHandler) HandleNewTx(ctx context.Context, req *transactionpb.
 // debits is the list of immediate-debits performed during reservation;
 // persisted as JSON so HandleRollbackTx can credit each entry back if
 // the IB later sends ROLLBACK_TX. Pass nil (or empty slice) when there
-// were no DEBIT postings on this bank's routing.
-func cacheAndReturn(repo *repository.PeerIdempotenceRepository, peerCode, idem, txID string, debits []sitx.DebitedItem, resp *transactionpb.SiTxVoteResponse) (*transactionpb.SiTxVoteResponse, error) {
+// were no DEBIT postings on this bank's routing. options carries the
+// option-asset legs to materialise at COMMIT_TX time.
+func cacheAndReturn(repo *repository.PeerIdempotenceRepository, peerCode, idem, txID string, debits []sitx.DebitedItem, options []sitx.OptionItem, resp *transactionpb.SiTxVoteResponse) (*transactionpb.SiTxVoteResponse, error) {
 	payload, _ := json.Marshal(resp)
 	debitsJSON := "[]"
 	if len(debits) > 0 {
 		if b, err := json.Marshal(debits); err == nil {
 			debitsJSON = string(b)
+		}
+	}
+	optionsJSON := "[]"
+	if len(options) > 0 {
+		if b, err := json.Marshal(options); err == nil {
+			optionsJSON = string(b)
 		}
 	}
 	rec := &model.PeerIdempotenceRecord{
@@ -125,6 +150,7 @@ func cacheAndReturn(repo *repository.PeerIdempotenceRepository, peerCode, idem, 
 		TransactionID:       txID,
 		ResponsePayloadJSON: string(payload),
 		DebitsJSON:          debitsJSON,
+		OptionsJSON:         optionsJSON,
 	}
 	if err := repo.Insert(rec); err != nil {
 		return nil, status.Errorf(codes.Internal, "idem insert: %v", err)
@@ -166,7 +192,43 @@ func (h *PeerTxGRPCHandler) HandleCommitTx(ctx context.Context, req *transaction
 			return nil, status.Errorf(codes.Internal, "commit: %v", cerr)
 		}
 	}
+	// Materialise any option-asset legs into peer_option_contracts via
+	// stock-service. The list was captured at NEW_TX time and persisted
+	// in OptionsJSON so we don't depend on the original postings list,
+	// which is no longer available at commit time.
+	if err := h.materialiseOptions(ctx, rec.OptionsJSON, key); err != nil {
+		return nil, status.Errorf(codes.Internal, "record options: %v", err)
+	}
 	return &transactionpb.SiTxAckResponse{}, nil
+}
+
+// materialiseOptions decodes the persisted OptionsJSON list and
+// asks stock-service to record each as a peer_option_contracts row.
+// crossbankTxID is "<peerCode>:<idem>" so both banks key contracts
+// the same way (idempotency is on (crossbank_tx_id, posting_index)).
+// No-op when optionRecorder is nil or list is empty/`[]`.
+func (h *PeerTxGRPCHandler) materialiseOptions(ctx context.Context, optionsJSON, crossbankTxID string) error {
+	if h.optionRecorder == nil || optionsJSON == "" || optionsJSON == "[]" {
+		return nil
+	}
+	var items []sitx.OptionItem
+	if err := json.Unmarshal([]byte(optionsJSON), &items); err != nil {
+		return err
+	}
+	for _, it := range items {
+		_, err := h.optionRecorder.RecordOptionContract(ctx, &stockpb.RecordOptionContractRequest{
+			CrossbankTxId:         crossbankTxID,
+			PostingIndex:          int32(it.PostingIndex),
+			OptionDescriptionJson: it.OptionDescriptionJSON,
+			BuyerId:               &stockpb.PeerForeignBankId{RoutingNumber: it.Buyer.RoutingNumber, Id: it.Buyer.ID},
+			SellerId:              &stockpb.PeerForeignBankId{RoutingNumber: it.Seller.RoutingNumber, Id: it.Seller.ID},
+			Direction:             it.Direction,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *PeerTxGRPCHandler) HandleRollbackTx(ctx context.Context, req *transactionpb.SiTxRollbackRequest) (*transactionpb.SiTxAckResponse, error) {
@@ -406,6 +468,19 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		if err := h.httpClient.PostCommitTx(ctx, target, commitEnvelope); err != nil {
 			_ = h.outRepo.MarkAttempt(idem, "commit: "+err.Error())
 		} else {
+			// Materialise sender-side option contract rows now that
+			// both banks have committed. Receiver-side rows are
+			// written by the peer's HandleCommitTx; sender-side rows
+			// are written here by us, since our local Reserve was
+			// run with peerCode=ownRouting and stays in our
+			// idempotence-record cache for free, but the option list
+			// is not pulled from idem store on this path — we use
+			// the localResult directly. crossbankTxID is consistently
+			// "<ownRouting>:<idem>" so the sender's row is keyed by
+			// the same UUID that flows on the wire.
+			if merr := h.materialiseOptions(ctx, optionItemsJSON(localResult.OptionItems), localKey); merr != nil {
+				_ = h.outRepo.MarkAttempt(idem, "local option-record: "+merr.Error())
+			}
 			_ = h.outRepo.MarkCommitted(idem)
 		}
 	} else {
@@ -467,4 +542,18 @@ func voteToProto(v contractsitx.TransactionVote) *transactionpb.SiTxVoteResponse
 		out.NoVotes = append(out.NoVotes, entry)
 	}
 	return out
+}
+
+// optionItemsJSON serialises an OptionItem slice for the
+// materialiseOptions helper. Empty slice → "[]" so the helper's
+// fast-path skip works for non-OTC TXs.
+func optionItemsJSON(items []sitx.OptionItem) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	b, err := json.Marshal(items)
+	if err != nil {
+		return "[]"
+	}
+	return string(b)
 }

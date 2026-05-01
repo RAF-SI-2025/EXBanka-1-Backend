@@ -2668,12 +2668,13 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	PeerOTCService_GetPublicStocks_FullMethodName   = "/stock.PeerOTCService/GetPublicStocks"
-	PeerOTCService_CreateNegotiation_FullMethodName = "/stock.PeerOTCService/CreateNegotiation"
-	PeerOTCService_UpdateNegotiation_FullMethodName = "/stock.PeerOTCService/UpdateNegotiation"
-	PeerOTCService_GetNegotiation_FullMethodName    = "/stock.PeerOTCService/GetNegotiation"
-	PeerOTCService_DeleteNegotiation_FullMethodName = "/stock.PeerOTCService/DeleteNegotiation"
-	PeerOTCService_AcceptNegotiation_FullMethodName = "/stock.PeerOTCService/AcceptNegotiation"
+	PeerOTCService_GetPublicStocks_FullMethodName      = "/stock.PeerOTCService/GetPublicStocks"
+	PeerOTCService_CreateNegotiation_FullMethodName    = "/stock.PeerOTCService/CreateNegotiation"
+	PeerOTCService_UpdateNegotiation_FullMethodName    = "/stock.PeerOTCService/UpdateNegotiation"
+	PeerOTCService_GetNegotiation_FullMethodName       = "/stock.PeerOTCService/GetNegotiation"
+	PeerOTCService_DeleteNegotiation_FullMethodName    = "/stock.PeerOTCService/DeleteNegotiation"
+	PeerOTCService_AcceptNegotiation_FullMethodName    = "/stock.PeerOTCService/AcceptNegotiation"
+	PeerOTCService_RecordOptionContract_FullMethodName = "/stock.PeerOTCService/RecordOptionContract"
 )
 
 // PeerOTCServiceClient is the client API for PeerOTCService service.
@@ -2682,6 +2683,11 @@ const (
 //
 // PeerOTCService backs the api-gateway /api/v3/public-stock and
 // /api/v3/negotiations/{rid}/{id} routes (Phase 4, Celina 5 SI-TX).
+//
+// RecordOptionContract is called by transaction-service at COMMIT_TX
+// time for each option-asset posting that landed on this bank — one
+// call per (DEBIT-on-seller, CREDIT-on-buyer) leg. Idempotent on
+// (crossbank_tx_id, posting_index).
 type PeerOTCServiceClient interface {
 	GetPublicStocks(ctx context.Context, in *GetPublicStocksRequest, opts ...grpc.CallOption) (*GetPublicStocksResponse, error)
 	CreateNegotiation(ctx context.Context, in *CreateNegotiationRequest, opts ...grpc.CallOption) (*CreateNegotiationResponse, error)
@@ -2689,6 +2695,7 @@ type PeerOTCServiceClient interface {
 	GetNegotiation(ctx context.Context, in *GetNegotiationRequest, opts ...grpc.CallOption) (*GetNegotiationResponse, error)
 	DeleteNegotiation(ctx context.Context, in *DeleteNegotiationRequest, opts ...grpc.CallOption) (*DeleteNegotiationResponse, error)
 	AcceptNegotiation(ctx context.Context, in *AcceptNegotiationRequest, opts ...grpc.CallOption) (*AcceptNegotiationResponse, error)
+	RecordOptionContract(ctx context.Context, in *RecordOptionContractRequest, opts ...grpc.CallOption) (*RecordOptionContractResponse, error)
 }
 
 type peerOTCServiceClient struct {
@@ -2759,12 +2766,27 @@ func (c *peerOTCServiceClient) AcceptNegotiation(ctx context.Context, in *Accept
 	return out, nil
 }
 
+func (c *peerOTCServiceClient) RecordOptionContract(ctx context.Context, in *RecordOptionContractRequest, opts ...grpc.CallOption) (*RecordOptionContractResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecordOptionContractResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_RecordOptionContract_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerOTCServiceServer is the server API for PeerOTCService service.
 // All implementations must embed UnimplementedPeerOTCServiceServer
 // for forward compatibility.
 //
 // PeerOTCService backs the api-gateway /api/v3/public-stock and
 // /api/v3/negotiations/{rid}/{id} routes (Phase 4, Celina 5 SI-TX).
+//
+// RecordOptionContract is called by transaction-service at COMMIT_TX
+// time for each option-asset posting that landed on this bank — one
+// call per (DEBIT-on-seller, CREDIT-on-buyer) leg. Idempotent on
+// (crossbank_tx_id, posting_index).
 type PeerOTCServiceServer interface {
 	GetPublicStocks(context.Context, *GetPublicStocksRequest) (*GetPublicStocksResponse, error)
 	CreateNegotiation(context.Context, *CreateNegotiationRequest) (*CreateNegotiationResponse, error)
@@ -2772,6 +2794,7 @@ type PeerOTCServiceServer interface {
 	GetNegotiation(context.Context, *GetNegotiationRequest) (*GetNegotiationResponse, error)
 	DeleteNegotiation(context.Context, *DeleteNegotiationRequest) (*DeleteNegotiationResponse, error)
 	AcceptNegotiation(context.Context, *AcceptNegotiationRequest) (*AcceptNegotiationResponse, error)
+	RecordOptionContract(context.Context, *RecordOptionContractRequest) (*RecordOptionContractResponse, error)
 	mustEmbedUnimplementedPeerOTCServiceServer()
 }
 
@@ -2799,6 +2822,9 @@ func (UnimplementedPeerOTCServiceServer) DeleteNegotiation(context.Context, *Del
 }
 func (UnimplementedPeerOTCServiceServer) AcceptNegotiation(context.Context, *AcceptNegotiationRequest) (*AcceptNegotiationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AcceptNegotiation not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) RecordOptionContract(context.Context, *RecordOptionContractRequest) (*RecordOptionContractResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RecordOptionContract not implemented")
 }
 func (UnimplementedPeerOTCServiceServer) mustEmbedUnimplementedPeerOTCServiceServer() {}
 func (UnimplementedPeerOTCServiceServer) testEmbeddedByValue()                        {}
@@ -2929,6 +2955,24 @@ func _PeerOTCService_AcceptNegotiation_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerOTCService_RecordOptionContract_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordOptionContractRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).RecordOptionContract(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_RecordOptionContract_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).RecordOptionContract(ctx, req.(*RecordOptionContractRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PeerOTCService_ServiceDesc is the grpc.ServiceDesc for PeerOTCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2959,6 +3003,10 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AcceptNegotiation",
 			Handler:    _PeerOTCService_AcceptNegotiation_Handler,
+		},
+		{
+			MethodName: "RecordOptionContract",
+			Handler:    _PeerOTCService_RecordOptionContract_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

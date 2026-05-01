@@ -24,6 +24,13 @@ type PeerIdempotenceRecord struct {
 	// transfers where the sender's bank handles its own debit
 	// pre-flight via InitiateOutboundTx, leaving only CREDIT postings
 	// for the receiver.
-	DebitsJSON string    `gorm:"type:text;not null;default:'[]'"`
-	CreatedAt  time.Time `gorm:"not null"`
+	DebitsJSON string `gorm:"type:text;not null;default:'[]'"`
+	// OptionsJSON is the list of option-asset postings on this bank's
+	// routing (one entry per option leg in the original NEW_TX).
+	// Materialised into peer_option_contracts rows by HandleCommitTx
+	// via stock-service.PeerOTCService.RecordOptionContract; left
+	// untouched by HandleRollbackTx since no contract was written at
+	// vote time. Empty (`[]`) for non-OTC TXs.
+	OptionsJSON string    `gorm:"type:text;not null;default:'[]'"`
+	CreatedAt   time.Time `gorm:"not null"`
 }

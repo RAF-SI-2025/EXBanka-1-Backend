@@ -86,6 +86,9 @@ func main() {
 		// Phase 4 SI-TX: receiver-side mirror of inbound peer-bank
 		// OTC negotiations. Created/updated by PeerOTCGRPCHandler.
 		&model.PeerOtcNegotiation{},
+		// Cross-bank option contracts written at COMMIT_TX time
+		// when transaction-service finalises an OTC accept TX.
+		&model.PeerOptionContract{},
 		// Outbox: durable queue for Kafka events published from inside
 		// sagas. The drainer goroutine (started below) reads pending rows
 		// and publishes them, so a crash between business commit and
@@ -631,7 +634,8 @@ func main() {
 		log.Fatalf("invalid OWN_BANK_CODE %q: %v", cfg.OwnBankCode, err)
 	}
 	peerOtcRepo := repository.NewPeerOtcNegotiationRepository(db)
-	peerOtcHandler := handler.NewPeerOTCGRPCHandler(peerOtcRepo, holdingRepo, peerTxClient, ownRouting)
+	peerOptionRepo := repository.NewPeerOptionContractRepository(db)
+	peerOtcHandler := handler.NewPeerOTCGRPCHandler(peerOtcRepo, peerOptionRepo, holdingRepo, peerTxClient, ownRouting)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()

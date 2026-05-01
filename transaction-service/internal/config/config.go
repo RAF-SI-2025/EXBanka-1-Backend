@@ -17,6 +17,7 @@ type Config struct {
 	AccountGRPCAddr      string
 	ExchangeGRPCAddr     string
 	VerificationGRPCAddr string
+	StockGRPCAddr        string
 	MetricsPort          string
 
 	// Inter-bank 2PC tuning (Spec 3 §9.1).
@@ -52,6 +53,7 @@ func Load() *Config {
 		AccountGRPCAddr:      getEnv("ACCOUNT_GRPC_ADDR", "localhost:50055"),
 		ExchangeGRPCAddr:     getEnv("EXCHANGE_GRPC_ADDR", "localhost:50059"),
 		VerificationGRPCAddr: getEnv("VERIFICATION_GRPC_ADDR", "localhost:50061"),
+		StockGRPCAddr:        getEnv("STOCK_GRPC_ADDR", "localhost:50060"),
 		MetricsPort:          getEnv("METRICS_PORT", "9107"),
 
 		InterbankPrepareTimeout:      getDuration("INTERBANK_PREPARE_TIMEOUT", 30*time.Second),

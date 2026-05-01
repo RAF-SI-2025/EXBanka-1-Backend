@@ -1152,6 +1152,11 @@ message ExerciseResponse {
 
 // PeerOTCService backs the api-gateway /api/v3/public-stock and
 // /api/v3/negotiations/{rid}/{id} routes (Phase 4, Celina 5 SI-TX).
+//
+// RecordOptionContract is called by transaction-service at COMMIT_TX
+// time for each option-asset posting that landed on this bank — one
+// call per (DEBIT-on-seller, CREDIT-on-buyer) leg. Idempotent on
+// (crossbank_tx_id, posting_index).
 service PeerOTCService {
   rpc GetPublicStocks(GetPublicStocksRequest) returns (GetPublicStocksResponse);
   rpc CreateNegotiation(CreateNegotiationRequest) returns (CreateNegotiationResponse);
@@ -1159,6 +1164,7 @@ service PeerOTCService {
   rpc GetNegotiation(GetNegotiationRequest) returns (GetNegotiationResponse);
   rpc DeleteNegotiation(DeleteNegotiationRequest) returns (DeleteNegotiationResponse);
   rpc AcceptNegotiation(AcceptNegotiationRequest) returns (AcceptNegotiationResponse);
+  rpc RecordOptionContract(RecordOptionContractRequest) returns (RecordOptionContractResponse);
 }
 
 message PeerForeignBankId {
@@ -1241,4 +1247,28 @@ message AcceptNegotiationRequest {
 message AcceptNegotiationResponse {
   string transaction_id = 1;
   string status = 2;
+}
+
+// RecordOptionContractRequest carries everything stock-service needs
+// to materialise one option-asset posting into a peer_option_contracts
+// row at COMMIT_TX time.
+//
+// option_description_json is the verbatim assetId string from the
+// SI-TX posting — a JSON-encoded OptionDescription with ticker,
+// amount, strikePrice, currency, settlementDate, and negotiationId.
+// Buyer/seller are the participant identifiers from the original
+// OtcOffer; only the participant whose routingNumber matches this
+// bank's own_routing is local — the other side is recorded as the
+// foreign counterparty.
+message RecordOptionContractRequest {
+  string crossbank_tx_id = 1;          // peer_bank_code + ":" + locallyGeneratedKey
+  int32 posting_index = 2;             // index into the original Transaction.postings
+  string option_description_json = 3;
+  PeerForeignBankId buyer_id = 4;
+  PeerForeignBankId seller_id = 5;
+  string direction = 6;                // "DEBIT" (seller side) or "CREDIT" (buyer side)
+}
+
+message RecordOptionContractResponse {
+  uint64 contract_id = 1;
 }

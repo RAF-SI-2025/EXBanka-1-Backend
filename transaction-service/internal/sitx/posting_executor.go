@@ -32,9 +32,26 @@ type AccountClient interface {
 // vote-YES time to undo on rollback; reservations cover CREDIT postings,
 // this list covers DEBIT postings.)
 type DebitedItem struct {
-	AccountNumber string `json:"accountNumber"`
-	Amount        string `json:"amount"`
+	AccountNumber  string `json:"accountNumber"`
+	Amount         string `json:"amount"`
 	IdempotencyTag string `json:"idempotencyTag"` // unique per (peer,idem,posting); used to derive the creditback key
+}
+
+// OptionItem records one option-asset posting on this bank's routing.
+// At reserve time, the option contract has not yet been written; this
+// item is persisted as JSON in peer_idempotence_records.options_json
+// and then materialised into peer_option_contracts at COMMIT_TX time.
+//
+// Buyer and Seller are extracted by pairing this option posting with
+// its counterpart in the same TX (the matched posting with opposite
+// direction): a CREDIT option posting identifies the buyer; the DEBIT
+// option posting (same OptionDescription) identifies the seller.
+type OptionItem struct {
+	PostingIndex          int                       `json:"postingIndex"`
+	Direction             string                    `json:"direction"` // local-side direction: DEBIT or CREDIT
+	OptionDescriptionJSON string                    `json:"optionDescriptionJson"`
+	Buyer                 contractsitx.ForeignBankId `json:"buyer"`
+	Seller                contractsitx.ForeignBankId `json:"seller"`
 }
 
 // ReserveResult is the outcome of executing the reserve phase of a NEW_TX.
@@ -42,6 +59,7 @@ type ReserveResult struct {
 	Vote            contractsitx.TransactionVote
 	ReservationKeys []string      // populated on YES; one per credit posting on our routing
 	DebitedItems    []DebitedItem // populated on YES; one per debit posting on our routing
+	OptionItems     []OptionItem  // populated on YES; one per option-asset posting on our routing
 }
 
 // PostingExecutor walks an accepted NEW_TX's postings and applies the
@@ -82,17 +100,47 @@ func NewPostingExecutor(client AccountClient, ownRouting int64) *PostingExecutor
 func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.Posting, peerBankCode, locallyGeneratedKey string) ReserveResult {
 	keys := []string{}
 	debits := []DebitedItem{}
+	options := []OptionItem{}
+	// First pass: identify the buyer/seller across ALL option postings
+	// in this TX (regardless of routing). Option postings carry
+	// participant ids in AccountID. CREDIT direction = buyer side
+	// (gains the option); DEBIT direction = seller side (loses it).
+	// Matching is by OptionDescription JSON (same string).
+	var buyerByDesc = map[string]contractsitx.ForeignBankId{}
+	var sellerByDesc = map[string]contractsitx.ForeignBankId{}
+	for i := range postings {
+		p := postings[i]
+		if !strings.HasPrefix(p.AssetID, "{") {
+			continue
+		}
+		party := contractsitx.ForeignBankId{RoutingNumber: p.RoutingNumber, ID: p.AccountID}
+		switch p.Direction {
+		case contractsitx.DirectionCredit:
+			buyerByDesc[p.AssetID] = party
+		case contractsitx.DirectionDebit:
+			sellerByDesc[p.AssetID] = party
+		}
+	}
+
 	for i := range postings {
 		p := postings[i]
 		if p.RoutingNumber != e.ownRouting {
 			continue
 		}
-		// Option-asset postings (AssetID is a JSON OptionDescription, not
-		// a 3-letter currency code) are out of scope for the executor —
-		// they would dispatch to stock-service to update option holdings.
-		// For now we skip them so currency legs of an OTC accept TX still
-		// flow correctly.
+		// Option-asset postings: surface as an OptionItem so the
+		// handler can call into stock-service.RecordOptionContract at
+		// COMMIT_TX time. We don't write the option contract here —
+		// SI-TX semantics keep all observable side effects bounded by
+		// the reservation/commit pair, and contracts shouldn't appear
+		// before COMMIT.
 		if strings.HasPrefix(p.AssetID, "{") {
+			options = append(options, OptionItem{
+				PostingIndex:          i,
+				Direction:             p.Direction,
+				OptionDescriptionJSON: p.AssetID,
+				Buyer:                 buyerByDesc[p.AssetID],
+				Seller:                sellerByDesc[p.AssetID],
+			})
 			continue
 		}
 		// Resolve participant-ID-style accountId ("client-7", "employee-3")
@@ -153,6 +201,7 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 		Vote:            contractsitx.TransactionVote{Type: contractsitx.VoteYes},
 		ReservationKeys: keys,
 		DebitedItems:    debits,
+		OptionItems:     options,
 	}
 }
 

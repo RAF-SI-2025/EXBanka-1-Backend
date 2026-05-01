@@ -66,13 +66,14 @@ func newPeerOtcHandler(t *testing.T) (*handler.PeerOTCGRPCHandler, *gorm.DB, *fa
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if err := db.AutoMigrate(&model.PeerOtcNegotiation{}); err != nil {
+	if err := db.AutoMigrate(&model.PeerOtcNegotiation{}, &model.PeerOptionContract{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repo := repository.NewPeerOtcNegotiationRepository(db)
+	optRepo := repository.NewPeerOptionContractRepository(db)
 	holdings := &fakeHoldingReader{}
 	peerTx := &fakePeerTxClient{}
-	return handler.NewPeerOTCGRPCHandler(repo, holdings, peerTx, 111), db, peerTx, holdings
+	return handler.NewPeerOTCGRPCHandler(repo, optRepo, holdings, peerTx, 111), db, peerTx, holdings
 }
 
 func TestPeerOTC_CreateAndGet(t *testing.T) {

@@ -39,19 +39,27 @@ type HoldingReader interface {
 // via transaction-service.PeerTxService.InitiateOutboundTxWithPostings.
 type PeerOTCGRPCHandler struct {
 	stockpb.UnimplementedPeerOTCServiceServer
-	negRepo    *repository.PeerOtcNegotiationRepository
-	holdings   HoldingReader
-	peerTx     transactionpb.PeerTxServiceClient
-	ownRouting int64
+	negRepo        *repository.PeerOtcNegotiationRepository
+	peerOptionRepo *repository.PeerOptionContractRepository
+	holdings       HoldingReader
+	peerTx         transactionpb.PeerTxServiceClient
+	ownRouting     int64
 }
 
 func NewPeerOTCGRPCHandler(
 	negRepo *repository.PeerOtcNegotiationRepository,
+	peerOptionRepo *repository.PeerOptionContractRepository,
 	holdings HoldingReader,
 	peerTx transactionpb.PeerTxServiceClient,
 	ownRouting int64,
 ) *PeerOTCGRPCHandler {
-	return &PeerOTCGRPCHandler{negRepo: negRepo, holdings: holdings, peerTx: peerTx, ownRouting: ownRouting}
+	return &PeerOTCGRPCHandler{
+		negRepo:        negRepo,
+		peerOptionRepo: peerOptionRepo,
+		holdings:       holdings,
+		peerTx:         peerTx,
+		ownRouting:     ownRouting,
+	}
 }
 
 func (h *PeerOTCGRPCHandler) GetPublicStocks(ctx context.Context, req *stockpb.GetPublicStocksRequest) (*stockpb.GetPublicStocksResponse, error) {
@@ -264,4 +272,52 @@ func offerToProto(o contractsitx.OtcOffer) *stockpb.PeerOtcOffer {
 			Id:            o.LastModifiedBy.ID,
 		},
 	}
+}
+
+// RecordOptionContract is called by transaction-service at COMMIT_TX
+// time for each option-asset posting on this bank's routing. The
+// option_description_json is the verbatim assetId string from the
+// SI-TX posting (a JSON OptionDescription); we decode the contract
+// terms and persist a peer_option_contracts row keyed on
+// (crossbank_tx_id, posting_index) for idempotent retry safety.
+func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stockpb.RecordOptionContractRequest) (*stockpb.RecordOptionContractResponse, error) {
+	if h.peerOptionRepo == nil {
+		return nil, status.Error(codes.Unimplemented, "peer option repo not wired")
+	}
+	if req.GetCrossbankTxId() == "" || req.GetOptionDescriptionJson() == "" {
+		return nil, status.Error(codes.InvalidArgument, "crossbank_tx_id and option_description_json are required")
+	}
+	if req.GetBuyerId() == nil || req.GetSellerId() == nil {
+		return nil, status.Error(codes.InvalidArgument, "buyer_id and seller_id are required")
+	}
+	if d := req.GetDirection(); d != contractsitx.DirectionDebit && d != contractsitx.DirectionCredit {
+		return nil, status.Errorf(codes.InvalidArgument, "direction must be DEBIT or CREDIT, got %q", d)
+	}
+
+	var opt contractsitx.OptionDescription
+	if err := json.Unmarshal([]byte(req.GetOptionDescriptionJson()), &opt); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "decode option description: %v", err)
+	}
+
+	row := &model.PeerOptionContract{
+		CrossbankTxID:            req.GetCrossbankTxId(),
+		PostingIndex:             req.GetPostingIndex(),
+		NegotiationRoutingNumber: opt.NegotiationID.RoutingNumber,
+		NegotiationID:            opt.NegotiationID.ID,
+		BuyerRoutingNumber:       req.GetBuyerId().GetRoutingNumber(),
+		BuyerID:                  req.GetBuyerId().GetId(),
+		SellerRoutingNumber:      req.GetSellerId().GetRoutingNumber(),
+		SellerID:                 req.GetSellerId().GetId(),
+		Ticker:                   opt.Ticker,
+		Quantity:                 opt.Amount,
+		StrikePrice:              opt.StrikePrice,
+		Currency:                 opt.Currency,
+		SettlementDate:           opt.SettlementDate,
+		Direction:                req.GetDirection(),
+		Status:                   "active",
+	}
+	if err := h.peerOptionRepo.UpsertIdempotent(row); err != nil {
+		return nil, status.Errorf(codes.Internal, "persist peer option contract: %v", err)
+	}
+	return &stockpb.RecordOptionContractResponse{ContractId: row.ID}, nil
 }
