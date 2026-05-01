@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -18,6 +19,7 @@ import (
 	transactionpb "github.com/exbanka/contract/transactionpb"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
+	"github.com/exbanka/stock-service/internal/service"
 )
 
 // HoldingReader is the subset of HoldingRepository methods that
@@ -37,13 +39,28 @@ type HoldingReader interface {
 // Acceptance: GET /negotiations/{rid}/{id}/accept composes 4 postings
 // (premium money + 1× OptionDescription both directions) and dispatches
 // via transaction-service.PeerTxService.InitiateOutboundTxWithPostings.
+// HoldingReserver is the subset of HoldingReservationService used by
+// RecordOptionContract to lock the seller's underlying shares against
+// a cross-bank option contract on the seller's bank.
+type HoldingReserver interface {
+	ReserveForPeerOptionContract(
+		ctx context.Context,
+		sellerOwnerType model.OwnerType,
+		sellerOwnerID *uint64,
+		securityType, ticker string,
+		peerOptionContractID uint64,
+		qty int64,
+	) (*service.ReserveHoldingResult, error)
+}
+
 type PeerOTCGRPCHandler struct {
 	stockpb.UnimplementedPeerOTCServiceServer
-	negRepo        *repository.PeerOtcNegotiationRepository
-	peerOptionRepo *repository.PeerOptionContractRepository
-	holdings       HoldingReader
-	peerTx         transactionpb.PeerTxServiceClient
-	ownRouting     int64
+	negRepo         *repository.PeerOtcNegotiationRepository
+	peerOptionRepo  *repository.PeerOptionContractRepository
+	holdings        HoldingReader
+	peerTx          transactionpb.PeerTxServiceClient
+	ownRouting      int64
+	holdingReserver HoldingReserver // optional; nil disables seller-side share locking
 }
 
 func NewPeerOTCGRPCHandler(
@@ -60,6 +77,14 @@ func NewPeerOTCGRPCHandler(
 		peerTx:         peerTx,
 		ownRouting:     ownRouting,
 	}
+}
+
+// SetHoldingReserver wires the seller-side share-locking dependency.
+// Optional — left nil, RecordOptionContract still persists the
+// peer_option_contracts row but does not lock the seller's holdings.
+// (Useful for tests and for stages where the reserver isn't ready.)
+func (h *PeerOTCGRPCHandler) SetHoldingReserver(r HoldingReserver) {
+	h.holdingReserver = r
 }
 
 func (h *PeerOTCGRPCHandler) GetPublicStocks(ctx context.Context, req *stockpb.GetPublicStocksRequest) (*stockpb.GetPublicStocksResponse, error) {
@@ -319,5 +344,51 @@ func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stoc
 	if err := h.peerOptionRepo.UpsertIdempotent(row); err != nil {
 		return nil, status.Errorf(codes.Internal, "persist peer option contract: %v", err)
 	}
+
+	// Seller-side share lock. Only meaningful when this bank holds the
+	// seller (DEBIT direction = seller loses option = our bank tracks
+	// the seller). Idempotent on peer_option_contract_id, so safe to
+	// retry: a second commit replay finds the existing reservation
+	// and returns it without double-locking.
+	if req.GetDirection() == contractsitx.DirectionDebit && h.holdingReserver != nil {
+		ownerType, ownerID, parseErr := parseSellerOwner(row.SellerID)
+		if parseErr != nil {
+			// Don't fail the whole RecordOptionContract — the contract
+			// row is the durable record; the share-lock is best-effort
+			// at this stage. Log via gRPC error metadata is overkill;
+			// silently degrade and let ops surface "no reservation"
+			// from settlement-time checks if it matters.
+			log.Printf("WARN: peer-option contract %d created but seller_id %q not parseable for holding lock: %v",
+				row.ID, row.SellerID, parseErr)
+		} else {
+			if _, err := h.holdingReserver.ReserveForPeerOptionContract(
+				ctx, ownerType, ownerID, "stock", row.Ticker, row.ID, row.Quantity,
+			); err != nil {
+				log.Printf("WARN: peer-option contract %d created but holding-lock failed for seller %s ticker %s qty %d: %v",
+					row.ID, row.SellerID, row.Ticker, row.Quantity, err)
+			}
+		}
+	}
+
 	return &stockpb.RecordOptionContractResponse{ContractId: row.ID}, nil
+}
+
+// parseSellerOwner maps an SI-TX participant id ("client-<n>",
+// "employee-<n>", or "bank") to the OwnerType + numeric owner id used
+// by the holdings table. Returns the bank-owner sentinel (ownerID nil)
+// for "bank". Errors on unparseable ids — caller can choose to log
+// without failing the parent RPC.
+func parseSellerOwner(sellerID string) (model.OwnerType, *uint64, error) {
+	if sellerID == "bank" {
+		return model.OwnerBank, nil, nil
+	}
+	rest, ok := strings.CutPrefix(sellerID, "client-")
+	if !ok {
+		return "", nil, errors.New("unsupported seller_id prefix; expected client-<n> or bank")
+	}
+	id, parseErr := strconv.ParseUint(rest, 10, 64)
+	if parseErr != nil {
+		return "", nil, parseErr
+	}
+	return model.OwnerClient, &id, nil
 }

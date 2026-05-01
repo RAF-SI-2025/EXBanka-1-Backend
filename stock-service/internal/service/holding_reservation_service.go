@@ -306,6 +306,90 @@ func (s *HoldingReservationService) PartialSettle(
 // OTC option-contract variants of Reserve / Release / Consume
 // ---------------------------------------------------------------------------
 
+// ReserveForPeerOptionContract locks `qty` shares of the seller's stock
+// holding against a cross-bank (Celina-5 SI-TX) OTC option contract.
+// Mirror of ReserveForOTCContract, keyed on PeerOptionContractID instead
+// of OTCContractID; idempotent on contract ID.
+//
+// Looks up the seller's holding by (security_type, ticker) under
+// SELECT FOR UPDATE, verifies sufficient available quantity, increments
+// ReservedQuantity, and writes a HoldingReservation row pointing at the
+// peer_option_contracts row. Returns FailedPrecondition with
+// "holding not found" or "insufficient available quantity" so the caller
+// can map to an SI-TX NoVote reason if needed at a later phase (today
+// the reservation runs at COMMIT_TX time, but the same contract guards
+// settlement).
+func (s *HoldingReservationService) ReserveForPeerOptionContract(
+	ctx context.Context,
+	sellerOwnerType model.OwnerType,
+	sellerOwnerID *uint64,
+	securityType, ticker string,
+	peerOptionContractID uint64,
+	qty int64,
+) (*ReserveHoldingResult, error) {
+	if qty <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "qty must be > 0")
+	}
+	var out *ReserveHoldingResult
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var holding model.Holding
+		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("security_type = ? AND ticker = ?", securityType, ticker)
+		if sellerOwnerID == nil {
+			q = q.Where("owner_type = ? AND owner_id IS NULL", sellerOwnerType)
+		} else {
+			q = q.Where("owner_type = ? AND owner_id = ?", sellerOwnerType, *sellerOwnerID)
+		}
+		err := q.First(&holding).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return status.Error(codes.FailedPrecondition, "holding not found")
+			}
+			return err
+		}
+		available := holding.Quantity - holding.ReservedQuantity
+		if available < qty {
+			return status.Errorf(codes.FailedPrecondition,
+				"insufficient available quantity: have %d, need %d", available, qty)
+		}
+		cid := peerOptionContractID
+		res := &model.HoldingReservation{
+			HoldingID:            holding.ID,
+			PeerOptionContractID: &cid,
+			Quantity:             qty,
+			Status:               model.HoldingReservationStatusActive,
+			CreatedAt:            time.Now(),
+			UpdatedAt:            time.Now(),
+		}
+		inserted, existing, err := s.resRepo.WithTx(tx).InsertIfAbsent(res)
+		if err != nil {
+			return err
+		}
+		if !inserted {
+			out = &ReserveHoldingResult{
+				ReservationID:     existing.ID,
+				ReservedQuantity:  holding.ReservedQuantity,
+				AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+			}
+			return nil
+		}
+		holding.ReservedQuantity += qty
+		if err := shared.CheckRowsAffected(tx.Save(&holding)); err != nil {
+			return err
+		}
+		out = &ReserveHoldingResult{
+			ReservationID:     res.ID,
+			ReservedQuantity:  holding.ReservedQuantity,
+			AvailableQuantity: holding.Quantity - holding.ReservedQuantity,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ReserveForOTCContract locks `qty` shares of the seller's stock holding
 // under an OTC option contract. Mirror of Reserve, keyed on OTCContractID
 // instead of OrderID; idempotent on contract ID.
