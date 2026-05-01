@@ -50,51 +50,76 @@ func (h *PeerOTCHandler) GetPublicStocks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"stocks": out})
 }
 
-type peerOtcOfferReq struct {
-	Ticker          string `json:"ticker"`
-	Amount          int64  `json:"amount"`
-	PricePerStock   string `json:"pricePerStock"`
-	Currency        string `json:"currency"`
-	Premium         string `json:"premium"`
-	PremiumCurrency string `json:"premiumCurrency"`
-	SettlementDate  string `json:"settlementDate"`
-	LastModifiedBy  struct {
-		RoutingNumber int64  `json:"routingNumber"`
-		ID            string `json:"id"`
-	} `json:"lastModifiedBy"`
+// peerForeignBankIdReq is the SI-TX ForeignBankId on the wire.
+type peerForeignBankIdReq struct {
+	RoutingNumber int64  `json:"routingNumber"`
+	ID            string `json:"id"`
 }
 
-type createNegotiationReq struct {
-	Offer   peerOtcOfferReq `json:"offer"`
-	BuyerID struct {
-		RoutingNumber int64  `json:"routingNumber"`
-		ID            string `json:"id"`
-	} `json:"buyerId"`
-	SellerID struct {
-		RoutingNumber int64  `json:"routingNumber"`
-		ID            string `json:"id"`
-	} `json:"sellerId"`
+// peerMonetaryValueReq is the SI-TX MonetaryValue on the wire.
+type peerMonetaryValueReq struct {
+	Currency string `json:"currency"`
+	Amount   string `json:"amount"`
+}
+
+// peerStockDescriptionReq is the SI-TX StockDescription on the wire.
+type peerStockDescriptionReq struct {
+	Ticker string `json:"ticker"`
+}
+
+// peerOtcOfferReq matches the SI-TX OtcOffer shape verbatim:
+//
+//	type OtcOffer = {
+//	    stock: StockDescription;
+//	    settlementDate: ISO8601DateTimeWithTimeZone;
+//	    pricePerUnit: MonetaryValue;
+//	    premium: MonetaryValue;
+//	    buyerId: ForeignBankId;
+//	    sellerId: ForeignBankId;
+//	    amount: number;
+//	    lastModifiedBy: ForeignBankId;
+//	}
+//
+// Body shape for POST /negotiations (initial offer) and
+// PUT /negotiations/{rid}/{id} (counter-offer). The handler translates
+// this spec shape into the internal flat-fielded gRPC request — buyerId
+// and sellerId are lifted from the offer body to the gRPC request's
+// top-level fields.
+type peerOtcOfferReq struct {
+	Stock          peerStockDescriptionReq `json:"stock"`
+	SettlementDate string                  `json:"settlementDate"`
+	PricePerUnit   peerMonetaryValueReq    `json:"pricePerUnit"`
+	Premium        peerMonetaryValueReq    `json:"premium"`
+	BuyerID        peerForeignBankIdReq    `json:"buyerId"`
+	SellerID       peerForeignBankIdReq    `json:"sellerId"`
+	Amount         int64                   `json:"amount"`
+	LastModifiedBy peerForeignBankIdReq    `json:"lastModifiedBy"`
 }
 
 func (h *PeerOTCHandler) CreateNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
-	var req createNegotiationReq
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var off peerOtcOfferReq
+	if err := c.ShouldBindJSON(&off); err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
+		return
+	}
+	if off.BuyerID.ID == "" || off.SellerID.ID == "" {
+		apiError(c, http.StatusBadRequest, ErrValidation, "buyerId and sellerId are required")
 		return
 	}
 	resp, err := h.client.CreateNegotiation(c.Request.Context(), &stockpb.CreateNegotiationRequest{
 		PeerBankCode: peerCtxString(pbCode),
-		Offer:        offerReqToProto(req.Offer),
-		BuyerId:      &stockpb.PeerForeignBankId{RoutingNumber: req.BuyerID.RoutingNumber, Id: req.BuyerID.ID},
-		SellerId:     &stockpb.PeerForeignBankId{RoutingNumber: req.SellerID.RoutingNumber, Id: req.SellerID.ID},
+		Offer:        offerReqToProto(off),
+		BuyerId:      &stockpb.PeerForeignBankId{RoutingNumber: off.BuyerID.RoutingNumber, Id: off.BuyerID.ID},
+		SellerId:     &stockpb.PeerForeignBankId{RoutingNumber: off.SellerID.RoutingNumber, Id: off.SellerID.ID},
 	})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{
-		"negotiationId": gin.H{"routingNumber": resp.GetNegotiationId().GetRoutingNumber(), "id": resp.GetNegotiationId().GetId()},
+		"routingNumber": resp.GetNegotiationId().GetRoutingNumber(),
+		"id":            resp.GetNegotiationId().GetId(),
 	})
 }
 
@@ -134,14 +159,15 @@ func (h *PeerOTCHandler) GetNegotiation(c *gin.Context) {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"id":        gin.H{"routingNumber": resp.GetId().GetRoutingNumber(), "id": resp.GetId().GetId()},
-		"buyerId":   gin.H{"routingNumber": resp.GetBuyerId().GetRoutingNumber(), "id": resp.GetBuyerId().GetId()},
-		"sellerId":  gin.H{"routingNumber": resp.GetSellerId().GetRoutingNumber(), "id": resp.GetSellerId().GetId()},
-		"offer":     protoOfferToJSON(resp.GetOffer()),
-		"status":    resp.GetStatus(),
-		"updatedAt": resp.GetUpdatedAt(),
-	})
+	// SI-TX OtcNegotiation = OtcOffer & { isOngoing: boolean }. We compose
+	// the response by merging the spec-shaped offer with one extra boolean,
+	// derived from the internal status field (anything other than "ongoing"
+	// means the negotiation is closed — accepted, cancelled, or expired).
+	body := protoOfferToJSON(resp.GetOffer())
+	body["buyerId"] = gin.H{"routingNumber": resp.GetBuyerId().GetRoutingNumber(), "id": resp.GetBuyerId().GetId()}
+	body["sellerId"] = gin.H{"routingNumber": resp.GetSellerId().GetRoutingNumber(), "id": resp.GetSellerId().GetId()}
+	body["isOngoing"] = resp.GetStatus() == "ongoing"
+	c.JSON(http.StatusOK, body)
 }
 
 func (h *PeerOTCHandler) DeleteNegotiation(c *gin.Context) {
@@ -195,14 +221,18 @@ func parseRidID(c *gin.Context) (int64, string, bool) {
 	return rid, id, true
 }
 
+// offerReqToProto translates the SI-TX wire shape (stock.ticker,
+// pricePerUnit{amount,currency}, premium{amount,currency}, ...) into the
+// internal flat-fielded gRPC PeerOtcOffer (ticker, pricePerStock,
+// currency, premium, premiumCurrency, ...).
 func offerReqToProto(o peerOtcOfferReq) *stockpb.PeerOtcOffer {
 	return &stockpb.PeerOtcOffer{
-		Ticker:          o.Ticker,
+		Ticker:          o.Stock.Ticker,
 		Amount:          o.Amount,
-		PricePerStock:   o.PricePerStock,
-		Currency:        o.Currency,
-		Premium:         o.Premium,
-		PremiumCurrency: o.PremiumCurrency,
+		PricePerStock:   o.PricePerUnit.Amount,
+		Currency:        o.PricePerUnit.Currency,
+		Premium:         o.Premium.Amount,
+		PremiumCurrency: o.Premium.Currency,
 		SettlementDate:  o.SettlementDate,
 		LastModifiedBy: &stockpb.PeerForeignBankId{
 			RoutingNumber: o.LastModifiedBy.RoutingNumber,
@@ -211,19 +241,21 @@ func offerReqToProto(o peerOtcOfferReq) *stockpb.PeerOtcOffer {
 	}
 }
 
+// protoOfferToJSON renders the internal flat-fielded gRPC PeerOtcOffer
+// as the SI-TX OtcOffer wire shape (stock.ticker, pricePerUnit{amount,
+// currency}, premium{amount,currency}, ...). Returned as gin.H so the
+// caller can splice in additional fields like isOngoing or buyerId.
 func protoOfferToJSON(o *stockpb.PeerOtcOffer) gin.H {
 	if o == nil {
 		return gin.H{}
 	}
 	return gin.H{
-		"ticker":          o.GetTicker(),
-		"amount":          o.GetAmount(),
-		"pricePerStock":   o.GetPricePerStock(),
-		"currency":        o.GetCurrency(),
-		"premium":         o.GetPremium(),
-		"premiumCurrency": o.GetPremiumCurrency(),
-		"settlementDate":  o.GetSettlementDate(),
-		"lastModifiedBy":  gin.H{"routingNumber": o.GetLastModifiedBy().GetRoutingNumber(), "id": o.GetLastModifiedBy().GetId()},
+		"stock":          gin.H{"ticker": o.GetTicker()},
+		"settlementDate": o.GetSettlementDate(),
+		"pricePerUnit":   gin.H{"amount": o.GetPricePerStock(), "currency": o.GetCurrency()},
+		"premium":        gin.H{"amount": o.GetPremium(), "currency": o.GetPremiumCurrency()},
+		"amount":         o.GetAmount(),
+		"lastModifiedBy": gin.H{"routingNumber": o.GetLastModifiedBy().GetRoutingNumber(), "id": o.GetLastModifiedBy().GetId()},
 	}
 }
 

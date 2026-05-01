@@ -7115,27 +7115,25 @@ Peer initiates a cross-bank OTC negotiation against a publicly-listed holding on
 
 **Authentication:** PeerAuth.
 
-**Request Body:**
+**Request Body:** SI-TX `OtcOffer` payload — verbatim from the cohort spec at <https://arsen.srht.site/si-tx-proto/>. The body IS the `OtcOffer`; there is no wrapping object.
+
 ```json
 {
-  "offer": {
-    "ticker": "AAPL",
-    "amount": 50,
-    "pricePerStock": "180.50",
-    "currency": "USD",
-    "premium": "700",
-    "premiumCurrency": "USD",
-    "settlementDate": "2026-12-31",
-    "lastModifiedBy": {"routingNumber": 222, "id": "user-1"}
-  },
-  "buyerId":  {"routingNumber": 222, "id": "buyer-1"},
-  "sellerId": {"routingNumber": 111, "id": "seller-1"}
+  "stock":          { "ticker": "AAPL" },
+  "settlementDate": "2026-12-31T00:00:00Z",
+  "pricePerUnit":   { "amount": "180.50", "currency": "USD" },
+  "premium":        { "amount": "700",    "currency": "USD" },
+  "buyerId":        { "routingNumber": 222, "id": "client-1" },
+  "sellerId":       { "routingNumber": 111, "id": "client-1" },
+  "amount":         50,
+  "lastModifiedBy": { "routingNumber": 222, "id": "client-1" }
 }
 ```
 
-**Response 201:**
+**Response 201:** `ForeignBankId` directly (the new negotiation's id, owned by this bank).
+
 ```json
-{ "negotiationId": {"routingNumber": 111, "id": "neg-uuid"} }
+{ "routingNumber": 111, "id": "neg-uuid" }
 ```
 
 ---
@@ -7150,7 +7148,7 @@ Counter-offer on an existing negotiation. The negotiation must have been created
 - `rid` — peer's routing number (int64)
 - `id` — peer's negotiation id (string)
 
-**Request Body:** Same `offer` shape as POST.
+**Request Body:** SI-TX `OtcOffer` (same shape as POST).
 
 **Response 200:** Empty body on success.
 
@@ -7162,15 +7160,19 @@ Read a negotiation's current state.
 
 **Authentication:** PeerAuth.
 
-**Response 200:**
+**Response 200:** SI-TX `OtcNegotiation` = `OtcOffer & { isOngoing: boolean }`.
+
 ```json
 {
-  "id":       {"routingNumber": 111, "id": "neg-uuid"},
-  "buyerId":  {"routingNumber": 222, "id": "buyer-1"},
-  "sellerId": {"routingNumber": 111, "id": "seller-1"},
-  "offer":    { /* same shape as POST.offer */ },
-  "status":   "ongoing",
-  "updatedAt": "2026-04-29T12:00:00Z"
+  "stock":          { "ticker": "AAPL" },
+  "settlementDate": "2026-12-31T00:00:00Z",
+  "pricePerUnit":   { "amount": "180.50", "currency": "USD" },
+  "premium":        { "amount": "700",    "currency": "USD" },
+  "buyerId":        { "routingNumber": 222, "id": "client-1" },
+  "sellerId":       { "routingNumber": 111, "id": "client-1" },
+  "amount":         50,
+  "lastModifiedBy": { "routingNumber": 222, "id": "client-1" },
+  "isOngoing":      true
 }
 ```
 
