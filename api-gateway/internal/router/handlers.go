@@ -123,9 +123,13 @@ type Handlers struct {
 
 	// Phase 4 SI-TX OTC peer-facing handlers (Celina 5).
 	// PeerOTC serves /api/v3/public-stock and /api/v3/negotiations/*;
-	// PeerUser serves /api/v3/user/{rid}/{id}.
-	PeerOTC  *handler.PeerOTCHandler
-	PeerUser *handler.PeerUserHandler
+	// PeerUser serves /api/v3/user/{rid}/{id};
+	// PeerOTCInitiate serves the OUTBOUND client-facing endpoint at
+	// POST /api/v3/me/peer-otc/negotiations (lets a buyer at this
+	// bank kick off a negotiation against a peer's listing).
+	PeerOTC         *handler.PeerOTCHandler
+	PeerUser        *handler.PeerUserHandler
+	PeerOTCInitiate *handler.PeerOTCInitiateHandler
 }
 
 // NewHandlers wires every handler from the supplied gRPC client deps.
@@ -170,5 +174,6 @@ func NewHandlers(d Deps) *Handlers {
 		PeerAuthMW:       middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),
 		PeerOTC:          handler.NewPeerOTCHandler(d.PeerOTCClient),
 		PeerUser:         handler.NewPeerUserHandler(d.ClientClient, d.UserClient, ownRouting),
+		PeerOTCInitiate:  handler.NewPeerOTCInitiateHandler(d.PeerBankAdminClient, ownRouting, d.OwnBankCode),
 	}
 }

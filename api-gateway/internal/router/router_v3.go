@@ -158,6 +158,13 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// (only the buyer's bank holds direction=CREDIT contracts);
 		// stock-service rejects non-buyer-side calls.
 		me.POST("/otc/contracts/peer/:id/exercise", bankIfEmp, h.OTCOptions.ExercisePeerContract)
+
+		// Cross-bank OTC negotiation initiation (Celina 5). Lets a
+		// buyer at this bank kick off a negotiation against a peer's
+		// listing — composes the SI-TX OtcOffer with the caller's
+		// JWT identity as buyerId and HTTP-POSTs to the seller bank's
+		// /api/v3/negotiations.
+		me.POST("/peer-otc/negotiations", h.PeerOTCInitiate.CreatePeerNegotiation)
 	}
 
 	// ── SI-TX peer-facing route (Phase 2 Task 14) ────────────────────
