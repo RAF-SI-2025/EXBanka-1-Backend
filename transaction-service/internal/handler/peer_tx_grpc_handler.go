@@ -141,7 +141,10 @@ func (h *PeerTxGRPCHandler) HandleCommitTx(ctx context.Context, req *transaction
 	// NEW_TX); the reservation key is "<peerCode>:<idem>". Account-service
 	// commits whatever was reserved under that key.
 	key := peerCode + ":" + idem
-	if _, cerr := h.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{ReservationKey: key}); cerr != nil {
+	if _, cerr := h.client.CommitIncoming(ctx, &accountpb.CommitIncomingRequest{
+		ReservationKey: key,
+		IdempotencyKey: "sitx-commit-" + key,
+	}); cerr != nil {
 		return nil, status.Errorf(codes.Internal, "commit: %v", cerr)
 	}
 	return &transactionpb.SiTxAckResponse{}, nil
@@ -162,7 +165,10 @@ func (h *PeerTxGRPCHandler) HandleRollbackTx(ctx context.Context, req *transacti
 		return &transactionpb.SiTxAckResponse{}, nil
 	}
 	key := peerCode + ":" + idem
-	if _, rerr := h.client.ReleaseIncoming(ctx, &accountpb.ReleaseIncomingRequest{ReservationKey: key}); rerr != nil {
+	if _, rerr := h.client.ReleaseIncoming(ctx, &accountpb.ReleaseIncomingRequest{
+		ReservationKey: key,
+		IdempotencyKey: "sitx-release-" + key,
+	}); rerr != nil {
 		return nil, status.Errorf(codes.Internal, "release: %v", rerr)
 	}
 	return &transactionpb.SiTxAckResponse{}, nil
@@ -207,11 +213,13 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 	}
 
 	// Sender-debit-immediate: take the money from the sender now; credit
-	// it back on rollback.
+	// it back on rollback. Idempotency key keeps the debit safe under
+	// retry/replay (account-service rejects requests without one).
 	if _, err := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 		AccountNumber:   req.GetFromAccountNumber(),
 		Amount:          "-" + req.GetAmount(),
 		UpdateAvailable: true,
+		IdempotencyKey:  "peer-out-debit-" + idem,
 	}); err != nil {
 		return nil, status.Errorf(codes.Internal, "debit: %v", err)
 	}
@@ -240,6 +248,16 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 		reason := "peer voted NO"
 		if len(vote.NoVotes) > 0 {
 			reason = "peer voted NO: " + vote.NoVotes[0].Reason
+		}
+		// Atomicity (Celina 5: "ili u celosti, ili ne uopšte"): credit the
+		// sender back on a NO vote, since we already debited them above.
+		if _, cbErr := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+			AccountNumber:   req.GetFromAccountNumber(),
+			Amount:          req.GetAmount(),
+			UpdateAvailable: true,
+			IdempotencyKey:  "peer-out-creditback-" + idem,
+		}); cbErr != nil {
+			reason = reason + " (creditback failed: " + cbErr.Error() + ")"
 		}
 		_ = h.outRepo.MarkRolledBack(idem, reason)
 	}
