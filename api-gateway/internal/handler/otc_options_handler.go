@@ -10,15 +10,17 @@ import (
 	stockpb "github.com/exbanka/contract/stockpb"
 )
 
-// OTCOptionsHandler handles REST routes for the intra-bank OTC options
-// feature (Celina 4 / Spec 2). Each method delegates to the stock-service
-// gRPC OTCOptionsService.
+// OTCOptionsHandler handles REST routes for the OTC options feature
+// (intra-bank Celina 4 / Spec 2 + cross-bank Celina 5 SI-TX). The
+// `client` is the intra-bank service; `peerOTC` is the cross-bank
+// surface used by ExercisePeerContract.
 type OTCOptionsHandler struct {
-	client stockpb.OTCOptionsServiceClient
+	client  stockpb.OTCOptionsServiceClient
+	peerOTC stockpb.PeerOTCServiceClient
 }
 
-func NewOTCOptionsHandler(client stockpb.OTCOptionsServiceClient) *OTCOptionsHandler {
-	return &OTCOptionsHandler{client: client}
+func NewOTCOptionsHandler(client stockpb.OTCOptionsServiceClient, peerOTC stockpb.PeerOTCServiceClient) *OTCOptionsHandler {
+	return &OTCOptionsHandler{client: client, peerOTC: peerOTC}
 }
 
 type createOTCOfferRequest struct {
@@ -342,4 +344,48 @@ func (h *OTCOptionsHandler) ExerciseContract(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, resp)
+}
+
+type exercisePeerRequest struct {
+	BuyerAccountNumber string `json:"buyer_account_number"`
+}
+
+// ExercisePeerContract godoc
+// @Summary      Exercise a cross-bank OTC option contract
+// @Description  Buyer-only. Initiates the SI-TX exercise flow: strike money buyer→seller + option markers carrying intent=exercise. Both banks transition the contract to status=exercised on COMMIT_TX, the seller's reservation is consumed and the buyer's holding is credited.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        id    path int                  true "peer_option_contracts row id on this bank"
+// @Param        body  body exercisePeerRequest  true "buyer's currency account number that pays the strike"
+// @Success      200   {object} map[string]interface{}
+// @Router       /api/v3/me/otc/contracts/peer/{id}/exercise [post]
+func (h *OTCOptionsHandler) ExercisePeerContract(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
+		return
+	}
+	var req exercisePeerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
+		return
+	}
+	if req.BuyerAccountNumber == "" {
+		apiError(c, http.StatusBadRequest, ErrValidation, "buyer_account_number is required")
+		return
+	}
+	resp, err := h.peerOTC.InitiateOptionExercise(c.Request.Context(), &stockpb.InitiateOptionExerciseRequest{
+		PeerOptionContractId: id,
+		BuyerAccountNumber:   req.BuyerAccountNumber,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"transaction_id": resp.GetTransactionId(),
+		"status":         resp.GetStatus(),
+	})
 }

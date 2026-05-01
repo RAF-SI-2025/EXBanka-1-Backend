@@ -10192,8 +10192,15 @@ type RecordOptionContractRequest struct {
 	BuyerId               *PeerForeignBankId     `protobuf:"bytes,4,opt,name=buyer_id,json=buyerId,proto3" json:"buyer_id,omitempty"`
 	SellerId              *PeerForeignBankId     `protobuf:"bytes,5,opt,name=seller_id,json=sellerId,proto3" json:"seller_id,omitempty"`
 	Direction             string                 `protobuf:"bytes,6,opt,name=direction,proto3" json:"direction,omitempty"` // "DEBIT" (seller side) or "CREDIT" (buyer side)
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// intent: "" or "accept" → form a new contract (lock seller holdings,
+	// write peer_option_contracts row). "exercise" → transition the
+	// existing contract referenced by the embedded OptionDescription's
+	// negotiationId to status=exercised and run role-specific stock ops
+	// (seller side: settle reservation + decrement holding; buyer side:
+	// increment holding). Idempotent on (crossbank_tx_id, posting_index).
+	Intent        string `protobuf:"bytes,7,opt,name=intent,proto3" json:"intent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RecordOptionContractRequest) Reset() {
@@ -10268,6 +10275,13 @@ func (x *RecordOptionContractRequest) GetDirection() string {
 	return ""
 }
 
+func (x *RecordOptionContractRequest) GetIntent() string {
+	if x != nil {
+		return x.Intent
+	}
+	return ""
+}
+
 type RecordOptionContractResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ContractId    uint64                 `protobuf:"varint,1,opt,name=contract_id,json=contractId,proto3" json:"contract_id,omitempty"`
@@ -10312,6 +10326,116 @@ func (x *RecordOptionContractResponse) GetContractId() uint64 {
 	return 0
 }
 
+// InitiateOptionExerciseRequest triggers a cross-bank option exercise.
+// Called by the gateway when the buyer hits POST /api/v3/me/otc/contracts/peer/:id/exercise.
+// Stock-service composes the 4-posting Transaction (strike money +
+// option markers with intent=exercise) and dispatches via
+// transaction-service.PeerTxService.InitiateOutboundTxWithPostings.
+type InitiateOptionExerciseRequest struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	PeerOptionContractId uint64                 `protobuf:"varint,1,opt,name=peer_option_contract_id,json=peerOptionContractId,proto3" json:"peer_option_contract_id,omitempty"` // local row id (resolved by gateway)
+	// Buyer's currency account that pays the strike on this bank.
+	BuyerAccountNumber string `protobuf:"bytes,2,opt,name=buyer_account_number,json=buyerAccountNumber,proto3" json:"buyer_account_number,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *InitiateOptionExerciseRequest) Reset() {
+	*x = InitiateOptionExerciseRequest{}
+	mi := &file_stock_stock_proto_msgTypes[132]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InitiateOptionExerciseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InitiateOptionExerciseRequest) ProtoMessage() {}
+
+func (x *InitiateOptionExerciseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[132]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InitiateOptionExerciseRequest.ProtoReflect.Descriptor instead.
+func (*InitiateOptionExerciseRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{132}
+}
+
+func (x *InitiateOptionExerciseRequest) GetPeerOptionContractId() uint64 {
+	if x != nil {
+		return x.PeerOptionContractId
+	}
+	return 0
+}
+
+func (x *InitiateOptionExerciseRequest) GetBuyerAccountNumber() string {
+	if x != nil {
+		return x.BuyerAccountNumber
+	}
+	return ""
+}
+
+type InitiateOptionExerciseResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TransactionId string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InitiateOptionExerciseResponse) Reset() {
+	*x = InitiateOptionExerciseResponse{}
+	mi := &file_stock_stock_proto_msgTypes[133]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InitiateOptionExerciseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InitiateOptionExerciseResponse) ProtoMessage() {}
+
+func (x *InitiateOptionExerciseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[133]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InitiateOptionExerciseResponse.ProtoReflect.Descriptor instead.
+func (*InitiateOptionExerciseResponse) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{133}
+}
+
+func (x *InitiateOptionExerciseResponse) GetTransactionId() string {
+	if x != nil {
+		return x.TransactionId
+	}
+	return ""
+}
+
+func (x *InitiateOptionExerciseResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
 // CheckSellerCanDeliverRequest asks whether the seller participant
 // has at least `quantity` unreserved shares of the given ticker.
 // seller_id is the SI-TX participant identifier ("client-<n>" or
@@ -10328,7 +10452,7 @@ type CheckSellerCanDeliverRequest struct {
 
 func (x *CheckSellerCanDeliverRequest) Reset() {
 	*x = CheckSellerCanDeliverRequest{}
-	mi := &file_stock_stock_proto_msgTypes[132]
+	mi := &file_stock_stock_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10340,7 +10464,7 @@ func (x *CheckSellerCanDeliverRequest) String() string {
 func (*CheckSellerCanDeliverRequest) ProtoMessage() {}
 
 func (x *CheckSellerCanDeliverRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[132]
+	mi := &file_stock_stock_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10353,7 +10477,7 @@ func (x *CheckSellerCanDeliverRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckSellerCanDeliverRequest.ProtoReflect.Descriptor instead.
 func (*CheckSellerCanDeliverRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{132}
+	return file_stock_stock_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *CheckSellerCanDeliverRequest) GetSellerId() *PeerForeignBankId {
@@ -10387,7 +10511,7 @@ type CheckSellerCanDeliverResponse struct {
 
 func (x *CheckSellerCanDeliverResponse) Reset() {
 	*x = CheckSellerCanDeliverResponse{}
-	mi := &file_stock_stock_proto_msgTypes[133]
+	mi := &file_stock_stock_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10399,7 +10523,7 @@ func (x *CheckSellerCanDeliverResponse) String() string {
 func (*CheckSellerCanDeliverResponse) ProtoMessage() {}
 
 func (x *CheckSellerCanDeliverResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[133]
+	mi := &file_stock_stock_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10412,7 +10536,7 @@ func (x *CheckSellerCanDeliverResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckSellerCanDeliverResponse.ProtoReflect.Descriptor instead.
 func (*CheckSellerCanDeliverResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{133}
+	return file_stock_stock_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *CheckSellerCanDeliverResponse) GetOk() bool {
@@ -11384,17 +11508,24 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x0enegotiation_id\x18\x02 \x01(\v2\x18.stock.PeerForeignBankIdR\rnegotiationId\"Z\n" +
 	"\x19AcceptNegotiationResponse\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"\xac\x02\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"\xc4\x02\n" +
 	"\x1bRecordOptionContractRequest\x12&\n" +
 	"\x0fcrossbank_tx_id\x18\x01 \x01(\tR\rcrossbankTxId\x12#\n" +
 	"\rposting_index\x18\x02 \x01(\x05R\fpostingIndex\x126\n" +
 	"\x17option_description_json\x18\x03 \x01(\tR\x15optionDescriptionJson\x123\n" +
 	"\bbuyer_id\x18\x04 \x01(\v2\x18.stock.PeerForeignBankIdR\abuyerId\x125\n" +
 	"\tseller_id\x18\x05 \x01(\v2\x18.stock.PeerForeignBankIdR\bsellerId\x12\x1c\n" +
-	"\tdirection\x18\x06 \x01(\tR\tdirection\"?\n" +
+	"\tdirection\x18\x06 \x01(\tR\tdirection\x12\x16\n" +
+	"\x06intent\x18\a \x01(\tR\x06intent\"?\n" +
 	"\x1cRecordOptionContractResponse\x12\x1f\n" +
 	"\vcontract_id\x18\x01 \x01(\x04R\n" +
-	"contractId\"\x89\x01\n" +
+	"contractId\"\x88\x01\n" +
+	"\x1dInitiateOptionExerciseRequest\x125\n" +
+	"\x17peer_option_contract_id\x18\x01 \x01(\x04R\x14peerOptionContractId\x120\n" +
+	"\x14buyer_account_number\x18\x02 \x01(\tR\x12buyerAccountNumber\"_\n" +
+	"\x1eInitiateOptionExerciseResponse\x12%\n" +
+	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"\x89\x01\n" +
 	"\x1cCheckSellerCanDeliverRequest\x125\n" +
 	"\tseller_id\x18\x01 \x01(\v2\x18.stock.PeerForeignBankIdR\bsellerId\x12\x16\n" +
 	"\x06ticker\x18\x02 \x01(\tR\x06ticker\x12\x1a\n" +
@@ -11477,7 +11608,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\vRejectOffer\x12\x1c.stock.RejectOTCOfferRequest\x1a\x17.stock.OTCOfferResponse\x12N\n" +
 	"\x0fListMyContracts\x12\x1d.stock.ListMyContractsRequest\x1a\x1c.stock.ListContractsResponse\x12G\n" +
 	"\vGetContract\x12\x19.stock.GetContractRequest\x1a\x1d.stock.OptionContractResponse\x12K\n" +
-	"\x10ExerciseContract\x12\x1e.stock.ExerciseContractRequest\x1a\x17.stock.ExerciseResponse2\xd6\x05\n" +
+	"\x10ExerciseContract\x12\x1e.stock.ExerciseContractRequest\x1a\x17.stock.ExerciseResponse2\xbd\x06\n" +
 	"\x0ePeerOTCService\x12P\n" +
 	"\x0fGetPublicStocks\x12\x1d.stock.GetPublicStocksRequest\x1a\x1e.stock.GetPublicStocksResponse\x12V\n" +
 	"\x11CreateNegotiation\x12\x1f.stock.CreateNegotiationRequest\x1a .stock.CreateNegotiationResponse\x12V\n" +
@@ -11486,7 +11617,8 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x11DeleteNegotiation\x12\x1f.stock.DeleteNegotiationRequest\x1a .stock.DeleteNegotiationResponse\x12V\n" +
 	"\x11AcceptNegotiation\x12\x1f.stock.AcceptNegotiationRequest\x1a .stock.AcceptNegotiationResponse\x12_\n" +
 	"\x14RecordOptionContract\x12\".stock.RecordOptionContractRequest\x1a#.stock.RecordOptionContractResponse\x12b\n" +
-	"\x15CheckSellerCanDeliver\x12#.stock.CheckSellerCanDeliverRequest\x1a$.stock.CheckSellerCanDeliverResponseB-Z+github.com/exbanka/contract/stockpb;stockpbb\x06proto3"
+	"\x15CheckSellerCanDeliver\x12#.stock.CheckSellerCanDeliverRequest\x1a$.stock.CheckSellerCanDeliverResponse\x12e\n" +
+	"\x16InitiateOptionExercise\x12$.stock.InitiateOptionExerciseRequest\x1a%.stock.InitiateOptionExerciseResponseB-Z+github.com/exbanka/contract/stockpb;stockpbb\x06proto3"
 
 var (
 	file_stock_stock_proto_rawDescOnce sync.Once
@@ -11501,7 +11633,7 @@ func file_stock_stock_proto_rawDescGZIP() []byte {
 }
 
 var file_stock_stock_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_stock_stock_proto_msgTypes = make([]protoimpl.MessageInfo, 134)
+var file_stock_stock_proto_msgTypes = make([]protoimpl.MessageInfo, 136)
 var file_stock_stock_proto_goTypes = []any{
 	(OwnerType)(0),                          // 0: stock.OwnerType
 	(*Exchange)(nil),                        // 1: stock.Exchange
@@ -11636,8 +11768,10 @@ var file_stock_stock_proto_goTypes = []any{
 	(*AcceptNegotiationResponse)(nil),       // 130: stock.AcceptNegotiationResponse
 	(*RecordOptionContractRequest)(nil),     // 131: stock.RecordOptionContractRequest
 	(*RecordOptionContractResponse)(nil),    // 132: stock.RecordOptionContractResponse
-	(*CheckSellerCanDeliverRequest)(nil),    // 133: stock.CheckSellerCanDeliverRequest
-	(*CheckSellerCanDeliverResponse)(nil),   // 134: stock.CheckSellerCanDeliverResponse
+	(*InitiateOptionExerciseRequest)(nil),   // 133: stock.InitiateOptionExerciseRequest
+	(*InitiateOptionExerciseResponse)(nil),  // 134: stock.InitiateOptionExerciseResponse
+	(*CheckSellerCanDeliverRequest)(nil),    // 135: stock.CheckSellerCanDeliverRequest
+	(*CheckSellerCanDeliverResponse)(nil),   // 136: stock.CheckSellerCanDeliverResponse
 }
 var file_stock_stock_proto_depIdxs = []int32{
 	1,   // 0: stock.ListExchangesResponse.exchanges:type_name -> stock.Exchange
@@ -11766,71 +11900,73 @@ var file_stock_stock_proto_depIdxs = []int32{
 	127, // 123: stock.PeerOTCService.DeleteNegotiation:input_type -> stock.DeleteNegotiationRequest
 	129, // 124: stock.PeerOTCService.AcceptNegotiation:input_type -> stock.AcceptNegotiationRequest
 	131, // 125: stock.PeerOTCService.RecordOptionContract:input_type -> stock.RecordOptionContractRequest
-	133, // 126: stock.PeerOTCService.CheckSellerCanDeliver:input_type -> stock.CheckSellerCanDeliverRequest
-	3,   // 127: stock.StockExchangeGRPCService.ListExchanges:output_type -> stock.ListExchangesResponse
-	1,   // 128: stock.StockExchangeGRPCService.GetExchange:output_type -> stock.Exchange
-	6,   // 129: stock.StockExchangeGRPCService.SetTestingMode:output_type -> stock.SetTestingModeResponse
-	8,   // 130: stock.StockExchangeGRPCService.GetTestingMode:output_type -> stock.GetTestingModeResponse
-	17,  // 131: stock.SecurityGRPCService.ListStocks:output_type -> stock.ListStocksResponse
-	15,  // 132: stock.SecurityGRPCService.GetStock:output_type -> stock.StockDetail
-	13,  // 133: stock.SecurityGRPCService.GetStockHistory:output_type -> stock.PriceHistoryResponse
-	22,  // 134: stock.SecurityGRPCService.ListFutures:output_type -> stock.ListFuturesResponse
-	20,  // 135: stock.SecurityGRPCService.GetFutures:output_type -> stock.FuturesDetail
-	13,  // 136: stock.SecurityGRPCService.GetFuturesHistory:output_type -> stock.PriceHistoryResponse
-	27,  // 137: stock.SecurityGRPCService.ListForexPairs:output_type -> stock.ListForexPairsResponse
-	25,  // 138: stock.SecurityGRPCService.GetForexPair:output_type -> stock.ForexPairDetail
-	13,  // 139: stock.SecurityGRPCService.GetForexPairHistory:output_type -> stock.PriceHistoryResponse
-	32,  // 140: stock.SecurityGRPCService.ListOptions:output_type -> stock.ListOptionsResponse
-	30,  // 141: stock.SecurityGRPCService.GetOption:output_type -> stock.OptionDetail
-	36,  // 142: stock.SecurityGRPCService.GetCandles:output_type -> stock.GetCandlesResponse
-	37,  // 143: stock.OrderGRPCService.CreateOrder:output_type -> stock.Order
-	39,  // 144: stock.OrderGRPCService.GetOrder:output_type -> stock.OrderDetail
-	44,  // 145: stock.OrderGRPCService.ListMyOrders:output_type -> stock.ListOrdersResponse
-	37,  // 146: stock.OrderGRPCService.CancelOrder:output_type -> stock.Order
-	44,  // 147: stock.OrderGRPCService.ListOrders:output_type -> stock.ListOrdersResponse
-	37,  // 148: stock.OrderGRPCService.ApproveOrder:output_type -> stock.Order
-	37,  // 149: stock.OrderGRPCService.DeclineOrder:output_type -> stock.Order
-	50,  // 150: stock.PortfolioGRPCService.ListHoldings:output_type -> stock.ListHoldingsResponse
-	52,  // 151: stock.PortfolioGRPCService.GetPortfolioSummary:output_type -> stock.PortfolioSummary
-	48,  // 152: stock.PortfolioGRPCService.MakePublic:output_type -> stock.Holding
-	56,  // 153: stock.PortfolioGRPCService.ExerciseOption:output_type -> stock.ExerciseResult
-	56,  // 154: stock.PortfolioGRPCService.ExerciseOptionByOptionID:output_type -> stock.ExerciseResult
-	59,  // 155: stock.PortfolioGRPCService.ListHoldingTransactions:output_type -> stock.ListHoldingTransactionsResponse
-	62,  // 156: stock.OTCGRPCService.ListOffers:output_type -> stock.ListOTCOffersResponse
-	64,  // 157: stock.OTCGRPCService.BuyOffer:output_type -> stock.OTCTransaction
-	67,  // 158: stock.TaxGRPCService.ListTaxRecords:output_type -> stock.ListTaxRecordsResponse
-	69,  // 159: stock.TaxGRPCService.CollectTax:output_type -> stock.CollectTaxResponse
-	72,  // 160: stock.TaxGRPCService.ListUserTaxRecords:output_type -> stock.ListUserTaxRecordsResponse
-	75,  // 161: stock.SourceAdminService.SwitchSource:output_type -> stock.SwitchSourceResponse
-	77,  // 162: stock.SourceAdminService.GetSourceStatus:output_type -> stock.SourceStatus
-	80,  // 163: stock.InvestmentFundService.CreateFund:output_type -> stock.FundResponse
-	82,  // 164: stock.InvestmentFundService.ListFunds:output_type -> stock.ListFundsResponse
-	84,  // 165: stock.InvestmentFundService.GetFund:output_type -> stock.FundDetailResponse
-	80,  // 166: stock.InvestmentFundService.UpdateFund:output_type -> stock.FundResponse
-	89,  // 167: stock.InvestmentFundService.InvestInFund:output_type -> stock.ContributionResponse
-	89,  // 168: stock.InvestmentFundService.RedeemFromFund:output_type -> stock.ContributionResponse
-	92,  // 169: stock.InvestmentFundService.ListMyPositions:output_type -> stock.ListPositionsResponse
-	92,  // 170: stock.InvestmentFundService.ListBankPositions:output_type -> stock.ListPositionsResponse
-	95,  // 171: stock.InvestmentFundService.GetActuaryPerformance:output_type -> stock.GetActuaryPerformanceResponse
-	99,  // 172: stock.OTCOptionsService.CreateOffer:output_type -> stock.OTCOfferResponse
-	103, // 173: stock.OTCOptionsService.ListMyOffers:output_type -> stock.ListMyOTCOffersResponse
-	101, // 174: stock.OTCOptionsService.GetOffer:output_type -> stock.OTCOfferDetailResponse
-	99,  // 175: stock.OTCOptionsService.CounterOffer:output_type -> stock.OTCOfferResponse
-	107, // 176: stock.OTCOptionsService.AcceptOffer:output_type -> stock.AcceptOfferResponse
-	99,  // 177: stock.OTCOptionsService.RejectOffer:output_type -> stock.OTCOfferResponse
-	111, // 178: stock.OTCOptionsService.ListMyContracts:output_type -> stock.ListContractsResponse
-	109, // 179: stock.OTCOptionsService.GetContract:output_type -> stock.OptionContractResponse
-	115, // 180: stock.OTCOptionsService.ExerciseContract:output_type -> stock.ExerciseResponse
-	120, // 181: stock.PeerOTCService.GetPublicStocks:output_type -> stock.GetPublicStocksResponse
-	122, // 182: stock.PeerOTCService.CreateNegotiation:output_type -> stock.CreateNegotiationResponse
-	124, // 183: stock.PeerOTCService.UpdateNegotiation:output_type -> stock.UpdateNegotiationResponse
-	126, // 184: stock.PeerOTCService.GetNegotiation:output_type -> stock.GetNegotiationResponse
-	128, // 185: stock.PeerOTCService.DeleteNegotiation:output_type -> stock.DeleteNegotiationResponse
-	130, // 186: stock.PeerOTCService.AcceptNegotiation:output_type -> stock.AcceptNegotiationResponse
-	132, // 187: stock.PeerOTCService.RecordOptionContract:output_type -> stock.RecordOptionContractResponse
-	134, // 188: stock.PeerOTCService.CheckSellerCanDeliver:output_type -> stock.CheckSellerCanDeliverResponse
-	127, // [127:189] is the sub-list for method output_type
-	65,  // [65:127] is the sub-list for method input_type
+	135, // 126: stock.PeerOTCService.CheckSellerCanDeliver:input_type -> stock.CheckSellerCanDeliverRequest
+	133, // 127: stock.PeerOTCService.InitiateOptionExercise:input_type -> stock.InitiateOptionExerciseRequest
+	3,   // 128: stock.StockExchangeGRPCService.ListExchanges:output_type -> stock.ListExchangesResponse
+	1,   // 129: stock.StockExchangeGRPCService.GetExchange:output_type -> stock.Exchange
+	6,   // 130: stock.StockExchangeGRPCService.SetTestingMode:output_type -> stock.SetTestingModeResponse
+	8,   // 131: stock.StockExchangeGRPCService.GetTestingMode:output_type -> stock.GetTestingModeResponse
+	17,  // 132: stock.SecurityGRPCService.ListStocks:output_type -> stock.ListStocksResponse
+	15,  // 133: stock.SecurityGRPCService.GetStock:output_type -> stock.StockDetail
+	13,  // 134: stock.SecurityGRPCService.GetStockHistory:output_type -> stock.PriceHistoryResponse
+	22,  // 135: stock.SecurityGRPCService.ListFutures:output_type -> stock.ListFuturesResponse
+	20,  // 136: stock.SecurityGRPCService.GetFutures:output_type -> stock.FuturesDetail
+	13,  // 137: stock.SecurityGRPCService.GetFuturesHistory:output_type -> stock.PriceHistoryResponse
+	27,  // 138: stock.SecurityGRPCService.ListForexPairs:output_type -> stock.ListForexPairsResponse
+	25,  // 139: stock.SecurityGRPCService.GetForexPair:output_type -> stock.ForexPairDetail
+	13,  // 140: stock.SecurityGRPCService.GetForexPairHistory:output_type -> stock.PriceHistoryResponse
+	32,  // 141: stock.SecurityGRPCService.ListOptions:output_type -> stock.ListOptionsResponse
+	30,  // 142: stock.SecurityGRPCService.GetOption:output_type -> stock.OptionDetail
+	36,  // 143: stock.SecurityGRPCService.GetCandles:output_type -> stock.GetCandlesResponse
+	37,  // 144: stock.OrderGRPCService.CreateOrder:output_type -> stock.Order
+	39,  // 145: stock.OrderGRPCService.GetOrder:output_type -> stock.OrderDetail
+	44,  // 146: stock.OrderGRPCService.ListMyOrders:output_type -> stock.ListOrdersResponse
+	37,  // 147: stock.OrderGRPCService.CancelOrder:output_type -> stock.Order
+	44,  // 148: stock.OrderGRPCService.ListOrders:output_type -> stock.ListOrdersResponse
+	37,  // 149: stock.OrderGRPCService.ApproveOrder:output_type -> stock.Order
+	37,  // 150: stock.OrderGRPCService.DeclineOrder:output_type -> stock.Order
+	50,  // 151: stock.PortfolioGRPCService.ListHoldings:output_type -> stock.ListHoldingsResponse
+	52,  // 152: stock.PortfolioGRPCService.GetPortfolioSummary:output_type -> stock.PortfolioSummary
+	48,  // 153: stock.PortfolioGRPCService.MakePublic:output_type -> stock.Holding
+	56,  // 154: stock.PortfolioGRPCService.ExerciseOption:output_type -> stock.ExerciseResult
+	56,  // 155: stock.PortfolioGRPCService.ExerciseOptionByOptionID:output_type -> stock.ExerciseResult
+	59,  // 156: stock.PortfolioGRPCService.ListHoldingTransactions:output_type -> stock.ListHoldingTransactionsResponse
+	62,  // 157: stock.OTCGRPCService.ListOffers:output_type -> stock.ListOTCOffersResponse
+	64,  // 158: stock.OTCGRPCService.BuyOffer:output_type -> stock.OTCTransaction
+	67,  // 159: stock.TaxGRPCService.ListTaxRecords:output_type -> stock.ListTaxRecordsResponse
+	69,  // 160: stock.TaxGRPCService.CollectTax:output_type -> stock.CollectTaxResponse
+	72,  // 161: stock.TaxGRPCService.ListUserTaxRecords:output_type -> stock.ListUserTaxRecordsResponse
+	75,  // 162: stock.SourceAdminService.SwitchSource:output_type -> stock.SwitchSourceResponse
+	77,  // 163: stock.SourceAdminService.GetSourceStatus:output_type -> stock.SourceStatus
+	80,  // 164: stock.InvestmentFundService.CreateFund:output_type -> stock.FundResponse
+	82,  // 165: stock.InvestmentFundService.ListFunds:output_type -> stock.ListFundsResponse
+	84,  // 166: stock.InvestmentFundService.GetFund:output_type -> stock.FundDetailResponse
+	80,  // 167: stock.InvestmentFundService.UpdateFund:output_type -> stock.FundResponse
+	89,  // 168: stock.InvestmentFundService.InvestInFund:output_type -> stock.ContributionResponse
+	89,  // 169: stock.InvestmentFundService.RedeemFromFund:output_type -> stock.ContributionResponse
+	92,  // 170: stock.InvestmentFundService.ListMyPositions:output_type -> stock.ListPositionsResponse
+	92,  // 171: stock.InvestmentFundService.ListBankPositions:output_type -> stock.ListPositionsResponse
+	95,  // 172: stock.InvestmentFundService.GetActuaryPerformance:output_type -> stock.GetActuaryPerformanceResponse
+	99,  // 173: stock.OTCOptionsService.CreateOffer:output_type -> stock.OTCOfferResponse
+	103, // 174: stock.OTCOptionsService.ListMyOffers:output_type -> stock.ListMyOTCOffersResponse
+	101, // 175: stock.OTCOptionsService.GetOffer:output_type -> stock.OTCOfferDetailResponse
+	99,  // 176: stock.OTCOptionsService.CounterOffer:output_type -> stock.OTCOfferResponse
+	107, // 177: stock.OTCOptionsService.AcceptOffer:output_type -> stock.AcceptOfferResponse
+	99,  // 178: stock.OTCOptionsService.RejectOffer:output_type -> stock.OTCOfferResponse
+	111, // 179: stock.OTCOptionsService.ListMyContracts:output_type -> stock.ListContractsResponse
+	109, // 180: stock.OTCOptionsService.GetContract:output_type -> stock.OptionContractResponse
+	115, // 181: stock.OTCOptionsService.ExerciseContract:output_type -> stock.ExerciseResponse
+	120, // 182: stock.PeerOTCService.GetPublicStocks:output_type -> stock.GetPublicStocksResponse
+	122, // 183: stock.PeerOTCService.CreateNegotiation:output_type -> stock.CreateNegotiationResponse
+	124, // 184: stock.PeerOTCService.UpdateNegotiation:output_type -> stock.UpdateNegotiationResponse
+	126, // 185: stock.PeerOTCService.GetNegotiation:output_type -> stock.GetNegotiationResponse
+	128, // 186: stock.PeerOTCService.DeleteNegotiation:output_type -> stock.DeleteNegotiationResponse
+	130, // 187: stock.PeerOTCService.AcceptNegotiation:output_type -> stock.AcceptNegotiationResponse
+	132, // 188: stock.PeerOTCService.RecordOptionContract:output_type -> stock.RecordOptionContractResponse
+	136, // 189: stock.PeerOTCService.CheckSellerCanDeliver:output_type -> stock.CheckSellerCanDeliverResponse
+	134, // 190: stock.PeerOTCService.InitiateOptionExercise:output_type -> stock.InitiateOptionExerciseResponse
+	128, // [128:191] is the sub-list for method output_type
+	65,  // [65:128] is the sub-list for method input_type
 	65,  // [65:65] is the sub-list for extension type_name
 	65,  // [65:65] is the sub-list for extension extendee
 	0,   // [0:65] is the sub-list for field type_name
@@ -11851,7 +11987,7 @@ func file_stock_stock_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_stock_stock_proto_rawDesc), len(file_stock_stock_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   134,
+			NumMessages:   136,
 			NumExtensions: 0,
 			NumServices:   10,
 		},

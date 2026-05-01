@@ -1200,6 +1200,7 @@ service PeerOTCService {
   rpc AcceptNegotiation(AcceptNegotiationRequest) returns (AcceptNegotiationResponse);
   rpc RecordOptionContract(RecordOptionContractRequest) returns (RecordOptionContractResponse);
   rpc CheckSellerCanDeliver(CheckSellerCanDeliverRequest) returns (CheckSellerCanDeliverResponse);
+  rpc InitiateOptionExercise(InitiateOptionExerciseRequest) returns (InitiateOptionExerciseResponse);
 }
 
 message PeerForeignBankId {
@@ -1302,10 +1303,33 @@ message RecordOptionContractRequest {
   PeerForeignBankId buyer_id = 4;
   PeerForeignBankId seller_id = 5;
   string direction = 6;                // "DEBIT" (seller side) or "CREDIT" (buyer side)
+  // intent: "" or "accept" → form a new contract (lock seller holdings,
+  // write peer_option_contracts row). "exercise" → transition the
+  // existing contract referenced by the embedded OptionDescription's
+  // negotiationId to status=exercised and run role-specific stock ops
+  // (seller side: settle reservation + decrement holding; buyer side:
+  // increment holding). Idempotent on (crossbank_tx_id, posting_index).
+  string intent = 7;
 }
 
 message RecordOptionContractResponse {
   uint64 contract_id = 1;
+}
+
+// InitiateOptionExerciseRequest triggers a cross-bank option exercise.
+// Called by the gateway when the buyer hits POST /api/v3/me/otc/contracts/peer/:id/exercise.
+// Stock-service composes the 4-posting Transaction (strike money +
+// option markers with intent=exercise) and dispatches via
+// transaction-service.PeerTxService.InitiateOutboundTxWithPostings.
+message InitiateOptionExerciseRequest {
+  uint64 peer_option_contract_id = 1; // local row id (resolved by gateway)
+  // Buyer's currency account that pays the strike on this bank.
+  string buyer_account_number = 2;
+}
+
+message InitiateOptionExerciseResponse {
+  string transaction_id = 1;
+  string status = 2;
 }
 
 // CheckSellerCanDeliverRequest asks whether the seller participant

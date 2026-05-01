@@ -52,6 +52,46 @@ func (r *PeerOptionContractRepository) GetByCrossbankTxAndPosting(crossbankTxID 
 	return &pc, nil
 }
 
+// GetByID loads a peer option contract by primary key.
+func (r *PeerOptionContractRepository) GetByID(id uint64) (*model.PeerOptionContract, error) {
+	var pc model.PeerOptionContract
+	if err := r.db.Where("id = ?", id).First(&pc).Error; err != nil {
+		return nil, err
+	}
+	return &pc, nil
+}
+
+// GetActiveByNegotiationAndDirection locates the active contract row
+// for a given negotiation reference and direction. Used by the
+// exercise flow where each bank looks up its own row by the embedded
+// OptionDescription.negotiationId rather than a directly-passed id.
+//
+// Returns the row regardless of status; callers check status before
+// transitioning. Direction filters DEBIT (seller side) vs CREDIT
+// (buyer side) so each bank pulls its own row, not the peer's.
+func (r *PeerOptionContractRepository) GetByNegotiationAndDirection(
+	negotiationRoutingNumber int64,
+	negotiationID string,
+	direction string,
+) (*model.PeerOptionContract, error) {
+	var pc model.PeerOptionContract
+	err := r.db.Where(
+		"negotiation_routing_number = ? AND negotiation_id = ? AND direction = ?",
+		negotiationRoutingNumber, negotiationID, direction,
+	).First(&pc).Error
+	if err != nil {
+		return nil, err
+	}
+	return &pc, nil
+}
+
+// SetStatus transitions the contract to a new status (e.g. "active"
+// → "exercised" or "expired"). Optimistic locking via the model's
+// BeforeUpdate hook protects against concurrent races.
+func (r *PeerOptionContractRepository) SetStatus(id uint64, newStatus string) error {
+	return r.db.Model(&model.PeerOptionContract{}).Where("id = ?", id).Update("status", newStatus).Error
+}
+
 // ListByLocalParticipant returns rows where the user is a participant
 // on this bank's side of the contract: a CREDIT row keyed on the user
 // when this bank holds the buyer, or a DEBIT row keyed on the user

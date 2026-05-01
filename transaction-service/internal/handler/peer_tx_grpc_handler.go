@@ -206,6 +206,13 @@ func (h *PeerTxGRPCHandler) HandleCommitTx(ctx context.Context, req *transaction
 // asks stock-service to record each as a peer_option_contracts row.
 // crossbankTxID is "<peerCode>:<idem>" so both banks key contracts
 // the same way (idempotency is on (crossbank_tx_id, posting_index)).
+//
+// The OptionDescription's intent field flows through to the gRPC
+// request: empty/"accept" creates new contract rows, "exercise"
+// transitions existing rows and runs role-specific stock ops on
+// stock-service. Decoded per item so a single TX could mix intents
+// in principle (today they're homogeneous per-TX).
+//
 // No-op when optionRecorder is nil or list is empty/`[]`.
 func (h *PeerTxGRPCHandler) materialiseOptions(ctx context.Context, optionsJSON, crossbankTxID string) error {
 	if h.optionRecorder == nil || optionsJSON == "" || optionsJSON == "[]" {
@@ -216,6 +223,8 @@ func (h *PeerTxGRPCHandler) materialiseOptions(ctx context.Context, optionsJSON,
 		return err
 	}
 	for _, it := range items {
+		var od contractsitx.OptionDescription
+		_ = json.Unmarshal([]byte(it.OptionDescriptionJSON), &od)
 		_, err := h.optionRecorder.RecordOptionContract(ctx, &stockpb.RecordOptionContractRequest{
 			CrossbankTxId:         crossbankTxID,
 			PostingIndex:          int32(it.PostingIndex),
@@ -223,6 +232,7 @@ func (h *PeerTxGRPCHandler) materialiseOptions(ctx context.Context, optionsJSON,
 			BuyerId:               &stockpb.PeerForeignBankId{RoutingNumber: it.Buyer.RoutingNumber, Id: it.Buyer.ID},
 			SellerId:              &stockpb.PeerForeignBankId{RoutingNumber: it.Seller.RoutingNumber, Id: it.Seller.ID},
 			Direction:             it.Direction,
+			Intent:                od.Intent,
 		})
 		if err != nil {
 			return err

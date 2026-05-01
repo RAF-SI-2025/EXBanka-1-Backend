@@ -43,8 +43,9 @@ type HoldingReader interface {
 // (premium money + 1× OptionDescription both directions) and dispatches
 // via transaction-service.PeerTxService.InitiateOutboundTxWithPostings.
 // HoldingReserver is the subset of HoldingReservationService used by
-// RecordOptionContract to lock the seller's underlying shares against
-// a cross-bank option contract on the seller's bank.
+// RecordOptionContract / RecordOptionExercise to manage the seller's
+// underlying share lock and the buyer's gained holding when SI-TX
+// flows touch this bank.
 type HoldingReserver interface {
 	ReserveForPeerOptionContract(
 		ctx context.Context,
@@ -54,6 +55,18 @@ type HoldingReserver interface {
 		peerOptionContractID uint64,
 		qty int64,
 	) (*service.ReserveHoldingResult, error)
+	ConsumeForPeerOptionContract(
+		ctx context.Context,
+		peerOptionContractID uint64,
+		qty int64,
+	) (*service.PartialSettleHoldingResult, error)
+	CreditBuyerHoldingForPeerOption(
+		ctx context.Context,
+		ownerType model.OwnerType,
+		ownerID *uint64,
+		ticker string,
+		qty int64,
+	) error
 }
 
 type PeerOTCGRPCHandler struct {
@@ -303,11 +316,21 @@ func offerToProto(o contractsitx.OtcOffer) *stockpb.PeerOtcOffer {
 }
 
 // RecordOptionContract is called by transaction-service at COMMIT_TX
-// time for each option-asset posting on this bank's routing. The
-// option_description_json is the verbatim assetId string from the
-// SI-TX posting (a JSON OptionDescription); we decode the contract
-// terms and persist a peer_option_contracts row keyed on
-// (crossbank_tx_id, posting_index) for idempotent retry safety.
+// time for each option-asset posting on this bank's routing. Behaviour
+// switches on req.intent:
+//
+//   - "" / "accept" → form a new contract: persist a peer_option_contracts
+//     row keyed on (crossbank_tx_id, posting_index) and lock the seller's
+//     holdings.
+//
+//   - "exercise" → transition the existing contract (looked up by
+//     OptionDescription.negotiationId + this side's direction) to
+//     status="exercised", run role-specific stock ops: seller side
+//     consumes the reservation and decrements the holding; buyer side
+//     credits a holding for the gained shares.
+//
+// Idempotent on (crossbank_tx_id, posting_index) for both intents —
+// retries return the same contract row without double-effects.
 func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stockpb.RecordOptionContractRequest) (*stockpb.RecordOptionContractResponse, error) {
 	if h.peerOptionRepo == nil {
 		return nil, status.Error(codes.Unimplemented, "peer option repo not wired")
@@ -325,6 +348,10 @@ func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stoc
 	var opt contractsitx.OptionDescription
 	if err := json.Unmarshal([]byte(req.GetOptionDescriptionJson()), &opt); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "decode option description: %v", err)
+	}
+
+	if req.GetIntent() == "exercise" {
+		return h.recordOptionExercise(ctx, req, opt)
 	}
 
 	row := &model.PeerOptionContract{
@@ -430,4 +457,142 @@ func parseSellerOwner(sellerID string) (model.OwnerType, *uint64, error) {
 		return "", nil, parseErr
 	}
 	return model.OwnerClient, &id, nil
+}
+
+// recordOptionExercise handles the intent="exercise" branch of
+// RecordOptionContract. Looks up the existing peer_option_contracts
+// row by (negotiation, direction), validates status, runs the
+// role-specific stock operations:
+//
+//   - DEBIT direction (this bank holds the seller): consume the
+//     reservation pinned to the contract id (settle it), which
+//     decrements the seller's holding by the contract's quantity.
+//
+//   - CREDIT direction (this bank holds the buyer): credit a
+//     holding for the buyer, creating a new (owner, ticker) row
+//     when needed.
+//
+// Then transitions the contract to status="exercised". Idempotent
+// on (crossbank_tx_id, posting_index): repeated calls land on the
+// same contract row and the underlying stock ops are themselves
+// idempotent (settlements unique on synthetic txn id; credit-to-
+// holding is upsert-shaped).
+func (h *PeerOTCGRPCHandler) recordOptionExercise(ctx context.Context, req *stockpb.RecordOptionContractRequest, opt contractsitx.OptionDescription) (*stockpb.RecordOptionContractResponse, error) {
+	if h.holdingReserver == nil {
+		return nil, status.Error(codes.Unimplemented, "holding reserver not wired")
+	}
+	contract, err := h.peerOptionRepo.GetByNegotiationAndDirection(opt.NegotiationID.RoutingNumber, opt.NegotiationID.ID, req.GetDirection())
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Error(codes.FailedPrecondition, "no active peer_option_contract for this negotiation/direction")
+		}
+		return nil, status.Errorf(codes.Internal, "lookup contract: %v", err)
+	}
+	// Idempotent: if already exercised, just return the existing id.
+	if contract.Status == "exercised" {
+		return &stockpb.RecordOptionContractResponse{ContractId: contract.ID}, nil
+	}
+	if contract.Status != "active" {
+		return nil, status.Errorf(codes.FailedPrecondition, "cannot exercise contract in status %q", contract.Status)
+	}
+
+	switch req.GetDirection() {
+	case contractsitx.DirectionDebit:
+		// Seller side. Consume the reservation, decrement holding.
+		if _, err := h.holdingReserver.ConsumeForPeerOptionContract(ctx, contract.ID, contract.Quantity); err != nil {
+			return nil, status.Errorf(codes.Internal, "consume seller reservation: %v", err)
+		}
+	case contractsitx.DirectionCredit:
+		// Buyer side. Credit the buyer's holding for the gained shares.
+		ownerType, ownerID, parseErr := parseSellerOwner(contract.BuyerID)
+		if parseErr != nil {
+			log.Printf("WARN: peer-option contract %d exercise: buyer_id %q not parseable; holding not credited: %v", contract.ID, contract.BuyerID, parseErr)
+		} else {
+			if err := h.holdingReserver.CreditBuyerHoldingForPeerOption(ctx, ownerType, ownerID, contract.Ticker, contract.Quantity); err != nil {
+				log.Printf("WARN: peer-option contract %d exercise: credit buyer holding failed: %v", contract.ID, err)
+			}
+		}
+	}
+
+	if err := h.peerOptionRepo.SetStatus(contract.ID, "exercised"); err != nil {
+		return nil, status.Errorf(codes.Internal, "mark exercised: %v", err)
+	}
+	return &stockpb.RecordOptionContractResponse{ContractId: contract.ID}, nil
+}
+
+// InitiateOptionExercise builds the 4-posting Transaction for an
+// exercise (strike money buyer→seller + option markers carrying
+// intent=exercise) and dispatches it via transaction-service. Called
+// by the gateway when the buyer hits POST /api/v3/me/otc/contracts/peer/:id/exercise.
+//
+// Validates: contract exists on this bank, this bank holds the buyer
+// side (so this bank is the IB), contract is active, settlement date
+// is in the future. The strike-money currency-account on the seller's
+// bank is left to that bank to resolve via the executor's seller-id-
+// to-account lookup at NEW_TX time.
+func (h *PeerOTCGRPCHandler) InitiateOptionExercise(ctx context.Context, req *stockpb.InitiateOptionExerciseRequest) (*stockpb.InitiateOptionExerciseResponse, error) {
+	if req.GetPeerOptionContractId() == 0 || req.GetBuyerAccountNumber() == "" {
+		return nil, status.Error(codes.InvalidArgument, "peer_option_contract_id and buyer_account_number are required")
+	}
+	contract, err := h.peerOptionRepo.GetByID(req.GetPeerOptionContractId())
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Error(codes.NotFound, "contract not found")
+		}
+		return nil, status.Errorf(codes.Internal, "load contract: %v", err)
+	}
+	if contract.Direction != contractsitx.DirectionCredit {
+		return nil, status.Error(codes.FailedPrecondition, "this bank does not hold the buyer side of the contract; only the buyer's bank can initiate exercise")
+	}
+	if contract.Status != "active" {
+		return nil, status.Errorf(codes.FailedPrecondition, "contract status %q is not exercisable", contract.Status)
+	}
+
+	strikeAmount := contract.StrikePrice.Mul(decimal.NewFromInt(contract.Quantity)).String()
+
+	// Build the OptionDescription that goes into the option-marker
+	// postings, with intent="exercise" so each receiving bank's
+	// RecordOptionContract dispatches to the exercise branch.
+	optDesc := contractsitx.OptionDescription{
+		Ticker:         contract.Ticker,
+		Amount:         contract.Quantity,
+		StrikePrice:    contract.StrikePrice,
+		Currency:       contract.Currency,
+		SettlementDate: contract.SettlementDate,
+		NegotiationID:  contractsitx.ForeignBankId{RoutingNumber: contract.NegotiationRoutingNumber, ID: contract.NegotiationID},
+		Intent:         "exercise",
+	}
+	optDescJSON, err := json.Marshal(optDesc)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "marshal option description: %v", err)
+	}
+	optAssetID := string(optDescJSON)
+
+	// 4 postings:
+	//  1. Buyer DEBIT strike money (currency)
+	//  2. Seller CREDIT strike money (currency)
+	//  3. Seller DEBIT option (marker)
+	//  4. Buyer CREDIT option (marker)
+	// Currency postings carry account numbers; option postings carry
+	// participant ids (the executor resolves via ListAccountsByClient
+	// at NEW_TX time).
+	postings := []*transactionpb.SiTxPosting{
+		{RoutingNumber: contract.BuyerRoutingNumber, AccountId: req.GetBuyerAccountNumber(), AssetId: contract.Currency, Amount: strikeAmount, Direction: contractsitx.DirectionDebit},
+		{RoutingNumber: contract.SellerRoutingNumber, AccountId: contract.SellerID, AssetId: contract.Currency, Amount: strikeAmount, Direction: contractsitx.DirectionCredit},
+		{RoutingNumber: contract.SellerRoutingNumber, AccountId: contract.SellerID, AssetId: optAssetID, Amount: "1", Direction: contractsitx.DirectionDebit},
+		{RoutingNumber: contract.BuyerRoutingNumber, AccountId: contract.BuyerID, AssetId: optAssetID, Amount: "1", Direction: contractsitx.DirectionCredit},
+	}
+
+	resp, err := h.peerTx.InitiateOutboundTxWithPostings(ctx, &transactionpb.SiTxInitiateWithPostingsRequest{
+		PeerBankCode: strconv.FormatInt(contract.SellerRoutingNumber, 10),
+		Postings:     postings,
+		TxKind:       "otc-exercise",
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "dispatch exercise: %v", err)
+	}
+	return &stockpb.InitiateOptionExerciseResponse{
+		TransactionId: resp.GetTransactionId(),
+		Status:        resp.GetStatus(),
+	}, nil
 }

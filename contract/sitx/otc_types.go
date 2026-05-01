@@ -38,6 +38,13 @@ type OtcNegotiation struct {
 // postings inside a NEW_TX. When acceptance triggers TX formation, the
 // 4 postings reference the option's terms via this struct (encoded as
 // JSON in the assetId field per cohort convention).
+//
+// Intent is a local extension (cohort partners ignore unknown fields)
+// that differentiates an accept TX (intent="" or "accept") from an
+// exercise TX (intent="exercise"). On exercise, the same 4-posting
+// envelope reuses the option's terms but tells each bank's executor
+// "transition the existing contract to exercised + run holding ops"
+// rather than "form a new contract + lock seller holdings".
 type OptionDescription struct {
 	Ticker         string          `json:"ticker"`
 	Amount         int64           `json:"amount"`
@@ -45,6 +52,7 @@ type OptionDescription struct {
 	Currency       string          `json:"currency"`
 	SettlementDate string          `json:"settlementDate"`
 	NegotiationID  ForeignBankId   `json:"negotiationId"`
+	Intent         string          `json:"intent,omitempty"`
 }
 
 // UserInformation is the response shape of GET /user/{rid}/{id}.
