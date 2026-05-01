@@ -92,6 +92,16 @@ func (r *PeerOptionContractRepository) SetStatus(id uint64, newStatus string) er
 	return r.db.Model(&model.PeerOptionContract{}).Where("id = ?", id).Update("status", newStatus).Error
 }
 
+// ListExpiring returns up to limit ACTIVE peer option contracts whose
+// settlement_date is strictly before today (lex-compared as the
+// SI-TX-shaped ISO-8601 string). Used by the daily expiry cron.
+func (r *PeerOptionContractRepository) ListExpiring(today string, limit int) ([]model.PeerOptionContract, error) {
+	var out []model.PeerOptionContract
+	err := r.db.Where("status = ? AND settlement_date < ?", "active", today).
+		Order("id ASC").Limit(limit).Find(&out).Error
+	return out, err
+}
+
 // ListByLocalParticipant returns rows where the user is a participant
 // on this bank's side of the contract: a CREDIT row keyed on the user
 // when this bank holds the buyer, or a DEBIT row keyed on the user
