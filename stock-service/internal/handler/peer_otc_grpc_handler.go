@@ -152,8 +152,12 @@ func (h *PeerOTCGRPCHandler) DeleteNegotiation(ctx context.Context, req *stockpb
 	if req.GetNegotiationId() == nil {
 		return nil, status.Error(codes.InvalidArgument, "negotiation_id required")
 	}
-	if err := h.negRepo.Delete(req.GetPeerBankCode(), req.GetNegotiationId().GetId()); err != nil {
-		return nil, status.Errorf(codes.Internal, "delete: %v", err)
+	// SI-TX §3.5: "DELETE … sets isOngoing to false". The negotiation row
+	// is preserved so a subsequent GET still returns OtcNegotiation with
+	// isOngoing=false instead of 404. Status="cancelled" maps to
+	// isOngoing=false in the gateway's GET handler.
+	if err := h.negRepo.UpdateStatus(req.GetPeerBankCode(), req.GetNegotiationId().GetId(), "cancelled"); err != nil {
+		return nil, status.Errorf(codes.Internal, "cancel: %v", err)
 	}
 	return &stockpb.DeleteNegotiationResponse{}, nil
 }

@@ -191,15 +191,19 @@ func TestPeerOTC_DeleteNegotiation(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 
-	_, gerr := h.GetNegotiation(ctx, &stockpb.GetNegotiationRequest{
+	// Per SI-TX §3.5, DELETE sets isOngoing to false; the negotiation
+	// row remains so a subsequent GET still returns OtcNegotiation. The
+	// status field flips to "cancelled" which the gateway maps to
+	// isOngoing=false in its response.
+	resp, gerr := h.GetNegotiation(ctx, &stockpb.GetNegotiationRequest{
 		PeerBankCode:  "222",
 		NegotiationId: createResp.GetNegotiationId(),
 	})
-	if gerr == nil {
-		t.Fatalf("expected NotFound after delete")
+	if gerr != nil {
+		t.Fatalf("expected GET to succeed after soft-cancel, got %v", gerr)
 	}
-	if status.Code(gerr) != codes.NotFound {
-		t.Errorf("expected NotFound, got %v", status.Code(gerr))
+	if resp.GetStatus() != "cancelled" {
+		t.Errorf("expected status=cancelled after delete, got %q", resp.GetStatus())
 	}
 }
 
