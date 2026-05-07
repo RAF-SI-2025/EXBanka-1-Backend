@@ -32,6 +32,7 @@ import (
 	"github.com/exbanka/stock-service/internal/handler"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/otccache"
 	"github.com/exbanka/stock-service/internal/provider"
 	"github.com/exbanka/stock-service/internal/repository"
 	"github.com/exbanka/stock-service/internal/service"
@@ -294,6 +295,7 @@ func main() {
 	}
 	defer transactionConn.Close()
 	peerTxClient := transactionpb.NewPeerTxServiceClient(transactionConn)
+	peerBankAdminClient := transactionpb.NewPeerBankAdminServiceClient(transactionConn)
 
 	// --- Redis ---
 	var redisCache *cache.RedisCache
@@ -487,6 +489,14 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Unified OTC offer cache (local + cross-bank). Refresher rebuilds
+	// every 5 s by pulling local offers in-process from otcSvc and fanning
+	// out HTTP GETs to active peer banks' /public-stock (PeerAuth). The
+	// gRPC method OTCGRPCService.ListUnifiedOffers serves the cached view.
+	otcOfferCache := otccache.New()
+	otcRefresher := otccache.NewRefresher(otcOfferCache, otcSvc, peerBankAdminClient, cfg.OwnBankCode, 5*time.Second)
+	go otcRefresher.Run(ctx)
+
 	// Start the outbox drainer. Adapter wraps producer.PublishRaw to satisfy
 	// outbox.Producer (which expects (ctx, topic, []byte)). The drainer ticks
 	// every 500ms publishing up to 100 pending rows per tick; failures
@@ -671,7 +681,7 @@ func main() {
 			pb.RegisterSecurityGRPCServiceServer(s, handler.NewSecurityHandler(secSvc, listingSvc, candleSvc, listingRepo))
 			pb.RegisterOrderGRPCServiceServer(s, handler.NewOrderHandler(orderSvc, execEngine))
 			pb.RegisterPortfolioGRPCServiceServer(s, handler.NewPortfolioHandler(portfolioSvc, taxSvc))
-			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandler(otcSvc))
+			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandlerWithCache(otcSvc, otcOfferCache))
 			pb.RegisterTaxGRPCServiceServer(s, handler.NewTaxHandler(taxSvc))
 			pb.RegisterInvestmentFundServiceServer(s, fundHandler)
 			pb.RegisterOTCOptionsServiceServer(s, otcOptionsHandler)
