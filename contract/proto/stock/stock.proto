@@ -667,6 +667,10 @@ message ListHoldingTransactionsResponse {
 service OTCGRPCService {
   rpc ListOffers(ListOTCOffersRequest) returns (ListOTCOffersResponse);
   rpc BuyOffer(BuyOTCOfferRequest) returns (OTCTransaction);
+  // Unified view: local offers from this bank's holdings + remote offers
+  // pulled from every active peer bank's GET /public-stock. Backed by
+  // an in-process cache refreshed every ~5 s by stock-service.
+  rpc ListUnifiedOffers(ListUnifiedOTCOffersRequest) returns (ListUnifiedOTCOffersResponse);
 }
 
 message OTCOffer {
@@ -691,6 +695,54 @@ message ListOTCOffersRequest {
 message ListOTCOffersResponse {
   repeated OTCOffer offers = 1;
   int64 total_count = 2;
+}
+
+// UnifiedOTCOffer is one entry in the cross-bank-aggregated OTC view.
+// `kind` discriminates the buy flow:
+//   - "local"  → buy via POST /api/v3/otc/offers/{id}/buy
+//   - "remote" → buy via POST /api/v3/me/peer-otc/negotiations using
+//                bank_code as seller_bank_code and owner_id as seller_id.
+// Local-only fields (id, seller_id, seller_name, name, created_at) are
+// zero/empty on remote offers; owner_id is empty on local offers.
+message UnifiedOTCOffer {
+  string kind = 1;
+  string bank_code = 2;
+
+  // Local-only
+  uint64 id = 3;
+  uint64 seller_id = 4;
+  string seller_name = 5;
+  string name = 6;
+  string created_at = 7;
+
+  // Remote-only. SI-TX owner shape: "0" means bank-owned, "1+" is a
+  // client id at the seller bank.
+  string owner_id = 8;
+
+  // Common
+  string security_type = 9;
+  string ticker = 10;
+  int64 quantity = 11;
+  string price_per_unit = 12;
+  string currency = 13;
+}
+
+message ListUnifiedOTCOffersRequest {
+  string security_type = 1;
+  string ticker = 2;
+  string kind = 3;       // optional filter: "local" | "remote"
+  string bank_code = 4;  // optional filter
+  int32 page = 5;
+  int32 page_size = 6;
+}
+
+message ListUnifiedOTCOffersResponse {
+  repeated UnifiedOTCOffer offers = 1;
+  int64 total_count = 2;
+  int32 peers_total = 3;
+  int32 peers_reached = 4;
+  bool partial = 5;
+  int64 last_refresh_unix = 6;
 }
 
 message BuyOTCOfferRequest {

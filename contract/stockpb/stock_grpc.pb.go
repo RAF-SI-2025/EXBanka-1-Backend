@@ -1398,8 +1398,9 @@ var PortfolioGRPCService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	OTCGRPCService_ListOffers_FullMethodName = "/stock.OTCGRPCService/ListOffers"
-	OTCGRPCService_BuyOffer_FullMethodName   = "/stock.OTCGRPCService/BuyOffer"
+	OTCGRPCService_ListOffers_FullMethodName        = "/stock.OTCGRPCService/ListOffers"
+	OTCGRPCService_BuyOffer_FullMethodName          = "/stock.OTCGRPCService/BuyOffer"
+	OTCGRPCService_ListUnifiedOffers_FullMethodName = "/stock.OTCGRPCService/ListUnifiedOffers"
 )
 
 // OTCGRPCServiceClient is the client API for OTCGRPCService service.
@@ -1408,6 +1409,10 @@ const (
 type OTCGRPCServiceClient interface {
 	ListOffers(ctx context.Context, in *ListOTCOffersRequest, opts ...grpc.CallOption) (*ListOTCOffersResponse, error)
 	BuyOffer(ctx context.Context, in *BuyOTCOfferRequest, opts ...grpc.CallOption) (*OTCTransaction, error)
+	// Unified view: local offers from this bank's holdings + remote offers
+	// pulled from every active peer bank's GET /public-stock. Backed by
+	// an in-process cache refreshed every ~5 s by stock-service.
+	ListUnifiedOffers(ctx context.Context, in *ListUnifiedOTCOffersRequest, opts ...grpc.CallOption) (*ListUnifiedOTCOffersResponse, error)
 }
 
 type oTCGRPCServiceClient struct {
@@ -1438,12 +1443,26 @@ func (c *oTCGRPCServiceClient) BuyOffer(ctx context.Context, in *BuyOTCOfferRequ
 	return out, nil
 }
 
+func (c *oTCGRPCServiceClient) ListUnifiedOffers(ctx context.Context, in *ListUnifiedOTCOffersRequest, opts ...grpc.CallOption) (*ListUnifiedOTCOffersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListUnifiedOTCOffersResponse)
+	err := c.cc.Invoke(ctx, OTCGRPCService_ListUnifiedOffers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OTCGRPCServiceServer is the server API for OTCGRPCService service.
 // All implementations must embed UnimplementedOTCGRPCServiceServer
 // for forward compatibility.
 type OTCGRPCServiceServer interface {
 	ListOffers(context.Context, *ListOTCOffersRequest) (*ListOTCOffersResponse, error)
 	BuyOffer(context.Context, *BuyOTCOfferRequest) (*OTCTransaction, error)
+	// Unified view: local offers from this bank's holdings + remote offers
+	// pulled from every active peer bank's GET /public-stock. Backed by
+	// an in-process cache refreshed every ~5 s by stock-service.
+	ListUnifiedOffers(context.Context, *ListUnifiedOTCOffersRequest) (*ListUnifiedOTCOffersResponse, error)
 	mustEmbedUnimplementedOTCGRPCServiceServer()
 }
 
@@ -1459,6 +1478,9 @@ func (UnimplementedOTCGRPCServiceServer) ListOffers(context.Context, *ListOTCOff
 }
 func (UnimplementedOTCGRPCServiceServer) BuyOffer(context.Context, *BuyOTCOfferRequest) (*OTCTransaction, error) {
 	return nil, status.Error(codes.Unimplemented, "method BuyOffer not implemented")
+}
+func (UnimplementedOTCGRPCServiceServer) ListUnifiedOffers(context.Context, *ListUnifiedOTCOffersRequest) (*ListUnifiedOTCOffersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListUnifiedOffers not implemented")
 }
 func (UnimplementedOTCGRPCServiceServer) mustEmbedUnimplementedOTCGRPCServiceServer() {}
 func (UnimplementedOTCGRPCServiceServer) testEmbeddedByValue()                        {}
@@ -1517,6 +1539,24 @@ func _OTCGRPCService_BuyOffer_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OTCGRPCService_ListUnifiedOffers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListUnifiedOTCOffersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCGRPCServiceServer).ListUnifiedOffers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCGRPCService_ListUnifiedOffers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCGRPCServiceServer).ListUnifiedOffers(ctx, req.(*ListUnifiedOTCOffersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OTCGRPCService_ServiceDesc is the grpc.ServiceDesc for OTCGRPCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1531,6 +1571,10 @@ var OTCGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BuyOffer",
 			Handler:    _OTCGRPCService_BuyOffer_Handler,
+		},
+		{
+			MethodName: "ListUnifiedOffers",
+			Handler:    _OTCGRPCService_ListUnifiedOffers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
