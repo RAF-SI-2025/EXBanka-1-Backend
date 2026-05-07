@@ -3,8 +3,10 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/exbanka/api-gateway/internal/middleware"
+	"github.com/exbanka/api-gateway/internal/otccache"
 	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/gin-gonic/gin"
@@ -14,14 +16,21 @@ type PortfolioHandler struct {
 	portfolioClient stockpb.PortfolioGRPCServiceClient
 	otcClient       stockpb.OTCGRPCServiceClient
 	accountClient   accountpb.AccountServiceClient
+	otcCache        *otccache.Cache
 }
 
 func NewPortfolioHandler(
 	portfolioClient stockpb.PortfolioGRPCServiceClient,
 	otcClient stockpb.OTCGRPCServiceClient,
 	accountClient accountpb.AccountServiceClient,
+	otcCache *otccache.Cache,
 ) *PortfolioHandler {
-	return &PortfolioHandler{portfolioClient: portfolioClient, otcClient: otcClient, accountClient: accountClient}
+	return &PortfolioHandler{
+		portfolioClient: portfolioClient,
+		otcClient:       otcClient,
+		accountClient:   accountClient,
+		otcCache:        otcCache,
+	}
 }
 
 func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
@@ -168,9 +177,24 @@ func (h *PortfolioHandler) ExerciseOption(c *gin.Context) {
 
 // --- OTC ---
 
+// ListOTCOffers serves the unified OTC market view: local offers (this
+// bank's holdings flagged public_quantity > 0) plus remote offers
+// pulled from every active peer bank's GET /api/v3/public-stock. The
+// data is served from an in-memory cache that the gateway rebuilds on
+// a background ticker (~5 s); peer fan-out happens off the request
+// path so a slow or down peer never blocks the client. Each row carries
+// `kind: "local" | "remote"` and `bank_code` so the UI can route
+// purchases to the right flow (local → POST /otc/offers/:id/buy;
+// remote → POST /me/peer-otc/negotiations).
 func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
+	}
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+	if pageSize < 1 {
+		pageSize = 10
+	}
 
 	secType := c.Query("security_type")
 	if secType != "" {
@@ -179,15 +203,57 @@ func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 			return
 		}
 	}
-
-	resp, err := h.otcClient.ListOffers(c.Request.Context(), &stockpb.ListOTCOffersRequest{
-		SecurityType: secType, Ticker: c.Query("ticker"), Page: int32(page), PageSize: int32(pageSize),
-	})
-	if err != nil {
-		handleGRPCError(c, err)
-		return
+	ticker := strings.ToUpper(c.Query("ticker"))
+	kindFilter := c.Query("kind")
+	if kindFilter != "" {
+		if _, err := oneOf("kind", kindFilter, "local", "remote"); err != nil {
+			apiError(c, 400, ErrValidation, err.Error())
+			return
+		}
 	}
-	c.JSON(http.StatusOK, gin.H{"offers": emptyIfNil(resp.Offers), "total_count": resp.TotalCount})
+	bankFilter := c.Query("bank_code")
+
+	snap := h.otcCache.Get()
+	filtered := make([]otccache.Offer, 0, len(snap.Offers))
+	for _, o := range snap.Offers {
+		if secType != "" && o.SecurityType != secType {
+			continue
+		}
+		if ticker != "" && strings.ToUpper(o.Ticker) != ticker {
+			continue
+		}
+		if kindFilter != "" && o.Kind != kindFilter {
+			continue
+		}
+		if bankFilter != "" && o.BankCode != bankFilter {
+			continue
+		}
+		filtered = append(filtered, o)
+	}
+
+	total := len(filtered)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	var lastRefresh string
+	if !snap.LastRefresh.IsZero() {
+		lastRefresh = snap.LastRefresh.Format("2006-01-02T15:04:05Z07:00")
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"offers":         filtered[start:end],
+		"total_count":    total,
+		"peers_total":    snap.PeersTotal,
+		"peers_reached":  snap.PeersReached,
+		"partial":        snap.PeersTotal > 0 && snap.PeersReached < snap.PeersTotal,
+		"last_refresh":   lastRefresh,
+	})
 }
 
 // BuyOTCOfferOnBehalf godoc

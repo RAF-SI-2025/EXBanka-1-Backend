@@ -15,6 +15,7 @@ import (
 
 	"github.com/exbanka/api-gateway/internal/handler"
 	"github.com/exbanka/api-gateway/internal/middleware"
+	"github.com/exbanka/api-gateway/internal/otccache"
 	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 )
@@ -128,7 +129,7 @@ func TestPortfolio_ListHoldings_Success(t *testing.T) {
 			return &stockpb.ListHoldingsResponse{TotalCount: 0}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/me/holdings", nil)
 	rec := httptest.NewRecorder()
@@ -138,7 +139,7 @@ func TestPortfolio_ListHoldings_Success(t *testing.T) {
 }
 
 func TestPortfolio_ListHoldings_BadSecurityType(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/me/holdings?security_type=foo", nil)
 	rec := httptest.NewRecorder()
@@ -153,7 +154,7 @@ func TestPortfolio_ListHoldings_GRPCError(t *testing.T) {
 			return nil, status.Error(codes.Internal, "")
 		},
 	}
-	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/me/holdings", nil)
 	rec := httptest.NewRecorder()
@@ -169,7 +170,7 @@ func TestPortfolio_GetPortfolioSummary_Success(t *testing.T) {
 			return &stockpb.PortfolioSummary{TotalProfitRsd: "1000"}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/me/portfolio/summary", nil)
 	rec := httptest.NewRecorder()
@@ -178,7 +179,7 @@ func TestPortfolio_GetPortfolioSummary_Success(t *testing.T) {
 }
 
 func TestPortfolio_MakePublic_BadID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	body := `{"quantity":1}`
 	req := httptest.NewRequest("POST", "/api/v2/me/holdings/x/make-public", strings.NewReader(body))
@@ -190,7 +191,7 @@ func TestPortfolio_MakePublic_BadID(t *testing.T) {
 }
 
 func TestPortfolio_MakePublic_NegativeQuantity(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	body := `{"quantity":-1}`
 	req := httptest.NewRequest("POST", "/api/v2/me/holdings/9/make-public", strings.NewReader(body))
@@ -202,7 +203,7 @@ func TestPortfolio_MakePublic_NegativeQuantity(t *testing.T) {
 }
 
 func TestPortfolio_MakePublic_BadBody(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	body := `not json`
 	req := httptest.NewRequest("POST", "/api/v2/me/holdings/9/make-public", strings.NewReader(body))
@@ -220,7 +221,7 @@ func TestPortfolio_MakePublic_Success(t *testing.T) {
 			return &stockpb.Holding{Id: req.HoldingId}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	body := `{"quantity":2}`
 	req := httptest.NewRequest("POST", "/api/v2/me/holdings/9/make-public", strings.NewReader(body))
@@ -231,7 +232,7 @@ func TestPortfolio_MakePublic_Success(t *testing.T) {
 }
 
 func TestPortfolio_ListHoldingTransactions_BadID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/me/holdings/x/transactions", nil)
 	rec := httptest.NewRecorder()
@@ -240,7 +241,7 @@ func TestPortfolio_ListHoldingTransactions_BadID(t *testing.T) {
 }
 
 func TestPortfolio_ListHoldingTransactions_BadDirection(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/me/holdings/9/transactions?direction=neutral", nil)
 	rec := httptest.NewRecorder()
@@ -257,7 +258,7 @@ func TestPortfolio_ListHoldingTransactions_Success(t *testing.T) {
 			return &stockpb.ListHoldingTransactionsResponse{TotalCount: 0}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/me/holdings/9/transactions?direction=buy", nil)
 	rec := httptest.NewRecorder()
@@ -267,7 +268,7 @@ func TestPortfolio_ListHoldingTransactions_Success(t *testing.T) {
 }
 
 func TestPortfolio_ExerciseOption_BadID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("POST", "/api/v2/me/holdings/x/exercise", nil)
 	rec := httptest.NewRecorder()
@@ -283,7 +284,7 @@ func TestPortfolio_ExerciseOption_Success(t *testing.T) {
 			return &stockpb.ExerciseResult{}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(st, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("POST", "/api/v2/me/holdings/9/exercise", nil)
 	rec := httptest.NewRecorder()
@@ -298,7 +299,7 @@ func TestPortfolio_ListOTCOffers_Default(t *testing.T) {
 			return &stockpb.ListOTCOffersResponse{}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/otc/offers", nil)
 	rec := httptest.NewRecorder()
@@ -308,7 +309,7 @@ func TestPortfolio_ListOTCOffers_Default(t *testing.T) {
 }
 
 func TestPortfolio_ListOTCOffers_BadSecurityType(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	req := httptest.NewRequest("GET", "/api/v2/otc/offers?security_type=option", nil)
 	rec := httptest.NewRecorder()
@@ -318,7 +319,7 @@ func TestPortfolio_ListOTCOffers_BadSecurityType(t *testing.T) {
 }
 
 func TestPortfolio_BuyOTCOffer_BadID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	body := `{"quantity":1,"account_id":1}`
 	req := httptest.NewRequest("POST", "/api/v2/otc/offers/x/buy", strings.NewReader(body))
@@ -329,7 +330,7 @@ func TestPortfolio_BuyOTCOffer_BadID(t *testing.T) {
 }
 
 func TestPortfolio_BuyOTCOffer_BadBody(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	body := `not json`
 	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
@@ -340,7 +341,7 @@ func TestPortfolio_BuyOTCOffer_BadBody(t *testing.T) {
 }
 
 func TestPortfolio_BuyOTCOffer_NegativeQuantity(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	body := `{"quantity":-1,"account_id":1}`
 	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
@@ -352,7 +353,7 @@ func TestPortfolio_BuyOTCOffer_NegativeQuantity(t *testing.T) {
 }
 
 func TestPortfolio_BuyOTCOffer_MissingAccountID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	r := portfolioRouter(h)
 	body := `{"quantity":1}`
 	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
@@ -370,7 +371,7 @@ func TestPortfolio_BuyOTCOffer_OwnershipMismatch_Returns404(t *testing.T) {
 			return &accountpb.AccountResponse{Id: req.Id, OwnerId: 99}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, acct)
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, acct, otccache.New())
 	r := portfolioRouter(h)
 	body := `{"quantity":1,"account_id":1}`
 	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
@@ -394,7 +395,7 @@ func TestPortfolio_BuyOTCOffer_Success(t *testing.T) {
 			return &stockpb.OTCTransaction{Id: 1}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, acct)
+	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, acct, otccache.New())
 	r := portfolioRouter(h)
 	body := `{"quantity":1,"account_id":7}`
 	req := httptest.NewRequest("POST", "/api/v2/otc/offers/3/buy", strings.NewReader(body))
@@ -405,7 +406,7 @@ func TestPortfolio_BuyOTCOffer_Success(t *testing.T) {
 }
 
 func TestPortfolio_BuyOTCOfferOnBehalf_BadID(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/otc/admin/offers/:id/buy",
@@ -420,7 +421,7 @@ func TestPortfolio_BuyOTCOfferOnBehalf_BadID(t *testing.T) {
 }
 
 func TestPortfolio_BuyOTCOfferOnBehalf_MissingFields(t *testing.T) {
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{})
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, &accountFullStub{}, otccache.New())
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/otc/admin/offers/:id/buy",
@@ -441,7 +442,7 @@ func TestPortfolio_BuyOTCOfferOnBehalf_AccountClientMismatch(t *testing.T) {
 			return &accountpb.AccountResponse{Id: req.Id, OwnerId: 99}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, acct)
+	h := handler.NewPortfolioHandler(&portfolioStub{}, &stubOTCClient{}, acct, otccache.New())
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/otc/admin/offers/:id/buy",
@@ -470,7 +471,7 @@ func TestPortfolio_BuyOTCOfferOnBehalf_Success(t *testing.T) {
 			return &stockpb.OTCTransaction{Id: 99}, nil
 		},
 	}
-	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, acct)
+	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, acct, otccache.New())
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/otc/admin/offers/:id/buy",

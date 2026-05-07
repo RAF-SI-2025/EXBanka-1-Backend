@@ -17,6 +17,7 @@ import (
 	"github.com/exbanka/api-gateway/internal/config"
 	grpcclients "github.com/exbanka/api-gateway/internal/grpc"
 	"github.com/exbanka/api-gateway/internal/handler"
+	"github.com/exbanka/api-gateway/internal/otccache"
 	"github.com/exbanka/api-gateway/internal/router"
 	"github.com/exbanka/contract/metrics"
 )
@@ -246,6 +247,14 @@ func main() {
 	peerNonceStore := cache.NewPeerNonceStore(redisClient, 10*time.Minute)
 	peerBankResolver := &grpcclients.PeerBankResolverAdapter{Client: peerBankAdminClient}
 
+	// Unified OTC offer cache (local + cross-bank). The refresher
+	// rebuilds the cache every 5 s by pulling local offers from
+	// stock-service and fanning out to active peers' /public-stock.
+	// GET /api/v3/otc/offers reads from the cache.
+	otcOfferCache := otccache.New()
+	otcRefresher := otccache.NewRefresher(otcOfferCache, otcClient, peerBankAdminClient, cfg.OwnBankCode, 5*time.Second)
+	go otcRefresher.Run(ctx)
+
 	r := router.NewRouter()
 
 	// Wire every gRPC client into the router-level Deps bundle, then
@@ -286,6 +295,7 @@ func main() {
 		PeerBanks:           peerBankResolver,
 		OwnBankCode:         cfg.OwnBankCode,
 		PeerOTCClient:       peerOTCClient,
+		OTCCache:            otcOfferCache,
 	}
 	h := router.NewHandlers(deps)
 	router.SetupV3(r, h)

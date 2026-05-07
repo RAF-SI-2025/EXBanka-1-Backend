@@ -12,6 +12,7 @@ import (
 
 	"github.com/exbanka/api-gateway/internal/handler"
 	"github.com/exbanka/api-gateway/internal/middleware"
+	"github.com/exbanka/api-gateway/internal/otccache"
 	accountpb "github.com/exbanka/contract/accountpb"
 	authpb "github.com/exbanka/contract/authpb"
 	cardpb "github.com/exbanka/contract/cardpb"
@@ -71,6 +72,12 @@ type Deps struct {
 	// /api/v3/negotiations/* peer OTC routes (Phase 4 Task 8 of the
 	// Celina 5 SI-TX refactor). It is hosted by stock-service.
 	PeerOTCClient stockpb.PeerOTCServiceClient
+
+	// OTCCache holds the unified (local + cross-bank) OTC offer list
+	// surfaced by GET /api/v3/otc/offers. Populated by a background
+	// goroutine in cmd/main.go; the handler reads from it instead of
+	// hitting stock-service on every request.
+	OTCCache *otccache.Cache
 
 	// OwnBankCode is the 3-digit bank prefix used by PeerTxDispatcherHandler
 	// to distinguish intra-bank receivers from foreign-bank ones. Foreign-
@@ -156,7 +163,7 @@ func NewHandlers(d Deps) *Handlers {
 		StockExchange:    handler.NewStockExchangeHandler(d.StockExchangeClient),
 		Securities:       handler.NewSecuritiesHandler(d.SecurityClient),
 		StockOrder:       handler.NewStockOrderHandler(d.OrderClient, d.AccountClient),
-		Portfolio:        handler.NewPortfolioHandler(d.PortfolioClient, d.OTCClient, d.AccountClient),
+		Portfolio:        handler.NewPortfolioHandler(d.PortfolioClient, d.OTCClient, d.AccountClient, d.OTCCache),
 		Actuary:          handler.NewActuaryHandler(d.ActuaryClient),
 		Blueprint:        handler.NewBlueprintHandler(d.BlueprintClient),
 		Tax:              handler.NewTaxHandler(d.TaxClient),
