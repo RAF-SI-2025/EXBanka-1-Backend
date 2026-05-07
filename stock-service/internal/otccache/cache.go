@@ -258,3 +258,7 @@ func (r *Refresher) fetchPeer(ctx context.Context, peer *transactionpb.PeerBank)
 	}
 	return out, nil
 }
+
+// SetForTest seeds the cache from outside the package. Test-only — the
+// production code path is Refresher.refresh.
+func SetForTest(c *Cache, s Snapshot) { c.set(s) }
