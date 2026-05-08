@@ -141,6 +141,16 @@ func newHandlerForTest(auth authServiceFacade, mobile mobileDeviceFacade) *AuthG
 	return &AuthGRPCHandler{authService: auth, mobileSvc: mobile}
 }
 
+// TestNewAuthGRPCHandler_AcceptsNilDependencies just exercises the constructor
+// for coverage. Production wiring uses non-nil concrete services; passing nil
+// would panic only on first method call, not on construction.
+func TestNewAuthGRPCHandler_AcceptsNilDependencies(t *testing.T) {
+	h := NewAuthGRPCHandler(nil, nil)
+	if h == nil {
+		t.Fatal("expected non-nil handler")
+	}
+}
+
 // mapServiceError has been deleted in favor of typed sentinel errors that
 // carry their own gRPC status code via the GRPCStatus interface (see
 // service/errors.go). Handler RPCs are now passthrough.
