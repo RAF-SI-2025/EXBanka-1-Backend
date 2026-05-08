@@ -346,4 +346,3 @@ func TestCreateOrderOnBehalf_ForexBaseEqAccount(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/orders", strings.NewReader(body)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
-
