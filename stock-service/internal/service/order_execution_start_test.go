@@ -2,19 +2,8 @@ package service
 
 import (
 	"context"
-	"errors"
 	"testing"
 )
-
-// failingListActiveApproved returns an error from ListActiveApproved so
-// Start exercises the warning-log branch.
-type failingListActiveApprovedRepo struct {
-	*fakeBaseCtxOrderRepo
-}
-
-func (failingListActiveApprovedRepo) ListActiveApproved() ([]string, error) {
-	return nil, errors.New("db down")
-}
 
 // TestEngine_Start_NoActiveOrders covers the success branch where there are
 // no orders to start.

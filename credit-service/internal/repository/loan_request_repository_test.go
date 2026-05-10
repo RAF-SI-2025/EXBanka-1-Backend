@@ -151,12 +151,12 @@ func TestLoanRequestRepo_List_FiltersAndPagination(t *testing.T) {
 	assert.Len(t, got, 1)
 
 	// Filter by status
-	got, total, err = repo.List("", "", "approved", 0, 1, 50)
+	_, total, err = repo.List("", "", "approved", 0, 1, 50)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 
 	// Filter by account
-	got, total, err = repo.List("", "ACC-F-X1", "", 0, 1, 50)
+	_, total, err = repo.List("", "ACC-F-X1", "", 0, 1, 50)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), total)
 

@@ -73,7 +73,7 @@ func TestOTCOfferRepository_ListByOwner(t *testing.T) {
 	if total != 2 || len(rows) != 2 {
 		t.Errorf("got %d/%d", total, len(rows))
 	}
-	rows, total, err = r.ListByOwner(model.OwnerClient, &uid, "initiator", []string{model.OTCOfferStatusPending}, 0, 1, 10)
+	_, total, err = r.ListByOwner(model.OwnerClient, &uid, "initiator", []string{model.OTCOfferStatusPending}, 0, 1, 10)
 	if err != nil {
 		t.Fatalf("list filter: %v", err)
 	}
