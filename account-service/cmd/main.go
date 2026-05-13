@@ -29,6 +29,8 @@ import (
 func main() {
 	cfg := config.Load()
 
+	service.SetBankCode(cfg.OwnBankCode)
+
 	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{
 		NowFunc: func() time.Time { return time.Now().UTC() },
 	})

@@ -19,6 +19,7 @@ import (
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/contract/shared/grpcmw"
+	stockpb "github.com/exbanka/contract/stockpb"
 	pb "github.com/exbanka/contract/transactionpb"
 	verificationpb "github.com/exbanka/contract/verificationpb"
 	"github.com/exbanka/transaction-service/internal/config"
@@ -116,6 +117,24 @@ func main() {
 	defer verificationConn.Close()
 	verificationClient := verificationpb.NewVerificationGRPCServiceClient(verificationConn)
 
+	// Connect to stock-service for the cross-bank option-recorder
+	// surface (PeerOTCService.RecordOptionContract). Optional — if
+	// unreachable, OTC accept TXs still flow but option contracts
+	// aren't materialised on COMMIT_TX (logged by handler).
+	stockConn, stockErr := grpc.NewClient(cfg.StockGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
+	if stockErr != nil {
+		log.Printf("warn: stock service connection failed; option-leg materialisation disabled: %v", stockErr)
+	} else {
+		defer stockConn.Close()
+	}
+	var optionRecorder handler.PeerOptionRecorder
+	if stockConn != nil {
+		optionRecorder = stockpb.NewPeerOTCServiceClient(stockConn)
+	}
+
 	paymentRepo := repository.NewPaymentRepository(db)
 	transferRepo := repository.NewTransferRepository(db)
 	recipientRepo := repository.NewPaymentRecipientRepository(db)
@@ -185,6 +204,13 @@ func main() {
 	// SI-TX Phase 3 sender-side wiring.
 	ownRouting, _ := strconv.ParseInt(cfg.OwnBankCode, 10, 64)
 	peerExecutor := sitx.NewPostingExecutor(accountClient, ownRouting)
+	// Wire the seller-side option-holdings pre-check (NEW_TX time).
+	// Reuses the same stock-service connection as the option recorder;
+	// optional for the same reason — degrades to COMMIT_TX-time
+	// best-effort lock when stock-service is unreachable.
+	if stockConn != nil {
+		peerExecutor.SetHoldingChecker(stockpb.NewPeerOTCServiceClient(stockConn))
+	}
 	outRepo := repository.NewOutboundPeerTxRepository(db)
 	peerHTTPClient := sitx.NewPeerHTTPClient(&http.Client{Timeout: 30 * time.Second})
 
@@ -212,6 +238,9 @@ func main() {
 		peerIdemRepo, peerExecutor, accountClient,
 		outRepo, peerHTTPClient, handler.PeerLookupFunc(peerLookup), ownRouting,
 	)
+	if optionRecorder != nil {
+		peerTxHandler.SetOptionRecorder(optionRecorder)
+	}
 
 	replayCron := service.NewOutboundReplayCron(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup))
 	replayCron.Start(ctx)

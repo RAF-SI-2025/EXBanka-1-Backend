@@ -2,12 +2,14 @@ package handler
 
 import (
 	"context"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/exbanka/contract/stockpb"
 	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/otccache"
 	"github.com/exbanka/stock-service/internal/service"
 )
 
@@ -20,14 +22,23 @@ type otcSvcFacade interface {
 type OTCHandler struct {
 	pb.UnimplementedOTCGRPCServiceServer
 	otcSvc otcSvcFacade
+	cache  *otccache.Cache
 }
 
+// NewOTCHandler keeps the prior signature for backwards compatibility
+// with cmd/main.go callers that don't yet pass a cache. Pass a nil
+// cache to disable the unified-offers RPC (it will return an empty
+// list with peers_total=0).
 func NewOTCHandler(otcSvc *service.OTCService) *OTCHandler {
 	return &OTCHandler{otcSvc: otcSvc}
 }
 
-// newOTCHandlerForTest constructs an OTCHandler with an interface-typed
-// dependency for use in unit tests.
+// NewOTCHandlerWithCache wires the unified-offers cache. cmd/main.go
+// uses this once the cache + refresher are constructed.
+func NewOTCHandlerWithCache(otcSvc *service.OTCService, cache *otccache.Cache) *OTCHandler {
+	return &OTCHandler{otcSvc: otcSvc, cache: cache}
+}
+
 func newOTCHandlerForTest(otcSvc otcSvcFacade) *OTCHandler {
 	return &OTCHandler{otcSvc: otcSvc}
 }
@@ -102,3 +113,99 @@ func (h *OTCHandler) BuyOffer(ctx context.Context, req *pb.BuyOTCOfferRequest) (
 func mapOTCError(err error) error {
 	return err
 }
+
+// ListUnifiedOffers serves the cached union of local + cross-bank OTC
+// offers. Filters and pagination are applied in-memory over the cached
+// snapshot. peers_total / peers_reached / partial reflect the most
+// recent refresh cycle so the UI can surface "showing 1 of 2 peers".
+func (h *OTCHandler) ListUnifiedOffers(ctx context.Context, req *pb.ListUnifiedOTCOffersRequest) (*pb.ListUnifiedOTCOffersResponse, error) {
+	page := int(req.GetPage())
+	if page < 1 {
+		page = 1
+	}
+	pageSize := int(req.GetPageSize())
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	secType := req.GetSecurityType()
+	if secType != "" && secType != "stock" && secType != "futures" {
+		return nil, status.Error(codes.InvalidArgument, "security_type must be 'stock' or 'futures'")
+	}
+	kind := req.GetKind()
+	if kind != "" && kind != "local" && kind != "remote" {
+		return nil, status.Error(codes.InvalidArgument, "kind must be 'local' or 'remote'")
+	}
+	ticker := strings.ToUpper(req.GetTicker())
+	bankFilter := req.GetBankCode()
+
+	if h.cache == nil {
+		return &pb.ListUnifiedOTCOffersResponse{}, nil
+	}
+	snap := h.cache.Get()
+
+	filtered := make([]otccache.Offer, 0, len(snap.Offers))
+	for _, o := range snap.Offers {
+		if secType != "" && o.SecurityType != secType {
+			continue
+		}
+		if ticker != "" && strings.ToUpper(o.Ticker) != ticker {
+			continue
+		}
+		if kind != "" && o.Kind != kind {
+			continue
+		}
+		if bankFilter != "" && o.BankCode != bankFilter {
+			continue
+		}
+		filtered = append(filtered, o)
+	}
+
+	total := int64(len(filtered))
+	start := (page - 1) * pageSize
+	if start > len(filtered) {
+		start = len(filtered)
+	}
+	end := start + pageSize
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+
+	out := make([]*pb.UnifiedOTCOffer, 0, end-start)
+	for _, o := range filtered[start:end] {
+		out = append(out, &pb.UnifiedOTCOffer{
+			Kind:         o.Kind,
+			BankCode:     o.BankCode,
+			Id:           o.ID,
+			SellerId:     o.SellerID,
+			SellerName:   o.SellerName,
+			Name:         o.Name,
+			CreatedAt:    o.CreatedAt,
+			OwnerId:      o.OwnerID,
+			SecurityType: o.SecurityType,
+			Ticker:       o.Ticker,
+			Quantity:     o.Quantity,
+			PricePerUnit: o.PricePerUnit,
+			Currency:     o.Currency,
+		})
+	}
+
+	var lastRefreshUnix int64
+	if !snap.LastRefresh.IsZero() {
+		lastRefreshUnix = snap.LastRefresh.Unix()
+	}
+	// Suppress unused-var lint when ctx isn't used; ctx is reserved for
+	// future cancellation in case we add per-request peer fan-out.
+	_ = ctx
+	return &pb.ListUnifiedOTCOffersResponse{
+		Offers:          out,
+		TotalCount:      total,
+		PeersTotal:      int32(snap.PeersTotal),
+		PeersReached:    int32(snap.PeersReached),
+		Partial:         snap.PeersTotal > 0 && snap.PeersReached < snap.PeersTotal,
+		LastRefreshUnix: lastRefreshUnix,
+	}, nil
+}
+
+// _ explicit static check that OTCHandler still implements every
+// generated server interface method (caught at compile time).
+var _ pb.OTCGRPCServiceServer = (*OTCHandler)(nil)

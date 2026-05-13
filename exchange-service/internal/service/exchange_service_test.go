@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/exbanka/exchange-service/internal/cache"
 	"github.com/exbanka/exchange-service/internal/model"
 	"github.com/exbanka/exchange-service/internal/repository"
 	"github.com/exbanka/exchange-service/internal/service"
@@ -217,6 +220,215 @@ func (f *failingUpserterAfterN) UpsertInTx(tx *gorm.DB, from, to string, buy, se
 		return errors.New("injected upsert failure")
 	}
 	return f.inner.UpsertInTx(tx, from, to, buy, sell)
+}
+
+// TestNewExchangeService_InvalidCommission ensures the constructor surfaces
+// a parse error when the commission rate is not a valid decimal.
+func TestNewExchangeService_InvalidCommission(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
+	repo := repository.NewExchangeRateRepository(db)
+
+	svc, err := service.NewExchangeService(repo, db, "not-a-number", "0.003", nil)
+	require.Error(t, err)
+	assert.Nil(t, svc)
+}
+
+// TestNewExchangeService_InvalidSpread ensures the constructor surfaces a
+// parse error when the spread is not a valid decimal.
+func TestNewExchangeService_InvalidSpread(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
+	repo := repository.NewExchangeRateRepository(db)
+
+	svc, err := service.NewExchangeService(repo, db, "0.005", "bad", nil)
+	require.Error(t, err)
+	assert.Nil(t, svc)
+}
+
+// TestNewExchangeServiceWithUpserter_InvalidCommission propagates the underlying
+// constructor error.
+func TestNewExchangeServiceWithUpserter_InvalidCommission(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
+	repo := repository.NewExchangeRateRepository(db)
+
+	svc, err := service.NewExchangeServiceWithUpserter(repo, repo, db, "junk", "0.003")
+	require.Error(t, err)
+	assert.Nil(t, svc)
+}
+
+// TestSyncRates_SkipsZeroMidRates verifies pairs with mid==0 are skipped.
+func TestSyncRates_SkipsZeroMidRates(t *testing.T) {
+	svc, repo := newTestService(t)
+	p := &mockProvider{rates: map[string]decimal.Decimal{
+		"EUR": decimal.Zero,
+		"USD": decimal.NewFromFloat(0.00926),
+	}}
+	require.NoError(t, svc.SyncRates(context.Background(), p))
+
+	// EUR pair should not have been written (skipped).
+	_, err := repo.GetByPair("RSD", "EUR")
+	require.Error(t, err, "zero mid rate should be skipped — EUR/RSD must not exist")
+
+	// USD pair should be present.
+	_, err = repo.GetByPair("RSD", "USD")
+	require.NoError(t, err)
+}
+
+// TestCalculate_SameCurrency returns input amount with zero commission and rate=1.
+func TestCalculate_SameCurrency(t *testing.T) {
+	svc, _ := newTestService(t)
+	net, comm, eff, err := svc.Calculate(context.Background(), "EUR", "EUR", decimal.NewFromFloat(50))
+	require.NoError(t, err)
+	assert.True(t, net.Equal(decimal.NewFromFloat(50)))
+	assert.True(t, comm.Equal(decimal.Zero))
+	assert.True(t, eff.Equal(decimal.NewFromInt(1)))
+}
+
+// TestCalculate_RSDToForeign_LookupFailure surfaces the underlying error.
+func TestCalculate_RSDToForeign_LookupFailure(t *testing.T) {
+	svc, _ := newTestService(t)
+	_, _, _, err := svc.Calculate(context.Background(), "RSD", "EUR", decimal.NewFromFloat(100))
+	require.Error(t, err)
+}
+
+// TestCalculate_CrossCurrency_FirstLegMissing returns an error when the
+// from-leg lookup fails.
+func TestCalculate_CrossCurrency_FirstLegMissing(t *testing.T) {
+	svc, repo := newTestService(t)
+	// Seed only the second leg (RSD → USD).
+	require.NoError(t, repo.Upsert("RSD", "USD", decimal.NewFromFloat(0.00916), decimal.NewFromFloat(0.00926)))
+	_, _, _, err := svc.Calculate(context.Background(), "EUR", "USD", decimal.NewFromFloat(100))
+	require.Error(t, err)
+}
+
+// TestCalculate_CrossCurrency_SecondLegMissing returns an error when the
+// to-leg lookup fails.
+func TestCalculate_CrossCurrency_SecondLegMissing(t *testing.T) {
+	svc, repo := newTestService(t)
+	// Seed only the first leg (EUR → RSD).
+	require.NoError(t, repo.Upsert("EUR", "RSD", decimal.NewFromFloat(116.0), decimal.NewFromFloat(118.5)))
+	_, _, _, err := svc.Calculate(context.Background(), "EUR", "USD", decimal.NewFromFloat(100))
+	require.Error(t, err)
+}
+
+// TestConvert_RSDToForeign_NotFound surfaces ErrRateNotFound when the pair is missing.
+func TestConvert_RSDToForeign_NotFound(t *testing.T) {
+	svc, _ := newTestService(t)
+	_, _, err := svc.Convert(context.Background(), "RSD", "EUR", decimal.NewFromFloat(100))
+	require.Error(t, err)
+}
+
+// TestConvert_TwoLeg_FirstLegMissing returns an error when the from-leg lookup fails.
+func TestConvert_TwoLeg_FirstLegMissing(t *testing.T) {
+	svc, repo := newTestService(t)
+	// Only seed the second leg.
+	require.NoError(t, repo.Upsert("RSD", "USD", decimal.NewFromFloat(0.00916), decimal.NewFromFloat(0.00926)))
+	_, _, err := svc.Convert(context.Background(), "EUR", "USD", decimal.NewFromFloat(100))
+	require.Error(t, err)
+}
+
+// TestConvert_TwoLeg_SecondLegMissing returns an error when the to-leg lookup fails.
+func TestConvert_TwoLeg_SecondLegMissing(t *testing.T) {
+	svc, repo := newTestService(t)
+	// Only seed the first leg.
+	require.NoError(t, repo.Upsert("EUR", "RSD", decimal.NewFromFloat(116.0), decimal.NewFromFloat(118.5)))
+	_, _, err := svc.Convert(context.Background(), "EUR", "USD", decimal.NewFromFloat(100))
+	require.Error(t, err)
+}
+
+// TestSyncRates_WithCache_InvalidatesAfterSuccess wires a real Redis cache via
+// miniredis and asserts that a successful sync wipes all "rate:*" keys.
+func TestSyncRates_WithCache_InvalidatesAfterSuccess(t *testing.T) {
+	mr := miniredis.RunT(t)
+	redisCache, err := cache.NewRedisCache(mr.Addr())
+	require.NoError(t, err)
+	defer redisCache.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
+	repo := repository.NewExchangeRateRepository(db)
+	svc, err := service.NewExchangeService(repo, db, "0.005", "0.003", redisCache)
+	require.NoError(t, err)
+
+	// Pre-populate cache with a stale rate entry.
+	require.NoError(t, redisCache.Set(context.Background(), "rate:EUR:RSD", &model.ExchangeRate{
+		FromCurrency: "EUR", ToCurrency: "RSD",
+		BuyRate: decimal.NewFromFloat(1), SellRate: decimal.NewFromFloat(2),
+	}, 5*time.Minute))
+
+	p := &mockProvider{rates: map[string]decimal.Decimal{
+		"EUR": decimal.NewFromFloat(0.00851),
+	}}
+	require.NoError(t, svc.SyncRates(context.Background(), p))
+
+	// Cache must have been invalidated.
+	var dest model.ExchangeRate
+	err = redisCache.Get(context.Background(), "rate:EUR:RSD", &dest)
+	assert.Error(t, err, "rate:* keys must be cleared after successful sync")
+}
+
+// TestGetRate_CacheHit verifies that on a cache hit, the repo is not touched.
+// We seed the cache with a value the repo does not contain, then GetRate must
+// still succeed by returning the cached value.
+func TestGetRate_CacheHit(t *testing.T) {
+	mr := miniredis.RunT(t)
+	redisCache, err := cache.NewRedisCache(mr.Addr())
+	require.NoError(t, err)
+	defer redisCache.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
+	repo := repository.NewExchangeRateRepository(db)
+	svc, err := service.NewExchangeService(repo, db, "0.005", "0.003", redisCache)
+	require.NoError(t, err)
+
+	// Seed the cache with a rate that does NOT exist in the DB.
+	cached := &model.ExchangeRate{
+		FromCurrency: "EUR", ToCurrency: "RSD",
+		BuyRate: decimal.NewFromFloat(116.0), SellRate: decimal.NewFromFloat(120.0),
+	}
+	require.NoError(t, redisCache.Set(context.Background(), "rate:EUR:RSD", cached, 5*time.Minute))
+
+	rate, err := svc.GetRate("EUR", "RSD")
+	require.NoError(t, err)
+	assert.True(t, rate.SellRate.Equal(decimal.NewFromFloat(120.0)),
+		"value must come from cache, not DB")
+}
+
+// TestGetRate_CacheMissPopulatesCache verifies that on a cache miss, the repo
+// fallback succeeds and the value is then written into the cache.
+func TestGetRate_CacheMissPopulatesCache(t *testing.T) {
+	mr := miniredis.RunT(t)
+	redisCache, err := cache.NewRedisCache(mr.Addr())
+	require.NoError(t, err)
+	defer redisCache.Close()
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
+	repo := repository.NewExchangeRateRepository(db)
+	svc, err := service.NewExchangeService(repo, db, "0.005", "0.003", redisCache)
+	require.NoError(t, err)
+
+	// Seed only the DB (cache is empty).
+	require.NoError(t, repo.Upsert("EUR", "RSD",
+		decimal.NewFromFloat(116.0), decimal.NewFromFloat(118.5)))
+
+	rate, err := svc.GetRate("EUR", "RSD")
+	require.NoError(t, err)
+	assert.True(t, rate.SellRate.Equal(decimal.NewFromFloat(118.5)))
+
+	// Cache must now hold the value.
+	var fromCache model.ExchangeRate
+	require.NoError(t, redisCache.Get(context.Background(), "rate:EUR:RSD", &fromCache))
+	assert.True(t, fromCache.SellRate.Equal(decimal.NewFromFloat(118.5)))
 }
 
 // TestSyncRates_AtomicOnFailure verifies that if any single upsert fails during sync,

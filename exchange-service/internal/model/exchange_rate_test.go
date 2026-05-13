@@ -1,6 +1,7 @@
 package model_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -90,4 +91,86 @@ func TestExchangeRate_BeforeUpdate_OptimisticLockConflict(t *testing.T) {
 	require.NoError(t, db.First(&final, rate.ID).Error)
 	assert.Equal(t, int64(2), final.Version)
 	assert.True(t, final.BuyRate.Equal(decimal.NewFromFloat(107.0)), "DB should retain the non-stale update")
+}
+
+// fakeSeedRepo is a minimal in-memory implementation of the GetByPair/Upsert
+// surface used by SeedDefaultRates. It tracks calls so tests can assert seed
+// behaviour without a real database.
+type fakeSeedRepo struct {
+	existing map[string]*model.ExchangeRate
+	upserts  map[string]*model.ExchangeRate
+	getErr   error
+}
+
+func newFakeSeedRepo() *fakeSeedRepo {
+	return &fakeSeedRepo{
+		existing: make(map[string]*model.ExchangeRate),
+		upserts:  make(map[string]*model.ExchangeRate),
+	}
+}
+
+func (f *fakeSeedRepo) key(from, to string) string { return from + "/" + to }
+
+func (f *fakeSeedRepo) GetByPair(from, to string) (*model.ExchangeRate, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	if r, ok := f.existing[f.key(from, to)]; ok {
+		return r, nil
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
+func (f *fakeSeedRepo) Upsert(from, to string, buy, sell decimal.Decimal) error {
+	f.upserts[f.key(from, to)] = &model.ExchangeRate{
+		FromCurrency: from,
+		ToCurrency:   to,
+		BuyRate:      buy,
+		SellRate:     sell,
+	}
+	return nil
+}
+
+// TestSeedDefaultRates_SeedsAllPairsWhenEmpty verifies that on an empty repo,
+// SeedDefaultRates writes every default pair (forward + inverse for each currency).
+func TestSeedDefaultRates_SeedsAllPairsWhenEmpty(t *testing.T) {
+	repo := newFakeSeedRepo()
+	model.SeedDefaultRates(repo)
+	// 7 currencies × 2 directions = 14 pairs.
+	assert.Equal(t, 14, len(repo.upserts))
+	// Spot-check a couple of representative pairs.
+	eurRsd, ok := repo.upserts["EUR/RSD"]
+	require.True(t, ok)
+	assert.True(t, eurRsd.SellRate.Equal(decimal.NewFromFloat(118.00)))
+	rsdEur, ok := repo.upserts["RSD/EUR"]
+	require.True(t, ok)
+	assert.True(t, rsdEur.SellRate.Equal(decimal.NewFromFloat(0.00862)))
+}
+
+// TestSeedDefaultRates_SkipsExisting verifies that existing pairs are not
+// re-seeded — only missing ones are inserted.
+func TestSeedDefaultRates_SkipsExisting(t *testing.T) {
+	repo := newFakeSeedRepo()
+	repo.existing["EUR/RSD"] = &model.ExchangeRate{
+		FromCurrency: "EUR",
+		ToCurrency:   "RSD",
+		BuyRate:      decimal.NewFromFloat(1),
+		SellRate:     decimal.NewFromFloat(2),
+	}
+	model.SeedDefaultRates(repo)
+	// EUR/RSD was already present and must NOT have been re-upserted.
+	_, gotEurRsd := repo.upserts["EUR/RSD"]
+	assert.False(t, gotEurRsd, "EUR/RSD should not be re-seeded since it already exists")
+	// All others should still have been seeded — 13 pairs.
+	assert.Equal(t, 13, len(repo.upserts))
+}
+
+// TestSeedDefaultRates_GetErrorSkipsPair verifies that a non-NotFound DB error
+// from GetByPair causes the pair to be skipped (logged), not re-inserted.
+func TestSeedDefaultRates_GetErrorSkipsPair(t *testing.T) {
+	repo := newFakeSeedRepo()
+	repo.getErr = errors.New("transient db error")
+	model.SeedDefaultRates(repo)
+	// All pairs short-circuit on the GetByPair error and never reach Upsert.
+	assert.Equal(t, 0, len(repo.upserts))
 }

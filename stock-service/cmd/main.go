@@ -32,6 +32,7 @@ import (
 	"github.com/exbanka/stock-service/internal/handler"
 	kafkaprod "github.com/exbanka/stock-service/internal/kafka"
 	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/otccache"
 	"github.com/exbanka/stock-service/internal/provider"
 	"github.com/exbanka/stock-service/internal/repository"
 	"github.com/exbanka/stock-service/internal/service"
@@ -86,6 +87,9 @@ func main() {
 		// Phase 4 SI-TX: receiver-side mirror of inbound peer-bank
 		// OTC negotiations. Created/updated by PeerOTCGRPCHandler.
 		&model.PeerOtcNegotiation{},
+		// Cross-bank option contracts written at COMMIT_TX time
+		// when transaction-service finalises an OTC accept TX.
+		&model.PeerOptionContract{},
 		// Outbox: durable queue for Kafka events published from inside
 		// sagas. The drainer goroutine (started below) reads pending rows
 		// and publishes them, so a crash between business commit and
@@ -143,11 +147,16 @@ func main() {
 	// unique indexes by default.
 	db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_holding_per_owner_security ON holdings(owner_type, COALESCE(owner_id, 0), security_type, security_id)")
 
-	// Celina-4 OTC: enforce "exactly one of order_id / otc_contract_id" at DB
-	// level. The model's BeforeCreate hook does the same check application-side,
-	// but the constraint is defense-in-depth against raw SQL inserts.
+	// Celina-4 + Celina-5 OTC: enforce "exactly one of order_id /
+	// otc_contract_id / peer_option_contract_id" at DB level. The model's
+	// BeforeCreate hook does the same check application-side, but the
+	// constraint is defense-in-depth against raw SQL inserts.
 	db.Exec(`ALTER TABLE holding_reservations DROP CONSTRAINT IF EXISTS holding_reservation_owner_chk`)
-	db.Exec(`ALTER TABLE holding_reservations ADD CONSTRAINT holding_reservation_owner_chk CHECK ((order_id IS NOT NULL) <> (otc_contract_id IS NOT NULL))`)
+	db.Exec(`ALTER TABLE holding_reservations ADD CONSTRAINT holding_reservation_owner_chk CHECK (
+		(CASE WHEN order_id IS NOT NULL THEN 1 ELSE 0 END
+		 + CASE WHEN otc_contract_id IS NOT NULL THEN 1 ELSE 0 END
+		 + CASE WHEN peer_option_contract_id IS NOT NULL THEN 1 ELSE 0 END) = 1
+	)`)
 
 	// Durable data-normalization: exchange-service only accepts 8 ISO currency
 	// codes (RSD, EUR, CHF, USD, GBP, JPY, CAD, AUD). Any other code on a
@@ -286,6 +295,7 @@ func main() {
 	}
 	defer transactionConn.Close()
 	peerTxClient := transactionpb.NewPeerTxServiceClient(transactionConn)
+	peerBankAdminClient := transactionpb.NewPeerBankAdminServiceClient(transactionConn)
 
 	// --- Redis ---
 	var redisCache *cache.RedisCache
@@ -479,6 +489,14 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Unified OTC offer cache (local + cross-bank). Refresher rebuilds
+	// every 5 s by pulling local offers in-process from otcSvc and fanning
+	// out HTTP GETs to active peer banks' /public-stock (PeerAuth). The
+	// gRPC method OTCGRPCService.ListUnifiedOffers serves the cached view.
+	otcOfferCache := otccache.New()
+	otcRefresher := otccache.NewRefresher(otcOfferCache, otcSvc, peerBankAdminClient, cfg.OwnBankCode, 5*time.Second)
+	go otcRefresher.Run(ctx)
+
 	// Start the outbox drainer. Adapter wraps producer.PublishRaw to satisfy
 	// outbox.Producer (which expects (ctx, topic, []byte)). The drainer ticks
 	// every 500ms publishing up to 100 pending rows per tick; failures
@@ -614,12 +632,6 @@ func main() {
 	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo).
 		WithOutbox(ob, db)
 
-	// OTC expiry cron (daily).
-	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC).WithOutbox(ob, db)
-	otcExpiry.Start(ctx)
-
-	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).WithListings(listingRepo)
-
 	// --- Cross-bank OTC (Phase 4 SI-TX) ---
 	// PeerOTCService backs the api-gateway /api/v3/public-stock and
 	// /api/v3/negotiations endpoints. GetPublicStocks reads from holdings
@@ -631,7 +643,20 @@ func main() {
 		log.Fatalf("invalid OWN_BANK_CODE %q: %v", cfg.OwnBankCode, err)
 	}
 	peerOtcRepo := repository.NewPeerOtcNegotiationRepository(db)
-	peerOtcHandler := handler.NewPeerOTCGRPCHandler(peerOtcRepo, holdingRepo, peerTxClient, ownRouting)
+	peerOptionRepo := repository.NewPeerOptionContractRepository(db)
+	peerOtcHandler := handler.NewPeerOTCGRPCHandler(peerOtcRepo, peerOptionRepo, holdingRepo, peerTxClient, ownRouting)
+	peerOtcHandler.SetHoldingReserver(holdingReservationSvc)
+
+	// OTC expiry cron (daily). Covers intra-bank option_contracts and
+	// — via WithPeerContracts — cross-bank peer_option_contracts.
+	otcExpiry := service.NewOTCExpiryCron(optionContractRepo, otcOfferRepo, holdingReservationSvc, producer, cfg.OTCExpiryBatchSize, cfg.OTCExpiryCronUTC).
+		WithOutbox(ob, db).
+		WithPeerContracts(peerOptionRepo)
+	otcExpiry.Start(ctx)
+
+	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).
+		WithListings(listingRepo).
+		WithPeerContracts(peerOptionRepo, ownRouting)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
@@ -656,7 +681,7 @@ func main() {
 			pb.RegisterSecurityGRPCServiceServer(s, handler.NewSecurityHandler(secSvc, listingSvc, candleSvc, listingRepo))
 			pb.RegisterOrderGRPCServiceServer(s, handler.NewOrderHandler(orderSvc, execEngine))
 			pb.RegisterPortfolioGRPCServiceServer(s, handler.NewPortfolioHandler(portfolioSvc, taxSvc))
-			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandler(otcSvc))
+			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandlerWithCache(otcSvc, otcOfferCache))
 			pb.RegisterTaxGRPCServiceServer(s, handler.NewTaxHandler(taxSvc))
 			pb.RegisterInvestmentFundServiceServer(s, fundHandler)
 			pb.RegisterOTCOptionsServiceServer(s, otcOptionsHandler)

@@ -18,14 +18,16 @@ import (
 
 // OTCExpiryCron expires OTC contracts (releases the seller's reservation,
 // seller keeps the premium) and OTC offers (no money flow) past their
-// settlement_date.
+// settlement_date. Covers both intra-bank (option_contracts) and
+// cross-bank (peer_option_contracts) flows.
 type OTCExpiryCron struct {
-	contracts  *repository.OptionContractRepository
-	offers     *repository.OTCOfferRepository
-	holdingRes *HoldingReservationService
-	producer   *kafkaprod.Producer
-	batchSize  int
-	cronUTC    string
+	contracts     *repository.OptionContractRepository
+	peerContracts *repository.PeerOptionContractRepository // optional; nil disables peer-contract expiry
+	offers        *repository.OTCOfferRepository
+	holdingRes    *HoldingReservationService
+	producer      *kafkaprod.Producer
+	batchSize     int
+	cronUTC       string
 
 	// Outbox: optional, enables durable post-commit Kafka publish for the
 	// expire events. When nil, the legacy direct-publish path is used so
@@ -40,6 +42,15 @@ type OTCExpiryCron struct {
 func (cr *OTCExpiryCron) WithOutbox(ob *outbox.Outbox, db *gorm.DB) *OTCExpiryCron {
 	cr.outbox = ob
 	cr.outboxDB = db
+	return cr
+}
+
+// WithPeerContracts wires the cross-bank option contracts repo so the
+// daily expiry pass also processes peer_option_contracts rows past
+// their settlement_date. Optional — when nil, only intra-bank contracts
+// expire (legacy behaviour).
+func (cr *OTCExpiryCron) WithPeerContracts(p *repository.PeerOptionContractRepository) *OTCExpiryCron {
+	cr.peerContracts = p
 	return cr
 }
 
@@ -90,7 +101,38 @@ func (cr *OTCExpiryCron) RunOnce(ctx context.Context) error {
 			}
 		}
 	}
+	if cr.peerContracts != nil {
+		for {
+			rows, err := cr.peerContracts.ListExpiring(today, cr.batchSize)
+			if err != nil {
+				return err
+			}
+			if len(rows) == 0 {
+				break
+			}
+			for i := range rows {
+				if err := cr.expirePeerContract(ctx, &rows[i]); err != nil {
+					log.Printf("WARN: expire peer contract %d: %v", rows[i].ID, err)
+				}
+			}
+		}
+	}
 	return nil
+}
+
+// expirePeerContract releases the seller's underlying-share lock (only
+// meaningful on the seller's bank, where the row has direction=DEBIT;
+// the buyer's bank held no lock to release) and transitions the
+// contract to status="expired". Idempotent: re-running the cron over
+// already-expired rows is a no-op because ListExpiring filters on
+// status="active".
+func (cr *OTCExpiryCron) expirePeerContract(ctx context.Context, c *model.PeerOptionContract) error {
+	if c.Direction == "DEBIT" && cr.holdingRes != nil {
+		if _, err := cr.holdingRes.ReleaseForPeerOptionContract(ctx, c.ID); err != nil {
+			return err
+		}
+	}
+	return cr.peerContracts.SetStatus(c.ID, "expired")
 }
 
 func (cr *OTCExpiryCron) expireContract(ctx context.Context, c *model.OptionContract) error {
@@ -150,10 +192,17 @@ func (cr *OTCExpiryCron) expireOffer(ctx context.Context, o *model.OTCOffer) err
 	return nil
 }
 
-// Start launches a goroutine that triggers RunOnce daily at cronUTC. Honors
-// context cancellation per CLAUDE.md.
+// Start launches a goroutine that triggers RunOnce immediately (to
+// catch up on missed expiries from any downtime that crossed a
+// settlement date) and then daily at cronUTC. Honors context
+// cancellation per CLAUDE.md.
 func (cr *OTCExpiryCron) Start(ctx context.Context) {
 	go func() {
+		// Catch-up pass on startup. Best-effort — failures here are
+		// logged and the daily schedule continues.
+		if err := cr.RunOnce(ctx); err != nil {
+			log.Printf("WARN: OTC expiry startup run: %v", err)
+		}
 		for {
 			next := otcNextRunAt(time.Now().UTC(), cr.cronUTC)
 			select {

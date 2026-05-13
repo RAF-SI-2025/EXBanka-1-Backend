@@ -57,6 +57,9 @@ func (s *stubAccountForHandler) UpdateBalance(ctx context.Context, in *accountpb
 	}
 	return &accountpb.AccountResponse{AccountNumber: in.AccountNumber}, nil
 }
+func (s *stubAccountForHandler) ListAccountsByClient(ctx context.Context, in *accountpb.ListAccountsByClientRequest, opts ...grpc.CallOption) (*accountpb.ListAccountsResponse, error) {
+	return &accountpb.ListAccountsResponse{}, nil
+}
 
 func newPeerTxHandler(t *testing.T) (*handler.PeerTxGRPCHandler, *gorm.DB, *stubAccountForHandler) {
 	t.Helper()
@@ -214,14 +217,19 @@ func TestInitiateOutboundTxWithPostings_HappyPath(t *testing.T) {
 	}
 	h := handler.NewPeerTxGRPCHandler(idemRepo, exec, stub, outRepo, httpClient, handler.PeerLookupFunc(peerLookup), 111)
 
+	// Note: stubAccountForHandler returns CurrencyCode="RSD" by default,
+	// so the money postings use RSD here. The option postings use a
+	// JSON-shaped assetId starting with `{` which the executor skips
+	// (option-asset handling is out of scope; matches production where
+	// optAssetID is a marshalled OptionDescription).
 	resp, err := h.InitiateOutboundTxWithPostings(context.Background(), &transactionpb.SiTxInitiateWithPostingsRequest{
 		PeerBankCode: "222",
 		TxKind:       "otc-accept",
 		Postings: []*transactionpb.SiTxPosting{
-			{RoutingNumber: 111, AccountId: "111-A", AssetId: "USD", Amount: "700", Direction: "DEBIT"},
-			{RoutingNumber: 222, AccountId: "222-A", AssetId: "USD", Amount: "700", Direction: "CREDIT"},
-			{RoutingNumber: 222, AccountId: "222-B", AssetId: "OPT_AAPL", Amount: "1", Direction: "DEBIT"},
-			{RoutingNumber: 111, AccountId: "111-B", AssetId: "OPT_AAPL", Amount: "1", Direction: "CREDIT"},
+			{RoutingNumber: 111, AccountId: "111-A", AssetId: "RSD", Amount: "700", Direction: "DEBIT"},
+			{RoutingNumber: 222, AccountId: "222-A", AssetId: "RSD", Amount: "700", Direction: "CREDIT"},
+			{RoutingNumber: 222, AccountId: "222-B", AssetId: `{"ticker":"AAPL"}`, Amount: "1", Direction: "DEBIT"},
+			{RoutingNumber: 111, AccountId: "111-B", AssetId: `{"ticker":"AAPL"}`, Amount: "1", Direction: "CREDIT"},
 		},
 	})
 	if err != nil {

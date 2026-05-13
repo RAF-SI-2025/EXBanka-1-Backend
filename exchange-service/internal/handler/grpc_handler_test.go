@@ -12,11 +12,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/exchangepb"
 	"github.com/exbanka/exchange-service/internal/model"
+	"github.com/exbanka/exchange-service/internal/repository"
 	"github.com/exbanka/exchange-service/internal/service"
 )
+
+// gormOpenSQLiteInMemory opens an in-memory SQLite DB for tests that need a
+// real repository (without a real Postgres).
+func gormOpenSQLiteInMemory(t *testing.T) (*gorm.DB, error) {
+	t.Helper()
+	return gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+}
 
 // ---------------------------------------------------------------------------
 // Hand-written mock
@@ -58,6 +68,25 @@ func sampleRate(from, to string) model.ExchangeRate {
 		SellRate:     decimal.NewFromFloat(119.0),
 		UpdatedAt:    time.Now(),
 	}
+}
+
+// ---------------------------------------------------------------------------
+// NewExchangeGRPCHandler — production constructor
+// ---------------------------------------------------------------------------
+
+func TestNewExchangeGRPCHandler_ConstructsHandler(t *testing.T) {
+	// Build a real ExchangeService (with no cache) backed by an in-memory
+	// SQLite repo so we exercise the production constructor path. The handler
+	// itself is not invoked — we just want code coverage for the wiring.
+	db, err := gormOpenSQLiteInMemory(t)
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.ExchangeRate{}))
+	repo := repository.NewExchangeRateRepository(db)
+	svc, err := service.NewExchangeService(repo, db, "0.005", "0.003", nil)
+	require.NoError(t, err)
+
+	h := NewExchangeGRPCHandler(svc)
+	assert.NotNil(t, h)
 }
 
 // ---------------------------------------------------------------------------

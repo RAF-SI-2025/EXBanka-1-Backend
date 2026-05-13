@@ -1,0 +1,111 @@
+# Override for running a SECOND bank instance on the same host as the
+# default stack (bank A). Use together with docker-compose.yml:
+#
+#   docker compose --env-file .env.bank-b -f docker-compose.yml -f docker-compose.bank-b.yml up
+#
+# What this file does:
+#   - Clears the published host ports on every service that would otherwise
+#     collide with bank A (Postgres DBs, Kafka, Redis, gRPC services,
+#     metrics exporters). The internal container ports stay the same, so
+#     service-to-service traffic over the project-scoped Docker network is
+#     unaffected.
+#   - Re-publishes the api-gateway on a configurable host port so peer
+#     banks (and you, on the host) can reach this instance. Defaults to
+#     8081 (gateway HTTP) and 9101 (gateway Prometheus metrics).
+#
+# What you still need:
+#   - .env.bank-b setting OWN_BANK_CODE, COMPOSE_PROJECT_NAME, and the
+#     gateway host ports.
+#   - Mutual peer-bank registration via POST /api/v3/peer-banks once both
+#     stacks are healthy (use http://host.docker.internal:<gateway-port>
+#     for the base_url, since each stack's containers reach the host via
+#     the host-gateway alias already wired into api-gateway).
+#
+# Requires docker compose v2.24+ (the !override tag).
+
+services:
+  kafka:
+    ports: !override []
+
+  redis:
+    ports: !override []
+
+  influxdb:
+    ports: !override []
+
+  user-db:
+    ports: !override []
+
+  auth-db:
+    ports: !override []
+
+  client-db:
+    ports: !override []
+
+  account-db:
+    ports: !override []
+
+  card-db:
+    ports: !override []
+
+  transaction-db:
+    ports: !override []
+
+  credit-db:
+    ports: !override []
+
+  exchange-db:
+    ports: !override []
+
+  stock-db:
+    ports: !override []
+
+  verification-db:
+    ports: !override []
+
+  notification-db:
+    ports: !override []
+
+  prometheus:
+    ports: !override []
+
+  grafana:
+    ports: !override []
+
+  user-service:
+    ports: !override []
+
+  auth-service:
+    ports: !override []
+
+  notification-service:
+    ports: !override []
+
+  client-service:
+    ports: !override []
+
+  account-service:
+    ports: !override []
+
+  card-service:
+    ports: !override []
+
+  transaction-service:
+    ports: !override []
+
+  credit-service:
+    ports: !override []
+
+  exchange-service:
+    ports: !override []
+
+  stock-service:
+    ports: !override []
+
+  verification-service:
+    ports: !override []
+
+  api-gateway:
+    ports: !override
+      - "${GATEWAY_HOST_PORT:-8081}:8080"
+      - "${GATEWAY_METRICS_HOST_PORT:-9101}:9100"

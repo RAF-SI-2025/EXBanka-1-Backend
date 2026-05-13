@@ -22,6 +22,26 @@ type fakeHoldingReader struct {
 	err  error
 }
 
+func (f *fakeHoldingReader) GetByOwnerAndTicker(ownerType model.OwnerType, ownerID *uint64, securityType, ticker string) (*model.Holding, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	for i := range f.rows {
+		hd := f.rows[i]
+		if hd.SecurityType != securityType || hd.Ticker != ticker || hd.OwnerType != ownerType {
+			continue
+		}
+		if (ownerID == nil) != (hd.OwnerID == nil) {
+			continue
+		}
+		if ownerID != nil && *ownerID != *hd.OwnerID {
+			continue
+		}
+		return &hd, nil
+	}
+	return nil, gorm.ErrRecordNotFound
+}
+
 func (f *fakeHoldingReader) ListPublic() ([]model.Holding, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -66,13 +86,14 @@ func newPeerOtcHandler(t *testing.T) (*handler.PeerOTCGRPCHandler, *gorm.DB, *fa
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if err := db.AutoMigrate(&model.PeerOtcNegotiation{}); err != nil {
+	if err := db.AutoMigrate(&model.PeerOtcNegotiation{}, &model.PeerOptionContract{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repo := repository.NewPeerOtcNegotiationRepository(db)
+	optRepo := repository.NewPeerOptionContractRepository(db)
 	holdings := &fakeHoldingReader{}
 	peerTx := &fakePeerTxClient{}
-	return handler.NewPeerOTCGRPCHandler(repo, holdings, peerTx, 111), db, peerTx, holdings
+	return handler.NewPeerOTCGRPCHandler(repo, optRepo, holdings, peerTx, 111), db, peerTx, holdings
 }
 
 func TestPeerOTC_CreateAndGet(t *testing.T) {
@@ -191,15 +212,19 @@ func TestPeerOTC_DeleteNegotiation(t *testing.T) {
 		t.Fatalf("delete: %v", err)
 	}
 
-	_, gerr := h.GetNegotiation(ctx, &stockpb.GetNegotiationRequest{
+	// Per SI-TX §3.5, DELETE sets isOngoing to false; the negotiation
+	// row remains so a subsequent GET still returns OtcNegotiation. The
+	// status field flips to "cancelled" which the gateway maps to
+	// isOngoing=false in its response.
+	resp, gerr := h.GetNegotiation(ctx, &stockpb.GetNegotiationRequest{
 		PeerBankCode:  "222",
 		NegotiationId: createResp.GetNegotiationId(),
 	})
-	if gerr == nil {
-		t.Fatalf("expected NotFound after delete")
+	if gerr != nil {
+		t.Fatalf("expected GET to succeed after soft-cancel, got %v", gerr)
 	}
-	if status.Code(gerr) != codes.NotFound {
-		t.Errorf("expected NotFound, got %v", status.Code(gerr))
+	if resp.GetStatus() != "cancelled" {
+		t.Errorf("expected status=cancelled after delete, got %q", resp.GetStatus())
 	}
 }
 

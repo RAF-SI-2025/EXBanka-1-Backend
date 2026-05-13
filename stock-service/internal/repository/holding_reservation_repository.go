@@ -34,14 +34,18 @@ func (r *HoldingReservationRepository) Create(res *model.HoldingReservation) err
 }
 
 // InsertIfAbsent inserts the reservation unless a row with the same OrderID
-// (legacy sell-order path) or OTCContractID (OTC option contract path) already
-// exists. Returns (inserted, row, error) where row is either the new row
-// (inserted=true) or the pre-existing row (inserted=false). Callers use
-// this for idempotent ReserveShares / ReserveForOTCContract retries.
+// (legacy sell-order path), OTCContractID (intra-bank OTC option contract
+// path), or PeerOptionContractID (cross-bank OTC option contract path)
+// already exists. Returns (inserted, row, error) where row is either the
+// new row (inserted=true) or the pre-existing row (inserted=false).
+// Callers use this for idempotent reservation retries.
 func (r *HoldingReservationRepository) InsertIfAbsent(res *model.HoldingReservation) (bool, *model.HoldingReservation, error) {
 	conflictCol := "order_id"
-	if res.OTCContractID != nil {
+	switch {
+	case res.OTCContractID != nil:
 		conflictCol = "otc_contract_id"
+	case res.PeerOptionContractID != nil:
+		conflictCol = "peer_option_contract_id"
 	}
 	result := r.db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: conflictCol}},
@@ -53,18 +57,36 @@ func (r *HoldingReservationRepository) InsertIfAbsent(res *model.HoldingReservat
 	if result.RowsAffected == 1 {
 		return true, res, nil
 	}
-	if res.OrderID != nil {
+	switch {
+	case res.OrderID != nil:
 		existing, err := r.GetByOrderID(*res.OrderID)
 		if err != nil {
 			return false, nil, err
 		}
 		return false, existing, nil
+	case res.OTCContractID != nil:
+		existing, err := r.GetByOTCContractID(*res.OTCContractID)
+		if err != nil {
+			return false, nil, err
+		}
+		return false, existing, nil
+	default:
+		existing, err := r.GetByPeerOptionContractID(*res.PeerOptionContractID)
+		if err != nil {
+			return false, nil, err
+		}
+		return false, existing, nil
 	}
-	existing, err := r.GetByOTCContractID(*res.OTCContractID)
-	if err != nil {
-		return false, nil, err
+}
+
+// GetByPeerOptionContractID returns the reservation row keyed on
+// PeerOptionContractID (cross-bank OTC option contract).
+func (r *HoldingReservationRepository) GetByPeerOptionContractID(peerOptionContractID uint64) (*model.HoldingReservation, error) {
+	var res model.HoldingReservation
+	if err := r.db.Where("peer_option_contract_id = ?", peerOptionContractID).First(&res).Error; err != nil {
+		return nil, err
 	}
-	return false, existing, nil
+	return &res, nil
 }
 
 // GetByOTCContractID returns the reservation row keyed on OTCContractID

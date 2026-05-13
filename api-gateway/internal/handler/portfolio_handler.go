@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/exbanka/api-gateway/internal/middleware"
 	accountpb "github.com/exbanka/contract/accountpb"
@@ -21,7 +22,11 @@ func NewPortfolioHandler(
 	otcClient stockpb.OTCGRPCServiceClient,
 	accountClient accountpb.AccountServiceClient,
 ) *PortfolioHandler {
-	return &PortfolioHandler{portfolioClient: portfolioClient, otcClient: otcClient, accountClient: accountClient}
+	return &PortfolioHandler{
+		portfolioClient: portfolioClient,
+		otcClient:       otcClient,
+		accountClient:   accountClient,
+	}
 }
 
 func (h *PortfolioHandler) ListHoldings(c *gin.Context) {
@@ -168,9 +173,20 @@ func (h *PortfolioHandler) ExerciseOption(c *gin.Context) {
 
 // --- OTC ---
 
+// ListOTCOffers serves the unified OTC market view by calling
+// stock-service's OTCGRPCService.ListUnifiedOffers, which owns the
+// cross-bank discovery cache. The gateway is a thin pass-through:
+// query params map 1-to-1 onto the gRPC request, and the response
+// is reshaped into the JSON contract documented in REST_API_v3 §28.
 func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
+	}
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+	if pageSize < 1 {
+		pageSize = 10
+	}
 
 	secType := c.Query("security_type")
 	if secType != "" {
@@ -179,15 +195,65 @@ func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 			return
 		}
 	}
+	kindFilter := c.Query("kind")
+	if kindFilter != "" {
+		if _, err := oneOf("kind", kindFilter, "local", "remote"); err != nil {
+			apiError(c, 400, ErrValidation, err.Error())
+			return
+		}
+	}
 
-	resp, err := h.otcClient.ListOffers(c.Request.Context(), &stockpb.ListOTCOffersRequest{
-		SecurityType: secType, Ticker: c.Query("ticker"), Page: int32(page), PageSize: int32(pageSize),
+	resp, err := h.otcClient.ListUnifiedOffers(c.Request.Context(), &stockpb.ListUnifiedOTCOffersRequest{
+		SecurityType: secType,
+		Ticker:       c.Query("ticker"),
+		Kind:         kindFilter,
+		BankCode:     c.Query("bank_code"),
+		Page:         int32(page),
+		PageSize:     int32(pageSize),
 	})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"offers": emptyIfNil(resp.Offers), "total_count": resp.TotalCount})
+
+	// Project pb.UnifiedOTCOffer to the JSON shape with omitempty
+	// semantics matching REST_API_v3 §28.
+	offers := make([]gin.H, 0, len(resp.GetOffers()))
+	for _, o := range resp.GetOffers() {
+		row := gin.H{
+			"kind":           o.GetKind(),
+			"bank_code":      o.GetBankCode(),
+			"security_type":  o.GetSecurityType(),
+			"ticker":         o.GetTicker(),
+			"quantity":       o.GetQuantity(),
+			"price_per_unit": o.GetPricePerUnit(),
+		}
+		if o.GetKind() == "local" {
+			row["id"] = o.GetId()
+			row["seller_id"] = o.GetSellerId()
+			row["seller_name"] = o.GetSellerName()
+			row["name"] = o.GetName()
+			row["created_at"] = o.GetCreatedAt()
+		} else {
+			row["owner_id"] = o.GetOwnerId()
+			row["currency"] = o.GetCurrency()
+		}
+		offers = append(offers, row)
+	}
+
+	var lastRefresh string
+	if u := resp.GetLastRefreshUnix(); u > 0 {
+		lastRefresh = time.Unix(u, 0).UTC().Format("2006-01-02T15:04:05Z")
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"offers":        offers,
+		"total_count":   resp.GetTotalCount(),
+		"peers_total":   resp.GetPeersTotal(),
+		"peers_reached": resp.GetPeersReached(),
+		"partial":       resp.GetPartial(),
+		"last_refresh":  lastRefresh,
+	})
 }
 
 // BuyOTCOfferOnBehalf godoc

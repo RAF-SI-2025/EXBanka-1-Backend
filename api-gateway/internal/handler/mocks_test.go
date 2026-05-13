@@ -1190,8 +1190,9 @@ func (s *stubStockExchangeClient) GetTestingMode(_ context.Context, in *stockpb.
 // ---------------------------------------------------------------------------
 
 type stubOTCClient struct {
-	listFn func(*stockpb.ListOTCOffersRequest) (*stockpb.ListOTCOffersResponse, error)
-	buyFn  func(*stockpb.BuyOTCOfferRequest) (*stockpb.OTCTransaction, error)
+	listFn        func(*stockpb.ListOTCOffersRequest) (*stockpb.ListOTCOffersResponse, error)
+	buyFn         func(*stockpb.BuyOTCOfferRequest) (*stockpb.OTCTransaction, error)
+	listUnifiedFn func(*stockpb.ListUnifiedOTCOffersRequest) (*stockpb.ListUnifiedOTCOffersResponse, error)
 }
 
 func (s *stubOTCClient) ListOffers(_ context.Context, in *stockpb.ListOTCOffersRequest, _ ...grpc.CallOption) (*stockpb.ListOTCOffersResponse, error) {
@@ -1205,6 +1206,12 @@ func (s *stubOTCClient) BuyOffer(_ context.Context, in *stockpb.BuyOTCOfferReque
 		return s.buyFn(in)
 	}
 	return &stockpb.OTCTransaction{}, nil
+}
+func (s *stubOTCClient) ListUnifiedOffers(_ context.Context, in *stockpb.ListUnifiedOTCOffersRequest, _ ...grpc.CallOption) (*stockpb.ListUnifiedOTCOffersResponse, error) {
+	if s.listUnifiedFn != nil {
+		return s.listUnifiedFn(in)
+	}
+	return &stockpb.ListUnifiedOTCOffersResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------

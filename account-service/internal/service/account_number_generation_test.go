@@ -48,3 +48,31 @@ func TestGenerateAccountNumber_CheckDigit(t *testing.T) {
 		assert.Equal(t, 0, sum%11, "digit sum must be divisible by 11")
 	}
 }
+
+func TestSetBankCode_OverridesPrefix(t *testing.T) {
+	t.Cleanup(func() { SetBankCode("111") })
+
+	SetBankCode("222")
+	num := GenerateAccountNumber("current")
+	assert.Equal(t, "222", num[:3], "prefix should reflect SetBankCode override")
+	assert.Equal(t, "0001", num[3:7], "branch code unchanged")
+	assert.Equal(t, "11", num[16:18], "type code unchanged")
+
+	sum := 0
+	for _, c := range num {
+		sum += int(c - '0')
+	}
+	assert.Equal(t, 0, sum%11, "check digit still valid after prefix swap")
+}
+
+func TestSetBankCode_RejectsInvalid(t *testing.T) {
+	t.Cleanup(func() { SetBankCode("111") })
+
+	cases := []string{"", "12", "1234", "abc", "11a"}
+	for _, c := range cases {
+		c := c
+		t.Run("input_"+c, func(t *testing.T) {
+			assert.Panics(t, func() { SetBankCode(c) })
+		})
+	}
+}

@@ -293,9 +293,19 @@ func TestPortfolio_ExerciseOption_Success(t *testing.T) {
 
 func TestPortfolio_ListOTCOffers_Default(t *testing.T) {
 	otc := &stubOTCClient{
-		listFn: func(req *stockpb.ListOTCOffersRequest) (*stockpb.ListOTCOffersResponse, error) {
+		listUnifiedFn: func(req *stockpb.ListUnifiedOTCOffersRequest) (*stockpb.ListUnifiedOTCOffersResponse, error) {
 			require.Equal(t, int32(1), req.Page)
-			return &stockpb.ListOTCOffersResponse{}, nil
+			require.Equal(t, int32(10), req.PageSize)
+			return &stockpb.ListUnifiedOTCOffersResponse{
+				Offers: []*stockpb.UnifiedOTCOffer{
+					{Kind: "local", BankCode: "111", Id: 7, Ticker: "BAC", SecurityType: "stock", Quantity: 3, PricePerUnit: "38.00"},
+				},
+				TotalCount:      1,
+				PeersTotal:      0,
+				PeersReached:    0,
+				Partial:         false,
+				LastRefreshUnix: 0,
+			}, nil
 		},
 	}
 	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, &accountFullStub{})
@@ -304,7 +314,8 @@ func TestPortfolio_ListOTCOffers_Default(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), `"offers":[]`)
+	require.Contains(t, rec.Body.String(), `"kind":"local"`)
+	require.Contains(t, rec.Body.String(), `"ticker":"BAC"`)
 }
 
 func TestPortfolio_ListOTCOffers_BadSecurityType(t *testing.T) {

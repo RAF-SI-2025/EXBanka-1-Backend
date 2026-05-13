@@ -5336,7 +5336,11 @@ These three endpoints cover the legacy stock-public-OTC flow — a holding made 
 
 ### GET /api/v3/otc/offers
 
-List public stock OTC offers (publicly listed holdings).
+Unified OTC market view. Returns both **local** offers (publicly listed holdings on this bank) and **remote** offers (publicly listed holdings on every active peer bank). The gateway aggregates the two and serves the merged list from an in-memory cache that a background goroutine rebuilds every ~5 seconds — peer fan-out happens off the request path so a slow or down peer never blocks the client.
+
+Each offer carries a `kind` discriminator so the UI can route purchases to the correct flow:
+- `kind: "local"` → buy via `POST /api/v3/otc/offers/:id/buy` (intra-bank, atomic).
+- `kind: "remote"` → buy via `POST /api/v3/me/peer-otc/negotiations` using the offer's `bank_code` as `seller_bank_code` and `owner_id` as `seller_id` (cross-bank, SI-TX two-phase).
 
 **Authentication:** Any JWT (AnyAuthMiddleware)
 
@@ -5347,15 +5351,80 @@ List public stock OTC offers (publicly listed holdings).
 | `page` | int | Page number (default: 1) |
 | `page_size` | int | Items per page (default: 10) |
 | `security_type` | string | `stock` or `futures` |
-| `ticker` | string | Filter by ticker symbol |
+| `ticker` | string | Filter by ticker symbol (case-insensitive) |
+| `kind` | string | Filter to `local` or `remote` only |
+| `bank_code` | string | Filter to a single bank (e.g. `333`) |
 
 **Response 200:**
 ```json
 {
-  "offers": [ ],
-  "total_count": 8
+  "offers": [
+    {
+      "kind":           "local",
+      "bank_code":      "111",
+      "id":             5,
+      "seller_id":      1,
+      "seller_name":    "Test Client",
+      "security_type":  "stock",
+      "ticker":         "MSFT",
+      "name":           "Microsoft Corporation",
+      "quantity":       1,
+      "price_per_unit": "418.13",
+      "created_at":     "2026-05-07T21:17:44Z"
+    },
+    {
+      "kind":           "remote",
+      "bank_code":      "333",
+      "owner_id":       "1",
+      "security_type":  "stock",
+      "ticker":         "JNJ",
+      "quantity":       3,
+      "price_per_unit": "0",
+      "currency":       "USD"
+    },
+    {
+      "kind":           "remote",
+      "bank_code":      "333",
+      "owner_id":       "0",
+      "security_type":  "stock",
+      "ticker":         "MSFT",
+      "quantity":       1,
+      "price_per_unit": "0",
+      "currency":       "USD"
+    }
+  ],
+  "total_count":   3,
+  "peers_total":   2,
+  "peers_reached": 2,
+  "partial":       false,
+  "last_refresh":  "2026-05-07T21:18:00Z"
 }
 ```
+
+**Field reference:**
+| Field | Local | Remote | Notes |
+|---|:-:|:-:|---|
+| `kind` | ✓ | ✓ | `"local"` or `"remote"` |
+| `bank_code` | ✓ | ✓ | Own bank for local, peer bank for remote |
+| `id` | ✓ | — | Holding ID (use with `/otc/offers/:id/buy`) |
+| `seller_id` | ✓ | — | Numeric client id |
+| `seller_name` | ✓ | — | Display name |
+| `name` | ✓ | — | Security display name |
+| `created_at` | ✓ | — | Holding-listing timestamp |
+| `owner_id` | — | ✓ | SI-TX owner id (`"0"` = bank-owned, `"1+"` = client id at the peer) |
+| `security_type`, `ticker`, `quantity`, `price_per_unit` | ✓ | ✓ | Common across both kinds |
+| `currency` | — | ✓ | Peer-supplied currency code |
+
+**Top-level meta:**
+- `total_count` — number of offers matching filters (across all pages).
+- `peers_total` — number of active peer banks the cache attempted to reach on its last refresh.
+- `peers_reached` — how many returned successfully.
+- `partial` — `true` when `peers_reached < peers_total`; UI should warn the user that the list may be incomplete.
+- `last_refresh` — ISO 8601 timestamp of the most recent cache rebuild. Empty string before the first refresh after boot.
+
+**Caveats:**
+- Remote offers carry `price_per_unit: "0"` because the SI-TX `/public-stock` cohort wire shape doesn't currently transmit a live price; UIs displaying remote offers need to fetch the ticker's market price separately or treat the price as quote-on-request.
+- The cache is per-gateway-instance and rebuilds every ~5 s, so a freshly-published holding becomes visible to other banks within one tick window. There's no push.
 
 ---
 
@@ -5714,9 +5783,93 @@ List the caller's option contracts.
 ```json
 {
   "contracts": [ { "id": 5001, "status": "ACTIVE", ... } ],
-  "total": 1
+  "total": 1,
+  "peer_contracts": [
+    {
+      "id": 6,
+      "crossbank_tx_id": "222:abc-123",
+      "posting_index": 3,
+      "negotiation_routing_number": 222,
+      "negotiation_id": "neg-uuid",
+      "buyer_id":  { "routing_number": 111, "id": "client-1" },
+      "seller_id": { "routing_number": 222, "id": "client-1" },
+      "ticker": "AAPL",
+      "quantity": 5,
+      "strike_price": "180",
+      "currency": "USD",
+      "settlement_date": "2027-05-01T00:00:00Z",
+      "direction": "CREDIT",
+      "status": "active",
+      "created_at_unix": 1777595867
+    }
+  ],
+  "peer_total": 1
 }
 ```
+
+The `peer_contracts` array surfaces cross-bank (Celina 5) option contracts where the caller is a participant. `direction=CREDIT` means this bank holds the buyer side of the contract; `direction=DEBIT` means this bank holds the seller side. `status` values: `active`, `exercised`, `expired`.
+
+---
+
+### POST /api/v3/me/otc/contracts/peer/:id/exercise
+
+Exercise a cross-bank OTC option contract (Celina 5 SI-TX). Buyer-only — only callable on the bank that holds the buyer side (i.e. the row in this bank's `peer_option_contracts` has `direction=CREDIT`).
+
+**Authentication:** Any JWT (`OwnerIsBankIfEmployee`)
+
+**Path Parameters:**
+- `id` — the local `peer_option_contracts` row id (the same `id` returned by `GET /api/v3/me/otc/contracts`'s `peer_contracts`).
+
+**Request Body:**
+```json
+{ "buyer_account_number": "111000192244743221" }
+```
+
+The caller specifies the currency account that pays the strike. The seller's currency account is resolved on the seller's bank from the contract's `seller_id` participant.
+
+**Response 200:**
+```json
+{ "transaction_id": "<uuid>", "status": "pending" }
+```
+
+The exercise dispatches a 4-posting SI-TX (strike money buyer→seller + option markers carrying `intent="exercise"`). Both banks transition the contract to `status=exercised` on COMMIT_TX; the seller's reservation is consumed and the buyer's holding is credited the contract quantity.
+
+**Response 412:** Contract not in status `active` (already exercised / expired) or this bank doesn't hold the buyer side.
+**Response 500:** Insufficient buyer funds or other dispatch failure (the SI-TX local-reserve aborts before money moves).
+
+---
+
+### POST /api/v3/me/peer-otc/negotiations
+
+Initiate a cross-bank OTC negotiation against a peer bank's listing. Buyer-side client-facing entry point — composes an SI-TX `OtcOffer` with `buyerId` derived from the caller's JWT and HTTP-POSTs to the seller bank's `/api/v3/negotiations` endpoint.
+
+**Authentication:** Any JWT (`AnyAuthMiddleware`)
+
+**Request Body:**
+```json
+{
+  "seller_bank_code": "222",
+  "seller_id":        "client-1",
+  "stock":            { "ticker": "AAPL" },
+  "settlement_date":  "2027-08-01T00:00:00Z",
+  "price_per_unit":   { "amount": "175", "currency": "USD" },
+  "premium":          { "amount": "40",  "currency": "USD" },
+  "amount":           2
+}
+```
+
+`seller_bank_code` must be a registered peer (see Section 38), not own bank. `seller_id` is an SI-TX participant id (`client-<n>` or `bank`).
+
+**Response 201:** `ForeignBankId` directly — the negotiation id assigned by the seller's bank.
+```json
+{ "routingNumber": 222, "id": "<uuid>" }
+```
+
+After creation, both banks have a negotiation row. Either side can counter via `PUT /api/v3/negotiations/{rid}/{id}` (peer-facing, called bank-to-bank), cancel via `DELETE` (soft-cancel — sets `isOngoing=false`), or accept via `GET /api/v3/negotiations/{rid}/{id}/accept` which dispatches the option-formation SI-TX.
+
+**Response 400:** Validation error (unknown peer, missing fields, seller_bank_code = own bank).
+**Response 404:** Peer bank not registered.
+**Response 502:** Peer transport failure (network error, timeout).
 
 ---
 
@@ -6940,7 +7093,7 @@ When `status=failed`, `last_error` contains the failure reason. The admin can re
 
 Runtime registry of cross-bank peer banks. Backs the SI-TX `POST /api/v3/interbank` middleware, which looks up peer authentication credentials in this table. EmployeeAdmin only (`peer_banks.manage.any` permission).
 
-> **Phase 2 status:** the table + admin CRUD is fully wired. The `POST /api/v3/interbank` endpoint exists but returns `501 Not Implemented` because the underlying TX execution is implemented in Phase 3. The `X-Api-Key` auth path on `/api/v3/interbank` is also stubbed in Phase 2 — Phase 3 introduces a dedicated internal RPC for plaintext-token lookup.
+> **Status:** fully wired. The admin CRUD, the `POST /api/v3/interbank` envelope handler (`NEW_TX` / `COMMIT_TX` / `ROLLBACK_TX`), and both auth paths (`X-Api-Key` via `ResolvePeerByAPIToken` and the HMAC bundle via `ResolvePeerByBankCode`) are all implemented. `POST /api/v3/interbank` only returns `501 Not Implemented` if the gRPC backend itself returns `Unimplemented`, which it does not in the current build.
 
 ### GET /api/v3/peer-banks
 
@@ -7115,27 +7268,25 @@ Peer initiates a cross-bank OTC negotiation against a publicly-listed holding on
 
 **Authentication:** PeerAuth.
 
-**Request Body:**
+**Request Body:** SI-TX `OtcOffer` payload — verbatim from the cohort spec at <https://arsen.srht.site/si-tx-proto/>. The body IS the `OtcOffer`; there is no wrapping object.
+
 ```json
 {
-  "offer": {
-    "ticker": "AAPL",
-    "amount": 50,
-    "pricePerStock": "180.50",
-    "currency": "USD",
-    "premium": "700",
-    "premiumCurrency": "USD",
-    "settlementDate": "2026-12-31",
-    "lastModifiedBy": {"routingNumber": 222, "id": "user-1"}
-  },
-  "buyerId":  {"routingNumber": 222, "id": "buyer-1"},
-  "sellerId": {"routingNumber": 111, "id": "seller-1"}
+  "stock":          { "ticker": "AAPL" },
+  "settlementDate": "2026-12-31T00:00:00Z",
+  "pricePerUnit":   { "amount": "180.50", "currency": "USD" },
+  "premium":        { "amount": "700",    "currency": "USD" },
+  "buyerId":        { "routingNumber": 222, "id": "client-1" },
+  "sellerId":       { "routingNumber": 111, "id": "client-1" },
+  "amount":         50,
+  "lastModifiedBy": { "routingNumber": 222, "id": "client-1" }
 }
 ```
 
-**Response 201:**
+**Response 201:** `ForeignBankId` directly (the new negotiation's id, owned by this bank).
+
 ```json
-{ "negotiationId": {"routingNumber": 111, "id": "neg-uuid"} }
+{ "routingNumber": 111, "id": "neg-uuid" }
 ```
 
 ---
@@ -7150,7 +7301,7 @@ Counter-offer on an existing negotiation. The negotiation must have been created
 - `rid` — peer's routing number (int64)
 - `id` — peer's negotiation id (string)
 
-**Request Body:** Same `offer` shape as POST.
+**Request Body:** SI-TX `OtcOffer` (same shape as POST).
 
 **Response 200:** Empty body on success.
 
@@ -7162,15 +7313,19 @@ Read a negotiation's current state.
 
 **Authentication:** PeerAuth.
 
-**Response 200:**
+**Response 200:** SI-TX `OtcNegotiation` = `OtcOffer & { isOngoing: boolean }`.
+
 ```json
 {
-  "id":       {"routingNumber": 111, "id": "neg-uuid"},
-  "buyerId":  {"routingNumber": 222, "id": "buyer-1"},
-  "sellerId": {"routingNumber": 111, "id": "seller-1"},
-  "offer":    { /* same shape as POST.offer */ },
-  "status":   "ongoing",
-  "updatedAt": "2026-04-29T12:00:00Z"
+  "stock":          { "ticker": "AAPL" },
+  "settlementDate": "2026-12-31T00:00:00Z",
+  "pricePerUnit":   { "amount": "180.50", "currency": "USD" },
+  "premium":        { "amount": "700",    "currency": "USD" },
+  "buyerId":        { "routingNumber": 222, "id": "client-1" },
+  "sellerId":       { "routingNumber": 111, "id": "client-1" },
+  "amount":         50,
+  "lastModifiedBy": { "routingNumber": 222, "id": "client-1" },
+  "isOngoing":      true
 }
 ```
 

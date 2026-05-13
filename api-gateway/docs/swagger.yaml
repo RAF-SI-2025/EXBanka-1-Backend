@@ -540,12 +540,47 @@ definitions:
       holding_id:
         type: integer
     type: object
+  handler.exercisePeerRequest:
+    properties:
+      buyer_account_number:
+        type: string
+    type: object
   handler.exerciseRequest:
     properties:
       buyer_account_id:
         type: integer
       seller_account_id:
         type: integer
+    type: object
+  handler.initiateNegotiationRequest:
+    properties:
+      amount:
+        type: integer
+      premium:
+        properties:
+          amount:
+            type: string
+          currency:
+            type: string
+        type: object
+      price_per_unit:
+        properties:
+          amount:
+            type: string
+          currency:
+            type: string
+        type: object
+      seller_bank_code:
+        type: string
+      seller_id:
+        type: string
+      settlement_date:
+        type: string
+      stock:
+        properties:
+          ticker:
+            type: string
+        type: object
     type: object
   handler.investRequest:
     properties:
@@ -7290,6 +7325,39 @@ paths:
       summary: List the caller's OTC contracts
       tags:
       - OTCOptions
+  /api/v3/me/otc/contracts/peer/{id}/exercise:
+    post:
+      consumes:
+      - application/json
+      description: 'Buyer-only. Initiates the SI-TX exercise flow: strike money buyer→seller
+        + option markers carrying intent=exercise. Both banks transition the contract
+        to status=exercised on COMMIT_TX, the seller''s reservation is consumed and
+        the buyer''s holding is credited.'
+      parameters:
+      - description: peer_option_contracts row id on this bank
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: buyer's currency account number that pays the strike
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.exercisePeerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Exercise a cross-bank OTC option contract
+      tags:
+      - OTCOptions
   /api/v3/me/otc/offers:
     get:
       parameters:
@@ -7308,6 +7376,34 @@ paths:
       security:
       - BearerAuth: []
       summary: List the caller's OTC offers
+      tags:
+      - OTCOptions
+  /api/v3/me/peer-otc/negotiations:
+    post:
+      consumes:
+      - application/json
+      description: Buyer-side client-facing endpoint. Composes an SI-TX OtcOffer with
+        buyerId from the caller's JWT and sellerId from the body, then HTTP POSTs
+        to the seller's bank's /api/v3/negotiations. Returns the foreign negotiation
+        id assigned by the seller's bank.
+      parameters:
+      - description: negotiation terms
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.initiateNegotiationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Initiate a cross-bank OTC negotiation
       tags:
       - OTCOptions
   /api/v3/me/sessions/{id}:

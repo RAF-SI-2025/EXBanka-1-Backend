@@ -667,6 +667,10 @@ message ListHoldingTransactionsResponse {
 service OTCGRPCService {
   rpc ListOffers(ListOTCOffersRequest) returns (ListOTCOffersResponse);
   rpc BuyOffer(BuyOTCOfferRequest) returns (OTCTransaction);
+  // Unified view: local offers from this bank's holdings + remote offers
+  // pulled from every active peer bank's GET /public-stock. Backed by
+  // an in-process cache refreshed every ~5 s by stock-service.
+  rpc ListUnifiedOffers(ListUnifiedOTCOffersRequest) returns (ListUnifiedOTCOffersResponse);
 }
 
 message OTCOffer {
@@ -691,6 +695,54 @@ message ListOTCOffersRequest {
 message ListOTCOffersResponse {
   repeated OTCOffer offers = 1;
   int64 total_count = 2;
+}
+
+// UnifiedOTCOffer is one entry in the cross-bank-aggregated OTC view.
+// `kind` discriminates the buy flow:
+//   - "local"  → buy via POST /api/v3/otc/offers/{id}/buy
+//   - "remote" → buy via POST /api/v3/me/peer-otc/negotiations using
+//                bank_code as seller_bank_code and owner_id as seller_id.
+// Local-only fields (id, seller_id, seller_name, name, created_at) are
+// zero/empty on remote offers; owner_id is empty on local offers.
+message UnifiedOTCOffer {
+  string kind = 1;
+  string bank_code = 2;
+
+  // Local-only
+  uint64 id = 3;
+  uint64 seller_id = 4;
+  string seller_name = 5;
+  string name = 6;
+  string created_at = 7;
+
+  // Remote-only. SI-TX owner shape: "0" means bank-owned, "1+" is a
+  // client id at the seller bank.
+  string owner_id = 8;
+
+  // Common
+  string security_type = 9;
+  string ticker = 10;
+  int64 quantity = 11;
+  string price_per_unit = 12;
+  string currency = 13;
+}
+
+message ListUnifiedOTCOffersRequest {
+  string security_type = 1;
+  string ticker = 2;
+  string kind = 3;       // optional filter: "local" | "remote"
+  string bank_code = 4;  // optional filter
+  int32 page = 5;
+  int32 page_size = 6;
+}
+
+message ListUnifiedOTCOffersResponse {
+  repeated UnifiedOTCOffer offers = 1;
+  int64 total_count = 2;
+  int32 peers_total = 3;
+  int32 peers_reached = 4;
+  bool partial = 5;
+  int64 last_refresh_unix = 6;
 }
 
 message BuyOTCOfferRequest {
@@ -1121,6 +1173,34 @@ message ListMyContractsRequest {
 message ListContractsResponse {
   repeated OptionContractResponse contracts = 1;
   int64 total = 2;
+  // Cross-bank (Celina 5 SI-TX) option contracts where this user is
+  // either the buyer or the seller. Rendered alongside intra-bank
+  // contracts above so clients see one merged list.
+  repeated PeerOptionContractResponse peer_contracts = 3;
+  int64 peer_total = 4;
+}
+
+// PeerOptionContractResponse is the on-the-wire shape of a row from
+// peer_option_contracts. Keyed on (crossbank_tx_id, posting_index),
+// mirrors the SI-TX OptionDescription terms plus the cross-bank
+// participant identifiers.
+message PeerOptionContractResponse {
+  uint64 id = 1;
+  string crossbank_tx_id = 2;
+  int32 posting_index = 3;
+  int64 negotiation_routing_number = 4;
+  string negotiation_id = 5;
+  PeerForeignBankId buyer_id = 6;
+  PeerForeignBankId seller_id = 7;
+  string ticker = 8;
+  int64 quantity = 9;
+  string strike_price = 10;
+  string currency = 11;
+  string settlement_date = 12;
+  // "DEBIT" → this bank holds the seller side; "CREDIT" → buyer side.
+  string direction = 13;
+  string status = 14;
+  int64 created_at_unix = 15;
 }
 
 message GetContractRequest {
@@ -1152,6 +1232,17 @@ message ExerciseResponse {
 
 // PeerOTCService backs the api-gateway /api/v3/public-stock and
 // /api/v3/negotiations/{rid}/{id} routes (Phase 4, Celina 5 SI-TX).
+//
+// RecordOptionContract is called by transaction-service at COMMIT_TX
+// time for each option-asset posting that landed on this bank — one
+// call per (DEBIT-on-seller, CREDIT-on-buyer) leg. Idempotent on
+// (crossbank_tx_id, posting_index).
+//
+// CheckSellerCanDeliver is called by transaction-service at NEW_TX
+// time for each DEBIT-direction option-asset posting on this bank,
+// to validate that the seller has enough unreserved shares to back
+// the contract. A NO answer drives an INSUFFICIENT_ASSET NoVote so
+// money never moves on a contract the seller can't fulfil.
 service PeerOTCService {
   rpc GetPublicStocks(GetPublicStocksRequest) returns (GetPublicStocksResponse);
   rpc CreateNegotiation(CreateNegotiationRequest) returns (CreateNegotiationResponse);
@@ -1159,6 +1250,9 @@ service PeerOTCService {
   rpc GetNegotiation(GetNegotiationRequest) returns (GetNegotiationResponse);
   rpc DeleteNegotiation(DeleteNegotiationRequest) returns (DeleteNegotiationResponse);
   rpc AcceptNegotiation(AcceptNegotiationRequest) returns (AcceptNegotiationResponse);
+  rpc RecordOptionContract(RecordOptionContractRequest) returns (RecordOptionContractResponse);
+  rpc CheckSellerCanDeliver(CheckSellerCanDeliverRequest) returns (CheckSellerCanDeliverResponse);
+  rpc InitiateOptionExercise(InitiateOptionExerciseRequest) returns (InitiateOptionExerciseResponse);
 }
 
 message PeerForeignBankId {
@@ -1241,4 +1335,67 @@ message AcceptNegotiationRequest {
 message AcceptNegotiationResponse {
   string transaction_id = 1;
   string status = 2;
+}
+
+// RecordOptionContractRequest carries everything stock-service needs
+// to materialise one option-asset posting into a peer_option_contracts
+// row at COMMIT_TX time.
+//
+// option_description_json is the verbatim assetId string from the
+// SI-TX posting — a JSON-encoded OptionDescription with ticker,
+// amount, strikePrice, currency, settlementDate, and negotiationId.
+// Buyer/seller are the participant identifiers from the original
+// OtcOffer; only the participant whose routingNumber matches this
+// bank's own_routing is local — the other side is recorded as the
+// foreign counterparty.
+message RecordOptionContractRequest {
+  string crossbank_tx_id = 1;          // peer_bank_code + ":" + locallyGeneratedKey
+  int32 posting_index = 2;             // index into the original Transaction.postings
+  string option_description_json = 3;
+  PeerForeignBankId buyer_id = 4;
+  PeerForeignBankId seller_id = 5;
+  string direction = 6;                // "DEBIT" (seller side) or "CREDIT" (buyer side)
+  // intent: "" or "accept" → form a new contract (lock seller holdings,
+  // write peer_option_contracts row). "exercise" → transition the
+  // existing contract referenced by the embedded OptionDescription's
+  // negotiationId to status=exercised and run role-specific stock ops
+  // (seller side: settle reservation + decrement holding; buyer side:
+  // increment holding). Idempotent on (crossbank_tx_id, posting_index).
+  string intent = 7;
+}
+
+message RecordOptionContractResponse {
+  uint64 contract_id = 1;
+}
+
+// InitiateOptionExerciseRequest triggers a cross-bank option exercise.
+// Called by the gateway when the buyer hits POST /api/v3/me/otc/contracts/peer/:id/exercise.
+// Stock-service composes the 4-posting Transaction (strike money +
+// option markers with intent=exercise) and dispatches via
+// transaction-service.PeerTxService.InitiateOutboundTxWithPostings.
+message InitiateOptionExerciseRequest {
+  uint64 peer_option_contract_id = 1; // local row id (resolved by gateway)
+  // Buyer's currency account that pays the strike on this bank.
+  string buyer_account_number = 2;
+}
+
+message InitiateOptionExerciseResponse {
+  string transaction_id = 1;
+  string status = 2;
+}
+
+// CheckSellerCanDeliverRequest asks whether the seller participant
+// has at least `quantity` unreserved shares of the given ticker.
+// seller_id is the SI-TX participant identifier ("client-<n>" or
+// "bank"); ticker is the stock ticker; quantity is the option's
+// underlying share count.
+message CheckSellerCanDeliverRequest {
+  PeerForeignBankId seller_id = 1;
+  string ticker = 2;
+  int64 quantity = 3;
+}
+
+message CheckSellerCanDeliverResponse {
+  bool ok = 1;
+  int64 available_quantity = 2;
 }

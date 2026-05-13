@@ -11,10 +11,26 @@ import "time"
 //
 // Composite-unique: (peer_bank_code, locally_generated_key).
 type PeerIdempotenceRecord struct {
-	ID                  uint64    `gorm:"primaryKey"`
-	PeerBankCode        string    `gorm:"size:8;not null;uniqueIndex:idx_peer_idem_keys"`
-	LocallyGeneratedKey string    `gorm:"size:128;not null;uniqueIndex:idx_peer_idem_keys"`
-	TransactionID       string    `gorm:"size:128;not null"`
-	ResponsePayloadJSON string    `gorm:"type:text;not null"`
-	CreatedAt           time.Time `gorm:"not null"`
+	ID                  uint64 `gorm:"primaryKey"`
+	PeerBankCode        string `gorm:"size:8;not null;uniqueIndex:idx_peer_idem_keys"`
+	LocallyGeneratedKey string `gorm:"size:128;not null;uniqueIndex:idx_peer_idem_keys"`
+	TransactionID       string `gorm:"size:128;not null"`
+	ResponsePayloadJSON string `gorm:"type:text;not null"`
+	// DebitsJSON is the list of immediate-debits performed during the
+	// vote-YES phase of NEW_TX (one entry per DEBIT posting on this
+	// bank's routing). Persisted so HandleRollbackTx can credit each
+	// debited account back when the IB sends ROLLBACK_TX. Empty (`[]`)
+	// when no DEBIT postings landed on this bank — common case for
+	// transfers where the sender's bank handles its own debit
+	// pre-flight via InitiateOutboundTx, leaving only CREDIT postings
+	// for the receiver.
+	DebitsJSON string `gorm:"type:text;not null;default:'[]'"`
+	// OptionsJSON is the list of option-asset postings on this bank's
+	// routing (one entry per option leg in the original NEW_TX).
+	// Materialised into peer_option_contracts rows by HandleCommitTx
+	// via stock-service.PeerOTCService.RecordOptionContract; left
+	// untouched by HandleRollbackTx since no contract was written at
+	// vote time. Empty (`[]`) for non-OTC TXs.
+	OptionsJSON string    `gorm:"type:text;not null;default:'[]'"`
+	CreatedAt   time.Time `gorm:"not null"`
 }

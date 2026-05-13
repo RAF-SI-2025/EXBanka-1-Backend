@@ -186,3 +186,26 @@ func TestUserRevokedAtKey_Format(t *testing.T) {
 	assert.Equal(t, "user_revoked_at:42", userRevokedAtKey(42))
 	assert.Equal(t, "user_revoked_at:0", userRevokedAtKey(0))
 }
+
+func TestNewRedisCache_LiveServer(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	t.Cleanup(mr.Close)
+
+	c, err := NewRedisCache(mr.Addr())
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Smoke: roundtrip a simple value.
+	require.NoError(t, c.Set(t.Context(), "k", cacheValue{Foo: "v"}, time.Minute))
+	var out cacheValue
+	require.NoError(t, c.Get(t.Context(), "k", &out))
+	assert.Equal(t, "v", out.Foo)
+}
+
+func TestNewRedisCache_DialFails(t *testing.T) {
+	// 127.0.0.1:1 should not have a Redis server. Ping should fail.
+	_, err := NewRedisCache("127.0.0.1:1")
+	require.Error(t, err)
+}

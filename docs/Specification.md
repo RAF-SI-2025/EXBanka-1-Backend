@@ -901,6 +901,11 @@ Four new RPCs on `AccountService` back the securities-order reservation system. 
 - `SwitchSource(SwitchSourceRequest) returns (SwitchSourceResponse)` — switches the active stock data source. Request field: `source string` (one of `external`, `generated`, `simulator`). Response wraps a `SourceStatus` message.
 - `GetSourceStatus(GetSourceStatusRequest) returns (SourceStatus)` — returns the current source name and switch status. `SourceStatus` fields: `source string`, `status string` (`idle` | `reseeding` | `failed`), `started_at string` (RFC3339), `last_error string`.
 
+`OTCGRPCService` — OTC offer discovery and acceptance, including the unified local + cross-bank market view:
+- `ListOffers(ListOTCOffersRequest) returns (ListOTCOffersResponse)` — local-only OTC offers built from this bank's holdings (`security_type`, `ticker`, pagination filters).
+- `BuyOffer(BuyOTCOfferRequest) returns (OTCTransaction)` — buyer-side acceptance for a local OTC offer; settles via the standard OTC saga.
+- `ListUnifiedOffers(ListUnifiedOTCOffersRequest) returns (ListUnifiedOTCOffersResponse)` — unified local + cross-bank view, backed by an in-process ~5 s cache that fans out to every active peer bank's `GET /api/v3/public-stock`. Request fields: `security_type`, `ticker`, `kind` (`""` | `local` | `remote`), `bank_code`, `page`, `page_size`. The cache (and the peer fan-out goroutine) live entirely in stock-service; the api-gateway's `GET /api/v3/otc/offers` is a thin pass-through over this RPC.
+
 **Key pattern:** When a proto file has multiple services (e.g., `CardService` + `VirtualCardService` + `CardRequestService`), they all run in the same microservice process on the same port but are registered as separate gRPC services. The API Gateway creates separate client instances that share the same connection address.
 
 ---
@@ -2384,7 +2389,9 @@ The full endpoint reference is in `docs/api/REST_API_v1.md` (kept under that fil
 | GET | `/api/v3/otc/offers/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetOffer | Offer detail with revisions |
 | GET | `/api/v3/otc/contracts/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetContract | Contract detail |
 | GET | `/api/v3/me/otc/offers` | AnyAuthMiddleware | OTCOptionsHandler.ListMyOffers | Caller's OTC offers |
-| GET | `/api/v3/me/otc/contracts` | AnyAuthMiddleware | OTCOptionsHandler.ListMyContracts | Caller's OTC contracts |
+| GET | `/api/v3/me/otc/contracts` | AnyAuthMiddleware | OTCOptionsHandler.ListMyContracts | Caller's OTC contracts (intra-bank in `contracts`, cross-bank in `peer_contracts`) |
+| POST | `/api/v3/me/otc/contracts/peer/:id/exercise` | AnyAuthMiddleware | OTCOptionsHandler.ExercisePeerContract | Cross-bank option exercise (buyer-only). See §27. |
+| POST | `/api/v3/me/peer-otc/negotiations` | AnyAuthMiddleware | PeerOTCInitiateHandler.CreatePeerNegotiation | Client-facing initiator for cross-bank OTC negotiations. See §27. |
 
 ## 24. Investment Funds (Celina 4)
 
@@ -2513,8 +2520,9 @@ On success the middleware sets `peer_bank_code` and `peer_routing_number` on the
 ### Database tables
 
 - **`peer_banks`** — runtime-editable registry. Columns: `id`, `bank_code`, `routing_number`, `base_url`, `api_token_bcrypt`, `api_token_plaintext`, `hmac_inbound_key`, `hmac_outbound_key`, `active`, timestamps.
-- **`peer_idempotence_records`** — receiver-side replay cache. Composite-unique on `(peer_bank_code, locally_generated_key)`. Stores cached `response_payload_json`.
+- **`peer_idempotence_records`** — receiver-side replay cache. Composite-unique on `(peer_bank_code, locally_generated_key)`. Stores `response_payload_json`, `debits_json` (immediate-debit list for ROLLBACK_TX credit-back), and `options_json` (option-leg list for COMMIT_TX materialisation).
 - **`outbound_peer_txs`** — sender-side state. Columns: `id`, `idempotence_key`, `peer_bank_code`, `tx_kind` (`transfer` | `otc-accept` | `otc-exercise`), `postings_json`, `status` (`pending` | `committing` | `committed` | `rolled_back` | `failed`), `attempt_count`, `last_attempt_at`, `last_error`, timestamps.
+- **`peer_option_contracts`** (stock-service DB, Celina 5) — cross-bank option contract records. See §27 for the full column list. Lifecycle: `active` → `exercised` (via exercise SI-TX) or `expired` (via daily cron after settlement_date passes).
 
 ### Retry / replay policy
 
@@ -2603,57 +2611,102 @@ Same-currency flows skip the conversion call entirely.
 
 ## 27. Cross-Bank OTC Options (Celina 5 / SI-TX)
 
-Cross-bank OTC negotiation + acceptance follows SI-TX. Phase 4 of the SI-TX refactor; plan: `docs/superpowers/plans/2026-04-29-celina5-sitx-phase4-otc-peer.md`.
+Full cross-bank OTC option lifecycle: discovery → initiation → counter-offer → accept → exercise → expiry. The negotiation surface (`/api/v3/negotiations/...`) and the option-formation / exercise transactions ride on the §25 SI-TX wire (`POST /api/v3/interbank` + `Message<Type>` envelopes); only the `/me/peer-otc/...` and `/me/otc/contracts/peer/...` user-facing endpoints sit on top of normal client JWT auth.
 
-§27 covers the OTC layer; the underlying TX dispatch reuses the §25 SI-TX flow.
-
-### Public peer-facing routes (api-gateway)
-
-Same `PeerAuth` as §25.
+### Peer-facing routes (api-gateway, behind `PeerAuth`)
 
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/v3/public-stock` | Returns this bank's OTC-public-flagged holdings (queries `holdings` where `public_quantity > 0 AND security_type = 'stock'`). |
-| POST | `/api/v3/negotiations` | Peer-initiated cross-bank offer. Persists in `peer_otc_negotiations` and returns a fresh negotiation id (UUID). |
-| PUT | `/api/v3/negotiations/:rid/:id` | Counter-offer. Updates the offer JSON on an existing negotiation row. |
-| GET | `/api/v3/negotiations/:rid/:id` | Read negotiation state (offer + buyer/seller ids + status). |
-| DELETE | `/api/v3/negotiations/:rid/:id` | Cancel — sets status to `cancelled`. |
-| GET | `/api/v3/negotiations/:rid/:id/accept` | Accept — composes the 4-posting `Transaction` and dispatches via `PeerTxService.InitiateOutboundTxWithPostings`. |
-| GET | `/api/v3/user/:rid/:id` | Counterparty user info lookup. Returns 404 if `rid` ≠ `OWN_BANK_CODE`'s routing (we don't proxy across banks). For own routing, dispatches to `client-service.GetClient` for `client-N` ids and `user-service.GetEmployee` for `employee-N` ids. |
+| POST | `/api/v3/negotiations` | Inbound from a peer. Body is a flat SI-TX `OtcOffer` (with `buyerId`/`sellerId` nested inside, per spec). Persists in `peer_otc_negotiations`; returns a fresh `ForeignBankId` directly (`{routingNumber, id}`), not wrapped. |
+| PUT | `/api/v3/negotiations/:rid/:id` | Counter-offer. Body is the same flat `OtcOffer`. Updates the offer JSON. |
+| GET | `/api/v3/negotiations/:rid/:id` | Returns SI-TX `OtcNegotiation` (= `OtcOffer & {isOngoing: boolean}`). `isOngoing` is `true` iff this bank's row has `status="ongoing"`. |
+| DELETE | `/api/v3/negotiations/:rid/:id` | Soft-cancel: row status flips to `cancelled` (NOT physically deleted, per spec §3.5: "DELETE … sets isOngoing to false"). Subsequent `GET` returns 200 with `isOngoing=false`. |
+| GET | `/api/v3/negotiations/:rid/:id/accept` | Accept — composes the 4-posting option-formation `Transaction` and dispatches via `PeerTxService.InitiateOutboundTxWithPostings`. Returns `{transaction_id, status}`. |
+| GET | `/api/v3/user/:rid/:id` | Counterparty user info lookup. Returns 404 if `rid` ≠ this bank's routing. For own routing, dispatches to `client-service.GetClient` for `client-N` ids and `user-service.GetEmployee` for `employee-N` ids. |
 
-### gRPC service
+### Client-facing routes (api-gateway, behind `AnyAuthMiddleware`)
 
-- **`PeerOTCService`** (stock-service): 6 RPCs mirroring the public routes — `GetPublicStocks`, `CreateNegotiation`, `UpdateNegotiation`, `GetNegotiation`, `DeleteNegotiation`, `AcceptNegotiation`.
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/api/v3/me/peer-otc/negotiations` | Initiate. Buyer-side entry. Reads `buyerId` from the JWT, resolves the seller's bank via `PeerBankAdminService.ResolvePeerByBankCode`, HTTP-POSTs an `OtcOffer` to the peer's `/api/v3/negotiations`. Returns the seller-bank-assigned `ForeignBankId`. |
+| GET | `/api/v3/me/otc/contracts` | Existing endpoint, now also returns `peer_contracts` and `peer_total` for cross-bank rows where the caller is a participant (CREDIT side = this bank holds the buyer; DEBIT side = this bank holds the seller). |
+| POST | `/api/v3/me/otc/contracts/peer/:id/exercise` | Exercise. Buyer-only (rejects when this bank's row is `direction=DEBIT`). Body is `{buyer_account_number}`. Dispatches the 4-posting exercise SI-TX (strike money buyer→seller + option markers carrying `intent=exercise`). |
 
-### Acceptance flow
+### gRPC services
 
-`AcceptNegotiation` (stock-service handler):
-1. Look up the negotiation in `peer_otc_negotiations`.
-2. Decode the offer.
-3. Compose 4 postings:
-   - Buyer debits premium (in `premiumCurrency`).
-   - Seller credits premium.
-   - Seller debits 1× `OptionDescription` (asset_id is the JSON-encoded `OptionDescription` per cohort convention — captures ticker, amount, strike, settlement, negotiation_id).
-   - Buyer credits 1× `OptionDescription`.
-4. Call `transaction-service.PeerTxService.InitiateOutboundTxWithPostings` with `tx_kind="otc-accept"`. The TX runs through the standard `NEW_TX` → `COMMIT_TX` flow on the SI-TX wire.
-5. Mark negotiation `accepted`. Return `transaction_id` to caller.
+- **`PeerOTCService`** (stock-service): 9 RPCs.
+  - Negotiation lifecycle: `GetPublicStocks`, `CreateNegotiation`, `UpdateNegotiation`, `GetNegotiation`, `DeleteNegotiation`, `AcceptNegotiation`.
+  - SI-TX option leg materialisation (called by transaction-service): `RecordOptionContract` — dispatches on `intent` field, creates a `peer_option_contracts` row + locks seller's holdings on `accept`, transitions to `exercised` + runs role-specific stock ops on `exercise`. Idempotent on `(crossbank_tx_id, posting_index)`.
+  - SI-TX validation hooks (called by transaction-service): `CheckSellerCanDeliver` — NEW_TX-time pre-check that the seller has enough unreserved shares, drives `INSUFFICIENT_ASSET` `NoVote` so money never moves on a contract the seller can't fulfil.
+  - Exercise dispatch (called by gateway): `InitiateOptionExercise` — composes the 4-posting exercise TX from a contract row and dispatches via `transaction-service.PeerTxService.InitiateOutboundTxWithPostings`.
 
-### Database table
+### Unified OTC offer discovery
 
-- **`peer_otc_negotiations`** — receiver-side persistence of inbound peer negotiations. Composite-unique on `(peer_bank_code, foreign_id)`. Columns: `id`, `peer_bank_code`, `foreign_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `offer_json` (serialised `contractsitx.OtcOffer`), `status` (`ongoing` | `accepted` | `cancelled` | `expired`), timestamps.
+The unified OTC offer view (local + cross-bank) is served by `stock-service`'s `OTCGRPCService.ListUnifiedOffers`. An in-process refresher goroutine in stock-service rebuilds the cache every ~5 s by reading local offers from `OTCService.ListOffers` and HTTP-GETting each active peer bank's `/api/v3/public-stock` (PeerAuth via `X-Api-Key`, resolved through `transaction-service.PeerBankAdminService`). The api-gateway's `GET /api/v3/otc/offers` handler is a thin pass-through over this RPC and owns no cache; query params (`security_type`, `ticker`, `kind`, `bank_code`, pagination) map 1-to-1 onto the gRPC request.
+
+### Lifecycle flows
+
+#### Acceptance (`accept`)
+
+`AcceptNegotiation` (stock-service handler) →
+1. Look up negotiation in `peer_otc_negotiations`.
+2. Resolve seller's local account number via `account-service.ListAccountsByClient` + premium currency match.
+3. Compose 4 postings — buyer DEBIT premium / seller CREDIT premium / seller DEBIT `OptionDescription` / buyer CREDIT `OptionDescription`. The `OptionDescription` JSON includes `negotiationId` for cross-bank reference.
+4. Call `transaction-service.PeerTxService.InitiateOutboundTxWithPostings` with `tx_kind="otc-accept"`.
+5. The SI-TX flow:
+   - `posting_executor.Reserve` (NEW_TX) on each bank validates option-asset postings via `CheckSellerCanDeliver` for DEBIT direction → vote NO with `INSUFFICIENT_ASSET` if seller short.
+   - On YES, `cacheAndReturn` persists `peer_idempotence_records.options_json` listing the option items.
+   - On COMMIT_TX, `materialiseOptions` calls `PeerOTCService.RecordOptionContract` per option leg → writes `peer_option_contracts` row + (DEBIT side) calls `HoldingReservationService.ReserveForPeerOptionContract` to lock seller's shares.
+6. Negotiation status transitions to `accepted`.
+
+#### Exercise (`/me/otc/contracts/peer/:id/exercise`)
+
+`PeerOTCGRPCHandler.InitiateOptionExercise` →
+1. Validate this bank holds the buyer side (`direction=CREDIT`) and contract is `active`.
+2. Compose 4 postings using the original contract terms — buyer DEBIT strike money / seller CREDIT strike / seller DEBIT option marker / buyer CREDIT option marker. The `OptionDescription` carries `intent="exercise"`.
+3. Dispatch via `InitiateOutboundTxWithPostings` (`tx_kind="otc-exercise"`).
+4. On COMMIT_TX, `RecordOptionContract`'s exercise branch:
+   - DEBIT side: `ConsumeForPeerOptionContract` settles the reservation and decrements seller's holding.
+   - CREDIT side: `CreditBuyerHoldingForPeerOption` finds-or-creates the buyer's holding and increments it.
+   - Both sides: contract row → `status=exercised`.
+
+#### Expiry (cron)
+
+`OTCExpiryCron` runs daily at 02:00 UTC (and once on stock-service startup to catch up missed runs). For each `peer_option_contracts` row with `status='active'` and `settlement_date < today`:
+- DEBIT direction (seller's bank): `ReleaseForPeerOptionContract` releases the reservation; shares unlock.
+- CREDIT direction (buyer's bank): no holding op.
+- Both: row → `status=expired`. Seller keeps the premium (no money movement).
+
+### Database tables
+
+- **`peer_otc_negotiations`** — receiver-side persistence of inbound peer negotiations. Composite-unique on `(peer_bank_code, foreign_id)`. Columns: `id`, `peer_bank_code`, `foreign_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `offer_json`, `status` (`ongoing` | `accepted` | `cancelled`), timestamps.
+- **`peer_option_contracts`** — cross-bank option-contract records. One row per option-asset posting that landed on this bank. Composite-unique on `(crossbank_tx_id, posting_index)`. Columns: `id`, `crossbank_tx_id` (= `<peer_bank_code>:<locally_generated_key>`), `posting_index`, `negotiation_routing_number`, `negotiation_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `ticker`, `quantity`, `strike_price`, `currency`, `settlement_date`, `direction` (`DEBIT` = seller side, `CREDIT` = buyer side), `status` (`active` | `exercised` | `expired`), `created_at`.
+- **`holding_reservations`** — extended with `peer_option_contract_id` (third optional FK alongside `order_id` and `otc_contract_id`). DB CHECK constraint `holding_reservation_owner_chk` enforces "exactly one of three" non-NULL.
+- **`peer_idempotence_records`** — extended with `options_json` column (in addition to `debits_json`). Persists option items at NEW_TX vote-YES so COMMIT_TX can materialise them without depending on the original postings list.
 
 ### SI-TX wire types
 
-Defined in `contract/sitx/otc_types.go`:
+Defined in `contract/sitx/otc_types.go`. Spec-conforming shapes (per cohort spec at <https://arsen.srht.site/si-tx-proto/>):
 
-- `OtcOffer` — ticker, amount, pricePerStock, currency, premium, premiumCurrency, settlementDate, lastModifiedBy.
-- `OtcNegotiation` — full record (id, buyer/seller ids, offer, status, updatedAt).
-- `OptionDescription` — used as a posting `assetId` for OTC TX formation (ticker, amount, strikePrice, currency, settlementDate, negotiationId).
+- `ForeignBankId` — `(routingNumber, id)` tuple.
+- `OtcOffer` — `stock`, `settlementDate`, `pricePerUnit`, `premium`, `buyerId`, `sellerId`, `amount`, `lastModifiedBy`. (Internal storage is a flat-fielded variant; the gateway translates between the spec wire shape and internal gRPC.)
+- `OtcNegotiation` — `OtcOffer & {isOngoing: boolean}`.
+- `OptionDescription` — used as a posting `assetId` (JSON-encoded). Fields: `ticker`, `amount`, `strikePrice`, `currency`, `settlementDate`, `negotiationId`, plus a local extension `intent` (`""` / `"accept"` for accept TX, `"exercise"` for exercise TX). Cohort partners ignore the `intent` extension.
 - `UserInformation` — response shape of `GET /user/{rid}/{id}`.
 - `PublicStocksResponse` + `PublicStock` — response shape of `GET /public-stock`.
-- `ForeignBankId` — `(routingNumber, id)` tuple used wherever cross-bank resource identity is needed.
+
+### Atomicity guarantees
+
+Per Celina 5 §"Plaćanja" (*"u celosti, ili ne uopšte"*):
+- NEW_TX-time pre-check: insufficient seller holdings → vote NO before any money moves.
+- Sender-debit-immediate is matched by sender-credit-back on NO vote.
+- Receiver-side DEBIT postings perform immediate `UpdateBalance(-X)` with idempotency keys; on ROLLBACK_TX, each persisted `DebitsJSON` entry is credited back.
+- Option contract materialisation happens at COMMIT_TX (never at NEW_TX), so a rolled-back TX leaves no contract row.
+- Holding reservations use composite-unique indexes for idempotent retry.
 
 ### Out of scope
 
-- Liquidation of underlying stocks at exercise time — Phase 4 covers acceptance (TX formation); exercise of the resulting option contract is a follow-up.
-- Cross-bank price discovery / quote streaming — `GET /public-stock` is poll-driven; sub-second updates are not in scope.
+- Bank-side OTC participation across banks — employees acting as bank can already participate intra-bank, but the user-facing `/me/peer-otc/negotiations` initiator forces `client-<n>` from the JWT principal.
+- Cross-bank currency conversion at exercise — buyer must hold the strike currency directly; cross-currency strikes would need exchange-service plumbing through the SI-TX path.
+- HMAC outbound auth has been wired but not exercised end-to-end with another team's bank.

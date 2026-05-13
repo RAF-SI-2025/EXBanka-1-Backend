@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -25,13 +26,25 @@ import (
 // service trusts the IDs.)
 type OTCOptionsHandler struct {
 	stockpb.UnimplementedOTCOptionsServiceServer
-	svc       *service.OTCOfferService
-	contracts *repository.OptionContractRepository
-	listings  *repository.ListingRepository // optional; populates market_reference_price
+	svc           *service.OTCOfferService
+	contracts     *repository.OptionContractRepository
+	peerContracts *repository.PeerOptionContractRepository // optional; surfaces cross-bank contracts in /me/otc/contracts
+	listings      *repository.ListingRepository            // optional; populates market_reference_price
+	ownRouting    int64
 }
 
 func NewOTCOptionsHandler(svc *service.OTCOfferService, contracts *repository.OptionContractRepository) *OTCOptionsHandler {
 	return &OTCOptionsHandler{svc: svc, contracts: contracts}
+}
+
+// WithPeerContracts wires the cross-bank option-contracts repository
+// and this bank's routing number so ListMyContracts can also return
+// peer_option_contracts rows where the caller is a participant.
+func (h *OTCOptionsHandler) WithPeerContracts(peer *repository.PeerOptionContractRepository, ownRouting int64) *OTCOptionsHandler {
+	cp := *h
+	cp.peerContracts = peer
+	cp.ownRouting = ownRouting
+	return &cp
 }
 
 // WithListings wires the listing repo so contract / offer responses can
@@ -212,7 +225,48 @@ func (h *OTCOptionsHandler) ListMyContracts(ctx context.Context, in *stockpb.Lis
 	for i := range rows {
 		out.Contracts = append(out.Contracts, h.withMarketRef(&rows[i], toContractProto(&rows[i])))
 	}
+
+	// Cross-bank contracts. Only fetched when the peer-contract repo is
+	// wired (post-Celina-5) AND the caller is a client (cross-bank
+	// participant ids are "client-<n>"; bank-side cross-bank contracts
+	// surface elsewhere). page/page_size pass through unchanged so the
+	// peer list paginates the same way as the intra-bank list.
+	if h.peerContracts != nil && ownerType == model.OwnerClient && ownerID != nil {
+		participantID := "client-" + strconv.FormatUint(*ownerID, 10)
+		peerRows, peerTotal, perr := h.peerContracts.ListByLocalParticipant(participantID, h.ownRouting, in.Role, int(in.Page), int(in.PageSize))
+		if perr != nil {
+			return nil, status.Errorf(codes.Internal, "list peer contracts: %v", perr)
+		}
+		out.PeerContracts = make([]*stockpb.PeerOptionContractResponse, 0, len(peerRows))
+		out.PeerTotal = peerTotal
+		for i := range peerRows {
+			out.PeerContracts = append(out.PeerContracts, peerContractToProto(&peerRows[i]))
+		}
+	}
+
 	return out, nil
+}
+
+// peerContractToProto translates a PeerOptionContract row into the
+// wire-shape PeerOptionContractResponse for ListMyContracts callers.
+func peerContractToProto(p *model.PeerOptionContract) *stockpb.PeerOptionContractResponse {
+	return &stockpb.PeerOptionContractResponse{
+		Id:                       p.ID,
+		CrossbankTxId:            p.CrossbankTxID,
+		PostingIndex:             p.PostingIndex,
+		NegotiationRoutingNumber: p.NegotiationRoutingNumber,
+		NegotiationId:            p.NegotiationID,
+		BuyerId:                  &stockpb.PeerForeignBankId{RoutingNumber: p.BuyerRoutingNumber, Id: p.BuyerID},
+		SellerId:                 &stockpb.PeerForeignBankId{RoutingNumber: p.SellerRoutingNumber, Id: p.SellerID},
+		Ticker:                   p.Ticker,
+		Quantity:                 p.Quantity,
+		StrikePrice:              p.StrikePrice.String(),
+		Currency:                 p.Currency,
+		SettlementDate:           p.SettlementDate,
+		Direction:                p.Direction,
+		Status:                   p.Status,
+		CreatedAtUnix:            p.CreatedAt.Unix(),
+	}
 }
 
 func (h *OTCOptionsHandler) GetContract(ctx context.Context, in *stockpb.GetContractRequest) (*stockpb.OptionContractResponse, error) {

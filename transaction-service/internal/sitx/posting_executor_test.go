@@ -50,6 +50,9 @@ func (s *stubAccountClient) UpdateBalance(ctx context.Context, in *accountpb.Upd
 	}
 	return nil, errors.New("not stubbed")
 }
+func (s *stubAccountClient) ListAccountsByClient(ctx context.Context, in *accountpb.ListAccountsByClientRequest, opts ...grpc.CallOption) (*accountpb.ListAccountsResponse, error) {
+	return &accountpb.ListAccountsResponse{}, nil
+}
 
 func TestPostingExecutor_HappyPath_ReservesCredit(t *testing.T) {
 	called := false
@@ -100,10 +103,19 @@ func TestPostingExecutor_NoSuchAccount(t *testing.T) {
 	}
 }
 
-func TestPostingExecutor_UnacceptableAsset_DebitOnOurRouting(t *testing.T) {
+func TestPostingExecutor_DebitOnOurRouting_DoesImmediateDebit(t *testing.T) {
+	// Per SI-TX, a DEBIT posting on our routing means our account is
+	// losing the asset. We do an immediate UpdateBalance with a
+	// negative amount and remember the operation so HandleRollbackTx
+	// can credit it back if the IB sends ROLLBACK_TX.
+	debitedAmount := ""
 	stub := &stubAccountClient{
 		getAccountFn: func(ctx context.Context, in *accountpb.GetAccountByNumberRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
 			return &accountpb.AccountResponse{AccountNumber: in.AccountNumber, CurrencyCode: "RSD", Status: "active"}, nil
+		},
+		updateFn: func(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
+			debitedAmount = in.Amount
+			return &accountpb.AccountResponse{AccountNumber: in.AccountNumber}, nil
 		},
 	}
 	exec := sitx.NewPostingExecutor(stub, 111)
@@ -112,11 +124,17 @@ func TestPostingExecutor_UnacceptableAsset_DebitOnOurRouting(t *testing.T) {
 		{RoutingNumber: 222, AccountID: "222-B", AssetID: "RSD", Amount: decimal.NewFromInt(100), Direction: contractsitx.DirectionCredit},
 	}
 	res := exec.Reserve(context.Background(), postings, "222", "idem-3")
-	if res.Vote.Type != contractsitx.VoteNo {
-		t.Fatalf("expected NO, got %+v", res.Vote)
+	if res.Vote.Type != contractsitx.VoteYes {
+		t.Fatalf("expected YES on DEBIT posting, got %+v", res.Vote)
 	}
-	if len(res.Vote.NoVotes) == 0 || res.Vote.NoVotes[0].Reason != contractsitx.NoVoteReasonUnacceptableAsset {
-		t.Errorf("expected UNACCEPTABLE_ASSET, got %+v", res.Vote.NoVotes)
+	if debitedAmount != "-100" {
+		t.Errorf("expected UpdateBalance(-100), got %q", debitedAmount)
+	}
+	if len(res.DebitedItems) != 1 {
+		t.Fatalf("expected 1 debited item, got %d", len(res.DebitedItems))
+	}
+	if res.DebitedItems[0].Amount != "100" {
+		t.Errorf("debited item amount: %q", res.DebitedItems[0].Amount)
 	}
 }
 
