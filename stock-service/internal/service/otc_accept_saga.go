@@ -19,15 +19,15 @@ import (
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
-// AcceptInput captures the parameters of an Accept call. AccountIDs are
-// passed in by the caller (the gateway resolves them from the user's session
-// or from request body).
+// AcceptInput captures the parameters of an Accept call.
 type AcceptInput struct {
 	OfferID         uint64
 	ActorUserID     int64
 	ActorSystemType string
-	BuyerAccountID  uint64 // buyer's account that pays the premium
-	SellerAccountID uint64 // seller's account that receives the premium
+	// AcceptorAccountID is the accepting party's own account. The other
+	// side's account is read from offer.InitiatorAccountID. Which is buyer
+	// vs seller is decided by offer.direction.
+	AcceptorAccountID uint64
 }
 
 // Accept runs the premium-payment saga (§6.1 of spec):
@@ -67,11 +67,27 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 
 	buyerOwnerType, buyerOwnerID, sellerOwnerType, sellerOwnerID := identifyOTCBuyerSellerOwners(o, in.ActorUserID, in.ActorSystemType)
 
-	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.BuyerAccountID})
+	// The initiator bound their account at create; the acceptor binds theirs
+	// now. Which is buyer vs seller follows offer.direction: on a
+	// sell_initiated offer the initiator is the seller and the acceptor the
+	// buyer; on a buy_initiated offer it is the reverse.
+	var buyerAccountID, sellerAccountID uint64
+	if o.Direction == model.OTCDirectionSellInitiated {
+		sellerAccountID = o.InitiatorAccountID
+		buyerAccountID = in.AcceptorAccountID
+	} else {
+		buyerAccountID = o.InitiatorAccountID
+		sellerAccountID = in.AcceptorAccountID
+	}
+	if buyerAccountID == 0 || sellerAccountID == 0 {
+		return nil, errors.New("both buyer and seller accounts must be bound")
+	}
+
+	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: buyerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get buyer account: %w", err)
 	}
-	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.SellerAccountID})
+	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: sellerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get seller account: %w", err)
 	}
@@ -115,6 +131,8 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		PremiumPaid: o.Premium, PremiumCurrency: premiumCcy, StrikeCurrency: premiumCcy,
 		SettlementDate: o.SettlementDate, Status: model.OptionContractStatusActive,
 		SagaID: sagaID, PremiumPaidAt: time.Now().UTC(),
+		BuyerAccountID:  buyerAccountID,
+		SellerAccountID: sellerAccountID,
 	}
 
 	// Pre-compute idempotency keys + memos. The contract.ID is unknown
@@ -160,7 +178,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		Add(saga.Step{
 			Name: saga.StepReservePremium,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy,
+				_, e := s.accounts.ReserveFunds(ctx, buyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy,
 					saga.IdempotencyKey(sagaID, saga.StepReservePremium))
 				return e
 			},

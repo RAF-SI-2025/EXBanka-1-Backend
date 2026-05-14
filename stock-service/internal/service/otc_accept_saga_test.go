@@ -131,6 +131,7 @@ func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
 		Status:                      model.OTCOfferStatusPending,
 		LastModifiedByPrincipalType: "client",
 		LastModifiedByPrincipalID:   uint64(sellerID),
+		InitiatorAccountID:          6001, // sell_initiated → initiator is the seller
 	}
 	if err := offerRepo.Create(offer); err != nil {
 		t.Fatalf("seed offer: %v", err)
@@ -149,13 +150,18 @@ func TestAcceptSaga_SameCurrency_HappyPath(t *testing.T) {
 	fx := newAcceptSagaFixture(t)
 	out, err := fx.svc.Accept(context.Background(), AcceptInput{
 		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		BuyerAccountID: 5001, SellerAccountID: 6001,
+		AcceptorAccountID: 5001,
 	})
 	if err != nil {
 		t.Fatalf("accept: %v", err)
 	}
 	if out.Status != model.OptionContractStatusActive {
 		t.Errorf("status %s", out.Status)
+	}
+	// sell_initiated: initiator (seller) account bound at create = 6001;
+	// acceptor (buyer) binds 5001 now. Contract records both.
+	if out.SellerAccountID != 6001 || out.BuyerAccountID != 5001 {
+		t.Errorf("contract accounts: buyer=%d seller=%d, want 5001/6001", out.BuyerAccountID, out.SellerAccountID)
 	}
 	if !fx.accounts.sumCredited("SELLER-RSD").Equal(decimal.NewFromInt(50000)) {
 		t.Errorf("seller credit: got %s want 50000", fx.accounts.sumCredited("SELLER-RSD"))
@@ -174,7 +180,7 @@ func TestAcceptSaga_CrossCurrency_DebitsBuyerInBuyerCcy(t *testing.T) {
 	fx.exchange.convert = "430"
 	out, err := fx.svc.Accept(context.Background(), AcceptInput{
 		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		BuyerAccountID: 5002, SellerAccountID: 6001, // buyer EUR, seller RSD
+		AcceptorAccountID: 5002, // buyer EUR, seller RSD
 	})
 	if err != nil {
 		t.Fatalf("accept: %v", err)
@@ -195,7 +201,7 @@ func TestAcceptSaga_ReservePremiumFails_DropsContract(t *testing.T) {
 	fx.accounts.failReserveOnce = errors.New("buyer has no money")
 	_, err := fx.svc.Accept(context.Background(), AcceptInput{
 		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		BuyerAccountID: 5001, SellerAccountID: 6001,
+		AcceptorAccountID: 5001,
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -219,7 +225,7 @@ func TestAcceptSaga_SettlePremiumFails_ReleasesReservationAndDropsContract(t *te
 	fx.accounts.failSettleOnce = errors.New("settle boom")
 	_, err := fx.svc.Accept(context.Background(), AcceptInput{
 		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		BuyerAccountID: 5001, SellerAccountID: 6001,
+		AcceptorAccountID: 5001,
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -241,7 +247,7 @@ func TestAcceptSaga_LastMoverRule_RejectsSelfAccept(t *testing.T) {
 	// their own offer must be rejected.
 	_, err := fx.svc.Accept(context.Background(), AcceptInput{
 		OfferID: fx.offer.ID, ActorUserID: fx.sellerID, ActorSystemType: "client",
-		BuyerAccountID: 5001, SellerAccountID: 6001,
+		AcceptorAccountID: 5001,
 	})
 	if err == nil {
 		t.Fatal("expected last-mover rejection")
@@ -256,7 +262,7 @@ func TestAcceptSaga_TerminalOffer_Rejected(t *testing.T) {
 	_ = fx.offers.Save(fx.offer)
 	_, err := fx.svc.Accept(context.Background(), AcceptInput{
 		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
-		BuyerAccountID: 5001, SellerAccountID: 6001,
+		AcceptorAccountID: 5001,
 	})
 	if err == nil {
 		t.Fatal("expected terminal-state rejection")
