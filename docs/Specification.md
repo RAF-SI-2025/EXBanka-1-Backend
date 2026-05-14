@@ -1317,6 +1317,7 @@ api-gateway:
 | POST | `/api/accounts/:id/deactivate` | accounts.deactivate.any | accountHandler.DeactivateAccount | Deactivate account |
 | POST | `/api/companies` | accounts.create | accountHandler.CreateCompany | Create company |
 | GET | `/api/bank-accounts` | bank-accounts.manage | accountHandler.ListBankAccounts | List bank accounts |
+| GET | `/api/v3/bank-accounts/:id/activity` | bank-accounts.manage | accountHandler.GetBankAccountActivity | Ledger activity for a bank-owned account; non-bank account id → 404 |
 | POST | `/api/bank-accounts` | bank-accounts.manage | accountHandler.CreateBankAccount | Create bank account |
 | DELETE | `/api/bank-accounts/:id` | bank-accounts.manage | accountHandler.DeleteBankAccount | Delete bank account |
 | GET | `/api/clients/:id/cards` | cards.read | cardHandler.ListCardsByClientPath | List cards by client |

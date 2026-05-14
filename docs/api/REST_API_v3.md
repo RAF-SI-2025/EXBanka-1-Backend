@@ -2788,6 +2788,53 @@ List all bank-owned accounts.
 
 ---
 
+### GET /api/v3/bank-accounts/:id/activity
+
+List the ledger activity (debits/credits) for a bank-owned account.
+
+**Authentication:** Employee token with `bank-accounts.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | uint64 | Bank account ID |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | int | Page number (default 1) |
+| `page_size` | int | Page size (default 20, max 200) |
+
+**Response 200:**
+```json
+{
+  "entries": [
+    {
+      "id": 1,
+      "entry_type": "credit",
+      "amount": "100.00",
+      "currency": "RSD",
+      "balance_before": "0.00",
+      "balance_after": "100.00",
+      "description": "Transfer fee collection",
+      "reference_id": "...",
+      "reference_type": "transfer",
+      "occurred_at": 1747000000
+    }
+  ],
+  "total_count": 1
+}
+```
+
+**Error Responses:**
+- `400` — invalid id
+- `403` — missing `bank_accounts.manage.any`
+- `404` — account not found, or the id is not a bank account
+
+---
+
 ### POST /api/v3/bank-accounts
 
 Create a new bank-owned account.
