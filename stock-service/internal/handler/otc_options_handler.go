@@ -86,11 +86,15 @@ func (h *OTCOptionsHandler) CreateOffer(ctx context.Context, in *stockpb.CreateO
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "settlement_date must be YYYY-MM-DD")
 	}
+	if in.AccountId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
 	input := service.CreateOfferInput{
 		ActorUserID: in.ActorUserId, ActorSystemType: in.ActorSystemType,
 		Direction: in.Direction, StockID: in.StockId,
 		Quantity: qty, StrikePrice: strike, Premium: prem,
-		SettlementDate: settle,
+		SettlementDate:     settle,
+		InitiatorAccountID: in.AccountId,
 	}
 	if in.Counterparty != nil && in.Counterparty.UserId != 0 {
 		uid := in.Counterparty.UserId
@@ -186,12 +190,12 @@ func (h *OTCOptionsHandler) CounterOffer(ctx context.Context, in *stockpb.Counte
 }
 
 func (h *OTCOptionsHandler) AcceptOffer(ctx context.Context, in *stockpb.AcceptOTCOfferRequest) (*stockpb.AcceptOfferResponse, error) {
-	if in.BuyerAccountId == 0 || in.SellerAccountId == 0 {
-		return nil, status.Error(codes.InvalidArgument, "buyer_account_id and seller_account_id are required")
+	if in.AccountId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
 	}
 	c, err := h.svc.Accept(ctx, service.AcceptInput{
 		OfferID: in.OfferId, ActorUserID: in.ActorUserId, ActorSystemType: in.ActorSystemType,
-		BuyerAccountID: in.BuyerAccountId, SellerAccountID: in.SellerAccountId,
+		AcceptorAccountID: in.AccountId,
 	})
 	if err != nil {
 		return nil, mapOTCErr(err)
@@ -287,12 +291,8 @@ func (h *OTCOptionsHandler) GetContract(ctx context.Context, in *stockpb.GetCont
 }
 
 func (h *OTCOptionsHandler) ExerciseContract(ctx context.Context, in *stockpb.ExerciseContractRequest) (*stockpb.ExerciseResponse, error) {
-	if in.BuyerAccountId == 0 || in.SellerAccountId == 0 {
-		return nil, status.Error(codes.InvalidArgument, "buyer_account_id and seller_account_id are required")
-	}
 	c, err := h.svc.ExerciseContract(ctx, service.ExerciseInput{
 		ContractID: in.ContractId, ActorUserID: in.ActorUserId, ActorSystemType: in.ActorSystemType,
-		BuyerAccountID: in.BuyerAccountId, SellerAccountID: in.SellerAccountId,
 	})
 	if err != nil {
 		return nil, mapOTCErr(err)
