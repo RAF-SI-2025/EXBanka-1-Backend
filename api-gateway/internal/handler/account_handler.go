@@ -738,6 +738,65 @@ func (h *AccountHandler) GetMyAccountActivity(c *gin.Context) {
 	})
 }
 
+// GetBankAccountActivity godoc
+// @Summary      List a bank account's ledger activity
+// @Description  Returns paginated ledger entries (debits/credits) for a bank-owned account. Employee-only; the account must be a bank account or the request is rejected with 404.
+// @Tags         accounts
+// @Produce      json
+// @Param        id         path   int true  "Bank account ID"
+// @Param        page       query  int false "Page number (default 1)"
+// @Param        page_size  query  int false "Page size (default 20, max 200)"
+// @Security     BearerAuth
+// @Success      200  {object}  map[string]interface{}  "entries, total_count"
+// @Failure      400  {object}  map[string]interface{}  "validation_error"
+// @Failure      403  {object}  map[string]interface{}  "missing bank_accounts.manage permission"
+// @Failure      404  {object}  map[string]interface{}  "not a bank account / account not found"
+// @Router       /api/v3/bank-accounts/{id}/activity [get]
+func (h *AccountHandler) GetBankAccountActivity(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	acct, err := h.accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	// This route is in the bank-accounts namespace — a non-bank account ID
+	// must not leak that client's ledger. 404 (not 403) so the endpoint's
+	// blast radius equals its name.
+	if acct.AccountKind != "bank" && acct.OwnerId != 1_000_000_000 {
+		apiError(c, 404, ErrNotFound, "bank account not found")
+		return
+	}
+
+	resp, err := h.accountClient.GetLedgerEntries(c.Request.Context(), &accountpb.GetLedgerEntriesRequest{
+		AccountNumber: acct.AccountNumber,
+		Page:          int32(page),
+		PageSize:      int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	out := make([]gin.H, 0, len(resp.Entries))
+	for _, e := range resp.Entries {
+		out = append(out, ledgerEntryToJSON(e, acct.CurrencyCode))
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"entries":     out,
+		"total_count": resp.TotalCount,
+	})
+}
+
 // ledgerEntryToJSON trims the raw LedgerEntryResponse to fields the client
 // cares about. Internal fields like idempotency keys are not exposed. The
 // ledger entry's account currency isn't carried on the entry itself — we
