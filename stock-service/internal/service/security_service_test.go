@@ -31,8 +31,28 @@ func (m *secSvcStockRepo) GetByID(id uint64) (*model.Stock, error) {
 	}
 	return nil, gorm.ErrRecordNotFound
 }
-func (m *secSvcStockRepo) GetByTicker(_ string) (*model.Stock, error) {
+func (m *secSvcStockRepo) GetByTicker(ticker string) (*model.Stock, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	for i := range m.stocks {
+		if m.stocks[i].Ticker == ticker {
+			return &m.stocks[i], nil
+		}
+	}
 	return nil, gorm.ErrRecordNotFound
+}
+
+func TestSecurityService_GetByTicker_Found(t *testing.T) {
+	stockRepo := &secSvcStockRepo{stocks: []model.Stock{{ID: 7, Ticker: "AAPL"}}}
+	svc := newSecSvc(t, stockRepo, &secSvcOptionRepo{}, &secSvcFuturesRepo{}, &secSvcForexRepo{})
+	got, err := svc.GetByTicker("AAPL")
+	if err != nil {
+		t.Fatalf("GetByTicker: %v", err)
+	}
+	if got.ID != 7 {
+		t.Errorf("got id %d, want 7", got.ID)
+	}
 }
 func (m *secSvcStockRepo) Update(_ *model.Stock) error         { return nil }
 func (m *secSvcStockRepo) UpsertByTicker(_ *model.Stock) error { return nil }
