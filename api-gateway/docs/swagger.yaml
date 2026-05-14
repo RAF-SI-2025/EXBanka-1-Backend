@@ -764,6 +764,13 @@ definitions:
     required:
     - role_names
     type: object
+  handler.setNotificationTemplateRequest:
+    properties:
+      body:
+        type: string
+      subject:
+        type: string
+    type: object
   handler.submitCodeReq:
     properties:
       code:
@@ -7568,6 +7575,145 @@ paths:
       summary: Get a transfer by ID
       tags:
       - transfers
+  /api/v3/notification-templates:
+    get:
+      description: Lists every notification template type with its supported {{variables}},
+        default text, and current (possibly customized) text. The discovery endpoint
+        for the template editor.
+      parameters:
+      - description: 'Filter by channel: email | push'
+        in: query
+        name: channel
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List notification templates (discovery)
+      tags:
+      - notification-templates
+  /api/v3/notification-templates/{channel}/{type}:
+    delete:
+      parameters:
+      - description: 'Channel: email | push'
+        in: path
+        name: channel
+        required: true
+        type: string
+      - description: Template type
+        in: path
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reset a notification template to its default
+      tags:
+      - notification-templates
+    get:
+      parameters:
+      - description: 'Channel: email | push'
+        in: path
+        name: channel
+        required: true
+        type: string
+      - description: Template type, e.g. ACCOUNT_CREATED
+        in: path
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one notification template
+      tags:
+      - notification-templates
+    put:
+      consumes:
+      - application/json
+      description: Sets the subject/body override for a template type. Placeholders
+        must use {{variable_name}} and reference only that type's known variables.
+      parameters:
+      - description: 'Channel: email | push'
+        in: path
+        name: channel
+        required: true
+        type: string
+      - description: Template type
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: subject + body
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.setNotificationTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Customize a notification template
+      tags:
+      - notification-templates
   /api/v3/otc/contracts/{id}:
     get:
       parameters:

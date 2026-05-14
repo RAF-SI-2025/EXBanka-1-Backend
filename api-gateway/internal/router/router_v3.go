@@ -528,6 +528,16 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			bankAccountsDeactivate.DELETE("/:id", h.Account.DeleteBankAccount)
 		}
 
+		// Notification templates — admin-managed copy + variable discovery.
+		notifTemplates := protected.Group("/notification-templates")
+		notifTemplates.Use(middleware.RequirePermission(perms.Notifications.Templates.Manage))
+		{
+			notifTemplates.GET("", h.Notification.ListNotificationTemplates)
+			notifTemplates.GET("/:channel/:type", h.Notification.GetNotificationTemplate)
+			notifTemplates.PUT("/:channel/:type", h.Notification.SetNotificationTemplate)
+			notifTemplates.DELETE("/:channel/:type", h.Notification.ResetNotificationTemplate)
+		}
+
 		// ── SI-TX peer-banks admin (Phase 2 Task 14) ───────────────────
 		peerBanksAdmin := protected.Group("/peer-banks")
 		peerBanksAdmin.Use(middleware.RequirePermission(perms.PeerBanks.Manage.Any))
