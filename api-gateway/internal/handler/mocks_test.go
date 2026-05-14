@@ -905,6 +905,10 @@ type stubNotificationClient struct {
 	markAllReadFn func(*notificationpb.MarkAllNotificationsReadRequest) (*notificationpb.MarkAllNotificationsReadResponse, error)
 	pendingFn     func(*notificationpb.GetPendingMobileRequest) (*notificationpb.PendingMobileResponse, error)
 	ackFn         func(*notificationpb.AckMobileRequest) (*notificationpb.AckMobileResponse, error)
+	listTplFn     func(*notificationpb.ListTemplatesRequest) (*notificationpb.ListTemplatesResponse, error)
+	getTplFn      func(*notificationpb.GetTemplateRequest) (*notificationpb.TemplateInfo, error)
+	setTplFn      func(*notificationpb.SetTemplateRequest) (*notificationpb.TemplateInfo, error)
+	resetTplFn    func(*notificationpb.ResetTemplateRequest) (*notificationpb.TemplateInfo, error)
 }
 
 func (s *stubNotificationClient) SendEmail(_ context.Context, _ *notificationpb.SendEmailRequest, _ ...grpc.CallOption) (*notificationpb.SendEmailResponse, error) {
@@ -948,6 +952,30 @@ func (s *stubNotificationClient) MarkAllNotificationsRead(_ context.Context, in 
 		return s.markAllReadFn(in)
 	}
 	return &notificationpb.MarkAllNotificationsReadResponse{}, nil
+}
+func (s *stubNotificationClient) ListTemplates(_ context.Context, in *notificationpb.ListTemplatesRequest, _ ...grpc.CallOption) (*notificationpb.ListTemplatesResponse, error) {
+	if s.listTplFn != nil {
+		return s.listTplFn(in)
+	}
+	return &notificationpb.ListTemplatesResponse{}, nil
+}
+func (s *stubNotificationClient) GetTemplate(_ context.Context, in *notificationpb.GetTemplateRequest, _ ...grpc.CallOption) (*notificationpb.TemplateInfo, error) {
+	if s.getTplFn != nil {
+		return s.getTplFn(in)
+	}
+	return &notificationpb.TemplateInfo{}, nil
+}
+func (s *stubNotificationClient) SetTemplate(_ context.Context, in *notificationpb.SetTemplateRequest, _ ...grpc.CallOption) (*notificationpb.TemplateInfo, error) {
+	if s.setTplFn != nil {
+		return s.setTplFn(in)
+	}
+	return &notificationpb.TemplateInfo{}, nil
+}
+func (s *stubNotificationClient) ResetTemplate(_ context.Context, in *notificationpb.ResetTemplateRequest, _ ...grpc.CallOption) (*notificationpb.TemplateInfo, error) {
+	if s.resetTplFn != nil {
+		return s.resetTplFn(in)
+	}
+	return &notificationpb.TemplateInfo{}, nil
 }
 
 // ---------------------------------------------------------------------------
