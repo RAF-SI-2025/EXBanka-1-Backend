@@ -146,6 +146,7 @@ type CreateOfferInput struct {
 	SettlementDate         time.Time
 	CounterpartyUserID     *int64
 	CounterpartySystemType *string
+	InitiatorAccountID     uint64
 }
 
 func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*model.OTCOffer, error) {
@@ -200,6 +201,7 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 		Status:                      model.OTCOfferStatusPending,
 		LastModifiedByPrincipalType: in.ActorSystemType,
 		LastModifiedByPrincipalID:   uint64(in.ActorUserID),
+		InitiatorAccountID:          in.InitiatorAccountID,
 	}
 	if err := s.offers.Create(o); err != nil {
 		return nil, err

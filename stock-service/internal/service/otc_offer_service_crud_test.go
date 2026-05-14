@@ -90,6 +90,29 @@ func TestOTCOfferService_Create_SellInitiated_HappyPath(t *testing.T) {
 	}
 }
 
+func TestOTCOfferService_Create_StoresInitiatorAccount(t *testing.T) {
+	fx := newOTCCRUDFixture(t)
+	fx.seedHolding(t, 7, 42, 100)
+
+	out, err := fx.svc.Create(context.Background(), CreateOfferInput{
+		ActorUserID:        7,
+		ActorSystemType:    "client",
+		Direction:          model.OTCDirectionSellInitiated,
+		StockID:            42,
+		Quantity:           decimal.NewFromInt(10),
+		StrikePrice:        decimal.NewFromInt(150),
+		Premium:            decimal.NewFromInt(20),
+		SettlementDate:     time.Now().AddDate(0, 0, 30),
+		InitiatorAccountID: 9001,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if out.InitiatorAccountID != 9001 {
+		t.Errorf("got %d, want 9001", out.InitiatorAccountID)
+	}
+}
+
 func TestOTCOfferService_Create_RejectsZeroQuantity(t *testing.T) {
 	fx := newOTCCRUDFixture(t)
 	_, err := fx.svc.Create(context.Background(), CreateOfferInput{
