@@ -42,6 +42,41 @@ func TestOTCOffer_InitiatorAccountID_Persists(t *testing.T) {
 	}
 }
 
+func TestOptionContract_AccountIDs_Persist(t *testing.T) {
+	db := testutil.SetupTestDB(t, &OptionContract{})
+	buyer := uint64(1)
+	seller := uint64(2)
+	c := &OptionContract{
+		OfferID:         1,
+		BuyerOwnerType:  OwnerClient,
+		BuyerOwnerID:    &buyer,
+		SellerOwnerType: OwnerClient,
+		SellerOwnerID:   &seller,
+		StockID:         1,
+		Quantity:        decimal.NewFromInt(10),
+		StrikePrice:     decimal.NewFromInt(5),
+		PremiumPaid:     decimal.NewFromInt(1),
+		PremiumCurrency: "RSD",
+		StrikeCurrency:  "RSD",
+		SettlementDate:  time.Now().Add(48 * time.Hour),
+		Status:          OptionContractStatusActive,
+		SagaID:          "saga-1",
+		PremiumPaidAt:   time.Now(),
+		BuyerAccountID:  111,
+		SellerAccountID: 222,
+	}
+	if err := db.Create(c).Error; err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var got OptionContract
+	if err := db.First(&got, c.ID).Error; err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.BuyerAccountID != 111 || got.SellerAccountID != 222 {
+		t.Errorf("got buyer=%d seller=%d, want 111/222", got.BuyerAccountID, got.SellerAccountID)
+	}
+}
+
 func TestOTCOffer_BeforeSave_OK(t *testing.T) {
 	id := uint64(1)
 	o := &OTCOffer{InitiatorOwnerType: OwnerClient, InitiatorOwnerID: &id}

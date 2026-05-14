@@ -33,6 +33,10 @@ type OptionContract struct {
 	PremiumCurrency string          `gorm:"size:8;not null" json:"premium_currency"`
 	StrikeCurrency  string          `gorm:"size:8;not null" json:"strike_currency"`
 	SettlementDate  time.Time       `gorm:"type:date;not null;index:ix_oc_settle" json:"settlement_date"`
+	// Accounts bound at accept time: buyer's pays the premium/strike, seller's
+	// receives them. Read straight off the contract on exercise.
+	BuyerAccountID  uint64          `gorm:"not null;default:0" json:"buyer_account_id"`
+	SellerAccountID uint64          `gorm:"not null;default:0" json:"seller_account_id"`
 	Status          string          `gorm:"size:16;not null;index:ix_oc_buyer,priority:3;index:ix_oc_seller,priority:3" json:"status"`
 	SagaID          string          `gorm:"size:64;not null" json:"saga_id"`
 	PremiumPaidAt   time.Time       `gorm:"not null" json:"premium_paid_at"`
