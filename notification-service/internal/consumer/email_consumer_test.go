@@ -101,6 +101,29 @@ func TestEmailConsumer_HandleMessage_SendFailurePublishesFailure(t *testing.T) {
 	assert.Contains(t, confirm.Error, "smtp down")
 }
 
+func TestEmailConsumer_HandleMessage_RenderFailurePublishesFailure(t *testing.T) {
+	sender := &stubEmailSender{}
+	pub := &stubEmailSentPublisher{}
+	c := newEmailConsumerForTest(sender, pub, &stubRenderer{err: errors.New("render boom")})
+
+	payload := kafkamsg.SendEmailMessage{
+		To:        "user@example.com",
+		EmailType: kafkamsg.EmailTypeActivation,
+		Data:      map[string]string{"first_name": "Alice"},
+	}
+
+	c.handleMessage(context.Background(), mustMarshal(t, payload))
+
+	// Render failure MUST NOT trigger an SMTP send …
+	assert.Equal(t, 0, sender.sentCount())
+	// … but a failure confirmation is still published.
+	confirm, ok := pub.lastConfirm()
+	require.True(t, ok)
+	assert.Equal(t, "user@example.com", confirm.To)
+	assert.False(t, confirm.Success)
+	assert.Contains(t, confirm.Error, "render boom")
+}
+
 func TestEmailConsumer_HandleMessage_MalformedJSONIsIgnored(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubEmailSentPublisher{}

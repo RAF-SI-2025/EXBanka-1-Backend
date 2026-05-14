@@ -126,6 +126,24 @@ func TestGRPCHandler_SendEmail_SenderError(t *testing.T) {
 	}
 }
 
+func TestGRPCHandler_SendEmail_RenderError(t *testing.T) {
+	sender := &mockEmailSender{}
+	h := newGRPCHandlerForTest(sender, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderErr: errors.New("unknown type")})
+	resp, err := h.SendEmail(context.Background(), &notifpb.SendEmailRequest{To: "user@example.com"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Success {
+		t.Error("expected Success=false on render error")
+	}
+	if resp.Message == "" {
+		t.Error("expected error message in response")
+	}
+	if len(sender.calls) != 0 {
+		t.Errorf("expected sender not called on render error, got %+v", sender.calls)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GetDeliveryStatus
 // ---------------------------------------------------------------------------
