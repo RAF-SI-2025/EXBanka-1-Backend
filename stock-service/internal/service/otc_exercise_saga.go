@@ -19,14 +19,13 @@ import (
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
-// ExerciseInput captures the parameters of an Exercise call. The caller
-// (always the buyer) supplies the buyer-side and seller-side account IDs.
+// ExerciseInput captures the parameters of an Exercise call. The caller is
+// always the buyer; the buyer- and seller-side account IDs are read straight
+// off the contract (bound at accept time).
 type ExerciseInput struct {
 	ContractID      uint64
 	ActorUserID     int64
 	ActorSystemType string
-	BuyerAccountID  uint64 // buyer's account that pays the strike (and gets shares)
-	SellerAccountID uint64 // seller's account that receives the strike funds
 }
 
 // ExerciseContract runs the exercise saga (§6.2 of spec):
@@ -64,11 +63,14 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		return nil, errors.New("only the contract buyer can exercise")
 	}
 
-	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.BuyerAccountID})
+	if c.BuyerAccountID == 0 || c.SellerAccountID == 0 {
+		return nil, errors.New("contract has no bound accounts")
+	}
+	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: c.BuyerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get buyer account: %w", err)
 	}
-	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.SellerAccountID})
+	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: c.SellerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get seller account: %w", err)
 	}
@@ -126,7 +128,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		Add(saga.Step{
 			Name: saga.StepReserveStrike,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy,
+				_, e := s.accounts.ReserveFunds(ctx, c.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy,
 					saga.IdempotencyKey(sagaID, saga.StepReserveStrike))
 				return e
 			},
@@ -186,7 +188,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		SecurityID:   c.StockID,
 		Quantity:     qty,
 		AveragePrice: c.StrikePrice,
-		AccountID:    in.BuyerAccountID,
+		AccountID:    c.BuyerAccountID,
 	}); err != nil {
 		log.Printf("CRITICAL: OTC exercise saga=%s: buyer holding upsert failed (money moved, shares left seller): %v", sagaID, err)
 	}

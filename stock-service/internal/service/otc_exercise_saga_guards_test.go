@@ -24,9 +24,7 @@ func TestOTCExerciseContract_NoSagaDepsWired(t *testing.T) {
 func TestOTCExerciseContract_ContractNotFound(t *testing.T) {
 	fx := newAcceptSagaFixture(t)
 	_, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
-		ContractID: 9999, ActorUserID: 7, ActorSystemType: "client",
-		BuyerAccountID: 1, SellerAccountID: 2,
-	})
+		ContractID: 9999, ActorUserID: 7, ActorSystemType: "client",	})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -51,9 +49,7 @@ func TestOTCExerciseContract_InactiveContract(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	_, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
-		ContractID: c.ID, ActorUserID: 7, ActorSystemType: "client",
-		BuyerAccountID: 1, SellerAccountID: 2,
-	})
+		ContractID: c.ID, ActorUserID: 7, ActorSystemType: "client",	})
 	if err == nil {
 		t.Fatal("expected error for inactive contract")
 	}
@@ -78,9 +74,7 @@ func TestOTCExerciseContract_ExpiredSettlement(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	_, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
-		ContractID: c.ID, ActorUserID: 7, ActorSystemType: "client",
-		BuyerAccountID: 1, SellerAccountID: 2,
-	})
+		ContractID: c.ID, ActorUserID: 7, ActorSystemType: "client",	})
 	if err == nil {
 		t.Fatal("expected error for expired settlement")
 	}
@@ -104,9 +98,7 @@ func TestOTCExerciseContract_NotBuyer(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	_, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
-		ContractID: c.ID, ActorUserID: 99, ActorSystemType: "client",
-		BuyerAccountID: 1, SellerAccountID: 2,
-	})
+		ContractID: c.ID, ActorUserID: 99, ActorSystemType: "client",	})
 	if err == nil {
 		t.Fatal("expected error: not buyer")
 	}
