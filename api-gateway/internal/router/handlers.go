@@ -166,7 +166,7 @@ func NewHandlers(d Deps) *Handlers {
 		Verification:     handler.NewVerificationHandler(d.VerificationClient, d.NotificationClient),
 		OptionsV2:        handler.NewOptionsV2Handler(d.SecurityClient, d.OrderClient, d.PortfolioClient),
 		Fund:             handler.NewInvestmentFundHandler(d.FundClient),
-		OTCOptions:       handler.NewOTCOptionsHandler(d.OTCOptionsClient, d.PeerOTCClient),
+		OTCOptions:       handler.NewOTCOptionsHandler(d.OTCOptionsClient, d.PeerOTCClient, d.SecurityClient, d.AccountClient),
 		PeerTxDispatcher: handler.NewPeerTxDispatcherHandler(tx, d.PeerTxClient, d.OwnBankCode),
 		Changelog:        handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
 		PeerTx:           handler.NewPeerTxHandler(d.PeerTxClient),

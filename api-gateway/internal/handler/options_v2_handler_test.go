@@ -29,6 +29,9 @@ func (s *stubSecurityClient) ListStocks(ctx context.Context, in *stockpb.ListSto
 func (s *stubSecurityClient) GetStock(ctx context.Context, in *stockpb.GetStockRequest, opts ...grpc.CallOption) (*stockpb.StockDetail, error) {
 	return nil, nil
 }
+func (s *stubSecurityClient) GetStockByTicker(ctx context.Context, in *stockpb.GetStockByTickerRequest, opts ...grpc.CallOption) (*stockpb.StockDetail, error) {
+	return nil, nil
+}
 func (s *stubSecurityClient) GetStockHistory(ctx context.Context, in *stockpb.GetPriceHistoryRequest, opts ...grpc.CallOption) (*stockpb.PriceHistoryResponse, error) {
 	return nil, nil
 }

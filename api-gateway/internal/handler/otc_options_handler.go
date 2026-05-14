@@ -7,31 +7,42 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/exbanka/api-gateway/internal/middleware"
+	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 )
 
 // OTCOptionsHandler handles REST routes for the OTC options feature
 // (intra-bank Celina 4 / Spec 2 + cross-bank Celina 5 SI-TX). The
 // `client` is the intra-bank service; `peerOTC` is the cross-bank
-// surface used by ExercisePeerContract.
+// surface used by ExercisePeerContract. `security` resolves tickers to
+// stock IDs; `accounts` backs the resource-ownership checks.
 type OTCOptionsHandler struct {
-	client  stockpb.OTCOptionsServiceClient
-	peerOTC stockpb.PeerOTCServiceClient
+	client   stockpb.OTCOptionsServiceClient
+	peerOTC  stockpb.PeerOTCServiceClient
+	security stockpb.SecurityGRPCServiceClient
+	accounts accountpb.AccountServiceClient
 }
 
-func NewOTCOptionsHandler(client stockpb.OTCOptionsServiceClient, peerOTC stockpb.PeerOTCServiceClient) *OTCOptionsHandler {
-	return &OTCOptionsHandler{client: client, peerOTC: peerOTC}
+func NewOTCOptionsHandler(
+	client stockpb.OTCOptionsServiceClient,
+	peerOTC stockpb.PeerOTCServiceClient,
+	security stockpb.SecurityGRPCServiceClient,
+	accounts accountpb.AccountServiceClient,
+) *OTCOptionsHandler {
+	return &OTCOptionsHandler{client: client, peerOTC: peerOTC, security: security, accounts: accounts}
 }
 
 type createOTCOfferRequest struct {
 	Direction              string  `json:"direction"`
-	StockID                uint64  `json:"stock_id"`
+	Ticker                 string  `json:"ticker"`
 	Quantity               string  `json:"quantity"`
 	StrikePrice            string  `json:"strike_price"`
 	Premium                string  `json:"premium"`
 	SettlementDate         string  `json:"settlement_date"`
+	AccountID              uint64  `json:"account_id"`
 	CounterpartyUserID     *int64  `json:"counterparty_user_id,omitempty"`
 	CounterpartySystemType *string `json:"counterparty_system_type,omitempty"`
+	OnBehalfOfClientID     uint64  `json:"on_behalf_of_client_id,omitempty"`
 }
 
 // CreateOffer godoc
@@ -40,8 +51,10 @@ type createOTCOfferRequest struct {
 // @Security     BearerAuth
 // @Accept       json
 // @Produce      json
-// @Param        body body createOTCOfferRequest true "offer details"
+// @Param        body body createOTCOfferRequest true "offer details (ticker-keyed; account_id is the initiator's account)"
 // @Success      201 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
 // @Router       /api/v3/otc/offers [post]
 func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 	var req createOTCOfferRequest
@@ -53,17 +66,30 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
 		return
 	}
-	if req.StockID == 0 || req.Quantity == "" || req.StrikePrice == "" || req.SettlementDate == "" {
-		apiError(c, http.StatusBadRequest, ErrValidation, "stock_id, quantity, strike_price and settlement_date are required")
+	if req.Ticker == "" || req.Quantity == "" || req.StrikePrice == "" || req.SettlementDate == "" {
+		apiError(c, http.StatusBadRequest, ErrValidation, "ticker, quantity, strike_price and settlement_date are required")
 		return
 	}
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	if err := ResolveAndCheckAccount(c, h.accounts, identity, req.AccountID, req.OnBehalfOfClientID); err != nil {
+		return
+	}
+	stock, err := h.security.GetStockByTicker(c.Request.Context(), &stockpb.GetStockByTickerRequest{Ticker: req.Ticker})
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "unknown ticker: "+req.Ticker)
+		return
+	}
 	in := &stockpb.CreateOTCOfferRequest{
-		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
-		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
-		Direction:       req.Direction, StockId: req.StockID,
-		Quantity: req.Quantity, StrikePrice: req.StrikePrice, Premium: req.Premium,
-		SettlementDate: req.SettlementDate,
+		ActorUserId:        int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType:    ownerToLegacySystemType(identity.OwnerType),
+		Direction:          req.Direction,
+		StockId:            stock.Id,
+		Quantity:           req.Quantity,
+		StrikePrice:        req.StrikePrice,
+		Premium:            req.Premium,
+		SettlementDate:     req.SettlementDate,
+		AccountId:          req.AccountID,
+		OnBehalfOfClientId: req.OnBehalfOfClientID,
 	}
 	if req.CounterpartyUserID != nil && *req.CounterpartyUserID != 0 {
 		stype := "client"
@@ -133,10 +159,11 @@ func (h *OTCOptionsHandler) GetOffer(c *gin.Context) {
 }
 
 type counterOTCOfferRequest struct {
-	Quantity       string `json:"quantity"`
-	StrikePrice    string `json:"strike_price"`
-	Premium        string `json:"premium"`
-	SettlementDate string `json:"settlement_date"`
+	Quantity           string `json:"quantity"`
+	StrikePrice        string `json:"strike_price"`
+	Premium            string `json:"premium"`
+	SettlementDate     string `json:"settlement_date"`
+	OnBehalfOfClientID uint64 `json:"on_behalf_of_client_id,omitempty"`
 }
 
 // CounterOffer godoc
@@ -162,11 +189,12 @@ func (h *OTCOptionsHandler) CounterOffer(c *gin.Context) {
 	}
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.CounterOffer(c.Request.Context(), &stockpb.CounterOTCOfferRequest{
-		OfferId:         id,
-		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
-		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
-		Quantity:        req.Quantity, StrikePrice: req.StrikePrice, Premium: req.Premium,
-		SettlementDate: req.SettlementDate,
+		OfferId:            id,
+		ActorUserId:        int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType:    ownerToLegacySystemType(identity.OwnerType),
+		Quantity:           req.Quantity, StrikePrice: req.StrikePrice, Premium: req.Premium,
+		SettlementDate:     req.SettlementDate,
+		OnBehalfOfClientId: req.OnBehalfOfClientID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -176,8 +204,8 @@ func (h *OTCOptionsHandler) CounterOffer(c *gin.Context) {
 }
 
 type acceptOTCOfferRequest struct {
-	BuyerAccountID  uint64 `json:"buyer_account_id"`
-	SellerAccountID uint64 `json:"seller_account_id"`
+	AccountID          uint64 `json:"account_id"`
+	OnBehalfOfClientID uint64 `json:"on_behalf_of_client_id,omitempty"`
 }
 
 // AcceptOffer godoc
@@ -187,8 +215,10 @@ type acceptOTCOfferRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        id path int true "offer id"
-// @Param        body body acceptOTCOfferRequest true "buyer + seller account IDs"
+// @Param        body body acceptOTCOfferRequest true "acceptor's own account id"
 // @Success      201 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
 // @Router       /api/v3/otc/offers/{id}/accept [post]
 func (h *OTCOptionsHandler) AcceptOffer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -201,16 +231,16 @@ func (h *OTCOptionsHandler) AcceptOffer(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
 		return
 	}
-	if req.BuyerAccountID == 0 || req.SellerAccountID == 0 {
-		apiError(c, http.StatusBadRequest, ErrValidation, "buyer_account_id and seller_account_id are required")
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	if err := ResolveAndCheckAccount(c, h.accounts, identity, req.AccountID, req.OnBehalfOfClientID); err != nil {
 		return
 	}
-	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.AcceptOffer(c.Request.Context(), &stockpb.AcceptOTCOfferRequest{
-		OfferId:         id,
-		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
-		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
-		BuyerAccountId:  req.BuyerAccountID, SellerAccountId: req.SellerAccountID,
+		OfferId:            id,
+		ActorUserId:        int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType:    ownerToLegacySystemType(identity.OwnerType),
+		AccountId:          req.AccountID,
+		OnBehalfOfClientId: req.OnBehalfOfClientID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -303,8 +333,7 @@ func (h *OTCOptionsHandler) GetContract(c *gin.Context) {
 }
 
 type exerciseRequest struct {
-	BuyerAccountID  uint64 `json:"buyer_account_id"`
-	SellerAccountID uint64 `json:"seller_account_id"`
+	OnBehalfOfClientID uint64 `json:"on_behalf_of_client_id,omitempty"`
 }
 
 // ExerciseContract godoc
@@ -314,7 +343,7 @@ type exerciseRequest struct {
 // @Accept       json
 // @Produce      json
 // @Param        id path int true "contract id"
-// @Param        body body exerciseRequest true "buyer + seller account IDs"
+// @Param        body body exerciseRequest false "optional on-behalf client id; accounts come from the contract"
 // @Success      201 {object} map[string]interface{}
 // @Router       /api/v3/otc/contracts/{id}/exercise [post]
 func (h *OTCOptionsHandler) ExerciseContract(c *gin.Context) {
@@ -324,20 +353,14 @@ func (h *OTCOptionsHandler) ExerciseContract(c *gin.Context) {
 		return
 	}
 	var req exerciseRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
-		return
-	}
-	if req.BuyerAccountID == 0 || req.SellerAccountID == 0 {
-		apiError(c, http.StatusBadRequest, ErrValidation, "buyer_account_id and seller_account_id are required")
-		return
-	}
+	// Body is optional — only on_behalf_of_client_id may be present.
+	_ = c.ShouldBindJSON(&req)
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.ExerciseContract(c.Request.Context(), &stockpb.ExerciseContractRequest{
-		ContractId:      id,
-		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
-		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
-		BuyerAccountId:  req.BuyerAccountID, SellerAccountId: req.SellerAccountID,
+		ContractId:         id,
+		ActorUserId:        int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType:    ownerToLegacySystemType(identity.OwnerType),
+		OnBehalfOfClientId: req.OnBehalfOfClientID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
