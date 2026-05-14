@@ -6790,6 +6790,53 @@ paths:
       summary: List payments by account (path-scoped)
       tags:
       - payments
+  /api/v3/bank-accounts/{id}/activity:
+    get:
+      description: Returns paginated ledger entries (debits/credits) for a bank-owned
+        account. Employee-only; the account must be a bank account or the request
+        is rejected with 404.
+      parameters:
+      - description: Bank account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 200)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entries, total_count
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: validation_error
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: missing bank_accounts.manage permission
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not a bank account / account not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List a bank account's ledger activity
+      tags:
+      - accounts
   /api/v3/cards/{id}/changelog:
     get:
       description: Returns paginated audit-log entries for a payment card.

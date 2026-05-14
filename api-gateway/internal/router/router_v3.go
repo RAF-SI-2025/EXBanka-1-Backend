@@ -515,6 +515,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		bankAccountsRead.Use(middleware.RequirePermission(perms.BankAccounts.Manage.Any))
 		{
 			bankAccountsRead.GET("", h.Account.ListBankAccounts)
+			bankAccountsRead.GET("/:id/activity", h.Account.GetBankAccountActivity)
 		}
 		bankAccountsCreate := protected.Group("/bank-accounts")
 		bankAccountsCreate.Use(middleware.RequirePermission(perms.BankAccounts.Manage.Any))
