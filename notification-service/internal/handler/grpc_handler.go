@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/exbanka/notification-service/internal/repository"
 	"github.com/exbanka/notification-service/internal/sender"
 	"github.com/exbanka/notification-service/internal/service"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // emailSenderFacade is the narrow interface of *sender.EmailSender used by GRPCHandler.
@@ -179,4 +182,67 @@ func (h *GRPCHandler) MarkAllNotificationsRead(ctx context.Context, req *notifpb
 		return nil, fmt.Errorf("MarkAllNotificationsRead(user=%d): %v: %w", req.UserId, err, service.ErrNotificationUpdateFailed)
 	}
 	return &notifpb.MarkAllNotificationsReadResponse{Count: count}, nil
+}
+
+// ── Notification templates ───────────────────────────────────────────────────
+
+func templateViewToProto(v service.TemplateView) *notifpb.TemplateInfo {
+	vars := make([]*notifpb.TemplateVariable, len(v.Variables))
+	for i, x := range v.Variables {
+		vars[i] = &notifpb.TemplateVariable{Name: x.Name, Description: x.Description, Example: x.Example}
+	}
+	return &notifpb.TemplateInfo{
+		Type: v.Type, Channel: v.Channel, Description: v.Description, Variables: vars,
+		DefaultSubject: v.DefaultSubject, DefaultBody: v.DefaultBody,
+		CurrentSubject: v.CurrentSubject, CurrentBody: v.CurrentBody,
+		IsCustomized: v.IsCustomized,
+	}
+}
+
+// templateErr maps a TemplateService error to a gRPC status.
+func templateErr(err error) error {
+	switch {
+	case errors.Is(err, service.ErrTemplateTypeNotFound):
+		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, service.ErrTemplateValidation):
+		return status.Error(codes.InvalidArgument, err.Error())
+	default:
+		return status.Error(codes.Internal, err.Error())
+	}
+}
+
+func (h *GRPCHandler) ListTemplates(ctx context.Context, req *notifpb.ListTemplatesRequest) (*notifpb.ListTemplatesResponse, error) {
+	views, err := h.templateSvc.List(req.Channel)
+	if err != nil {
+		return nil, templateErr(err)
+	}
+	out := &notifpb.ListTemplatesResponse{Templates: make([]*notifpb.TemplateInfo, len(views))}
+	for i, v := range views {
+		out.Templates[i] = templateViewToProto(v)
+	}
+	return out, nil
+}
+
+func (h *GRPCHandler) GetTemplate(ctx context.Context, req *notifpb.GetTemplateRequest) (*notifpb.TemplateInfo, error) {
+	v, err := h.templateSvc.GetOne(req.Type, req.Channel)
+	if err != nil {
+		return nil, templateErr(err)
+	}
+	return templateViewToProto(v), nil
+}
+
+func (h *GRPCHandler) SetTemplate(ctx context.Context, req *notifpb.SetTemplateRequest) (*notifpb.TemplateInfo, error) {
+	v, err := h.templateSvc.Set(req.Type, req.Channel, req.Subject, req.Body, req.UpdatedBy)
+	if err != nil {
+		return nil, templateErr(err)
+	}
+	return templateViewToProto(v), nil
+}
+
+func (h *GRPCHandler) ResetTemplate(ctx context.Context, req *notifpb.ResetTemplateRequest) (*notifpb.TemplateInfo, error) {
+	v, err := h.templateSvc.Reset(req.Type, req.Channel)
+	if err != nil {
+		return nil, templateErr(err)
+	}
+	return templateViewToProto(v), nil
 }
