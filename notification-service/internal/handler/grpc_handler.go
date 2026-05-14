@@ -6,7 +6,6 @@ import (
 	"log"
 	"time"
 
-	kafkamsg "github.com/exbanka/contract/kafka"
 	notifpb "github.com/exbanka/contract/notificationpb"
 	"github.com/exbanka/notification-service/internal/model"
 	"github.com/exbanka/notification-service/internal/repository"
@@ -33,21 +32,31 @@ type notifRepoFacade interface {
 	MarkAllRead(userID uint64) (int64, error)
 }
 
+// templateServiceFacade is the narrow interface of *service.TemplateService used by GRPCHandler.
+type templateServiceFacade interface {
+	Render(typ, channel string, data map[string]string) (subject, body string, err error)
+	List(channel string) ([]service.TemplateView, error)
+	GetOne(typ, channel string) (service.TemplateView, error)
+	Set(typ, channel, subject, body string, updatedBy uint64) (service.TemplateView, error)
+	Reset(typ, channel string) (service.TemplateView, error)
+}
+
 type GRPCHandler struct {
 	notifpb.UnimplementedNotificationServiceServer
 	emailSender emailSenderFacade
 	inboxRepo   inboxRepoFacade
 	notifRepo   notifRepoFacade
+	templateSvc templateServiceFacade
 }
 
-func NewGRPCHandler(emailSender *sender.EmailSender, inboxRepo *repository.MobileInboxRepository, notifRepo *repository.GeneralNotificationRepository) *GRPCHandler {
-	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo}
+func NewGRPCHandler(emailSender *sender.EmailSender, inboxRepo *repository.MobileInboxRepository, notifRepo *repository.GeneralNotificationRepository, templateSvc *service.TemplateService) *GRPCHandler {
+	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo, templateSvc: templateSvc}
 }
 
 // newGRPCHandlerForTest constructs a GRPCHandler with interface-typed
 // dependencies for use in unit tests.
-func newGRPCHandlerForTest(emailSender emailSenderFacade, inboxRepo inboxRepoFacade, notifRepo notifRepoFacade) *GRPCHandler {
-	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo}
+func newGRPCHandlerForTest(emailSender emailSenderFacade, inboxRepo inboxRepoFacade, notifRepo notifRepoFacade, templateSvc templateServiceFacade) *GRPCHandler {
+	return &GRPCHandler{emailSender: emailSender, inboxRepo: inboxRepo, notifRepo: notifRepo, templateSvc: templateSvc}
 }
 
 func (h *GRPCHandler) SendEmail(ctx context.Context, req *notifpb.SendEmailRequest) (*notifpb.SendEmailResponse, error) {
@@ -55,8 +64,10 @@ func (h *GRPCHandler) SendEmail(ctx context.Context, req *notifpb.SendEmailReque
 		return nil, fmt.Errorf("SendEmail: recipient required: %w", service.ErrInvalidEmailRequest)
 	}
 
-	emailType := kafkamsg.EmailType(req.EmailType)
-	subject, body := sender.BuildEmail(emailType, req.Data)
+	subject, body, err := h.templateSvc.Render(req.EmailType, "email", req.Data)
+	if err != nil {
+		return &notifpb.SendEmailResponse{Success: false, Message: err.Error()}, nil
+	}
 
 	if err := h.emailSender.Send(req.To, subject, body); err != nil {
 		log.Printf("gRPC SendEmail failed for %s: %v", req.To, err)

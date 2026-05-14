@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewEmailConsumer_AndClose(t *testing.T) {
-	c := NewEmailConsumer("127.0.0.1:1", nil, nil)
+	c := NewEmailConsumer("127.0.0.1:1", nil, nil, nil)
 	if c == nil || c.reader == nil {
 		t.Fatal("nil consumer or reader")
 	}
@@ -27,7 +27,7 @@ func TestNewGeneralNotificationConsumer_AndClose(t *testing.T) {
 }
 
 func TestNewVerificationConsumer_AndClose(t *testing.T) {
-	c := NewVerificationConsumer("127.0.0.1:1", nil, nil, nil)
+	c := NewVerificationConsumer("127.0.0.1:1", nil, nil, nil, nil)
 	if c == nil || c.reader == nil {
 		t.Fatal("nil consumer or reader")
 	}
@@ -37,7 +37,7 @@ func TestNewVerificationConsumer_AndClose(t *testing.T) {
 }
 
 func TestEmailConsumer_Start_CtxCancel(t *testing.T) {
-	c := NewEmailConsumer("127.0.0.1:1", nil, nil)
+	c := NewEmailConsumer("127.0.0.1:1", nil, nil, nil)
 	defer c.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -65,7 +65,7 @@ func TestGeneralNotificationConsumer_Start_CtxCancel(t *testing.T) {
 }
 
 func TestVerificationConsumer_Start_CtxCancel(t *testing.T) {
-	c := NewVerificationConsumer("127.0.0.1:1", nil, nil, nil)
+	c := NewVerificationConsumer("127.0.0.1:1", nil, nil, nil, nil)
 	defer c.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	c.Start(ctx)

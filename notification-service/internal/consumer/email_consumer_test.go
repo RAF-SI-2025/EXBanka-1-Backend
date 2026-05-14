@@ -18,10 +18,19 @@ func mustMarshal(t *testing.T, v interface{}) []byte {
 	return b
 }
 
+type stubRenderer struct {
+	subject, body string
+	err           error
+}
+
+func (s *stubRenderer) Render(_, _ string, _ map[string]string) (string, string, error) {
+	return s.subject, s.body, s.err
+}
+
 func TestEmailConsumer_HandleMessage_HappyPath(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubEmailSentPublisher{}
-	c := newEmailConsumerForTest(sender, pub)
+	c := newEmailConsumerForTest(sender, pub, &stubRenderer{subject: "S", body: "B"})
 
 	payload := kafkamsg.SendEmailMessage{
 		To:        "user@example.com",
@@ -38,8 +47,8 @@ func TestEmailConsumer_HandleMessage_HappyPath(t *testing.T) {
 	last, ok := sender.lastCall()
 	require.True(t, ok)
 	assert.Equal(t, "user@example.com", last.To)
-	assert.Equal(t, "Activate Your EXBanka Account", last.Subject)
-	assert.Contains(t, last.Body, "Alice")
+	assert.Equal(t, "S", last.Subject)
+	assert.Equal(t, "B", last.Body)
 
 	confirm, ok := pub.lastConfirm()
 	require.True(t, ok)
@@ -52,7 +61,7 @@ func TestEmailConsumer_HandleMessage_HappyPath(t *testing.T) {
 func TestEmailConsumer_HandleMessage_TestAddressSkipsSend(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubEmailSentPublisher{}
-	c := newEmailConsumerForTest(sender, pub)
+	c := newEmailConsumerForTest(sender, pub, &stubRenderer{subject: "S", body: "B"})
 
 	payload := kafkamsg.SendEmailMessage{
 		To:        "alice+test@example.com",
@@ -75,7 +84,7 @@ func TestEmailConsumer_HandleMessage_SendFailurePublishesFailure(t *testing.T) {
 	wantErr := errors.New("smtp down")
 	sender := &stubEmailSender{sendErr: wantErr}
 	pub := &stubEmailSentPublisher{}
-	c := newEmailConsumerForTest(sender, pub)
+	c := newEmailConsumerForTest(sender, pub, &stubRenderer{subject: "S", body: "B"})
 
 	payload := kafkamsg.SendEmailMessage{
 		To:        "user@example.com",
@@ -95,7 +104,7 @@ func TestEmailConsumer_HandleMessage_SendFailurePublishesFailure(t *testing.T) {
 func TestEmailConsumer_HandleMessage_MalformedJSONIsIgnored(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubEmailSentPublisher{}
-	c := newEmailConsumerForTest(sender, pub)
+	c := newEmailConsumerForTest(sender, pub, &stubRenderer{subject: "S", body: "B"})
 
 	c.handleMessage(context.Background(), []byte("{this is not json"))
 
@@ -106,7 +115,7 @@ func TestEmailConsumer_HandleMessage_MalformedJSONIsIgnored(t *testing.T) {
 func TestEmailConsumer_HandleMessage_PublishFailureDoesNotPanic(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubEmailSentPublisher{publishErr: errors.New("kafka unavailable")}
-	c := newEmailConsumerForTest(sender, pub)
+	c := newEmailConsumerForTest(sender, pub, &stubRenderer{subject: "S", body: "B"})
 
 	payload := kafkamsg.SendEmailMessage{
 		To:        "u@example.com",
@@ -125,7 +134,7 @@ func TestEmailConsumer_HandleMessage_PublishFailureDoesNotPanic(t *testing.T) {
 func TestEmailConsumer_HandleMessage_TestAddressPublishFailureDoesNotPanic(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubEmailSentPublisher{publishErr: errors.New("kafka unavailable")}
-	c := newEmailConsumerForTest(sender, pub)
+	c := newEmailConsumerForTest(sender, pub, &stubRenderer{subject: "S", body: "B"})
 
 	payload := kafkamsg.SendEmailMessage{
 		To:        "u+test@example.com",
