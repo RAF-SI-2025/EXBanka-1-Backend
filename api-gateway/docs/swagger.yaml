@@ -18,9 +18,9 @@ definitions:
     type: object
   handler.acceptOTCOfferRequest:
     properties:
-      buyer_account_id:
+      account_id:
         type: integer
-      seller_account_id:
+      on_behalf_of_client_id:
         type: integer
     type: object
   handler.activateDeviceReq:
@@ -74,6 +74,8 @@ definitions:
     type: object
   handler.counterOTCOfferRequest:
     properties:
+      on_behalf_of_client_id:
+        type: integer
       premium:
         type: string
       quantity:
@@ -380,21 +382,25 @@ definitions:
     type: object
   handler.createOTCOfferRequest:
     properties:
+      account_id:
+        type: integer
       counterparty_system_type:
         type: string
       counterparty_user_id:
         type: integer
       direction:
         type: string
+      on_behalf_of_client_id:
+        type: integer
       premium:
         type: string
       quantity:
         type: string
       settlement_date:
         type: string
-      stock_id:
-        type: integer
       strike_price:
+        type: string
+      ticker:
         type: string
     type: object
   handler.createOptionOrderRequest:
@@ -547,9 +553,7 @@ definitions:
     type: object
   handler.exerciseRequest:
     properties:
-      buyer_account_id:
-        type: integer
-      seller_account_id:
+      on_behalf_of_client_id:
         type: integer
     type: object
   handler.initiateNegotiationRequest:
@@ -7548,10 +7552,9 @@ paths:
         name: id
         required: true
         type: integer
-      - description: buyer + seller account IDs
+      - description: optional on-behalf client id; accounts come from the contract
         in: body
         name: body
-        required: true
         schema:
           $ref: '#/definitions/handler.exerciseRequest'
       produces:
@@ -7572,7 +7575,7 @@ paths:
       consumes:
       - application/json
       parameters:
-      - description: offer details
+      - description: offer details (ticker-keyed; account_id is the initiator's account)
         in: body
         name: body
         required: true
@@ -7583,6 +7586,16 @@ paths:
       responses:
         "201":
           description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
           schema:
             additionalProperties: true
             type: object
@@ -7622,7 +7635,7 @@ paths:
         name: id
         required: true
         type: integer
-      - description: buyer + seller account IDs
+      - description: acceptor's own account id
         in: body
         name: body
         required: true
@@ -7633,6 +7646,16 @@ paths:
       responses:
         "201":
           description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
           schema:
             additionalProperties: true
             type: object

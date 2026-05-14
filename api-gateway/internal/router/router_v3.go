@@ -223,8 +223,8 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		otc.GET("", h.Portfolio.ListOTCOffers)
 	}
 	otcTrade := v3.Group("/otc/offers")
-	otcTrade.Use(middleware.AuthMiddleware(h.Auth.Client()))
-	otcTrade.Use(middleware.RequireAnyPermission(perms.Otc.Trade.Accept, perms.Securities.Trade.Any))
+	otcTrade.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
+	otcTrade.Use(middleware.RequirePermissionOrClient(middleware.PermAny, perms.Otc.Trade.Accept, perms.Securities.Trade.Any))
 	otcTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
 		otcTrade.POST("/:id/buy", h.Portfolio.BuyOTCOffer)
@@ -241,7 +241,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 	// Trading actions require both securities.trade AND otc.trade.
 	otcOptionsTrade := v3.Group("/otc")
 	otcOptionsTrade.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
-	otcOptionsTrade.Use(middleware.RequireAllPermissions(perms.Securities.Trade.Any, perms.Otc.Trade.Accept))
+	otcOptionsTrade.Use(middleware.RequirePermissionOrClient(middleware.PermAll, perms.Securities.Trade.Any, perms.Otc.Trade.Accept))
 	otcOptionsTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
 		otcOptionsTrade.POST("/offers", h.OTCOptions.CreateOffer)
@@ -719,7 +719,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// intent explicit at the URL.
 		otcOnBehalf := protected.Group("/otc/offers")
 		otcOnBehalf.Use(middleware.RequireAnyPermission(
-			perms.Otc.Trade.Accept, perms.Orders.Place.OnBehalfClient))
+			perms.Otc.Trade.Accept, perms.Otc.Trade.OnBehalf))
 		otcOnBehalf.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
 			otcOnBehalf.POST("/:id/buy-on-behalf", h.Portfolio.BuyOTCOfferOnBehalf)

@@ -10111,10 +10111,9 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "buyer + seller account IDs",
+                        "description": "optional on-behalf client id; accounts come from the contract",
                         "name": "body",
                         "in": "body",
-                        "required": true,
                         "schema": {
                             "$ref": "#/definitions/handler.exerciseRequest"
                         }
@@ -10150,7 +10149,7 @@ const docTemplate = `{
                 "summary": "Create an OTC option offer",
                 "parameters": [
                     {
-                        "description": "offer details",
+                        "description": "offer details (ticker-keyed; account_id is the initiator's account)",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10162,6 +10161,20 @@ const docTemplate = `{
                 "responses": {
                     "201": {
                         "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10230,7 +10243,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "buyer + seller account IDs",
+                        "description": "acceptor's own account id",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10242,6 +10255,20 @@ const docTemplate = `{
                 "responses": {
                     "201": {
                         "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10609,10 +10636,10 @@ const docTemplate = `{
         "handler.acceptOTCOfferRequest": {
             "type": "object",
             "properties": {
-                "buyer_account_id": {
+                "account_id": {
                     "type": "integer"
                 },
-                "seller_account_id": {
+                "on_behalf_of_client_id": {
                     "type": "integer"
                 }
             }
@@ -10693,6 +10720,9 @@ const docTemplate = `{
         "handler.counterOTCOfferRequest": {
             "type": "object",
             "properties": {
+                "on_behalf_of_client_id": {
+                    "type": "integer"
+                },
                 "premium": {
                     "type": "string"
                 },
@@ -11130,6 +11160,9 @@ const docTemplate = `{
         "handler.createOTCOfferRequest": {
             "type": "object",
             "properties": {
+                "account_id": {
+                    "type": "integer"
+                },
                 "counterparty_system_type": {
                     "type": "string"
                 },
@@ -11138,6 +11171,9 @@ const docTemplate = `{
                 },
                 "direction": {
                     "type": "string"
+                },
+                "on_behalf_of_client_id": {
+                    "type": "integer"
                 },
                 "premium": {
                     "type": "string"
@@ -11148,10 +11184,10 @@ const docTemplate = `{
                 "settlement_date": {
                     "type": "string"
                 },
-                "stock_id": {
-                    "type": "integer"
-                },
                 "strike_price": {
+                    "type": "string"
+                },
+                "ticker": {
                     "type": "string"
                 }
             }
@@ -11377,10 +11413,7 @@ const docTemplate = `{
         "handler.exerciseRequest": {
             "type": "object",
             "properties": {
-                "buyer_account_id": {
-                    "type": "integer"
-                },
-                "seller_account_id": {
+                "on_behalf_of_client_id": {
                     "type": "integer"
                 }
             }

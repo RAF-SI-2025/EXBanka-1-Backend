@@ -10105,10 +10105,9 @@
                         "required": true
                     },
                     {
-                        "description": "buyer + seller account IDs",
+                        "description": "optional on-behalf client id; accounts come from the contract",
                         "name": "body",
                         "in": "body",
-                        "required": true,
                         "schema": {
                             "$ref": "#/definitions/handler.exerciseRequest"
                         }
@@ -10144,7 +10143,7 @@
                 "summary": "Create an OTC option offer",
                 "parameters": [
                     {
-                        "description": "offer details",
+                        "description": "offer details (ticker-keyed; account_id is the initiator's account)",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10156,6 +10155,20 @@
                 "responses": {
                     "201": {
                         "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10224,7 +10237,7 @@
                         "required": true
                     },
                     {
-                        "description": "buyer + seller account IDs",
+                        "description": "acceptor's own account id",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -10236,6 +10249,20 @@
                 "responses": {
                     "201": {
                         "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10603,10 +10630,10 @@
         "handler.acceptOTCOfferRequest": {
             "type": "object",
             "properties": {
-                "buyer_account_id": {
+                "account_id": {
                     "type": "integer"
                 },
-                "seller_account_id": {
+                "on_behalf_of_client_id": {
                     "type": "integer"
                 }
             }
@@ -10687,6 +10714,9 @@
         "handler.counterOTCOfferRequest": {
             "type": "object",
             "properties": {
+                "on_behalf_of_client_id": {
+                    "type": "integer"
+                },
                 "premium": {
                     "type": "string"
                 },
@@ -11124,6 +11154,9 @@
         "handler.createOTCOfferRequest": {
             "type": "object",
             "properties": {
+                "account_id": {
+                    "type": "integer"
+                },
                 "counterparty_system_type": {
                     "type": "string"
                 },
@@ -11132,6 +11165,9 @@
                 },
                 "direction": {
                     "type": "string"
+                },
+                "on_behalf_of_client_id": {
+                    "type": "integer"
                 },
                 "premium": {
                     "type": "string"
@@ -11142,10 +11178,10 @@
                 "settlement_date": {
                     "type": "string"
                 },
-                "stock_id": {
-                    "type": "integer"
-                },
                 "strike_price": {
+                    "type": "string"
+                },
+                "ticker": {
                     "type": "string"
                 }
             }
@@ -11371,10 +11407,7 @@
         "handler.exerciseRequest": {
             "type": "object",
             "properties": {
-                "buyer_account_id": {
-                    "type": "integer"
-                },
-                "seller_account_id": {
+                "on_behalf_of_client_id": {
                     "type": "integer"
                 }
             }
