@@ -75,6 +75,7 @@ var Catalog = []Permission{
 	"verification.manage.any",
 	"exchange_rates.read.any",
 	"exchange_rates.update.any",
+	"notifications.templates.manage",
 }
 
 var Accounts = struct {
@@ -450,6 +451,18 @@ var Limits = struct {
 	},
 }
 
+var Notifications = struct {
+	Templates struct {
+		Manage Permission
+	}
+}{
+	Templates: struct {
+		Manage Permission
+	}{
+		Manage: "notifications.templates.manage",
+	},
+}
+
 var Orders = struct {
 	Cancel struct {
 		All Permission
@@ -665,6 +678,7 @@ var DefaultRoles = map[string][]Permission{
 		"limit_templates.update.any",
 		"limits.employee.read",
 		"limits.employee.update",
+		"notifications.templates.manage",
 		"orders.cancel.all",
 		"orders.cancel.own",
 		"orders.place.on_behalf_bank",

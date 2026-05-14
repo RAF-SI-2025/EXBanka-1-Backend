@@ -117,6 +117,9 @@ permissions:
   - exchange_rates.read.any
   - exchange_rates.update.any
 
+  # notifications
+  - notifications.templates.manage
+
 default_roles:
   EmployeeBasic:
     grants:
