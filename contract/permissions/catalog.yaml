@@ -70,6 +70,7 @@ permissions:
   - otc.trade.accept
   - otc.trade.exercise
   - otc.trade.expire
+  - otc.trade.on_behalf
   - otc.read.all
 
   # funds
@@ -142,6 +143,7 @@ default_roles:
       - securities.read.holdings_own
       - otc.trade.accept
       - otc.trade.exercise
+      - otc.trade.on_behalf
       - funds.invest.own
       - funds.invest.on_behalf_client
       - funds.redeem.own

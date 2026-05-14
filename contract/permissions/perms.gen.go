@@ -45,6 +45,7 @@ var Catalog = []Permission{
 	"otc.trade.accept",
 	"otc.trade.exercise",
 	"otc.trade.expire",
+	"otc.trade.on_behalf",
 	"otc.read.all",
 	"funds.invest.own",
 	"funds.invest.on_behalf_client",
@@ -497,6 +498,7 @@ var Otc = struct {
 		Accept   Permission
 		Exercise Permission
 		Expire   Permission
+		OnBehalf Permission
 	}
 }{
 	Read: struct {
@@ -508,10 +510,12 @@ var Otc = struct {
 		Accept   Permission
 		Exercise Permission
 		Expire   Permission
+		OnBehalf Permission
 	}{
 		Accept:   "otc.trade.accept",
 		Exercise: "otc.trade.exercise",
 		Expire:   "otc.trade.expire",
+		OnBehalf: "otc.trade.on_behalf",
 	},
 }
 
@@ -672,6 +676,7 @@ var DefaultRoles = map[string][]Permission{
 		"otc.trade.accept",
 		"otc.trade.exercise",
 		"otc.trade.expire",
+		"otc.trade.on_behalf",
 		"peer_banks.manage.any",
 		"roles.permissions.assign",
 		"roles.permissions.revoke",
@@ -705,6 +710,7 @@ var DefaultRoles = map[string][]Permission{
 		"orders.read.own",
 		"otc.trade.accept",
 		"otc.trade.exercise",
+		"otc.trade.on_behalf",
 		"securities.read.holdings_own",
 		"securities.trade.any",
 	},
@@ -762,6 +768,7 @@ var DefaultRoles = map[string][]Permission{
 		"otc.trade.accept",
 		"otc.trade.exercise",
 		"otc.trade.expire",
+		"otc.trade.on_behalf",
 		"securities.manage.catalog",
 		"securities.read.holdings_all",
 		"securities.read.holdings_own",
