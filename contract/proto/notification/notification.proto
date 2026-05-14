@@ -15,6 +15,12 @@ service NotificationService {
   rpc GetUnreadCount(GetUnreadCountRequest) returns (GetUnreadCountResponse);
   rpc MarkNotificationRead(MarkNotificationReadRequest) returns (MarkNotificationReadResponse);
   rpc MarkAllNotificationsRead(MarkAllNotificationsReadRequest) returns (MarkAllNotificationsReadResponse);
+
+  // Notification templates (admin-managed copy + variable discovery)
+  rpc ListTemplates(ListTemplatesRequest) returns (ListTemplatesResponse);
+  rpc GetTemplate(GetTemplateRequest) returns (TemplateInfo);
+  rpc SetTemplate(SetTemplateRequest) returns (TemplateInfo);
+  rpc ResetTemplate(ResetTemplateRequest) returns (TemplateInfo);
 }
 
 message SendEmailRequest {
@@ -110,4 +116,50 @@ message MarkAllNotificationsReadRequest {
 
 message MarkAllNotificationsReadResponse {
   int64 count = 1;
+}
+
+// ── Notification templates ───────────────────────────────────────────────────
+
+message TemplateVariable {
+  string name = 1;
+  string description = 2;
+  string example = 3;
+}
+
+message TemplateInfo {
+  string type = 1;
+  string channel = 2;
+  string description = 3;
+  repeated TemplateVariable variables = 4;
+  string default_subject = 5;
+  string default_body = 6;
+  string current_subject = 7;
+  string current_body = 8;
+  bool is_customized = 9;
+}
+
+message ListTemplatesRequest {
+  string channel = 1; // "" = all, "email", or "push"
+}
+
+message ListTemplatesResponse {
+  repeated TemplateInfo templates = 1;
+}
+
+message GetTemplateRequest {
+  string type = 1;
+  string channel = 2;
+}
+
+message SetTemplateRequest {
+  string type = 1;
+  string channel = 2;
+  string subject = 3;
+  string body = 4;
+  uint64 updated_by = 5;
+}
+
+message ResetTemplateRequest {
+  string type = 1;
+  string channel = 2;
 }
