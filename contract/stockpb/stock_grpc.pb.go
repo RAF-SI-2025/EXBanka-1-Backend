@@ -238,6 +238,7 @@ var StockExchangeGRPCService_ServiceDesc = grpc.ServiceDesc{
 const (
 	SecurityGRPCService_ListStocks_FullMethodName          = "/stock.SecurityGRPCService/ListStocks"
 	SecurityGRPCService_GetStock_FullMethodName            = "/stock.SecurityGRPCService/GetStock"
+	SecurityGRPCService_GetStockByTicker_FullMethodName    = "/stock.SecurityGRPCService/GetStockByTicker"
 	SecurityGRPCService_GetStockHistory_FullMethodName     = "/stock.SecurityGRPCService/GetStockHistory"
 	SecurityGRPCService_ListFutures_FullMethodName         = "/stock.SecurityGRPCService/ListFutures"
 	SecurityGRPCService_GetFutures_FullMethodName          = "/stock.SecurityGRPCService/GetFutures"
@@ -257,6 +258,7 @@ type SecurityGRPCServiceClient interface {
 	// Stocks
 	ListStocks(ctx context.Context, in *ListStocksRequest, opts ...grpc.CallOption) (*ListStocksResponse, error)
 	GetStock(ctx context.Context, in *GetStockRequest, opts ...grpc.CallOption) (*StockDetail, error)
+	GetStockByTicker(ctx context.Context, in *GetStockByTickerRequest, opts ...grpc.CallOption) (*StockDetail, error)
 	GetStockHistory(ctx context.Context, in *GetPriceHistoryRequest, opts ...grpc.CallOption) (*PriceHistoryResponse, error)
 	// Futures
 	ListFutures(ctx context.Context, in *ListFuturesRequest, opts ...grpc.CallOption) (*ListFuturesResponse, error)
@@ -295,6 +297,16 @@ func (c *securityGRPCServiceClient) GetStock(ctx context.Context, in *GetStockRe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StockDetail)
 	err := c.cc.Invoke(ctx, SecurityGRPCService_GetStock_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *securityGRPCServiceClient) GetStockByTicker(ctx context.Context, in *GetStockByTickerRequest, opts ...grpc.CallOption) (*StockDetail, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StockDetail)
+	err := c.cc.Invoke(ctx, SecurityGRPCService_GetStockByTicker_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -408,6 +420,7 @@ type SecurityGRPCServiceServer interface {
 	// Stocks
 	ListStocks(context.Context, *ListStocksRequest) (*ListStocksResponse, error)
 	GetStock(context.Context, *GetStockRequest) (*StockDetail, error)
+	GetStockByTicker(context.Context, *GetStockByTickerRequest) (*StockDetail, error)
 	GetStockHistory(context.Context, *GetPriceHistoryRequest) (*PriceHistoryResponse, error)
 	// Futures
 	ListFutures(context.Context, *ListFuturesRequest) (*ListFuturesResponse, error)
@@ -437,6 +450,9 @@ func (UnimplementedSecurityGRPCServiceServer) ListStocks(context.Context, *ListS
 }
 func (UnimplementedSecurityGRPCServiceServer) GetStock(context.Context, *GetStockRequest) (*StockDetail, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetStock not implemented")
+}
+func (UnimplementedSecurityGRPCServiceServer) GetStockByTicker(context.Context, *GetStockByTickerRequest) (*StockDetail, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetStockByTicker not implemented")
 }
 func (UnimplementedSecurityGRPCServiceServer) GetStockHistory(context.Context, *GetPriceHistoryRequest) (*PriceHistoryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetStockHistory not implemented")
@@ -521,6 +537,24 @@ func _SecurityGRPCService_GetStock_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(SecurityGRPCServiceServer).GetStock(ctx, req.(*GetStockRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SecurityGRPCService_GetStockByTicker_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStockByTickerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SecurityGRPCServiceServer).GetStockByTicker(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SecurityGRPCService_GetStockByTicker_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SecurityGRPCServiceServer).GetStockByTicker(ctx, req.(*GetStockByTickerRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -719,6 +753,10 @@ var SecurityGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStock",
 			Handler:    _SecurityGRPCService_GetStock_Handler,
+		},
+		{
+			MethodName: "GetStockByTicker",
+			Handler:    _SecurityGRPCService_GetStockByTicker_Handler,
 		},
 		{
 			MethodName: "GetStockHistory",
