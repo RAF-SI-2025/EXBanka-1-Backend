@@ -534,6 +534,7 @@ For bulk replacement (set all permissions on a role at once) the legacy `PUT /ap
 | orders | `orders.place.on_behalf_client`, `orders.place.on_behalf_bank`, `orders.read.all`, `orders.cancel.all` |
 | verification | `verification.skip`, `verification.manage` |
 | peer_banks | `peer_banks.manage.any` (Phase 2 SI-TX — admin CRUD on the `peer_banks` registry; `EmployeeAdmin` only via the wildcard `*` grant) |
+| notifications | `notifications.templates.manage` — allows `EmployeeAdmin` to customize notification template subject/body text |
 
 ### Role Definitions
 
@@ -872,7 +873,7 @@ An agent extending an existing service needs to know which gRPC services already
 | `transaction/transaction.proto` | `TransactionService`, `FeeService`, `InterBankService` (Spec 3 + Spec 4 `ReverseInterBankTransfer`) | 13 + 5 + 5 |
 | `credit/credit.proto` | `CreditService` | 16 |
 | `exchange/exchange.proto` | `ExchangeService` | 4 |
-| `notification/notification.proto` | `NotificationService` | 2 |
+| `notification/notification.proto` | `NotificationService` (incl. template management: `ListTemplates`, `GetTemplate`, `SetTemplate`, `ResetTemplate`) | 6 |
 | `stock/stock.proto` | `SecurityGRPCService`, `OrderGRPCService`, `PortfolioGRPCService`, `OTCGRPCService`, `SourceAdminService`, **`InvestmentFundService`** (Celina 4, 9 RPCs), **`OTCOptionsService`** (Spec 2, 9 RPCs), **`CrossBankOTCService`** (Spec 4, 12 RPCs) | (see below) |
 
 **account-service BankAccountService additions:**
@@ -979,6 +980,14 @@ producer.PublishSendEmail(ctx, msg)
 ```
 
 Notification service consumes `notification.send-email` and sends via SMTP.
+
+### Notification Template Registry & DB Overrides
+
+Notification template **types** (e.g. `CONFIRMATION`, `ACTIVATION`, `PASSWORD_RESET`) and the `{{variable}}` placeholders each type supports are **code-defined** in a registry inside notification-service — they cannot be changed at runtime. Each registry entry carries a description, a default subject, a default body, and the list of supported variables (name, description, example).
+
+Admins customize only the **text** of a template (subject/body) via the `notifications.templates.manage` REST endpoints, which write a `NotificationTemplate` row keyed on `(type, channel)`. When notification-service renders a message it looks up the DB override first; if no override exists it falls back to the registry default. Reverting (DELETE) removes the override row.
+
+Placeholder substitution syntax is `{{variable_name}}`. At send time each `{{token}}` is replaced with the matching value from the publisher's `Data` map; an unknown or absent token renders as an empty string. Customization is validated against the registry — a subject/body that references a `{{variable}}` the template type does not declare is rejected (HTTP 400), as is an unknown template type (HTTP 404).
 
 ---
 
@@ -1375,6 +1384,10 @@ api-gateway:
 | POST | `/api/v3/peer-banks` | peer_banks.manage.any | PeerBankAdminHandler.Create | Admin: register a peer. Phase 2 SI-TX. |
 | PUT | `/api/v3/peer-banks/:id` | peer_banks.manage.any | PeerBankAdminHandler.Update | Admin: update mutable fields. Phase 2 SI-TX. |
 | DELETE | `/api/v3/peer-banks/:id` | peer_banks.manage.any | PeerBankAdminHandler.Delete | Admin: remove a peer. Phase 2 SI-TX. |
+| GET | `/api/v3/notification-templates` | notifications.templates.manage | NotificationHandler.ListNotificationTemplates | List all notification template types with supported `{{variables}}`, defaults, and current text. Optional `channel` query param (`email`/`push`). Discovery endpoint. |
+| GET | `/api/v3/notification-templates/:channel/:type` | notifications.templates.manage | NotificationHandler.GetNotificationTemplate | Get a single notification template; unknown type → 404 |
+| PUT | `/api/v3/notification-templates/:channel/:type` | notifications.templates.manage | NotificationHandler.SetNotificationTemplate | Customize a template's subject/body; placeholder referencing an unknown variable or empty subject/body → 400; unknown type → 404 |
+| DELETE | `/api/v3/notification-templates/:channel/:type` | notifications.templates.manage | NotificationHandler.ResetNotificationTemplate | Revert a template to its code-defined default; unknown type → 404 |
 
 ### Peer-Bank Protocol (Celina 5 SI-TX — PeerAuth)
 
@@ -1752,6 +1765,13 @@ ID(uint64), UserID(indexed), DeviceID(indexed), ChallengeID(uint64),
 Method(code_pull; qr_scan and number_match planned), DisplayData(JSONB),
 Status(pending|delivered|expired), ExpiresAt, DeliveredAt(nullable), CreatedAt
 ```
+
+**NotificationTemplate** — Admin override of a registry template's subject/body
+```
+ID(uint64), Type(string), Channel(email|push), Subject(string), Body(string),
+CreatedAt, UpdatedAt
+```
+Unique on `(type, channel)`. The absence of a row ⇒ the code-defined registry default is used for that template type/channel. The set of template types and the `{{variables}}` each supports is code-defined (the registry); only the subject/body text is customizable via this table.
 
 ### Stock Service (stock_db)
 

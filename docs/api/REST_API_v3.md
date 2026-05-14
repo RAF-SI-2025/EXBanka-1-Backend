@@ -52,33 +52,34 @@ Access tokens expire after 15 minutes. Use the refresh token to obtain a new pai
 12. [Loan Requests](#12-loan-requests)
 13. [Limits](#13-limits)
 14. [Bank Accounts](#14-bank-accounts)
-15. [Transfer Fees](#15-transfer-fees)
-16. [Interest Rate Tiers](#16-interest-rate-tiers)
-17. [Bank Margins](#17-bank-margins)
-18. [Card Requests](#18-card-requests)
-19. [Me (Self-Service)](#19-me-self-service)
-20. [Mobile Auth](#20-mobile-auth)
-21. [Mobile Device Management](#21-mobile-device-management)
-22. [Mobile Device Settings](#22-mobile-device-settings)
-23. [Verification](#23-verification)
-24. [Stock Exchanges](#24-stock-exchanges)
-25. [Securities](#25-securities)
-26. [Orders](#26-orders)
-27. [Portfolio](#27-portfolio)
-28. [OTC Offers (Public Stock Listings)](#28-otc-offers-public-stock-listings)
-29. [OTC Option Contracts (Celina 4)](#29-otc-option-contracts-celina-4)
-30. [Investment Funds (Celina 4)](#30-investment-funds-celina-4)
-31. [Actuaries](#31-actuaries)
-32. [Tax](#32-tax)
-33. [Blueprints](#33-blueprints)
-34. [Changelog (Audit Trail)](#34-changelog-audit-trail)
-35. [Sessions & Login History](#35-sessions--login-history)
-36. [Notifications](#36-notifications)
-37. [Stock Data Source](#37-stock-data-source)
-38. [Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)](#38-peer-banks-admin--si-tx-cross-bank-registry-celina-5)
-39. [Error Response Format](#error-response-format)
-40. [Password Requirements](#password-requirements)
-41. [Notes for Frontend Developers](#notes-for-frontend-developers)
+15. [Notification Templates](#15-notification-templates)
+16. [Transfer Fees](#16-transfer-fees)
+17. [Interest Rate Tiers](#17-interest-rate-tiers)
+18. [Bank Margins](#18-bank-margins)
+19. [Card Requests](#19-card-requests)
+20. [Me (Self-Service)](#20-me-self-service)
+21. [Mobile Auth](#21-mobile-auth)
+22. [Mobile Device Management](#22-mobile-device-management)
+23. [Mobile Device Settings](#23-mobile-device-settings)
+24. [Verification](#24-verification)
+25. [Stock Exchanges](#25-stock-exchanges)
+26. [Securities](#26-securities)
+27. [Orders](#27-orders)
+28. [Portfolio](#28-portfolio)
+29. [OTC Offers (Public Stock Listings)](#29-otc-offers-public-stock-listings)
+30. [OTC Option Contracts (Celina 4)](#30-otc-option-contracts-celina-4)
+31. [Investment Funds (Celina 4)](#31-investment-funds-celina-4)
+32. [Actuaries](#32-actuaries)
+33. [Tax](#33-tax)
+34. [Blueprints](#34-blueprints)
+35. [Changelog (Audit Trail)](#35-changelog-audit-trail)
+36. [Sessions & Login History](#36-sessions--login-history)
+37. [Notifications](#37-notifications)
+38. [Stock Data Source](#38-stock-data-source)
+39. [Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)](#39-peer-banks-admin--si-tx-cross-bank-registry-celina-5)
+40. [Error Response Format](#error-response-format)
+41. [Password Requirements](#password-requirements)
+42. [Notes for Frontend Developers](#notes-for-frontend-developers)
 
 ---
 
@@ -2911,7 +2912,202 @@ Delete a bank-owned account by ID.
 
 ---
 
-## 15. Transfer Fees
+## 15. Notification Templates
+
+Notification template management endpoints allow administrators to customize the subject and body text of notification messages (emails and push notifications).
+
+Each notification template **type** has a fixed, code-defined set of `{{variable}}` placeholders it supports (the registry). Admins customize only the text; the set of supported variables and the template types themselves cannot be changed via the API. A customized template is stored as a DB override; if no override exists, the code-defined registry default is used. The discovery endpoint below lists every template type together with the `{{variables}}` it supports, so a frontend can show which placeholders are valid before saving.
+
+Placeholder substitution syntax is `{{variable_name}}`. At send time, each `{{token}}` is replaced with the corresponding value from the publisher's data map; an unknown or absent token renders as an empty string.
+
+The `channel` path/query value must be `email` or `push`.
+
+**Authentication:** Employee token with `notifications.templates.manage` permission
+
+---
+
+### GET /api/v3/notification-templates
+
+List all notification template types. This is the **discovery endpoint**: for every template type it returns the `{{variables}}` it supports (with descriptions and examples), the code-defined default subject/body, and the current (possibly customized) subject/body.
+
+**Authentication:** Employee token with `notifications.templates.manage` permission
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `channel` | string | Optional. Filter by channel: `email` or `push`. |
+
+**Response 200:**
+```json
+{
+  "templates": [
+    {
+      "type": "CONFIRMATION",
+      "channel": "email",
+      "description": "Sent to a client when an action is confirmed",
+      "variables": [
+        {
+          "name": "first_name",
+          "description": "Client's first name",
+          "example": "Marko"
+        }
+      ],
+      "default_subject": "Confirmation",
+      "default_body": "Hello {{first_name}}, your action is confirmed.",
+      "current_subject": "Confirmation",
+      "current_body": "Hello {{first_name}}, your action is confirmed.",
+      "is_customized": false
+    }
+  ]
+}
+```
+
+**Response 400:** `{"error": "channel must be 'email' or 'push'"}`
+**Response 401:** `{"error": "unauthorized"}`
+**Response 403:** `{"error": "forbidden"}`
+
+---
+
+### GET /api/v3/notification-templates/:channel/:type
+
+Return a single notification template.
+
+**Authentication:** Employee token with `notifications.templates.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `channel` | string | `email` or `push` |
+| `type` | string | Template type (e.g., `CONFIRMATION`) |
+
+**Response 200:** A single template object with the same shape as one element of the `templates` array above:
+```json
+{
+  "type": "CONFIRMATION",
+  "channel": "email",
+  "description": "Sent to a client when an action is confirmed",
+  "variables": [
+    {
+      "name": "first_name",
+      "description": "Client's first name",
+      "example": "Marko"
+    }
+  ],
+  "default_subject": "Confirmation",
+  "default_body": "Hello {{first_name}}, your action is confirmed.",
+  "current_subject": "Confirmation",
+  "current_body": "Hello {{first_name}}, your action is confirmed.",
+  "is_customized": false
+}
+```
+
+**Response 400:** `{"error": "channel must be 'email' or 'push'"}`
+**Response 401:** `{"error": "unauthorized"}`
+**Response 403:** `{"error": "forbidden"}`
+**Response 404:** `{"error": "unknown template type"}`
+
+---
+
+### PUT /api/v3/notification-templates/:channel/:type
+
+Customize a notification template's subject and body. The new text may only reference `{{variables}}` that the template type supports — referencing an unknown variable is rejected with `400`.
+
+**Authentication:** Employee token with `notifications.templates.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `channel` | string | `email` or `push` |
+| `type` | string | Template type (e.g., `CONFIRMATION`) |
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `subject` | string | Yes | Customized subject text. May contain `{{variable}}` placeholders. Must not be empty. |
+| `body` | string | Yes | Customized body text. May contain `{{variable}}` placeholders. Must not be empty. |
+
+**Example Request:** customizing `email/CONFIRMATION`:
+```json
+{
+  "subject": "Hi {{first_name}}!",
+  "body": "Welcome {{first_name}}."
+}
+```
+
+**Response 200:** The updated template object (same shape as `GET /api/v3/notification-templates/:channel/:type`) with `is_customized: true` and the new `current_subject` / `current_body`:
+```json
+{
+  "type": "CONFIRMATION",
+  "channel": "email",
+  "description": "Sent to a client when an action is confirmed",
+  "variables": [
+    {
+      "name": "first_name",
+      "description": "Client's first name",
+      "example": "Marko"
+    }
+  ],
+  "default_subject": "Confirmation",
+  "default_body": "Hello {{first_name}}, your action is confirmed.",
+  "current_subject": "Hi {{first_name}}!",
+  "current_body": "Welcome {{first_name}}.",
+  "is_customized": true
+}
+```
+
+**Response 400:** `{"error": "unknown variable {{account_number}} for template type CONFIRMATION"}` — also returned if `subject` or `body` is empty.
+**Response 401:** `{"error": "unauthorized"}`
+**Response 403:** `{"error": "forbidden"}`
+**Response 404:** `{"error": "unknown template type"}`
+
+---
+
+### DELETE /api/v3/notification-templates/:channel/:type
+
+Revert a notification template to its code-defined default by removing the DB override.
+
+**Authentication:** Employee token with `notifications.templates.manage` permission
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `channel` | string | `email` or `push` |
+| `type` | string | Template type (e.g., `CONFIRMATION`) |
+
+**Response 200:** The template object with `is_customized: false` and `current_subject` / `current_body` back to the registry defaults:
+```json
+{
+  "type": "CONFIRMATION",
+  "channel": "email",
+  "description": "Sent to a client when an action is confirmed",
+  "variables": [
+    {
+      "name": "first_name",
+      "description": "Client's first name",
+      "example": "Marko"
+    }
+  ],
+  "default_subject": "Confirmation",
+  "default_body": "Hello {{first_name}}, your action is confirmed.",
+  "current_subject": "Confirmation",
+  "current_body": "Hello {{first_name}}, your action is confirmed.",
+  "is_customized": false
+}
+```
+
+**Response 400:** `{"error": "channel must be 'email' or 'push'"}`
+**Response 401:** `{"error": "unauthorized"}`
+**Response 403:** `{"error": "forbidden"}`
+**Response 404:** `{"error": "unknown template type"}`
+
+---
+
+## 16. Transfer Fees
 
 Configurable fee rules applied to payments and transfers. Multiple active fee rules can apply to the same transaction -- they stack additively. For example, a percentage fee AND a fixed fee can both apply to the same transaction.
 
@@ -3049,7 +3245,7 @@ Deactivate a fee rule. The rule is not deleted from the database -- it is soft-d
 
 ---
 
-## 16. Interest Rate Tiers
+## 17. Interest Rate Tiers
 
 Interest rate tier management for loan interest rate configuration. Each tier defines the fixed and variable base rates for a loan amount range.
 
@@ -3238,7 +3434,7 @@ Apply a variable rate update to all active variable-rate loans whose amount fall
 
 ---
 
-## 17. Bank Margins
+## 18. Bank Margins
 
 Bank margin management for loan interest rate calculation. Each loan type has a configurable margin that is added to the variable base rate from the interest rate tier.
 
@@ -3331,7 +3527,7 @@ Update the margin for a specific loan type.
 
 ---
 
-## 18. Card Requests
+## 19. Card Requests
 
 Card requests allow clients to request a card for one of their accounts. Employees with `cards.approve` permission can approve or reject these requests.
 
@@ -3545,7 +3741,7 @@ Employee rejects a pending card request with a reason.
 
 ---
 
-## 19. Me (Self-Service)
+## 20. Me (Self-Service)
 
 The `/api/v3/me/*` route group provides self-service access for both employees and bank clients. All routes in this group are protected by `AnyAuthMiddleware`, which accepts any valid JWT (employee or client). Results are automatically scoped to the authenticated principal -- no `client_id` path segment is needed.
 
@@ -4023,7 +4219,7 @@ Returns paginated capital gains tax records for the authenticated user. See [Sec
 
 ---
 
-## 20. Mobile Auth
+## 21. Mobile Auth
 
 Mobile device authentication for the EXBanka mobile app. These endpoints are public (no auth required).
 
@@ -4149,7 +4345,7 @@ Refresh mobile access token.
 
 ---
 
-## 21. Mobile Device Management
+## 22. Mobile Device Management
 
 Manage the authenticated mobile device. Requires `MobileAuthMiddleware`.
 
@@ -4218,7 +4414,7 @@ Deactivate the current device and send a new activation code to the specified em
 
 ---
 
-## 22. Mobile Device Settings
+## 23. Mobile Device Settings
 
 Biometric authentication settings for the mobile device. Requires `MobileAuthMiddleware` + `RequireDeviceSignature`.
 
@@ -4278,7 +4474,7 @@ Get current biometric authentication status for the device.
 
 ---
 
-## 23. Verification
+## 24. Verification
 
 The verification service provides two-factor authentication for payments and transfers. Challenges expire after 5 minutes and allow a maximum of 3 attempts. Employees with `verification.skip` permission bypass verification entirely.
 
@@ -4595,7 +4791,7 @@ QR code verification. The mobile app scans a QR code displayed in the browser, e
 
 ---
 
-## 24. Stock Exchanges
+## 25. Stock Exchanges
 
 ### GET /api/v3/stock-exchanges
 
@@ -4673,7 +4869,7 @@ Get current testing mode status.
 
 ---
 
-## 25. Securities
+## 26. Securities
 
 All securities endpoints require any valid JWT (AnyAuthMiddleware).
 
@@ -4921,7 +5117,7 @@ GET /api/v3/securities/candles?listing_id=42&interval=1h&from=2026-04-01T00:00:0
 
 ---
 
-## 26. Orders
+## 27. Orders
 
 ### POST /api/v3/me/orders
 
@@ -5224,7 +5420,7 @@ Exercise an option by `option_id`. If `holding_id` is omitted, the backend auto-
 
 ---
 
-## 27. Portfolio
+## 28. Portfolio
 
 ### GET /api/v3/me/portfolio
 
@@ -5377,7 +5573,7 @@ Exercise an options contract.
 
 ---
 
-## 28. OTC Offers (Public Stock Listings)
+## 29. OTC Offers (Public Stock Listings)
 
 These three endpoints cover the legacy stock-public-OTC flow — a holding made publicly tradeable via `POST /api/v3/me/portfolio/:id/make-public` and bought outright by another user. For the Celina 4 option-contract negotiations (offer / counter / accept / reject / exercise), see [Section 29](#29-otc-option-contracts-celina-4).
 
@@ -5541,7 +5737,7 @@ Renamed from `POST /api/v3/otc/admin/offers/:id/buy` in the v3 route standardiza
 
 ---
 
-## 29. OTC Option Contracts (Celina 4)
+## 30. OTC Option Contracts (Celina 4)
 
 OTC option-contract negotiation flow (Specification §26). Two parties — both clients, both supervisors, or a client and an employee acting for the bank — exchange revisions on a stock-option contract until one side accepts or rejects. Acceptance triggers a premium-payment SAGA that creates an `OptionContract`. The contract can later be exercised before its `settlement_date`.
 
@@ -5924,7 +6120,7 @@ After creation, both banks have a negotiation row. Either side can counter via `
 
 ---
 
-## 30. Investment Funds (Celina 4)
+## 31. Investment Funds (Celina 4)
 
 Supervisor-managed investment funds (Specification §24). Clients and the bank take positions in funds via invest/redeem; supervisors manage the catalog and place on-behalf-of-fund orders. Each fund has one bank-owned RSD account that holds its cash; positions and contributions are tracked in `client_fund_positions` and `fund_contributions`.
 
@@ -6190,7 +6386,7 @@ List the bank's own fund positions (Portal: Profit Banke → Investment Funds Po
 
 ---
 
-## 31. Actuaries
+## 32. Actuaries
 
 ### GET /api/v3/actuaries
 
@@ -6327,7 +6523,7 @@ Remove the supervisor approval requirement for this actuary (orders go straight 
 
 ---
 
-## 32. Tax
+## 33. Tax
 
 ### GET /api/v3/tax
 
@@ -6427,7 +6623,7 @@ Authorization: Bearer <token>
 
 ---
 
-## 33. Blueprints
+## 34. Blueprints
 
 **v1-only section.** Limit blueprints are reusable named templates that define a set of limit values. They can be created for employees, actuaries, or clients. Applying a blueprint copies its values to the target entity's limits.
 
@@ -6665,7 +6861,7 @@ Apply a blueprint's limit values to a target entity. The target type is determin
 
 ---
 
-## 34. Changelog (Audit Trail)
+## 35. Changelog (Audit Trail)
 
 Field-level change history for core entities. All five changelog endpoints are **fully implemented** — they return paginated audit log entries from each service's own changelog table, recording every field mutation with old value, new value, and the employee who made the change.
 
@@ -6800,7 +6996,7 @@ Get the field-level change history for a loan.
 
 ---
 
-## 35. Sessions & Login History
+## 36. Sessions & Login History
 
 Manage active sessions and view login history for the authenticated user.
 
@@ -6941,7 +7137,7 @@ Get recent login attempts for the authenticated user.
 
 ---
 
-## 36. Notifications
+## 37. Notifications
 
 **v1-only section.** General persistent notifications for the authenticated user. Unlike verification notifications (mobile-only, time-limited), these persist indefinitely and track read/unread status. Accessible by both browser and mobile clients.
 
@@ -7076,7 +7272,7 @@ Mark all unread notifications as read for the authenticated user.
 
 ---
 
-## 37. Stock Data Source
+## 38. Stock Data Source
 
 Admin-only endpoints for managing the stock-service data source. Switching sources is **destructive** — it wipes every securities row, listing, option, order, holding, capital gain, tax collection, and order transaction, then reseeds from the new source. Use with care.
 
@@ -7140,7 +7336,7 @@ When `status=failed`, `last_error` contains the failure reason. The admin can re
 
 ---
 
-## 38. Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)
+## 39. Peer Banks (Admin) — SI-TX cross-bank registry (Celina 5)
 
 Runtime registry of cross-bank peer banks. Backs the SI-TX `POST /api/v3/interbank` middleware, which looks up peer authentication credentials in this table. EmployeeAdmin only (`peer_banks.manage.any` permission).
 
