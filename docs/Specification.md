@@ -529,7 +529,7 @@ For bulk replacement (set all permissions on a role at once) the legacy `PUT /ap
 | limits | `limits.employee.read`, `limits.employee.update` |
 | bank_accounts | `bank_accounts.manage.any` |
 | fees | `fees.create.any`, `fees.update.any` |
-| otc | `otc.trade.accept` |
+| otc | `otc.trade.accept`, `otc.trade.on_behalf` |
 | funds | `funds.read.all`, `funds.manage.catalog` |
 | orders | `orders.place.on_behalf_client`, `orders.place.on_behalf_bank`, `orders.read.all`, `orders.cancel.all` |
 | verification | `verification.skip`, `verification.manage` |
@@ -1357,7 +1357,7 @@ api-gateway:
 | POST | `/api/v3/stock-sources` | securities.manage.catalog | stockSourceHandler.SwitchSource | Switch active stock data source (destructive) |
 | GET | `/api/v3/stock-sources/active` | securities.manage.catalog | stockSourceHandler.GetSourceStatus | Get current stock data source and status |
 | POST | `/api/v3/orders` | orders.place-on-behalf | stockHandler.CreateOrderOnBehalf | Employee places stock order on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
-| POST | `/api/v3/otc/offers/:id/buy-on-behalf` | otc.trade.accept or orders.place-on-behalf | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
+| POST | `/api/v3/otc/offers/:id/buy-on-behalf` | otc.trade.accept or otc.trade.on_behalf | otcHandler.BuyOTCOfferOnBehalf | Employee buys OTC offer on behalf of a named client; gateway verifies account belongs to client (mismatch → 403) |
 | GET | `/api/v3/clients/:id/accounts` | accounts.read | accountHandler.ListAccountsByClientPath | List accounts by client |
 | GET | `/api/v3/clients/:id/loans` | credits.read | creditHandler.ListLoansByClientPath | List loans by client |
 | GET | `/api/v3/accounts/:id/changelog` | accounts.read.all | changelogHandler.GetAccountChangelog | Account audit log |
@@ -2381,11 +2381,11 @@ The full endpoint reference is in `docs/api/REST_API_v1.md` (kept under that fil
 | GET | `/api/v3/me/investment-funds` | AnyAuthMiddleware | InvestmentFundHandler.ListMyPositions | Caller's fund positions |
 | GET | `/api/v3/investment-funds/positions` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ListBankPositions | Bank-owned positions |
 | GET | `/api/v3/actuaries/performance` | AuthMiddleware + RequirePermission(`funds.bank-position-read`) | InvestmentFundHandler.ActuaryPerformance | Realised profit per acting employee |
-| POST | `/api/v3/otc/offers` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.CreateOffer | Create OTC option offer (Spec 2) |
-| POST | `/api/v3/otc/offers/:id/counter` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.CounterOffer | Counter offer terms |
-| POST | `/api/v3/otc/offers/:id/accept` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.AcceptOffer | Accept offer (premium-payment saga; cross-bank dispatches via Spec 4) |
-| POST | `/api/v3/otc/offers/:id/reject` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.RejectOffer | Reject offer |
-| POST | `/api/v3/otc/contracts/:id/exercise` | AnyAuthMiddleware + RequireAllPermissions(`securities.trade`,`otc.trade`) | OTCOptionsHandler.ExerciseContract | Exercise option (cross-bank dispatches via Spec 4) |
+| POST | `/api/v3/otc/offers` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.CreateOffer | Create OTC option offer (Spec 2). Clients allowed (ownership-gated); ticker-keyed; `account_id` required; optional `on_behalf_of_client_id` |
+| POST | `/api/v3/otc/offers/:id/counter` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.CounterOffer | Counter offer terms; optional `on_behalf_of_client_id` |
+| POST | `/api/v3/otc/offers/:id/accept` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.AcceptOffer | Accept offer (premium-payment saga; cross-bank dispatches via Spec 4). Single `account_id` (acceptor's); optional `on_behalf_of_client_id` |
+| POST | `/api/v3/otc/offers/:id/reject` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.RejectOffer | Reject offer |
+| POST | `/api/v3/otc/contracts/:id/exercise` | AnyAuthMiddleware + RequirePermissionOrClient(All, `securities.trade`,`otc.trade`) | OTCOptionsHandler.ExerciseContract | Exercise option (cross-bank dispatches via Spec 4). Accounts read from the contract; optional `on_behalf_of_client_id` |
 | GET | `/api/v3/otc/offers/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetOffer | Offer detail with revisions |
 | GET | `/api/v3/otc/contracts/:id` | AnyAuthMiddleware | OTCOptionsHandler.GetContract | Contract detail |
 | GET | `/api/v3/me/otc/offers` | AnyAuthMiddleware | OTCOptionsHandler.ListMyOffers | Caller's OTC offers |
@@ -2562,15 +2562,16 @@ All `PeerAuth` failures return 401 with empty body. Constant-time comparison via
 
 | Entity | Table | Purpose |
 |---|---|---|
-| `OTCOffer` | `otc_offers` | One negotiation thread between two parties on a stock-option contract. Carries direction, stock_id, qty, strike, premium, settlement_date, status. Initiator + counterparty identified by (`InitiatorOwnerType`, `InitiatorOwnerID`) / (`CounterpartyOwnerType`, `CounterpartyOwnerID`); `LastModifiedByPrincipalType`/`LastModifiedByPrincipalID` records the actor (principal) of the latest revision. (Renamed from the pre-Task-4 `(user_id, system_type)` triples by plan 2026-04-27-owner-type-schema.md.) Optimistic-locked. |
+| `OTCOffer` | `otc_offers` | One negotiation thread between two parties on a stock-option contract. Carries direction, stock_id, qty, strike, premium, settlement_date, status. Initiator + counterparty identified by (`InitiatorOwnerType`, `InitiatorOwnerID`) / (`CounterpartyOwnerType`, `CounterpartyOwnerID`); `LastModifiedByPrincipalType`/`LastModifiedByPrincipalID` records the actor (principal) of the latest revision. `InitiatorAccountID` is the initiator's account bound at offer creation (pays the premium on `buy_initiated`, receives it on `sell_initiated`). (Renamed from the pre-Task-4 `(user_id, system_type)` triples by plan 2026-04-27-owner-type-schema.md.) Optimistic-locked. |
 | `OTCOfferRevision` | `otc_offer_revisions` | Append-only history of every CREATE/COUNTER/ACCEPT/REJECT action on an offer. Carries `ModifiedByPrincipalType`/`ModifiedByPrincipalID` (the principal who issued the revision, not the resource owner). (offer_id, revision_number) is unique. |
-| `OptionContract` | `option_contracts` | The premium-paid executed option produced by the accept saga. Buyer + seller identified by (`BuyerOwnerType`, `BuyerOwnerID`) / (`SellerOwnerType`, `SellerOwnerID`); status ∈ {ACTIVE, EXERCISED, EXPIRED, FAILED}. |
+| `OptionContract` | `option_contracts` | The premium-paid executed option produced by the accept saga. Buyer + seller identified by (`BuyerOwnerType`, `BuyerOwnerID`) / (`SellerOwnerType`, `SellerOwnerID`); `BuyerAccountID`/`SellerAccountID` are bound at accept time and read straight off the contract on exercise; status ∈ {ACTIVE, EXERCISED, EXPIRED, FAILED}. |
 | `OTCOfferReadReceipt` | `otc_offer_read_receipts` | Composite-PK row tracking the most recent updated_at the owner has seen for an offer. PK is (`OwnerType`, `OwnerID`, `OfferID`); bank readers materialise as `OwnerID=0` because Postgres disallows NULL in primary keys. Drives the `unread` flag. |
 | `HoldingReservation.OTCContractID` | `holding_reservations.otc_contract_id` | New nullable column. Either OrderID or OTCContractID is set; CHECK constraint enforces the XOR. |
 
 ### Permissions
 
-- `otc.trade` (new) — required for create/counter/accept/reject/exercise. Granted to `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin` (which already have `securities.trade`).
+- `otc.trade` — required for create/counter/accept/reject/exercise by **employees**. Granted to `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin` (which already have `securities.trade`). **Clients** are not permission-gated on these routes — they are allowed by `RequirePermissionOrClient` and constrained instead by resource-ownership checks (`ResolveAndCheckAccount`): a client may only supply their own accounts.
+- `otc.trade.on_behalf` (new) — lets an employee act on behalf of a client on the OTC option routes (and `/otc/offers/:id/buy-on-behalf`) by setting `on_behalf_of_client_id`. Granted to `EmployeeAgent`, `EmployeeSupervisor`, `EmployeeAdmin`. An employee with no `on_behalf_of_client_id` acts as the bank and must use a bank account.
 
 ### gRPC service: `OTCOptionsService`
 

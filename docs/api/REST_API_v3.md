@@ -5500,9 +5500,11 @@ OTC option-contract negotiation flow (Specification §26). Two parties — both 
 
 The URL namespace is shared with [Section 28](#28-otc-offers-public-stock-listings) (`/api/v3/otc/offers`) — the routes here are distinguished by their HTTP verb and action segment (`/counter`, `/accept`, `/reject`, `/exercise`).
 
-**Permissions:** all trading actions (create, counter, accept, reject, exercise) require **both** `securities.trade` **and** `otc.trade` (`RequireAllPermissions`). Read endpoints accept any authenticated principal.
+**Permissions:** clients may call all trading actions (create, counter, accept, reject, exercise) — their access is gated by resource ownership, not permissions. Employees still need **both** `securities.trade` **and** `otc.trade` (`RequirePermissionOrClient`). Read endpoints accept any authenticated principal.
 
 **Identity middleware:** these routes use `OwnerIsBankIfEmployee` — when the caller is an employee, the offer/contract is owned by `bank` (no client `OwnerID`); when the caller is a client, the offer/contract is owned by that client.
+
+**Account ownership & on-behalf:** every account a caller supplies is verified before the gRPC call. A client may only use their own accounts. An employee with no `on_behalf_of_client_id` acts as the bank and must use a bank account; an employee that sets `on_behalf_of_client_id` acts for that client (requires `otc.trade.on_behalf`) and must use that client's account. Each party binds only their own account — the counterparty account is read from the persisted offer/contract.
 
 ---
 
@@ -5510,30 +5512,33 @@ The URL namespace is shared with [Section 28](#28-otc-offers-public-stock-listin
 
 Create a new OTC option offer (open a negotiation thread).
 
-**Authentication:** Any JWT + `securities.trade` AND `otc.trade`
+**Authentication:** Any JWT (clients allowed; employees need `securities.trade` AND `otc.trade`)
 
 **Request Body:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `direction` | string | Yes | `sell_initiated` (caller is the seller of the option) or `buy_initiated` (caller is the buyer) |
-| `stock_id` | uint64 | Yes | Stock listing ID the option is on |
+| `ticker` | string | Yes | Ticker of the stock the option is on (resolved to a stock ID server-side; unknown ticker → 400) |
 | `quantity` | string (decimal) | Yes | Number of shares the option covers |
 | `strike_price` | string (decimal) | Yes | Strike price per share, in the seller's account currency |
 | `premium` | string (decimal) | No | Option premium (paid by buyer to seller on accept) |
 | `settlement_date` | string (RFC3339 date) | Yes | Last day the option can be exercised |
+| `account_id` | uint64 | Yes | The initiator's account — pays the premium on `buy_initiated`, receives it on `sell_initiated`. Ownership-verified. |
 | `counterparty_user_id` | int64 | No | Pin the offer to a specific counterparty (1:1 negotiation). Omit for a broadcast offer. |
 | `counterparty_system_type` | string | No | `client` (default) or `employee` — paired with `counterparty_user_id` |
+| `on_behalf_of_client_id` | uint64 | No | Employee-only: act on behalf of this client (requires `otc.trade.on_behalf`). Omitted → employee acts as the bank. |
 
 **Example Request:**
 ```json
 {
   "direction": "sell_initiated",
-  "stock_id": 42,
+  "ticker": "AAPL",
   "quantity": "100",
   "strike_price": "5000.00",
   "premium": "50000.00",
   "settlement_date": "2026-06-05",
+  "account_id": 4242,
   "counterparty_user_id": 8,
   "counterparty_system_type": "client"
 }
@@ -5559,8 +5564,8 @@ Create a new OTC option offer (open a negotiation thread).
 ```
 
 **Error Responses:**
-- `400` — invalid direction / missing required field
-- `403` — missing `securities.trade` or `otc.trade`
+- `400` — invalid direction / missing required field / unknown ticker
+- `403` — account does not belong to the caller, or employee missing `securities.trade` / `otc.trade` / `otc.trade.on_behalf`
 
 ---
 
@@ -5576,7 +5581,7 @@ Send a counter-offer on an existing negotiation thread. The counterparty becomes
 |---|---|---|
 | `id` | uint64 | Offer ID |
 
-**Request Body:** Any subset of the negotiable terms — fields left blank are unchanged.
+**Request Body:** Any subset of the negotiable terms — fields left blank are unchanged. No account is bound at counter time (each party's account is bound at create / accept).
 
 | Field | Type | Description |
 |---|---|---|
@@ -5584,6 +5589,7 @@ Send a counter-offer on an existing negotiation thread. The counterparty becomes
 | `strike_price` | string (decimal) | New strike per share |
 | `premium` | string (decimal) | New premium |
 | `settlement_date` | string (RFC3339 date) | New settlement date |
+| `on_behalf_of_client_id` | uint64 | Employee-only: act on behalf of this client (requires `otc.trade.on_behalf`). |
 
 **Response 200:** `{ "offer": <updated offer> }`.
 
@@ -5610,8 +5616,8 @@ Accept the current revision of an offer. Triggers the premium-payment SAGA: rese
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `buyer_account_id` | uint64 | Yes | Account the premium is debited from |
-| `seller_account_id` | uint64 | Yes | Account the premium is credited to |
+| `account_id` | uint64 | Yes | The **acceptor's own** account. Maps to buyer or seller via the offer's `direction`; the counterparty (initiator) account is read from the persisted offer. Ownership-verified. |
+| `on_behalf_of_client_id` | uint64 | No | Employee-only: act on behalf of this client (requires `otc.trade.on_behalf`). |
 
 **Response 201:**
 ```json
@@ -5632,8 +5638,8 @@ Accept the current revision of an offer. Triggers the premium-payment SAGA: rese
 ```
 
 **Error Responses:**
-- `400` — missing `buyer_account_id` / `seller_account_id`
-- `403` — missing perms
+- `400` — missing `account_id`
+- `403` — account does not belong to the caller, or employee missing perms
 - `409` — insufficient buyer funds, insufficient seller shares, or offer no longer pending
 
 ---
@@ -5733,12 +5739,11 @@ Exercise an active option contract — the buyer pays `quantity * strike_price` 
 |---|---|---|
 | `id` | uint64 | Contract ID |
 
-**Request Body:**
+**Request Body:** Optional. The buyer and seller accounts are read from the contract (bound at accept time), so no account is supplied here.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `buyer_account_id` | uint64 | Yes | Account that pays the strike (and where the holding lands) |
-| `seller_account_id` | uint64 | Yes | Account that receives the strike payment |
+| `on_behalf_of_client_id` | uint64 | No | Employee-only: act on behalf of this client (requires `otc.trade.on_behalf`). |
 
 **Response 201:**
 ```json
@@ -5749,8 +5754,7 @@ Exercise an active option contract — the buyer pays `quantity * strike_price` 
 ```
 
 **Error Responses:**
-- `400` — missing buyer/seller account IDs
-- `403` — missing perms
+- `403` — caller is not the contract buyer, or employee missing perms
 - `409` — contract already exercised / expired, or insufficient buyer funds
 
 ---
