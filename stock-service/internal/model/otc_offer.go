@@ -53,6 +53,10 @@ type OTCOffer struct {
 	LastModifiedByPrincipalID   uint64  `gorm:"not null" json:"last_modified_by_principal_id"`
 	ActingEmployeeID            *uint64 `gorm:"index" json:"acting_employee_id,omitempty"`
 	ExternalCorrelationID       *string `gorm:"size:64" json:"external_correlation_id,omitempty"`
+	// InitiatorAccountID is the initiator's account bound at offer creation:
+	// it pays the premium on buy_initiated offers and receives it on
+	// sell_initiated offers. The counterparty's account is bound at accept.
+	InitiatorAccountID uint64 `gorm:"not null;default:0" json:"initiator_account_id"`
 	// Cross-bank visibility (Spec 4 / Celina 5). Public offers are listed via
 	// peer discovery; Private offers are only shown to the named bank in
 	// PrivateToBankCode. NULL bank codes mean a same-bank offer.

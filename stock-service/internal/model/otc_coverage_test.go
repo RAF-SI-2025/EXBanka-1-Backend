@@ -1,10 +1,46 @@
 package model
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/shopspring/decimal"
+
+	"github.com/exbanka/contract/testutil"
+)
 
 // ----------------------------------------------------------------------------
 // OTCOffer
 // ----------------------------------------------------------------------------
+
+func TestOTCOffer_InitiatorAccountID_Persists(t *testing.T) {
+	db := testutil.SetupTestDB(t, &OTCOffer{})
+	id := uint64(1)
+	o := &OTCOffer{
+		InitiatorOwnerType:          OwnerClient,
+		InitiatorOwnerID:            &id,
+		Direction:                   OTCDirectionSellInitiated,
+		StockID:                     1,
+		Quantity:                    decimal.NewFromInt(10),
+		StrikePrice:                 decimal.NewFromInt(5),
+		Premium:                     decimal.NewFromInt(1),
+		SettlementDate:              time.Now().Add(48 * time.Hour),
+		Status:                      OTCOfferStatusPending,
+		LastModifiedByPrincipalType: "client",
+		LastModifiedByPrincipalID:   1,
+		InitiatorAccountID:          4242,
+	}
+	if err := db.Create(o).Error; err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var got OTCOffer
+	if err := db.First(&got, o.ID).Error; err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.InitiatorAccountID != 4242 {
+		t.Errorf("got %d, want 4242", got.InitiatorAccountID)
+	}
+}
 
 func TestOTCOffer_BeforeSave_OK(t *testing.T) {
 	id := uint64(1)
