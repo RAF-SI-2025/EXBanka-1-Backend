@@ -202,6 +202,67 @@ func RequireAllPermissions(ps ...perms.Permission) gin.HandlerFunc {
 	}
 }
 
+// PermMode selects how RequirePermissionOrClient evaluates the permission
+// list for employee principals.
+type PermMode int
+
+const (
+	// PermAll requires the employee to hold every listed permission.
+	PermAll PermMode = iota
+	// PermAny requires the employee to hold at least one listed permission.
+	PermAny
+)
+
+// RequirePermissionOrClient gates a route that both clients and employees may
+// use. Client principals always pass — their access is constrained by
+// resource-ownership checks in the handler, not by permissions. Employee
+// principals are still permission-gated: PermAll requires all listed
+// permissions, PermAny requires at least one.
+func RequirePermissionOrClient(mode PermMode, ps ...perms.Permission) gin.HandlerFunc {
+	wants := make([]string, len(ps))
+	for i, p := range ps {
+		wants[i] = string(p)
+	}
+	return func(c *gin.Context) {
+		if c.GetString("principal_type") == "client" {
+			c.Next()
+			return
+		}
+		raw, ok := c.Get("permissions")
+		if !ok {
+			abortWithError(c, http.StatusForbidden, "forbidden", "no permissions")
+			return
+		}
+		have, ok := raw.([]string)
+		if !ok {
+			abortWithError(c, http.StatusForbidden, "forbidden", "invalid permissions format")
+			return
+		}
+		set := make(map[string]bool, len(have))
+		for _, p := range have {
+			set[p] = true
+		}
+		switch mode {
+		case PermAny:
+			for _, w := range wants {
+				if set[w] {
+					c.Next()
+					return
+				}
+			}
+			abortWithError(c, http.StatusForbidden, "forbidden", "insufficient permissions")
+		default: // PermAll
+			for _, w := range wants {
+				if !set[w] {
+					abortWithError(c, http.StatusForbidden, "forbidden", "missing permission "+w)
+					return
+				}
+			}
+			c.Next()
+		}
+	}
+}
+
 // HasPermission reports whether the caller holds the given permission
 // code. Useful inside handlers that need to dispatch by scope (e.g.,
 // returning all orders if the caller has orders.read.all, otherwise
