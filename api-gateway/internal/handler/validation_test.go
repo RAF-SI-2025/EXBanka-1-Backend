@@ -2,13 +2,89 @@
 package handler
 
 import (
+	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+
+	"github.com/exbanka/api-gateway/internal/middleware"
+	accountpb "github.com/exbanka/contract/accountpb"
 )
+
+func u64ptr(v uint64) *uint64 { return &v }
+
+// vtStubAccountClient implements accountpb.AccountServiceClient for ownership
+// helper tests; only GetAccount is exercised.
+type vtStubAccountClient struct {
+	accountpb.AccountServiceClient
+	acct *accountpb.AccountResponse
+	err  error
+}
+
+func (s *vtStubAccountClient) GetAccount(_ context.Context, _ *accountpb.GetAccountRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.acct, nil
+}
+
+func newTestGinCtx() (*gin.Context, *httptest.ResponseRecorder) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+	return c, rec
+}
+
+func TestResolveAndCheckAccount_ClientOwns(t *testing.T) {
+	c, _ := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "client", PrincipalID: 5, OwnerType: "client", OwnerID: u64ptr(5)}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 5, AccountKind: "current"}}
+	require.NoError(t, ResolveAndCheckAccount(c, ac, id, 9, 0))
+}
+
+func TestResolveAndCheckAccount_ClientDoesNotOwn(t *testing.T) {
+	c, rec := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "client", PrincipalID: 5, OwnerType: "client", OwnerID: u64ptr(5)}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 999, AccountKind: "current"}}
+	require.Error(t, ResolveAndCheckAccount(c, ac, id, 9, 0))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestResolveAndCheckAccount_EmployeeBankAccount(t *testing.T) {
+	c, _ := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "employee", PrincipalID: 7, OwnerType: "bank"}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 1000000000, AccountKind: "bank"}}
+	require.NoError(t, ResolveAndCheckAccount(c, ac, id, 9, 0))
+}
+
+func TestResolveAndCheckAccount_EmployeeNonBankAccountRejected(t *testing.T) {
+	c, rec := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "employee", PrincipalID: 7, OwnerType: "bank"}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 5, AccountKind: "current"}}
+	require.Error(t, ResolveAndCheckAccount(c, ac, id, 9, 0))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestResolveAndCheckAccount_EmployeeOnBehalf(t *testing.T) {
+	c, _ := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "employee", PrincipalID: 7, OwnerType: "bank"}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 333, AccountKind: "current"}}
+	require.NoError(t, ResolveAndCheckAccount(c, ac, id, 9, 333))
+}
+
+func TestResolveAndCheckAccount_EmployeeOnBehalfWrongClient(t *testing.T) {
+	c, rec := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "employee", PrincipalID: 7, OwnerType: "bank"}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 444, AccountKind: "current"}}
+	require.Error(t, ResolveAndCheckAccount(c, ac, id, 9, 333))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
 
 // ---------------------------------------------------------------------------
 // oneOf

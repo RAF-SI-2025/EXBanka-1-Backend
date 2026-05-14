@@ -2,12 +2,16 @@ package handler
 
 import (
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/exbanka/api-gateway/internal/middleware"
+	accountpb "github.com/exbanka/contract/accountpb"
 )
 
 // oneOf checks that value (lowercased) is one of the allowed values.
@@ -121,6 +125,57 @@ func enforceOwnership(c *gin.Context, ownerID uint64) error {
 	if !ok || uint64(userID) != ownerID {
 		apiError(c, 404, ErrNotFound, "resource not found")
 		return fmt.Errorf("ownership mismatch: resource owner %d does not match caller %d", ownerID, userID)
+	}
+	return nil
+}
+
+// bankSentinelOwnerID is the owner_id account-service stamps on bank-owned
+// accounts (mirrors account-service's is_bank_account sentinel).
+const bankSentinelOwnerID uint64 = 1_000_000_000
+
+// ResolveAndCheckAccount fetches the account and verifies it belongs to the
+// party the caller is acting as, per the Resource Ownership Verification
+// Requirement in CLAUDE.md:
+//   - client principal       → account.owner_id == principal_id, not a bank account
+//   - employee, no on-behalf → account is a bank account (account_kind == "bank")
+//   - employee + on-behalf   → account.owner_id == onBehalfClientID
+//
+// On any mismatch it writes a 403 response and returns a non-nil error; the
+// caller MUST return immediately. A gRPC failure fetching the account is
+// surfaced via handleGRPCError and also returns non-nil.
+func ResolveAndCheckAccount(c *gin.Context, accountClient accountpb.AccountServiceClient, id *middleware.ResolvedIdentity, accountID, onBehalfClientID uint64) error {
+	if accountID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "account_id is required")
+		return fmt.Errorf("account_id is zero")
+	}
+	acct, err := accountClient.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: accountID})
+	if err != nil {
+		handleGRPCError(c, err)
+		return fmt.Errorf("get account %d: %w", accountID, err)
+	}
+	isBank := acct.AccountKind == "bank" || acct.OwnerId == bankSentinelOwnerID
+
+	switch id.PrincipalType {
+	case "client":
+		if isBank || acct.OwnerId != id.PrincipalID {
+			apiError(c, http.StatusForbidden, ErrForbidden, "account does not belong to you")
+			return fmt.Errorf("client %d does not own account %d", id.PrincipalID, accountID)
+		}
+	case "employee":
+		if onBehalfClientID != 0 {
+			if isBank || acct.OwnerId != onBehalfClientID {
+				apiError(c, http.StatusForbidden, ErrForbidden, "account does not belong to that client")
+				return fmt.Errorf("account %d not owned by on-behalf client %d", accountID, onBehalfClientID)
+			}
+		} else {
+			if !isBank {
+				apiError(c, http.StatusForbidden, ErrForbidden, "employees may only use bank accounts unless acting on behalf of a client")
+				return fmt.Errorf("account %d is not a bank account", accountID)
+			}
+		}
+	default:
+		apiError(c, http.StatusForbidden, ErrForbidden, "unknown principal type")
+		return fmt.Errorf("unknown principal type %q", id.PrincipalType)
 	}
 	return nil
 }
