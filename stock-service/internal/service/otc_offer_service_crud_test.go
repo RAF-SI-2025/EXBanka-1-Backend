@@ -16,6 +16,17 @@ import (
 	"github.com/exbanka/stock-service/internal/repository"
 )
 
+// recordingOTCNotifier captures the in-app notifications emitted by
+// OTCOfferService so tests can assert on them. Satisfies otcNotifier.
+type recordingOTCNotifier struct {
+	notifs []kafkamsg.GeneralNotificationMessage
+}
+
+func (r *recordingOTCNotifier) PublishGeneralNotification(_ context.Context, m kafkamsg.GeneralNotificationMessage) error {
+	r.notifs = append(r.notifs, m)
+	return nil
+}
+
 // otcCRUDFixture provides an isolated OTCOfferService backed by an in-memory
 // sqlite DB so the CRUD-level methods (Create / Counter / Reject / List /
 // Get) can be tested without the saga-layer dependencies.
@@ -23,6 +34,7 @@ type otcCRUDFixture struct {
 	svc      *OTCOfferService
 	offers   *repository.OTCOfferRepository
 	holdings *repository.HoldingRepository
+	notifier *recordingOTCNotifier
 }
 
 func newOTCCRUDFixture(t *testing.T) *otcCRUDFixture {
@@ -48,7 +60,9 @@ func newOTCCRUDFixture(t *testing.T) *otcCRUDFixture {
 	receiptRepo := repository.NewOTCReadReceiptRepository(db)
 	holdingRepo := repository.NewHoldingRepository(db)
 	svc := NewOTCOfferService(offerRepo, revRepo, contractRepo, holdingRepo, receiptRepo, nil)
-	return &otcCRUDFixture{svc: svc, offers: offerRepo, holdings: holdingRepo}
+	notifier := &recordingOTCNotifier{}
+	svc.notifier = notifier
+	return &otcCRUDFixture{svc: svc, offers: offerRepo, holdings: holdingRepo, notifier: notifier}
 }
 
 func (f *otcCRUDFixture) seedHolding(t *testing.T, ownerID uint64, stockID uint64, qty int64) {
@@ -382,6 +396,151 @@ func TestOTCOfferService_Reject_TerminalOffer(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for terminal offer")
+	}
+}
+
+// ---------------- In-app notifications ----------------
+
+func TestOTCOfferService_Create_NotifiesNamedClientCounterparty(t *testing.T) {
+	fx := newOTCCRUDFixture(t)
+	fx.seedHolding(t, 7, 42, 100)
+	cpID := int64(8)
+	cpType := "client"
+	out, err := fx.svc.Create(context.Background(), CreateOfferInput{
+		ActorUserID: 7, ActorSystemType: "client",
+		Direction: model.OTCDirectionSellInitiated, StockID: 42, Ticker: "ACME",
+		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(150),
+		Premium: decimal.NewFromInt(20), SettlementDate: time.Now().AddDate(0, 0, 30),
+		CounterpartyUserID: &cpID, CounterpartySystemType: &cpType,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(fx.notifier.notifs) != 1 {
+		t.Fatalf("got %d notifications, want 1", len(fx.notifier.notifs))
+	}
+	n := fx.notifier.notifs[0]
+	if n.Type != "OTC_OFFER_RECEIVED" {
+		t.Errorf("type=%s want OTC_OFFER_RECEIVED", n.Type)
+	}
+	if n.UserID != 8 {
+		t.Errorf("user_id=%d want 8", n.UserID)
+	}
+	if n.RefType != "otc_offer" || n.RefID != out.ID {
+		t.Errorf("ref=%s/%d want otc_offer/%d", n.RefType, n.RefID, out.ID)
+	}
+	if n.Data["ticker"] != "ACME" {
+		t.Errorf("expected ticker ACME in data, got %+v", n.Data)
+	}
+}
+
+func TestOTCOfferService_Create_BroadcastOffer_NoNotification(t *testing.T) {
+	fx := newOTCCRUDFixture(t)
+	fx.seedHolding(t, 7, 42, 100)
+	// sell_initiated with no counterparty = broadcast.
+	_, err := fx.svc.Create(context.Background(), CreateOfferInput{
+		ActorUserID: 7, ActorSystemType: "client",
+		Direction: model.OTCDirectionSellInitiated, StockID: 42,
+		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(150),
+		Premium: decimal.NewFromInt(20), SettlementDate: time.Now().AddDate(0, 0, 30),
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(fx.notifier.notifs) != 0 {
+		t.Fatalf("got %d notifications, want 0", len(fx.notifier.notifs))
+	}
+}
+
+func TestOTCOfferService_Create_BankCounterparty_NoNotification(t *testing.T) {
+	fx := newOTCCRUDFixture(t)
+	fx.seedHolding(t, 7, 42, 100)
+	cpID := int64(0)
+	cpType := "bank"
+	_, err := fx.svc.Create(context.Background(), CreateOfferInput{
+		ActorUserID: 7, ActorSystemType: "client",
+		Direction: model.OTCDirectionSellInitiated, StockID: 42,
+		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(150),
+		Premium: decimal.NewFromInt(20), SettlementDate: time.Now().AddDate(0, 0, 30),
+		CounterpartyUserID: &cpID, CounterpartySystemType: &cpType,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(fx.notifier.notifs) != 0 {
+		t.Fatalf("got %d notifications, want 0 (bank counterparty)", len(fx.notifier.notifs))
+	}
+}
+
+func TestOTCOfferService_Counter_NotifiesOtherParty(t *testing.T) {
+	fx := newOTCCRUDFixture(t)
+	fx.seedHolding(t, 7, 42, 100)
+	out, err := fx.svc.Create(context.Background(), CreateOfferInput{
+		ActorUserID: 7, ActorSystemType: "client",
+		Direction: model.OTCDirectionSellInitiated, StockID: 42,
+		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(150),
+		Premium: decimal.NewFromInt(20), SettlementDate: time.Now().AddDate(0, 0, 30),
+	})
+	if err != nil {
+		t.Fatalf("seed offer: %v", err)
+	}
+	fx.notifier.notifs = nil // discard create-time notifications
+	// Buyer (8) counters -> the initiator/seller (7) gets notified.
+	_, err = fx.svc.Counter(context.Background(), CounterInput{
+		OfferID: out.ID, ActorUserID: 8, ActorSystemType: "client",
+		Quantity: decimal.NewFromInt(5), StrikePrice: decimal.NewFromInt(160),
+		Premium: decimal.NewFromInt(25), SettlementDate: time.Now().AddDate(0, 0, 31),
+	})
+	if err != nil {
+		t.Fatalf("counter: %v", err)
+	}
+	if len(fx.notifier.notifs) != 1 {
+		t.Fatalf("got %d notifications, want 1", len(fx.notifier.notifs))
+	}
+	n := fx.notifier.notifs[0]
+	if n.Type != "OTC_OFFER_COUNTERED" {
+		t.Errorf("type=%s want OTC_OFFER_COUNTERED", n.Type)
+	}
+	if n.UserID != 7 {
+		t.Errorf("user_id=%d want 7 (non-acting party)", n.UserID)
+	}
+	if n.RefType != "otc_offer" || n.RefID != out.ID {
+		t.Errorf("ref=%s/%d want otc_offer/%d", n.RefType, n.RefID, out.ID)
+	}
+}
+
+func TestOTCOfferService_Reject_NotifiesOtherParty(t *testing.T) {
+	fx := newOTCCRUDFixture(t)
+	fx.seedHolding(t, 7, 42, 100)
+	out, err := fx.svc.Create(context.Background(), CreateOfferInput{
+		ActorUserID: 7, ActorSystemType: "client",
+		Direction: model.OTCDirectionSellInitiated, StockID: 42,
+		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(150),
+		Premium: decimal.NewFromInt(20), SettlementDate: time.Now().AddDate(0, 0, 30),
+	})
+	if err != nil {
+		t.Fatalf("seed offer: %v", err)
+	}
+	fx.notifier.notifs = nil
+	// Buyer (8) rejects -> the initiator/seller (7) gets notified.
+	_, err = fx.svc.Reject(context.Background(), RejectInput{
+		OfferID: out.ID, ActorUserID: 8, ActorSystemType: "client",
+	})
+	if err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	if len(fx.notifier.notifs) != 1 {
+		t.Fatalf("got %d notifications, want 1", len(fx.notifier.notifs))
+	}
+	n := fx.notifier.notifs[0]
+	if n.Type != "OTC_OFFER_REJECTED" {
+		t.Errorf("type=%s want OTC_OFFER_REJECTED", n.Type)
+	}
+	if n.UserID != 7 {
+		t.Errorf("user_id=%d want 7 (non-acting party)", n.UserID)
+	}
+	if n.RefType != "otc_offer" || n.RefID != out.ID {
+		t.Errorf("ref=%s/%d want otc_offer/%d", n.RefType, n.RefID, out.ID)
 	}
 }
 

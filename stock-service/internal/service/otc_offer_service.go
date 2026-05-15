@@ -25,6 +25,14 @@ type OTCHoldingLookup interface {
 	GetByOwnerAndSecurity(ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error)
 }
 
+// otcNotifier is the narrow surface used to emit in-app notifications for OTC
+// offer events. Satisfied by *kafkaprod.Producer (Task 1 gave it the method).
+// Declared as an interface so tests can inject a recording stub — the concrete
+// *kafkaprod.Producer is otherwise impossible to observe.
+type otcNotifier interface {
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+}
+
 // OTCOfferService owns negotiation flows: create, counter, reject, list, get.
 // Money flow (premium payment, exercise) lives in separate sagas. The
 // service-layer seller-invariant check (§4.6 of spec) ensures a seller
@@ -37,6 +45,11 @@ type OTCOfferService struct {
 	holdingRepo OTCHoldingMutator
 	receipts    *repository.OTCReadReceiptRepository
 	producer    *kafkaprod.Producer
+
+	// notifier emits in-app (push) notifications for OTC offer events. Set to
+	// the same *kafkaprod.Producer as `producer` by NewOTCOfferService; tests
+	// inject a recording stub.
+	notifier otcNotifier
 
 	// saga deps (optional; wired via WithSaga). Required by Accept and
 	// ExerciseContract.
@@ -128,10 +141,32 @@ func NewOTCOfferService(
 	receipts *repository.OTCReadReceiptRepository,
 	producer *kafkaprod.Producer,
 ) *OTCOfferService {
-	return &OTCOfferService{
+	s := &OTCOfferService{
 		offers: offers, revisions: revisions, contracts: contracts,
 		holdings: holdings, receipts: receipts, producer: producer,
 	}
+	// Wire the notifier to the same producer. Guard against assigning a typed
+	// nil into the interface (which would make s.notifier != nil but panic on
+	// call) by only setting it when the producer is actually present.
+	if producer != nil {
+		s.notifier = producer
+	}
+	return s
+}
+
+// notifyOTCParty emits an in-app notification to one OTC party. No-op for bank
+// parties (OwnerType != "client" or nil OwnerID) and best-effort.
+func (s *OTCOfferService) notifyOTCParty(ctx context.Context, party kafkamsg.OTCParty, notifType, refType string, refID uint64, data map[string]string) {
+	if s.notifier == nil || party.OwnerType != "client" || party.OwnerID == nil {
+		return
+	}
+	_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  *party.OwnerID,
+		Type:    notifType,
+		Data:    data,
+		RefType: refType,
+		RefID:   refID,
+	})
 }
 
 // CreateOfferInput captures the fields a new offer needs.
@@ -242,6 +277,14 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCreated, data, "")
 		}
 	}
+	if o.CounterpartyOwnerType != nil {
+		s.notifyOTCParty(ctx, kafkamsg.OTCParty{
+			OwnerType: string(*o.CounterpartyOwnerType), OwnerID: o.CounterpartyOwnerID,
+		}, "OTC_OFFER_RECEIVED", "otc_offer", o.ID, map[string]string{
+			"ticker": o.Ticker, "quantity": o.Quantity.String(),
+			"strike_price": o.StrikePrice.String(), "premium": o.Premium.String(),
+		})
+	}
 	return o, nil
 }
 
@@ -330,6 +373,10 @@ func (s *OTCOfferService) Counter(ctx context.Context, in CounterInput) (*model.
 			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCountered, data, "")
 		}
 	}
+	s.notifyOTCParty(ctx, otcOtherParty(o, in.ActorUserID, in.ActorSystemType), "OTC_OFFER_COUNTERED", "otc_offer", o.ID, map[string]string{
+		"ticker": o.Ticker, "quantity": o.Quantity.String(),
+		"strike_price": o.StrikePrice.String(), "premium": o.Premium.String(),
+	})
 	return o, nil
 }
 
@@ -379,6 +426,9 @@ func (s *OTCOfferService) Reject(ctx context.Context, in RejectInput) (*model.OT
 			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferRejected, data, "")
 		}
 	}
+	s.notifyOTCParty(ctx, otcOtherParty(o, in.ActorUserID, in.ActorSystemType), "OTC_OFFER_REJECTED", "otc_offer", o.ID, map[string]string{
+		"ticker": o.Ticker,
+	})
 	return o, nil
 }
 
