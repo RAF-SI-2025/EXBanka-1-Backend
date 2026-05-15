@@ -27,6 +27,7 @@ type OptionContract struct {
 	SellerOwnerID   *uint64         `gorm:"index:ix_oc_seller,priority:2" json:"seller_owner_id,omitempty"`
 	SellerBankCode  *string         `gorm:"size:32" json:"seller_bank_code,omitempty"`
 	StockID         uint64          `gorm:"not null;index" json:"stock_id"`
+	Ticker          string          `gorm:"size:16;not null;default:''" json:"ticker"`
 	Quantity        decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"quantity"`
 	StrikePrice     decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"strike_price"`
 	PremiumPaid     decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"premium_paid"`

@@ -90,6 +90,7 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 		SettlementDate:     req.SettlementDate,
 		AccountId:          req.AccountID,
 		OnBehalfOfClientId: req.OnBehalfOfClientID,
+		Ticker:             req.Ticker,
 	}
 	if req.CounterpartyUserID != nil && *req.CounterpartyUserID != 0 {
 		stype := "client"

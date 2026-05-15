@@ -8001,8 +8001,10 @@ type CreateOTCOfferRequest struct {
 	AccountId uint64 `protobuf:"varint,10,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	// Set when an employee acts on behalf of a client. 0 = acting as the bank.
 	OnBehalfOfClientId uint64 `protobuf:"varint,11,opt,name=on_behalf_of_client_id,json=onBehalfOfClientId,proto3" json:"on_behalf_of_client_id,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Client-supplied ticker, threaded through for notification rendering.
+	Ticker        string `protobuf:"bytes,12,opt,name=ticker,proto3" json:"ticker,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateOTCOfferRequest) Reset() {
@@ -8110,6 +8112,13 @@ func (x *CreateOTCOfferRequest) GetOnBehalfOfClientId() uint64 {
 		return x.OnBehalfOfClientId
 	}
 	return 0
+}
+
+func (x *CreateOTCOfferRequest) GetTicker() string {
+	if x != nil {
+		return x.Ticker
+	}
+	return ""
 }
 
 type OTCOfferResponse struct {
@@ -11709,7 +11718,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\vsystem_type\x18\x02 \x01(\tR\n" +
 	"systemType\x12!\n" +
 	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x1b\n" +
-	"\tbank_code\x18\x04 \x01(\tR\bbankCode\"\xaa\x03\n" +
+	"\tbank_code\x18\x04 \x01(\tR\bbankCode\"\xc2\x03\n" +
 	"\x15CreateOTCOfferRequest\x12\"\n" +
 	"\ractor_user_id\x18\x01 \x01(\x03R\vactorUserId\x12*\n" +
 	"\x11actor_system_type\x18\x02 \x01(\tR\x0factorSystemType\x12\x1c\n" +
@@ -11723,7 +11732,8 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\n" +
 	"account_id\x18\n" +
 	" \x01(\x04R\taccountId\x122\n" +
-	"\x16on_behalf_of_client_id\x18\v \x01(\x04R\x12onBehalfOfClientId\"\xdd\x04\n" +
+	"\x16on_behalf_of_client_id\x18\v \x01(\x04R\x12onBehalfOfClientId\x12\x16\n" +
+	"\x06ticker\x18\f \x01(\tR\x06ticker\"\xdd\x04\n" +
 	"\x10OTCOfferResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1c\n" +
 	"\tdirection\x18\x02 \x01(\tR\tdirection\x12\x19\n" +

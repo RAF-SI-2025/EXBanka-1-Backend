@@ -92,6 +92,7 @@ func (h *OTCOptionsHandler) CreateOffer(ctx context.Context, in *stockpb.CreateO
 	input := service.CreateOfferInput{
 		ActorUserID: in.ActorUserId, ActorSystemType: in.ActorSystemType,
 		Direction: in.Direction, StockID: in.StockId,
+		Ticker:   in.Ticker,
 		Quantity: qty, StrikePrice: strike, Premium: prem,
 		SettlementDate:     settle,
 		InitiatorAccountID: in.AccountId,

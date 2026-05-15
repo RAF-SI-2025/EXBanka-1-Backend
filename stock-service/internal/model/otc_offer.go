@@ -41,6 +41,7 @@ type OTCOffer struct {
 	CounterpartyBankCode  *string         `gorm:"size:32" json:"counterparty_bank_code,omitempty"`
 	Direction             string          `gorm:"size:20;not null" json:"direction"`
 	StockID               uint64          `gorm:"not null;index:ix_otc_stock_status,priority:1" json:"stock_id"`
+	Ticker                string          `gorm:"size:16;not null;default:''" json:"ticker"`
 	Quantity              decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"quantity"`
 	StrikePrice           decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"strike_price"`
 	Premium               decimal.Decimal `gorm:"type:numeric(20,8);not null" json:"premium"`

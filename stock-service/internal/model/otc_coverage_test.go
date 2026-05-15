@@ -42,6 +42,35 @@ func TestOTCOffer_InitiatorAccountID_Persists(t *testing.T) {
 	}
 }
 
+func TestOTCOffer_Ticker_Persists(t *testing.T) {
+	db := testutil.SetupTestDB(t, &OTCOffer{})
+	id := uint64(1)
+	o := &OTCOffer{
+		InitiatorOwnerType:          OwnerClient,
+		InitiatorOwnerID:            &id,
+		Direction:                   OTCDirectionSellInitiated,
+		StockID:                     1,
+		Ticker:                      "AAPL",
+		Quantity:                    decimal.NewFromInt(1),
+		StrikePrice:                 decimal.NewFromInt(1),
+		Premium:                     decimal.NewFromInt(1),
+		SettlementDate:              time.Now().Add(48 * time.Hour),
+		Status:                      OTCOfferStatusPending,
+		LastModifiedByPrincipalType: "client",
+		LastModifiedByPrincipalID:   1,
+	}
+	if err := db.Create(o).Error; err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var got OTCOffer
+	if err := db.First(&got, o.ID).Error; err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Ticker != "AAPL" {
+		t.Errorf("got ticker %q, want AAPL", got.Ticker)
+	}
+}
+
 func TestOptionContract_AccountIDs_Persist(t *testing.T) {
 	db := testutil.SetupTestDB(t, &OptionContract{})
 	buyer := uint64(1)

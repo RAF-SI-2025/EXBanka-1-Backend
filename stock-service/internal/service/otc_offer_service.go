@@ -140,6 +140,7 @@ type CreateOfferInput struct {
 	ActorSystemType        string
 	Direction              string
 	StockID                uint64
+	Ticker                 string
 	Quantity               decimal.Decimal
 	StrikePrice            decimal.Decimal
 	Premium                decimal.Decimal
@@ -194,6 +195,7 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 		CounterpartyOwnerID:         cpOwnerID,
 		Direction:                   in.Direction,
 		StockID:                     in.StockID,
+		Ticker:                      in.Ticker,
 		Quantity:                    in.Quantity,
 		StrikePrice:                 in.StrikePrice,
 		Premium:                     in.Premium,

@@ -127,7 +127,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		BuyerOwnerID:    buyerOwnerID,
 		SellerOwnerType: sellerOwnerType,
 		SellerOwnerID:   sellerOwnerID,
-		StockID:         o.StockID, Quantity: o.Quantity, StrikePrice: o.StrikePrice,
+		StockID:         o.StockID, Ticker: o.Ticker, Quantity: o.Quantity, StrikePrice: o.StrikePrice,
 		PremiumPaid: o.Premium, PremiumCurrency: premiumCcy, StrikeCurrency: premiumCcy,
 		SettlementDate: o.SettlementDate, Status: model.OptionContractStatusActive,
 		SagaID: sagaID, PremiumPaidAt: time.Now().UTC(),

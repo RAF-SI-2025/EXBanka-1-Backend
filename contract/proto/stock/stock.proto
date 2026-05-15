@@ -1058,6 +1058,8 @@ message CreateOTCOfferRequest {
   uint64 account_id = 10;
   // Set when an employee acts on behalf of a client. 0 = acting as the bank.
   uint64 on_behalf_of_client_id = 11;
+  // Client-supplied ticker, threaded through for notification rendering.
+  string ticker = 12;
 }
 
 message OTCOfferResponse {
