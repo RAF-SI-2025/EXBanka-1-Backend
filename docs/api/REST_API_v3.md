@@ -7627,172 +7627,155 @@ Returns identity info for a counterparty user. Peers call this when displaying u
 
 ---
 
-## 46. Recurring Fund Investments (Celina 4)
+## 40. Watchlist (Celina 3)
 
-Monthly Dollar-Cost-Averaging template — every month on `day_of_month` the cron auto-invests `amount_rsd` from `source_account_id` into `fund_id`. Insufficient funds (or fund-no-longer-eligible) skip the tick with a `FUND_RECURRING_SKIPPED` push; successful contributions emit `FUND_RECURRING_EXECUTED`. The recurrence stays active across skips.
+Personal list of tracked listings (stocks, options, futures, forex pairs) per `(owner_type, owner_id)`. Read enriches each item with the current price and daily change pulled from `listings` + the latest price-refresh tick. No notifications, no schedulers — UX feature only.
 
-### 46.1 List my recurring fund investments
+Owner is resolved from the caller's JWT via `ResolveIdentity(OwnerIsBankIfEmployee)`:
+- Client principal → tracks under their own (`client`, principal_id).
+- Employee principal → tracks under the bank's sentinel (`bank`, NULL).
 
-`GET /api/v3/me/recurring-funds` → `{ "recurring_funds": [...] }`. Only client principals carry results; employee tokens get an empty array (recurring fund investments are personal to clients).
+### GET /api/v3/me/watchlist
 
-### 46.2 Create
+List tracked listings with current prices + daily change.
 
-`POST /api/v3/me/recurring-funds`
+**Authentication:** Any JWT (AnyAuthMiddleware)
 
-```json
-{
-  "fund_id": 7,
-  "amount_rsd": "1000.0000",
-  "source_account_id": 42,
-  "day_of_month": 15
-}
-```
+**Query Parameters:**
 
-Validation:
-- `day_of_month` must be 1..28.
-- `fund_id` must point to an open fund OR a closed fund currently in the fundraising window (otherwise no tick can ever fire).
-- `amount_rsd` must be ≥ the fund's `minimum_contribution_rsd`.
-
-### 46.3 Lifecycle
-
-- `GET    /api/v3/me/recurring-funds/:id` — read one (caller-scoped).
-- `POST   /api/v3/me/recurring-funds/:id/pause` — toggle `active=false`.
-- `POST   /api/v3/me/recurring-funds/:id/resume` — toggle `active=true`.
-- `DELETE /api/v3/me/recurring-funds/:id` — permanently cancel (returns 204).
-
----
-
-## 45. Recurring Securities Orders (Celina 3)
-
-User configures a weekly or monthly Market-order template; a scheduler materialises a real order on each due tick. Insufficient funds skip the tick and notify the owner; pause/resume/cancel are explicit lifecycle controls.
-
-### 45.1 List my recurring orders
-
-`GET /api/v3/me/recurring-orders` → `{ "recurring_orders": [...] }`.
-
-### 45.2 Create
-
-`POST /api/v3/me/recurring-orders`
-
-```json
-{
-  "listing_id": 7,
-  "side": "buy",
-  "quantity": 10,
-  "account_id": 42,
-  "interval": "monthly",
-  "day_of_month": 15,
-  "start_date_unix": 1731699200,
-  "end_date_unix": 0
-}
-```
-
-Validation:
-- `side` ∈ `buy` / `sell`.
-- `interval` ∈ `weekly` / `monthly`. `day_of_week` is required (0..6) for weekly; `day_of_month` is required (1..28) for monthly.
-- `end_date_unix=0` means "no end".
-
-### 45.3 Lifecycle actions
-
-- `POST /api/v3/me/recurring-orders/:id/pause` — transitions active → paused.
-- `POST /api/v3/me/recurring-orders/:id/resume` — transitions paused → active.
-- `POST /api/v3/me/recurring-orders/:id/cancel` — transitions to cancelled (terminal).
-- `GET  /api/v3/me/recurring-orders/:id` — read one.
-
-All four return `{ "recurring_order": { /* RecurringOrderResponse */ } }`.
-
-**Note:** The cron loop ticks hourly and currently no-ops on placement until the order-placer integration lands (CRUD + state transitions still operate). Once wired, insufficient-funds skips emit `RECURRING_ORDER_SKIPPED`; successful placements emit `RECURRING_ORDER_EXECUTED`.
-
----
-
-## 44. Transfer Status (Celina 4 / SI-TX)
-
-Surface the four-state client-facing lifecycle (`INITIATED`, `PENDING`, `COMPLETED`, `FAILED`) so the frontend can poll a single field without tracking the internal `pending`/`pending_verification`/`processing`/`completed`/`failed` enum or the SI-TX cross-bank split.
-
-Per-transition push notifications (`TRANSFER_SENT`, `TRANSFER_RECEIVED`, `TRANSFER_FAILED`) are already emitted by the notification-coverage work (B2); this endpoint is the read counterpart.
-
-### 44.1 Get my transfer status
-
-**Endpoint:** `GET /api/v3/me/transfers/:id/status`
-
-**Authentication:** `Bearer <token>` (must own the transfer)
+| Parameter | Type | Description |
+|---|---|---|
+| `listing_type` | string | One of `stock`, `option`, `futures`, `forex`. Filters by listing kind. |
 
 **Response 200:**
 ```json
 {
-  "transfer_id": 42,
-  "status": "COMPLETED",
-  "internal_status": "completed",
-  "failure_reason": "",
-  "last_changed_unix": 1731699200
+  "items": [
+    {
+      "id": 42,
+      "listing_id": 7,
+      "security_type": "stock",
+      "ticker": "AAPL",
+      "current_price": "187.4500",
+      "daily_change": "1.2500",
+      "daily_change_percent": "0.6720",
+      "added_at_unix": 1731699200
+    }
+  ]
 }
 ```
 
-| Internal status | Public `status` |
-|---|---|
-| `pending`, `pending_verification` | `INITIATED` |
-| `processing` | `PENDING` |
-| `completed` | `COMPLETED` |
-| `failed` | `FAILED` |
+**Response 400:** Invalid `listing_type`.
 
-**Response 403:** Caller does not own the transfer.
-**Response 404:** Transfer not found.
+**Use cases:**
+- Watchlist tab in the securities portal: render rows with live price + daily-change badges.
+- Header widget that previews tracked symbols (use `listing_type=stock`).
+- Decide whether a tracked instrument is in range for a planned order before navigating into the order ticket.
 
----
+### POST /api/v3/me/watchlist
 
-## 43. Price Alerts
+Add a listing to the caller's watchlist. Idempotent — re-adding an already-tracked listing is a no-op and still returns 201 with the existing row.
 
-Per-owner reactive alerts on a listing's price or daily change %. Conditions: `gte`, `lte`, `daily_change_pct_gte`, `daily_change_pct_lte`. Single-shot alerts (`is_recurring=false`) deactivate themselves on first match; recurring alerts honour `cooldown_seconds`. Evaluation runs on a 30 s cron over active alerts; matches publish a `PRICE_ALERT_TRIGGERED` general notification.
+**Authentication:** Any JWT
 
-### 43.1 List my alerts
-
-`GET /api/v3/me/price-alerts` — returns `{ "alerts": [...] }`.
-
-### 43.2 Create an alert
-
-`POST /api/v3/me/price-alerts`
-
+**Request body:**
 ```json
-{
-  "listing_id": 7,
-  "condition": "gte",
-  "threshold": "200.00",
-  "is_recurring": false,
-  "cooldown_seconds": 3600,
-  "email_too": false
-}
+{ "listing_id": 7 }
 ```
 
-`cooldown_seconds` must be 60..86400 when `is_recurring=true`. `email_too` flags the matching notification for an email render in addition to the in-app push.
+**Response 201:**
+```json
+{ "item": { /* same shape as the List items */ } }
+```
 
-**Response 201:** `{ "alert": { /* PriceAlertResponse */ } }`
-**Response 400:** Invalid `condition`, missing `listing_id`/`threshold`, out-of-range cooldown.
 **Response 404:** `listing_id` does not exist.
 
-### 43.3 Get / Update / Delete
+**Use cases:**
+- "Add to watchlist" button on a stock / option / futures detail page.
+- Quick-add from the OTC discovery page after viewing a counterparty's offer.
+- "Save for later" button on a price alert that's about to fire on a non-tracked instrument.
 
-`GET /api/v3/me/price-alerts/:id` → `{ "alert": ... }`.
-`PUT /api/v3/me/price-alerts/:id` accepts the same fields as create plus an `active` boolean. Returns 404 if the alert isn't owned by the caller.
-`DELETE /api/v3/me/price-alerts/:id` returns 204.
+### DELETE /api/v3/me/watchlist/:listing_id
+
+Remove a listing from the caller's watchlist.
+
+**Authentication:** Any JWT
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `listing_id` | int | The listing id to remove. |
+
+**Response 204:** No content on success.
+
+**Response 404:** The listing is not on the caller's watchlist.
+
+**Use cases:**
+- "Remove from watchlist" / star-toggle button in the watchlist UI.
+- Bulk-cleanup flow after a user closes a position they no longer want to track.
 
 ---
 
-## 42. OTC Trader Ratings
+## 41. OTC Negotiation History (Celina 3)
+
+Read-only view of *terminal* OTC offers (accepted, rejected, expired, failed) for the caller. The active `/me/otc/offers` list excludes terminal offers; this endpoint surfaces them with optional status, date-range, and counterparty filters.
+
+### GET /api/v3/me/otc/history
+
+List the caller's terminal OTC negotiations.
+
+**Authentication:** Any JWT
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `status` | string (repeatable) | `ACCEPTED` / `REJECTED` / `EXPIRED` / `FAILED`. Default: all four. |
+| `since` | string (YYYY-MM-DD) | Lower bound on `updated_at`. |
+| `until` | string (YYYY-MM-DD) | Upper bound on `updated_at`. Must be ≥ `since`. |
+| `counterparty_id` | int | Restrict to offers where the OTHER party has this owner id. |
+| `page` | int | 1-based; default 1. |
+| `page_size` | int | 1..100; default 20. |
+
+**Response 200:**
+```json
+{
+  "offers": [
+    { "id": 42, "status": "ACCEPTED", "direction": "sell_initiated", "...": "..." }
+  ],
+  "total": 1
+}
+```
+
+Sorted by `updated_at` descending. Item shape mirrors `/api/v3/me/otc/offers`.
+
+**Response 400:** Invalid `status` value, bad date format, `since > until`.
+
+**Use cases:**
+- "Past trades" / "Negotiation history" tab on the OTC portal.
+- Audit a counterparty before accepting their next offer — filter by `counterparty_id` to pull every past negotiation against the same trader.
+- Year-end / month-end review report — filter by `since` / `until` to scope a reporting window.
+- Resurface a `FAILED` saga so the user can see WHY a previously-attempted OTC accept aborted (the `failure_reason` field on the offer carries the saga's terminal error).
+
+---
+
+## 42. OTC Trader Ratings (Celina 3)
 
 After a terminally-accepted OTC offer, either party may rate the other on a 1..5 scale with an optional comment. Each `(offer, rater)` pair allows at most one rating. Aggregates surface via a public profile endpoint usable for OTC discovery.
 
-### 42.1 Submit a rating
+### POST /api/v3/me/otc/ratings
 
-**Endpoint:** `POST /api/v3/me/otc/ratings`
+Submit a 1..5 rating + optional comment for the counterparty of an ACCEPTED offer.
 
-**Authentication:** `Bearer <token>`
+**Authentication:** Any JWT
 
 **Request body:**
 ```json
 { "offer_id": 42, "score": 5, "comment": "smooth transaction" }
 ```
 
-`score` must be `1..5`. `comment` is optional and ≤ 1000 characters.
+`score` must be `1..5`. `comment` is optional and ≤ 1000 characters. The rated party is derived from the offer — caller submits a rating, the OTHER side gets the score.
 
 **Response 201:**
 ```json
@@ -7816,16 +7799,29 @@ After a terminally-accepted OTC offer, either party may rate the other on a 1..5
 **Response 409:** The caller has already rated this offer.
 **Response 412:** Offer is not in `ACCEPTED` status.
 
-### 42.2 Get trader profile (public)
+**Use cases:**
+- Show a "Rate this counterparty" prompt to the user right after their OTC accept settles.
+- Background prompt 24 h after the option exercise window opens — nudges users who never rated the original contract.
+- Email-link callback that lets users rate from outside the app (link contains `offer_id`).
 
-**Endpoint:** `GET /api/v3/otc/traders/:owner_type/:owner_id/rating`
+### GET /api/v3/otc/traders/:owner_type/:owner_id/rating
 
-`owner_type` ∈ `client`/`bank`. `owner_id` is the owner id (use `0` for bank).
+Public aggregate rating + recent comments for a trader. Visible to all authenticated callers — used by OTC discovery to surface "reputable" counterparties.
 
-**Query parameters:**
-| Name | Type | Required | Description |
-|---|---|---|---|
-| `recent_limit` | int | No | 1..100, default 20 (number of recent comments to surface). |
+**Authentication:** Any JWT
+
+**Path Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `owner_type` | string | `client` or `bank`. |
+| `owner_id` | int | Owner id (use `0` for bank). |
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `recent_limit` | int | 1..100, default 20 (number of recent comments to surface). |
 
 **Response 200:**
 ```json
@@ -7834,132 +7830,345 @@ After a terminally-accepted OTC offer, either party may rate the other on a 1..5
   "owner_id": 20,
   "average": 4.5,
   "count": 12,
-  "recent": [ { /* same shape as ratings */ } ]
+  "recent": [ { "score": 5, "comment": "...", "created_at_unix": 1731699200 } ]
 }
 ```
 
-### 42.3 List my received ratings
+**Use cases:**
+- Trader-card hover / popover in the OTC discovery list — show stars + count next to each listed offer.
+- Counterparty risk gate on the accept-offer flow: warn if rating is < 3.0 or `count == 0`.
+- "Top traders" leaderboard on the OTC portal landing page.
 
-**Endpoint:** `GET /api/v3/me/otc/ratings/received`
+### GET /api/v3/me/otc/ratings/received
 
-Returns the most recent ratings the caller has received.
+List ratings the caller has received from past OTC counterparties.
 
-**Query parameters:**
-| Name | Type | Required | Description |
-|---|---|---|---|
-| `limit` | int | No | 1..100, default 20. |
+**Authentication:** Any JWT
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `limit` | int | 1..100, default 20. |
 
 **Response 200:**
 ```json
-{ "ratings": [ /* OTCRatingResponse[] */ ] }
+{ "ratings": [ { "id": 1, "score": 5, "comment": "...", "rater_owner_id": 7, "...": "..." } ] }
 ```
+
+**Use cases:**
+- "My reputation" widget on the OTC portal — shows the caller their own aggregate score + recent feedback.
+- Profile / settings page section that lets users see who rated them poorly so they can reach out / appeal.
 
 ---
 
-## 41. OTC Negotiation History
+## 43. Price Alerts (Celina 3)
 
-Read-only view of *terminal* OTC offers (accepted, rejected, expired, failed) for the caller. The active /offers list excludes terminal offers; this endpoint surfaces them with optional status, date-range, and counterparty filters.
+Per-owner reactive alerts on a listing's price or daily change %. Conditions: `gte`, `lte`, `daily_change_pct_gte`, `daily_change_pct_lte`. Single-shot alerts (`is_recurring=false`) deactivate themselves on first match; recurring alerts honour `cooldown_seconds`. Evaluation runs on a 30 s cron over active alerts; matches publish a `PRICE_ALERT_TRIGGERED` general notification.
 
-### 41.1 List negotiation history
+### GET /api/v3/me/price-alerts
 
-**Endpoint:** `GET /api/v3/me/otc/history`
+List the caller's price alerts.
 
-**Authentication:** `Bearer <token>`
-
-**Query parameters:**
-| Name | Type | Required | Description |
-|---|---|---|---|
-| `status` | string (repeatable) | No | `ACCEPTED` / `REJECTED` / `EXPIRED` / `FAILED`. Default: all four. |
-| `since` | string (YYYY-MM-DD) | No | Lower bound on `updated_at`. |
-| `until` | string (YYYY-MM-DD) | No | Upper bound on `updated_at`. Must be ≥ `since`. |
-| `counterparty_id` | int | No | Restrict to offers where the OTHER party has this owner id. |
-| `page` | int | No | 1-based; default 1. |
-| `page_size` | int | No | 1..100; default 20. |
+**Authentication:** Any JWT
 
 **Response 200:**
 ```json
 {
-  "offers": [
-    { "id": 42, "status": "ACCEPTED", "direction": "sell_initiated", ... }
-  ],
-  "total": 1
-}
-```
-
-Sorted by `updated_at` descending. The shape mirrors `/api/v3/me/otc/offers` items.
-
-**Response 400:** Invalid `status` value, bad date format, `since > until`.
-
----
-
-## 40. Watchlist
-
-Personal list of tracked listings (stocks, options, futures, forex pairs) per `(owner_type, owner_id)`. Read enriches each item with the current price and daily change pulled from `listings` + the latest price-refresh tick. No notifications, no schedulers — UX feature only.
-
-Owner is resolved from the caller's JWT via `ResolveIdentity(OwnerIsBankIfEmployee)`:
-- Client principal → tracks under their own (`client`, principal_id).
-- Employee principal → tracks under the bank's sentinel (`bank`, NULL).
-
-### 40.1 List my watchlist
-
-**Endpoint:** `GET /api/v3/me/watchlist`
-
-**Authentication:** `Bearer <token>` (employee or client JWT)
-
-**Query parameters:**
-| Name | Type | Required | Description |
-|---|---|---|---|
-| `listing_type` | string | No | One of `stock`, `option`, `futures`, `forex`. Filters by listing kind. |
-
-**Response 200:**
-```json
-{
-  "items": [
+  "alerts": [
     {
-      "id": 42,
+      "id": 1,
       "listing_id": 7,
-      "security_type": "stock",
-      "ticker": "AAPL",
-      "current_price": "187.4500",
-      "daily_change": "1.2500",
-      "daily_change_percent": "0.6720",
-      "added_at_unix": 1731699200
+      "condition": "gte",
+      "threshold": "200.00",
+      "is_recurring": false,
+      "cooldown_seconds": 3600,
+      "email_too": false,
+      "active": true,
+      "last_triggered_unix": 0,
+      "created_at_unix": 1731699200
     }
   ]
 }
 ```
 
-**Response 400:** Invalid `listing_type`.
+**Use cases:**
+- "Alerts" tab in the user's account — list active + inactive alerts grouped by listing.
+- Inline indicator on watchlist rows: badge each tracked listing that has ≥ 1 active alert.
 
-### 40.2 Add to watchlist
+### POST /api/v3/me/price-alerts
 
-**Endpoint:** `POST /api/v3/me/watchlist`
+Create a new alert.
 
-**Authentication:** `Bearer <token>`
+**Authentication:** Any JWT
 
 **Request body:**
 ```json
-{ "listing_id": 7 }
+{
+  "listing_id": 7,
+  "condition": "gte",
+  "threshold": "200.00",
+  "is_recurring": false,
+  "cooldown_seconds": 3600,
+  "email_too": false
+}
 ```
 
-Idempotent: re-adding an already-tracked listing is a no-op and still returns 201 with the existing row.
+`cooldown_seconds` must be 60..86400 when `is_recurring=true`. `email_too` flags the matching notification for an email render in addition to the in-app push.
 
-**Response 201:**
-```json
-{ "item": { /* same shape as List items */ } }
-```
+**Response 201:** `{ "alert": { /* PriceAlertResponse */ } }`
 
+**Response 400:** Invalid `condition`, missing `listing_id` / `threshold`, out-of-range cooldown.
 **Response 404:** `listing_id` does not exist.
 
-### 40.3 Remove from watchlist
+**Use cases:**
+- "Alert me when X reaches Y" modal on a stock detail page.
+- Quick-set "+5%" / "-5%" daily-change alerts on the watchlist row context menu.
+- Recurring alert (`is_recurring=true`) for users tracking volatile instruments — re-fires every cooldown window when the condition remains true.
 
-**Endpoint:** `DELETE /api/v3/me/watchlist/:listing_id`
+### GET /api/v3/me/price-alerts/:id
 
-**Authentication:** `Bearer <token>`
+Read one alert. 404 if the alert isn't owned by the caller.
 
-**Response 204:** No content on success.
+**Authentication:** Any JWT
 
-**Response 404:** The listing is not on the caller's watchlist.
+**Use cases:**
+- Edit-alert form prefill.
+- Deep-link from the alert notification email/push back into the app.
+
+### PUT /api/v3/me/price-alerts/:id
+
+Update an alert. Accepts the same fields as create plus an `active` boolean.
+
+**Authentication:** Any JWT
+
+**Response 200:** `{ "alert": { /* PriceAlertResponse */ } }`
+**Response 404:** The alert isn't owned by the caller.
+
+**Use cases:**
+- Edit the threshold/condition from the alert list.
+- Toggle `active=false` to pause an alert without deleting it (useful around earnings announcements).
+
+### DELETE /api/v3/me/price-alerts/:id
+
+Delete an alert permanently.
+
+**Authentication:** Any JWT
+
+**Response 204:** Success.
+**Response 404:** The alert isn't owned by the caller.
+
+**Use cases:**
+- "Remove" / trash icon on the alert list.
+- Cleanup after closing a position — the alert is no longer useful.
+
+---
+
+## 44. Transfer Status (Celina 4 / SI-TX)
+
+Surface the four-state client-facing lifecycle (`INITIATED`, `PENDING`, `COMPLETED`, `FAILED`) so the frontend can poll a single field without tracking the internal `pending`/`pending_verification`/`processing`/`completed`/`failed` enum or the SI-TX cross-bank split.
+
+Per-transition push notifications (`TRANSFER_SENT`, `TRANSFER_RECEIVED`, `TRANSFER_FAILED`) are already emitted by the notification-coverage work; this endpoint is the read counterpart.
+
+### GET /api/v3/me/transfers/:id/status
+
+Get the client-facing status of one of the caller's transfers.
+
+**Authentication:** Any JWT (must own the transfer)
+
+**Response 200:**
+```json
+{
+  "transfer_id": 42,
+  "status": "COMPLETED",
+  "internal_status": "completed",
+  "failure_reason": "",
+  "last_changed_unix": 1731699200
+}
+```
+
+| Internal status | Public `status` |
+|---|---|
+| `pending`, `pending_verification` | `INITIATED` |
+| `processing` | `PENDING` |
+| `completed` | `COMPLETED` |
+| `failed` | `FAILED` |
+
+**Response 403:** Caller does not own the transfer.
+**Response 404:** Transfer not found.
+
+**Use cases:**
+- Polling loop on the transfer-detail screen while the user waits for cross-bank settlement.
+- Inline status pill on the transfer-list row.
+- Decision input for "show retry button" — when `status=FAILED` and `failure_reason` indicates a transient cause.
+- Drive the user-facing toast / banner when WebSocket push isn't connected.
+
+---
+
+## 45. Recurring Securities Orders (Celina 3)
+
+User configures a weekly or monthly Market-order template; a scheduler materialises a real order on each due tick. Insufficient funds skip the tick and notify the owner; pause / resume / cancel are explicit lifecycle controls.
+
+> **Note:** The hourly cron loop currently no-ops on placement until the order-placer integration lands. CRUD + state transitions still operate. Once wired, insufficient-funds skips emit `RECURRING_ORDER_SKIPPED`; successful placements emit `RECURRING_ORDER_EXECUTED`.
+
+### GET /api/v3/me/recurring-orders
+
+List the caller's recurring-order templates.
+
+**Authentication:** Any JWT
+
+**Response 200:** `{ "recurring_orders": [ /* RecurringOrderResponse[] */ ] }`
+
+**Use cases:**
+- "Recurring orders" tab in the trading portal — show next-run timer per template.
+- Dashboard widget: "You have 3 active recurring buys this month".
+
+### POST /api/v3/me/recurring-orders
+
+Create a recurring (weekly or monthly) Market-order template.
+
+**Authentication:** Any JWT
+
+**Request body:**
+```json
+{
+  "listing_id": 7,
+  "side": "buy",
+  "quantity": 10,
+  "account_id": 42,
+  "interval": "monthly",
+  "day_of_month": 15,
+  "start_date_unix": 1731699200,
+  "end_date_unix": 0
+}
+```
+
+Validation:
+- `side` ∈ `buy` / `sell`.
+- `interval` ∈ `weekly` / `monthly`. `day_of_week` (0..6) is required for weekly; `day_of_month` (1..28) is required for monthly.
+- `end_date_unix=0` means "no end".
+
+**Response 201:** `{ "recurring_order": { /* RecurringOrderResponse */ } }`
+
+**Use cases:**
+- "Set up auto-invest" wizard on a stock detail page — preset to monthly + day-of-month-1 for paycheck timing.
+- Treasury / corporate user defining weekly accumulation orders.
+
+### GET /api/v3/me/recurring-orders/:id
+
+Read one recurring order. Caller-scoped.
+
+**Authentication:** Any JWT
+
+**Use cases:** Edit-form prefill; deep-link from the activity feed.
+
+### POST /api/v3/me/recurring-orders/:id/pause
+
+Transition active → paused.
+
+**Authentication:** Any JWT
+
+**Response 200:** `{ "recurring_order": { /* with status=paused */ } }`
+
+**Use cases:**
+- "Hold for now" toggle when the user expects a short-term cash crunch (avoids the SKIPPED notification on the next tick).
+
+### POST /api/v3/me/recurring-orders/:id/resume
+
+Transition paused → active.
+
+**Authentication:** Any JWT
+
+**Use cases:** Resume a previously-paused template; common pattern is pause-while-vacation, resume-after.
+
+### POST /api/v3/me/recurring-orders/:id/cancel
+
+Permanently cancel (terminal state). No further ticks will execute.
+
+**Authentication:** Any JWT
+
+**Use cases:** "I'm done with this strategy" — terminate the template; differs from `delete` in that the audit trail is retained.
+
+---
+
+## 46. Recurring Fund Investments (Celina 4)
+
+Monthly Dollar-Cost-Averaging template — every month on `day_of_month` the cron auto-invests `amount_rsd` from `source_account_id` into `fund_id`. Insufficient funds (or fund-no-longer-eligible) skip the tick with a `FUND_RECURRING_SKIPPED` push; successful contributions emit `FUND_RECURRING_EXECUTED`. The recurrence stays active across skips.
+
+Personal to clients — employee tokens get an empty result list.
+
+### GET /api/v3/me/recurring-funds
+
+List my recurring fund-investment templates.
+
+**Authentication:** Any JWT (client principal returns data; employee returns empty)
+
+**Response 200:** `{ "recurring_funds": [ /* RecurringFundResponse[] */ ] }`
+
+**Use cases:**
+- "My auto-invest plans" page in the fund portal.
+- Pre-investment screen: show existing DCA into the fund the user is about to invest into manually (avoid double-invest confusion).
+
+### POST /api/v3/me/recurring-funds
+
+Create a monthly DCA fund-investment template.
+
+**Authentication:** Any JWT
+
+**Request body:**
+```json
+{
+  "fund_id": 7,
+  "amount_rsd": "1000.0000",
+  "source_account_id": 42,
+  "day_of_month": 15
+}
+```
+
+Validation:
+- `day_of_month` must be 1..28.
+- `fund_id` must point to an open fund OR a closed fund currently in the fundraising window (otherwise no tick can ever fire).
+- `amount_rsd` must be ≥ the fund's `minimum_contribution_rsd`.
+
+**Response 201:** `{ "recurring_fund": { /* RecurringFundResponse */ } }`
+
+**Use cases:**
+- "Auto-invest into this fund every month" CTA on the fund detail page.
+- Closed-end fund onboarding: lock in a DCA during the fundraising window.
+
+### GET /api/v3/me/recurring-funds/:id
+
+Read one recurring fund investment. Caller-scoped.
+
+**Authentication:** Any JWT
+
+**Use cases:** Edit form / detail view.
+
+### POST /api/v3/me/recurring-funds/:id/pause
+
+Toggle `active=false`.
+
+**Authentication:** Any JWT
+
+**Use cases:** Vacation hold; cash-crunch pause without losing the template.
+
+### POST /api/v3/me/recurring-funds/:id/resume
+
+Toggle `active=true`.
+
+**Authentication:** Any JWT
+
+**Use cases:** Resume after a temporary pause.
+
+### DELETE /api/v3/me/recurring-funds/:id
+
+Permanently cancel.
+
+**Authentication:** Any JWT
+
+**Response 204:** Success.
+
+**Use cases:** Wind down a DCA strategy.
 
 ---
 
