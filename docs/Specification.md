@@ -1977,7 +1977,11 @@ Published to `notification.general` by various services. notification-service co
 
 | Type | Source | Trigger |
 |---|---|---|
-| `account_created` | account-service | Account created |
+| `ACCOUNT_OPENED` | account-service | Account created |
+| `ACCOUNT_STATUS_CHANGED` | account-service | Account status updated (active/inactive) |
+| `ACCOUNT_NAME_UPDATED` | account-service | Account renamed |
+| `ACCOUNT_LIMITS_UPDATED` | account-service | Account limits (daily/monthly/transfer) changed |
+| `MAINTENANCE_FEE_CHARGED` | account-service | Monthly maintenance fee charged (cron) |
 | `card_issued` | card-service | Card created |
 | `card_blocked` | card-service | Card blocked |
 | `PAYMENT_SENT` | transaction-service | Payment completed (sender side) |
@@ -1999,6 +2003,8 @@ Published to `notification.general` by various services. notification-service co
 **transaction-service in-app notifications (Plan B2):** transaction-service emits `GeneralNotificationMessage` intents on `notification.general` in the **`Data` form** for: `PAYMENT_SENT` and `PAYMENT_RECEIVED` (per side, on payment completion), `PAYMENT_FAILED` (sender, on payment failure), `TRANSFER_SENT` and `TRANSFER_RECEIVED` (per side, on transfer completion), and `TRANSFER_FAILED` (sender, on any failure branch). Sender/receiver are resolved via account-service `GetAccountByNumber`; bank-owned accounts (owner id `0` or `1_000_000_000`) are skipped. Best-effort, published after the status persist. `RefType`/`RefID`: `payment`/payment.ID or `transfer`/transfer.ID.
 
 **credit-service in-app notifications (Plan B3):** credit-service emits `GeneralNotificationMessage` intents on `notification.general` in the **`Data` form** for: `LOAN_REQUEST_SUBMITTED`, `LOAN_REQUEST_APPROVED`, `LOAN_REQUEST_REJECTED`, `LOAN_DISBURSED` (from the gRPC handler), `INSTALLMENT_COLLECTED`, `INSTALLMENT_FAILED` (from the daily installment-collection cron). Recipient is always the loan's borrower (`Loan.ClientID` / `LoanRequest.ClientID`); no bank-side skip. Best-effort, after the action commits.
+
+**account-service in-app notifications (Plan B4):** account-service now emits `GeneralNotificationMessage` intents on `notification.general` in the **`Data` form** for: `ACCOUNT_OPENED` (on create), `ACCOUNT_STATUS_CHANGED` (on status update), `ACCOUNT_NAME_UPDATED` (on rename), `ACCOUNT_LIMITS_UPDATED` (on limit change), `MAINTENANCE_FEE_CHARGED` (per monthly cron charge). Recipient is the account owner (`account.OwnerID`); bank-owned accounts (`is_bank_account == true` or owner id `1_000_000_000`) are skipped. **Plan B4 also closed three pre-existing publish-site gaps** in the same change: the `account.name-updated`, `account.limits-updated`, and `account.maintenance-charged` domain Kafka events are now published (the producer methods existed but were never called by the handlers / cron). Best-effort, after the action commits.
 
 ### Email Types (SendEmailMessage.EmailType)
 
