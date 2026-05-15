@@ -21,11 +21,21 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// cardNotifier is the narrow slice of the Kafka producer the CardService uses
+// for in-app notification intents. A separate interface (not the concrete
+// *kafka.Producer) so unit tests can inject a recording stub. Precedent:
+// the same pattern is used in credit-service/internal/service/cron_service.go
+// (Plan B2) for installment notifications.
+type cardNotifier interface {
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+}
+
 type CardService struct {
 	cardRepo      *repository.CardRepository
 	blockRepo     *repository.CardBlockRepository
 	authRepo      *repository.AuthorizedPersonRepository
 	producer      *kafkaprod.Producer
+	notifier      cardNotifier
 	cache         *cache.RedisCache
 	changelogRepo *repository.ChangelogRepository
 	db            *gorm.DB
@@ -33,6 +43,9 @@ type CardService struct {
 
 func NewCardService(cardRepo *repository.CardRepository, blockRepo *repository.CardBlockRepository, authRepo *repository.AuthorizedPersonRepository, producer *kafkaprod.Producer, cache *cache.RedisCache, db *gorm.DB, changelogRepo ...*repository.ChangelogRepository) *CardService {
 	svc := &CardService{cardRepo: cardRepo, blockRepo: blockRepo, authRepo: authRepo, producer: producer, cache: cache, db: db}
+	if producer != nil {
+		svc.notifier = producer
+	}
 	if len(changelogRepo) > 0 {
 		svc.changelogRepo = changelogRepo[0]
 	}
@@ -382,7 +395,33 @@ func (s *CardService) TemporaryBlockCard(ctx context.Context, cardID uint64, dur
 		ExpiresAt: expiresAt.Format(time.RFC3339),
 		Reason:    reason,
 	})
+	// Emit in-app notification to the card owner. Authorized-person owners are
+	// skipped (in-app notifications target clients only).
+	s.notifyTemporaryBlock(ctx, card, expiresAt, reason)
 	return card, nil
+}
+
+// notifyTemporaryBlock emits a CARD_TEMPORARY_BLOCKED in-app notification for
+// the card's owner client. Best-effort: errors are discarded, and no-op when
+// the notifier is unset (e.g. card-service started without Kafka) or when the
+// owner is an authorized_person rather than a client.
+func (s *CardService) notifyTemporaryBlock(ctx context.Context, card *model.Card, expiresAt time.Time, reason string) {
+	if s.notifier == nil || card == nil {
+		return
+	}
+	if card.OwnerType != "client" {
+		return
+	}
+	_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID: card.OwnerID,
+		Type:   "CARD_TEMPORARY_BLOCKED",
+		Data: map[string]string{
+			"expires_at": expiresAt.Format(time.RFC3339),
+			"reason":     reason,
+		},
+		RefType: "card",
+		RefID:   card.ID,
+	})
 }
 
 func (s *CardService) UseCard(cardID uint64) error {
