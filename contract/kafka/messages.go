@@ -465,13 +465,19 @@ const (
 
 // GeneralNotificationMessage is published by any service that wants to create
 // a persistent, user-visible notification (no email, no expiry).
+//
+// Two rendering modes:
+//   - Data non-empty: notification-service renders Type via the template
+//     registry (push channel) with Data, producing Title+Message.
+//   - Data empty (legacy): Title and Message are used as-is.
 type GeneralNotificationMessage struct {
-	UserID  uint64 `json:"user_id"`
-	Type    string `json:"type"`               // e.g. "money_received", "loan_approved", "card_issued"
-	Title   string `json:"title"`              // human-readable title
-	Message string `json:"message"`            // human-readable body
-	RefType string `json:"ref_type,omitempty"` // optional: "payment", "transfer", "loan", "card", "account"
-	RefID   uint64 `json:"ref_id,omitempty"`   // optional: ID of the referenced entity
+	UserID  uint64            `json:"user_id"`
+	Type    string            `json:"type"`               // registry template type, e.g. "ORDER_FILLED"
+	Title   string            `json:"title,omitempty"`    // legacy: pre-rendered title
+	Message string            `json:"message,omitempty"`  // legacy: pre-rendered body
+	Data    map[string]string `json:"data,omitempty"`     // render Type via the registry when set
+	RefType string            `json:"ref_type,omitempty"` // optional: "payment", "transfer", "loan", "card", "account"
+	RefID   uint64            `json:"ref_id,omitempty"`   // optional: ID of the referenced entity
 }
 
 // Verification service topic constants
