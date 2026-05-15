@@ -253,14 +253,18 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 				reason := fmt.Sprintf("limit_exceeded: daily spending limit would be exceeded on account %s: current daily spending %s, attempted %s, daily limit %s",
 					transfer.FromAccountNumber, dailySpending.StringFixed(4), totalDebit.StringFixed(4), dailyLimit.StringFixed(4))
 				_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+				transfer.FailureReason = reason
 				s.publishTransferFailed(ctx, transfer, reason)
+				s.publishTransferFailedNotification(ctx, transfer)
 				return errors.New(reason)
 			}
 			if !monthlyLimit.IsZero() && monthlySpending.Add(totalDebit).GreaterThan(monthlyLimit) {
 				reason := fmt.Sprintf("limit_exceeded: monthly spending limit would be exceeded on account %s: current monthly spending %s, attempted %s, monthly limit %s",
 					transfer.FromAccountNumber, monthlySpending.StringFixed(4), totalDebit.StringFixed(4), monthlyLimit.StringFixed(4))
 				_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+				transfer.FailureReason = reason
 				s.publishTransferFailed(ctx, transfer, reason)
+				s.publishTransferFailedNotification(ctx, transfer)
 				return errors.New(reason)
 			}
 		}
@@ -280,7 +284,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		if s.accountClient == nil || s.bankAccountClient == nil {
 			reason := "cross-currency transfer requires both accountClient and bankAccountClient"
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return errors.New(reason)
 		}
 
@@ -292,7 +298,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		}); err != nil {
 			reason := fmt.Sprintf("failed to fetch bank accounts: %v", err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return errors.New(reason)
 		}
 
@@ -300,7 +308,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		if err != nil {
 			reason := fmt.Sprintf("no bank account for from-currency %s: %v", transfer.FromCurrency, err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return errors.New(reason)
 		}
 
@@ -314,7 +324,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		if err != nil {
 			reason := fmt.Sprintf("no bank account with sufficient balance for to-currency %s: %v", transfer.ToCurrency, err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return errors.New(reason)
 		}
 
@@ -382,7 +394,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		if err := executeWithSaga(ctx, s.sagaRepo, s.accountClient, s.retryConfig, transfer.ID, "transfer", steps); err != nil {
 			reason := fmt.Sprintf("cross-currency transfer execution failed: %v", err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return err
 		}
 
@@ -423,7 +437,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 			if err := executeWithSaga(ctx, s.sagaRepo, s.accountClient, s.retryConfig, transfer.ID, "transfer", steps); err != nil {
 				reason := fmt.Sprintf("same-currency transfer execution failed: %v", err)
 				_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+				transfer.FailureReason = reason
 				s.publishTransferFailed(ctx, transfer, reason)
+				s.publishTransferFailedNotification(ctx, transfer)
 				return err
 			}
 		}
@@ -447,25 +463,70 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 	return nil
 }
 
-// publishTransferNotification sends a money_sent general notification for the transfer owner.
-// Transfers are intra-client (same owner), so only one notification is needed.
+// publishTransferNotification emits TRANSFER_SENT/TRANSFER_RECEIVED in-app
+// notification intents to the sender and receiver via the notifier (Kafka
+// notification.general topic). Uses the Data form — notification-service
+// renders the push-channel template registry entry.
+//
+// Transfers are typically intra-client, so both notifications target the same
+// owner; the two emits still represent the distinct "money left" and "money
+// arrived" perspectives. Bank-owned sides (owner_id == 0 or 1_000_000_000
+// sentinel) are skipped. All emits are best-effort: lookup or publish failures
+// are silently ignored.
 func (s *TransferService) publishTransferNotification(ctx context.Context, transfer *model.Transfer) {
-	if s.producer == nil || s.accountClient == nil {
+	if s.notifier == nil || s.accountClient == nil {
 		return
 	}
 	fromAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 		AccountNumber: transfer.FromAccountNumber,
 	})
-	if err == nil && fromAcct != nil {
-		_ = s.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+	if err == nil && fromAcct != nil && fromAcct.GetOwnerId() != 0 && fromAcct.GetOwnerId() != 1_000_000_000 {
+		_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
 			UserID:  fromAcct.GetOwnerId(),
-			Type:    "money_sent",
-			Title:   "Transfer Completed",
-			Message: fmt.Sprintf("Transfer of %s from %s to %s completed", transfer.InitialAmount.StringFixed(2), transfer.FromAccountNumber, transfer.ToAccountNumber),
+			Type:    "TRANSFER_SENT",
+			Data:    map[string]string{"amount": transfer.InitialAmount.StringFixed(2), "to_account": transfer.ToAccountNumber},
 			RefType: "transfer",
 			RefID:   transfer.ID,
 		})
 	}
+	toAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+		AccountNumber: transfer.ToAccountNumber,
+	})
+	if err == nil && toAcct != nil && toAcct.GetOwnerId() != 0 && toAcct.GetOwnerId() != 1_000_000_000 {
+		_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  toAcct.GetOwnerId(),
+			Type:    "TRANSFER_RECEIVED",
+			Data:    map[string]string{"final_amount": transfer.FinalAmount.StringFixed(2), "from_account": transfer.FromAccountNumber},
+			RefType: "transfer",
+			RefID:   transfer.ID,
+		})
+	}
+}
+
+// publishTransferFailedNotification emits a TRANSFER_FAILED in-app notification
+// intent to the sender (best-effort). The sender's owner is resolved via the
+// accountClient. Skipped if the sender is a bank-owned account (owner_id == 0
+// or 1_000_000_000 sentinel).
+func (s *TransferService) publishTransferFailedNotification(ctx context.Context, transfer *model.Transfer) {
+	if s.notifier == nil || s.accountClient == nil {
+		return
+	}
+	fromAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+		AccountNumber: transfer.FromAccountNumber,
+	})
+	if err != nil || fromAcct == nil {
+		return
+	}
+	if fromAcct.GetOwnerId() == 0 || fromAcct.GetOwnerId() == 1_000_000_000 {
+		return
+	}
+	_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  fromAcct.GetOwnerId(),
+		Type:    "TRANSFER_FAILED",
+		Data:    map[string]string{"amount": transfer.InitialAmount.StringFixed(2), "failure_reason": transfer.FailureReason},
+		RefType: "transfer",
+		RefID:   transfer.ID,
+	})
 }
 
 func (s *TransferService) GetTransfer(id uint64) (*model.Transfer, error) {

@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/transaction-service/internal/model"
 )
@@ -526,4 +527,125 @@ func TestCreateTransfer_CrossClientOwnership_Rejected(t *testing.T) {
 
 	// No transfer record must have been persisted
 	assert.Empty(t, repo.transfers, "rejected transfer must not be saved")
+}
+
+// TestTransferService_ExecuteTransfer_EmitsSenderAndReceiverNotifications verifies
+// that a successful transfer emits exactly one TRANSFER_SENT (to sender owner) and
+// one TRANSFER_RECEIVED (to receiver owner) via the notifier, in the Data form.
+func TestTransferService_ExecuteTransfer_EmitsSenderAndReceiverNotifications(t *testing.T) {
+	const senderOwnerID uint64 = 101
+	const receiverOwnerID uint64 = 202
+	accountClient := &mockAccountClientForTransfer{
+		ownerOverrides: map[string]uint64{
+			"FROM-RSD-001": senderOwnerID,
+			"TO-EUR-001":   receiverOwnerID,
+		},
+	}
+	bankClient := &mockBankAccountClient{accounts: standardBankAccounts()}
+	svc, repo := newCrossCurrencyTransferService(accountClient, bankClient)
+	rec := &recordingNotifier{}
+	svc.notifier = rec
+
+	transfer := buildCrossCurrencyTransfer(repo)
+	require.NoError(t, svc.ExecuteTransfer(context.Background(), transfer.ID))
+
+	var sent, received *kafkamsg.GeneralNotificationMessage
+	for i := range rec.notifs {
+		switch rec.notifs[i].Type {
+		case "TRANSFER_SENT":
+			require.Nil(t, sent, "must emit at most one TRANSFER_SENT")
+			sent = &rec.notifs[i]
+		case "TRANSFER_RECEIVED":
+			require.Nil(t, received, "must emit at most one TRANSFER_RECEIVED")
+			received = &rec.notifs[i]
+		}
+	}
+	require.NotNil(t, sent, "TRANSFER_SENT must be emitted to sender")
+	assert.Equal(t, senderOwnerID, sent.UserID)
+	assert.Equal(t, "transfer", sent.RefType)
+	assert.Equal(t, transfer.ID, sent.RefID)
+	assert.NotEmpty(t, sent.Data["amount"], "TRANSFER_SENT Data.amount must be set")
+	assert.Equal(t, transfer.ToAccountNumber, sent.Data["to_account"])
+
+	require.NotNil(t, received, "TRANSFER_RECEIVED must be emitted to receiver")
+	assert.Equal(t, receiverOwnerID, received.UserID)
+	assert.Equal(t, "transfer", received.RefType)
+	assert.Equal(t, transfer.ID, received.RefID)
+	assert.NotEmpty(t, received.Data["final_amount"], "TRANSFER_RECEIVED Data.final_amount must be set")
+	assert.Equal(t, transfer.FromAccountNumber, received.Data["from_account"])
+}
+
+// TestTransferService_ExecuteTransfer_SkipsBankOwnedSide verifies that when one
+// side of the transfer is a bank-owned account (owner_id == 1_000_000_000),
+// the corresponding TRANSFER_SENT/TRANSFER_RECEIVED notification is skipped
+// while the other side still receives its notification.
+func TestTransferService_ExecuteTransfer_SkipsBankOwnedSide(t *testing.T) {
+	const bankSentinel uint64 = 1_000_000_000
+	const receiverOwnerID uint64 = 202
+	accountClient := &mockAccountClientForTransfer{
+		ownerOverrides: map[string]uint64{
+			"FROM-RSD-001": bankSentinel, // sender is bank-owned
+			"TO-EUR-001":   receiverOwnerID,
+		},
+	}
+	bankClient := &mockBankAccountClient{accounts: standardBankAccounts()}
+	svc, repo := newCrossCurrencyTransferService(accountClient, bankClient)
+	rec := &recordingNotifier{}
+	svc.notifier = rec
+
+	transfer := buildCrossCurrencyTransfer(repo)
+	require.NoError(t, svc.ExecuteTransfer(context.Background(), transfer.ID))
+
+	for _, n := range rec.notifs {
+		assert.NotEqual(t, "TRANSFER_SENT", n.Type, "TRANSFER_SENT must be skipped for bank-owned sender")
+	}
+	var received *kafkamsg.GeneralNotificationMessage
+	for i := range rec.notifs {
+		if rec.notifs[i].Type == "TRANSFER_RECEIVED" {
+			received = &rec.notifs[i]
+			break
+		}
+	}
+	require.NotNil(t, received, "TRANSFER_RECEIVED must still be emitted for client receiver")
+	assert.Equal(t, receiverOwnerID, received.UserID)
+}
+
+// TestTransferService_ExecuteTransfer_FailedSagaEmitsFailedNotification verifies
+// that when the saga fails, exactly one TRANSFER_FAILED notification is emitted
+// to the sender with amount and failure_reason in the Data form.
+func TestTransferService_ExecuteTransfer_FailedSagaEmitsFailedNotification(t *testing.T) {
+	const senderOwnerID uint64 = 101
+	const receiverOwnerID uint64 = 202
+	accountClient := &mockAccountClientForTransfer{
+		failOnCall: 1, // first UpdateBalance call (debit sender) fails immediately
+		ownerOverrides: map[string]uint64{
+			"FROM-RSD-001": senderOwnerID,
+			"TO-EUR-001":   receiverOwnerID,
+		},
+	}
+	bankClient := &mockBankAccountClient{accounts: standardBankAccounts()}
+	svc, repo := newCrossCurrencyTransferService(accountClient, bankClient)
+	rec := &recordingNotifier{}
+	svc.notifier = rec
+
+	transfer := buildCrossCurrencyTransfer(repo)
+	err := svc.ExecuteTransfer(context.Background(), transfer.ID)
+	require.Error(t, err, "ExecuteTransfer must error when saga step fails")
+
+	var failed *kafkamsg.GeneralNotificationMessage
+	for i := range rec.notifs {
+		switch rec.notifs[i].Type {
+		case "TRANSFER_SENT", "TRANSFER_RECEIVED":
+			t.Fatalf("unexpected success-path notification %q on failed saga", rec.notifs[i].Type)
+		case "TRANSFER_FAILED":
+			require.Nil(t, failed, "must emit at most one TRANSFER_FAILED")
+			failed = &rec.notifs[i]
+		}
+	}
+	require.NotNil(t, failed, "TRANSFER_FAILED must be emitted on saga failure")
+	assert.Equal(t, senderOwnerID, failed.UserID, "TRANSFER_FAILED UserID must be sender owner")
+	assert.Equal(t, "transfer", failed.RefType)
+	assert.Equal(t, transfer.ID, failed.RefID)
+	assert.NotEmpty(t, failed.Data["amount"], "TRANSFER_FAILED Data.amount must be set")
+	assert.NotEmpty(t, failed.Data["failure_reason"], "TRANSFER_FAILED Data.failure_reason must be set")
 }
