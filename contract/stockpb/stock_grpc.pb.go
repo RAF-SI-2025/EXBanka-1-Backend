@@ -3182,3 +3182,181 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "stock/stock.proto",
 }
+
+const (
+	WatchlistService_AddItem_FullMethodName    = "/stock.WatchlistService/AddItem"
+	WatchlistService_RemoveItem_FullMethodName = "/stock.WatchlistService/RemoveItem"
+	WatchlistService_ListMy_FullMethodName     = "/stock.WatchlistService/ListMy"
+)
+
+// WatchlistServiceClient is the client API for WatchlistService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type WatchlistServiceClient interface {
+	AddItem(ctx context.Context, in *AddWatchlistItemRequest, opts ...grpc.CallOption) (*WatchlistItemResponse, error)
+	RemoveItem(ctx context.Context, in *RemoveWatchlistItemRequest, opts ...grpc.CallOption) (*RemoveWatchlistItemResponse, error)
+	ListMy(ctx context.Context, in *ListMyWatchlistRequest, opts ...grpc.CallOption) (*ListMyWatchlistResponse, error)
+}
+
+type watchlistServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewWatchlistServiceClient(cc grpc.ClientConnInterface) WatchlistServiceClient {
+	return &watchlistServiceClient{cc}
+}
+
+func (c *watchlistServiceClient) AddItem(ctx context.Context, in *AddWatchlistItemRequest, opts ...grpc.CallOption) (*WatchlistItemResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WatchlistItemResponse)
+	err := c.cc.Invoke(ctx, WatchlistService_AddItem_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *watchlistServiceClient) RemoveItem(ctx context.Context, in *RemoveWatchlistItemRequest, opts ...grpc.CallOption) (*RemoveWatchlistItemResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveWatchlistItemResponse)
+	err := c.cc.Invoke(ctx, WatchlistService_RemoveItem_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *watchlistServiceClient) ListMy(ctx context.Context, in *ListMyWatchlistRequest, opts ...grpc.CallOption) (*ListMyWatchlistResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMyWatchlistResponse)
+	err := c.cc.Invoke(ctx, WatchlistService_ListMy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// WatchlistServiceServer is the server API for WatchlistService service.
+// All implementations must embed UnimplementedWatchlistServiceServer
+// for forward compatibility.
+type WatchlistServiceServer interface {
+	AddItem(context.Context, *AddWatchlistItemRequest) (*WatchlistItemResponse, error)
+	RemoveItem(context.Context, *RemoveWatchlistItemRequest) (*RemoveWatchlistItemResponse, error)
+	ListMy(context.Context, *ListMyWatchlistRequest) (*ListMyWatchlistResponse, error)
+	mustEmbedUnimplementedWatchlistServiceServer()
+}
+
+// UnimplementedWatchlistServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedWatchlistServiceServer struct{}
+
+func (UnimplementedWatchlistServiceServer) AddItem(context.Context, *AddWatchlistItemRequest) (*WatchlistItemResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AddItem not implemented")
+}
+func (UnimplementedWatchlistServiceServer) RemoveItem(context.Context, *RemoveWatchlistItemRequest) (*RemoveWatchlistItemResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveItem not implemented")
+}
+func (UnimplementedWatchlistServiceServer) ListMy(context.Context, *ListMyWatchlistRequest) (*ListMyWatchlistResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMy not implemented")
+}
+func (UnimplementedWatchlistServiceServer) mustEmbedUnimplementedWatchlistServiceServer() {}
+func (UnimplementedWatchlistServiceServer) testEmbeddedByValue()                          {}
+
+// UnsafeWatchlistServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to WatchlistServiceServer will
+// result in compilation errors.
+type UnsafeWatchlistServiceServer interface {
+	mustEmbedUnimplementedWatchlistServiceServer()
+}
+
+func RegisterWatchlistServiceServer(s grpc.ServiceRegistrar, srv WatchlistServiceServer) {
+	// If the following call panics, it indicates UnimplementedWatchlistServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&WatchlistService_ServiceDesc, srv)
+}
+
+func _WatchlistService_AddItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddWatchlistItemRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WatchlistServiceServer).AddItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WatchlistService_AddItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WatchlistServiceServer).AddItem(ctx, req.(*AddWatchlistItemRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WatchlistService_RemoveItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveWatchlistItemRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WatchlistServiceServer).RemoveItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WatchlistService_RemoveItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WatchlistServiceServer).RemoveItem(ctx, req.(*RemoveWatchlistItemRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WatchlistService_ListMy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyWatchlistRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WatchlistServiceServer).ListMy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WatchlistService_ListMy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WatchlistServiceServer).ListMy(ctx, req.(*ListMyWatchlistRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// WatchlistService_ServiceDesc is the grpc.ServiceDesc for WatchlistService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var WatchlistService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.WatchlistService",
+	HandlerType: (*WatchlistServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "AddItem",
+			Handler:    _WatchlistService_AddItem_Handler,
+		},
+		{
+			MethodName: "RemoveItem",
+			Handler:    _WatchlistService_RemoveItem_Handler,
+		},
+		{
+			MethodName: "ListMy",
+			Handler:    _WatchlistService_ListMy_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}

@@ -77,3 +77,11 @@ func NewOTCOptionsClient(addr string) (stockpb.OTCOptionsServiceClient, *grpc.Cl
 	}
 	return stockpb.NewOTCOptionsServiceClient(conn), conn, nil
 }
+
+func NewWatchlistClient(addr string) (stockpb.WatchlistServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewWatchlistServiceClient(conn), conn, nil
+}

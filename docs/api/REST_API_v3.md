@@ -7627,6 +7627,77 @@ Returns identity info for a counterparty user. Peers call this when displaying u
 
 ---
 
+## 40. Watchlist
+
+Personal list of tracked listings (stocks, options, futures, forex pairs) per `(owner_type, owner_id)`. Read enriches each item with the current price and daily change pulled from `listings` + the latest price-refresh tick. No notifications, no schedulers — UX feature only.
+
+Owner is resolved from the caller's JWT via `ResolveIdentity(OwnerIsBankIfEmployee)`:
+- Client principal → tracks under their own (`client`, principal_id).
+- Employee principal → tracks under the bank's sentinel (`bank`, NULL).
+
+### 40.1 List my watchlist
+
+**Endpoint:** `GET /api/v3/me/watchlist`
+
+**Authentication:** `Bearer <token>` (employee or client JWT)
+
+**Query parameters:**
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `listing_type` | string | No | One of `stock`, `option`, `futures`, `forex`. Filters by listing kind. |
+
+**Response 200:**
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "listing_id": 7,
+      "security_type": "stock",
+      "ticker": "AAPL",
+      "current_price": "187.4500",
+      "daily_change": "1.2500",
+      "daily_change_percent": "0.6720",
+      "added_at_unix": 1731699200
+    }
+  ]
+}
+```
+
+**Response 400:** Invalid `listing_type`.
+
+### 40.2 Add to watchlist
+
+**Endpoint:** `POST /api/v3/me/watchlist`
+
+**Authentication:** `Bearer <token>`
+
+**Request body:**
+```json
+{ "listing_id": 7 }
+```
+
+Idempotent: re-adding an already-tracked listing is a no-op and still returns 201 with the existing row.
+
+**Response 201:**
+```json
+{ "item": { /* same shape as List items */ } }
+```
+
+**Response 404:** `listing_id` does not exist.
+
+### 40.3 Remove from watchlist
+
+**Endpoint:** `DELETE /api/v3/me/watchlist/:listing_id`
+
+**Authentication:** `Bearer <token>`
+
+**Response 204:** No content on success.
+
+**Response 404:** The listing is not on the caller's watchlist.
+
+---
+
 ## Error Response Format
 
 All error responses follow this format:

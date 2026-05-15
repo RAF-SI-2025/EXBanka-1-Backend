@@ -177,6 +177,12 @@ func main() {
 	}
 	defer otcOptionsConn.Close()
 
+	watchlistClient, watchlistConn, err := grpcclients.NewWatchlistClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to watchlist service: %v", err)
+	}
+	defer watchlistConn.Close()
+
 	// Blueprint service reuses the user-service connection
 	blueprintClient, blueprintConn, err := grpcclients.NewBlueprintClient(cfg.UserGRPCAddr)
 	if err != nil {
@@ -280,6 +286,7 @@ func main() {
 		SourceAdminClient:   sourceAdminClient,
 		FundClient:          fundClient,
 		OTCOptionsClient:    otcOptionsClient,
+		WatchlistClient:     watchlistClient,
 		PeerTxClient:        peerTxClient,
 		PeerBankAdminClient: peerBankAdminClient,
 		PeerNonces:          peerNonceStore,

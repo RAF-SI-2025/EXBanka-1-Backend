@@ -1286,6 +1286,9 @@ api-gateway:
 | GET | `/api/me/loans/:id` | - | creditHandler.GetMyLoan | Get own loan |
 | GET | `/api/me/loans/:id/installments` | - | creditHandler.GetMyInstallments | Get loan installments |
 | GET | `/api/me/tax` | - | taxHandler.ListMyTaxRecords | List own capital gains tax records + balance |
+| GET | `/api/v3/me/watchlist` | - | WatchlistHandler.ListMy | List tracked listings with current prices + daily change (Celina 3) |
+| POST | `/api/v3/me/watchlist` | - | WatchlistHandler.AddItem | Add a listing to the watchlist (idempotent on duplicates) |
+| DELETE | `/api/v3/me/watchlist/:listing_id` | - | WatchlistHandler.RemoveItem | Remove a listing from the watchlist |
 | GET | `/api/v3/me/notifications` | - | notifHandler.ListNotifications | List general notifications (v1 only) |
 | GET | `/api/v3/me/notifications/unread-count` | - | notifHandler.GetUnreadCount | Get unread notification count (v1 only) |
 | POST | `/api/v3/me/notifications/:id/read` | - | notifHandler.MarkRead | Mark notification as read (v1 only) |
@@ -1447,6 +1450,18 @@ These routes are reached by other banks in the SI-TX cohort, not by employees or
 ## 18. Complete Entity Reference
 
 > **New feature entities:** Investment-fund entities are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC option entities (`OTCOffer`, `OTCOfferRevision`, `OptionContract`, `OTCOfferReadReceipt`) are in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank OTC additions (`InterBankSagaLog`; `OTCOffer.Public/Private`; `OptionContract.CrossbankTxID/CrossbankExerciseTxID`; `HoldingReservation.OTCContractID`) are in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation). The `Order` model gained a `FundID *uint64` column for on-behalf-of-fund order placement.
+
+**WatchlistItem** (Celina 3 — `watchlist_items` table in stock-service `stock_db`) — per-owner tracked-listing list
+
+| Field | Type | Notes |
+|---|---|---|
+| `ID` | uint64 PK | |
+| `OwnerType` | varchar(16) | `client` or `bank`, part of unique index |
+| `OwnerID` | *uint64 nullable | NULL iff `OwnerType=bank`, part of unique index |
+| `ListingID` | uint64 | references `listings`, part of unique index |
+| `AddedAt` | time.Time | wall-clock insert time |
+
+Unique `(OwnerType, OwnerID, ListingID)` enforces "one tracked entry per owner+listing"; `WatchlistRepository.Add` issues `ON CONFLICT DO NOTHING` so double-adds are idempotent. No version column — append/delete only.
 
 ### Auth Service (auth_db)
 

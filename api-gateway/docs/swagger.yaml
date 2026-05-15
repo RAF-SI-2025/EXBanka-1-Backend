@@ -49,6 +49,11 @@ definitions:
     - password
     - token
     type: object
+  handler.addWatchlistRequest:
+    properties:
+      listing_id:
+        type: integer
+    type: object
   handler.applyBlueprintBody:
     properties:
       target_id:
@@ -7575,6 +7580,89 @@ paths:
       summary: Get a transfer by ID
       tags:
       - transfers
+  /api/v3/me/watchlist:
+    get:
+      parameters:
+      - description: stock|option|futures|forex
+        in: query
+        name: listing_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's watchlist with current prices + daily change
+      tags:
+      - Watchlist
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: listing_id to track
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.addWatchlistRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Add a listing to the caller's watchlist
+      tags:
+      - Watchlist
+  /api/v3/me/watchlist/{listing_id}:
+    delete:
+      parameters:
+      - description: listing id
+        in: path
+        name: listing_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Remove a listing from the caller's watchlist
+      tags:
+      - Watchlist
   /api/v3/notification-templates:
     get:
       description: Lists every notification template type with its supported {{variables}},

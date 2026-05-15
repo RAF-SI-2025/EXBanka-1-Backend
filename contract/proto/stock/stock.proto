@@ -1412,3 +1412,51 @@ message CheckSellerCanDeliverResponse {
   bool ok = 1;
   int64 available_quantity = 2;
 }
+
+// ---- WatchlistService ---------------------------------------------------
+// Personal list of tracked listings per (owner_type, owner_id).
+// Read enriches each item with current price + daily change pulled from
+// the existing listing tables. No notifications, no schedulers.
+
+service WatchlistService {
+  rpc AddItem(AddWatchlistItemRequest) returns (WatchlistItemResponse);
+  rpc RemoveItem(RemoveWatchlistItemRequest) returns (RemoveWatchlistItemResponse);
+  rpc ListMy(ListMyWatchlistRequest) returns (ListMyWatchlistResponse);
+}
+
+message AddWatchlistItemRequest {
+  string owner_type = 1; // "client" | "bank"
+  uint64 owner_id   = 2; // omitted/0 when owner_type=="bank"
+  uint64 listing_id = 3;
+}
+
+message RemoveWatchlistItemRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  uint64 listing_id = 3;
+}
+
+message RemoveWatchlistItemResponse {
+  bool removed = 1;
+}
+
+message ListMyWatchlistRequest {
+  string owner_type    = 1;
+  uint64 owner_id      = 2;
+  string listing_type  = 3; // optional: "stock" | "option" | "futures" | "forex"
+}
+
+message WatchlistItemResponse {
+  uint64 id                   = 1;
+  uint64 listing_id           = 2;
+  string security_type        = 3;
+  string ticker               = 4;
+  string current_price        = 5;
+  string daily_change         = 6;
+  string daily_change_percent = 7;
+  int64  added_at_unix        = 8;
+}
+
+message ListMyWatchlistResponse {
+  repeated WatchlistItemResponse items = 1;
+}

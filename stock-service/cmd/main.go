@@ -84,6 +84,7 @@ func main() {
 		&model.OptionContract{},
 		&model.OTCOfferReadReceipt{},
 		&model.IdempotencyRecord{},
+		&model.WatchlistItem{},
 		// Phase 4 SI-TX: receiver-side mirror of inbound peer-bank
 		// OTC negotiations. Created/updated by PeerOTCGRPCHandler.
 		&model.PeerOtcNegotiation{},
@@ -687,6 +688,9 @@ func main() {
 			pb.RegisterInvestmentFundServiceServer(s, fundHandler)
 			pb.RegisterOTCOptionsServiceServer(s, otcOptionsHandler)
 			pb.RegisterPeerOTCServiceServer(s, peerOtcHandler)
+			watchlistRepo := repository.NewWatchlistRepository(db)
+			watchlistSvc := service.NewWatchlistService(watchlistRepo, listingRepo, stockRepo, optionRepo, futuresRepo, forexRepo)
+			pb.RegisterWatchlistServiceServer(s, handler.NewWatchlistHandler(watchlistSvc))
 			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 				switch name {
 				case "external":

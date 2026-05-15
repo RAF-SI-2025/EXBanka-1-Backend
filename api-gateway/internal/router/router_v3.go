@@ -135,6 +135,11 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// Tax
 		me.GET("/tax", bankIfEmp, h.Tax.ListMyTaxRecords)
 
+		// Watchlist (personal list of tracked listings)
+		me.GET("/watchlist", bankIfEmp, h.Watchlist.ListMy)
+		me.POST("/watchlist", bankIfEmp, h.Watchlist.AddItem)
+		me.DELETE("/watchlist/:listing_id", bankIfEmp, h.Watchlist.RemoveItem)
+
 		// Sessions
 		me.GET("/sessions", h.Session.ListMySessions)
 		me.DELETE("/sessions/:id", h.Session.RevokeSession)
