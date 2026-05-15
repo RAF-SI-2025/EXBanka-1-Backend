@@ -257,6 +257,16 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	if data, err := json.Marshal(payload); err == nil {
 		s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCContractCreated, data, sagaID)
 	}
+
+	// In-app notifications to both client parties (no-op for bank parties /
+	// nil notifier). Best-effort — money already moved.
+	ccData := map[string]string{
+		"ticker": contract.Ticker, "quantity": contract.Quantity.String(),
+		"strike_price": contract.StrikePrice.String(), "premium_paid": contract.PremiumPaid.String(),
+	}
+	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(buyerOwnerType), OwnerID: buyerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
+	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(sellerOwnerType), OwnerID: sellerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
+
 	return contract, nil
 }
 

@@ -80,6 +80,59 @@ func TestOTCExerciseContract_ExpiredSettlement(t *testing.T) {
 	}
 }
 
+// TestOTCExerciseContract_EmitsExercisedNotifications: a successful exercise
+// emits OTC_CONTRACT_EXERCISED to both client parties (buyer + seller).
+func TestOTCExerciseContract_EmitsExercisedNotifications(t *testing.T) {
+	fx := newAcceptSagaFixture(t)
+	// Accept first to create a real contract with the seller's holding reserved.
+	contract, err := fx.svc.Accept(context.Background(), AcceptInput{
+		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
+		AcceptorAccountID: 5001,
+	})
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	// Drop the notifications recorded during accept so the assertions below
+	// only see exercise-time notifications.
+	fx.notifier.notifs = nil
+
+	exercised, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
+		ContractID: contract.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
+	})
+	if err != nil {
+		t.Fatalf("exercise: %v", err)
+	}
+	if exercised.Status != model.OptionContractStatusExercised {
+		t.Fatalf("contract status = %s, want EXERCISED", exercised.Status)
+	}
+	if got := countNotifs(fx.notifier.notifs, "OTC_CONTRACT_EXERCISED"); got != 2 {
+		t.Fatalf("OTC_CONTRACT_EXERCISED count = %d, want 2 (buyer + seller)", got)
+	}
+	buyerUID := uint64(fx.buyerID)
+	sellerUID := uint64(fx.sellerID)
+	sawBuyer, sawSeller := false, false
+	for _, m := range fx.notifier.notifs {
+		if m.Type != "OTC_CONTRACT_EXERCISED" {
+			continue
+		}
+		if m.RefType != "otc_contract" || m.RefID != contract.ID {
+			t.Errorf("notif ref = %s/%d, want otc_contract/%d", m.RefType, m.RefID, contract.ID)
+		}
+		if m.Data["ticker"] != contract.Ticker {
+			t.Errorf("notif ticker = %q, want %q", m.Data["ticker"], contract.Ticker)
+		}
+		if m.UserID == buyerUID {
+			sawBuyer = true
+		}
+		if m.UserID == sellerUID {
+			sawSeller = true
+		}
+	}
+	if !sawBuyer || !sawSeller {
+		t.Errorf("expected notifications to both buyer (%d) and seller (%d); sawBuyer=%v sawSeller=%v", buyerUID, sellerUID, sawBuyer, sawSeller)
+	}
+}
+
 // TestOTCExerciseContract_NotBuyer rejects when the actor isn't the contract buyer.
 func TestOTCExerciseContract_NotBuyer(t *testing.T) {
 	fx := newAcceptSagaFixture(t)

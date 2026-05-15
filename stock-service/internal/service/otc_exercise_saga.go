@@ -217,5 +217,15 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	if data, err := json.Marshal(payload); err == nil {
 		s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCContractExercised, data, sagaID)
 	}
+
+	// In-app notifications to both client parties (no-op for bank parties /
+	// nil notifier). Best-effort — money + shares already moved.
+	exData := map[string]string{
+		"ticker": c.Ticker, "shares_transferred": decimal.NewFromInt(qty).String(),
+		"strike_amount_paid": strikeSellerCcy.String(),
+	}
+	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(c.BuyerOwnerType), OwnerID: c.BuyerOwnerID}, "OTC_CONTRACT_EXERCISED", "otc_contract", c.ID, exData)
+	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(c.SellerOwnerType), OwnerID: c.SellerOwnerID}, "OTC_CONTRACT_EXERCISED", "otc_contract", c.ID, exData)
+
 	return c, nil
 }

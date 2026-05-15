@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -64,6 +65,7 @@ type acceptSagaFixture struct {
 	accounts      *fakeOTCAccountClient
 	exchange      *fakeFundExchangeClient
 	saga          *fakeSagaRepo
+	notifier      *recordingOTCNotifier
 	offer         *model.OTCOffer
 	stockID       uint64
 	sellerID      int64
@@ -101,6 +103,8 @@ func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
 
 	svc := NewOTCOfferService(offerRepo, revRepo, contractRepo, holdingRepo, receiptRepo, nil)
 	svc = svc.WithSaga(saga, accounts, exch, holdingResSvc, holdingRepo)
+	notifier := &recordingOTCNotifier{}
+	svc.notifier = notifier
 
 	stockID := uint64(42)
 	sellerID := int64(87)
@@ -140,8 +144,20 @@ func newAcceptSagaFixture(t *testing.T) *acceptSagaFixture {
 	return &acceptSagaFixture{
 		svc: svc, offers: offerRepo, contracts: contractRepo, holdings: holdingRepo,
 		holdingResSvc: holdingResSvc, accounts: accounts, exchange: exch, saga: saga,
-		offer: offer, stockID: stockID, sellerID: sellerID, buyerID: buyerID,
+		notifier: notifier,
+		offer:    offer, stockID: stockID, sellerID: sellerID, buyerID: buyerID,
 	}
+}
+
+// countNotifs returns how many recorded notifications have the given Type.
+func countNotifs(notifs []kafkamsg.GeneralNotificationMessage, notifType string) int {
+	n := 0
+	for _, m := range notifs {
+		if m.Type == notifType {
+			n++
+		}
+	}
+	return n
 }
 
 // ---------------- happy path ----------------
@@ -169,6 +185,83 @@ func TestAcceptSaga_SameCurrency_HappyPath(t *testing.T) {
 	got, _ := fx.offers.GetByID(fx.offer.ID)
 	if got.Status != model.OTCOfferStatusAccepted {
 		t.Errorf("offer status %s want ACCEPTED", got.Status)
+	}
+}
+
+// ---------------- in-app notifications ----------------
+
+// On a successful accept both client parties (buyer + seller) get an
+// OTC_CONTRACT_CREATED in-app notification.
+func TestAcceptSaga_EmitsContractCreatedNotifications(t *testing.T) {
+	fx := newAcceptSagaFixture(t)
+	contract, err := fx.svc.Accept(context.Background(), AcceptInput{
+		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
+		AcceptorAccountID: 5001,
+	})
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if got := countNotifs(fx.notifier.notifs, "OTC_CONTRACT_CREATED"); got != 2 {
+		t.Fatalf("OTC_CONTRACT_CREATED count = %d, want 2 (buyer + seller)", got)
+	}
+	buyerUID := uint64(fx.buyerID)
+	sellerUID := uint64(fx.sellerID)
+	sawBuyer, sawSeller := false, false
+	for _, m := range fx.notifier.notifs {
+		if m.Type != "OTC_CONTRACT_CREATED" {
+			continue
+		}
+		if m.RefType != "otc_contract" || m.RefID != contract.ID {
+			t.Errorf("notif ref = %s/%d, want otc_contract/%d", m.RefType, m.RefID, contract.ID)
+		}
+		if m.Data["ticker"] != contract.Ticker {
+			t.Errorf("notif ticker = %q, want %q", m.Data["ticker"], contract.Ticker)
+		}
+		if m.UserID == buyerUID {
+			sawBuyer = true
+		}
+		if m.UserID == sellerUID {
+			sawSeller = true
+		}
+	}
+	if !sawBuyer || !sawSeller {
+		t.Errorf("expected notifications to both buyer (%d) and seller (%d); sawBuyer=%v sawSeller=%v", buyerUID, sellerUID, sawBuyer, sawSeller)
+	}
+}
+
+// A bank counterparty receives no in-app notification (notifyOTCParty no-ops
+// for non-client owners). Here the offer is buy_initiated by the bank, so the
+// bank is the buyer and the accepting client is the seller.
+func TestAcceptSaga_BankParty_NoNotification(t *testing.T) {
+	fx := newAcceptSagaFixture(t)
+	// Re-shape the seeded offer into a buy_initiated offer where the bank is
+	// the initiator (buyer). The client seller (sellerID) accepts it and
+	// binds account 6001; the bank-buyer account is the funded 5001.
+	fx.offer.Direction = model.OTCDirectionBuyInitiated
+	fx.offer.InitiatorOwnerType = model.OwnerBank
+	fx.offer.InitiatorOwnerID = nil
+	fx.offer.InitiatorAccountID = 5001 // buy_initiated → initiator account is the buyer account
+	// Last-modified-by must not be the accepting client (self-accept guard).
+	fx.offer.LastModifiedByPrincipalType = "employee"
+	fx.offer.LastModifiedByPrincipalID = 1
+	if err := fx.offers.Save(fx.offer); err != nil {
+		t.Fatalf("save offer: %v", err)
+	}
+	if _, err := fx.svc.Accept(context.Background(), AcceptInput{
+		OfferID: fx.offer.ID, ActorUserID: fx.sellerID, ActorSystemType: "client",
+		AcceptorAccountID: 6001,
+	}); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	// Only the seller (client) should be notified — the bank buyer must not.
+	if got := countNotifs(fx.notifier.notifs, "OTC_CONTRACT_CREATED"); got != 1 {
+		t.Fatalf("OTC_CONTRACT_CREATED count = %d, want 1 (seller only; bank buyer skipped)", got)
+	}
+	sellerUID := uint64(fx.sellerID)
+	for _, m := range fx.notifier.notifs {
+		if m.UserID != sellerUID {
+			t.Errorf("unexpected notification to UserID=%d (want only seller %d)", m.UserID, sellerUID)
+		}
 	}
 }
 

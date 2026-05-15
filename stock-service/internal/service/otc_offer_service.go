@@ -155,18 +155,11 @@ func NewOTCOfferService(
 }
 
 // notifyOTCParty emits an in-app notification to one OTC party. No-op for bank
-// parties (OwnerType != "client" or nil OwnerID) and best-effort.
+// parties (OwnerType != "client" or nil OwnerID) and best-effort. Delegates to
+// the package-level notifyOTCPartyVia so the OTC expiry cron (a separate type)
+// shares the same emit logic.
 func (s *OTCOfferService) notifyOTCParty(ctx context.Context, party kafkamsg.OTCParty, notifType, refType string, refID uint64, data map[string]string) {
-	if s.notifier == nil || party.OwnerType != "client" || party.OwnerID == nil {
-		return
-	}
-	_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
-		UserID:  *party.OwnerID,
-		Type:    notifType,
-		Data:    data,
-		RefType: refType,
-		RefID:   refID,
-	})
+	notifyOTCPartyVia(ctx, s.notifier, party, notifType, refType, refID, data)
 }
 
 // CreateOfferInput captures the fields a new offer needs.
