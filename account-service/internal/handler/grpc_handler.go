@@ -56,6 +56,7 @@ type accountProducer interface {
 	PublishAccountCreated(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
 	PublishAccountStatusChanged(ctx context.Context, msg kafkaprod.AccountStatusChangedMsg) error
 	PublishAccountNameUpdated(ctx context.Context, msg kafkamsg.AccountNameUpdatedMessage) error
+	PublishAccountLimitsUpdated(ctx context.Context, msg kafkamsg.AccountLimitsUpdatedMessage) error
 	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
 	SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error
 }
@@ -474,6 +475,28 @@ func (h *AccountGRPCHandler) UpdateAccountLimits(ctx context.Context, req *pb.Up
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to fetch updated account: %v", err)
 	}
+
+	// Domain audit event — fires regardless of ownership (bank-owned accounts
+	// still get an entry on the changelog channel).
+	_ = h.producer.PublishAccountLimitsUpdated(ctx, kafkamsg.AccountLimitsUpdatedMessage{
+		AccountID:     account.ID,
+		AccountNumber: account.AccountNumber,
+		DailyLimit:    account.DailyLimit.StringFixed(2),
+		MonthlyLimit:  account.MonthlyLimit.StringFixed(2),
+	})
+
+	// In-app notification (rendered downstream via the push template registry).
+	// Skip for bank-owned accounts — they have no human recipient.
+	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  account.OwnerID,
+			Type:    "ACCOUNT_LIMITS_UPDATED",
+			Data:    map[string]string{"account_number": account.AccountNumber, "daily_limit": account.DailyLimit.StringFixed(2), "monthly_limit": account.MonthlyLimit.StringFixed(2)},
+			RefType: "account",
+			RefID:   account.ID,
+		})
+	}
+
 	return toAccountResponse(account), nil
 }
 

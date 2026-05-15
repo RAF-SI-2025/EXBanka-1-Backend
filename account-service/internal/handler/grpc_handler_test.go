@@ -172,12 +172,14 @@ type mockAccountProducer struct {
 	publishAccountCreatedFn       func(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
 	publishAccountStatusChangedFn func(ctx context.Context, msg kafkaprod.AccountStatusChangedMsg) error
 	publishAccountNameUpdatedFn   func(ctx context.Context, msg kafkamsg.AccountNameUpdatedMessage) error
+	publishAccountLimitsUpdatedFn func(ctx context.Context, msg kafkamsg.AccountLimitsUpdatedMessage) error
 	publishGeneralNotificationFn  func(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
 	sendEmailFn                   func(ctx context.Context, msg kafkamsg.SendEmailMessage) error
 
 	accountCreatedCalls       []kafkamsg.AccountCreatedMessage
 	accountStatusChangedCalls []kafkaprod.AccountStatusChangedMsg
 	accountNameUpdatedCalls   []kafkamsg.AccountNameUpdatedMessage
+	accountLimitsUpdatedCalls []kafkamsg.AccountLimitsUpdatedMessage
 	generalNotificationCalls  []kafkamsg.GeneralNotificationMessage
 	sendEmailCalls            []kafkamsg.SendEmailMessage
 }
@@ -202,6 +204,14 @@ func (m *mockAccountProducer) PublishAccountNameUpdated(ctx context.Context, msg
 	m.accountNameUpdatedCalls = append(m.accountNameUpdatedCalls, msg)
 	if m.publishAccountNameUpdatedFn != nil {
 		return m.publishAccountNameUpdatedFn(ctx, msg)
+	}
+	return nil
+}
+
+func (m *mockAccountProducer) PublishAccountLimitsUpdated(ctx context.Context, msg kafkamsg.AccountLimitsUpdatedMessage) error {
+	m.accountLimitsUpdatedCalls = append(m.accountLimitsUpdatedCalls, msg)
+	if m.publishAccountLimitsUpdatedFn != nil {
+		return m.publishAccountLimitsUpdatedFn(ctx, msg)
 	}
 	return nil
 }
@@ -714,6 +724,91 @@ func TestUpdateAccountLimits_InvalidValue(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestUpdateAccountLimits_PublishesDomainEvent(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.updateAccountLimitsFn = func(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error {
+		return nil
+	}
+	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
+		a := sampleAccount(id)
+		a.DailyLimit = decimal.NewFromInt(50_000)
+		a.MonthlyLimit = decimal.NewFromInt(500_000)
+		return a, nil
+	}
+
+	dailyLimitStr := "50000"
+	monthlyLimitStr := "500000"
+	_, err := h.UpdateAccountLimits(context.Background(), &pb.UpdateAccountLimitsRequest{
+		Id:           1,
+		DailyLimit:   &dailyLimitStr,
+		MonthlyLimit: &monthlyLimitStr,
+	})
+	require.NoError(t, err)
+	require.Len(t, f.producer.accountLimitsUpdatedCalls, 1)
+	call := f.producer.accountLimitsUpdatedCalls[0]
+	assert.Equal(t, uint64(1), call.AccountID)
+	assert.Equal(t, "111000100000000011", call.AccountNumber)
+	assert.Equal(t, "50000.00", call.DailyLimit)
+	assert.Equal(t, "500000.00", call.MonthlyLimit)
+}
+
+func TestUpdateAccountLimits_EmitsLimitsUpdatedNotification(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.updateAccountLimitsFn = func(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error {
+		return nil
+	}
+	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
+		a := sampleAccount(id)
+		a.DailyLimit = decimal.NewFromInt(50_000)
+		a.MonthlyLimit = decimal.NewFromInt(500_000)
+		return a, nil
+	}
+
+	dailyLimitStr := "50000"
+	monthlyLimitStr := "500000"
+	_, err := h.UpdateAccountLimits(context.Background(), &pb.UpdateAccountLimitsRequest{
+		Id:           1,
+		DailyLimit:   &dailyLimitStr,
+		MonthlyLimit: &monthlyLimitStr,
+	})
+	require.NoError(t, err)
+	require.Len(t, f.producer.generalNotificationCalls, 1)
+	n := f.producer.generalNotificationCalls[0]
+	assert.Equal(t, "ACCOUNT_LIMITS_UPDATED", n.Type)
+	assert.Equal(t, uint64(42), n.UserID)
+	assert.Equal(t, "111000100000000011", n.Data["account_number"])
+	assert.Equal(t, "50000.00", n.Data["daily_limit"])
+	assert.Equal(t, "500000.00", n.Data["monthly_limit"])
+	assert.Equal(t, "account", n.RefType)
+	assert.Equal(t, uint64(1), n.RefID)
+	assert.Empty(t, n.Title)
+	assert.Empty(t, n.Message)
+}
+
+func TestUpdateAccountLimits_BankOwned_NoNotification(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.updateAccountLimitsFn = func(id uint64, dailyLimit, monthlyLimit *string, changedBy int64) error {
+		return nil
+	}
+	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
+		a := sampleAccount(id)
+		a.IsBankAccount = true
+		a.OwnerID = 1_000_000_000
+		return a, nil
+	}
+
+	dailyLimitStr := "50000"
+	_, err := h.UpdateAccountLimits(context.Background(), &pb.UpdateAccountLimitsRequest{
+		Id:         1,
+		DailyLimit: &dailyLimitStr,
+	})
+	require.NoError(t, err)
+	// Domain event still publishes for the audit channel.
+	require.Len(t, f.producer.accountLimitsUpdatedCalls, 1)
+	// No in-app notification for bank-owned accounts.
+	assert.Empty(t, f.producer.generalNotificationCalls)
 }
 
 // ---------------------------------------------------------------------------
