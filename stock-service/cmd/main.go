@@ -226,6 +226,7 @@ func main() {
 		"otc.contract-exercised",
 		"otc.contract-expired",
 		"otc.contract-failed",
+		"notification.general",
 	)
 
 	// --- InfluxDB ---

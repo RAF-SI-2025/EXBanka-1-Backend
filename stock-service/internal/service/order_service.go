@@ -15,6 +15,7 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	contract "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/shared/saga"
 	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/model"
@@ -130,6 +131,7 @@ type OrderEventPublisher interface {
 	PublishOrderApproved(ctx context.Context, msg interface{}) error
 	PublishOrderDeclined(ctx context.Context, msg interface{}) error
 	PublishOrderCancelled(ctx context.Context, msg interface{}) error
+	PublishGeneralNotification(ctx context.Context, msg contract.GeneralNotificationMessage) error
 }
 
 // SecurityLookupRepo provides settlement date + ticker lookups for the
