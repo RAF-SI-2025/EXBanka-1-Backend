@@ -549,12 +549,12 @@ func (s *PortfolioService) processBuyFillLegacy(order *model.Order, txn *model.O
 	).Div(decimal.NewFromInt(order.Quantity))
 	debitAmount := txn.TotalPrice.Add(proportionalCommission)
 
-	if err := s.debitAccount(order.AccountID, debitAmount); err != nil {
+	if err := s.debitAccount(order.AccountID, debitAmount, fmt.Sprintf("legacy-buyfill-debit-%d-%d", order.ID, txn.ID)); err != nil {
 		return err
 	}
 
 	// Credit bank account with commission
-	if err := s.creditBankCommission(proportionalCommission); err != nil {
+	if err := s.creditBankCommission(proportionalCommission, fmt.Sprintf("legacy-buyfill-commission-%d-%d", order.ID, txn.ID)); err != nil {
 		return err
 	}
 
@@ -872,11 +872,11 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 	).Div(decimal.NewFromInt(order.Quantity))
 	creditAmount := txn.TotalPrice.Sub(proportionalCommission)
 
-	if err := s.creditAccount(order.AccountID, creditAmount); err != nil {
+	if err := s.creditAccount(order.AccountID, creditAmount, fmt.Sprintf("legacy-sellfill-credit-%d-%d", order.ID, txn.ID)); err != nil {
 		return err
 	}
 
-	return s.creditBankCommission(proportionalCommission)
+	return s.creditBankCommission(proportionalCommission, fmt.Sprintf("legacy-sellfill-commission-%d-%d", order.ID, txn.ID))
 }
 
 // ListHoldings returns an (owner_type, owner_id) owner's holdings with
@@ -1004,6 +1004,19 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 	sharesAffected := holding.Quantity * 100 // 1 option = 100 shares
 	var profit decimal.Decimal
 
+	// Per-holding deterministic idempotency keys for the option-exercise
+	// path. Compensation steps reuse the original step's prefix so account-
+	// service's ledger dedup absorbs replays. ExerciseOption is a single
+	// shot per holding row (the holding is deleted at the end) so re-entry
+	// for the same holding can only happen on retry of a failed leg.
+	exDebitKey := fmt.Sprintf("exercise-option-%d:debit", holdingID)
+	exDebitCompStockErr := fmt.Sprintf("exercise-option-%d:debit-comp-stock-lookup", holdingID)
+	exDebitCompUpsert := fmt.Sprintf("exercise-option-%d:debit-comp-upsert", holdingID)
+	exCreditKey := fmt.Sprintf("exercise-option-%d:credit", holdingID)
+	exCreditCompDelete := fmt.Sprintf("exercise-option-%d:credit-comp-delete", holdingID)
+	exCreditCompUpdate := fmt.Sprintf("exercise-option-%d:credit-comp-update", holdingID)
+	exCreditCompCapGain := fmt.Sprintf("exercise-option-%d:credit-comp-capgain", holdingID)
+
 	if option.OptionType == "call" {
 		// CALL: stock price must be > strike price
 		if stockListing.Price.LessThanOrEqual(option.StrikePrice) {
@@ -1013,7 +1026,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 
 		// Debit account by strike × shares (buying stock at strike price)
 		debitAmount := option.StrikePrice.Mul(decimal.NewFromInt(sharesAffected))
-		if err := s.debitAccount(holding.AccountID, debitAmount); err != nil {
+		if err := s.debitAccount(holding.AccountID, debitAmount, exDebitKey); err != nil {
 			return nil, err
 		}
 
@@ -1021,7 +1034,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 		stock, err := s.stockRepo.GetByID(option.StockID)
 		if err != nil {
 			// Compensate: re-credit the debit amount
-			_ = s.creditAccount(holding.AccountID, debitAmount)
+			_ = s.creditAccount(holding.AccountID, debitAmount, exDebitCompStockErr)
 			return nil, err
 		}
 		stockHolding := &model.Holding{
@@ -1040,7 +1053,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 		}
 		if err := s.holdingRepo.Upsert(context.Background(), stockHolding); err != nil {
 			// Compensate: re-credit the debit amount
-			_ = s.creditAccount(holding.AccountID, debitAmount)
+			_ = s.creditAccount(holding.AccountID, debitAmount, exDebitCompUpsert)
 			return nil, err
 		}
 
@@ -1063,7 +1076,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 
 		// Credit account by strike × shares (selling stock at strike price)
 		creditAmount := option.StrikePrice.Mul(decimal.NewFromInt(sharesAffected))
-		if err := s.creditAccount(holding.AccountID, creditAmount); err != nil {
+		if err := s.creditAccount(holding.AccountID, creditAmount, exCreditKey); err != nil {
 			return nil, err
 		}
 
@@ -1079,13 +1092,13 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 		if stockHolding.Quantity == 0 {
 			if err := s.holdingRepo.Delete(stockHolding.ID); err != nil {
 				// Compensate: re-debit the credit amount
-				_ = s.debitAccount(holding.AccountID, creditAmount)
+				_ = s.debitAccount(holding.AccountID, creditAmount, exCreditCompDelete)
 				return nil, err
 			}
 		} else {
 			if err := s.holdingRepo.Update(stockHolding); err != nil {
 				// Compensate: re-debit the credit amount
-				_ = s.debitAccount(holding.AccountID, creditAmount)
+				_ = s.debitAccount(holding.AccountID, creditAmount, exCreditCompUpdate)
 				return nil, err
 			}
 		}
@@ -1108,7 +1121,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 		}
 		if err := s.capitalGainRepo.Create(capitalGain); err != nil {
 			// Compensate: re-debit the credit amount
-			_ = s.debitAccount(holding.AccountID, creditAmount)
+			_ = s.debitAccount(holding.AccountID, creditAmount, exCreditCompCapGain)
 			return nil, err
 		}
 	}
@@ -1148,8 +1161,13 @@ func (s *PortfolioService) ExerciseOptionByOptionID(ctx context.Context, optionI
 }
 
 // --- Account helpers ---
+//
+// All three helpers require a non-empty idempotencyKey. account-service's
+// UpdateBalance rejects empty keys with InvalidArgument since the Phase-2
+// ledger work; callers must thread a deterministic per-step key so retries
+// dedup at the ledger level instead of double-debiting / double-crediting.
 
-func (s *PortfolioService) debitAccount(accountID uint64, amount decimal.Decimal) error {
+func (s *PortfolioService) debitAccount(accountID uint64, amount decimal.Decimal, idempotencyKey string) error {
 	acctResp, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: accountID})
 	if err != nil {
 		return err
@@ -1158,11 +1176,12 @@ func (s *PortfolioService) debitAccount(accountID uint64, amount decimal.Decimal
 		AccountNumber:   acctResp.AccountNumber,
 		Amount:          amount.Neg().StringFixed(4), // negative for debit
 		UpdateAvailable: true,
+		IdempotencyKey:  idempotencyKey,
 	})
 	return err
 }
 
-func (s *PortfolioService) creditAccount(accountID uint64, amount decimal.Decimal) error {
+func (s *PortfolioService) creditAccount(accountID uint64, amount decimal.Decimal, idempotencyKey string) error {
 	acctResp, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: accountID})
 	if err != nil {
 		return err
@@ -1171,11 +1190,12 @@ func (s *PortfolioService) creditAccount(accountID uint64, amount decimal.Decima
 		AccountNumber:   acctResp.AccountNumber,
 		Amount:          amount.StringFixed(4), // positive for credit
 		UpdateAvailable: true,
+		IdempotencyKey:  idempotencyKey,
 	})
 	return err
 }
 
-func (s *PortfolioService) creditBankCommission(commission decimal.Decimal) error {
+func (s *PortfolioService) creditBankCommission(commission decimal.Decimal, idempotencyKey string) error {
 	if commission.IsZero() {
 		return nil
 	}
@@ -1183,6 +1203,7 @@ func (s *PortfolioService) creditBankCommission(commission decimal.Decimal) erro
 		AccountNumber:   s.stateAccountNo,
 		Amount:          commission.StringFixed(4),
 		UpdateAvailable: true,
+		IdempotencyKey:  idempotencyKey,
 	})
 	return err
 }

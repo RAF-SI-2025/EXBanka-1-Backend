@@ -68,6 +68,14 @@ func (c *Classifier) Classify(ctx context.Context, step sharedsaga.StuckStep) sh
 }
 
 // Retry replays UpdateBalance for the row's recorded account+amount.
+//
+// account-service.UpdateBalance requires a non-empty idempotency_key
+// (InvalidArgument otherwise), so the key must reconstruct the same value
+// the original saga step published — sharedsaga.IdempotencyKey(sagaID,
+// stepName) with the ":compensate" suffix when this row is a
+// compensation step. Reconstructing the original key is what lets the
+// ledger's partial unique index absorb the replay and return the cached
+// response without double-mutating balance.
 func (c *Classifier) Retry(ctx context.Context, step sharedsaga.StuckStep) error {
 	if c.accountClient == nil {
 		return errors.New("classifier: nil account client")
@@ -85,11 +93,17 @@ func (c *Classifier) Retry(ctx context.Context, step sharedsaga.StuckStep) error
 		return errors.New("classifier: amount payload is not decimal.Decimal")
 	}
 
+	idemKey := sharedsaga.IdempotencyKey(step.SagaID, sharedsaga.StepKind(step.StepName))
+	if step.Compensation {
+		idemKey += ":compensate"
+	}
+
 	return shared.Retry(ctx, c.retryConfig, func() error {
 		_, e := c.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 			AccountNumber:   acct,
 			Amount:          amount.StringFixed(4),
 			UpdateAvailable: true,
+			IdempotencyKey:  idemKey,
 		})
 		return e
 	})

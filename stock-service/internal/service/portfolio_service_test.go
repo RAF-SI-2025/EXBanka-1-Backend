@@ -324,8 +324,9 @@ type mockAccountClient struct {
 }
 
 type updateBalCall struct {
-	AccountNumber string
-	Amount        string
+	AccountNumber  string
+	Amount         string
+	IdempotencyKey string
 }
 
 func newMockAccountClient() *mockAccountClient {
@@ -366,8 +367,9 @@ func (m *mockAccountClient) UpdateBalance(_ context.Context, req *accountpb.Upda
 		return nil, err
 	}
 	m.updateBalCalls = append(m.updateBalCalls, updateBalCall{
-		AccountNumber: req.AccountNumber,
-		Amount:        req.Amount,
+		AccountNumber:  req.AccountNumber,
+		Amount:         req.Amount,
+		IdempotencyKey: req.IdempotencyKey,
 	})
 	return &accountpb.AccountResponse{}, nil
 }

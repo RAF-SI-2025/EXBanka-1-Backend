@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 
@@ -89,6 +90,18 @@ func (s *OTCService) BuyOffer(
 	}
 	commission = commission.Round(2)
 
+	// Each BuyOffer call gets a fresh UUID-scoped key so the per-step
+	// idempotency_keys below stay deterministic within this call (so a
+	// compensation step replays the original step's cached response on
+	// retry) while two distinct buys never collide on the same key.
+	otcTxID := uuid.New().String()
+	buyerDebitKey := "otc-buy-" + otcTxID + ":buyer-debit"
+	sellerCreditKey := "otc-buy-" + otcTxID + ":seller-credit"
+	compBuyerOnSellerLookup := "otc-buy-" + otcTxID + ":comp-buyer-seller-lookup"
+	compBuyerOnSellerCredit := "otc-buy-" + otcTxID + ":comp-buyer-seller-credit"
+	compBuyerOnCapGain := "otc-buy-" + otcTxID + ":comp-buyer-capgain"
+	compSellerOnCapGain := "otc-buy-" + otcTxID + ":comp-seller-capgain"
+
 	// Debit buyer's account: total + commission
 	buyerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: buyerAccountID})
 	if err != nil {
@@ -98,6 +111,7 @@ func (s *OTCService) BuyOffer(
 		AccountNumber:   buyerAcct.AccountNumber,
 		Amount:          totalPrice.Add(commission).Neg().StringFixed(4),
 		UpdateAvailable: true,
+		IdempotencyKey:  buyerDebitKey,
 	})
 	if err != nil {
 		return nil, errors.New("failed to debit buyer account: " + err.Error())
@@ -118,6 +132,7 @@ func (s *OTCService) BuyOffer(
 			AccountNumber:   buyerAcct.AccountNumber,
 			Amount:          totalPrice.Add(commission).StringFixed(4),
 			UpdateAvailable: true,
+			IdempotencyKey:  compBuyerOnSellerLookup,
 		})
 		return nil, fmt.Errorf("seller account not found: %w", ErrOTCSellerAccountNotFound)
 	}
@@ -125,6 +140,7 @@ func (s *OTCService) BuyOffer(
 		AccountNumber:   sellerAcct.AccountNumber,
 		Amount:          totalPrice.StringFixed(4),
 		UpdateAvailable: true,
+		IdempotencyKey:  sellerCreditKey,
 	})
 	if err != nil {
 		// Compensate: re-credit buyer since debit succeeded
@@ -132,6 +148,7 @@ func (s *OTCService) BuyOffer(
 			AccountNumber:   buyerAcct.AccountNumber,
 			Amount:          totalPrice.Add(commission).StringFixed(4),
 			UpdateAvailable: true,
+			IdempotencyKey:  compBuyerOnSellerCredit,
 		})
 		return nil, errors.New("failed to credit seller account: " + err.Error())
 	}
@@ -159,11 +176,13 @@ func (s *OTCService) BuyOffer(
 			AccountNumber:   buyerAcct.AccountNumber,
 			Amount:          totalPrice.Add(commission).StringFixed(4),
 			UpdateAvailable: true,
+			IdempotencyKey:  compBuyerOnCapGain,
 		})
 		_, _ = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 			AccountNumber:   sellerAcct.AccountNumber,
 			Amount:          totalPrice.Neg().StringFixed(4),
 			UpdateAvailable: true,
+			IdempotencyKey:  compSellerOnCapGain,
 		})
 		return nil, err
 	}

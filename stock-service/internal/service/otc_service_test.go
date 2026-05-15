@@ -185,6 +185,15 @@ func TestOTC_BuyOffer_CommissionBelowCap(t *testing.T) {
 	if !debitAmount.Equal(expectedDebit) {
 		t.Errorf("expected debit %s, got %s", expectedDebit, debitAmount)
 	}
+
+	// Every UpdateBalance must carry a non-empty IdempotencyKey or
+	// account-service rejects with InvalidArgument: idempotency_key required.
+	// Regression guard for the "OTC buy returns 400 from gateway" bug.
+	for i, call := range mocks.accountClient.updateBalCalls {
+		if call.IdempotencyKey == "" {
+			t.Errorf("UpdateBalance call %d (%s amount %s) missing IdempotencyKey", i, call.AccountNumber, call.Amount)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
