@@ -101,3 +101,11 @@ func NewRecurringOrderClient(addr string) (stockpb.RecurringOrderServiceClient, 
 	}
 	return stockpb.NewRecurringOrderServiceClient(conn), conn, nil
 }
+
+func NewRecurringFundClient(addr string) (stockpb.RecurringFundServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewRecurringFundServiceClient(conn), conn, nil
+}

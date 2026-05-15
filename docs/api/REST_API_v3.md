@@ -7627,6 +7627,41 @@ Returns identity info for a counterparty user. Peers call this when displaying u
 
 ---
 
+## 46. Recurring Fund Investments (Celina 4)
+
+Monthly Dollar-Cost-Averaging template — every month on `day_of_month` the cron auto-invests `amount_rsd` from `source_account_id` into `fund_id`. Insufficient funds (or fund-no-longer-eligible) skip the tick with a `FUND_RECURRING_SKIPPED` push; successful contributions emit `FUND_RECURRING_EXECUTED`. The recurrence stays active across skips.
+
+### 46.1 List my recurring fund investments
+
+`GET /api/v3/me/recurring-funds` → `{ "recurring_funds": [...] }`. Only client principals carry results; employee tokens get an empty array (recurring fund investments are personal to clients).
+
+### 46.2 Create
+
+`POST /api/v3/me/recurring-funds`
+
+```json
+{
+  "fund_id": 7,
+  "amount_rsd": "1000.0000",
+  "source_account_id": 42,
+  "day_of_month": 15
+}
+```
+
+Validation:
+- `day_of_month` must be 1..28.
+- `fund_id` must point to an open fund OR a closed fund currently in the fundraising window (otherwise no tick can ever fire).
+- `amount_rsd` must be ≥ the fund's `minimum_contribution_rsd`.
+
+### 46.3 Lifecycle
+
+- `GET    /api/v3/me/recurring-funds/:id` — read one (caller-scoped).
+- `POST   /api/v3/me/recurring-funds/:id/pause` — toggle `active=false`.
+- `POST   /api/v3/me/recurring-funds/:id/resume` — toggle `active=true`.
+- `DELETE /api/v3/me/recurring-funds/:id` — permanently cancel (returns 204).
+
+---
+
 ## 45. Recurring Securities Orders (Celina 3)
 
 User configures a weekly or monthly Market-order template; a scheduler materialises a real order on each due tick. Insufficient funds skip the tick and notify the owner; pause/resume/cancel are explicit lifecycle controls.

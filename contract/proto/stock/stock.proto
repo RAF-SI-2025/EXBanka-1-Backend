@@ -1477,6 +1477,53 @@ message CheckSellerCanDeliverResponse {
   int64 available_quantity = 2;
 }
 
+// ---- RecurringFundService -----------------------------------------------
+// Monthly Dollar-Cost-Averaging template for fund contributions.
+
+service RecurringFundService {
+  rpc Create(CreateRecurringFundRequest) returns (RecurringFundResponse);
+  rpc Get(GetRecurringFundRequest)        returns (RecurringFundResponse);
+  rpc Pause(GetRecurringFundRequest)      returns (RecurringFundResponse);
+  rpc Resume(GetRecurringFundRequest)     returns (RecurringFundResponse);
+  rpc Cancel(GetRecurringFundRequest)     returns (CancelRecurringFundResponse);
+  rpc ListMy(ListMyRecurringFundsRequest) returns (ListMyRecurringFundsResponse);
+}
+
+message CreateRecurringFundRequest {
+  uint64 client_id          = 1;
+  uint64 fund_id            = 2;
+  string amount_rsd         = 3;
+  uint64 source_account_id  = 4;
+  int32  day_of_month       = 5; // 1..28
+}
+
+message GetRecurringFundRequest {
+  uint64 id        = 1;
+  uint64 client_id = 2;
+}
+
+message CancelRecurringFundResponse { bool cancelled = 1; }
+
+message ListMyRecurringFundsRequest {
+  uint64 client_id = 1;
+}
+
+message RecurringFundResponse {
+  uint64 id                = 1;
+  uint64 fund_id           = 2;
+  string amount_rsd        = 3;
+  uint64 source_account_id = 4;
+  int32  day_of_month      = 5;
+  bool   active            = 6;
+  int64  last_run_unix     = 7;
+  int64  next_run_unix     = 8;
+  int64  created_at_unix   = 9;
+}
+
+message ListMyRecurringFundsResponse {
+  repeated RecurringFundResponse items = 1;
+}
+
 // ---- RecurringOrderService ----------------------------------------------
 // Templates the user defines once that auto-place Market orders on a
 // weekly or monthly cadence. Insufficient funds skip the tick with a

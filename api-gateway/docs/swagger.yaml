@@ -478,6 +478,17 @@ definitions:
       threshold:
         type: string
     type: object
+  handler.createRecurringFundRequest:
+    properties:
+      amount_rsd:
+        type: string
+      day_of_month:
+        type: integer
+      fund_id:
+        type: integer
+      source_account_id:
+        type: integer
+    type: object
   handler.createRecurringOrderRequest:
     properties:
       account_id:
@@ -7764,6 +7775,126 @@ paths:
       summary: Update a price alert
       tags:
       - PriceAlerts
+  /api/v3/me/recurring-funds:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List my recurring fund investments
+      tags:
+      - RecurringFunds
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: template
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createRecurringFundRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a monthly DCA fund-investment template
+      tags:
+      - RecurringFunds
+  /api/v3/me/recurring-funds/{id}:
+    delete:
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Cancel a recurring fund investment
+      tags:
+      - RecurringFunds
+    get:
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a recurring fund investment
+      tags:
+      - RecurringFunds
+  /api/v3/me/recurring-funds/{id}/pause:
+    post:
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Pause a recurring fund investment
+      tags:
+      - RecurringFunds
+  /api/v3/me/recurring-funds/{id}/resume:
+    post:
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Resume a paused recurring fund investment
+      tags:
+      - RecurringFunds
   /api/v3/me/recurring-orders:
     get:
       produces:

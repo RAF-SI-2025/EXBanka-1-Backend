@@ -1297,6 +1297,12 @@ api-gateway:
 | POST | `/api/v3/me/recurring-orders/:id/pause` | - | RecurringOrderHandler.Pause | Pause a recurring order (Celina 3) |
 | POST | `/api/v3/me/recurring-orders/:id/resume` | - | RecurringOrderHandler.Resume | Resume a paused recurring order (Celina 3) |
 | POST | `/api/v3/me/recurring-orders/:id/cancel` | - | RecurringOrderHandler.Cancel | Cancel a recurring order (Celina 3) |
+| GET | `/api/v3/me/recurring-funds` | - | RecurringFundHandler.ListMy | List caller's monthly DCA fund-investment templates (Celina 4) |
+| POST | `/api/v3/me/recurring-funds` | - | RecurringFundHandler.Create | Create a monthly DCA fund-investment template (Celina 4) |
+| GET | `/api/v3/me/recurring-funds/:id` | - | RecurringFundHandler.Get | Read one recurring fund investment (Celina 4) |
+| POST | `/api/v3/me/recurring-funds/:id/pause` | - | RecurringFundHandler.Pause | Pause a recurring fund investment (Celina 4) |
+| POST | `/api/v3/me/recurring-funds/:id/resume` | - | RecurringFundHandler.Resume | Resume a paused recurring fund investment (Celina 4) |
+| DELETE | `/api/v3/me/recurring-funds/:id` | - | RecurringFundHandler.Cancel | Cancel a recurring fund investment (Celina 4) |
 | GET | `/api/v3/me/price-alerts` | - | PriceAlertHandler.ListMy | List caller's price alerts (Celina 3) |
 | POST | `/api/v3/me/price-alerts` | - | PriceAlertHandler.Create | Create a price alert (gte/lte/daily_change_pct_*) (Celina 3) |
 | GET | `/api/v3/me/price-alerts/:id` | - | PriceAlertHandler.Get | Read one alert (Celina 3) |

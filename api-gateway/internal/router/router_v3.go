@@ -158,6 +158,14 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/recurring-orders/:id/resume", bankIfEmp, h.RecurringOrder.Resume)
 		me.POST("/recurring-orders/:id/cancel", bankIfEmp, h.RecurringOrder.Cancel)
 
+		// Recurring fund investments (monthly DCA into a single fund)
+		me.GET("/recurring-funds", h.RecurringFund.ListMy)
+		me.POST("/recurring-funds", h.RecurringFund.Create)
+		me.GET("/recurring-funds/:id", h.RecurringFund.Get)
+		me.POST("/recurring-funds/:id/pause", h.RecurringFund.Pause)
+		me.POST("/recurring-funds/:id/resume", h.RecurringFund.Resume)
+		me.DELETE("/recurring-funds/:id", h.RecurringFund.Cancel)
+
 		// Sessions
 		me.GET("/sessions", h.Session.ListMySessions)
 		me.DELETE("/sessions/:id", h.Session.RevokeSession)

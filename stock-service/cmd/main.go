@@ -88,6 +88,7 @@ func main() {
 		&model.OTCTraderRating{},
 		&model.PriceAlert{},
 		&model.RecurringOrder{},
+		&model.RecurringFundInvestment{},
 		// Phase 4 SI-TX: receiver-side mirror of inbound peer-bank
 		// OTC negotiations. Created/updated by PeerOTCGRPCHandler.
 		&model.PeerOtcNegotiation{},
@@ -716,6 +717,11 @@ func main() {
 			// Closed-end fund lifecycle: walk closed funds and transition
 			// their FundStatus per the calendar (15 min tick).
 			go service.NewFundLifecycleCron(db, producer, 15*time.Minute).Run(ctx)
+
+			recurringFundRepo := repository.NewRecurringFundInvestmentRepository(db)
+			recurringFundSvc := service.NewRecurringFundService(recurringFundRepo, fundRepo, fundService, producer)
+			pb.RegisterRecurringFundServiceServer(s, handler.NewRecurringFundHandler(recurringFundSvc))
+			go service.NewRecurringFundCron(recurringFundSvc, time.Hour).Run(ctx)
 			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 				switch name {
 				case "external":

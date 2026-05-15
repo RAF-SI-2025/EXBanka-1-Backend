@@ -3342,6 +3342,298 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	RecurringFundService_Create_FullMethodName = "/stock.RecurringFundService/Create"
+	RecurringFundService_Get_FullMethodName    = "/stock.RecurringFundService/Get"
+	RecurringFundService_Pause_FullMethodName  = "/stock.RecurringFundService/Pause"
+	RecurringFundService_Resume_FullMethodName = "/stock.RecurringFundService/Resume"
+	RecurringFundService_Cancel_FullMethodName = "/stock.RecurringFundService/Cancel"
+	RecurringFundService_ListMy_FullMethodName = "/stock.RecurringFundService/ListMy"
+)
+
+// RecurringFundServiceClient is the client API for RecurringFundService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type RecurringFundServiceClient interface {
+	Create(ctx context.Context, in *CreateRecurringFundRequest, opts ...grpc.CallOption) (*RecurringFundResponse, error)
+	Get(ctx context.Context, in *GetRecurringFundRequest, opts ...grpc.CallOption) (*RecurringFundResponse, error)
+	Pause(ctx context.Context, in *GetRecurringFundRequest, opts ...grpc.CallOption) (*RecurringFundResponse, error)
+	Resume(ctx context.Context, in *GetRecurringFundRequest, opts ...grpc.CallOption) (*RecurringFundResponse, error)
+	Cancel(ctx context.Context, in *GetRecurringFundRequest, opts ...grpc.CallOption) (*CancelRecurringFundResponse, error)
+	ListMy(ctx context.Context, in *ListMyRecurringFundsRequest, opts ...grpc.CallOption) (*ListMyRecurringFundsResponse, error)
+}
+
+type recurringFundServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewRecurringFundServiceClient(cc grpc.ClientConnInterface) RecurringFundServiceClient {
+	return &recurringFundServiceClient{cc}
+}
+
+func (c *recurringFundServiceClient) Create(ctx context.Context, in *CreateRecurringFundRequest, opts ...grpc.CallOption) (*RecurringFundResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecurringFundResponse)
+	err := c.cc.Invoke(ctx, RecurringFundService_Create_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringFundServiceClient) Get(ctx context.Context, in *GetRecurringFundRequest, opts ...grpc.CallOption) (*RecurringFundResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecurringFundResponse)
+	err := c.cc.Invoke(ctx, RecurringFundService_Get_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringFundServiceClient) Pause(ctx context.Context, in *GetRecurringFundRequest, opts ...grpc.CallOption) (*RecurringFundResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecurringFundResponse)
+	err := c.cc.Invoke(ctx, RecurringFundService_Pause_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringFundServiceClient) Resume(ctx context.Context, in *GetRecurringFundRequest, opts ...grpc.CallOption) (*RecurringFundResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecurringFundResponse)
+	err := c.cc.Invoke(ctx, RecurringFundService_Resume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringFundServiceClient) Cancel(ctx context.Context, in *GetRecurringFundRequest, opts ...grpc.CallOption) (*CancelRecurringFundResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelRecurringFundResponse)
+	err := c.cc.Invoke(ctx, RecurringFundService_Cancel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringFundServiceClient) ListMy(ctx context.Context, in *ListMyRecurringFundsRequest, opts ...grpc.CallOption) (*ListMyRecurringFundsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMyRecurringFundsResponse)
+	err := c.cc.Invoke(ctx, RecurringFundService_ListMy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RecurringFundServiceServer is the server API for RecurringFundService service.
+// All implementations must embed UnimplementedRecurringFundServiceServer
+// for forward compatibility.
+type RecurringFundServiceServer interface {
+	Create(context.Context, *CreateRecurringFundRequest) (*RecurringFundResponse, error)
+	Get(context.Context, *GetRecurringFundRequest) (*RecurringFundResponse, error)
+	Pause(context.Context, *GetRecurringFundRequest) (*RecurringFundResponse, error)
+	Resume(context.Context, *GetRecurringFundRequest) (*RecurringFundResponse, error)
+	Cancel(context.Context, *GetRecurringFundRequest) (*CancelRecurringFundResponse, error)
+	ListMy(context.Context, *ListMyRecurringFundsRequest) (*ListMyRecurringFundsResponse, error)
+	mustEmbedUnimplementedRecurringFundServiceServer()
+}
+
+// UnimplementedRecurringFundServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedRecurringFundServiceServer struct{}
+
+func (UnimplementedRecurringFundServiceServer) Create(context.Context, *CreateRecurringFundRequest) (*RecurringFundResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Create not implemented")
+}
+func (UnimplementedRecurringFundServiceServer) Get(context.Context, *GetRecurringFundRequest) (*RecurringFundResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Get not implemented")
+}
+func (UnimplementedRecurringFundServiceServer) Pause(context.Context, *GetRecurringFundRequest) (*RecurringFundResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Pause not implemented")
+}
+func (UnimplementedRecurringFundServiceServer) Resume(context.Context, *GetRecurringFundRequest) (*RecurringFundResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Resume not implemented")
+}
+func (UnimplementedRecurringFundServiceServer) Cancel(context.Context, *GetRecurringFundRequest) (*CancelRecurringFundResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Cancel not implemented")
+}
+func (UnimplementedRecurringFundServiceServer) ListMy(context.Context, *ListMyRecurringFundsRequest) (*ListMyRecurringFundsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMy not implemented")
+}
+func (UnimplementedRecurringFundServiceServer) mustEmbedUnimplementedRecurringFundServiceServer() {}
+func (UnimplementedRecurringFundServiceServer) testEmbeddedByValue()                              {}
+
+// UnsafeRecurringFundServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to RecurringFundServiceServer will
+// result in compilation errors.
+type UnsafeRecurringFundServiceServer interface {
+	mustEmbedUnimplementedRecurringFundServiceServer()
+}
+
+func RegisterRecurringFundServiceServer(s grpc.ServiceRegistrar, srv RecurringFundServiceServer) {
+	// If the following call panics, it indicates UnimplementedRecurringFundServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&RecurringFundService_ServiceDesc, srv)
+}
+
+func _RecurringFundService_Create_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateRecurringFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringFundServiceServer).Create(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringFundService_Create_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringFundServiceServer).Create(ctx, req.(*CreateRecurringFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringFundService_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecurringFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringFundServiceServer).Get(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringFundService_Get_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringFundServiceServer).Get(ctx, req.(*GetRecurringFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringFundService_Pause_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecurringFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringFundServiceServer).Pause(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringFundService_Pause_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringFundServiceServer).Pause(ctx, req.(*GetRecurringFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringFundService_Resume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecurringFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringFundServiceServer).Resume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringFundService_Resume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringFundServiceServer).Resume(ctx, req.(*GetRecurringFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringFundService_Cancel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecurringFundRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringFundServiceServer).Cancel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringFundService_Cancel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringFundServiceServer).Cancel(ctx, req.(*GetRecurringFundRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringFundService_ListMy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyRecurringFundsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringFundServiceServer).ListMy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringFundService_ListMy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringFundServiceServer).ListMy(ctx, req.(*ListMyRecurringFundsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// RecurringFundService_ServiceDesc is the grpc.ServiceDesc for RecurringFundService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var RecurringFundService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.RecurringFundService",
+	HandlerType: (*RecurringFundServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Create",
+			Handler:    _RecurringFundService_Create_Handler,
+		},
+		{
+			MethodName: "Get",
+			Handler:    _RecurringFundService_Get_Handler,
+		},
+		{
+			MethodName: "Pause",
+			Handler:    _RecurringFundService_Pause_Handler,
+		},
+		{
+			MethodName: "Resume",
+			Handler:    _RecurringFundService_Resume_Handler,
+		},
+		{
+			MethodName: "Cancel",
+			Handler:    _RecurringFundService_Cancel_Handler,
+		},
+		{
+			MethodName: "ListMy",
+			Handler:    _RecurringFundService_ListMy_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}
+
+const (
 	RecurringOrderService_CreateOrder_FullMethodName = "/stock.RecurringOrderService/CreateOrder"
 	RecurringOrderService_GetOrder_FullMethodName    = "/stock.RecurringOrderService/GetOrder"
 	RecurringOrderService_PauseOrder_FullMethodName  = "/stock.RecurringOrderService/PauseOrder"
