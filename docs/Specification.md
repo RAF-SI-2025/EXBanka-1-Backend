@@ -1467,6 +1467,20 @@ These routes are reached by other banks in the SI-TX cohort, not by employees or
 
 > **New feature entities:** Investment-fund entities are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC option entities (`OTCOffer`, `OTCOfferRevision`, `OptionContract`, `OTCOfferReadReceipt`) are in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank OTC additions (`InterBankSagaLog`; `OTCOffer.Public/Private`; `OptionContract.CrossbankTxID/CrossbankExerciseTxID`; `HoldingReservation.OTCContractID`) are in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation). The `Order` model gained a `FundID *uint64` column for on-behalf-of-fund order placement.
 
+**InvestmentFund extension** (Celina 4 / closed-end funds) — `investment_funds` table gains:
+
+| Field | Type | Notes |
+|---|---|---|
+| `FundType` | `varchar(16)` | `open` (default) or `closed` |
+| `FundraisingStart` | `*time.Time` | closed-only |
+| `FundraisingEnd` | `*time.Time` | closed-only |
+| `MaturityDate` | `*time.Time` | closed-only |
+| `TargetAmountRSD` | `numeric(20,4)` | closed-only; positive |
+| `FundStatus` | `varchar(16)` | open / fundraising / active / matured / liquidated |
+| `MaturityGraceEnd` | `*time.Time` | computed = MaturityDate + 7d when transitioning to matured |
+
+Closed-end invariants enforced in `model.InvestmentFund.BeforeSave`. `FundService.Invest` rejects closed funds outside `fundraising` status; `FundService.Redeem` rejects closed funds outside `open` status. `FundLifecycleCron` walks closed funds every 15 min and transitions `fundraising → active → matured → liquidated` per the calendar, firing `FUND_FUNDRAISING_STARTED/CLOSED/MATURED/LIQUIDATED` in-app notifications to the fund manager. Auto-liquidation money movement (sell remaining holdings + pro-rata distribution) is deferred to a follow-up.
+
 **WatchlistItem** (Celina 3 — `watchlist_items` table in stock-service `stock_db`) — per-owner tracked-listing list
 
 | Field | Type | Notes |

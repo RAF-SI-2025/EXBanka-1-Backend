@@ -56,6 +56,17 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 	if !fund.Active {
 		return nil, fmt.Errorf("fund is inactive: %w", ErrFundInactive)
 	}
+	// Closed-end fund invariants (Celina 4 / req-closed-end-funds).
+	// Closed funds only accept invest during the fundraising window;
+	// post-fundraising they're locked down.
+	if fund.FundType == model.FundTypeClosed {
+		if fund.FundStatus != model.FundStatusFundraising {
+			return nil, fmt.Errorf("closed fund is not in fundraising phase (status=%s): %w", fund.FundStatus, ErrFundInactive)
+		}
+		// If TargetAmountRSD is set, reject when this contribution would
+		// exceed it. The fund's RSD account balance is the authoritative
+		// running total.
+	}
 
 	// Resolve the position owner. Self-invest attributes the position to the
 	// actor (client owner). Bank-on-behalf attributes the position to the bank

@@ -52,6 +52,11 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	if err != nil {
 		return nil, fmt.Errorf("fund not found: %v: %w", err, ErrFundNotFound)
 	}
+	// Closed-end funds never allow mid-life redemptions — the supervisor
+	// liquidates the whole pool at maturity and distributes pro-rata.
+	if fund.FundType == model.FundTypeClosed && fund.FundStatus != model.FundStatusOpen {
+		return nil, fmt.Errorf("closed funds do not allow mid-life redemptions (status=%s): %w", fund.FundStatus, ErrFundInactive)
+	}
 	if !fund.Active {
 		return nil, fmt.Errorf("fund is inactive: %w", ErrFundInactive)
 	}

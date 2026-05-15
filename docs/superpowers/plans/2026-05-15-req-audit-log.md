@@ -1,5 +1,16 @@
 # Plan — System Audit Log (Celina 3)
 
+> **Status (2026-05-15):** DEFERRED. Closing the audit-log gap requires
+> changelog-emit additions across `user-service` (employee-limit edits +
+> used-limit resets), `stock-service` (new `changelogs` table + order
+> approve/reject + manual tax-run emits), and a gateway aggregator
+> fan-out endpoint. The other Celina-3/4 features (watchlist, price
+> alerts, recurring orders, OTC ratings, OTC history, SI-TX status,
+> closed-end funds, recurring fund investments) ship first; this plan
+> stays as the durable design doc and will land in a follow-up.
+
+
+
 **Parent spec:** `docs/superpowers/specs/2026-05-15-requirements-gap-analysis-design.md`
 **Scope:** Close the audit-log gaps relative to the requirements. Per-entity `changelogs` already exist in `accounts`, `cards`, `clients`, `loans`, `employees`. This plan adds:
 

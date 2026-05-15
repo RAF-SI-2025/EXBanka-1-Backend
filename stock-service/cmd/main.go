@@ -712,6 +712,10 @@ func main() {
 			recurringOrderSvc := service.NewRecurringOrderService(recurringOrderRepo, listingRepo, nil, producer)
 			pb.RegisterRecurringOrderServiceServer(s, handler.NewRecurringOrderHandler(recurringOrderSvc))
 			go service.NewRecurringOrderCron(recurringOrderSvc, time.Hour).Run(ctx)
+
+			// Closed-end fund lifecycle: walk closed funds and transition
+			// their FundStatus per the calendar (15 min tick).
+			go service.NewFundLifecycleCron(db, producer, 15*time.Minute).Run(ctx)
 			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 				switch name {
 				case "external":
