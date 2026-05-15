@@ -7,9 +7,9 @@ import (
 
 func TestGeneralNotificationMessage_DataRoundTrip(t *testing.T) {
 	msg := GeneralNotificationMessage{
-		UserID: 42,
-		Type:   "ORDER_FILLED",
-		Data:   map[string]string{"ticker": "AAPL", "quantity": "10", "direction": "buy"},
+		UserID:  42,
+		Type:    "ORDER_FILLED",
+		Data:    map[string]string{"ticker": "AAPL", "quantity": "10", "direction": "buy"},
 		RefType: "order",
 		RefID:   7,
 	}

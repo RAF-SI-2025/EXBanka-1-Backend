@@ -131,16 +131,16 @@ func (h *RecurringOrderHandler) ListMy(ctx context.Context, in *pb.ListMyRecurri
 
 func recurringOrderToProto(r *model.RecurringOrder) *pb.RecurringOrderResponse {
 	out := &pb.RecurringOrderResponse{
-		Id:             r.ID,
-		ListingId:      r.ListingID,
-		Side:           r.Side,
-		Quantity:       r.Quantity,
-		AccountId:      r.AccountID,
-		Interval:       string(r.Interval),
-		Status:         r.Status,
-		StartDateUnix:  r.StartDate.Unix(),
-		NextRunUnix:    r.NextRun.Unix(),
-		CreatedAtUnix:  r.CreatedAt.Unix(),
+		Id:            r.ID,
+		ListingId:     r.ListingID,
+		Side:          r.Side,
+		Quantity:      r.Quantity,
+		AccountId:     r.AccountID,
+		Interval:      string(r.Interval),
+		Status:        r.Status,
+		StartDateUnix: r.StartDate.Unix(),
+		NextRunUnix:   r.NextRun.Unix(),
+		CreatedAtUnix: r.CreatedAt.Unix(),
 	}
 	if r.DayOfWeek != nil {
 		out.DayOfWeek = int32(*r.DayOfWeek)

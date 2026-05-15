@@ -28,35 +28,35 @@ import (
 // Deps groups every gRPC client the gateway depends on. It tidies the
 // signature of NewHandlers and keeps cmd/main.go a flat assignment block.
 type Deps struct {
-	AuthClient          authpb.AuthServiceClient
-	UserClient          userpb.UserServiceClient
-	ClientClient        clientpb.ClientServiceClient
-	AccountClient       accountpb.AccountServiceClient
-	CardClient          cardpb.CardServiceClient
-	TxClient            transactionpb.TransactionServiceClient
-	CreditClient        creditpb.CreditServiceClient
-	EmpLimitClient      userpb.EmployeeLimitServiceClient
-	ClientLimitClient   clientpb.ClientLimitServiceClient
-	VirtualCardClient   cardpb.VirtualCardServiceClient
-	BankAccountClient   accountpb.BankAccountServiceClient
-	FeeClient           transactionpb.FeeServiceClient
-	CardRequestClient   cardpb.CardRequestServiceClient
-	ExchangeClient      exchangepb.ExchangeServiceClient
-	StockExchangeClient stockpb.StockExchangeGRPCServiceClient
-	SecurityClient      stockpb.SecurityGRPCServiceClient
-	OrderClient         stockpb.OrderGRPCServiceClient
-	PortfolioClient     stockpb.PortfolioGRPCServiceClient
-	OTCClient           stockpb.OTCGRPCServiceClient
-	TaxClient           stockpb.TaxGRPCServiceClient
-	ActuaryClient       userpb.ActuaryServiceClient
-	BlueprintClient     userpb.BlueprintServiceClient
-	VerificationClient  verificationpb.VerificationGRPCServiceClient
-	NotificationClient  notificationpb.NotificationServiceClient
-	SourceAdminClient   stockpb.SourceAdminServiceClient
-	FundClient          stockpb.InvestmentFundServiceClient
-	OTCOptionsClient    stockpb.OTCOptionsServiceClient
-	WatchlistClient     stockpb.WatchlistServiceClient
-	PriceAlertClient    stockpb.PriceAlertServiceClient
+	AuthClient           authpb.AuthServiceClient
+	UserClient           userpb.UserServiceClient
+	ClientClient         clientpb.ClientServiceClient
+	AccountClient        accountpb.AccountServiceClient
+	CardClient           cardpb.CardServiceClient
+	TxClient             transactionpb.TransactionServiceClient
+	CreditClient         creditpb.CreditServiceClient
+	EmpLimitClient       userpb.EmployeeLimitServiceClient
+	ClientLimitClient    clientpb.ClientLimitServiceClient
+	VirtualCardClient    cardpb.VirtualCardServiceClient
+	BankAccountClient    accountpb.BankAccountServiceClient
+	FeeClient            transactionpb.FeeServiceClient
+	CardRequestClient    cardpb.CardRequestServiceClient
+	ExchangeClient       exchangepb.ExchangeServiceClient
+	StockExchangeClient  stockpb.StockExchangeGRPCServiceClient
+	SecurityClient       stockpb.SecurityGRPCServiceClient
+	OrderClient          stockpb.OrderGRPCServiceClient
+	PortfolioClient      stockpb.PortfolioGRPCServiceClient
+	OTCClient            stockpb.OTCGRPCServiceClient
+	TaxClient            stockpb.TaxGRPCServiceClient
+	ActuaryClient        userpb.ActuaryServiceClient
+	BlueprintClient      userpb.BlueprintServiceClient
+	VerificationClient   verificationpb.VerificationGRPCServiceClient
+	NotificationClient   notificationpb.NotificationServiceClient
+	SourceAdminClient    stockpb.SourceAdminServiceClient
+	FundClient           stockpb.InvestmentFundServiceClient
+	OTCOptionsClient     stockpb.OTCOptionsServiceClient
+	WatchlistClient      stockpb.WatchlistServiceClient
+	PriceAlertClient     stockpb.PriceAlertServiceClient
 	RecurringOrderClient stockpb.RecurringOrderServiceClient
 	RecurringFundClient  stockpb.RecurringFundServiceClient
 

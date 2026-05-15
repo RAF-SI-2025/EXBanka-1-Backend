@@ -15,10 +15,10 @@ import (
 // FundStatus based on the calendar. Pure state-machine — no money
 // movement yet (auto-liquidation is the follow-up wire-up). Transitions:
 //
-//   fundraising → active   when now > fundraising_end
-//   active      → matured  when now > maturity_date (sets MaturityGraceEnd = +7d)
-//   matured     → liquidated when now > maturity_grace_end (placeholder: real
-//                            distribution requires Sell-Market + pro-rata payout)
+//	fundraising → active   when now > fundraising_end
+//	active      → matured  when now > maturity_date (sets MaturityGraceEnd = +7d)
+//	matured     → liquidated when now > maturity_grace_end (placeholder: real
+//	                         distribution requires Sell-Market + pro-rata payout)
 //
 // Each transition fires a general notification to the fund manager.
 type FundLifecycleCron struct {
@@ -75,11 +75,6 @@ func (c *FundLifecycleCron) advance(ctx context.Context, f *model.InvestmentFund
 			f.FundStatus = model.FundStatusActive
 			c.notify(ctx, f, "FUND_FUNDRAISING_CLOSED")
 			return true
-		}
-		// Allow late entry into fundraising: scheduled creation may pre-date
-		// the start, in which case we transition open → fundraising at start.
-		if f.FundraisingStart != nil && now.After(*f.FundraisingStart) {
-			// already fundraising — no-op
 		}
 	case model.FundStatusOpen:
 		// Closed funds shouldn't sit in "open"; clamp them to fundraising

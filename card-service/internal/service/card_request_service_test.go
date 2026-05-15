@@ -305,4 +305,3 @@ func TestCardRequestService_Notify_NilNotifier_NoPanic(t *testing.T) {
 	// Should not panic and should be a no-op.
 	svc.notifyRequest(context.Background(), req, "CARD_REQUEST_CREATED", map[string]string{"card_brand": req.CardBrand})
 }
-

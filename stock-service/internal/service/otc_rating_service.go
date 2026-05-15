@@ -24,10 +24,10 @@ func NewOTCRatingService(ratings *repository.OTCTraderRatingRepository, offers *
 }
 
 var (
-	ErrRatingOfferNotFound = svcerr.New(codes.NotFound, "otc offer not found")
-	ErrRatingNotAccepted   = svcerr.New(codes.FailedPrecondition, "can only rate ACCEPTED offers")
+	ErrRatingOfferNotFound  = svcerr.New(codes.NotFound, "otc offer not found")
+	ErrRatingNotAccepted    = svcerr.New(codes.FailedPrecondition, "can only rate ACCEPTED offers")
 	ErrRatingNotParticipant = svcerr.New(codes.PermissionDenied, "rater must be a party to the offer")
-	ErrRatingAlreadyExists = svcerr.New(codes.AlreadyExists, "rating already submitted for this offer")
+	ErrRatingAlreadyExists  = svcerr.New(codes.AlreadyExists, "rating already submitted for this offer")
 )
 
 // SubmitInput captures the caller-supplied fields for a new rating.

@@ -256,10 +256,10 @@ func (h *OTCOptionsHandler) CounterOffer(c *gin.Context) {
 	}
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	resp, err := h.client.CounterOffer(c.Request.Context(), &stockpb.CounterOTCOfferRequest{
-		OfferId:            id,
-		ActorUserId:        int64(ownerToLegacyUserID(identity.OwnerID)),
-		ActorSystemType:    ownerToLegacySystemType(identity.OwnerType),
-		Quantity:           req.Quantity, StrikePrice: req.StrikePrice, Premium: req.Premium,
+		OfferId:         id,
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+		Quantity:        req.Quantity, StrikePrice: req.StrikePrice, Premium: req.Premium,
 		SettlementDate:     req.SettlementDate,
 		OnBehalfOfClientId: req.OnBehalfOfClientID,
 	})

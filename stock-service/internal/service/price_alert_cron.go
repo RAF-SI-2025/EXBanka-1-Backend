@@ -46,8 +46,6 @@ func (c *PriceAlertCron) tick(ctx context.Context) {
 	// Group active alerts by listing_id so we evaluate each listing once.
 	// O(n) over all active alerts; with small N this is cheaper than per-
 	// alert listing fetches.
-	listings := make(map[uint64]struct{})
-	allAlerts := []model.PriceAlert{}
 	// Use the repo via ListByOwner with each known owner type is wasteful.
 	// Cheaper: scan distinct listing_ids directly.
 	var rows []model.PriceAlert
@@ -55,8 +53,8 @@ func (c *PriceAlertCron) tick(ctx context.Context) {
 		log.Printf("WARN: price-alert cron list failed: %v", err)
 		return
 	}
-	allAlerts = rows
-	for _, a := range allAlerts {
+	listings := make(map[uint64]struct{}, len(rows))
+	for _, a := range rows {
 		listings[a.ListingID] = struct{}{}
 	}
 	for lid := range listings {

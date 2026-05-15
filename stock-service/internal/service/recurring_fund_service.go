@@ -45,10 +45,10 @@ func NewRecurringFundService(
 }
 
 var (
-	ErrRecurringFundFundNotFound      = svcerr.New(codes.NotFound, "fund not found")
-	ErrRecurringFundFundNotEligible   = svcerr.New(codes.FailedPrecondition, "fund is not eligible for recurring investments")
-	ErrRecurringFundNotFound          = svcerr.New(codes.NotFound, "recurring fund investment not found")
-	ErrRecurringFundBelowMinimum      = svcerr.New(codes.FailedPrecondition, "amount below fund minimum")
+	ErrRecurringFundFundNotFound    = svcerr.New(codes.NotFound, "fund not found")
+	ErrRecurringFundFundNotEligible = svcerr.New(codes.FailedPrecondition, "fund is not eligible for recurring investments")
+	ErrRecurringFundNotFound        = svcerr.New(codes.NotFound, "recurring fund investment not found")
+	ErrRecurringFundBelowMinimum    = svcerr.New(codes.FailedPrecondition, "amount below fund minimum")
 )
 
 func (s *RecurringFundService) Create(row *model.RecurringFundInvestment) error {
@@ -92,8 +92,12 @@ func (s *RecurringFundService) Get(id, clientID uint64) (*model.RecurringFundInv
 	return row, nil
 }
 
-func (s *RecurringFundService) Pause(id, clientID uint64) error  { return s.setActive(id, clientID, false) }
-func (s *RecurringFundService) Resume(id, clientID uint64) error { return s.setActive(id, clientID, true) }
+func (s *RecurringFundService) Pause(id, clientID uint64) error {
+	return s.setActive(id, clientID, false)
+}
+func (s *RecurringFundService) Resume(id, clientID uint64) error {
+	return s.setActive(id, clientID, true)
+}
 
 func (s *RecurringFundService) setActive(id, clientID uint64, active bool) error {
 	row, err := s.Get(id, clientID)
@@ -162,8 +166,8 @@ func (s *RecurringFundService) runOne(ctx context.Context, row *model.RecurringF
 		}
 	}
 	data := map[string]string{
-		"fund_id":     kafkaUint(row.FundID),
-		"amount_rsd":  row.AmountRSD.StringFixed(4),
+		"fund_id":    kafkaUint(row.FundID),
+		"amount_rsd": row.AmountRSD.StringFixed(4),
 	}
 	if reason != "" {
 		data["reason"] = reason

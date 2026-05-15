@@ -13,8 +13,8 @@ import (
 type PriceAlertCondition string
 
 const (
-	PriceAlertConditionGTE             PriceAlertCondition = "gte"
-	PriceAlertConditionLTE             PriceAlertCondition = "lte"
+	PriceAlertConditionGTE               PriceAlertCondition = "gte"
+	PriceAlertConditionLTE               PriceAlertCondition = "lte"
 	PriceAlertConditionDailyChangePctGTE PriceAlertCondition = "daily_change_pct_gte"
 	PriceAlertConditionDailyChangePctLTE PriceAlertCondition = "daily_change_pct_lte"
 )

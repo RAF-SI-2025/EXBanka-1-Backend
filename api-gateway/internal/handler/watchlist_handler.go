@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	stockpb "github.com/exbanka/contract/stockpb"
 	"github.com/exbanka/api-gateway/internal/middleware"
+	stockpb "github.com/exbanka/contract/stockpb"
 )
 
 // WatchlistHandler exposes the WatchlistService via /api/v3/me/watchlist.

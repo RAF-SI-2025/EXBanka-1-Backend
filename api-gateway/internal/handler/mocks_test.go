@@ -1033,21 +1033,21 @@ func (s *stubVerificationClient) VerifyByBiometric(_ context.Context, in *verifi
 // ---------------------------------------------------------------------------
 
 type stubTransactionClient struct {
-	createPaymentFn   func(*transactionpb.CreatePaymentRequest) (*transactionpb.PaymentResponse, error)
-	executePaymentFn  func(*transactionpb.ExecutePaymentRequest) (*transactionpb.PaymentResponse, error)
-	getPaymentFn      func(*transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error)
-	listPmtByAcctFn   func(*transactionpb.ListPaymentsByAccountRequest) (*transactionpb.ListPaymentsResponse, error)
-	listPmtByClientFn func(*transactionpb.ListPaymentsByClientRequest) (*transactionpb.ListPaymentsResponse, error)
-	createTransferFn  func(*transactionpb.CreateTransferRequest) (*transactionpb.TransferResponse, error)
-	executeTransferFn func(*transactionpb.ExecuteTransferRequest) (*transactionpb.TransferResponse, error)
+	createPaymentFn     func(*transactionpb.CreatePaymentRequest) (*transactionpb.PaymentResponse, error)
+	executePaymentFn    func(*transactionpb.ExecutePaymentRequest) (*transactionpb.PaymentResponse, error)
+	getPaymentFn        func(*transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error)
+	listPmtByAcctFn     func(*transactionpb.ListPaymentsByAccountRequest) (*transactionpb.ListPaymentsResponse, error)
+	listPmtByClientFn   func(*transactionpb.ListPaymentsByClientRequest) (*transactionpb.ListPaymentsResponse, error)
+	createTransferFn    func(*transactionpb.CreateTransferRequest) (*transactionpb.TransferResponse, error)
+	executeTransferFn   func(*transactionpb.ExecuteTransferRequest) (*transactionpb.TransferResponse, error)
 	getTransferFn       func(*transactionpb.GetTransferRequest) (*transactionpb.TransferResponse, error)
 	getTransferStatusFn func(*transactionpb.GetTransferRequest) (*transactionpb.TransferStatusResponse, error)
-	listTransfersFn   func(*transactionpb.ListTransfersByClientRequest) (*transactionpb.ListTransfersResponse, error)
-	createRecipFn     func(*transactionpb.CreatePaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
-	getRecipFn        func(*transactionpb.GetPaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
-	listRecipsFn      func(*transactionpb.ListPaymentRecipientsRequest) (*transactionpb.ListPaymentRecipientsResponse, error)
-	updateRecipFn     func(*transactionpb.UpdatePaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
-	deleteRecipFn     func(*transactionpb.DeletePaymentRecipientRequest) (*transactionpb.DeletePaymentRecipientResponse, error)
+	listTransfersFn     func(*transactionpb.ListTransfersByClientRequest) (*transactionpb.ListTransfersResponse, error)
+	createRecipFn       func(*transactionpb.CreatePaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
+	getRecipFn          func(*transactionpb.GetPaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
+	listRecipsFn        func(*transactionpb.ListPaymentRecipientsRequest) (*transactionpb.ListPaymentRecipientsResponse, error)
+	updateRecipFn       func(*transactionpb.UpdatePaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
+	deleteRecipFn       func(*transactionpb.DeletePaymentRecipientRequest) (*transactionpb.DeletePaymentRecipientResponse, error)
 }
 
 func (s *stubTransactionClient) CreatePayment(_ context.Context, in *transactionpb.CreatePaymentRequest, _ ...grpc.CallOption) (*transactionpb.PaymentResponse, error) {

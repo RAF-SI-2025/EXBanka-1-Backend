@@ -28,24 +28,24 @@ const (
 // Market orders on each tick. Only the template is editable; materialised
 // orders are independent Order rows with their own status.
 type RecurringOrder struct {
-	ID          uint64             `gorm:"primaryKey;autoIncrement" json:"id"`
-	OwnerType   OwnerType          `gorm:"type:varchar(16);not null;index:idx_recur_owner,priority:1" json:"owner_type"`
-	OwnerID     *uint64            `gorm:"index:idx_recur_owner,priority:2" json:"owner_id,omitempty"`
-	ListingID   uint64             `gorm:"not null;index" json:"listing_id"`
-	Side        string             `gorm:"type:varchar(8);not null" json:"side"` // buy | sell
-	Quantity    int64              `gorm:"not null" json:"quantity"`
-	AccountID   uint64             `gorm:"not null" json:"account_id"`
-	Interval    RecurrenceInterval `gorm:"type:varchar(16);not null" json:"interval"`
-	DayOfMonth  *int               `json:"day_of_month,omitempty"`
-	DayOfWeek   *int               `json:"day_of_week,omitempty"`
-	StartDate   time.Time          `gorm:"not null" json:"start_date"`
-	EndDate     *time.Time         `json:"end_date,omitempty"`
-	Status      string             `gorm:"type:varchar(16);not null;default:'active';index" json:"status"`
-	LastRun     *time.Time         `json:"last_run,omitempty"`
-	NextRun     time.Time          `gorm:"not null;index" json:"next_run"`
-	CreatedAt   time.Time          `json:"created_at"`
-	UpdatedAt   time.Time          `json:"updated_at"`
-	Version     int64              `gorm:"not null;default:0" json:"-"`
+	ID         uint64             `gorm:"primaryKey;autoIncrement" json:"id"`
+	OwnerType  OwnerType          `gorm:"type:varchar(16);not null;index:idx_recur_owner,priority:1" json:"owner_type"`
+	OwnerID    *uint64            `gorm:"index:idx_recur_owner,priority:2" json:"owner_id,omitempty"`
+	ListingID  uint64             `gorm:"not null;index" json:"listing_id"`
+	Side       string             `gorm:"type:varchar(8);not null" json:"side"` // buy | sell
+	Quantity   int64              `gorm:"not null" json:"quantity"`
+	AccountID  uint64             `gorm:"not null" json:"account_id"`
+	Interval   RecurrenceInterval `gorm:"type:varchar(16);not null" json:"interval"`
+	DayOfMonth *int               `json:"day_of_month,omitempty"`
+	DayOfWeek  *int               `json:"day_of_week,omitempty"`
+	StartDate  time.Time          `gorm:"not null" json:"start_date"`
+	EndDate    *time.Time         `json:"end_date,omitempty"`
+	Status     string             `gorm:"type:varchar(16);not null;default:'active';index" json:"status"`
+	LastRun    *time.Time         `json:"last_run,omitempty"`
+	NextRun    time.Time          `gorm:"not null;index" json:"next_run"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
+	Version    int64              `gorm:"not null;default:0" json:"-"`
 }
 
 func (r *RecurringOrder) BeforeSave(*gorm.DB) error {

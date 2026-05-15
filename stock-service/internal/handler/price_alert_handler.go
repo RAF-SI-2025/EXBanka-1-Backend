@@ -127,15 +127,15 @@ func alertToProto(a *model.PriceAlert) *pb.PriceAlertResponse {
 		lastTriggered = a.LastTriggered.Unix()
 	}
 	return &pb.PriceAlertResponse{
-		Id:                 a.ID,
-		ListingId:          a.ListingID,
-		Condition:          string(a.Condition),
-		Threshold:          a.Threshold.String(),
-		IsRecurring:        a.IsRecurring,
-		CooldownSeconds:    int32(a.Cooldown),
-		EmailToo:           a.EmailToo,
-		Active:             a.Active,
-		LastTriggeredUnix:  lastTriggered,
-		CreatedAtUnix:      a.CreatedAt.Unix(),
+		Id:                a.ID,
+		ListingId:         a.ListingID,
+		Condition:         string(a.Condition),
+		Threshold:         a.Threshold.String(),
+		IsRecurring:       a.IsRecurring,
+		CooldownSeconds:   int32(a.Cooldown),
+		EmailToo:          a.EmailToo,
+		Active:            a.Active,
+		LastTriggeredUnix: lastTriggered,
+		CreatedAtUnix:     a.CreatedAt.Unix(),
 	}
 }
