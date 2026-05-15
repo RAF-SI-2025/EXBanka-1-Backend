@@ -1986,13 +1986,19 @@ Published to `notification.general` by various services. notification-service co
 | `TRANSFER_SENT` | transaction-service | Transfer completed (sender side) |
 | `TRANSFER_RECEIVED` | transaction-service | Transfer completed (receiver side) |
 | `TRANSFER_FAILED` | transaction-service | Transfer failed (sender side) |
-| `loan_approved` | credit-service | Loan request approved |
-| `loan_rejected` | credit-service | Loan request rejected |
+| `LOAN_REQUEST_SUBMITTED` | credit-service | Loan request submitted by client |
+| `LOAN_REQUEST_APPROVED` | credit-service | Loan request approved |
+| `LOAN_REQUEST_REJECTED` | credit-service | Loan request rejected |
+| `LOAN_DISBURSED` | credit-service | Loan disbursed to borrower account |
+| `INSTALLMENT_COLLECTED` | credit-service | Installment successfully collected (cron) |
+| `INSTALLMENT_FAILED` | credit-service | Installment collection failed (cron) |
 | `password_changed` | auth-service | Password reset completed |
 
 **stock-service in-app notifications (Plan B1):** stock-service emits `GeneralNotificationMessage` intents on `notification.general` for every significant securities/OTC action — order placed/approved/declined/cancelled, order partial-fill and full-fill, OTC offer received/countered/rejected/expired, and OTC contract created/exercised/expired. These are **client-owned only** (bank-owned orders and bank-owned OTC parties emit nothing), **best-effort** (published after the action commits; publish failures are swallowed and never block the action), and rendered by notification-service via the `push`-channel template registry.
 
 **transaction-service in-app notifications (Plan B2):** transaction-service emits `GeneralNotificationMessage` intents on `notification.general` in the **`Data` form** for: `PAYMENT_SENT` and `PAYMENT_RECEIVED` (per side, on payment completion), `PAYMENT_FAILED` (sender, on payment failure), `TRANSFER_SENT` and `TRANSFER_RECEIVED` (per side, on transfer completion), and `TRANSFER_FAILED` (sender, on any failure branch). Sender/receiver are resolved via account-service `GetAccountByNumber`; bank-owned accounts (owner id `0` or `1_000_000_000`) are skipped. Best-effort, published after the status persist. `RefType`/`RefID`: `payment`/payment.ID or `transfer`/transfer.ID.
+
+**credit-service in-app notifications (Plan B3):** credit-service emits `GeneralNotificationMessage` intents on `notification.general` in the **`Data` form** for: `LOAN_REQUEST_SUBMITTED`, `LOAN_REQUEST_APPROVED`, `LOAN_REQUEST_REJECTED`, `LOAN_DISBURSED` (from the gRPC handler), `INSTALLMENT_COLLECTED`, `INSTALLMENT_FAILED` (from the daily installment-collection cron). Recipient is always the loan's borrower (`Loan.ClientID` / `LoanRequest.ClientID`); no bank-side skip. Best-effort, after the action commits.
 
 ### Email Types (SendEmailMessage.EmailType)
 
