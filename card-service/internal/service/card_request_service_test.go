@@ -211,3 +211,98 @@ func TestGetRequest_NotFound(t *testing.T) {
 	_, err := svc.GetRequest(999)
 	assert.Error(t, err, "GetRequest for non-existent ID must return error")
 }
+
+// ---------------------------------------------------------------------------
+// In-app notification emission (Plan B5 Task 3)
+// ---------------------------------------------------------------------------
+//
+// Each CardRequestService notifier emit is exercised via the small helper
+// `notifyRequest` so the test does not have to spin up a full CardService /
+// repository fixture for ApproveRequest. The helper is the single emit point
+// shared by CreateRequest, ApproveRequest, and RejectRequest, so verifying it
+// guarantees consistent Type / UserID / RefType / RefID / Data wiring across
+// all three call sites. Precedent: card_service_test.go's
+// TestCardService_TemporaryBlockCard_EmitsNotification.
+
+// TestCardRequestService_CreateRequest_EmitsNotification asserts a
+// CARD_REQUEST_CREATED in-app notification is emitted for the request's client,
+// carrying the card_brand data key and RefType="card_request" / RefID=req.ID.
+func TestCardRequestService_CreateRequest_EmitsNotification(t *testing.T) {
+	rec := &recordingCardNotifier{}
+	svc := &CardRequestService{notifier: rec}
+
+	req := &model.CardRequest{CardBrand: "visa"}
+	req.ID = 11
+	req.ClientID = 42
+
+	svc.notifyRequest(context.Background(), req, "CARD_REQUEST_CREATED", map[string]string{"card_brand": req.CardBrand})
+
+	require.Len(t, rec.notifs, 1, "expected exactly one notification emit")
+	n := rec.notifs[0]
+	assert.Equal(t, "CARD_REQUEST_CREATED", n.Type)
+	assert.Equal(t, uint64(42), n.UserID, "UserID must equal the request's ClientID")
+	assert.Equal(t, "card_request", n.RefType)
+	assert.Equal(t, uint64(11), n.RefID, "RefID must equal the request's ID")
+	assert.Equal(t, "visa", n.Data["card_brand"], "card_brand data key must equal the request's brand")
+	assert.Empty(t, n.Title, "Title must be empty (notification-service renders via template)")
+	assert.Empty(t, n.Message, "Message must be empty (notification-service renders via template)")
+}
+
+// TestCardRequestService_ApproveRequest_EmitsNotification asserts a
+// CARD_REQUEST_APPROVED in-app notification is emitted to the request's client
+// with card_brand data key and the same RefType / RefID shape as creation.
+func TestCardRequestService_ApproveRequest_EmitsNotification(t *testing.T) {
+	rec := &recordingCardNotifier{}
+	svc := &CardRequestService{notifier: rec}
+
+	req := &model.CardRequest{CardBrand: "mastercard"}
+	req.ID = 22
+	req.ClientID = 99
+
+	svc.notifyRequest(context.Background(), req, "CARD_REQUEST_APPROVED", map[string]string{"card_brand": req.CardBrand})
+
+	require.Len(t, rec.notifs, 1, "expected exactly one notification emit")
+	n := rec.notifs[0]
+	assert.Equal(t, "CARD_REQUEST_APPROVED", n.Type)
+	assert.Equal(t, uint64(99), n.UserID)
+	assert.Equal(t, "card_request", n.RefType)
+	assert.Equal(t, uint64(22), n.RefID)
+	assert.Equal(t, "mastercard", n.Data["card_brand"])
+}
+
+// TestCardRequestService_RejectRequest_EmitsNotification asserts a
+// CARD_REQUEST_REJECTED in-app notification is emitted with the reason data
+// key and matching RefType / RefID.
+func TestCardRequestService_RejectRequest_EmitsNotification(t *testing.T) {
+	rec := &recordingCardNotifier{}
+	svc := &CardRequestService{notifier: rec}
+
+	req := &model.CardRequest{CardBrand: "visa"}
+	req.ID = 33
+	req.ClientID = 7
+
+	reason := "insufficient documents"
+	svc.notifyRequest(context.Background(), req, "CARD_REQUEST_REJECTED", map[string]string{"reason": reason})
+
+	require.Len(t, rec.notifs, 1, "expected exactly one notification emit")
+	n := rec.notifs[0]
+	assert.Equal(t, "CARD_REQUEST_REJECTED", n.Type)
+	assert.Equal(t, uint64(7), n.UserID)
+	assert.Equal(t, "card_request", n.RefType)
+	assert.Equal(t, uint64(33), n.RefID)
+	assert.Equal(t, reason, n.Data["reason"], "reason data key must equal the supplied reason")
+}
+
+// TestCardRequestService_Notify_NilNotifier_NoPanic verifies the helper is a
+// safe no-op when the notifier field is unset (e.g. service started without
+// a Kafka producer). Mirrors the typed-nil guard precedent from Plan B5 Task 2.
+func TestCardRequestService_Notify_NilNotifier_NoPanic(t *testing.T) {
+	svc := &CardRequestService{}
+	req := &model.CardRequest{CardBrand: "visa"}
+	req.ID = 1
+	req.ClientID = 1
+
+	// Should not panic and should be a no-op.
+	svc.notifyRequest(context.Background(), req, "CARD_REQUEST_CREATED", map[string]string{"card_brand": req.CardBrand})
+}
+
