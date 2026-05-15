@@ -85,7 +85,7 @@ func main() {
 	changelogSvc := service.NewChangelogService(changelogRepo)
 	cardRequestSvc := service.NewCardRequestService(cardRequestRepo, cardService, producer)
 	grpcHandler := handler.NewCardGRPCHandler(cardService, producer, clientClient, changelogSvc)
-	virtualCardHandler := handler.NewVirtualCardGRPCHandler(cardService)
+	virtualCardHandler := handler.NewVirtualCardGRPCHandler(cardService, producer)
 	cardRequestHandler := handler.NewCardRequestGRPCHandler(cardRequestSvc)
 
 	cronCtx, cronCancel := context.WithCancel(context.Background())

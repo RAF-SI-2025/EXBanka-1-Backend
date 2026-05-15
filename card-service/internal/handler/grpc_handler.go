@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 
 	"google.golang.org/grpc/codes"
@@ -48,14 +47,15 @@ func (h *CardGRPCHandler) CreateCard(ctx context.Context, req *pb.CreateCardRequ
 		CardBrand:     card.CardBrand,
 	})
 
-	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
-		UserID:  card.OwnerID,
-		Type:    "card_issued",
-		Title:   "New Card Issued",
-		Message: fmt.Sprintf("A new %s card has been issued for account %s.", card.CardBrand, card.AccountNumber),
-		RefType: "card",
-		RefID:   card.ID,
-	})
+	if card.OwnerType == "client" {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  card.OwnerID,
+			Type:    "CARD_CREATED",
+			Data:    map[string]string{"card_brand": card.CardBrand},
+			RefType: "card",
+			RefID:   card.ID,
+		})
+	}
 
 	resp := toCardResponse(card)
 	resp.Cvv = cvv
@@ -115,14 +115,15 @@ func (h *CardGRPCHandler) BlockCard(ctx context.Context, req *pb.BlockCardReques
 		NewStatus:     card.Status,
 	})
 
-	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
-		UserID:  card.OwnerID,
-		Type:    "card_blocked",
-		Title:   "Card Blocked",
-		Message: fmt.Sprintf("Your card ending in %s has been blocked.", maskCardNumber(card.CardNumber)),
-		RefType: "card",
-		RefID:   card.ID,
-	})
+	if card.OwnerType == "client" {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  card.OwnerID,
+			Type:    "CARD_STATUS_CHANGED",
+			Data:    map[string]string{"new_status": card.Status},
+			RefType: "card",
+			RefID:   card.ID,
+		})
+	}
 
 	// Send email notification to card owner
 	if h.clientClient != nil && h.producer != nil {
@@ -164,6 +165,16 @@ func (h *CardGRPCHandler) UnblockCard(ctx context.Context, req *pb.UnblockCardRe
 		NewStatus:     card.Status,
 	})
 
+	if card.OwnerType == "client" {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  card.OwnerID,
+			Type:    "CARD_STATUS_CHANGED",
+			Data:    map[string]string{"new_status": card.Status},
+			RefType: "card",
+			RefID:   card.ID,
+		})
+	}
+
 	// Send email notification to card owner
 	if h.clientClient != nil && h.producer != nil {
 		clientResp, clientErr := h.clientClient.GetClient(ctx, &clientpb.GetClientRequest{Id: card.OwnerID})
@@ -203,6 +214,16 @@ func (h *CardGRPCHandler) DeactivateCard(ctx context.Context, req *pb.Deactivate
 		AccountNumber: card.AccountNumber,
 		NewStatus:     card.Status,
 	})
+
+	if card.OwnerType == "client" {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  card.OwnerID,
+			Type:    "CARD_STATUS_CHANGED",
+			Data:    map[string]string{"new_status": card.Status},
+			RefType: "card",
+			RefID:   card.ID,
+		})
+	}
 
 	// Send email notification to card owner
 	if h.clientClient != nil && h.producer != nil {

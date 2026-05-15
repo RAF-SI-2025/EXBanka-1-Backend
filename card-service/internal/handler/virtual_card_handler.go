@@ -8,18 +8,21 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
+	kafkaprod "github.com/exbanka/card-service/internal/kafka"
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/service"
 	pb "github.com/exbanka/contract/cardpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 type VirtualCardGRPCHandler struct {
 	pb.UnimplementedVirtualCardServiceServer
 	cardService cardServiceFacade
+	producer    producerFacade
 }
 
-func NewVirtualCardGRPCHandler(cardService *service.CardService) *VirtualCardGRPCHandler {
-	return &VirtualCardGRPCHandler{cardService: cardService}
+func NewVirtualCardGRPCHandler(cardService *service.CardService, producer *kafkaprod.Producer) *VirtualCardGRPCHandler {
+	return &VirtualCardGRPCHandler{cardService: cardService, producer: producer}
 }
 
 func (h *VirtualCardGRPCHandler) CreateVirtualCard(ctx context.Context, req *pb.CreateVirtualCardRequest) (*pb.CardResponse, error) {
@@ -27,6 +30,17 @@ func (h *VirtualCardGRPCHandler) CreateVirtualCard(ctx context.Context, req *pb.
 	if err != nil {
 		return nil, err
 	}
+
+	if h.producer != nil && card.OwnerType == "client" {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  card.OwnerID,
+			Type:    "VIRTUAL_CARD_CREATED",
+			Data:    map[string]string{"usage_type": card.UsageType},
+			RefType: "card",
+			RefID:   card.ID,
+		})
+	}
+
 	resp := toCardResponseFull(card)
 	resp.Cvv = cvv
 	return resp, nil

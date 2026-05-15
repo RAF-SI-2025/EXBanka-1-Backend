@@ -90,6 +90,6 @@ func TestNewCardRequestGRPCHandler_Constructs(t *testing.T) {
 }
 
 func TestNewVirtualCardGRPCHandler_Constructs(t *testing.T) {
-	h := NewVirtualCardGRPCHandler(nil)
+	h := NewVirtualCardGRPCHandler(nil, nil)
 	require.NotNil(t, h)
 }
