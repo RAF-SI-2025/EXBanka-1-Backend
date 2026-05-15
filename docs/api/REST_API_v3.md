@@ -6112,11 +6112,130 @@ Initiate a cross-bank OTC negotiation against a peer bank's listing. Buyer-side 
 { "routingNumber": 222, "id": "<uuid>" }
 ```
 
-After creation, both banks have a negotiation row. Either side can counter via `PUT /api/v3/negotiations/{rid}/{id}` (peer-facing, called bank-to-bank), cancel via `DELETE` (soft-cancel — sets `isOngoing=false`), or accept via `GET /api/v3/negotiations/{rid}/{id}/accept` which dispatches the option-formation SI-TX.
+After creation, both banks have a negotiation row. The caller drives subsequent state changes through the client-facing routes below; the gateway translates those into bank-to-bank `/api/v3/negotiations/{rid}/{id}[/...]` calls against the counterparty using the registered peer's X-Api-Key (and optional HMAC) so the client never needs to touch the SI-TX wire shape directly.
+
+`seller_id` accepts either the SI-TX participant form (`client-<n>`) or a bare numeric id; bare numerics are coerced to `client-<n>` server-side because the buyer-initiate flow is overwhelmingly client-to-client. Pass the prefixed `employee-<n>` form explicitly if the seller is an employee acting for the bank.
 
 **Response 400:** Validation error (unknown peer, missing fields, seller_bank_code = own bank).
 **Response 404:** Peer bank not registered.
 **Response 502:** Peer transport failure (network error, timeout).
+
+---
+
+### GET /api/v3/me/peer-otc/negotiations
+
+List the caller's pending peer-OTC negotiations. Returns rows from this bank's `peer_otc_negotiations` where the caller is either the buyer (when this bank hosts the buyer) or the seller (when this bank hosts the seller's listing).
+
+**Authentication:** Any JWT (`AnyAuthMiddleware`)
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `role` | string | both | `buyer` to only show negotiations where the caller is buying, `seller` for selling, `both` (or omitted) for both sides |
+
+**Response 200:**
+```json
+{
+  "items": [
+    {
+      "id":        { "routingNumber": 222, "id": "b3292d8c-934d-4a97-ad65-807bebb2eb8d" },
+      "buyer_id":  { "routingNumber": 222, "id": "client-1" },
+      "seller_id": { "routingNumber": 111, "id": "client-1" },
+      "offer": {
+        "ticker": "BAC",
+        "amount": 2,
+        "price_per_stock": "45",
+        "currency": "USD",
+        "premium": "3",
+        "premium_currency": "USD",
+        "settlement_date": "2026-12-15T00:00:00Z",
+        "last_modified_by": { "routingNumber": 222, "id": "client-1" }
+      },
+      "status": "pending",
+      "role":   "buyer",
+      "updated_at": "2026-05-15T20:48:30Z"
+    }
+  ]
+}
+```
+
+`id` is the foreign id assigned by the bank that originated the negotiation (always `routingNumber` = the originating bank's routing). `role` is the caller's side on this row. Use `{routingNumber, id}` from `id` as the `:rid`/`:id` path parameters on counter / accept / cancel.
+
+**Response 400:** `role` is not one of `buyer`/`seller`/`both`.
+**Response 503:** Peer-OTC client not wired (deployment misconfiguration).
+
+---
+
+### PUT /api/v3/me/peer-otc/negotiations/:rid/:id
+
+Counter-offer on a cross-bank OTC negotiation. The body is the same OtcOffer shape used by the peer-bank-to-peer-bank `PUT /api/v3/negotiations/:rid/:id` (camelCase wire form). The gateway proxies the request to the counterparty's bank using its X-Api-Key (plus optional HMAC bundle), and updates this bank's local mirror row on success so the caller's list reflects the new offer immediately.
+
+**Authentication:** Any JWT (`AnyAuthMiddleware`)
+
+**Path Parameters:**
+- `rid` — routing number of the bank that issued the negotiation id (from the `id.routingNumber` field of the list row)
+- `id` — the foreign negotiation id (from `id.id`)
+
+**Request Body:** SI-TX OtcOffer (camelCase) — same as the peer-facing counter-offer body in Section 39.
+```json
+{
+  "stock":          { "ticker": "BAC" },
+  "amount":         2,
+  "pricePerUnit":   { "amount": "44", "currency": "USD" },
+  "premium":        { "amount": "5",  "currency": "USD" },
+  "settlementDate": "2026-12-15T00:00:00Z",
+  "lastModifiedBy": { "routingNumber": 222, "id": "client-1" }
+}
+```
+
+`lastModifiedBy` is the SI-TX participant that issued the counter; the gateway does not stamp it for you — clients should set it to their own (`routingNumber`, `client-<id>`) tuple.
+
+**Response 200:** The counterparty's response body is passed through verbatim.
+
+**Response 404:** No matching negotiation found for the caller (either the (rid, id) doesn't exist on this bank, or the caller is not a party to it). Returned in both cases so existence isn't leaked.
+**Response 5xx:** Peer transport failure (proxied status code).
+
+---
+
+### POST /api/v3/me/peer-otc/negotiations/:rid/:id/accept
+
+Accept a cross-bank OTC negotiation. The gateway calls the counterparty's `GET /api/v3/negotiations/:rid/:id/accept`, which begins the option-formation SI-TX (a 4-posting NEW_TX that moves the premium buyer→seller and creates the contract row on both banks). Either side can call this — the gateway looks up the caller's role on this row and dispatches against the correct counterparty bank.
+
+**Authentication:** Any JWT (`AnyAuthMiddleware`)
+
+**Path Parameters:**
+- `rid` — routing number of the bank that issued the negotiation id
+- `id` — foreign negotiation id
+
+**Request Body:** none.
+
+**Response 200:** The counterparty's accept response, passed through verbatim.
+```json
+{ "transactionId": "2be269fa-1e77-4942-8e19-39a1c519a182", "status": "pending" }
+```
+
+After COMMIT_TX of the option-formation SI-TX, both banks have a `peer_option_contracts` row with `status=active`; query `GET /api/v3/me/otc/contracts` to see it.
+
+**Response 404:** Negotiation not found for the caller.
+**Response 5xx:** Peer transport failure (proxied status code).
+
+---
+
+### DELETE /api/v3/me/peer-otc/negotiations/:rid/:id
+
+Cancel a cross-bank OTC negotiation. The gateway calls the counterparty's `DELETE /api/v3/negotiations/:rid/:id`, which soft-cancels the row (flips `isOngoing` to false; the row is preserved per SI-TX §3.5). The local mirror is also flipped to `status=cancelled` on success so the caller's list reflects the new state immediately.
+
+**Authentication:** Any JWT (`AnyAuthMiddleware`)
+
+**Path Parameters:**
+- `rid` — routing number of the bank that issued the negotiation id
+- `id` — foreign negotiation id
+
+**Response 204:** Cancellation accepted by the counterparty; both rows are now `status=cancelled`.
+
+**Response 404:** Negotiation not found for the caller.
+**Response 5xx:** Peer transport failure (proxied status code).
 
 ---
 
