@@ -1477,6 +1477,78 @@ message CheckSellerCanDeliverResponse {
   int64 available_quantity = 2;
 }
 
+// ---- PriceAlertService --------------------------------------------------
+// Per-owner reactive alerts on a listing's latest price or daily change %.
+// Single-shot alerts auto-deactivate on first match; recurring alerts
+// respect a cooldown between consecutive fires.
+
+service PriceAlertService {
+  rpc CreateAlert(CreatePriceAlertRequest) returns (PriceAlertResponse);
+  rpc UpdateAlert(UpdatePriceAlertRequest) returns (PriceAlertResponse);
+  rpc GetAlert(GetPriceAlertRequest)       returns (PriceAlertResponse);
+  rpc DeleteAlert(DeletePriceAlertRequest) returns (DeletePriceAlertResponse);
+  rpc ListMy(ListMyPriceAlertsRequest)     returns (ListMyPriceAlertsResponse);
+}
+
+message CreatePriceAlertRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  uint64 listing_id = 3;
+  string condition  = 4; // gte | lte | daily_change_pct_gte | daily_change_pct_lte
+  string threshold  = 5; // decimal string
+  bool   is_recurring   = 6;
+  int32  cooldown_seconds = 7; // 60..86400 when is_recurring
+  bool   email_too        = 8;
+}
+
+message UpdatePriceAlertRequest {
+  uint64 id = 1;
+  string owner_type = 2;
+  uint64 owner_id   = 3;
+  string condition  = 4;
+  string threshold  = 5;
+  bool   is_recurring     = 6;
+  int32  cooldown_seconds = 7;
+  bool   email_too        = 8;
+  bool   active           = 9;
+}
+
+message GetPriceAlertRequest {
+  uint64 id = 1;
+  string owner_type = 2;
+  uint64 owner_id   = 3;
+}
+
+message DeletePriceAlertRequest {
+  uint64 id = 1;
+  string owner_type = 2;
+  uint64 owner_id   = 3;
+}
+
+message DeletePriceAlertResponse { bool deleted = 1; }
+
+message ListMyPriceAlertsRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+}
+
+message PriceAlertResponse {
+  uint64 id = 1;
+  uint64 listing_id = 2;
+  string condition  = 3;
+  string threshold  = 4;
+  bool   is_recurring   = 5;
+  int32  cooldown_seconds = 6;
+  bool   email_too        = 7;
+  bool   active           = 8;
+  int64  last_triggered_unix = 9; // 0 = never
+  int64  created_at_unix      = 10;
+}
+
+message ListMyPriceAlertsResponse {
+  repeated PriceAlertResponse alerts = 1;
+}
+
 // ---- WatchlistService ---------------------------------------------------
 // Personal list of tracked listings per (owner_type, owner_id).
 // Read enriches each item with current price + daily change pulled from

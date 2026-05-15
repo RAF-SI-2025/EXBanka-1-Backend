@@ -3342,6 +3342,260 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	PriceAlertService_CreateAlert_FullMethodName = "/stock.PriceAlertService/CreateAlert"
+	PriceAlertService_UpdateAlert_FullMethodName = "/stock.PriceAlertService/UpdateAlert"
+	PriceAlertService_GetAlert_FullMethodName    = "/stock.PriceAlertService/GetAlert"
+	PriceAlertService_DeleteAlert_FullMethodName = "/stock.PriceAlertService/DeleteAlert"
+	PriceAlertService_ListMy_FullMethodName      = "/stock.PriceAlertService/ListMy"
+)
+
+// PriceAlertServiceClient is the client API for PriceAlertService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type PriceAlertServiceClient interface {
+	CreateAlert(ctx context.Context, in *CreatePriceAlertRequest, opts ...grpc.CallOption) (*PriceAlertResponse, error)
+	UpdateAlert(ctx context.Context, in *UpdatePriceAlertRequest, opts ...grpc.CallOption) (*PriceAlertResponse, error)
+	GetAlert(ctx context.Context, in *GetPriceAlertRequest, opts ...grpc.CallOption) (*PriceAlertResponse, error)
+	DeleteAlert(ctx context.Context, in *DeletePriceAlertRequest, opts ...grpc.CallOption) (*DeletePriceAlertResponse, error)
+	ListMy(ctx context.Context, in *ListMyPriceAlertsRequest, opts ...grpc.CallOption) (*ListMyPriceAlertsResponse, error)
+}
+
+type priceAlertServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPriceAlertServiceClient(cc grpc.ClientConnInterface) PriceAlertServiceClient {
+	return &priceAlertServiceClient{cc}
+}
+
+func (c *priceAlertServiceClient) CreateAlert(ctx context.Context, in *CreatePriceAlertRequest, opts ...grpc.CallOption) (*PriceAlertResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PriceAlertResponse)
+	err := c.cc.Invoke(ctx, PriceAlertService_CreateAlert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *priceAlertServiceClient) UpdateAlert(ctx context.Context, in *UpdatePriceAlertRequest, opts ...grpc.CallOption) (*PriceAlertResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PriceAlertResponse)
+	err := c.cc.Invoke(ctx, PriceAlertService_UpdateAlert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *priceAlertServiceClient) GetAlert(ctx context.Context, in *GetPriceAlertRequest, opts ...grpc.CallOption) (*PriceAlertResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PriceAlertResponse)
+	err := c.cc.Invoke(ctx, PriceAlertService_GetAlert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *priceAlertServiceClient) DeleteAlert(ctx context.Context, in *DeletePriceAlertRequest, opts ...grpc.CallOption) (*DeletePriceAlertResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeletePriceAlertResponse)
+	err := c.cc.Invoke(ctx, PriceAlertService_DeleteAlert_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *priceAlertServiceClient) ListMy(ctx context.Context, in *ListMyPriceAlertsRequest, opts ...grpc.CallOption) (*ListMyPriceAlertsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMyPriceAlertsResponse)
+	err := c.cc.Invoke(ctx, PriceAlertService_ListMy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PriceAlertServiceServer is the server API for PriceAlertService service.
+// All implementations must embed UnimplementedPriceAlertServiceServer
+// for forward compatibility.
+type PriceAlertServiceServer interface {
+	CreateAlert(context.Context, *CreatePriceAlertRequest) (*PriceAlertResponse, error)
+	UpdateAlert(context.Context, *UpdatePriceAlertRequest) (*PriceAlertResponse, error)
+	GetAlert(context.Context, *GetPriceAlertRequest) (*PriceAlertResponse, error)
+	DeleteAlert(context.Context, *DeletePriceAlertRequest) (*DeletePriceAlertResponse, error)
+	ListMy(context.Context, *ListMyPriceAlertsRequest) (*ListMyPriceAlertsResponse, error)
+	mustEmbedUnimplementedPriceAlertServiceServer()
+}
+
+// UnimplementedPriceAlertServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedPriceAlertServiceServer struct{}
+
+func (UnimplementedPriceAlertServiceServer) CreateAlert(context.Context, *CreatePriceAlertRequest) (*PriceAlertResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateAlert not implemented")
+}
+func (UnimplementedPriceAlertServiceServer) UpdateAlert(context.Context, *UpdatePriceAlertRequest) (*PriceAlertResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateAlert not implemented")
+}
+func (UnimplementedPriceAlertServiceServer) GetAlert(context.Context, *GetPriceAlertRequest) (*PriceAlertResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAlert not implemented")
+}
+func (UnimplementedPriceAlertServiceServer) DeleteAlert(context.Context, *DeletePriceAlertRequest) (*DeletePriceAlertResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteAlert not implemented")
+}
+func (UnimplementedPriceAlertServiceServer) ListMy(context.Context, *ListMyPriceAlertsRequest) (*ListMyPriceAlertsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMy not implemented")
+}
+func (UnimplementedPriceAlertServiceServer) mustEmbedUnimplementedPriceAlertServiceServer() {}
+func (UnimplementedPriceAlertServiceServer) testEmbeddedByValue()                           {}
+
+// UnsafePriceAlertServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PriceAlertServiceServer will
+// result in compilation errors.
+type UnsafePriceAlertServiceServer interface {
+	mustEmbedUnimplementedPriceAlertServiceServer()
+}
+
+func RegisterPriceAlertServiceServer(s grpc.ServiceRegistrar, srv PriceAlertServiceServer) {
+	// If the following call panics, it indicates UnimplementedPriceAlertServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&PriceAlertService_ServiceDesc, srv)
+}
+
+func _PriceAlertService_CreateAlert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreatePriceAlertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PriceAlertServiceServer).CreateAlert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PriceAlertService_CreateAlert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PriceAlertServiceServer).CreateAlert(ctx, req.(*CreatePriceAlertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PriceAlertService_UpdateAlert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdatePriceAlertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PriceAlertServiceServer).UpdateAlert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PriceAlertService_UpdateAlert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PriceAlertServiceServer).UpdateAlert(ctx, req.(*UpdatePriceAlertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PriceAlertService_GetAlert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetPriceAlertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PriceAlertServiceServer).GetAlert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PriceAlertService_GetAlert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PriceAlertServiceServer).GetAlert(ctx, req.(*GetPriceAlertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PriceAlertService_DeleteAlert_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeletePriceAlertRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PriceAlertServiceServer).DeleteAlert(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PriceAlertService_DeleteAlert_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PriceAlertServiceServer).DeleteAlert(ctx, req.(*DeletePriceAlertRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PriceAlertService_ListMy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyPriceAlertsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PriceAlertServiceServer).ListMy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PriceAlertService_ListMy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PriceAlertServiceServer).ListMy(ctx, req.(*ListMyPriceAlertsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PriceAlertService_ServiceDesc is the grpc.ServiceDesc for PriceAlertService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PriceAlertService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.PriceAlertService",
+	HandlerType: (*PriceAlertServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateAlert",
+			Handler:    _PriceAlertService_CreateAlert_Handler,
+		},
+		{
+			MethodName: "UpdateAlert",
+			Handler:    _PriceAlertService_UpdateAlert_Handler,
+		},
+		{
+			MethodName: "GetAlert",
+			Handler:    _PriceAlertService_GetAlert_Handler,
+		},
+		{
+			MethodName: "DeleteAlert",
+			Handler:    _PriceAlertService_DeleteAlert_Handler,
+		},
+		{
+			MethodName: "ListMy",
+			Handler:    _PriceAlertService_ListMy_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}
+
+const (
 	WatchlistService_AddItem_FullMethodName    = "/stock.WatchlistService/AddItem"
 	WatchlistService_RemoveItem_FullMethodName = "/stock.WatchlistService/RemoveItem"
 	WatchlistService_ListMy_FullMethodName     = "/stock.WatchlistService/ListMy"

@@ -7627,6 +7627,43 @@ Returns identity info for a counterparty user. Peers call this when displaying u
 
 ---
 
+## 43. Price Alerts
+
+Per-owner reactive alerts on a listing's price or daily change %. Conditions: `gte`, `lte`, `daily_change_pct_gte`, `daily_change_pct_lte`. Single-shot alerts (`is_recurring=false`) deactivate themselves on first match; recurring alerts honour `cooldown_seconds`. Evaluation runs on a 30 s cron over active alerts; matches publish a `PRICE_ALERT_TRIGGERED` general notification.
+
+### 43.1 List my alerts
+
+`GET /api/v3/me/price-alerts` — returns `{ "alerts": [...] }`.
+
+### 43.2 Create an alert
+
+`POST /api/v3/me/price-alerts`
+
+```json
+{
+  "listing_id": 7,
+  "condition": "gte",
+  "threshold": "200.00",
+  "is_recurring": false,
+  "cooldown_seconds": 3600,
+  "email_too": false
+}
+```
+
+`cooldown_seconds` must be 60..86400 when `is_recurring=true`. `email_too` flags the matching notification for an email render in addition to the in-app push.
+
+**Response 201:** `{ "alert": { /* PriceAlertResponse */ } }`
+**Response 400:** Invalid `condition`, missing `listing_id`/`threshold`, out-of-range cooldown.
+**Response 404:** `listing_id` does not exist.
+
+### 43.3 Get / Update / Delete
+
+`GET /api/v3/me/price-alerts/:id` → `{ "alert": ... }`.
+`PUT /api/v3/me/price-alerts/:id` accepts the same fields as create plus an `active` boolean. Returns 404 if the alert isn't owned by the caller.
+`DELETE /api/v3/me/price-alerts/:id` returns 204.
+
+---
+
 ## 42. OTC Trader Ratings
 
 After a terminally-accepted OTC offer, either party may rate the other on a 1..5 scale with an optional comment. Each `(offer, rater)` pair allows at most one rating. Aggregates surface via a public profile endpoint usable for OTC discovery.

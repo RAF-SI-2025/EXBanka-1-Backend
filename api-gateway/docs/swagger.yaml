@@ -463,6 +463,21 @@ definitions:
     - from_account_number
     - to_account_number
     type: object
+  handler.createPriceAlertRequest:
+    properties:
+      condition:
+        type: string
+      cooldown_seconds:
+        type: integer
+      email_too:
+        type: boolean
+      is_recurring:
+        type: boolean
+      listing_id:
+        type: integer
+      threshold:
+        type: string
+    type: object
   handler.createRoleRequest:
     properties:
       description:
@@ -937,6 +952,21 @@ definitions:
       account_number:
         type: string
       recipient_name:
+        type: string
+    type: object
+  handler.updatePriceAlertRequest:
+    properties:
+      active:
+        type: boolean
+      condition:
+        type: string
+      cooldown_seconds:
+        type: integer
+      email_too:
+        type: boolean
+      is_recurring:
+        type: boolean
+      threshold:
         type: string
     type: object
   handler.updateRolePermissionsRequest:
@@ -7587,6 +7617,132 @@ paths:
       summary: Initiate a cross-bank OTC negotiation
       tags:
       - OTCOptions
+  /api/v3/me/price-alerts:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's price alerts
+      tags:
+      - PriceAlerts
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: alert
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createPriceAlertRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a price alert
+      tags:
+      - PriceAlerts
+  /api/v3/me/price-alerts/{id}:
+    delete:
+      parameters:
+      - description: alert id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a price alert
+      tags:
+      - PriceAlerts
+    get:
+      parameters:
+      - description: alert id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one of the caller's price alerts
+      tags:
+      - PriceAlerts
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: alert id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: alert fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updatePriceAlertRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update a price alert
+      tags:
+      - PriceAlerts
   /api/v3/me/sessions/{id}:
     delete:
       description: Revokes a session by ID, logging out the device associated with

@@ -183,6 +183,12 @@ func main() {
 	}
 	defer watchlistConn.Close()
 
+	priceAlertClient, priceAlertConn, err := grpcclients.NewPriceAlertClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to price-alert service: %v", err)
+	}
+	defer priceAlertConn.Close()
+
 	// Blueprint service reuses the user-service connection
 	blueprintClient, blueprintConn, err := grpcclients.NewBlueprintClient(cfg.UserGRPCAddr)
 	if err != nil {
@@ -287,6 +293,7 @@ func main() {
 		FundClient:          fundClient,
 		OTCOptionsClient:    otcOptionsClient,
 		WatchlistClient:     watchlistClient,
+		PriceAlertClient:    priceAlertClient,
 		PeerTxClient:        peerTxClient,
 		PeerBankAdminClient: peerBankAdminClient,
 		PeerNonces:          peerNonceStore,

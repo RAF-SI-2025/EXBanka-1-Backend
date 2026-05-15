@@ -140,6 +140,13 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/watchlist", bankIfEmp, h.Watchlist.AddItem)
 		me.DELETE("/watchlist/:listing_id", bankIfEmp, h.Watchlist.RemoveItem)
 
+		// Price alerts (per-owner thresholds on listing price / daily-change %)
+		me.GET("/price-alerts", bankIfEmp, h.PriceAlert.ListMy)
+		me.POST("/price-alerts", bankIfEmp, h.PriceAlert.Create)
+		me.GET("/price-alerts/:id", bankIfEmp, h.PriceAlert.Get)
+		me.PUT("/price-alerts/:id", bankIfEmp, h.PriceAlert.Update)
+		me.DELETE("/price-alerts/:id", bankIfEmp, h.PriceAlert.Delete)
+
 		// Sessions
 		me.GET("/sessions", h.Session.ListMySessions)
 		me.DELETE("/sessions/:id", h.Session.RevokeSession)

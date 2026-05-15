@@ -10116,6 +10116,205 @@
                 }
             }
         },
+        "/api/v3/me/price-alerts": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "List the caller's price alerts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "Create a price alert",
+                "parameters": [
+                    {
+                        "description": "alert",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createPriceAlertRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/price-alerts/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "Get one of the caller's price alerts",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "alert id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "Update a price alert",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "alert id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "alert fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.updatePriceAlertRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "Delete a price alert",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "alert id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/sessions/{id}": {
             "delete": {
                 "security": [
@@ -11898,6 +12097,29 @@
                 }
             }
         },
+        "handler.createPriceAlertRequest": {
+            "type": "object",
+            "properties": {
+                "condition": {
+                    "type": "string"
+                },
+                "cooldown_seconds": {
+                    "type": "integer"
+                },
+                "email_too": {
+                    "type": "boolean"
+                },
+                "is_recurring": {
+                    "type": "boolean"
+                },
+                "listing_id": {
+                    "type": "integer"
+                },
+                "threshold": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.createRoleRequest": {
             "type": "object",
             "required": [
@@ -12610,6 +12832,29 @@
                     "type": "string"
                 },
                 "recipient_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.updatePriceAlertRequest": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "condition": {
+                    "type": "string"
+                },
+                "cooldown_seconds": {
+                    "type": "integer"
+                },
+                "email_too": {
+                    "type": "boolean"
+                },
+                "is_recurring": {
+                    "type": "boolean"
+                },
+                "threshold": {
                     "type": "string"
                 }
             }

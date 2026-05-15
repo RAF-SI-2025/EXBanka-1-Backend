@@ -86,6 +86,7 @@ func main() {
 		&model.IdempotencyRecord{},
 		&model.WatchlistItem{},
 		&model.OTCTraderRating{},
+		&model.PriceAlert{},
 		// Phase 4 SI-TX: receiver-side mirror of inbound peer-bank
 		// OTC negotiations. Created/updated by PeerOTCGRPCHandler.
 		&model.PeerOtcNegotiation{},
@@ -695,6 +696,12 @@ func main() {
 			watchlistRepo := repository.NewWatchlistRepository(db)
 			watchlistSvc := service.NewWatchlistService(watchlistRepo, listingRepo, stockRepo, optionRepo, futuresRepo, forexRepo)
 			pb.RegisterWatchlistServiceServer(s, handler.NewWatchlistHandler(watchlistSvc))
+			priceAlertRepo := repository.NewPriceAlertRepository(db)
+			priceAlertSvc := service.NewPriceAlertService(priceAlertRepo, listingRepo, producer)
+			pb.RegisterPriceAlertServiceServer(s, handler.NewPriceAlertHandler(priceAlertSvc))
+			// Cron: re-evaluate active alerts on a 30 s tick. Best-effort —
+			// failures log and the loop continues.
+			go service.NewPriceAlertCron(priceAlertSvc, listingRepo, priceAlertRepo, 30*time.Second).Run(ctx)
 			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 				switch name {
 				case "external":

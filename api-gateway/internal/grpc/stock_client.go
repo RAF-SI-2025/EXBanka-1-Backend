@@ -85,3 +85,11 @@ func NewWatchlistClient(addr string) (stockpb.WatchlistServiceClient, *grpc.Clie
 	}
 	return stockpb.NewWatchlistServiceClient(conn), conn, nil
 }
+
+func NewPriceAlertClient(addr string) (stockpb.PriceAlertServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewPriceAlertServiceClient(conn), conn, nil
+}
