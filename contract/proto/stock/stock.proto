@@ -1034,6 +1034,21 @@ service OTCOptionsService {
   rpc ListMyContracts(ListMyContractsRequest)   returns (ListContractsResponse);
   rpc GetContract(GetContractRequest)           returns (OptionContractResponse);
   rpc ExerciseContract(ExerciseContractRequest) returns (ExerciseResponse);
+
+  // Negotiation history — terminal-only OTC offers (ACCEPTED, REJECTED,
+  // EXPIRED, FAILED). Filters by status / date range / counterparty.
+  rpc ListNegotiationHistory(ListNegotiationHistoryRequest) returns (ListMyOTCOffersResponse);
+}
+
+message ListNegotiationHistoryRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  repeated string statuses = 3; // empty = all terminal statuses
+  int64  since_unix    = 4;     // 0 = no lower bound
+  int64  until_unix    = 5;     // 0 = no upper bound
+  uint64 counterparty_id = 6;   // 0 = no filter
+  int32  page          = 7;
+  int32  page_size     = 8;
 }
 
 message PartyRef {

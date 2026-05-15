@@ -2344,15 +2344,16 @@ var InvestmentFundService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	OTCOptionsService_CreateOffer_FullMethodName      = "/stock.OTCOptionsService/CreateOffer"
-	OTCOptionsService_ListMyOffers_FullMethodName     = "/stock.OTCOptionsService/ListMyOffers"
-	OTCOptionsService_GetOffer_FullMethodName         = "/stock.OTCOptionsService/GetOffer"
-	OTCOptionsService_CounterOffer_FullMethodName     = "/stock.OTCOptionsService/CounterOffer"
-	OTCOptionsService_AcceptOffer_FullMethodName      = "/stock.OTCOptionsService/AcceptOffer"
-	OTCOptionsService_RejectOffer_FullMethodName      = "/stock.OTCOptionsService/RejectOffer"
-	OTCOptionsService_ListMyContracts_FullMethodName  = "/stock.OTCOptionsService/ListMyContracts"
-	OTCOptionsService_GetContract_FullMethodName      = "/stock.OTCOptionsService/GetContract"
-	OTCOptionsService_ExerciseContract_FullMethodName = "/stock.OTCOptionsService/ExerciseContract"
+	OTCOptionsService_CreateOffer_FullMethodName            = "/stock.OTCOptionsService/CreateOffer"
+	OTCOptionsService_ListMyOffers_FullMethodName           = "/stock.OTCOptionsService/ListMyOffers"
+	OTCOptionsService_GetOffer_FullMethodName               = "/stock.OTCOptionsService/GetOffer"
+	OTCOptionsService_CounterOffer_FullMethodName           = "/stock.OTCOptionsService/CounterOffer"
+	OTCOptionsService_AcceptOffer_FullMethodName            = "/stock.OTCOptionsService/AcceptOffer"
+	OTCOptionsService_RejectOffer_FullMethodName            = "/stock.OTCOptionsService/RejectOffer"
+	OTCOptionsService_ListMyContracts_FullMethodName        = "/stock.OTCOptionsService/ListMyContracts"
+	OTCOptionsService_GetContract_FullMethodName            = "/stock.OTCOptionsService/GetContract"
+	OTCOptionsService_ExerciseContract_FullMethodName       = "/stock.OTCOptionsService/ExerciseContract"
+	OTCOptionsService_ListNegotiationHistory_FullMethodName = "/stock.OTCOptionsService/ListNegotiationHistory"
 )
 
 // OTCOptionsServiceClient is the client API for OTCOptionsService service.
@@ -2368,6 +2369,9 @@ type OTCOptionsServiceClient interface {
 	ListMyContracts(ctx context.Context, in *ListMyContractsRequest, opts ...grpc.CallOption) (*ListContractsResponse, error)
 	GetContract(ctx context.Context, in *GetContractRequest, opts ...grpc.CallOption) (*OptionContractResponse, error)
 	ExerciseContract(ctx context.Context, in *ExerciseContractRequest, opts ...grpc.CallOption) (*ExerciseResponse, error)
+	// Negotiation history — terminal-only OTC offers (ACCEPTED, REJECTED,
+	// EXPIRED, FAILED). Filters by status / date range / counterparty.
+	ListNegotiationHistory(ctx context.Context, in *ListNegotiationHistoryRequest, opts ...grpc.CallOption) (*ListMyOTCOffersResponse, error)
 }
 
 type oTCOptionsServiceClient struct {
@@ -2468,6 +2472,16 @@ func (c *oTCOptionsServiceClient) ExerciseContract(ctx context.Context, in *Exer
 	return out, nil
 }
 
+func (c *oTCOptionsServiceClient) ListNegotiationHistory(ctx context.Context, in *ListNegotiationHistoryRequest, opts ...grpc.CallOption) (*ListMyOTCOffersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMyOTCOffersResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_ListNegotiationHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OTCOptionsServiceServer is the server API for OTCOptionsService service.
 // All implementations must embed UnimplementedOTCOptionsServiceServer
 // for forward compatibility.
@@ -2481,6 +2495,9 @@ type OTCOptionsServiceServer interface {
 	ListMyContracts(context.Context, *ListMyContractsRequest) (*ListContractsResponse, error)
 	GetContract(context.Context, *GetContractRequest) (*OptionContractResponse, error)
 	ExerciseContract(context.Context, *ExerciseContractRequest) (*ExerciseResponse, error)
+	// Negotiation history — terminal-only OTC offers (ACCEPTED, REJECTED,
+	// EXPIRED, FAILED). Filters by status / date range / counterparty.
+	ListNegotiationHistory(context.Context, *ListNegotiationHistoryRequest) (*ListMyOTCOffersResponse, error)
 	mustEmbedUnimplementedOTCOptionsServiceServer()
 }
 
@@ -2517,6 +2534,9 @@ func (UnimplementedOTCOptionsServiceServer) GetContract(context.Context, *GetCon
 }
 func (UnimplementedOTCOptionsServiceServer) ExerciseContract(context.Context, *ExerciseContractRequest) (*ExerciseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExerciseContract not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) ListNegotiationHistory(context.Context, *ListNegotiationHistoryRequest) (*ListMyOTCOffersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListNegotiationHistory not implemented")
 }
 func (UnimplementedOTCOptionsServiceServer) mustEmbedUnimplementedOTCOptionsServiceServer() {}
 func (UnimplementedOTCOptionsServiceServer) testEmbeddedByValue()                           {}
@@ -2701,6 +2721,24 @@ func _OTCOptionsService_ExerciseContract_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OTCOptionsService_ListNegotiationHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNegotiationHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).ListNegotiationHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_ListNegotiationHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).ListNegotiationHistory(ctx, req.(*ListNegotiationHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OTCOptionsService_ServiceDesc is the grpc.ServiceDesc for OTCOptionsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2743,6 +2781,10 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExerciseContract",
 			Handler:    _OTCOptionsService_ExerciseContract_Handler,
+		},
+		{
+			MethodName: "ListNegotiationHistory",
+			Handler:    _OTCOptionsService_ListNegotiationHistory_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

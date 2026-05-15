@@ -126,6 +126,39 @@ func (h *OTCOptionsHandler) ListMyOffers(ctx context.Context, in *stockpb.ListMy
 	return out, nil
 }
 
+// ListNegotiationHistory returns terminal OTC offers (accepted, rejected,
+// expired, failed) for the caller. Celina-3 "Istorija pregovora".
+func (h *OTCOptionsHandler) ListNegotiationHistory(ctx context.Context, in *stockpb.ListNegotiationHistoryRequest) (*stockpb.ListMyOTCOffersResponse, error) {
+	f := repository.HistoryFilter{
+		Statuses: in.Statuses,
+		Page:     int(in.Page),
+		PageSize: int(in.PageSize),
+	}
+	if in.SinceUnix > 0 {
+		t := time.Unix(in.SinceUnix, 0).UTC()
+		f.Since = &t
+	}
+	if in.UntilUnix > 0 {
+		t := time.Unix(in.UntilUnix, 0).UTC()
+		f.Until = &t
+	}
+	if in.CounterpartyId > 0 {
+		cp := in.CounterpartyId
+		f.CounterpartyID = &cp
+	}
+	rows, total, err := h.svc.ListNegotiationHistory(in.ActorUserId, in.ActorSystemType, f)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &stockpb.ListMyOTCOffersResponse{Total: total, Offers: make([]*stockpb.OTCOfferResponse, 0, len(rows))}
+	for i := range rows {
+		// History entries are immutable from the caller's perspective so
+		// "unread" is always false — they're explicitly viewing past data.
+		out.Offers = append(out.Offers, h.withOfferMarketRef(&rows[i], toOTCOfferProto(&rows[i], false)))
+	}
+	return out, nil
+}
+
 // computeUnread returns true if the offer has been touched since the
 // caller last opened it AND the caller wasn't the one who touched it.
 func (h *OTCOptionsHandler) computeUnread(o *model.OTCOffer, callerID int64, callerType string) bool {

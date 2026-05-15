@@ -7917,6 +7917,106 @@ func (x *ActuaryPerformance) GetRealizedProfitRsd() string {
 	return ""
 }
 
+type ListNegotiationHistoryRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ActorUserId     int64                  `protobuf:"varint,1,opt,name=actor_user_id,json=actorUserId,proto3" json:"actor_user_id,omitempty"`
+	ActorSystemType string                 `protobuf:"bytes,2,opt,name=actor_system_type,json=actorSystemType,proto3" json:"actor_system_type,omitempty"`
+	Statuses        []string               `protobuf:"bytes,3,rep,name=statuses,proto3" json:"statuses,omitempty"`                                    // empty = all terminal statuses
+	SinceUnix       int64                  `protobuf:"varint,4,opt,name=since_unix,json=sinceUnix,proto3" json:"since_unix,omitempty"`                // 0 = no lower bound
+	UntilUnix       int64                  `protobuf:"varint,5,opt,name=until_unix,json=untilUnix,proto3" json:"until_unix,omitempty"`                // 0 = no upper bound
+	CounterpartyId  uint64                 `protobuf:"varint,6,opt,name=counterparty_id,json=counterpartyId,proto3" json:"counterparty_id,omitempty"` // 0 = no filter
+	Page            int32                  `protobuf:"varint,7,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize        int32                  `protobuf:"varint,8,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ListNegotiationHistoryRequest) Reset() {
+	*x = ListNegotiationHistoryRequest{}
+	mi := &file_stock_stock_proto_msgTypes[100]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNegotiationHistoryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNegotiationHistoryRequest) ProtoMessage() {}
+
+func (x *ListNegotiationHistoryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_stock_stock_proto_msgTypes[100]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNegotiationHistoryRequest.ProtoReflect.Descriptor instead.
+func (*ListNegotiationHistoryRequest) Descriptor() ([]byte, []int) {
+	return file_stock_stock_proto_rawDescGZIP(), []int{100}
+}
+
+func (x *ListNegotiationHistoryRequest) GetActorUserId() int64 {
+	if x != nil {
+		return x.ActorUserId
+	}
+	return 0
+}
+
+func (x *ListNegotiationHistoryRequest) GetActorSystemType() string {
+	if x != nil {
+		return x.ActorSystemType
+	}
+	return ""
+}
+
+func (x *ListNegotiationHistoryRequest) GetStatuses() []string {
+	if x != nil {
+		return x.Statuses
+	}
+	return nil
+}
+
+func (x *ListNegotiationHistoryRequest) GetSinceUnix() int64 {
+	if x != nil {
+		return x.SinceUnix
+	}
+	return 0
+}
+
+func (x *ListNegotiationHistoryRequest) GetUntilUnix() int64 {
+	if x != nil {
+		return x.UntilUnix
+	}
+	return 0
+}
+
+func (x *ListNegotiationHistoryRequest) GetCounterpartyId() uint64 {
+	if x != nil {
+		return x.CounterpartyId
+	}
+	return 0
+}
+
+func (x *ListNegotiationHistoryRequest) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *ListNegotiationHistoryRequest) GetPageSize() int32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
 type PartyRef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -7929,7 +8029,7 @@ type PartyRef struct {
 
 func (x *PartyRef) Reset() {
 	*x = PartyRef{}
-	mi := &file_stock_stock_proto_msgTypes[100]
+	mi := &file_stock_stock_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7941,7 +8041,7 @@ func (x *PartyRef) String() string {
 func (*PartyRef) ProtoMessage() {}
 
 func (x *PartyRef) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[100]
+	mi := &file_stock_stock_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7954,7 +8054,7 @@ func (x *PartyRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PartyRef.ProtoReflect.Descriptor instead.
 func (*PartyRef) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{100}
+	return file_stock_stock_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *PartyRef) GetUserId() int64 {
@@ -8009,7 +8109,7 @@ type CreateOTCOfferRequest struct {
 
 func (x *CreateOTCOfferRequest) Reset() {
 	*x = CreateOTCOfferRequest{}
-	mi := &file_stock_stock_proto_msgTypes[101]
+	mi := &file_stock_stock_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8021,7 +8121,7 @@ func (x *CreateOTCOfferRequest) String() string {
 func (*CreateOTCOfferRequest) ProtoMessage() {}
 
 func (x *CreateOTCOfferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[101]
+	mi := &file_stock_stock_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8034,7 +8134,7 @@ func (x *CreateOTCOfferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateOTCOfferRequest.ProtoReflect.Descriptor instead.
 func (*CreateOTCOfferRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{101}
+	return file_stock_stock_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *CreateOTCOfferRequest) GetActorUserId() int64 {
@@ -8146,7 +8246,7 @@ type OTCOfferResponse struct {
 
 func (x *OTCOfferResponse) Reset() {
 	*x = OTCOfferResponse{}
-	mi := &file_stock_stock_proto_msgTypes[102]
+	mi := &file_stock_stock_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8158,7 +8258,7 @@ func (x *OTCOfferResponse) String() string {
 func (*OTCOfferResponse) ProtoMessage() {}
 
 func (x *OTCOfferResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[102]
+	mi := &file_stock_stock_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8171,7 +8271,7 @@ func (x *OTCOfferResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OTCOfferResponse.ProtoReflect.Descriptor instead.
 func (*OTCOfferResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{102}
+	return file_stock_stock_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *OTCOfferResponse) GetId() uint64 {
@@ -8309,7 +8409,7 @@ type OTCOfferRevisionItem struct {
 
 func (x *OTCOfferRevisionItem) Reset() {
 	*x = OTCOfferRevisionItem{}
-	mi := &file_stock_stock_proto_msgTypes[103]
+	mi := &file_stock_stock_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8321,7 +8421,7 @@ func (x *OTCOfferRevisionItem) String() string {
 func (*OTCOfferRevisionItem) ProtoMessage() {}
 
 func (x *OTCOfferRevisionItem) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[103]
+	mi := &file_stock_stock_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8334,7 +8434,7 @@ func (x *OTCOfferRevisionItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OTCOfferRevisionItem.ProtoReflect.Descriptor instead.
 func (*OTCOfferRevisionItem) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{103}
+	return file_stock_stock_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *OTCOfferRevisionItem) GetRevisionNumber() int32 {
@@ -8403,7 +8503,7 @@ type OTCOfferDetailResponse struct {
 
 func (x *OTCOfferDetailResponse) Reset() {
 	*x = OTCOfferDetailResponse{}
-	mi := &file_stock_stock_proto_msgTypes[104]
+	mi := &file_stock_stock_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8415,7 +8515,7 @@ func (x *OTCOfferDetailResponse) String() string {
 func (*OTCOfferDetailResponse) ProtoMessage() {}
 
 func (x *OTCOfferDetailResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[104]
+	mi := &file_stock_stock_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8428,7 +8528,7 @@ func (x *OTCOfferDetailResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OTCOfferDetailResponse.ProtoReflect.Descriptor instead.
 func (*OTCOfferDetailResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{104}
+	return file_stock_stock_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *OTCOfferDetailResponse) GetOffer() *OTCOfferResponse {
@@ -8460,7 +8560,7 @@ type ListMyOTCOffersRequest struct {
 
 func (x *ListMyOTCOffersRequest) Reset() {
 	*x = ListMyOTCOffersRequest{}
-	mi := &file_stock_stock_proto_msgTypes[105]
+	mi := &file_stock_stock_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8472,7 +8572,7 @@ func (x *ListMyOTCOffersRequest) String() string {
 func (*ListMyOTCOffersRequest) ProtoMessage() {}
 
 func (x *ListMyOTCOffersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[105]
+	mi := &file_stock_stock_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8485,7 +8585,7 @@ func (x *ListMyOTCOffersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMyOTCOffersRequest.ProtoReflect.Descriptor instead.
 func (*ListMyOTCOffersRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{105}
+	return file_stock_stock_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *ListMyOTCOffersRequest) GetActorUserId() int64 {
@@ -8547,7 +8647,7 @@ type ListMyOTCOffersResponse struct {
 
 func (x *ListMyOTCOffersResponse) Reset() {
 	*x = ListMyOTCOffersResponse{}
-	mi := &file_stock_stock_proto_msgTypes[106]
+	mi := &file_stock_stock_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8559,7 +8659,7 @@ func (x *ListMyOTCOffersResponse) String() string {
 func (*ListMyOTCOffersResponse) ProtoMessage() {}
 
 func (x *ListMyOTCOffersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[106]
+	mi := &file_stock_stock_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8572,7 +8672,7 @@ func (x *ListMyOTCOffersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMyOTCOffersResponse.ProtoReflect.Descriptor instead.
 func (*ListMyOTCOffersResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{106}
+	return file_stock_stock_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *ListMyOTCOffersResponse) GetOffers() []*OTCOfferResponse {
@@ -8600,7 +8700,7 @@ type GetOTCOfferRequest struct {
 
 func (x *GetOTCOfferRequest) Reset() {
 	*x = GetOTCOfferRequest{}
-	mi := &file_stock_stock_proto_msgTypes[107]
+	mi := &file_stock_stock_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8612,7 +8712,7 @@ func (x *GetOTCOfferRequest) String() string {
 func (*GetOTCOfferRequest) ProtoMessage() {}
 
 func (x *GetOTCOfferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[107]
+	mi := &file_stock_stock_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8625,7 +8725,7 @@ func (x *GetOTCOfferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOTCOfferRequest.ProtoReflect.Descriptor instead.
 func (*GetOTCOfferRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{107}
+	return file_stock_stock_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *GetOTCOfferRequest) GetOfferId() uint64 {
@@ -8666,7 +8766,7 @@ type CounterOTCOfferRequest struct {
 
 func (x *CounterOTCOfferRequest) Reset() {
 	*x = CounterOTCOfferRequest{}
-	mi := &file_stock_stock_proto_msgTypes[108]
+	mi := &file_stock_stock_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8678,7 +8778,7 @@ func (x *CounterOTCOfferRequest) String() string {
 func (*CounterOTCOfferRequest) ProtoMessage() {}
 
 func (x *CounterOTCOfferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[108]
+	mi := &file_stock_stock_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8691,7 +8791,7 @@ func (x *CounterOTCOfferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CounterOTCOfferRequest.ProtoReflect.Descriptor instead.
 func (*CounterOTCOfferRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{108}
+	return file_stock_stock_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *CounterOTCOfferRequest) GetOfferId() uint64 {
@@ -8766,7 +8866,7 @@ type AcceptOTCOfferRequest struct {
 
 func (x *AcceptOTCOfferRequest) Reset() {
 	*x = AcceptOTCOfferRequest{}
-	mi := &file_stock_stock_proto_msgTypes[109]
+	mi := &file_stock_stock_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8778,7 +8878,7 @@ func (x *AcceptOTCOfferRequest) String() string {
 func (*AcceptOTCOfferRequest) ProtoMessage() {}
 
 func (x *AcceptOTCOfferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[109]
+	mi := &file_stock_stock_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8791,7 +8891,7 @@ func (x *AcceptOTCOfferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptOTCOfferRequest.ProtoReflect.Descriptor instead.
 func (*AcceptOTCOfferRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{109}
+	return file_stock_stock_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *AcceptOTCOfferRequest) GetOfferId() uint64 {
@@ -8842,7 +8942,7 @@ type AcceptOfferResponse struct {
 
 func (x *AcceptOfferResponse) Reset() {
 	*x = AcceptOfferResponse{}
-	mi := &file_stock_stock_proto_msgTypes[110]
+	mi := &file_stock_stock_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8854,7 +8954,7 @@ func (x *AcceptOfferResponse) String() string {
 func (*AcceptOfferResponse) ProtoMessage() {}
 
 func (x *AcceptOfferResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[110]
+	mi := &file_stock_stock_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8867,7 +8967,7 @@ func (x *AcceptOfferResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptOfferResponse.ProtoReflect.Descriptor instead.
 func (*AcceptOfferResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{110}
+	return file_stock_stock_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *AcceptOfferResponse) GetOfferId() uint64 {
@@ -8916,7 +9016,7 @@ type RejectOTCOfferRequest struct {
 
 func (x *RejectOTCOfferRequest) Reset() {
 	*x = RejectOTCOfferRequest{}
-	mi := &file_stock_stock_proto_msgTypes[111]
+	mi := &file_stock_stock_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8928,7 +9028,7 @@ func (x *RejectOTCOfferRequest) String() string {
 func (*RejectOTCOfferRequest) ProtoMessage() {}
 
 func (x *RejectOTCOfferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[111]
+	mi := &file_stock_stock_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8941,7 +9041,7 @@ func (x *RejectOTCOfferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RejectOTCOfferRequest.ProtoReflect.Descriptor instead.
 func (*RejectOTCOfferRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{111}
+	return file_stock_stock_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *RejectOTCOfferRequest) GetOfferId() uint64 {
@@ -8993,7 +9093,7 @@ type OptionContractResponse struct {
 
 func (x *OptionContractResponse) Reset() {
 	*x = OptionContractResponse{}
-	mi := &file_stock_stock_proto_msgTypes[112]
+	mi := &file_stock_stock_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9005,7 +9105,7 @@ func (x *OptionContractResponse) String() string {
 func (*OptionContractResponse) ProtoMessage() {}
 
 func (x *OptionContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[112]
+	mi := &file_stock_stock_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9018,7 +9118,7 @@ func (x *OptionContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OptionContractResponse.ProtoReflect.Descriptor instead.
 func (*OptionContractResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{112}
+	return file_stock_stock_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *OptionContractResponse) GetId() uint64 {
@@ -9175,7 +9275,7 @@ type ListMyContractsRequest struct {
 
 func (x *ListMyContractsRequest) Reset() {
 	*x = ListMyContractsRequest{}
-	mi := &file_stock_stock_proto_msgTypes[113]
+	mi := &file_stock_stock_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9187,7 +9287,7 @@ func (x *ListMyContractsRequest) String() string {
 func (*ListMyContractsRequest) ProtoMessage() {}
 
 func (x *ListMyContractsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[113]
+	mi := &file_stock_stock_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9200,7 +9300,7 @@ func (x *ListMyContractsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMyContractsRequest.ProtoReflect.Descriptor instead.
 func (*ListMyContractsRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{113}
+	return file_stock_stock_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *ListMyContractsRequest) GetActorUserId() int64 {
@@ -9260,7 +9360,7 @@ type ListContractsResponse struct {
 
 func (x *ListContractsResponse) Reset() {
 	*x = ListContractsResponse{}
-	mi := &file_stock_stock_proto_msgTypes[114]
+	mi := &file_stock_stock_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9272,7 +9372,7 @@ func (x *ListContractsResponse) String() string {
 func (*ListContractsResponse) ProtoMessage() {}
 
 func (x *ListContractsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[114]
+	mi := &file_stock_stock_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9285,7 +9385,7 @@ func (x *ListContractsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContractsResponse.ProtoReflect.Descriptor instead.
 func (*ListContractsResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{114}
+	return file_stock_stock_proto_rawDescGZIP(), []int{115}
 }
 
 func (x *ListContractsResponse) GetContracts() []*OptionContractResponse {
@@ -9344,7 +9444,7 @@ type PeerOptionContractResponse struct {
 
 func (x *PeerOptionContractResponse) Reset() {
 	*x = PeerOptionContractResponse{}
-	mi := &file_stock_stock_proto_msgTypes[115]
+	mi := &file_stock_stock_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9356,7 +9456,7 @@ func (x *PeerOptionContractResponse) String() string {
 func (*PeerOptionContractResponse) ProtoMessage() {}
 
 func (x *PeerOptionContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[115]
+	mi := &file_stock_stock_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9369,7 +9469,7 @@ func (x *PeerOptionContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerOptionContractResponse.ProtoReflect.Descriptor instead.
 func (*PeerOptionContractResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{115}
+	return file_stock_stock_proto_rawDescGZIP(), []int{116}
 }
 
 func (x *PeerOptionContractResponse) GetId() uint64 {
@@ -9488,7 +9588,7 @@ type GetContractRequest struct {
 
 func (x *GetContractRequest) Reset() {
 	*x = GetContractRequest{}
-	mi := &file_stock_stock_proto_msgTypes[116]
+	mi := &file_stock_stock_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9500,7 +9600,7 @@ func (x *GetContractRequest) String() string {
 func (*GetContractRequest) ProtoMessage() {}
 
 func (x *GetContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[116]
+	mi := &file_stock_stock_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9513,7 +9613,7 @@ func (x *GetContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContractRequest.ProtoReflect.Descriptor instead.
 func (*GetContractRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{116}
+	return file_stock_stock_proto_rawDescGZIP(), []int{117}
 }
 
 func (x *GetContractRequest) GetContractId() uint64 {
@@ -9550,7 +9650,7 @@ type ExerciseContractRequest struct {
 
 func (x *ExerciseContractRequest) Reset() {
 	*x = ExerciseContractRequest{}
-	mi := &file_stock_stock_proto_msgTypes[117]
+	mi := &file_stock_stock_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9562,7 +9662,7 @@ func (x *ExerciseContractRequest) String() string {
 func (*ExerciseContractRequest) ProtoMessage() {}
 
 func (x *ExerciseContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[117]
+	mi := &file_stock_stock_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9575,7 +9675,7 @@ func (x *ExerciseContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExerciseContractRequest.ProtoReflect.Descriptor instead.
 func (*ExerciseContractRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{117}
+	return file_stock_stock_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *ExerciseContractRequest) GetContractId() uint64 {
@@ -9623,7 +9723,7 @@ type ExerciseResponse struct {
 
 func (x *ExerciseResponse) Reset() {
 	*x = ExerciseResponse{}
-	mi := &file_stock_stock_proto_msgTypes[118]
+	mi := &file_stock_stock_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9635,7 +9735,7 @@ func (x *ExerciseResponse) String() string {
 func (*ExerciseResponse) ProtoMessage() {}
 
 func (x *ExerciseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[118]
+	mi := &file_stock_stock_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9648,7 +9748,7 @@ func (x *ExerciseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExerciseResponse.ProtoReflect.Descriptor instead.
 func (*ExerciseResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{118}
+	return file_stock_stock_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *ExerciseResponse) GetContractId() uint64 {
@@ -9724,7 +9824,7 @@ type PeerForeignBankId struct {
 
 func (x *PeerForeignBankId) Reset() {
 	*x = PeerForeignBankId{}
-	mi := &file_stock_stock_proto_msgTypes[119]
+	mi := &file_stock_stock_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9736,7 +9836,7 @@ func (x *PeerForeignBankId) String() string {
 func (*PeerForeignBankId) ProtoMessage() {}
 
 func (x *PeerForeignBankId) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[119]
+	mi := &file_stock_stock_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9749,7 +9849,7 @@ func (x *PeerForeignBankId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerForeignBankId.ProtoReflect.Descriptor instead.
 func (*PeerForeignBankId) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{119}
+	return file_stock_stock_proto_rawDescGZIP(), []int{120}
 }
 
 func (x *PeerForeignBankId) GetRoutingNumber() int64 {
@@ -9782,7 +9882,7 @@ type PeerOtcOffer struct {
 
 func (x *PeerOtcOffer) Reset() {
 	*x = PeerOtcOffer{}
-	mi := &file_stock_stock_proto_msgTypes[120]
+	mi := &file_stock_stock_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9794,7 +9894,7 @@ func (x *PeerOtcOffer) String() string {
 func (*PeerOtcOffer) ProtoMessage() {}
 
 func (x *PeerOtcOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[120]
+	mi := &file_stock_stock_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9807,7 +9907,7 @@ func (x *PeerOtcOffer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerOtcOffer.ProtoReflect.Descriptor instead.
 func (*PeerOtcOffer) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{120}
+	return file_stock_stock_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *PeerOtcOffer) GetTicker() string {
@@ -9875,7 +9975,7 @@ type GetPublicStocksRequest struct {
 
 func (x *GetPublicStocksRequest) Reset() {
 	*x = GetPublicStocksRequest{}
-	mi := &file_stock_stock_proto_msgTypes[121]
+	mi := &file_stock_stock_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9887,7 +9987,7 @@ func (x *GetPublicStocksRequest) String() string {
 func (*GetPublicStocksRequest) ProtoMessage() {}
 
 func (x *GetPublicStocksRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[121]
+	mi := &file_stock_stock_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9900,7 +10000,7 @@ func (x *GetPublicStocksRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPublicStocksRequest.ProtoReflect.Descriptor instead.
 func (*GetPublicStocksRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{121}
+	return file_stock_stock_proto_rawDescGZIP(), []int{122}
 }
 
 func (x *GetPublicStocksRequest) GetPeerBankCode() string {
@@ -9923,7 +10023,7 @@ type PeerPublicStock struct {
 
 func (x *PeerPublicStock) Reset() {
 	*x = PeerPublicStock{}
-	mi := &file_stock_stock_proto_msgTypes[122]
+	mi := &file_stock_stock_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9935,7 +10035,7 @@ func (x *PeerPublicStock) String() string {
 func (*PeerPublicStock) ProtoMessage() {}
 
 func (x *PeerPublicStock) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[122]
+	mi := &file_stock_stock_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9948,7 +10048,7 @@ func (x *PeerPublicStock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerPublicStock.ProtoReflect.Descriptor instead.
 func (*PeerPublicStock) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{122}
+	return file_stock_stock_proto_rawDescGZIP(), []int{123}
 }
 
 func (x *PeerPublicStock) GetOwnerId() *PeerForeignBankId {
@@ -9995,7 +10095,7 @@ type GetPublicStocksResponse struct {
 
 func (x *GetPublicStocksResponse) Reset() {
 	*x = GetPublicStocksResponse{}
-	mi := &file_stock_stock_proto_msgTypes[123]
+	mi := &file_stock_stock_proto_msgTypes[124]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10007,7 +10107,7 @@ func (x *GetPublicStocksResponse) String() string {
 func (*GetPublicStocksResponse) ProtoMessage() {}
 
 func (x *GetPublicStocksResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[123]
+	mi := &file_stock_stock_proto_msgTypes[124]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10020,7 +10120,7 @@ func (x *GetPublicStocksResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPublicStocksResponse.ProtoReflect.Descriptor instead.
 func (*GetPublicStocksResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{123}
+	return file_stock_stock_proto_rawDescGZIP(), []int{124}
 }
 
 func (x *GetPublicStocksResponse) GetStocks() []*PeerPublicStock {
@@ -10042,7 +10142,7 @@ type CreateNegotiationRequest struct {
 
 func (x *CreateNegotiationRequest) Reset() {
 	*x = CreateNegotiationRequest{}
-	mi := &file_stock_stock_proto_msgTypes[124]
+	mi := &file_stock_stock_proto_msgTypes[125]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10054,7 +10154,7 @@ func (x *CreateNegotiationRequest) String() string {
 func (*CreateNegotiationRequest) ProtoMessage() {}
 
 func (x *CreateNegotiationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[124]
+	mi := &file_stock_stock_proto_msgTypes[125]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10067,7 +10167,7 @@ func (x *CreateNegotiationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateNegotiationRequest.ProtoReflect.Descriptor instead.
 func (*CreateNegotiationRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{124}
+	return file_stock_stock_proto_rawDescGZIP(), []int{125}
 }
 
 func (x *CreateNegotiationRequest) GetPeerBankCode() string {
@@ -10107,7 +10207,7 @@ type CreateNegotiationResponse struct {
 
 func (x *CreateNegotiationResponse) Reset() {
 	*x = CreateNegotiationResponse{}
-	mi := &file_stock_stock_proto_msgTypes[125]
+	mi := &file_stock_stock_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10119,7 +10219,7 @@ func (x *CreateNegotiationResponse) String() string {
 func (*CreateNegotiationResponse) ProtoMessage() {}
 
 func (x *CreateNegotiationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[125]
+	mi := &file_stock_stock_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10132,7 +10232,7 @@ func (x *CreateNegotiationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateNegotiationResponse.ProtoReflect.Descriptor instead.
 func (*CreateNegotiationResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{125}
+	return file_stock_stock_proto_rawDescGZIP(), []int{126}
 }
 
 func (x *CreateNegotiationResponse) GetNegotiationId() *PeerForeignBankId {
@@ -10153,7 +10253,7 @@ type UpdateNegotiationRequest struct {
 
 func (x *UpdateNegotiationRequest) Reset() {
 	*x = UpdateNegotiationRequest{}
-	mi := &file_stock_stock_proto_msgTypes[126]
+	mi := &file_stock_stock_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10165,7 +10265,7 @@ func (x *UpdateNegotiationRequest) String() string {
 func (*UpdateNegotiationRequest) ProtoMessage() {}
 
 func (x *UpdateNegotiationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[126]
+	mi := &file_stock_stock_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10178,7 +10278,7 @@ func (x *UpdateNegotiationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateNegotiationRequest.ProtoReflect.Descriptor instead.
 func (*UpdateNegotiationRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{126}
+	return file_stock_stock_proto_rawDescGZIP(), []int{127}
 }
 
 func (x *UpdateNegotiationRequest) GetPeerBankCode() string {
@@ -10210,7 +10310,7 @@ type UpdateNegotiationResponse struct {
 
 func (x *UpdateNegotiationResponse) Reset() {
 	*x = UpdateNegotiationResponse{}
-	mi := &file_stock_stock_proto_msgTypes[127]
+	mi := &file_stock_stock_proto_msgTypes[128]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10222,7 +10322,7 @@ func (x *UpdateNegotiationResponse) String() string {
 func (*UpdateNegotiationResponse) ProtoMessage() {}
 
 func (x *UpdateNegotiationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[127]
+	mi := &file_stock_stock_proto_msgTypes[128]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10235,7 +10335,7 @@ func (x *UpdateNegotiationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateNegotiationResponse.ProtoReflect.Descriptor instead.
 func (*UpdateNegotiationResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{127}
+	return file_stock_stock_proto_rawDescGZIP(), []int{128}
 }
 
 type GetNegotiationRequest struct {
@@ -10248,7 +10348,7 @@ type GetNegotiationRequest struct {
 
 func (x *GetNegotiationRequest) Reset() {
 	*x = GetNegotiationRequest{}
-	mi := &file_stock_stock_proto_msgTypes[128]
+	mi := &file_stock_stock_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10260,7 +10360,7 @@ func (x *GetNegotiationRequest) String() string {
 func (*GetNegotiationRequest) ProtoMessage() {}
 
 func (x *GetNegotiationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[128]
+	mi := &file_stock_stock_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10273,7 +10373,7 @@ func (x *GetNegotiationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetNegotiationRequest.ProtoReflect.Descriptor instead.
 func (*GetNegotiationRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{128}
+	return file_stock_stock_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *GetNegotiationRequest) GetPeerBankCode() string {
@@ -10304,7 +10404,7 @@ type GetNegotiationResponse struct {
 
 func (x *GetNegotiationResponse) Reset() {
 	*x = GetNegotiationResponse{}
-	mi := &file_stock_stock_proto_msgTypes[129]
+	mi := &file_stock_stock_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10316,7 +10416,7 @@ func (x *GetNegotiationResponse) String() string {
 func (*GetNegotiationResponse) ProtoMessage() {}
 
 func (x *GetNegotiationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[129]
+	mi := &file_stock_stock_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10329,7 +10429,7 @@ func (x *GetNegotiationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetNegotiationResponse.ProtoReflect.Descriptor instead.
 func (*GetNegotiationResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{129}
+	return file_stock_stock_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *GetNegotiationResponse) GetId() *PeerForeignBankId {
@@ -10384,7 +10484,7 @@ type DeleteNegotiationRequest struct {
 
 func (x *DeleteNegotiationRequest) Reset() {
 	*x = DeleteNegotiationRequest{}
-	mi := &file_stock_stock_proto_msgTypes[130]
+	mi := &file_stock_stock_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10396,7 +10496,7 @@ func (x *DeleteNegotiationRequest) String() string {
 func (*DeleteNegotiationRequest) ProtoMessage() {}
 
 func (x *DeleteNegotiationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[130]
+	mi := &file_stock_stock_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10409,7 +10509,7 @@ func (x *DeleteNegotiationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNegotiationRequest.ProtoReflect.Descriptor instead.
 func (*DeleteNegotiationRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{130}
+	return file_stock_stock_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *DeleteNegotiationRequest) GetPeerBankCode() string {
@@ -10434,7 +10534,7 @@ type DeleteNegotiationResponse struct {
 
 func (x *DeleteNegotiationResponse) Reset() {
 	*x = DeleteNegotiationResponse{}
-	mi := &file_stock_stock_proto_msgTypes[131]
+	mi := &file_stock_stock_proto_msgTypes[132]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10446,7 +10546,7 @@ func (x *DeleteNegotiationResponse) String() string {
 func (*DeleteNegotiationResponse) ProtoMessage() {}
 
 func (x *DeleteNegotiationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[131]
+	mi := &file_stock_stock_proto_msgTypes[132]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10459,7 +10559,7 @@ func (x *DeleteNegotiationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteNegotiationResponse.ProtoReflect.Descriptor instead.
 func (*DeleteNegotiationResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{131}
+	return file_stock_stock_proto_rawDescGZIP(), []int{132}
 }
 
 type AcceptNegotiationRequest struct {
@@ -10472,7 +10572,7 @@ type AcceptNegotiationRequest struct {
 
 func (x *AcceptNegotiationRequest) Reset() {
 	*x = AcceptNegotiationRequest{}
-	mi := &file_stock_stock_proto_msgTypes[132]
+	mi := &file_stock_stock_proto_msgTypes[133]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10484,7 +10584,7 @@ func (x *AcceptNegotiationRequest) String() string {
 func (*AcceptNegotiationRequest) ProtoMessage() {}
 
 func (x *AcceptNegotiationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[132]
+	mi := &file_stock_stock_proto_msgTypes[133]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10497,7 +10597,7 @@ func (x *AcceptNegotiationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptNegotiationRequest.ProtoReflect.Descriptor instead.
 func (*AcceptNegotiationRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{132}
+	return file_stock_stock_proto_rawDescGZIP(), []int{133}
 }
 
 func (x *AcceptNegotiationRequest) GetPeerBankCode() string {
@@ -10524,7 +10624,7 @@ type AcceptNegotiationResponse struct {
 
 func (x *AcceptNegotiationResponse) Reset() {
 	*x = AcceptNegotiationResponse{}
-	mi := &file_stock_stock_proto_msgTypes[133]
+	mi := &file_stock_stock_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10536,7 +10636,7 @@ func (x *AcceptNegotiationResponse) String() string {
 func (*AcceptNegotiationResponse) ProtoMessage() {}
 
 func (x *AcceptNegotiationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[133]
+	mi := &file_stock_stock_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10549,7 +10649,7 @@ func (x *AcceptNegotiationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptNegotiationResponse.ProtoReflect.Descriptor instead.
 func (*AcceptNegotiationResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{133}
+	return file_stock_stock_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *AcceptNegotiationResponse) GetTransactionId() string {
@@ -10598,7 +10698,7 @@ type RecordOptionContractRequest struct {
 
 func (x *RecordOptionContractRequest) Reset() {
 	*x = RecordOptionContractRequest{}
-	mi := &file_stock_stock_proto_msgTypes[134]
+	mi := &file_stock_stock_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10610,7 +10710,7 @@ func (x *RecordOptionContractRequest) String() string {
 func (*RecordOptionContractRequest) ProtoMessage() {}
 
 func (x *RecordOptionContractRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[134]
+	mi := &file_stock_stock_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10623,7 +10723,7 @@ func (x *RecordOptionContractRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordOptionContractRequest.ProtoReflect.Descriptor instead.
 func (*RecordOptionContractRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{134}
+	return file_stock_stock_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *RecordOptionContractRequest) GetCrossbankTxId() string {
@@ -10684,7 +10784,7 @@ type RecordOptionContractResponse struct {
 
 func (x *RecordOptionContractResponse) Reset() {
 	*x = RecordOptionContractResponse{}
-	mi := &file_stock_stock_proto_msgTypes[135]
+	mi := &file_stock_stock_proto_msgTypes[136]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10696,7 +10796,7 @@ func (x *RecordOptionContractResponse) String() string {
 func (*RecordOptionContractResponse) ProtoMessage() {}
 
 func (x *RecordOptionContractResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[135]
+	mi := &file_stock_stock_proto_msgTypes[136]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10709,7 +10809,7 @@ func (x *RecordOptionContractResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordOptionContractResponse.ProtoReflect.Descriptor instead.
 func (*RecordOptionContractResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{135}
+	return file_stock_stock_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *RecordOptionContractResponse) GetContractId() uint64 {
@@ -10735,7 +10835,7 @@ type InitiateOptionExerciseRequest struct {
 
 func (x *InitiateOptionExerciseRequest) Reset() {
 	*x = InitiateOptionExerciseRequest{}
-	mi := &file_stock_stock_proto_msgTypes[136]
+	mi := &file_stock_stock_proto_msgTypes[137]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10747,7 +10847,7 @@ func (x *InitiateOptionExerciseRequest) String() string {
 func (*InitiateOptionExerciseRequest) ProtoMessage() {}
 
 func (x *InitiateOptionExerciseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[136]
+	mi := &file_stock_stock_proto_msgTypes[137]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10760,7 +10860,7 @@ func (x *InitiateOptionExerciseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitiateOptionExerciseRequest.ProtoReflect.Descriptor instead.
 func (*InitiateOptionExerciseRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{136}
+	return file_stock_stock_proto_rawDescGZIP(), []int{137}
 }
 
 func (x *InitiateOptionExerciseRequest) GetPeerOptionContractId() uint64 {
@@ -10787,7 +10887,7 @@ type InitiateOptionExerciseResponse struct {
 
 func (x *InitiateOptionExerciseResponse) Reset() {
 	*x = InitiateOptionExerciseResponse{}
-	mi := &file_stock_stock_proto_msgTypes[137]
+	mi := &file_stock_stock_proto_msgTypes[138]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10799,7 +10899,7 @@ func (x *InitiateOptionExerciseResponse) String() string {
 func (*InitiateOptionExerciseResponse) ProtoMessage() {}
 
 func (x *InitiateOptionExerciseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[137]
+	mi := &file_stock_stock_proto_msgTypes[138]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10812,7 +10912,7 @@ func (x *InitiateOptionExerciseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitiateOptionExerciseResponse.ProtoReflect.Descriptor instead.
 func (*InitiateOptionExerciseResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{137}
+	return file_stock_stock_proto_rawDescGZIP(), []int{138}
 }
 
 func (x *InitiateOptionExerciseResponse) GetTransactionId() string {
@@ -10845,7 +10945,7 @@ type CheckSellerCanDeliverRequest struct {
 
 func (x *CheckSellerCanDeliverRequest) Reset() {
 	*x = CheckSellerCanDeliverRequest{}
-	mi := &file_stock_stock_proto_msgTypes[138]
+	mi := &file_stock_stock_proto_msgTypes[139]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10857,7 +10957,7 @@ func (x *CheckSellerCanDeliverRequest) String() string {
 func (*CheckSellerCanDeliverRequest) ProtoMessage() {}
 
 func (x *CheckSellerCanDeliverRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[138]
+	mi := &file_stock_stock_proto_msgTypes[139]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10870,7 +10970,7 @@ func (x *CheckSellerCanDeliverRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckSellerCanDeliverRequest.ProtoReflect.Descriptor instead.
 func (*CheckSellerCanDeliverRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{138}
+	return file_stock_stock_proto_rawDescGZIP(), []int{139}
 }
 
 func (x *CheckSellerCanDeliverRequest) GetSellerId() *PeerForeignBankId {
@@ -10904,7 +11004,7 @@ type CheckSellerCanDeliverResponse struct {
 
 func (x *CheckSellerCanDeliverResponse) Reset() {
 	*x = CheckSellerCanDeliverResponse{}
-	mi := &file_stock_stock_proto_msgTypes[139]
+	mi := &file_stock_stock_proto_msgTypes[140]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10916,7 +11016,7 @@ func (x *CheckSellerCanDeliverResponse) String() string {
 func (*CheckSellerCanDeliverResponse) ProtoMessage() {}
 
 func (x *CheckSellerCanDeliverResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[139]
+	mi := &file_stock_stock_proto_msgTypes[140]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10929,7 +11029,7 @@ func (x *CheckSellerCanDeliverResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckSellerCanDeliverResponse.ProtoReflect.Descriptor instead.
 func (*CheckSellerCanDeliverResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{139}
+	return file_stock_stock_proto_rawDescGZIP(), []int{140}
 }
 
 func (x *CheckSellerCanDeliverResponse) GetOk() bool {
@@ -10957,7 +11057,7 @@ type AddWatchlistItemRequest struct {
 
 func (x *AddWatchlistItemRequest) Reset() {
 	*x = AddWatchlistItemRequest{}
-	mi := &file_stock_stock_proto_msgTypes[140]
+	mi := &file_stock_stock_proto_msgTypes[141]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10969,7 +11069,7 @@ func (x *AddWatchlistItemRequest) String() string {
 func (*AddWatchlistItemRequest) ProtoMessage() {}
 
 func (x *AddWatchlistItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[140]
+	mi := &file_stock_stock_proto_msgTypes[141]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10982,7 +11082,7 @@ func (x *AddWatchlistItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddWatchlistItemRequest.ProtoReflect.Descriptor instead.
 func (*AddWatchlistItemRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{140}
+	return file_stock_stock_proto_rawDescGZIP(), []int{141}
 }
 
 func (x *AddWatchlistItemRequest) GetOwnerType() string {
@@ -11017,7 +11117,7 @@ type RemoveWatchlistItemRequest struct {
 
 func (x *RemoveWatchlistItemRequest) Reset() {
 	*x = RemoveWatchlistItemRequest{}
-	mi := &file_stock_stock_proto_msgTypes[141]
+	mi := &file_stock_stock_proto_msgTypes[142]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11029,7 +11129,7 @@ func (x *RemoveWatchlistItemRequest) String() string {
 func (*RemoveWatchlistItemRequest) ProtoMessage() {}
 
 func (x *RemoveWatchlistItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[141]
+	mi := &file_stock_stock_proto_msgTypes[142]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11042,7 +11142,7 @@ func (x *RemoveWatchlistItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveWatchlistItemRequest.ProtoReflect.Descriptor instead.
 func (*RemoveWatchlistItemRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{141}
+	return file_stock_stock_proto_rawDescGZIP(), []int{142}
 }
 
 func (x *RemoveWatchlistItemRequest) GetOwnerType() string {
@@ -11075,7 +11175,7 @@ type RemoveWatchlistItemResponse struct {
 
 func (x *RemoveWatchlistItemResponse) Reset() {
 	*x = RemoveWatchlistItemResponse{}
-	mi := &file_stock_stock_proto_msgTypes[142]
+	mi := &file_stock_stock_proto_msgTypes[143]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11087,7 +11187,7 @@ func (x *RemoveWatchlistItemResponse) String() string {
 func (*RemoveWatchlistItemResponse) ProtoMessage() {}
 
 func (x *RemoveWatchlistItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[142]
+	mi := &file_stock_stock_proto_msgTypes[143]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11100,7 +11200,7 @@ func (x *RemoveWatchlistItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveWatchlistItemResponse.ProtoReflect.Descriptor instead.
 func (*RemoveWatchlistItemResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{142}
+	return file_stock_stock_proto_rawDescGZIP(), []int{143}
 }
 
 func (x *RemoveWatchlistItemResponse) GetRemoved() bool {
@@ -11121,7 +11221,7 @@ type ListMyWatchlistRequest struct {
 
 func (x *ListMyWatchlistRequest) Reset() {
 	*x = ListMyWatchlistRequest{}
-	mi := &file_stock_stock_proto_msgTypes[143]
+	mi := &file_stock_stock_proto_msgTypes[144]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11133,7 +11233,7 @@ func (x *ListMyWatchlistRequest) String() string {
 func (*ListMyWatchlistRequest) ProtoMessage() {}
 
 func (x *ListMyWatchlistRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[143]
+	mi := &file_stock_stock_proto_msgTypes[144]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11146,7 +11246,7 @@ func (x *ListMyWatchlistRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMyWatchlistRequest.ProtoReflect.Descriptor instead.
 func (*ListMyWatchlistRequest) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{143}
+	return file_stock_stock_proto_rawDescGZIP(), []int{144}
 }
 
 func (x *ListMyWatchlistRequest) GetOwnerType() string {
@@ -11186,7 +11286,7 @@ type WatchlistItemResponse struct {
 
 func (x *WatchlistItemResponse) Reset() {
 	*x = WatchlistItemResponse{}
-	mi := &file_stock_stock_proto_msgTypes[144]
+	mi := &file_stock_stock_proto_msgTypes[145]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11198,7 +11298,7 @@ func (x *WatchlistItemResponse) String() string {
 func (*WatchlistItemResponse) ProtoMessage() {}
 
 func (x *WatchlistItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[144]
+	mi := &file_stock_stock_proto_msgTypes[145]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11211,7 +11311,7 @@ func (x *WatchlistItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchlistItemResponse.ProtoReflect.Descriptor instead.
 func (*WatchlistItemResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{144}
+	return file_stock_stock_proto_rawDescGZIP(), []int{145}
 }
 
 func (x *WatchlistItemResponse) GetId() uint64 {
@@ -11279,7 +11379,7 @@ type ListMyWatchlistResponse struct {
 
 func (x *ListMyWatchlistResponse) Reset() {
 	*x = ListMyWatchlistResponse{}
-	mi := &file_stock_stock_proto_msgTypes[145]
+	mi := &file_stock_stock_proto_msgTypes[146]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11291,7 +11391,7 @@ func (x *ListMyWatchlistResponse) String() string {
 func (*ListMyWatchlistResponse) ProtoMessage() {}
 
 func (x *ListMyWatchlistResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_stock_stock_proto_msgTypes[145]
+	mi := &file_stock_stock_proto_msgTypes[146]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11304,7 +11404,7 @@ func (x *ListMyWatchlistResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListMyWatchlistResponse.ProtoReflect.Descriptor instead.
 func (*ListMyWatchlistResponse) Descriptor() ([]byte, []int) {
-	return file_stock_stock_proto_rawDescGZIP(), []int{145}
+	return file_stock_stock_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *ListMyWatchlistResponse) GetItems() []*WatchlistItemResponse {
@@ -12080,7 +12180,18 @@ const file_stock_stock_proto_rawDesc = "" +
 	"employeeId\x12\x1b\n" +
 	"\tfull_name\x18\x02 \x01(\tR\bfullName\x12\x12\n" +
 	"\x04role\x18\x03 \x01(\tR\x04role\x12.\n" +
-	"\x13realized_profit_rsd\x18\x04 \x01(\tR\x11realizedProfitRsd\"\x84\x01\n" +
+	"\x13realized_profit_rsd\x18\x04 \x01(\tR\x11realizedProfitRsd\"\xa3\x02\n" +
+	"\x1dListNegotiationHistoryRequest\x12\"\n" +
+	"\ractor_user_id\x18\x01 \x01(\x03R\vactorUserId\x12*\n" +
+	"\x11actor_system_type\x18\x02 \x01(\tR\x0factorSystemType\x12\x1a\n" +
+	"\bstatuses\x18\x03 \x03(\tR\bstatuses\x12\x1d\n" +
+	"\n" +
+	"since_unix\x18\x04 \x01(\x03R\tsinceUnix\x12\x1d\n" +
+	"\n" +
+	"until_unix\x18\x05 \x01(\x03R\tuntilUnix\x12'\n" +
+	"\x0fcounterparty_id\x18\x06 \x01(\x04R\x0ecounterpartyId\x12\x12\n" +
+	"\x04page\x18\a \x01(\x05R\x04page\x12\x1b\n" +
+	"\tpage_size\x18\b \x01(\x05R\bpageSize\"\x84\x01\n" +
 	"\bPartyRef\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1f\n" +
 	"\vsystem_type\x18\x02 \x01(\tR\n" +
@@ -12433,7 +12544,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x0eRedeemFromFund\x12\x1c.stock.RedeemFromFundRequest\x1a\x1b.stock.ContributionResponse\x12N\n" +
 	"\x0fListMyPositions\x12\x1d.stock.ListMyPositionsRequest\x1a\x1c.stock.ListPositionsResponse\x12R\n" +
 	"\x11ListBankPositions\x12\x1f.stock.ListBankPositionsRequest\x1a\x1c.stock.ListPositionsResponse\x12b\n" +
-	"\x15GetActuaryPerformance\x12#.stock.GetActuaryPerformanceRequest\x1a$.stock.GetActuaryPerformanceResponse2\xab\x05\n" +
+	"\x15GetActuaryPerformance\x12#.stock.GetActuaryPerformanceRequest\x1a$.stock.GetActuaryPerformanceResponse2\x8b\x06\n" +
 	"\x11OTCOptionsService\x12D\n" +
 	"\vCreateOffer\x12\x1c.stock.CreateOTCOfferRequest\x1a\x17.stock.OTCOfferResponse\x12M\n" +
 	"\fListMyOffers\x12\x1d.stock.ListMyOTCOffersRequest\x1a\x1e.stock.ListMyOTCOffersResponse\x12D\n" +
@@ -12443,7 +12554,8 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\vRejectOffer\x12\x1c.stock.RejectOTCOfferRequest\x1a\x17.stock.OTCOfferResponse\x12N\n" +
 	"\x0fListMyContracts\x12\x1d.stock.ListMyContractsRequest\x1a\x1c.stock.ListContractsResponse\x12G\n" +
 	"\vGetContract\x12\x19.stock.GetContractRequest\x1a\x1d.stock.OptionContractResponse\x12K\n" +
-	"\x10ExerciseContract\x12\x1e.stock.ExerciseContractRequest\x1a\x17.stock.ExerciseResponse2\xbd\x06\n" +
+	"\x10ExerciseContract\x12\x1e.stock.ExerciseContractRequest\x1a\x17.stock.ExerciseResponse\x12^\n" +
+	"\x16ListNegotiationHistory\x12$.stock.ListNegotiationHistoryRequest\x1a\x1e.stock.ListMyOTCOffersResponse2\xbd\x06\n" +
 	"\x0ePeerOTCService\x12P\n" +
 	"\x0fGetPublicStocks\x12\x1d.stock.GetPublicStocksRequest\x1a\x1e.stock.GetPublicStocksResponse\x12V\n" +
 	"\x11CreateNegotiation\x12\x1f.stock.CreateNegotiationRequest\x1a .stock.CreateNegotiationResponse\x12V\n" +
@@ -12473,7 +12585,7 @@ func file_stock_stock_proto_rawDescGZIP() []byte {
 }
 
 var file_stock_stock_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_stock_stock_proto_msgTypes = make([]protoimpl.MessageInfo, 146)
+var file_stock_stock_proto_msgTypes = make([]protoimpl.MessageInfo, 147)
 var file_stock_stock_proto_goTypes = []any{
 	(OwnerType)(0),                          // 0: stock.OwnerType
 	(*Exchange)(nil),                        // 1: stock.Exchange
@@ -12576,52 +12688,53 @@ var file_stock_stock_proto_goTypes = []any{
 	(*GetActuaryPerformanceRequest)(nil),    // 98: stock.GetActuaryPerformanceRequest
 	(*GetActuaryPerformanceResponse)(nil),   // 99: stock.GetActuaryPerformanceResponse
 	(*ActuaryPerformance)(nil),              // 100: stock.ActuaryPerformance
-	(*PartyRef)(nil),                        // 101: stock.PartyRef
-	(*CreateOTCOfferRequest)(nil),           // 102: stock.CreateOTCOfferRequest
-	(*OTCOfferResponse)(nil),                // 103: stock.OTCOfferResponse
-	(*OTCOfferRevisionItem)(nil),            // 104: stock.OTCOfferRevisionItem
-	(*OTCOfferDetailResponse)(nil),          // 105: stock.OTCOfferDetailResponse
-	(*ListMyOTCOffersRequest)(nil),          // 106: stock.ListMyOTCOffersRequest
-	(*ListMyOTCOffersResponse)(nil),         // 107: stock.ListMyOTCOffersResponse
-	(*GetOTCOfferRequest)(nil),              // 108: stock.GetOTCOfferRequest
-	(*CounterOTCOfferRequest)(nil),          // 109: stock.CounterOTCOfferRequest
-	(*AcceptOTCOfferRequest)(nil),           // 110: stock.AcceptOTCOfferRequest
-	(*AcceptOfferResponse)(nil),             // 111: stock.AcceptOfferResponse
-	(*RejectOTCOfferRequest)(nil),           // 112: stock.RejectOTCOfferRequest
-	(*OptionContractResponse)(nil),          // 113: stock.OptionContractResponse
-	(*ListMyContractsRequest)(nil),          // 114: stock.ListMyContractsRequest
-	(*ListContractsResponse)(nil),           // 115: stock.ListContractsResponse
-	(*PeerOptionContractResponse)(nil),      // 116: stock.PeerOptionContractResponse
-	(*GetContractRequest)(nil),              // 117: stock.GetContractRequest
-	(*ExerciseContractRequest)(nil),         // 118: stock.ExerciseContractRequest
-	(*ExerciseResponse)(nil),                // 119: stock.ExerciseResponse
-	(*PeerForeignBankId)(nil),               // 120: stock.PeerForeignBankId
-	(*PeerOtcOffer)(nil),                    // 121: stock.PeerOtcOffer
-	(*GetPublicStocksRequest)(nil),          // 122: stock.GetPublicStocksRequest
-	(*PeerPublicStock)(nil),                 // 123: stock.PeerPublicStock
-	(*GetPublicStocksResponse)(nil),         // 124: stock.GetPublicStocksResponse
-	(*CreateNegotiationRequest)(nil),        // 125: stock.CreateNegotiationRequest
-	(*CreateNegotiationResponse)(nil),       // 126: stock.CreateNegotiationResponse
-	(*UpdateNegotiationRequest)(nil),        // 127: stock.UpdateNegotiationRequest
-	(*UpdateNegotiationResponse)(nil),       // 128: stock.UpdateNegotiationResponse
-	(*GetNegotiationRequest)(nil),           // 129: stock.GetNegotiationRequest
-	(*GetNegotiationResponse)(nil),          // 130: stock.GetNegotiationResponse
-	(*DeleteNegotiationRequest)(nil),        // 131: stock.DeleteNegotiationRequest
-	(*DeleteNegotiationResponse)(nil),       // 132: stock.DeleteNegotiationResponse
-	(*AcceptNegotiationRequest)(nil),        // 133: stock.AcceptNegotiationRequest
-	(*AcceptNegotiationResponse)(nil),       // 134: stock.AcceptNegotiationResponse
-	(*RecordOptionContractRequest)(nil),     // 135: stock.RecordOptionContractRequest
-	(*RecordOptionContractResponse)(nil),    // 136: stock.RecordOptionContractResponse
-	(*InitiateOptionExerciseRequest)(nil),   // 137: stock.InitiateOptionExerciseRequest
-	(*InitiateOptionExerciseResponse)(nil),  // 138: stock.InitiateOptionExerciseResponse
-	(*CheckSellerCanDeliverRequest)(nil),    // 139: stock.CheckSellerCanDeliverRequest
-	(*CheckSellerCanDeliverResponse)(nil),   // 140: stock.CheckSellerCanDeliverResponse
-	(*AddWatchlistItemRequest)(nil),         // 141: stock.AddWatchlistItemRequest
-	(*RemoveWatchlistItemRequest)(nil),      // 142: stock.RemoveWatchlistItemRequest
-	(*RemoveWatchlistItemResponse)(nil),     // 143: stock.RemoveWatchlistItemResponse
-	(*ListMyWatchlistRequest)(nil),          // 144: stock.ListMyWatchlistRequest
-	(*WatchlistItemResponse)(nil),           // 145: stock.WatchlistItemResponse
-	(*ListMyWatchlistResponse)(nil),         // 146: stock.ListMyWatchlistResponse
+	(*ListNegotiationHistoryRequest)(nil),   // 101: stock.ListNegotiationHistoryRequest
+	(*PartyRef)(nil),                        // 102: stock.PartyRef
+	(*CreateOTCOfferRequest)(nil),           // 103: stock.CreateOTCOfferRequest
+	(*OTCOfferResponse)(nil),                // 104: stock.OTCOfferResponse
+	(*OTCOfferRevisionItem)(nil),            // 105: stock.OTCOfferRevisionItem
+	(*OTCOfferDetailResponse)(nil),          // 106: stock.OTCOfferDetailResponse
+	(*ListMyOTCOffersRequest)(nil),          // 107: stock.ListMyOTCOffersRequest
+	(*ListMyOTCOffersResponse)(nil),         // 108: stock.ListMyOTCOffersResponse
+	(*GetOTCOfferRequest)(nil),              // 109: stock.GetOTCOfferRequest
+	(*CounterOTCOfferRequest)(nil),          // 110: stock.CounterOTCOfferRequest
+	(*AcceptOTCOfferRequest)(nil),           // 111: stock.AcceptOTCOfferRequest
+	(*AcceptOfferResponse)(nil),             // 112: stock.AcceptOfferResponse
+	(*RejectOTCOfferRequest)(nil),           // 113: stock.RejectOTCOfferRequest
+	(*OptionContractResponse)(nil),          // 114: stock.OptionContractResponse
+	(*ListMyContractsRequest)(nil),          // 115: stock.ListMyContractsRequest
+	(*ListContractsResponse)(nil),           // 116: stock.ListContractsResponse
+	(*PeerOptionContractResponse)(nil),      // 117: stock.PeerOptionContractResponse
+	(*GetContractRequest)(nil),              // 118: stock.GetContractRequest
+	(*ExerciseContractRequest)(nil),         // 119: stock.ExerciseContractRequest
+	(*ExerciseResponse)(nil),                // 120: stock.ExerciseResponse
+	(*PeerForeignBankId)(nil),               // 121: stock.PeerForeignBankId
+	(*PeerOtcOffer)(nil),                    // 122: stock.PeerOtcOffer
+	(*GetPublicStocksRequest)(nil),          // 123: stock.GetPublicStocksRequest
+	(*PeerPublicStock)(nil),                 // 124: stock.PeerPublicStock
+	(*GetPublicStocksResponse)(nil),         // 125: stock.GetPublicStocksResponse
+	(*CreateNegotiationRequest)(nil),        // 126: stock.CreateNegotiationRequest
+	(*CreateNegotiationResponse)(nil),       // 127: stock.CreateNegotiationResponse
+	(*UpdateNegotiationRequest)(nil),        // 128: stock.UpdateNegotiationRequest
+	(*UpdateNegotiationResponse)(nil),       // 129: stock.UpdateNegotiationResponse
+	(*GetNegotiationRequest)(nil),           // 130: stock.GetNegotiationRequest
+	(*GetNegotiationResponse)(nil),          // 131: stock.GetNegotiationResponse
+	(*DeleteNegotiationRequest)(nil),        // 132: stock.DeleteNegotiationRequest
+	(*DeleteNegotiationResponse)(nil),       // 133: stock.DeleteNegotiationResponse
+	(*AcceptNegotiationRequest)(nil),        // 134: stock.AcceptNegotiationRequest
+	(*AcceptNegotiationResponse)(nil),       // 135: stock.AcceptNegotiationResponse
+	(*RecordOptionContractRequest)(nil),     // 136: stock.RecordOptionContractRequest
+	(*RecordOptionContractResponse)(nil),    // 137: stock.RecordOptionContractResponse
+	(*InitiateOptionExerciseRequest)(nil),   // 138: stock.InitiateOptionExerciseRequest
+	(*InitiateOptionExerciseResponse)(nil),  // 139: stock.InitiateOptionExerciseResponse
+	(*CheckSellerCanDeliverRequest)(nil),    // 140: stock.CheckSellerCanDeliverRequest
+	(*CheckSellerCanDeliverResponse)(nil),   // 141: stock.CheckSellerCanDeliverResponse
+	(*AddWatchlistItemRequest)(nil),         // 142: stock.AddWatchlistItemRequest
+	(*RemoveWatchlistItemRequest)(nil),      // 143: stock.RemoveWatchlistItemRequest
+	(*RemoveWatchlistItemResponse)(nil),     // 144: stock.RemoveWatchlistItemResponse
+	(*ListMyWatchlistRequest)(nil),          // 145: stock.ListMyWatchlistRequest
+	(*WatchlistItemResponse)(nil),           // 146: stock.WatchlistItemResponse
+	(*ListMyWatchlistResponse)(nil),         // 147: stock.ListMyWatchlistResponse
 }
 var file_stock_stock_proto_depIdxs = []int32{
 	1,   // 0: stock.ListExchangesResponse.exchanges:type_name -> stock.Exchange
@@ -12656,41 +12769,41 @@ var file_stock_stock_proto_depIdxs = []int32{
 	82,  // 29: stock.RedeemFromFundRequest.on_behalf_of:type_name -> stock.OnBehalfOf
 	97,  // 30: stock.ListPositionsResponse.positions:type_name -> stock.PositionItem
 	100, // 31: stock.GetActuaryPerformanceResponse.actuaries:type_name -> stock.ActuaryPerformance
-	101, // 32: stock.CreateOTCOfferRequest.counterparty:type_name -> stock.PartyRef
-	101, // 33: stock.OTCOfferResponse.initiator:type_name -> stock.PartyRef
-	101, // 34: stock.OTCOfferResponse.counterparty:type_name -> stock.PartyRef
-	101, // 35: stock.OTCOfferResponse.last_modified_by:type_name -> stock.PartyRef
-	101, // 36: stock.OTCOfferRevisionItem.modified_by:type_name -> stock.PartyRef
-	103, // 37: stock.OTCOfferDetailResponse.offer:type_name -> stock.OTCOfferResponse
-	104, // 38: stock.OTCOfferDetailResponse.revisions:type_name -> stock.OTCOfferRevisionItem
-	103, // 39: stock.ListMyOTCOffersResponse.offers:type_name -> stock.OTCOfferResponse
-	113, // 40: stock.AcceptOfferResponse.contract:type_name -> stock.OptionContractResponse
-	101, // 41: stock.OptionContractResponse.buyer:type_name -> stock.PartyRef
-	101, // 42: stock.OptionContractResponse.seller:type_name -> stock.PartyRef
-	113, // 43: stock.ListContractsResponse.contracts:type_name -> stock.OptionContractResponse
-	116, // 44: stock.ListContractsResponse.peer_contracts:type_name -> stock.PeerOptionContractResponse
-	120, // 45: stock.PeerOptionContractResponse.buyer_id:type_name -> stock.PeerForeignBankId
-	120, // 46: stock.PeerOptionContractResponse.seller_id:type_name -> stock.PeerForeignBankId
-	120, // 47: stock.PeerOtcOffer.last_modified_by:type_name -> stock.PeerForeignBankId
-	120, // 48: stock.PeerPublicStock.owner_id:type_name -> stock.PeerForeignBankId
-	123, // 49: stock.GetPublicStocksResponse.stocks:type_name -> stock.PeerPublicStock
-	121, // 50: stock.CreateNegotiationRequest.offer:type_name -> stock.PeerOtcOffer
-	120, // 51: stock.CreateNegotiationRequest.buyer_id:type_name -> stock.PeerForeignBankId
-	120, // 52: stock.CreateNegotiationRequest.seller_id:type_name -> stock.PeerForeignBankId
-	120, // 53: stock.CreateNegotiationResponse.negotiation_id:type_name -> stock.PeerForeignBankId
-	120, // 54: stock.UpdateNegotiationRequest.negotiation_id:type_name -> stock.PeerForeignBankId
-	121, // 55: stock.UpdateNegotiationRequest.offer:type_name -> stock.PeerOtcOffer
-	120, // 56: stock.GetNegotiationRequest.negotiation_id:type_name -> stock.PeerForeignBankId
-	120, // 57: stock.GetNegotiationResponse.id:type_name -> stock.PeerForeignBankId
-	120, // 58: stock.GetNegotiationResponse.buyer_id:type_name -> stock.PeerForeignBankId
-	120, // 59: stock.GetNegotiationResponse.seller_id:type_name -> stock.PeerForeignBankId
-	121, // 60: stock.GetNegotiationResponse.offer:type_name -> stock.PeerOtcOffer
-	120, // 61: stock.DeleteNegotiationRequest.negotiation_id:type_name -> stock.PeerForeignBankId
-	120, // 62: stock.AcceptNegotiationRequest.negotiation_id:type_name -> stock.PeerForeignBankId
-	120, // 63: stock.RecordOptionContractRequest.buyer_id:type_name -> stock.PeerForeignBankId
-	120, // 64: stock.RecordOptionContractRequest.seller_id:type_name -> stock.PeerForeignBankId
-	120, // 65: stock.CheckSellerCanDeliverRequest.seller_id:type_name -> stock.PeerForeignBankId
-	145, // 66: stock.ListMyWatchlistResponse.items:type_name -> stock.WatchlistItemResponse
+	102, // 32: stock.CreateOTCOfferRequest.counterparty:type_name -> stock.PartyRef
+	102, // 33: stock.OTCOfferResponse.initiator:type_name -> stock.PartyRef
+	102, // 34: stock.OTCOfferResponse.counterparty:type_name -> stock.PartyRef
+	102, // 35: stock.OTCOfferResponse.last_modified_by:type_name -> stock.PartyRef
+	102, // 36: stock.OTCOfferRevisionItem.modified_by:type_name -> stock.PartyRef
+	104, // 37: stock.OTCOfferDetailResponse.offer:type_name -> stock.OTCOfferResponse
+	105, // 38: stock.OTCOfferDetailResponse.revisions:type_name -> stock.OTCOfferRevisionItem
+	104, // 39: stock.ListMyOTCOffersResponse.offers:type_name -> stock.OTCOfferResponse
+	114, // 40: stock.AcceptOfferResponse.contract:type_name -> stock.OptionContractResponse
+	102, // 41: stock.OptionContractResponse.buyer:type_name -> stock.PartyRef
+	102, // 42: stock.OptionContractResponse.seller:type_name -> stock.PartyRef
+	114, // 43: stock.ListContractsResponse.contracts:type_name -> stock.OptionContractResponse
+	117, // 44: stock.ListContractsResponse.peer_contracts:type_name -> stock.PeerOptionContractResponse
+	121, // 45: stock.PeerOptionContractResponse.buyer_id:type_name -> stock.PeerForeignBankId
+	121, // 46: stock.PeerOptionContractResponse.seller_id:type_name -> stock.PeerForeignBankId
+	121, // 47: stock.PeerOtcOffer.last_modified_by:type_name -> stock.PeerForeignBankId
+	121, // 48: stock.PeerPublicStock.owner_id:type_name -> stock.PeerForeignBankId
+	124, // 49: stock.GetPublicStocksResponse.stocks:type_name -> stock.PeerPublicStock
+	122, // 50: stock.CreateNegotiationRequest.offer:type_name -> stock.PeerOtcOffer
+	121, // 51: stock.CreateNegotiationRequest.buyer_id:type_name -> stock.PeerForeignBankId
+	121, // 52: stock.CreateNegotiationRequest.seller_id:type_name -> stock.PeerForeignBankId
+	121, // 53: stock.CreateNegotiationResponse.negotiation_id:type_name -> stock.PeerForeignBankId
+	121, // 54: stock.UpdateNegotiationRequest.negotiation_id:type_name -> stock.PeerForeignBankId
+	122, // 55: stock.UpdateNegotiationRequest.offer:type_name -> stock.PeerOtcOffer
+	121, // 56: stock.GetNegotiationRequest.negotiation_id:type_name -> stock.PeerForeignBankId
+	121, // 57: stock.GetNegotiationResponse.id:type_name -> stock.PeerForeignBankId
+	121, // 58: stock.GetNegotiationResponse.buyer_id:type_name -> stock.PeerForeignBankId
+	121, // 59: stock.GetNegotiationResponse.seller_id:type_name -> stock.PeerForeignBankId
+	122, // 60: stock.GetNegotiationResponse.offer:type_name -> stock.PeerOtcOffer
+	121, // 61: stock.DeleteNegotiationRequest.negotiation_id:type_name -> stock.PeerForeignBankId
+	121, // 62: stock.AcceptNegotiationRequest.negotiation_id:type_name -> stock.PeerForeignBankId
+	121, // 63: stock.RecordOptionContractRequest.buyer_id:type_name -> stock.PeerForeignBankId
+	121, // 64: stock.RecordOptionContractRequest.seller_id:type_name -> stock.PeerForeignBankId
+	121, // 65: stock.CheckSellerCanDeliverRequest.seller_id:type_name -> stock.PeerForeignBankId
+	146, // 66: stock.ListMyWatchlistResponse.items:type_name -> stock.WatchlistItemResponse
 	2,   // 67: stock.StockExchangeGRPCService.ListExchanges:input_type -> stock.ListExchangesRequest
 	4,   // 68: stock.StockExchangeGRPCService.GetExchange:input_type -> stock.GetExchangeRequest
 	5,   // 69: stock.StockExchangeGRPCService.SetTestingMode:input_type -> stock.SetTestingModeRequest
@@ -12738,97 +12851,99 @@ var file_stock_stock_proto_depIdxs = []int32{
 	94,  // 111: stock.InvestmentFundService.ListMyPositions:input_type -> stock.ListMyPositionsRequest
 	95,  // 112: stock.InvestmentFundService.ListBankPositions:input_type -> stock.ListBankPositionsRequest
 	98,  // 113: stock.InvestmentFundService.GetActuaryPerformance:input_type -> stock.GetActuaryPerformanceRequest
-	102, // 114: stock.OTCOptionsService.CreateOffer:input_type -> stock.CreateOTCOfferRequest
-	106, // 115: stock.OTCOptionsService.ListMyOffers:input_type -> stock.ListMyOTCOffersRequest
-	108, // 116: stock.OTCOptionsService.GetOffer:input_type -> stock.GetOTCOfferRequest
-	109, // 117: stock.OTCOptionsService.CounterOffer:input_type -> stock.CounterOTCOfferRequest
-	110, // 118: stock.OTCOptionsService.AcceptOffer:input_type -> stock.AcceptOTCOfferRequest
-	112, // 119: stock.OTCOptionsService.RejectOffer:input_type -> stock.RejectOTCOfferRequest
-	114, // 120: stock.OTCOptionsService.ListMyContracts:input_type -> stock.ListMyContractsRequest
-	117, // 121: stock.OTCOptionsService.GetContract:input_type -> stock.GetContractRequest
-	118, // 122: stock.OTCOptionsService.ExerciseContract:input_type -> stock.ExerciseContractRequest
-	122, // 123: stock.PeerOTCService.GetPublicStocks:input_type -> stock.GetPublicStocksRequest
-	125, // 124: stock.PeerOTCService.CreateNegotiation:input_type -> stock.CreateNegotiationRequest
-	127, // 125: stock.PeerOTCService.UpdateNegotiation:input_type -> stock.UpdateNegotiationRequest
-	129, // 126: stock.PeerOTCService.GetNegotiation:input_type -> stock.GetNegotiationRequest
-	131, // 127: stock.PeerOTCService.DeleteNegotiation:input_type -> stock.DeleteNegotiationRequest
-	133, // 128: stock.PeerOTCService.AcceptNegotiation:input_type -> stock.AcceptNegotiationRequest
-	135, // 129: stock.PeerOTCService.RecordOptionContract:input_type -> stock.RecordOptionContractRequest
-	139, // 130: stock.PeerOTCService.CheckSellerCanDeliver:input_type -> stock.CheckSellerCanDeliverRequest
-	137, // 131: stock.PeerOTCService.InitiateOptionExercise:input_type -> stock.InitiateOptionExerciseRequest
-	141, // 132: stock.WatchlistService.AddItem:input_type -> stock.AddWatchlistItemRequest
-	142, // 133: stock.WatchlistService.RemoveItem:input_type -> stock.RemoveWatchlistItemRequest
-	144, // 134: stock.WatchlistService.ListMy:input_type -> stock.ListMyWatchlistRequest
-	3,   // 135: stock.StockExchangeGRPCService.ListExchanges:output_type -> stock.ListExchangesResponse
-	1,   // 136: stock.StockExchangeGRPCService.GetExchange:output_type -> stock.Exchange
-	6,   // 137: stock.StockExchangeGRPCService.SetTestingMode:output_type -> stock.SetTestingModeResponse
-	8,   // 138: stock.StockExchangeGRPCService.GetTestingMode:output_type -> stock.GetTestingModeResponse
-	17,  // 139: stock.SecurityGRPCService.ListStocks:output_type -> stock.ListStocksResponse
-	15,  // 140: stock.SecurityGRPCService.GetStock:output_type -> stock.StockDetail
-	15,  // 141: stock.SecurityGRPCService.GetStockByTicker:output_type -> stock.StockDetail
-	13,  // 142: stock.SecurityGRPCService.GetStockHistory:output_type -> stock.PriceHistoryResponse
-	23,  // 143: stock.SecurityGRPCService.ListFutures:output_type -> stock.ListFuturesResponse
-	21,  // 144: stock.SecurityGRPCService.GetFutures:output_type -> stock.FuturesDetail
-	13,  // 145: stock.SecurityGRPCService.GetFuturesHistory:output_type -> stock.PriceHistoryResponse
-	28,  // 146: stock.SecurityGRPCService.ListForexPairs:output_type -> stock.ListForexPairsResponse
-	26,  // 147: stock.SecurityGRPCService.GetForexPair:output_type -> stock.ForexPairDetail
-	13,  // 148: stock.SecurityGRPCService.GetForexPairHistory:output_type -> stock.PriceHistoryResponse
-	33,  // 149: stock.SecurityGRPCService.ListOptions:output_type -> stock.ListOptionsResponse
-	31,  // 150: stock.SecurityGRPCService.GetOption:output_type -> stock.OptionDetail
-	37,  // 151: stock.SecurityGRPCService.GetCandles:output_type -> stock.GetCandlesResponse
-	38,  // 152: stock.OrderGRPCService.CreateOrder:output_type -> stock.Order
-	40,  // 153: stock.OrderGRPCService.GetOrder:output_type -> stock.OrderDetail
-	45,  // 154: stock.OrderGRPCService.ListMyOrders:output_type -> stock.ListOrdersResponse
-	38,  // 155: stock.OrderGRPCService.CancelOrder:output_type -> stock.Order
-	45,  // 156: stock.OrderGRPCService.ListOrders:output_type -> stock.ListOrdersResponse
-	38,  // 157: stock.OrderGRPCService.ApproveOrder:output_type -> stock.Order
-	38,  // 158: stock.OrderGRPCService.DeclineOrder:output_type -> stock.Order
-	51,  // 159: stock.PortfolioGRPCService.ListHoldings:output_type -> stock.ListHoldingsResponse
-	53,  // 160: stock.PortfolioGRPCService.GetPortfolioSummary:output_type -> stock.PortfolioSummary
-	49,  // 161: stock.PortfolioGRPCService.MakePublic:output_type -> stock.Holding
-	57,  // 162: stock.PortfolioGRPCService.ExerciseOption:output_type -> stock.ExerciseResult
-	57,  // 163: stock.PortfolioGRPCService.ExerciseOptionByOptionID:output_type -> stock.ExerciseResult
-	60,  // 164: stock.PortfolioGRPCService.ListHoldingTransactions:output_type -> stock.ListHoldingTransactionsResponse
-	63,  // 165: stock.OTCGRPCService.ListOffers:output_type -> stock.ListOTCOffersResponse
-	68,  // 166: stock.OTCGRPCService.BuyOffer:output_type -> stock.OTCTransaction
-	66,  // 167: stock.OTCGRPCService.ListUnifiedOffers:output_type -> stock.ListUnifiedOTCOffersResponse
-	71,  // 168: stock.TaxGRPCService.ListTaxRecords:output_type -> stock.ListTaxRecordsResponse
-	73,  // 169: stock.TaxGRPCService.CollectTax:output_type -> stock.CollectTaxResponse
-	76,  // 170: stock.TaxGRPCService.ListUserTaxRecords:output_type -> stock.ListUserTaxRecordsResponse
-	79,  // 171: stock.SourceAdminService.SwitchSource:output_type -> stock.SwitchSourceResponse
-	81,  // 172: stock.SourceAdminService.GetSourceStatus:output_type -> stock.SourceStatus
-	84,  // 173: stock.InvestmentFundService.CreateFund:output_type -> stock.FundResponse
-	86,  // 174: stock.InvestmentFundService.ListFunds:output_type -> stock.ListFundsResponse
-	88,  // 175: stock.InvestmentFundService.GetFund:output_type -> stock.FundDetailResponse
-	84,  // 176: stock.InvestmentFundService.UpdateFund:output_type -> stock.FundResponse
-	93,  // 177: stock.InvestmentFundService.InvestInFund:output_type -> stock.ContributionResponse
-	93,  // 178: stock.InvestmentFundService.RedeemFromFund:output_type -> stock.ContributionResponse
-	96,  // 179: stock.InvestmentFundService.ListMyPositions:output_type -> stock.ListPositionsResponse
-	96,  // 180: stock.InvestmentFundService.ListBankPositions:output_type -> stock.ListPositionsResponse
-	99,  // 181: stock.InvestmentFundService.GetActuaryPerformance:output_type -> stock.GetActuaryPerformanceResponse
-	103, // 182: stock.OTCOptionsService.CreateOffer:output_type -> stock.OTCOfferResponse
-	107, // 183: stock.OTCOptionsService.ListMyOffers:output_type -> stock.ListMyOTCOffersResponse
-	105, // 184: stock.OTCOptionsService.GetOffer:output_type -> stock.OTCOfferDetailResponse
-	103, // 185: stock.OTCOptionsService.CounterOffer:output_type -> stock.OTCOfferResponse
-	111, // 186: stock.OTCOptionsService.AcceptOffer:output_type -> stock.AcceptOfferResponse
-	103, // 187: stock.OTCOptionsService.RejectOffer:output_type -> stock.OTCOfferResponse
-	115, // 188: stock.OTCOptionsService.ListMyContracts:output_type -> stock.ListContractsResponse
-	113, // 189: stock.OTCOptionsService.GetContract:output_type -> stock.OptionContractResponse
-	119, // 190: stock.OTCOptionsService.ExerciseContract:output_type -> stock.ExerciseResponse
-	124, // 191: stock.PeerOTCService.GetPublicStocks:output_type -> stock.GetPublicStocksResponse
-	126, // 192: stock.PeerOTCService.CreateNegotiation:output_type -> stock.CreateNegotiationResponse
-	128, // 193: stock.PeerOTCService.UpdateNegotiation:output_type -> stock.UpdateNegotiationResponse
-	130, // 194: stock.PeerOTCService.GetNegotiation:output_type -> stock.GetNegotiationResponse
-	132, // 195: stock.PeerOTCService.DeleteNegotiation:output_type -> stock.DeleteNegotiationResponse
-	134, // 196: stock.PeerOTCService.AcceptNegotiation:output_type -> stock.AcceptNegotiationResponse
-	136, // 197: stock.PeerOTCService.RecordOptionContract:output_type -> stock.RecordOptionContractResponse
-	140, // 198: stock.PeerOTCService.CheckSellerCanDeliver:output_type -> stock.CheckSellerCanDeliverResponse
-	138, // 199: stock.PeerOTCService.InitiateOptionExercise:output_type -> stock.InitiateOptionExerciseResponse
-	145, // 200: stock.WatchlistService.AddItem:output_type -> stock.WatchlistItemResponse
-	143, // 201: stock.WatchlistService.RemoveItem:output_type -> stock.RemoveWatchlistItemResponse
-	146, // 202: stock.WatchlistService.ListMy:output_type -> stock.ListMyWatchlistResponse
-	135, // [135:203] is the sub-list for method output_type
-	67,  // [67:135] is the sub-list for method input_type
+	103, // 114: stock.OTCOptionsService.CreateOffer:input_type -> stock.CreateOTCOfferRequest
+	107, // 115: stock.OTCOptionsService.ListMyOffers:input_type -> stock.ListMyOTCOffersRequest
+	109, // 116: stock.OTCOptionsService.GetOffer:input_type -> stock.GetOTCOfferRequest
+	110, // 117: stock.OTCOptionsService.CounterOffer:input_type -> stock.CounterOTCOfferRequest
+	111, // 118: stock.OTCOptionsService.AcceptOffer:input_type -> stock.AcceptOTCOfferRequest
+	113, // 119: stock.OTCOptionsService.RejectOffer:input_type -> stock.RejectOTCOfferRequest
+	115, // 120: stock.OTCOptionsService.ListMyContracts:input_type -> stock.ListMyContractsRequest
+	118, // 121: stock.OTCOptionsService.GetContract:input_type -> stock.GetContractRequest
+	119, // 122: stock.OTCOptionsService.ExerciseContract:input_type -> stock.ExerciseContractRequest
+	101, // 123: stock.OTCOptionsService.ListNegotiationHistory:input_type -> stock.ListNegotiationHistoryRequest
+	123, // 124: stock.PeerOTCService.GetPublicStocks:input_type -> stock.GetPublicStocksRequest
+	126, // 125: stock.PeerOTCService.CreateNegotiation:input_type -> stock.CreateNegotiationRequest
+	128, // 126: stock.PeerOTCService.UpdateNegotiation:input_type -> stock.UpdateNegotiationRequest
+	130, // 127: stock.PeerOTCService.GetNegotiation:input_type -> stock.GetNegotiationRequest
+	132, // 128: stock.PeerOTCService.DeleteNegotiation:input_type -> stock.DeleteNegotiationRequest
+	134, // 129: stock.PeerOTCService.AcceptNegotiation:input_type -> stock.AcceptNegotiationRequest
+	136, // 130: stock.PeerOTCService.RecordOptionContract:input_type -> stock.RecordOptionContractRequest
+	140, // 131: stock.PeerOTCService.CheckSellerCanDeliver:input_type -> stock.CheckSellerCanDeliverRequest
+	138, // 132: stock.PeerOTCService.InitiateOptionExercise:input_type -> stock.InitiateOptionExerciseRequest
+	142, // 133: stock.WatchlistService.AddItem:input_type -> stock.AddWatchlistItemRequest
+	143, // 134: stock.WatchlistService.RemoveItem:input_type -> stock.RemoveWatchlistItemRequest
+	145, // 135: stock.WatchlistService.ListMy:input_type -> stock.ListMyWatchlistRequest
+	3,   // 136: stock.StockExchangeGRPCService.ListExchanges:output_type -> stock.ListExchangesResponse
+	1,   // 137: stock.StockExchangeGRPCService.GetExchange:output_type -> stock.Exchange
+	6,   // 138: stock.StockExchangeGRPCService.SetTestingMode:output_type -> stock.SetTestingModeResponse
+	8,   // 139: stock.StockExchangeGRPCService.GetTestingMode:output_type -> stock.GetTestingModeResponse
+	17,  // 140: stock.SecurityGRPCService.ListStocks:output_type -> stock.ListStocksResponse
+	15,  // 141: stock.SecurityGRPCService.GetStock:output_type -> stock.StockDetail
+	15,  // 142: stock.SecurityGRPCService.GetStockByTicker:output_type -> stock.StockDetail
+	13,  // 143: stock.SecurityGRPCService.GetStockHistory:output_type -> stock.PriceHistoryResponse
+	23,  // 144: stock.SecurityGRPCService.ListFutures:output_type -> stock.ListFuturesResponse
+	21,  // 145: stock.SecurityGRPCService.GetFutures:output_type -> stock.FuturesDetail
+	13,  // 146: stock.SecurityGRPCService.GetFuturesHistory:output_type -> stock.PriceHistoryResponse
+	28,  // 147: stock.SecurityGRPCService.ListForexPairs:output_type -> stock.ListForexPairsResponse
+	26,  // 148: stock.SecurityGRPCService.GetForexPair:output_type -> stock.ForexPairDetail
+	13,  // 149: stock.SecurityGRPCService.GetForexPairHistory:output_type -> stock.PriceHistoryResponse
+	33,  // 150: stock.SecurityGRPCService.ListOptions:output_type -> stock.ListOptionsResponse
+	31,  // 151: stock.SecurityGRPCService.GetOption:output_type -> stock.OptionDetail
+	37,  // 152: stock.SecurityGRPCService.GetCandles:output_type -> stock.GetCandlesResponse
+	38,  // 153: stock.OrderGRPCService.CreateOrder:output_type -> stock.Order
+	40,  // 154: stock.OrderGRPCService.GetOrder:output_type -> stock.OrderDetail
+	45,  // 155: stock.OrderGRPCService.ListMyOrders:output_type -> stock.ListOrdersResponse
+	38,  // 156: stock.OrderGRPCService.CancelOrder:output_type -> stock.Order
+	45,  // 157: stock.OrderGRPCService.ListOrders:output_type -> stock.ListOrdersResponse
+	38,  // 158: stock.OrderGRPCService.ApproveOrder:output_type -> stock.Order
+	38,  // 159: stock.OrderGRPCService.DeclineOrder:output_type -> stock.Order
+	51,  // 160: stock.PortfolioGRPCService.ListHoldings:output_type -> stock.ListHoldingsResponse
+	53,  // 161: stock.PortfolioGRPCService.GetPortfolioSummary:output_type -> stock.PortfolioSummary
+	49,  // 162: stock.PortfolioGRPCService.MakePublic:output_type -> stock.Holding
+	57,  // 163: stock.PortfolioGRPCService.ExerciseOption:output_type -> stock.ExerciseResult
+	57,  // 164: stock.PortfolioGRPCService.ExerciseOptionByOptionID:output_type -> stock.ExerciseResult
+	60,  // 165: stock.PortfolioGRPCService.ListHoldingTransactions:output_type -> stock.ListHoldingTransactionsResponse
+	63,  // 166: stock.OTCGRPCService.ListOffers:output_type -> stock.ListOTCOffersResponse
+	68,  // 167: stock.OTCGRPCService.BuyOffer:output_type -> stock.OTCTransaction
+	66,  // 168: stock.OTCGRPCService.ListUnifiedOffers:output_type -> stock.ListUnifiedOTCOffersResponse
+	71,  // 169: stock.TaxGRPCService.ListTaxRecords:output_type -> stock.ListTaxRecordsResponse
+	73,  // 170: stock.TaxGRPCService.CollectTax:output_type -> stock.CollectTaxResponse
+	76,  // 171: stock.TaxGRPCService.ListUserTaxRecords:output_type -> stock.ListUserTaxRecordsResponse
+	79,  // 172: stock.SourceAdminService.SwitchSource:output_type -> stock.SwitchSourceResponse
+	81,  // 173: stock.SourceAdminService.GetSourceStatus:output_type -> stock.SourceStatus
+	84,  // 174: stock.InvestmentFundService.CreateFund:output_type -> stock.FundResponse
+	86,  // 175: stock.InvestmentFundService.ListFunds:output_type -> stock.ListFundsResponse
+	88,  // 176: stock.InvestmentFundService.GetFund:output_type -> stock.FundDetailResponse
+	84,  // 177: stock.InvestmentFundService.UpdateFund:output_type -> stock.FundResponse
+	93,  // 178: stock.InvestmentFundService.InvestInFund:output_type -> stock.ContributionResponse
+	93,  // 179: stock.InvestmentFundService.RedeemFromFund:output_type -> stock.ContributionResponse
+	96,  // 180: stock.InvestmentFundService.ListMyPositions:output_type -> stock.ListPositionsResponse
+	96,  // 181: stock.InvestmentFundService.ListBankPositions:output_type -> stock.ListPositionsResponse
+	99,  // 182: stock.InvestmentFundService.GetActuaryPerformance:output_type -> stock.GetActuaryPerformanceResponse
+	104, // 183: stock.OTCOptionsService.CreateOffer:output_type -> stock.OTCOfferResponse
+	108, // 184: stock.OTCOptionsService.ListMyOffers:output_type -> stock.ListMyOTCOffersResponse
+	106, // 185: stock.OTCOptionsService.GetOffer:output_type -> stock.OTCOfferDetailResponse
+	104, // 186: stock.OTCOptionsService.CounterOffer:output_type -> stock.OTCOfferResponse
+	112, // 187: stock.OTCOptionsService.AcceptOffer:output_type -> stock.AcceptOfferResponse
+	104, // 188: stock.OTCOptionsService.RejectOffer:output_type -> stock.OTCOfferResponse
+	116, // 189: stock.OTCOptionsService.ListMyContracts:output_type -> stock.ListContractsResponse
+	114, // 190: stock.OTCOptionsService.GetContract:output_type -> stock.OptionContractResponse
+	120, // 191: stock.OTCOptionsService.ExerciseContract:output_type -> stock.ExerciseResponse
+	108, // 192: stock.OTCOptionsService.ListNegotiationHistory:output_type -> stock.ListMyOTCOffersResponse
+	125, // 193: stock.PeerOTCService.GetPublicStocks:output_type -> stock.GetPublicStocksResponse
+	127, // 194: stock.PeerOTCService.CreateNegotiation:output_type -> stock.CreateNegotiationResponse
+	129, // 195: stock.PeerOTCService.UpdateNegotiation:output_type -> stock.UpdateNegotiationResponse
+	131, // 196: stock.PeerOTCService.GetNegotiation:output_type -> stock.GetNegotiationResponse
+	133, // 197: stock.PeerOTCService.DeleteNegotiation:output_type -> stock.DeleteNegotiationResponse
+	135, // 198: stock.PeerOTCService.AcceptNegotiation:output_type -> stock.AcceptNegotiationResponse
+	137, // 199: stock.PeerOTCService.RecordOptionContract:output_type -> stock.RecordOptionContractResponse
+	141, // 200: stock.PeerOTCService.CheckSellerCanDeliver:output_type -> stock.CheckSellerCanDeliverResponse
+	139, // 201: stock.PeerOTCService.InitiateOptionExercise:output_type -> stock.InitiateOptionExerciseResponse
+	146, // 202: stock.WatchlistService.AddItem:output_type -> stock.WatchlistItemResponse
+	144, // 203: stock.WatchlistService.RemoveItem:output_type -> stock.RemoveWatchlistItemResponse
+	147, // 204: stock.WatchlistService.ListMy:output_type -> stock.ListMyWatchlistResponse
+	136, // [136:205] is the sub-list for method output_type
+	67,  // [67:136] is the sub-list for method input_type
 	67,  // [67:67] is the sub-list for extension type_name
 	67,  // [67:67] is the sub-list for extension extendee
 	0,   // [0:67] is the sub-list for field type_name
@@ -12849,7 +12964,7 @@ func file_stock_stock_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_stock_stock_proto_rawDesc), len(file_stock_stock_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   146,
+			NumMessages:   147,
 			NumExtensions: 0,
 			NumServices:   11,
 		},

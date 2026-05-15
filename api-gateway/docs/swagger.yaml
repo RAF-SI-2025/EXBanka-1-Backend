@@ -7421,6 +7421,56 @@ paths:
       summary: Exercise a cross-bank OTC option contract
       tags:
       - OTCOptions
+  /api/v3/me/otc/history:
+    get:
+      description: Returns OTC offers in terminal statuses (accepted, rejected, expired,
+        failed). Filter by status, date range, and counterparty.
+      parameters:
+      - collectionFormat: multi
+        description: ACCEPTED|REJECTED|EXPIRED|FAILED (repeatable)
+        in: query
+        items:
+          type: string
+        name: status
+        type: array
+      - description: YYYY-MM-DD
+        in: query
+        name: since
+        type: string
+      - description: YYYY-MM-DD
+        in: query
+        name: until
+        type: string
+      - description: owner id of the other party
+        in: query
+        name: counterparty_id
+        type: integer
+      - description: 1-based page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: 1..100, default 20
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's terminal OTC negotiations (history)
+      tags:
+      - OTCOptions
   /api/v3/me/otc/offers:
     get:
       parameters:

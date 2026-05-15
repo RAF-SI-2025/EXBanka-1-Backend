@@ -431,6 +431,14 @@ func (s *OTCOfferService) ListMyOffers(userID int64, systemType, role string, st
 	return s.offers.ListByOwner(ownerType, ownerID, role, statuses, stockID, page, pageSize)
 }
 
+// ListNegotiationHistory returns the caller's terminal OTC negotiations
+// (accepted/rejected/expired/failed) — the read-only "history" view per
+// Celina-3. Callers can narrow by status, date range, and counterparty.
+func (s *OTCOfferService) ListNegotiationHistory(userID int64, systemType string, f repository.HistoryFilter) ([]model.OTCOffer, int64, error) {
+	ownerType, ownerID := model.OwnerFromLegacy(uint64(userID), systemType)
+	return s.offers.ListNegotiationHistory(ownerType, ownerID, f)
+}
+
 // LastReadReceipt returns the read-receipt for (userID, systemType, offerID),
 // or nil if the user has never opened the offer. Used by the gateway to
 // compute the `unread` flag on list responses (Celina-4 §Aktivne ponude).

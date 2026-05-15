@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -105,6 +106,71 @@ func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"offer": resp})
+}
+
+// ListNegotiationHistory godoc
+// @Summary      List the caller's terminal OTC negotiations (history)
+// @Description  Returns OTC offers in terminal statuses (accepted, rejected, expired, failed). Filter by status, date range, and counterparty.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        status query []string false "ACCEPTED|REJECTED|EXPIRED|FAILED (repeatable)" collectionFormat(multi)
+// @Param        since query string false "YYYY-MM-DD"
+// @Param        until query string false "YYYY-MM-DD"
+// @Param        counterparty_id query int false "owner id of the other party"
+// @Param        page query int false "1-based page (default 1)"
+// @Param        page_size query int false "1..100, default 20"
+// @Success      200 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{}
+// @Router       /api/v3/me/otc/history [get]
+func (h *OTCOptionsHandler) ListNegotiationHistory(c *gin.Context) {
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	statuses := c.QueryArray("status")
+	for _, s := range statuses {
+		if _, err := oneOf("status", s, "ACCEPTED", "REJECTED", "EXPIRED", "FAILED"); err != nil {
+			apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+			return
+		}
+	}
+	var sinceUnix, untilUnix int64
+	if v := c.Query("since"); v != "" {
+		t, err := time.Parse("2006-01-02", v)
+		if err != nil {
+			apiError(c, http.StatusBadRequest, ErrValidation, "since must be YYYY-MM-DD")
+			return
+		}
+		sinceUnix = t.UTC().Unix()
+	}
+	if v := c.Query("until"); v != "" {
+		t, err := time.Parse("2006-01-02", v)
+		if err != nil {
+			apiError(c, http.StatusBadRequest, ErrValidation, "until must be YYYY-MM-DD")
+			return
+		}
+		untilUnix = t.UTC().Unix()
+	}
+	if sinceUnix > 0 && untilUnix > 0 && sinceUnix > untilUnix {
+		apiError(c, http.StatusBadRequest, ErrValidation, "since must be <= until")
+		return
+	}
+	cp, _ := strconv.ParseUint(c.DefaultQuery("counterparty_id", "0"), 10, 64)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	resp, err := h.client.ListNegotiationHistory(c.Request.Context(), &stockpb.ListNegotiationHistoryRequest{
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+		Statuses:        statuses,
+		SinceUnix:       sinceUnix,
+		UntilUnix:       untilUnix,
+		CounterpartyId:  cp,
+		Page:            int32(page),
+		PageSize:        int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"offers": resp.Offers, "total": resp.Total})
 }
 
 // ListMyOffers godoc

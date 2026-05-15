@@ -157,6 +157,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 
 		// OTC option trading (Spec 2): caller's offers/contracts.
 		me.GET("/otc/offers", bankIfEmp, h.OTCOptions.ListMyOffers)
+		me.GET("/otc/history", bankIfEmp, h.OTCOptions.ListNegotiationHistory)
 		me.GET("/otc/contracts", bankIfEmp, h.OTCOptions.ListMyContracts)
 
 		// Cross-bank OTC option exercise (Celina-5 SI-TX). Buyer-only

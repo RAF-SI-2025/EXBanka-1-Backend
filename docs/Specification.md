@@ -1286,6 +1286,7 @@ api-gateway:
 | GET | `/api/me/loans/:id` | - | creditHandler.GetMyLoan | Get own loan |
 | GET | `/api/me/loans/:id/installments` | - | creditHandler.GetMyInstallments | Get loan installments |
 | GET | `/api/me/tax` | - | taxHandler.ListMyTaxRecords | List own capital gains tax records + balance |
+| GET | `/api/v3/me/otc/history` | - | OTCOptionsHandler.ListNegotiationHistory | Terminal OTC negotiations (ACCEPTED/REJECTED/EXPIRED/FAILED) for caller; filterable by status / date / counterparty (Celina 3) |
 | GET | `/api/v3/me/watchlist` | - | WatchlistHandler.ListMy | List tracked listings with current prices + daily change (Celina 3) |
 | POST | `/api/v3/me/watchlist` | - | WatchlistHandler.AddItem | Add a listing to the watchlist (idempotent on duplicates) |
 | DELETE | `/api/v3/me/watchlist/:listing_id` | - | WatchlistHandler.RemoveItem | Remove a listing from the watchlist |

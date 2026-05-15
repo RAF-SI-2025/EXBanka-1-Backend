@@ -7627,6 +7627,42 @@ Returns identity info for a counterparty user. Peers call this when displaying u
 
 ---
 
+## 41. OTC Negotiation History
+
+Read-only view of *terminal* OTC offers (accepted, rejected, expired, failed) for the caller. The active /offers list excludes terminal offers; this endpoint surfaces them with optional status, date-range, and counterparty filters.
+
+### 41.1 List negotiation history
+
+**Endpoint:** `GET /api/v3/me/otc/history`
+
+**Authentication:** `Bearer <token>`
+
+**Query parameters:**
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `status` | string (repeatable) | No | `ACCEPTED` / `REJECTED` / `EXPIRED` / `FAILED`. Default: all four. |
+| `since` | string (YYYY-MM-DD) | No | Lower bound on `updated_at`. |
+| `until` | string (YYYY-MM-DD) | No | Upper bound on `updated_at`. Must be ≥ `since`. |
+| `counterparty_id` | int | No | Restrict to offers where the OTHER party has this owner id. |
+| `page` | int | No | 1-based; default 1. |
+| `page_size` | int | No | 1..100; default 20. |
+
+**Response 200:**
+```json
+{
+  "offers": [
+    { "id": 42, "status": "ACCEPTED", "direction": "sell_initiated", ... }
+  ],
+  "total": 1
+}
+```
+
+Sorted by `updated_at` descending. The shape mirrors `/api/v3/me/otc/offers` items.
+
+**Response 400:** Invalid `status` value, bad date format, `since > until`.
+
+---
+
 ## 40. Watchlist
 
 Personal list of tracked listings (stocks, options, futures, forex pairs) per `(owner_type, owner_id)`. Read enriches each item with the current price and daily change pulled from `listings` + the latest price-refresh tick. No notifications, no schedulers — UX feature only.

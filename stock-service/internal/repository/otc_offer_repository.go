@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -84,6 +85,90 @@ func (r *OTCOfferRepository) ListByOwner(ownerType model.OwnerType, ownerID *uin
 	var out []model.OTCOffer
 	err := q.Order("updated_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&out).Error
 	return out, total, err
+}
+
+// HistoryFilter narrows ListNegotiationHistory output.
+type HistoryFilter struct {
+	Statuses       []string   // default: terminal set (accepted/rejected/cancelled/expired) if empty
+	Since          *time.Time // optional lower bound on updated_at
+	Until          *time.Time // optional upper bound on updated_at
+	CounterpartyID *uint64    // optional filter — caller must NOT also be this id
+	Page           int        // 1-based; defaults to 1 if zero/negative
+	PageSize       int        // bounded [1,100]; defaults to 20
+}
+
+// ListNegotiationHistory returns the caller's terminal OTC negotiations
+// (accepted/rejected/cancelled/expired) with the supplied filters. The
+// counterparty filter matches "owner_id appears on the OTHER side of the
+// offer from the caller" — so a buyer querying for counterparty_id=X
+// gets offers where the seller is X, and vice versa.
+func (r *OTCOfferRepository) ListNegotiationHistory(ownerType model.OwnerType, ownerID *uint64, f HistoryFilter) ([]model.OTCOffer, int64, error) {
+	q := r.db.Model(&model.OTCOffer{})
+
+	// Caller is one of the two parties — match either side.
+	if ownerID == nil {
+		q = q.Where("(initiator_owner_type = ? AND initiator_owner_id IS NULL) OR (counterparty_owner_type = ? AND counterparty_owner_id IS NULL)",
+			ownerType, ownerType)
+	} else {
+		q = q.Where("(initiator_owner_type = ? AND initiator_owner_id = ?) OR (counterparty_owner_type = ? AND counterparty_owner_id = ?)",
+			ownerType, *ownerID, ownerType, *ownerID)
+	}
+
+	// Default to the terminal set so "history" never accidentally
+	// surfaces pending offers.
+	statuses := f.Statuses
+	if len(statuses) == 0 {
+		// Terminal set per the OTCOfferStatus enum (cancellation isn't
+		// modelled — withdrawn offers become REJECTED). FAILED is included
+		// so an aborted accept-saga remains discoverable in history.
+		statuses = []string{
+			model.OTCOfferStatusAccepted,
+			model.OTCOfferStatusRejected,
+			model.OTCOfferStatusExpired,
+			model.OTCOfferStatusFailed,
+		}
+	}
+	q = q.Where("status IN ?", statuses)
+
+	if f.Since != nil {
+		q = q.Where("updated_at >= ?", *f.Since)
+	}
+	if f.Until != nil {
+		q = q.Where("updated_at <= ?", *f.Until)
+	}
+	if f.CounterpartyID != nil {
+		cpID := *f.CounterpartyID
+		// Match counterparty on the side OPPOSITE the caller.
+		q = q.Where(
+			"(initiator_owner_type = ? AND initiator_owner_id = ? AND counterparty_owner_id = ?) OR (counterparty_owner_type = ? AND counterparty_owner_id = ? AND initiator_owner_id = ?)",
+			ownerType, derefOr0(ownerID), cpID,
+			ownerType, derefOr0(ownerID), cpID,
+		)
+	}
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	pageSize := f.PageSize
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 20
+	}
+	page := f.Page
+	if page < 1 {
+		page = 1
+	}
+	var out []model.OTCOffer
+	err := q.Order("updated_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&out).Error
+	return out, total, err
+}
+
+func derefOr0(p *uint64) uint64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // ListExpiringOffers returns up to limit pending/countered offers whose

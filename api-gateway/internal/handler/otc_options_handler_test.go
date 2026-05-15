@@ -66,6 +66,7 @@ type stubOTCOptionsClient struct {
 	listContractsFn func(*stockpb.ListMyContractsRequest) (*stockpb.ListContractsResponse, error)
 	getContractFn   func(*stockpb.GetContractRequest) (*stockpb.OptionContractResponse, error)
 	exerciseFn      func(*stockpb.ExerciseContractRequest) (*stockpb.ExerciseResponse, error)
+	listNegotiationHistoryFn func(*stockpb.ListNegotiationHistoryRequest) (*stockpb.ListMyOTCOffersResponse, error)
 }
 
 func (s *stubOTCOptionsClient) CreateOffer(_ context.Context, in *stockpb.CreateOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
@@ -121,6 +122,12 @@ func (s *stubOTCOptionsClient) ExerciseContract(_ context.Context, in *stockpb.E
 		return s.exerciseFn(in)
 	}
 	return &stockpb.ExerciseResponse{}, nil
+}
+func (s *stubOTCOptionsClient) ListNegotiationHistory(_ context.Context, in *stockpb.ListNegotiationHistoryRequest, _ ...grpc.CallOption) (*stockpb.ListMyOTCOffersResponse, error) {
+	if s.listNegotiationHistoryFn != nil {
+		return s.listNegotiationHistoryFn(in)
+	}
+	return &stockpb.ListMyOTCOffersResponse{}, nil
 }
 
 var _ stockpb.OTCOptionsServiceClient = (*stubOTCOptionsClient)(nil)
