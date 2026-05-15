@@ -18,6 +18,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// cronNotifier is the narrow slice of the Kafka producer the cron uses for
+// in-app notification intents. A separate interface (not the concrete
+// *kafka.Producer) so unit tests can inject a recording stub. Named cronNotifier
+// to avoid collisions with the package-private notifier type used by other
+// service files in this package's sibling services. Precedent: Plan B2 Task 1
+// introduced the same pattern in transaction-service/internal/service/payment_service.go.
+type cronNotifier interface {
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+}
+
 type CronService struct {
 	installService    *InstallmentService
 	loanService       *LoanService
@@ -25,6 +35,7 @@ type CronService struct {
 	bankAccountClient accountpb.BankAccountServiceClient
 	clientClient      clientpb.ClientServiceClient
 	producer          *kafka.Producer
+	notifier          cronNotifier
 	bankRSDAccount    string
 	db                *gorm.DB
 }
@@ -39,7 +50,7 @@ func NewCronService(
 	bankRSDAccount string,
 	db *gorm.DB,
 ) *CronService {
-	return &CronService{
+	s := &CronService{
 		installService:    installService,
 		loanService:       loanService,
 		accountClient:     accountClient,
@@ -49,6 +60,32 @@ func NewCronService(
 		bankRSDAccount:    bankRSDAccount,
 		db:                db,
 	}
+	if producer != nil {
+		s.notifier = producer
+	}
+	return s
+}
+
+// notifyInstallment emits an in-app notification for an installment lifecycle
+// event (INSTALLMENT_COLLECTED on success, INSTALLMENT_FAILED on failure).
+// Best-effort: errors are discarded, and no-op when notifier is unset (e.g.,
+// credit-service started without Kafka). retryDeadline is only set on the
+// failure path; pass "" for the success path.
+func (c *CronService) notifyInstallment(ctx context.Context, loan *model.Loan, installmentID uint64, notifType, amount, retryDeadline string) {
+	if c.notifier == nil {
+		return
+	}
+	data := map[string]string{"amount": amount}
+	if retryDeadline != "" {
+		data["retry_deadline"] = retryDeadline
+	}
+	_ = c.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  loan.ClientID,
+		Type:    notifType,
+		Data:    data,
+		RefType: "installment",
+		RefID:   installmentID,
+	})
 }
 
 // Start runs the daily installment collection job using the shared
@@ -159,6 +196,11 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				log.Printf("CronService: failed to publish installment-failed event: %v", pubErr)
 			}
 		}
+
+		// In-app notification to the borrower: INSTALLMENT_FAILED.
+		// Fired even if the client lookup for the email above failed, since we
+		// already have loan.ClientID directly. Best-effort; errors discarded.
+		c.notifyInstallment(ctx, loan, installmentID, "INSTALLMENT_FAILED", amount, retryDeadline)
 
 		// Apply late payment interest penalty for variable-rate loans
 		CreditLatePaymentPenaltiesTotal.Inc()
@@ -280,4 +322,8 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			log.Printf("CronService: failed to publish installment-collected event: %v", pubErr)
 		}
 	}
+
+	// In-app notification to the borrower: INSTALLMENT_COLLECTED.
+	// Best-effort; errors discarded inside helper.
+	c.notifyInstallment(ctx, loan, installmentID, "INSTALLMENT_COLLECTED", amount, "")
 }
