@@ -681,6 +681,119 @@ func TestUpdateAccountStatus_AlreadyInState(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// In-app notification emit tests (Plan B4: ACCOUNT_OPENED / ACCOUNT_STATUS_CHANGED)
+// ---------------------------------------------------------------------------
+
+func TestCreateAccount_EmitsAccountOpenedNotification(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.createAccountFn = func(account *model.Account) error {
+		account.ID = 77
+		account.AccountNumber = "111000100000077011"
+		account.Status = "active"
+		account.ExpiresAt = time.Now().AddDate(5, 0, 0)
+		// Client-owned, non-bank account.
+		account.IsBankAccount = false
+		return nil
+	}
+
+	_, err := h.CreateAccount(context.Background(), &pb.CreateAccountRequest{
+		OwnerId:      42,
+		AccountKind:  "current",
+		CurrencyCode: "RSD",
+		EmployeeId:   1,
+	})
+	require.NoError(t, err)
+	require.Len(t, f.producer.generalNotificationCalls, 1)
+
+	got := f.producer.generalNotificationCalls[0]
+	assert.Equal(t, "ACCOUNT_OPENED", got.Type)
+	assert.Equal(t, uint64(42), got.UserID)
+	assert.Equal(t, "111000100000077011", got.Data["account_number"])
+	assert.Equal(t, "RSD", got.Data["currency"])
+	assert.Equal(t, "account", got.RefType)
+	assert.Equal(t, uint64(77), got.RefID)
+	// Legacy fields must be empty.
+	assert.Equal(t, "", got.Title, "Title must be dropped")
+	assert.Equal(t, "", got.Message, "Message must be dropped")
+}
+
+func TestCreateAccount_BankOwned_NoNotification(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.createAccountFn = func(account *model.Account) error {
+		account.ID = 88
+		account.AccountNumber = "111000100000088011"
+		account.Status = "active"
+		account.ExpiresAt = time.Now().AddDate(5, 0, 0)
+		account.IsBankAccount = true
+		return nil
+	}
+
+	_, err := h.CreateAccount(context.Background(), &pb.CreateAccountRequest{
+		OwnerId:      1_000_000_000,
+		AccountKind:  "current",
+		CurrencyCode: "RSD",
+		EmployeeId:   1,
+	})
+	require.NoError(t, err)
+	// Domain event still publishes — bank accounts are real accounts.
+	assert.Len(t, f.producer.accountCreatedCalls, 1, "domain event should still fire for bank-owned accounts")
+	// But no in-app notification.
+	assert.Empty(t, f.producer.generalNotificationCalls, "no in-app notification for bank-owned accounts")
+}
+
+func TestUpdateAccountStatus_EmitsStatusChangedNotification(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.updateAccountStatusFn = func(id uint64, newStatus string, changedBy int64) error {
+		return nil
+	}
+	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
+		a := sampleAccount(id)
+		a.Status = "inactive"
+		a.IsBankAccount = false
+		return a, nil
+	}
+
+	_, err := h.UpdateAccountStatus(context.Background(), &pb.UpdateAccountStatusRequest{
+		Id:     7,
+		Status: "inactive",
+	})
+	require.NoError(t, err)
+	require.Len(t, f.producer.generalNotificationCalls, 1)
+
+	got := f.producer.generalNotificationCalls[0]
+	assert.Equal(t, "ACCOUNT_STATUS_CHANGED", got.Type)
+	assert.Equal(t, uint64(42), got.UserID) // sampleAccount.OwnerID
+	assert.Equal(t, "111000100000000011", got.Data["account_number"])
+	assert.Equal(t, "inactive", got.Data["new_status"])
+	assert.Equal(t, "account", got.RefType)
+	assert.Equal(t, uint64(7), got.RefID)
+}
+
+func TestUpdateAccountStatus_BankOwned_NoNotification(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.updateAccountStatusFn = func(id uint64, newStatus string, changedBy int64) error {
+		return nil
+	}
+	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
+		a := sampleAccount(id)
+		a.Status = "inactive"
+		a.IsBankAccount = true
+		a.OwnerID = 1_000_000_000
+		return a, nil
+	}
+
+	_, err := h.UpdateAccountStatus(context.Background(), &pb.UpdateAccountStatusRequest{
+		Id:     9,
+		Status: "inactive",
+	})
+	require.NoError(t, err)
+	// Domain event still publishes.
+	assert.Len(t, f.producer.accountStatusChangedCalls, 1, "domain event should still fire for bank-owned accounts")
+	// But no in-app notification.
+	assert.Empty(t, f.producer.generalNotificationCalls, "no in-app notification for bank-owned accounts")
+}
+
+// ---------------------------------------------------------------------------
 // UpdateBalance tests
 // ---------------------------------------------------------------------------
 

@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 
 	"github.com/shopspring/decimal"
@@ -333,15 +332,17 @@ func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAc
 		CurrencyCode:  account.CurrencyCode,
 	})
 
-	// General notification (no email)
-	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
-		UserID:  account.OwnerID,
-		Type:    "account_created",
-		Title:   "New Account Created",
-		Message: fmt.Sprintf("Your new %s account (%s) has been created.", account.CurrencyCode, account.AccountNumber),
-		RefType: "account",
-		RefID:   account.ID,
-	})
+	// In-app notification (rendered downstream via the push template registry).
+	// Skip for bank-owned accounts — they have no human recipient.
+	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  account.OwnerID,
+			Type:    "ACCOUNT_OPENED",
+			Data:    map[string]string{"account_number": account.AccountNumber, "currency": account.CurrencyCode},
+			RefType: "account",
+			RefID:   account.ID,
+		})
+	}
 
 	// Send email notification to account owner.
 	if h.clientClient != nil && h.producer != nil {
@@ -472,6 +473,18 @@ func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.Up
 		AccountNumber: account.AccountNumber,
 		Status:        account.Status,
 	})
+
+	// In-app notification (rendered downstream via the push template registry).
+	// Skip for bank-owned accounts — they have no human recipient.
+	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  account.OwnerID,
+			Type:    "ACCOUNT_STATUS_CHANGED",
+			Data:    map[string]string{"account_number": account.AccountNumber, "new_status": account.Status},
+			RefType: "account",
+			RefID:   account.ID,
+		})
+	}
 
 	return toAccountResponse(account), nil
 }
