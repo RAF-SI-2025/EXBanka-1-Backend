@@ -500,6 +500,16 @@ func (h *PeerOTCInitiateHandler) AcceptPeerNegotiation(c *gin.Context) {
 		apiError(c, code, ErrInternal, err.Error())
 		return
 	}
+	// Flip the local mirror to status=accepted so the caller's
+	// /me/peer-otc/negotiations list reflects the terminal state
+	// immediately. The counterparty's row was already flipped by its
+	// AcceptNegotiation peer handler when the SI-TX dispatched.
+	if h.peerOTC != nil && code >= 200 && code < 300 {
+		_, _ = h.peerOTC.MarkNegotiationAccepted(c.Request.Context(), &stockpb.MarkNegotiationAcceptedRequest{
+			PeerBankCode:  peerBankCode,
+			NegotiationId: &stockpb.PeerForeignBankId{Id: foreignID},
+		})
+	}
 	c.Data(code, "application/json", respBody)
 }
 

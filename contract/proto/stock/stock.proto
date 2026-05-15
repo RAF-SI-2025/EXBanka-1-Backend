@@ -1344,7 +1344,21 @@ service PeerOTCService {
   // "seller" row on bank A is one where seller_routing == bank-A
   // routing AND seller_id == "client-<N>").
   rpc ListMyPeerNegotiations(ListMyPeerNegotiationsRequest) returns (ListMyPeerNegotiationsResponse);
+
+  // Local-mirror status flip to "accepted". Called by the gateway after
+  // a successful proxy of POST /me/peer-otc/negotiations/.../accept to
+  // the counterparty's bank, so the caller's own list reflects the
+  // terminal state immediately. The peer-facing AcceptNegotiation RPC
+  // (above) is reserved for the bank that actually dispatches the
+  // option-formation SI-TX — calling that one twice would re-dispatch.
+  rpc MarkNegotiationAccepted(MarkNegotiationAcceptedRequest) returns (MarkNegotiationAcceptedResponse);
 }
+
+message MarkNegotiationAcceptedRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+message MarkNegotiationAcceptedResponse {}
 
 message RecordOutboundNegotiationRequest {
   string peer_bank_code = 1;

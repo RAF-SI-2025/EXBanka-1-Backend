@@ -2919,6 +2919,7 @@ const (
 	PeerOTCService_InitiateOptionExercise_FullMethodName    = "/stock.PeerOTCService/InitiateOptionExercise"
 	PeerOTCService_RecordOutboundNegotiation_FullMethodName = "/stock.PeerOTCService/RecordOutboundNegotiation"
 	PeerOTCService_ListMyPeerNegotiations_FullMethodName    = "/stock.PeerOTCService/ListMyPeerNegotiations"
+	PeerOTCService_MarkNegotiationAccepted_FullMethodName   = "/stock.PeerOTCService/MarkNegotiationAccepted"
 )
 
 // PeerOTCServiceClient is the client API for PeerOTCService service.
@@ -2960,6 +2961,13 @@ type PeerOTCServiceClient interface {
 	// "seller" row on bank A is one where seller_routing == bank-A
 	// routing AND seller_id == "client-<N>").
 	ListMyPeerNegotiations(ctx context.Context, in *ListMyPeerNegotiationsRequest, opts ...grpc.CallOption) (*ListMyPeerNegotiationsResponse, error)
+	// Local-mirror status flip to "accepted". Called by the gateway after
+	// a successful proxy of POST /me/peer-otc/negotiations/.../accept to
+	// the counterparty's bank, so the caller's own list reflects the
+	// terminal state immediately. The peer-facing AcceptNegotiation RPC
+	// (above) is reserved for the bank that actually dispatches the
+	// option-formation SI-TX — calling that one twice would re-dispatch.
+	MarkNegotiationAccepted(ctx context.Context, in *MarkNegotiationAcceptedRequest, opts ...grpc.CallOption) (*MarkNegotiationAcceptedResponse, error)
 }
 
 type peerOTCServiceClient struct {
@@ -3080,6 +3088,16 @@ func (c *peerOTCServiceClient) ListMyPeerNegotiations(ctx context.Context, in *L
 	return out, nil
 }
 
+func (c *peerOTCServiceClient) MarkNegotiationAccepted(ctx context.Context, in *MarkNegotiationAcceptedRequest, opts ...grpc.CallOption) (*MarkNegotiationAcceptedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MarkNegotiationAcceptedResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_MarkNegotiationAccepted_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerOTCServiceServer is the server API for PeerOTCService service.
 // All implementations must embed UnimplementedPeerOTCServiceServer
 // for forward compatibility.
@@ -3119,6 +3137,13 @@ type PeerOTCServiceServer interface {
 	// "seller" row on bank A is one where seller_routing == bank-A
 	// routing AND seller_id == "client-<N>").
 	ListMyPeerNegotiations(context.Context, *ListMyPeerNegotiationsRequest) (*ListMyPeerNegotiationsResponse, error)
+	// Local-mirror status flip to "accepted". Called by the gateway after
+	// a successful proxy of POST /me/peer-otc/negotiations/.../accept to
+	// the counterparty's bank, so the caller's own list reflects the
+	// terminal state immediately. The peer-facing AcceptNegotiation RPC
+	// (above) is reserved for the bank that actually dispatches the
+	// option-formation SI-TX — calling that one twice would re-dispatch.
+	MarkNegotiationAccepted(context.Context, *MarkNegotiationAcceptedRequest) (*MarkNegotiationAcceptedResponse, error)
 	mustEmbedUnimplementedPeerOTCServiceServer()
 }
 
@@ -3161,6 +3186,9 @@ func (UnimplementedPeerOTCServiceServer) RecordOutboundNegotiation(context.Conte
 }
 func (UnimplementedPeerOTCServiceServer) ListMyPeerNegotiations(context.Context, *ListMyPeerNegotiationsRequest) (*ListMyPeerNegotiationsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListMyPeerNegotiations not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) MarkNegotiationAccepted(context.Context, *MarkNegotiationAcceptedRequest) (*MarkNegotiationAcceptedResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MarkNegotiationAccepted not implemented")
 }
 func (UnimplementedPeerOTCServiceServer) mustEmbedUnimplementedPeerOTCServiceServer() {}
 func (UnimplementedPeerOTCServiceServer) testEmbeddedByValue()                        {}
@@ -3381,6 +3409,24 @@ func _PeerOTCService_ListMyPeerNegotiations_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerOTCService_MarkNegotiationAccepted_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MarkNegotiationAcceptedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).MarkNegotiationAccepted(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_MarkNegotiationAccepted_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).MarkNegotiationAccepted(ctx, req.(*MarkNegotiationAcceptedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PeerOTCService_ServiceDesc is the grpc.ServiceDesc for PeerOTCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3431,6 +3477,10 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListMyPeerNegotiations",
 			Handler:    _PeerOTCService_ListMyPeerNegotiations_Handler,
+		},
+		{
+			MethodName: "MarkNegotiationAccepted",
+			Handler:    _PeerOTCService_MarkNegotiationAccepted_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

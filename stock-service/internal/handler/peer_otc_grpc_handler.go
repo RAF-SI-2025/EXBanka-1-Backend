@@ -211,6 +211,22 @@ func (h *PeerOTCGRPCHandler) DeleteNegotiation(ctx context.Context, req *stockpb
 	return &stockpb.DeleteNegotiationResponse{}, nil
 }
 
+// MarkNegotiationAccepted flips a local mirror row to status=accepted
+// without dispatching SI-TX. The gateway calls this from
+// AcceptPeerNegotiation after the outbound proxy succeeds, so the
+// originating side's /me/peer-otc/negotiations list reflects the
+// terminal state immediately instead of remaining "ongoing" until a
+// reconciliation sweep.
+func (h *PeerOTCGRPCHandler) MarkNegotiationAccepted(ctx context.Context, req *stockpb.MarkNegotiationAcceptedRequest) (*stockpb.MarkNegotiationAcceptedResponse, error) {
+	if req.GetNegotiationId() == nil {
+		return nil, status.Error(codes.InvalidArgument, "negotiation_id required")
+	}
+	if err := h.negRepo.UpdateStatus(req.GetPeerBankCode(), req.GetNegotiationId().GetId(), "accepted"); err != nil {
+		return nil, status.Errorf(codes.Internal, "mark accepted: %v", err)
+	}
+	return &stockpb.MarkNegotiationAcceptedResponse{}, nil
+}
+
 func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb.AcceptNegotiationRequest) (*stockpb.AcceptNegotiationResponse, error) {
 	if req.GetNegotiationId() == nil {
 		return nil, status.Error(codes.InvalidArgument, "negotiation_id required")
