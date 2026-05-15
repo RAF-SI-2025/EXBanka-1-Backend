@@ -10486,6 +10486,48 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/me/transfers/{id}/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Maps the internal transfer lifecycle (pending/processing/completed/failed) to the four-state public vocabulary (INITIATED/PENDING/COMPLETED/FAILED). Frontend polls this to render the SI-TX status in real time. Notifications for each terminal transition flow via TRANSFER_SENT/RECEIVED/FAILED in-app events.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transactions"
+                ],
+                "summary": "Get the client-facing status of one of the caller's transfers",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "transfer id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/watchlist": {
             "get": {
                 "security": [

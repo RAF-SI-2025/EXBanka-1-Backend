@@ -12,6 +12,7 @@ service TransactionService {
   rpc CreateTransfer(CreateTransferRequest) returns (TransferResponse);
   rpc ExecuteTransfer(ExecuteTransferRequest) returns (TransferResponse);
   rpc GetTransfer(GetTransferRequest) returns (TransferResponse);
+  rpc GetTransferStatus(GetTransferRequest) returns (TransferStatusResponse);
   rpc ListTransfersByClient(ListTransfersByClientRequest) returns (ListTransfersResponse);
 
   rpc CreatePaymentRecipient(CreatePaymentRecipientRequest) returns (PaymentRecipientResponse);
@@ -87,6 +88,19 @@ message CreateTransferRequest {
 }
 
 message GetTransferRequest { uint64 id = 1; }
+
+// TransferStatusResponse is the client-facing summary of a transfer's
+// progression. The status is mapped from the internal lifecycle
+// (pending / pending_verification / processing / completed / failed) to
+// the public labels INITIATED / PENDING / COMPLETED / FAILED so the
+// frontend can poll a single field. Celina 4 — req-sitx-realtime-status.
+message TransferStatusResponse {
+  uint64 transfer_id    = 1;
+  string status         = 2; // INITIATED | PENDING | COMPLETED | FAILED
+  string internal_status = 3; // pass-through of model.Transfer.Status for debug
+  string failure_reason = 4;
+  int64  last_changed_unix = 5;
+}
 
 message ListTransfersByClientRequest {
   uint64 client_id = 1;

@@ -7627,6 +7627,41 @@ Returns identity info for a counterparty user. Peers call this when displaying u
 
 ---
 
+## 44. Transfer Status (Celina 4 / SI-TX)
+
+Surface the four-state client-facing lifecycle (`INITIATED`, `PENDING`, `COMPLETED`, `FAILED`) so the frontend can poll a single field without tracking the internal `pending`/`pending_verification`/`processing`/`completed`/`failed` enum or the SI-TX cross-bank split.
+
+Per-transition push notifications (`TRANSFER_SENT`, `TRANSFER_RECEIVED`, `TRANSFER_FAILED`) are already emitted by the notification-coverage work (B2); this endpoint is the read counterpart.
+
+### 44.1 Get my transfer status
+
+**Endpoint:** `GET /api/v3/me/transfers/:id/status`
+
+**Authentication:** `Bearer <token>` (must own the transfer)
+
+**Response 200:**
+```json
+{
+  "transfer_id": 42,
+  "status": "COMPLETED",
+  "internal_status": "completed",
+  "failure_reason": "",
+  "last_changed_unix": 1731699200
+}
+```
+
+| Internal status | Public `status` |
+|---|---|
+| `pending`, `pending_verification` | `INITIATED` |
+| `processing` | `PENDING` |
+| `completed` | `COMPLETED` |
+| `failed` | `FAILED` |
+
+**Response 403:** Caller does not own the transfer.
+**Response 404:** Transfer not found.
+
+---
+
 ## 43. Price Alerts
 
 Per-owner reactive alerts on a listing's price or daily change %. Conditions: `gte`, `lte`, `daily_change_pct_gte`, `daily_change_pct_lte`. Single-shot alerts (`is_recurring=false`) deactivate themselves on first match; recurring alerts honour `cooldown_seconds`. Evaluation runs on a 30 s cron over active alerts; matches publish a `PRICE_ALERT_TRIGGERED` general notification.

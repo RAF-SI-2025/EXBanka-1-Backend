@@ -1040,7 +1040,8 @@ type stubTransactionClient struct {
 	listPmtByClientFn func(*transactionpb.ListPaymentsByClientRequest) (*transactionpb.ListPaymentsResponse, error)
 	createTransferFn  func(*transactionpb.CreateTransferRequest) (*transactionpb.TransferResponse, error)
 	executeTransferFn func(*transactionpb.ExecuteTransferRequest) (*transactionpb.TransferResponse, error)
-	getTransferFn     func(*transactionpb.GetTransferRequest) (*transactionpb.TransferResponse, error)
+	getTransferFn       func(*transactionpb.GetTransferRequest) (*transactionpb.TransferResponse, error)
+	getTransferStatusFn func(*transactionpb.GetTransferRequest) (*transactionpb.TransferStatusResponse, error)
 	listTransfersFn   func(*transactionpb.ListTransfersByClientRequest) (*transactionpb.ListTransfersResponse, error)
 	createRecipFn     func(*transactionpb.CreatePaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
 	getRecipFn        func(*transactionpb.GetPaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
@@ -1096,6 +1097,12 @@ func (s *stubTransactionClient) GetTransfer(_ context.Context, in *transactionpb
 		return s.getTransferFn(in)
 	}
 	return &transactionpb.TransferResponse{Id: in.Id}, nil
+}
+func (s *stubTransactionClient) GetTransferStatus(_ context.Context, in *transactionpb.GetTransferRequest, _ ...grpc.CallOption) (*transactionpb.TransferStatusResponse, error) {
+	if s.getTransferStatusFn != nil {
+		return s.getTransferStatusFn(in)
+	}
+	return &transactionpb.TransferStatusResponse{TransferId: in.Id, Status: "INITIATED"}, nil
 }
 func (s *stubTransactionClient) ListTransfersByClient(_ context.Context, in *transactionpb.ListTransfersByClientRequest, _ ...grpc.CallOption) (*transactionpb.ListTransfersResponse, error) {
 	if s.listTransfersFn != nil {

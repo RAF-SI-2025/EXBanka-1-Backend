@@ -7854,6 +7854,37 @@ paths:
       summary: Get a transfer by ID
       tags:
       - transfers
+  /api/v3/me/transfers/{id}/status:
+    get:
+      description: Maps the internal transfer lifecycle (pending/processing/completed/failed)
+        to the four-state public vocabulary (INITIATED/PENDING/COMPLETED/FAILED).
+        Frontend polls this to render the SI-TX status in real time. Notifications
+        for each terminal transition flow via TRANSFER_SENT/RECEIVED/FAILED in-app
+        events.
+      parameters:
+      - description: transfer id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the client-facing status of one of the caller's transfers
+      tags:
+      - Transactions
   /api/v3/me/watchlist:
     get:
       parameters:

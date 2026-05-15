@@ -321,6 +321,51 @@ func (h *TransactionGRPCHandler) GetTransfer(ctx context.Context, req *pb.GetTra
 	return transferToProto(transfer), nil
 }
 
+// GetTransferStatus returns the client-facing status summary for a
+// transfer. The internal lifecycle states are mapped to the four-state
+// public vocabulary so the frontend can poll a single field without
+// caring about the cross-bank/intra-bank split. Notifications for each
+// terminal transition flow via TRANSFER_SENT/TRANSFER_RECEIVED/
+// TRANSFER_FAILED in-app events (B2 notification coverage).
+func (h *TransactionGRPCHandler) GetTransferStatus(ctx context.Context, req *pb.GetTransferRequest) (*pb.TransferStatusResponse, error) {
+	transfer, err := h.transferSvc.GetTransfer(req.GetId())
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "transfer not found: %v", err)
+	}
+	clientStatus := mapTransferStatusToClient(transfer.Status)
+	var lastChanged int64
+	if transfer.CompletedAt != nil {
+		lastChanged = transfer.CompletedAt.Unix()
+	} else if !transfer.Timestamp.IsZero() {
+		lastChanged = transfer.Timestamp.Unix()
+	}
+	return &pb.TransferStatusResponse{
+		TransferId:      transfer.ID,
+		Status:          clientStatus,
+		InternalStatus:  transfer.Status,
+		FailureReason:   transfer.FailureReason,
+		LastChangedUnix: lastChanged,
+	}, nil
+}
+
+// mapTransferStatusToClient collapses the internal lifecycle to the four
+// public labels. Documented in the SI-TX status plan; reused by both
+// intra-bank and cross-bank transfers since the latter goes through the
+// same Transfer row before/after SI-TX dispatch.
+func mapTransferStatusToClient(internal string) string {
+	switch internal {
+	case "pending", "pending_verification":
+		return "INITIATED"
+	case "processing":
+		return "PENDING"
+	case "completed":
+		return "COMPLETED"
+	case "failed":
+		return "FAILED"
+	}
+	return "INITIATED"
+}
+
 func (h *TransactionGRPCHandler) ListTransfersByClient(ctx context.Context, req *pb.ListTransfersByClientRequest) (*pb.ListTransfersResponse, error) {
 	transfers, total, err := h.transferSvc.ListTransfersByAccountNumbers(
 		req.GetAccountNumbers(),

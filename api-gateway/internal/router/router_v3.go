@@ -99,6 +99,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/transfers/preview", h.Tx.PreviewTransfer)
 		me.GET("/transfers", h.Tx.ListMyTransfers)
 		me.GET("/transfers/:id", h.PeerTxDispatcher.GetTransferByID)
+		me.GET("/transfers/:id/status", h.Tx.GetMyTransferStatus)
 		me.POST("/transfers/:id/execute", h.Tx.ExecuteTransfer)
 
 		// Payment recipients

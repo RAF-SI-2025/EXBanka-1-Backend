@@ -1290,6 +1290,7 @@ api-gateway:
 | POST | `/api/v3/me/otc/ratings` | - | OTCOptionsHandler.SubmitRating | Submit a 1..5 score + optional comment for the counterparty of an ACCEPTED OTC offer (Celina 3) |
 | GET | `/api/v3/me/otc/ratings/received` | - | OTCOptionsHandler.ListMyReceivedRatings | List ratings the caller has received from OTC counterparties (Celina 3) |
 | GET | `/api/v3/otc/traders/:owner_type/:owner_id/rating` | - | OTCOptionsHandler.GetTraderProfile | Public aggregate rating (avg + count) + recent comments for any trader (Celina 3) |
+| GET | `/api/v3/me/transfers/:id/status` | - | TransactionHandler.GetMyTransferStatus | Client-facing transfer status (INITIATED/PENDING/COMPLETED/FAILED) mapped from internal lifecycle (Celina 4) |
 | GET | `/api/v3/me/price-alerts` | - | PriceAlertHandler.ListMy | List caller's price alerts (Celina 3) |
 | POST | `/api/v3/me/price-alerts` | - | PriceAlertHandler.Create | Create a price alert (gte/lte/daily_change_pct_*) (Celina 3) |
 | GET | `/api/v3/me/price-alerts/:id` | - | PriceAlertHandler.Get | Read one alert (Celina 3) |
