@@ -14,8 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"context"
+
 	"github.com/gin-gonic/gin"
 
+	stockpb "github.com/exbanka/contract/stockpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
@@ -30,15 +33,17 @@ import (
 // {peer}/api/v3/negotiations carrying the SI-TX OtcOffer payload.
 type PeerOTCInitiateHandler struct {
 	peerAdmin   transactionpb.PeerBankAdminServiceClient
+	peerOTC     stockpb.PeerOTCServiceClient // for RecordOutboundNegotiation + ListMyPeerNegotiations
 	httpClient  *http.Client
 	ownRouting  int64
 	ownBankCode string
 	hmacWindow  time.Duration
 }
 
-func NewPeerOTCInitiateHandler(peerAdmin transactionpb.PeerBankAdminServiceClient, ownRouting int64, ownBankCode string) *PeerOTCInitiateHandler {
+func NewPeerOTCInitiateHandler(peerAdmin transactionpb.PeerBankAdminServiceClient, peerOTC stockpb.PeerOTCServiceClient, ownRouting int64, ownBankCode string) *PeerOTCInitiateHandler {
 	return &PeerOTCInitiateHandler{
 		peerAdmin:   peerAdmin,
+		peerOTC:     peerOTC,
 		httpClient:  &http.Client{Timeout: 30 * time.Second},
 		ownRouting:  ownRouting,
 		ownBankCode: ownBankCode,
@@ -185,8 +190,329 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 		apiError(c, http.StatusBadGateway, ErrInternal, "decode peer response: "+err.Error())
 		return
 	}
+	// Buyer-side mirror persistence: write a row into this bank's
+	// peer_otc_negotiations table so the buyer can later list / drive
+	// the negotiation via /me/peer-otc/negotiations. Best-effort —
+	// failure here logs but does NOT roll back the peer-side creation
+	// because the seller's bank already accepted; the user can resync
+	// later by polling /api/v3/negotiations/:rid/:id from the gateway.
+	if h.peerOTC != nil {
+		_, recErr := h.peerOTC.RecordOutboundNegotiation(c.Request.Context(), &stockpb.RecordOutboundNegotiationRequest{
+			PeerBankCode:  req.SellerBankCode,
+			NegotiationId: &stockpb.PeerForeignBankId{RoutingNumber: pr.RoutingNumber, Id: pr.ID},
+			BuyerId:       &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: buyerID},
+			SellerId:      &stockpb.PeerForeignBankId{RoutingNumber: peer.GetRoutingNumber(), Id: req.SellerID},
+			Offer: &stockpb.PeerOtcOffer{
+				Ticker:          req.Stock.Ticker,
+				Amount:          req.Amount,
+				PricePerStock:   req.PricePerUnit.Amount,
+				Currency:        req.PricePerUnit.Currency,
+				Premium:         req.Premium.Amount,
+				PremiumCurrency: req.Premium.Currency,
+				SettlementDate:  req.SettlementDate,
+				LastModifiedBy:  &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: buyerID},
+			},
+		})
+		if recErr != nil {
+			// Log via gin context; surface to operator without failing the
+			// client request — the peer already accepted.
+			c.Writer.Header().Set("X-Mirror-Warning", "buyer-side persistence failed: "+recErr.Error())
+		}
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"routingNumber": pr.RoutingNumber,
 		"id":            pr.ID,
 	})
+}
+
+// ListMyPeerNegotiations godoc
+// @Summary      List the caller's pending peer-OTC negotiations
+// @Description  Returns rows from this bank's peer_otc_negotiations where the caller is either the buyer (this bank hosts the buyer) or the seller. Use `role=buyer` / `role=seller` to filter.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        role query string false "buyer|seller (default: both)"
+// @Success      200 {object} map[string]interface{}
+// @Router       /api/v3/me/peer-otc/negotiations [get]
+func (h *PeerOTCInitiateHandler) ListMyPeerNegotiations(c *gin.Context) {
+	if h.peerOTC == nil {
+		apiError(c, http.StatusServiceUnavailable, ErrInternal, "peer-otc client not wired")
+		return
+	}
+	pid, _ := c.Get("principal_id")
+	uid, ok := pid.(int64)
+	if !ok || uid <= 0 {
+		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing principal id in token")
+		return
+	}
+	role := c.Query("role")
+	if role != "" && role != "buyer" && role != "seller" && role != "both" {
+		apiError(c, http.StatusBadRequest, ErrValidation, "role must be buyer, seller, or both")
+		return
+	}
+	resp, err := h.peerOTC.ListMyPeerNegotiations(c.Request.Context(), &stockpb.ListMyPeerNegotiationsRequest{
+		OwnRoutingNumber: h.ownRouting,
+		ClientId:         strconv.FormatInt(uid, 10),
+		Role:             role,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": resp.GetItems()})
+}
+
+// proxyPeerNegotiation forwards a single-negotiation operation to the
+// peer's /negotiations/{rid}/{id}[/...] route, using the same X-Api-Key
+// + optional HMAC bundle as the init flow. The peerBankCode is the
+// caller's COUNTERPARTY bank — for a buyer driving a negotiation, that's
+// the seller's bank; for a seller responding, that's the buyer's bank.
+//
+// Returns the response body bytes + status code so callers can pass it
+// through verbatim.
+func (h *PeerOTCInitiateHandler) proxyPeerNegotiation(c *gin.Context, peerBankCode, rid, foreignID, method, subpath string, body []byte) ([]byte, int, error) {
+	resolveResp, err := h.peerAdmin.ResolvePeerByBankCode(c.Request.Context(), &transactionpb.ResolvePeerByBankCodeRequest{BankCode: peerBankCode})
+	if err != nil {
+		return nil, http.StatusBadGateway, fmt.Errorf("resolve peer: %w", err)
+	}
+	peer := resolveResp.GetPeerBank()
+	if peer == nil || !peer.GetActive() {
+		return nil, http.StatusFailedDependency, fmt.Errorf("peer bank %s inactive or unknown", peerBankCode)
+	}
+	url := strings.TrimRight(peer.GetBaseUrl(), "/") + "/negotiations/" + rid + "/" + foreignID + subpath
+	httpReq, err := http.NewRequestWithContext(c.Request.Context(), method, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	if body != nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+	httpReq.Header.Set("X-Api-Key", peer.GetApiTokenPlaintext())
+	if k := peer.GetHmacOutboundKey(); k != "" {
+		nonce := make([]byte, 16)
+		_, _ = rand.Read(nonce)
+		ts := time.Now().UTC().Format(time.RFC3339)
+		mac := hmac.New(sha256.New, []byte(k))
+		mac.Write(body)
+		httpReq.Header.Set("X-Bank-Code", h.ownBankCode)
+		httpReq.Header.Set("X-Bank-Signature", hex.EncodeToString(mac.Sum(nil)))
+		httpReq.Header.Set("X-Timestamp", ts)
+		httpReq.Header.Set("X-Nonce", hex.EncodeToString(nonce))
+	}
+	httpResp, err := h.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, http.StatusBadGateway, fmt.Errorf("peer dispatch: %w", err)
+	}
+	defer httpResp.Body.Close()
+	respBody, _ := io.ReadAll(httpResp.Body)
+	return respBody, httpResp.StatusCode, nil
+}
+
+// resolveMyRoleAndPeer figures out, for a (rid, id) negotiation row on
+// this bank, whether the caller is the buyer or the seller and what
+// the counterparty's bank code is. Returns ("", "", false) when the
+// caller can't be matched — the route returns 404 in that case to
+// avoid leaking existence.
+func (h *PeerOTCInitiateHandler) resolveMyRoleAndPeer(ctx context.Context, callerPrincipalID int64, rid, foreignID string) (role, counterpartyBankCode string, ok bool) {
+	if h.peerOTC == nil {
+		return "", "", false
+	}
+	// List the caller's negotiations and look for a row whose foreign_id
+	// matches the requested one. This is sufficient because the
+	// (peer_bank_code, foreign_id) pair is globally unique within the
+	// caller's negotiation set.
+	resp, err := h.peerOTC.ListMyPeerNegotiations(ctx, &stockpb.ListMyPeerNegotiationsRequest{
+		OwnRoutingNumber: h.ownRouting,
+		ClientId:         strconv.FormatInt(callerPrincipalID, 10),
+	})
+	if err != nil {
+		return "", "", false
+	}
+	for _, it := range resp.GetItems() {
+		if it.GetId().GetId() != foreignID {
+			continue
+		}
+		if rid != "" && strconv.FormatInt(it.GetId().GetRoutingNumber(), 10) != rid {
+			continue
+		}
+		role = it.GetRole()
+		// Counterparty bank code = the OTHER party's bank routing,
+		// stringified. ResolvePeerByBankCode keys on bank_code which is
+		// a 3-digit string equal to the routing number for SI-TX banks.
+		if role == "buyer" {
+			counterpartyBankCode = strconv.FormatInt(it.GetSellerId().GetRoutingNumber(), 10)
+		} else {
+			counterpartyBankCode = strconv.FormatInt(it.GetBuyerId().GetRoutingNumber(), 10)
+		}
+		return role, counterpartyBankCode, true
+	}
+	return "", "", false
+}
+
+// CounterPeerNegotiation godoc
+// @Summary      Counter-offer on a cross-bank OTC negotiation
+// @Description  Updates the negotiation offer on the counterparty's bank. Body is the same OtcOffer shape as the initial POST. The gateway proxies a PUT to the counterparty's /api/v3/negotiations/:rid/:id. The local mirror row is updated by the inbound webhook from the counterparty after they refetch.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        rid path string true "routing number of the bank that issued the negotiation id"
+// @Param        id path string true "foreign id"
+// @Success      200 {object} map[string]interface{}
+// @Router       /api/v3/me/peer-otc/negotiations/{rid}/{id} [put]
+func (h *PeerOTCInitiateHandler) CounterPeerNegotiation(c *gin.Context) {
+	pid, _ := c.Get("principal_id")
+	uid, ok := pid.(int64)
+	if !ok || uid <= 0 {
+		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing principal id in token")
+		return
+	}
+	rid := c.Param("rid")
+	foreignID := c.Param("id")
+	body, _ := io.ReadAll(c.Request.Body)
+	_, peerBankCode, found := h.resolveMyRoleAndPeer(c.Request.Context(), uid, rid, foreignID)
+	if !found {
+		apiError(c, http.StatusNotFound, ErrNotFound, "negotiation not found")
+		return
+	}
+	respBody, code, err := h.proxyPeerNegotiation(c, peerBankCode, rid, foreignID, http.MethodPut, "", body)
+	if err != nil {
+		apiError(c, code, ErrInternal, err.Error())
+		return
+	}
+	// Mirror the counter on the caller's local row so their own list
+	// reflects the new offer immediately. Best-effort — the
+	// authoritative state lives on the counterparty's bank, and this
+	// only updates the locally-readable copy. The local mirror row's
+	// peer_bank_code is keyed by the counterparty.
+	if h.peerOTC != nil && code >= 200 && code < 300 {
+		offer, ok := parseCounterOfferBody(body)
+		if ok {
+			_, _ = h.peerOTC.UpdateNegotiation(c.Request.Context(), &stockpb.UpdateNegotiationRequest{
+				PeerBankCode:  peerBankCode,
+				NegotiationId: &stockpb.PeerForeignBankId{Id: foreignID},
+				Offer:         offer,
+			})
+		}
+	}
+	c.Data(code, "application/json", respBody)
+}
+
+// parseCounterOfferBody pulls the SI-TX OtcOffer fields out of the
+// camelCase JSON body that clients send to PUT /me/peer-otc/negotiations.
+// Returns (nil, false) on parse failure so callers can fall back to "no
+// local mirror update" without erroring the request.
+func parseCounterOfferBody(body []byte) (*stockpb.PeerOtcOffer, bool) {
+	var w struct {
+		Stock struct {
+			Ticker string `json:"ticker"`
+		} `json:"stock"`
+		Amount       int64 `json:"amount"`
+		PricePerUnit struct {
+			Amount   string `json:"amount"`
+			Currency string `json:"currency"`
+		} `json:"pricePerUnit"`
+		Premium struct {
+			Amount   string `json:"amount"`
+			Currency string `json:"currency"`
+		} `json:"premium"`
+		SettlementDate string `json:"settlementDate"`
+		LastModifiedBy struct {
+			RoutingNumber int64  `json:"routingNumber"`
+			ID            string `json:"id"`
+		} `json:"lastModifiedBy"`
+	}
+	if err := json.Unmarshal(body, &w); err != nil {
+		return nil, false
+	}
+	if w.Stock.Ticker == "" {
+		return nil, false
+	}
+	return &stockpb.PeerOtcOffer{
+		Ticker:          w.Stock.Ticker,
+		Amount:          w.Amount,
+		PricePerStock:   w.PricePerUnit.Amount,
+		Currency:        w.PricePerUnit.Currency,
+		Premium:         w.Premium.Amount,
+		PremiumCurrency: w.Premium.Currency,
+		SettlementDate:  w.SettlementDate,
+		LastModifiedBy:  &stockpb.PeerForeignBankId{RoutingNumber: w.LastModifiedBy.RoutingNumber, Id: w.LastModifiedBy.ID},
+	}, true
+}
+
+// AcceptPeerNegotiation godoc
+// @Summary      Accept a cross-bank OTC negotiation
+// @Description  Calls the counterparty's /api/v3/negotiations/:rid/:id/accept which begins the option-formation SI-TX (4-posting NEW_TX). Returns the transaction_id assigned by the counterparty.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        rid path string true "routing number"
+// @Param        id path string true "foreign id"
+// @Success      200 {object} map[string]interface{}
+// @Router       /api/v3/me/peer-otc/negotiations/{rid}/{id}/accept [post]
+func (h *PeerOTCInitiateHandler) AcceptPeerNegotiation(c *gin.Context) {
+	pid, _ := c.Get("principal_id")
+	uid, ok := pid.(int64)
+	if !ok || uid <= 0 {
+		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing principal id in token")
+		return
+	}
+	rid := c.Param("rid")
+	foreignID := c.Param("id")
+	_, peerBankCode, found := h.resolveMyRoleAndPeer(c.Request.Context(), uid, rid, foreignID)
+	if !found {
+		apiError(c, http.StatusNotFound, ErrNotFound, "negotiation not found")
+		return
+	}
+	// The SI-TX accept endpoint is a GET (spec §3.6) returning the
+	// transaction id.
+	respBody, code, err := h.proxyPeerNegotiation(c, peerBankCode, rid, foreignID, http.MethodGet, "/accept", nil)
+	if err != nil {
+		apiError(c, code, ErrInternal, err.Error())
+		return
+	}
+	c.Data(code, "application/json", respBody)
+}
+
+// CancelPeerNegotiation godoc
+// @Summary      Cancel a cross-bank OTC negotiation
+// @Description  Soft-cancels the negotiation on the counterparty's bank (DELETE flips isOngoing to false; the row is preserved per SI-TX §3.5). The local mirror is updated by the inbound webhook from the counterparty after they refetch.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        rid path string true "routing number"
+// @Param        id path string true "foreign id"
+// @Success      204 {string} string ""
+// @Router       /api/v3/me/peer-otc/negotiations/{rid}/{id} [delete]
+func (h *PeerOTCInitiateHandler) CancelPeerNegotiation(c *gin.Context) {
+	pid, _ := c.Get("principal_id")
+	uid, ok := pid.(int64)
+	if !ok || uid <= 0 {
+		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "missing principal id in token")
+		return
+	}
+	rid := c.Param("rid")
+	foreignID := c.Param("id")
+	_, peerBankCode, found := h.resolveMyRoleAndPeer(c.Request.Context(), uid, rid, foreignID)
+	if !found {
+		apiError(c, http.StatusNotFound, ErrNotFound, "negotiation not found")
+		return
+	}
+	_, code, err := h.proxyPeerNegotiation(c, peerBankCode, rid, foreignID, http.MethodDelete, "", nil)
+	if err != nil {
+		apiError(c, code, ErrInternal, err.Error())
+		return
+	}
+	// Mirror the cancel on the local row so the caller's list shows
+	// status=cancelled immediately. The local DeleteNegotiation handler
+	// flips status to "cancelled" without physically deleting the row
+	// (matching the peer-protocol semantics).
+	if h.peerOTC != nil && code >= 200 && code < 300 {
+		_, _ = h.peerOTC.DeleteNegotiation(c.Request.Context(), &stockpb.DeleteNegotiationRequest{
+			PeerBankCode:  peerBankCode,
+			NegotiationId: &stockpb.PeerForeignBankId{Id: foreignID},
+		})
+	}
+	c.Status(code)
 }

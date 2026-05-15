@@ -88,7 +88,7 @@ func TestPeerOTCInitiate_Success(t *testing.T) {
 		},
 	}
 
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 
 	rec := httptest.NewRecorder()
@@ -125,7 +125,7 @@ func TestPeerOTCInitiate_Success_WithHMAC(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 
 	rec := httptest.NewRecorder()
@@ -134,7 +134,7 @@ func TestPeerOTCInitiate_Success_WithHMAC(t *testing.T) {
 }
 
 func TestPeerOTCInitiate_BadBody(t *testing.T) {
-	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader("not json")))
@@ -142,7 +142,7 @@ func TestPeerOTCInitiate_BadBody(t *testing.T) {
 }
 
 func TestPeerOTCInitiate_MissingFields(t *testing.T) {
-	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	body := `{"seller_bank_code":"222","seller_id":""}`
@@ -151,7 +151,7 @@ func TestPeerOTCInitiate_MissingFields(t *testing.T) {
 }
 
 func TestPeerOTCInitiate_RejectsOwnBankCode(t *testing.T) {
-	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("111"))))
@@ -160,7 +160,7 @@ func TestPeerOTCInitiate_RejectsOwnBankCode(t *testing.T) {
 }
 
 func TestPeerOTCInitiate_MissingPrincipal(t *testing.T) {
-	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 0)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -173,7 +173,7 @@ func TestPeerOTCInitiate_PeerNotRegistered(t *testing.T) {
 			return &transactionpb.ResolvePeerByBankCodeResponse{Found: false}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -191,7 +191,7 @@ func TestPeerOTCInitiate_PeerInactive(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -204,7 +204,7 @@ func TestPeerOTCInitiate_ResolveError(t *testing.T) {
 			return nil, context.DeadlineExceeded
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -228,7 +228,7 @@ func TestPeerOTCInitiate_PeerRejects(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -247,7 +247,7 @@ func TestPeerOTCInitiate_PeerDispatchFails(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -271,7 +271,7 @@ func TestPeerOTCInitiate_PeerReturnsInvalidJSON(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))

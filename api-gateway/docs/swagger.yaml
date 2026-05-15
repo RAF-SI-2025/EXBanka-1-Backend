@@ -7623,6 +7623,28 @@ paths:
       tags:
       - OTCOptions
   /api/v3/me/peer-otc/negotiations:
+    get:
+      description: Returns rows from this bank's peer_otc_negotiations where the caller
+        is either the buyer (this bank hosts the buyer) or the seller. Use `role=buyer`
+        / `role=seller` to filter.
+      parameters:
+      - description: 'buyer|seller (default: both)'
+        in: query
+        name: role
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's pending peer-OTC negotiations
+      tags:
+      - OTCOptions
     post:
       consumes:
       - application/json
@@ -7648,6 +7670,95 @@ paths:
       security:
       - BearerAuth: []
       summary: Initiate a cross-bank OTC negotiation
+      tags:
+      - OTCOptions
+  /api/v3/me/peer-otc/negotiations/{rid}/{id}:
+    delete:
+      description: Soft-cancels the negotiation on the counterparty's bank (DELETE
+        flips isOngoing to false; the row is preserved per SI-TX §3.5). The local
+        mirror is updated by the inbound webhook from the counterparty after they
+        refetch.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: string
+      - description: foreign id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Cancel a cross-bank OTC negotiation
+      tags:
+      - OTCOptions
+    put:
+      consumes:
+      - application/json
+      description: Updates the negotiation offer on the counterparty's bank. Body
+        is the same OtcOffer shape as the initial POST. The gateway proxies a PUT
+        to the counterparty's /api/v3/negotiations/:rid/:id. The local mirror row
+        is updated by the inbound webhook from the counterparty after they refetch.
+      parameters:
+      - description: routing number of the bank that issued the negotiation id
+        in: path
+        name: rid
+        required: true
+        type: string
+      - description: foreign id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Counter-offer on a cross-bank OTC negotiation
+      tags:
+      - OTCOptions
+  /api/v3/me/peer-otc/negotiations/{rid}/{id}/accept:
+    post:
+      description: Calls the counterparty's /api/v3/negotiations/:rid/:id/accept which
+        begins the option-formation SI-TX (4-posting NEW_TX). Returns the transaction_id
+        assigned by the counterparty.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: string
+      - description: foreign id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Accept a cross-bank OTC negotiation
       tags:
       - OTCOptions
   /api/v3/me/price-alerts:

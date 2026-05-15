@@ -2728,21 +2728,22 @@ Full cross-bank OTC option lifecycle: discovery → initiation → counter-offer
 | GET | `/api/v3/me/otc/contracts` | Existing endpoint, now also returns `peer_contracts` and `peer_total` for cross-bank rows where the caller is a participant (CREDIT side = this bank holds the buyer; DEBIT side = this bank holds the seller). |
 | POST | `/api/v3/me/otc/contracts/peer/:id/exercise` | Exercise. Buyer-only (rejects when this bank's row is `direction=DEBIT`). Body is `{buyer_account_number}`. Dispatches the 4-posting exercise SI-TX (strike money buyer→seller + option markers carrying `intent=exercise`). |
 
-> **Known gap — peer-OTC negotiation discovery.** Once a cross-bank negotiation
-> is created, both the buyer-side (on bank B) and the seller-side (on bank A)
-> have no client-facing read endpoint to list pending peer negotiations.
-> `peer_otc_negotiations` rows are written via the peer-protocol routes and
-> can only be looked up by foreign id via the peer protocol itself (which
-> sits behind `PeerAuth`, not a client JWT). The buyer-side `/me/otc/offers`
-> and `/me/otc/contracts` lists do NOT include rows from
-> `peer_otc_negotiations` while the negotiation is still `ongoing`. Until a
-> peer accept finalises into a `peer_option_contracts` row, the only way to
-> see pending negotiations from a UI is to display them client-side from the
-> initial `POST /me/peer-otc/negotiations` response. Resolving this needs a
-> new `GET /api/v3/me/peer-otc/negotiations` listing endpoint with role
-> resolution (caller is buyer if `client-N` matches the JWT's principal id;
-> caller is seller if `seller_id` does — applies on the bank that hosts the
-> seller's row). Surfaced 2026-05-15 while driving the Celina 5 audit.
+### Client-facing peer-OTC negotiation routes (implemented 2026-05-15)
+
+Both sides of a cross-bank negotiation now have full visibility + control through their own bank's JWT:
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v3/me/peer-otc/negotiations` | Lists rows from this bank's `peer_otc_negotiations` where the caller's `client-<principal_id>` matches `buyer_id` (when this bank hosts the buyer) or `seller_id` (when this bank hosts the seller). Optional `?role=buyer|seller` filter. Each item carries a `role` field so the UI knows which side the caller is on. |
+| PUT | `/api/v3/me/peer-otc/negotiations/:rid/:id` | Counter-offer. Resolves the counterparty's bank from the caller's row, proxies a PUT to `{peer.base_url}/negotiations/{rid}/{id}`, and mirrors the new offer onto the caller's local row so both UIs reflect the change immediately. |
+| POST | `/api/v3/me/peer-otc/negotiations/:rid/:id/accept` | Accept. Calls the counterparty's `GET .../accept`, which begins the option-formation SI-TX. |
+| DELETE | `/api/v3/me/peer-otc/negotiations/:rid/:id` | Cancel. Proxies DELETE to counterparty + flips local mirror status to `cancelled` (matches peer-protocol soft-cancel semantics). |
+
+The buyer-side mirror is persisted by a new `PeerOTCService.RecordOutboundNegotiation` gRPC call made by the gateway right after the initial `POST /me/peer-otc/negotiations` succeeds. Without that mirror the buyer-side `GET` list would be empty (only the seller's bank receives the inbound POST and persists locally). On `(peer_bank_code, foreign_id)` conflicts the upsert overwrites, so retried inits are idempotent.
+
+The auto-mirroring of counter/cancel onto the caller's local row is best-effort: failure logs but does not roll back the authoritative state on the counterparty's bank. If a mirror update fails the caller can re-pull via `GET /api/v3/negotiations/:rid/:id` on the counterparty later.
+
+**Important — `seller_id` / `buyer_id` format.** The SI-TX wire spec requires `ForeignBankId.id` to be the prefixed form `client-<N>` or `employee-<N>`. The `POST /me/peer-otc/negotiations` body's `seller_id` is passed through verbatim into that wire field, so clients must send `"seller_id": "client-1"`, not `"seller_id": "1"`. Otherwise the seller's bank persists a row with `seller_id="1"` which doesn't match any of its clients' principal ids — the negotiation will be invisible to the seller-side `GET /me/peer-otc/negotiations` list. The gateway should ideally normalise this; that remains a follow-up.
 
 ### gRPC services
 

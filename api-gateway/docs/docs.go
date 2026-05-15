@@ -10085,6 +10085,38 @@ const docTemplate = `{
             }
         },
         "/api/v3/me/peer-otc/negotiations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns rows from this bank's peer_otc_negotiations where the caller is either the buyer (this bank hosts the buyer) or the seller. Use ` + "`" + `role=buyer` + "`" + ` / ` + "`" + `role=seller` + "`" + ` to filter.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List the caller's pending peer-OTC negotiations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "buyer|seller (default: both)",
+                        "name": "role",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -10116,6 +10148,132 @@ const docTemplate = `{
                 "responses": {
                     "201": {
                         "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/peer-otc/negotiations/{rid}/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates the negotiation offer on the counterparty's bank. Body is the same OtcOffer shape as the initial POST. The gateway proxies a PUT to the counterparty's /api/v3/negotiations/:rid/:id. The local mirror row is updated by the inbound webhook from the counterparty after they refetch.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Counter-offer on a cross-bank OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "routing number of the bank that issued the negotiation id",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft-cancels the negotiation on the counterparty's bank (DELETE flips isOngoing to false; the row is preserved per SI-TX §3.5). The local mirror is updated by the inbound webhook from the counterparty after they refetch.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Cancel a cross-bank OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/peer-otc/negotiations/{rid}/{id}/accept": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Calls the counterparty's /api/v3/negotiations/:rid/:id/accept which begins the option-formation SI-TX (4-posting NEW_TX). Returns the transaction_id assigned by the counterparty.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Accept a cross-bank OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

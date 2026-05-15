@@ -1330,6 +1330,55 @@ service PeerOTCService {
   rpc RecordOptionContract(RecordOptionContractRequest) returns (RecordOptionContractResponse);
   rpc CheckSellerCanDeliver(CheckSellerCanDeliverRequest) returns (CheckSellerCanDeliverResponse);
   rpc InitiateOptionExercise(InitiateOptionExerciseRequest) returns (InitiateOptionExerciseResponse);
+
+  // Buyer-side mirror persistence so the buyer's bank also has a local
+  // row to surface in /me/peer-otc/negotiations. Called by the gateway
+  // right after the outbound POST to the seller's bank succeeds.
+  rpc RecordOutboundNegotiation(RecordOutboundNegotiationRequest) returns (RecordOutboundNegotiationResponse);
+
+  // Discovery: list pending peer negotiations for a client principal.
+  // Surfaces rows where the caller is either buyer or seller; the
+  // caller's bank's routing number is matched against the row's
+  // buyer/seller routing (so a "buyer" row on bank B is one where
+  // buyer_routing == bank-B routing AND buyer_id == "client-<N>"; a
+  // "seller" row on bank A is one where seller_routing == bank-A
+  // routing AND seller_id == "client-<N>").
+  rpc ListMyPeerNegotiations(ListMyPeerNegotiationsRequest) returns (ListMyPeerNegotiationsResponse);
+}
+
+message RecordOutboundNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+  PeerForeignBankId buyer_id = 3;
+  PeerForeignBankId seller_id = 4;
+  PeerOtcOffer offer = 5;
+}
+message RecordOutboundNegotiationResponse {}
+
+message ListMyPeerNegotiationsRequest {
+  // Caller's own bank routing number. Used together with client_id to
+  // determine which rows belong to the caller as buyer / seller.
+  int64 own_routing_number = 1;
+  // The caller's client principal id (decimal string of the JWT
+  // principal_id). Server stamps it as "client-<N>" before matching
+  // against buyer_id / seller_id strings.
+  string client_id = 2;
+  // Optional role filter: "buyer", "seller", or "" / "both".
+  string role = 3;
+}
+
+message ListMyPeerNegotiationsResponse {
+  repeated PeerNegotiationListItem items = 1;
+}
+
+message PeerNegotiationListItem {
+  PeerForeignBankId id = 1;          // foreign id on the *other* bank
+  PeerForeignBankId buyer_id = 2;
+  PeerForeignBankId seller_id = 3;
+  PeerOtcOffer offer = 4;
+  string status = 5;
+  string role = 6;                    // "buyer" or "seller" — the caller's side
+  string updated_at = 7;
 }
 
 message PeerForeignBankId {

@@ -186,6 +186,6 @@ func NewHandlers(d Deps) *Handlers {
 		PeerAuthMW:       middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),
 		PeerOTC:          handler.NewPeerOTCHandler(d.PeerOTCClient),
 		PeerUser:         handler.NewPeerUserHandler(d.ClientClient, d.UserClient, ownRouting),
-		PeerOTCInitiate:  handler.NewPeerOTCInitiateHandler(d.PeerBankAdminClient, ownRouting, d.OwnBankCode),
+		PeerOTCInitiate:  handler.NewPeerOTCInitiateHandler(d.PeerBankAdminClient, d.PeerOTCClient, ownRouting, d.OwnBankCode),
 	}
 }

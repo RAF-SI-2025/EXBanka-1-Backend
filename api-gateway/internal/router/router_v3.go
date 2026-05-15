@@ -199,6 +199,13 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// JWT identity as buyerId and HTTP-POSTs to the seller bank's
 		// /api/v3/negotiations.
 		me.POST("/peer-otc/negotiations", h.PeerOTCInitiate.CreatePeerNegotiation)
+		// Discovery + client-facing negotiation controls (Phase 4 SI-TX
+		// follow-up). Both the buyer and the seller's own bank surface
+		// their own peer_otc_negotiations rows through these routes.
+		me.GET("/peer-otc/negotiations", h.PeerOTCInitiate.ListMyPeerNegotiations)
+		me.PUT("/peer-otc/negotiations/:rid/:id", h.PeerOTCInitiate.CounterPeerNegotiation)
+		me.POST("/peer-otc/negotiations/:rid/:id/accept", h.PeerOTCInitiate.AcceptPeerNegotiation)
+		me.DELETE("/peer-otc/negotiations/:rid/:id", h.PeerOTCInitiate.CancelPeerNegotiation)
 	}
 
 	// ── SI-TX peer-facing route (Phase 2 Task 14) ────────────────────

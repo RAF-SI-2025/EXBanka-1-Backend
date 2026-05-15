@@ -2908,15 +2908,17 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	PeerOTCService_GetPublicStocks_FullMethodName        = "/stock.PeerOTCService/GetPublicStocks"
-	PeerOTCService_CreateNegotiation_FullMethodName      = "/stock.PeerOTCService/CreateNegotiation"
-	PeerOTCService_UpdateNegotiation_FullMethodName      = "/stock.PeerOTCService/UpdateNegotiation"
-	PeerOTCService_GetNegotiation_FullMethodName         = "/stock.PeerOTCService/GetNegotiation"
-	PeerOTCService_DeleteNegotiation_FullMethodName      = "/stock.PeerOTCService/DeleteNegotiation"
-	PeerOTCService_AcceptNegotiation_FullMethodName      = "/stock.PeerOTCService/AcceptNegotiation"
-	PeerOTCService_RecordOptionContract_FullMethodName   = "/stock.PeerOTCService/RecordOptionContract"
-	PeerOTCService_CheckSellerCanDeliver_FullMethodName  = "/stock.PeerOTCService/CheckSellerCanDeliver"
-	PeerOTCService_InitiateOptionExercise_FullMethodName = "/stock.PeerOTCService/InitiateOptionExercise"
+	PeerOTCService_GetPublicStocks_FullMethodName           = "/stock.PeerOTCService/GetPublicStocks"
+	PeerOTCService_CreateNegotiation_FullMethodName         = "/stock.PeerOTCService/CreateNegotiation"
+	PeerOTCService_UpdateNegotiation_FullMethodName         = "/stock.PeerOTCService/UpdateNegotiation"
+	PeerOTCService_GetNegotiation_FullMethodName            = "/stock.PeerOTCService/GetNegotiation"
+	PeerOTCService_DeleteNegotiation_FullMethodName         = "/stock.PeerOTCService/DeleteNegotiation"
+	PeerOTCService_AcceptNegotiation_FullMethodName         = "/stock.PeerOTCService/AcceptNegotiation"
+	PeerOTCService_RecordOptionContract_FullMethodName      = "/stock.PeerOTCService/RecordOptionContract"
+	PeerOTCService_CheckSellerCanDeliver_FullMethodName     = "/stock.PeerOTCService/CheckSellerCanDeliver"
+	PeerOTCService_InitiateOptionExercise_FullMethodName    = "/stock.PeerOTCService/InitiateOptionExercise"
+	PeerOTCService_RecordOutboundNegotiation_FullMethodName = "/stock.PeerOTCService/RecordOutboundNegotiation"
+	PeerOTCService_ListMyPeerNegotiations_FullMethodName    = "/stock.PeerOTCService/ListMyPeerNegotiations"
 )
 
 // PeerOTCServiceClient is the client API for PeerOTCService service.
@@ -2946,6 +2948,18 @@ type PeerOTCServiceClient interface {
 	RecordOptionContract(ctx context.Context, in *RecordOptionContractRequest, opts ...grpc.CallOption) (*RecordOptionContractResponse, error)
 	CheckSellerCanDeliver(ctx context.Context, in *CheckSellerCanDeliverRequest, opts ...grpc.CallOption) (*CheckSellerCanDeliverResponse, error)
 	InitiateOptionExercise(ctx context.Context, in *InitiateOptionExerciseRequest, opts ...grpc.CallOption) (*InitiateOptionExerciseResponse, error)
+	// Buyer-side mirror persistence so the buyer's bank also has a local
+	// row to surface in /me/peer-otc/negotiations. Called by the gateway
+	// right after the outbound POST to the seller's bank succeeds.
+	RecordOutboundNegotiation(ctx context.Context, in *RecordOutboundNegotiationRequest, opts ...grpc.CallOption) (*RecordOutboundNegotiationResponse, error)
+	// Discovery: list pending peer negotiations for a client principal.
+	// Surfaces rows where the caller is either buyer or seller; the
+	// caller's bank's routing number is matched against the row's
+	// buyer/seller routing (so a "buyer" row on bank B is one where
+	// buyer_routing == bank-B routing AND buyer_id == "client-<N>"; a
+	// "seller" row on bank A is one where seller_routing == bank-A
+	// routing AND seller_id == "client-<N>").
+	ListMyPeerNegotiations(ctx context.Context, in *ListMyPeerNegotiationsRequest, opts ...grpc.CallOption) (*ListMyPeerNegotiationsResponse, error)
 }
 
 type peerOTCServiceClient struct {
@@ -3046,6 +3060,26 @@ func (c *peerOTCServiceClient) InitiateOptionExercise(ctx context.Context, in *I
 	return out, nil
 }
 
+func (c *peerOTCServiceClient) RecordOutboundNegotiation(ctx context.Context, in *RecordOutboundNegotiationRequest, opts ...grpc.CallOption) (*RecordOutboundNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecordOutboundNegotiationResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_RecordOutboundNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *peerOTCServiceClient) ListMyPeerNegotiations(ctx context.Context, in *ListMyPeerNegotiationsRequest, opts ...grpc.CallOption) (*ListMyPeerNegotiationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMyPeerNegotiationsResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_ListMyPeerNegotiations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerOTCServiceServer is the server API for PeerOTCService service.
 // All implementations must embed UnimplementedPeerOTCServiceServer
 // for forward compatibility.
@@ -3073,6 +3107,18 @@ type PeerOTCServiceServer interface {
 	RecordOptionContract(context.Context, *RecordOptionContractRequest) (*RecordOptionContractResponse, error)
 	CheckSellerCanDeliver(context.Context, *CheckSellerCanDeliverRequest) (*CheckSellerCanDeliverResponse, error)
 	InitiateOptionExercise(context.Context, *InitiateOptionExerciseRequest) (*InitiateOptionExerciseResponse, error)
+	// Buyer-side mirror persistence so the buyer's bank also has a local
+	// row to surface in /me/peer-otc/negotiations. Called by the gateway
+	// right after the outbound POST to the seller's bank succeeds.
+	RecordOutboundNegotiation(context.Context, *RecordOutboundNegotiationRequest) (*RecordOutboundNegotiationResponse, error)
+	// Discovery: list pending peer negotiations for a client principal.
+	// Surfaces rows where the caller is either buyer or seller; the
+	// caller's bank's routing number is matched against the row's
+	// buyer/seller routing (so a "buyer" row on bank B is one where
+	// buyer_routing == bank-B routing AND buyer_id == "client-<N>"; a
+	// "seller" row on bank A is one where seller_routing == bank-A
+	// routing AND seller_id == "client-<N>").
+	ListMyPeerNegotiations(context.Context, *ListMyPeerNegotiationsRequest) (*ListMyPeerNegotiationsResponse, error)
 	mustEmbedUnimplementedPeerOTCServiceServer()
 }
 
@@ -3109,6 +3155,12 @@ func (UnimplementedPeerOTCServiceServer) CheckSellerCanDeliver(context.Context, 
 }
 func (UnimplementedPeerOTCServiceServer) InitiateOptionExercise(context.Context, *InitiateOptionExerciseRequest) (*InitiateOptionExerciseResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InitiateOptionExercise not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) RecordOutboundNegotiation(context.Context, *RecordOutboundNegotiationRequest) (*RecordOutboundNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RecordOutboundNegotiation not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) ListMyPeerNegotiations(context.Context, *ListMyPeerNegotiationsRequest) (*ListMyPeerNegotiationsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMyPeerNegotiations not implemented")
 }
 func (UnimplementedPeerOTCServiceServer) mustEmbedUnimplementedPeerOTCServiceServer() {}
 func (UnimplementedPeerOTCServiceServer) testEmbeddedByValue()                        {}
@@ -3293,6 +3345,42 @@ func _PeerOTCService_InitiateOptionExercise_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerOTCService_RecordOutboundNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RecordOutboundNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).RecordOutboundNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_RecordOutboundNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).RecordOutboundNegotiation(ctx, req.(*RecordOutboundNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PeerOTCService_ListMyPeerNegotiations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyPeerNegotiationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).ListMyPeerNegotiations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_ListMyPeerNegotiations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).ListMyPeerNegotiations(ctx, req.(*ListMyPeerNegotiationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PeerOTCService_ServiceDesc is the grpc.ServiceDesc for PeerOTCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3335,6 +3423,14 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitiateOptionExercise",
 			Handler:    _PeerOTCService_InitiateOptionExercise_Handler,
+		},
+		{
+			MethodName: "RecordOutboundNegotiation",
+			Handler:    _PeerOTCService_RecordOutboundNegotiation_Handler,
+		},
+		{
+			MethodName: "ListMyPeerNegotiations",
+			Handler:    _PeerOTCService_ListMyPeerNegotiations_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

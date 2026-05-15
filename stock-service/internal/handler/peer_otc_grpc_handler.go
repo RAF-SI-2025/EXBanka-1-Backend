@@ -596,3 +596,97 @@ func (h *PeerOTCGRPCHandler) InitiateOptionExercise(ctx context.Context, req *st
 		Status:        resp.GetStatus(),
 	}, nil
 }
+
+// RecordOutboundNegotiation persists a buyer-side mirror row in
+// peer_otc_negotiations right after the gateway successfully POSTed the
+// negotiation to the seller's bank. Without this row, the buyer-side
+// /me/peer-otc/negotiations list endpoint can't surface the negotiation
+// — the original receiver-only persistence model only persists on the
+// seller's bank.
+//
+// peer_bank_code on this row is the SELLER's bank code (because that's
+// the peer that issued the foreign_id). buyer/seller routing+id are
+// stamped exactly as composed by the gateway so this bank's later
+// ListMyPeerNegotiations can match the caller's principal against
+// buyer_id.
+func (h *PeerOTCGRPCHandler) RecordOutboundNegotiation(ctx context.Context, req *stockpb.RecordOutboundNegotiationRequest) (*stockpb.RecordOutboundNegotiationResponse, error) {
+	if req.GetOffer() == nil || req.GetBuyerId() == nil || req.GetSellerId() == nil || req.GetNegotiationId() == nil {
+		return nil, status.Error(codes.InvalidArgument, "offer, buyer_id, seller_id, negotiation_id required")
+	}
+	if req.GetPeerBankCode() == "" {
+		return nil, status.Error(codes.InvalidArgument, "peer_bank_code required")
+	}
+	offerJSON, err := json.Marshal(protoToOffer(req.GetOffer()))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "marshal offer: %v", err)
+	}
+	neg := &model.PeerOtcNegotiation{
+		PeerBankCode:        req.GetPeerBankCode(),
+		ForeignID:           req.GetNegotiationId().GetId(),
+		BuyerRoutingNumber:  req.GetBuyerId().GetRoutingNumber(),
+		BuyerID:             req.GetBuyerId().GetId(),
+		SellerRoutingNumber: req.GetSellerId().GetRoutingNumber(),
+		SellerID:            req.GetSellerId().GetId(),
+		OfferJSON:           string(offerJSON),
+		Status:              "ongoing",
+	}
+	if err := h.negRepo.Upsert(neg); err != nil {
+		return nil, status.Errorf(codes.Internal, "upsert: %v", err)
+	}
+	return &stockpb.RecordOutboundNegotiationResponse{}, nil
+}
+
+// ListMyPeerNegotiations returns rows where the caller's principal
+// (stamped "client-<N>") matches buyer_id or seller_id on the row, with
+// the caller's bank routing matching the corresponding routing column.
+// role: "buyer" / "seller" / "" / "both".
+func (h *PeerOTCGRPCHandler) ListMyPeerNegotiations(ctx context.Context, req *stockpb.ListMyPeerNegotiationsRequest) (*stockpb.ListMyPeerNegotiationsResponse, error) {
+	if req.GetClientId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "client_id required")
+	}
+	if req.GetOwnRoutingNumber() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "own_routing_number required")
+	}
+	principal := req.GetClientId()
+	if !strings.HasPrefix(principal, "client-") {
+		principal = "client-" + principal
+	}
+	rows, err := h.negRepo.ListByClient(req.GetOwnRoutingNumber(), principal, req.GetRole())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list: %v", err)
+	}
+	out := &stockpb.ListMyPeerNegotiationsResponse{Items: make([]*stockpb.PeerNegotiationListItem, 0, len(rows))}
+	for i := range rows {
+		row := &rows[i]
+		var offer contractsitx.OtcOffer
+		_ = json.Unmarshal([]byte(row.OfferJSON), &offer)
+		role := "buyer"
+		if row.SellerRoutingNumber == req.GetOwnRoutingNumber() && row.SellerID == principal {
+			role = "seller"
+		}
+		out.Items = append(out.Items, &stockpb.PeerNegotiationListItem{
+			Id:        &stockpb.PeerForeignBankId{RoutingNumber: int64(roleRouting(row, role)), Id: row.ForeignID},
+			BuyerId:   &stockpb.PeerForeignBankId{RoutingNumber: row.BuyerRoutingNumber, Id: row.BuyerID},
+			SellerId:  &stockpb.PeerForeignBankId{RoutingNumber: row.SellerRoutingNumber, Id: row.SellerID},
+			Offer:     offerToProto(offer),
+			Status:    row.Status,
+			Role:      role,
+			UpdatedAt: row.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+	return out, nil
+}
+
+// roleRouting returns the *other* bank's routing for the surfaced
+// negotiation id — i.e. the bank where the foreign_id was assigned. If
+// the caller is the buyer (this bank hosts the buyer), the negotiation
+// id was assigned by the seller's bank, so we surface seller_routing.
+// If the caller is the seller, the id is locally-issued (this bank
+// assigned it on CreateNegotiation) so we surface our own routing —
+// which is the row's seller_routing.
+func roleRouting(row *model.PeerOtcNegotiation, role string) int64 {
+	if role == "buyer" {
+		return row.SellerRoutingNumber
+	}
+	return row.SellerRoutingNumber
+}
