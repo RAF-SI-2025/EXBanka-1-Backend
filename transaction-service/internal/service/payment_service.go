@@ -291,7 +291,9 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 			reason := fmt.Sprintf("payment execution failed for %s → %s amount %s %s: %v",
 				payment.FromAccountNumber, payment.ToAccountNumber, totalDebit.StringFixed(4), currency, err)
 			_ = s.paymentRepo.UpdateStatusWithReason(payment.ID, "failed", reason)
+			payment.FailureReason = reason
 			s.publishPaymentFailed(ctx, payment, reason)
+			s.publishPaymentFailedNotification(ctx, payment)
 			return fmt.Errorf("payment %d execution failed: %w", payment.ID, err)
 		}
 	}
@@ -315,21 +317,26 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 	return nil
 }
 
-// publishPaymentNotifications sends money_sent/money_received general notifications
-// by looking up account owner IDs via the already-available accountClient.
+// publishPaymentNotifications emits PAYMENT_SENT/PAYMENT_RECEIVED in-app
+// notification intents to the sender and receiver via the notifier (Kafka
+// notification.general topic). Uses the Data form — notification-service
+// renders the push-channel template registry entry.
+//
+// Bank-owned sides (owner_id == 0 or 1_000_000_000 sentinel) are skipped.
+// All emits are best-effort: lookup or publish failures are silently ignored.
 func (s *PaymentService) publishPaymentNotifications(ctx context.Context, payment *model.Payment) {
-	if s.producer == nil || s.accountClient == nil {
+	if s.notifier == nil || s.accountClient == nil {
 		return
 	}
+	amount := payment.InitialAmount.StringFixed(2)
 	fromAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 		AccountNumber: payment.FromAccountNumber,
 	})
-	if err == nil && fromAcct != nil {
-		_ = s.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+	if err == nil && fromAcct != nil && fromAcct.GetOwnerId() != 0 && fromAcct.GetOwnerId() != 1_000_000_000 {
+		_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
 			UserID:  fromAcct.GetOwnerId(),
-			Type:    "money_sent",
-			Title:   "Payment Sent",
-			Message: fmt.Sprintf("Payment of %s sent to %s", payment.InitialAmount.StringFixed(2), payment.ToAccountNumber),
+			Type:    "PAYMENT_SENT",
+			Data:    map[string]string{"amount": amount, "to_account": payment.ToAccountNumber},
 			RefType: "payment",
 			RefID:   payment.ID,
 		})
@@ -337,16 +344,41 @@ func (s *PaymentService) publishPaymentNotifications(ctx context.Context, paymen
 	toAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 		AccountNumber: payment.ToAccountNumber,
 	})
-	if err == nil && toAcct != nil {
-		_ = s.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+	if err == nil && toAcct != nil && toAcct.GetOwnerId() != 0 && toAcct.GetOwnerId() != 1_000_000_000 {
+		_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
 			UserID:  toAcct.GetOwnerId(),
-			Type:    "money_received",
-			Title:   "Payment Received",
-			Message: fmt.Sprintf("Payment of %s received from %s", payment.InitialAmount.StringFixed(2), payment.FromAccountNumber),
+			Type:    "PAYMENT_RECEIVED",
+			Data:    map[string]string{"amount": amount, "from_account": payment.FromAccountNumber},
 			RefType: "payment",
 			RefID:   payment.ID,
 		})
 	}
+}
+
+// publishPaymentFailedNotification emits a PAYMENT_FAILED in-app notification
+// intent to the sender (best-effort). The sender's owner is resolved via the
+// accountClient. Skipped if the sender is a bank-owned account (owner_id == 0
+// or 1_000_000_000 sentinel).
+func (s *PaymentService) publishPaymentFailedNotification(ctx context.Context, payment *model.Payment) {
+	if s.notifier == nil || s.accountClient == nil {
+		return
+	}
+	fromAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+		AccountNumber: payment.FromAccountNumber,
+	})
+	if err != nil || fromAcct == nil {
+		return
+	}
+	if fromAcct.GetOwnerId() == 0 || fromAcct.GetOwnerId() == 1_000_000_000 {
+		return
+	}
+	_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  fromAcct.GetOwnerId(),
+		Type:    "PAYMENT_FAILED",
+		Data:    map[string]string{"amount": payment.InitialAmount.StringFixed(2), "failure_reason": payment.FailureReason},
+		RefType: "payment",
+		RefID:   payment.ID,
+	})
 }
 
 func (s *PaymentService) GetPayment(id uint64) (*model.Payment, error) {
