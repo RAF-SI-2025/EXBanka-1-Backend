@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -123,6 +122,14 @@ func (h *CreditGRPCHandler) CreateLoanRequest(ctx context.Context, req *pb.Creat
 		Status:        loanReq.Status,
 	})
 
+	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  loanReq.ClientID,
+		Type:    "LOAN_REQUEST_SUBMITTED",
+		Data:    map[string]string{"loan_type": loanReq.LoanType, "amount": loanReq.Amount.StringFixed(2)},
+		RefType: "loan_request",
+		RefID:   loanReq.ID,
+	})
+
 	return toLoanRequestResponse(loanReq), nil
 }
 
@@ -177,14 +184,21 @@ func (h *CreditGRPCHandler) ApproveLoanRequest(ctx context.Context, req *pb.Appr
 			CurrencyCode:  loan.CurrencyCode,
 			DisbursedAt:   time.Now().UTC().Format(time.RFC3339),
 		})
+
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  loan.ClientID,
+			Type:    "LOAN_DISBURSED",
+			Data:    map[string]string{"loan_number": loan.LoanNumber, "amount": loan.Amount.StringFixed(2), "currency": loan.CurrencyCode},
+			RefType: "loan",
+			RefID:   loan.ID,
+		})
 	}
 
 	if loanReq, lrErr := h.loanRequestService.GetLoanRequest(req.RequestId); lrErr == nil {
 		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
 			UserID:  loanReq.ClientID,
-			Type:    "loan_approved",
-			Title:   "Loan Approved",
-			Message: fmt.Sprintf("Your %s loan request for %s has been approved.", loan.LoanType, loan.Amount.StringFixed(2)),
+			Type:    "LOAN_REQUEST_APPROVED",
+			Data:    map[string]string{"loan_type": loan.LoanType, "amount": loan.Amount.StringFixed(2)},
 			RefType: "loan",
 			RefID:   loan.ID,
 		})
@@ -209,9 +223,8 @@ func (h *CreditGRPCHandler) RejectLoanRequest(ctx context.Context, req *pb.Rejec
 
 	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
 		UserID:  loanReq.ClientID,
-		Type:    "loan_rejected",
-		Title:   "Loan Request Rejected",
-		Message: fmt.Sprintf("Your %s loan request for %s has been rejected.", loanReq.LoanType, loanReq.Amount.StringFixed(2)),
+		Type:    "LOAN_REQUEST_REJECTED",
+		Data:    map[string]string{"loan_type": loanReq.LoanType, "amount": loanReq.Amount.StringFixed(2)},
 		RefType: "loan_request",
 		RefID:   loanReq.ID,
 	})
