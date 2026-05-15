@@ -158,6 +158,8 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// OTC option trading (Spec 2): caller's offers/contracts.
 		me.GET("/otc/offers", bankIfEmp, h.OTCOptions.ListMyOffers)
 		me.GET("/otc/history", bankIfEmp, h.OTCOptions.ListNegotiationHistory)
+		me.POST("/otc/ratings", bankIfEmp, h.OTCOptions.SubmitRating)
+		me.GET("/otc/ratings/received", bankIfEmp, h.OTCOptions.ListMyReceivedRatings)
 		me.GET("/otc/contracts", bankIfEmp, h.OTCOptions.ListMyContracts)
 
 		// Cross-bank OTC option exercise (Celina-5 SI-TX). Buyer-only
@@ -243,6 +245,9 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 	{
 		otcRead.GET("/offers/:id", h.OTCOptions.GetOffer)
 		otcRead.GET("/contracts/:id", h.OTCOptions.GetContract)
+		// Public trader profile — aggregate rating + recent comments.
+		// Visible to all authenticated callers; useful for OTC discovery.
+		otcRead.GET("/traders/:owner_type/:owner_id/rating", h.OTCOptions.GetTraderProfile)
 	}
 	// Trading actions require both securities.trade AND otc.trade.
 	otcOptionsTrade := v3.Group("/otc")

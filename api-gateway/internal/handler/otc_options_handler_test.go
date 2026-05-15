@@ -67,6 +67,9 @@ type stubOTCOptionsClient struct {
 	getContractFn   func(*stockpb.GetContractRequest) (*stockpb.OptionContractResponse, error)
 	exerciseFn      func(*stockpb.ExerciseContractRequest) (*stockpb.ExerciseResponse, error)
 	listNegotiationHistoryFn func(*stockpb.ListNegotiationHistoryRequest) (*stockpb.ListMyOTCOffersResponse, error)
+	submitRatingFn           func(*stockpb.SubmitOTCRatingRequest) (*stockpb.OTCRatingResponse, error)
+	getTraderProfileFn       func(*stockpb.GetTraderProfileRequest) (*stockpb.TraderProfileResponse, error)
+	listReceivedRatingsFn    func(*stockpb.ListReceivedRatingsRequest) (*stockpb.ListOTCRatingsResponse, error)
 }
 
 func (s *stubOTCOptionsClient) CreateOffer(_ context.Context, in *stockpb.CreateOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
@@ -128,6 +131,24 @@ func (s *stubOTCOptionsClient) ListNegotiationHistory(_ context.Context, in *sto
 		return s.listNegotiationHistoryFn(in)
 	}
 	return &stockpb.ListMyOTCOffersResponse{}, nil
+}
+func (s *stubOTCOptionsClient) SubmitRating(_ context.Context, in *stockpb.SubmitOTCRatingRequest, _ ...grpc.CallOption) (*stockpb.OTCRatingResponse, error) {
+	if s.submitRatingFn != nil {
+		return s.submitRatingFn(in)
+	}
+	return &stockpb.OTCRatingResponse{}, nil
+}
+func (s *stubOTCOptionsClient) GetTraderProfile(_ context.Context, in *stockpb.GetTraderProfileRequest, _ ...grpc.CallOption) (*stockpb.TraderProfileResponse, error) {
+	if s.getTraderProfileFn != nil {
+		return s.getTraderProfileFn(in)
+	}
+	return &stockpb.TraderProfileResponse{}, nil
+}
+func (s *stubOTCOptionsClient) ListReceivedRatings(_ context.Context, in *stockpb.ListReceivedRatingsRequest, _ ...grpc.CallOption) (*stockpb.ListOTCRatingsResponse, error) {
+	if s.listReceivedRatingsFn != nil {
+		return s.listReceivedRatingsFn(in)
+	}
+	return &stockpb.ListOTCRatingsResponse{}, nil
 }
 
 var _ stockpb.OTCOptionsServiceClient = (*stubOTCOptionsClient)(nil)

@@ -479,3 +479,113 @@ func (h *OTCOptionsHandler) ExercisePeerContract(c *gin.Context) {
 		"status":         resp.GetStatus(),
 	})
 }
+
+// --- OTC trader rating routes (Celina 3) ---------------------------------
+
+type submitOTCRatingRequest struct {
+	OfferID uint64 `json:"offer_id"`
+	Score   int32  `json:"score"`
+	Comment string `json:"comment"`
+}
+
+// SubmitRating godoc
+// @Summary      Rate the counterparty of an ACCEPTED OTC offer
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        body body submitOTCRatingRequest true "offer_id + score (1..5) + optional comment"
+// @Success      201 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{}
+// @Router       /api/v3/me/otc/ratings [post]
+func (h *OTCOptionsHandler) SubmitRating(c *gin.Context) {
+	var req submitOTCRatingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
+		return
+	}
+	if req.OfferID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "offer_id is required")
+		return
+	}
+	if req.Score < 1 || req.Score > 5 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "score must be 1..5")
+		return
+	}
+	if len(req.Comment) > 1000 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "comment must be ≤ 1000 chars")
+		return
+	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	resp, err := h.client.SubmitRating(c.Request.Context(), &stockpb.SubmitOTCRatingRequest{
+		OfferId:        req.OfferID,
+		RaterOwnerType: identity.OwnerType,
+		RaterOwnerId:   derefU64(identity.OwnerID),
+		Score:          req.Score,
+		Comment:        req.Comment,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"rating": resp})
+}
+
+// GetTraderProfile godoc
+// @Summary      Get a trader's aggregate OTC rating + recent comments
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        owner_type path string true "client|bank"
+// @Param        owner_id path int true "owner id (0 for bank)"
+// @Param        recent_limit query int false "1..100, default 20"
+// @Success      200 {object} map[string]interface{}
+// @Router       /api/v3/otc/traders/{owner_type}/{owner_id}/rating [get]
+func (h *OTCOptionsHandler) GetTraderProfile(c *gin.Context) {
+	ownerType := c.Param("owner_type")
+	if _, err := oneOf("owner_type", ownerType, "client", "bank"); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+	ownerID, err := strconv.ParseUint(c.Param("owner_id"), 10, 64)
+	if err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid owner_id")
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("recent_limit", "20"))
+	resp, err := h.client.GetTraderProfile(c.Request.Context(), &stockpb.GetTraderProfileRequest{
+		OwnerType:   ownerType,
+		OwnerId:     ownerID,
+		RecentLimit: int32(limit),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// ListMyReceivedRatings godoc
+// @Summary      List ratings the caller has received from OTC counterparties
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        limit query int false "1..100, default 20"
+// @Success      200 {object} map[string]interface{}
+// @Router       /api/v3/me/otc/ratings/received [get]
+func (h *OTCOptionsHandler) ListMyReceivedRatings(c *gin.Context) {
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	resp, err := h.client.ListReceivedRatings(c.Request.Context(), &stockpb.ListReceivedRatingsRequest{
+		OwnerType: identity.OwnerType,
+		OwnerId:   derefU64(identity.OwnerID),
+		Limit:     int32(limit),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ratings": resp.Ratings})
+}

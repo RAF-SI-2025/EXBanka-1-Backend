@@ -7627,6 +7627,85 @@ Returns identity info for a counterparty user. Peers call this when displaying u
 
 ---
 
+## 42. OTC Trader Ratings
+
+After a terminally-accepted OTC offer, either party may rate the other on a 1..5 scale with an optional comment. Each `(offer, rater)` pair allows at most one rating. Aggregates surface via a public profile endpoint usable for OTC discovery.
+
+### 42.1 Submit a rating
+
+**Endpoint:** `POST /api/v3/me/otc/ratings`
+
+**Authentication:** `Bearer <token>`
+
+**Request body:**
+```json
+{ "offer_id": 42, "score": 5, "comment": "smooth transaction" }
+```
+
+`score` must be `1..5`. `comment` is optional and ≤ 1000 characters.
+
+**Response 201:**
+```json
+{
+  "rating": {
+    "id": 1,
+    "offer_id": 42,
+    "rater_owner_type": "client",
+    "rater_owner_id": 7,
+    "rated_owner_type": "client",
+    "rated_owner_id": 20,
+    "score": 5,
+    "comment": "smooth transaction",
+    "created_at_unix": 1731699200
+  }
+}
+```
+
+**Response 400:** `score` out of range, `comment` too long, missing `offer_id`.
+**Response 403:** Caller is not a party to the referenced offer.
+**Response 409:** The caller has already rated this offer.
+**Response 412:** Offer is not in `ACCEPTED` status.
+
+### 42.2 Get trader profile (public)
+
+**Endpoint:** `GET /api/v3/otc/traders/:owner_type/:owner_id/rating`
+
+`owner_type` ∈ `client`/`bank`. `owner_id` is the owner id (use `0` for bank).
+
+**Query parameters:**
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `recent_limit` | int | No | 1..100, default 20 (number of recent comments to surface). |
+
+**Response 200:**
+```json
+{
+  "owner_type": "client",
+  "owner_id": 20,
+  "average": 4.5,
+  "count": 12,
+  "recent": [ { /* same shape as ratings */ } ]
+}
+```
+
+### 42.3 List my received ratings
+
+**Endpoint:** `GET /api/v3/me/otc/ratings/received`
+
+Returns the most recent ratings the caller has received.
+
+**Query parameters:**
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `limit` | int | No | 1..100, default 20. |
+
+**Response 200:**
+```json
+{ "ratings": [ /* OTCRatingResponse[] */ ] }
+```
+
+---
+
 ## 41. OTC Negotiation History
 
 Read-only view of *terminal* OTC offers (accepted, rejected, expired, failed) for the caller. The active /offers list excludes terminal offers; this endpoint surfaces them with optional status, date-range, and counterparty filters.

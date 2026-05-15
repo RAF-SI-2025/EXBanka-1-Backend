@@ -790,6 +790,15 @@ definitions:
     required:
     - response
     type: object
+  handler.submitOTCRatingRequest:
+    properties:
+      comment:
+        type: string
+      offer_id:
+        type: integer
+      score:
+        type: integer
+    type: object
   handler.switchSourceRequest:
     properties:
       source:
@@ -7491,6 +7500,65 @@ paths:
       summary: List the caller's OTC offers
       tags:
       - OTCOptions
+  /api/v3/me/otc/ratings:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: offer_id + score (1..5) + optional comment
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.submitOTCRatingRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Rate the counterparty of an ACCEPTED OTC offer
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/ratings/received:
+    get:
+      parameters:
+      - description: 1..100, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List ratings the caller has received from OTC counterparties
+      tags:
+      - OTCOptions
   /api/v3/me/peer-otc/negotiations:
     post:
       consumes:
@@ -8043,6 +8111,36 @@ paths:
       security:
       - BearerAuth: []
       summary: Reject an OTC offer
+      tags:
+      - OTCOptions
+  /api/v3/otc/traders/{owner_type}/{owner_id}/rating:
+    get:
+      parameters:
+      - description: client|bank
+        in: path
+        name: owner_type
+        required: true
+        type: string
+      - description: owner id (0 for bank)
+        in: path
+        name: owner_id
+        required: true
+        type: integer
+      - description: 1..100, default 20
+        in: query
+        name: recent_limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a trader's aggregate OTC rating + recent comments
       tags:
       - OTCOptions
   /api/v3/roles/{id}/permissions:

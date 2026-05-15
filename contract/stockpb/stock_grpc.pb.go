@@ -2354,6 +2354,9 @@ const (
 	OTCOptionsService_GetContract_FullMethodName            = "/stock.OTCOptionsService/GetContract"
 	OTCOptionsService_ExerciseContract_FullMethodName       = "/stock.OTCOptionsService/ExerciseContract"
 	OTCOptionsService_ListNegotiationHistory_FullMethodName = "/stock.OTCOptionsService/ListNegotiationHistory"
+	OTCOptionsService_SubmitRating_FullMethodName           = "/stock.OTCOptionsService/SubmitRating"
+	OTCOptionsService_GetTraderProfile_FullMethodName       = "/stock.OTCOptionsService/GetTraderProfile"
+	OTCOptionsService_ListReceivedRatings_FullMethodName    = "/stock.OTCOptionsService/ListReceivedRatings"
 )
 
 // OTCOptionsServiceClient is the client API for OTCOptionsService service.
@@ -2372,6 +2375,10 @@ type OTCOptionsServiceClient interface {
 	// Negotiation history — terminal-only OTC offers (ACCEPTED, REJECTED,
 	// EXPIRED, FAILED). Filters by status / date range / counterparty.
 	ListNegotiationHistory(ctx context.Context, in *ListNegotiationHistoryRequest, opts ...grpc.CallOption) (*ListMyOTCOffersResponse, error)
+	// OTC trader ratings (Celina 3). One rating per (offer, rater).
+	SubmitRating(ctx context.Context, in *SubmitOTCRatingRequest, opts ...grpc.CallOption) (*OTCRatingResponse, error)
+	GetTraderProfile(ctx context.Context, in *GetTraderProfileRequest, opts ...grpc.CallOption) (*TraderProfileResponse, error)
+	ListReceivedRatings(ctx context.Context, in *ListReceivedRatingsRequest, opts ...grpc.CallOption) (*ListOTCRatingsResponse, error)
 }
 
 type oTCOptionsServiceClient struct {
@@ -2482,6 +2489,36 @@ func (c *oTCOptionsServiceClient) ListNegotiationHistory(ctx context.Context, in
 	return out, nil
 }
 
+func (c *oTCOptionsServiceClient) SubmitRating(ctx context.Context, in *SubmitOTCRatingRequest, opts ...grpc.CallOption) (*OTCRatingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCRatingResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_SubmitRating_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) GetTraderProfile(ctx context.Context, in *GetTraderProfileRequest, opts ...grpc.CallOption) (*TraderProfileResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TraderProfileResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_GetTraderProfile_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) ListReceivedRatings(ctx context.Context, in *ListReceivedRatingsRequest, opts ...grpc.CallOption) (*ListOTCRatingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListOTCRatingsResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_ListReceivedRatings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OTCOptionsServiceServer is the server API for OTCOptionsService service.
 // All implementations must embed UnimplementedOTCOptionsServiceServer
 // for forward compatibility.
@@ -2498,6 +2535,10 @@ type OTCOptionsServiceServer interface {
 	// Negotiation history — terminal-only OTC offers (ACCEPTED, REJECTED,
 	// EXPIRED, FAILED). Filters by status / date range / counterparty.
 	ListNegotiationHistory(context.Context, *ListNegotiationHistoryRequest) (*ListMyOTCOffersResponse, error)
+	// OTC trader ratings (Celina 3). One rating per (offer, rater).
+	SubmitRating(context.Context, *SubmitOTCRatingRequest) (*OTCRatingResponse, error)
+	GetTraderProfile(context.Context, *GetTraderProfileRequest) (*TraderProfileResponse, error)
+	ListReceivedRatings(context.Context, *ListReceivedRatingsRequest) (*ListOTCRatingsResponse, error)
 	mustEmbedUnimplementedOTCOptionsServiceServer()
 }
 
@@ -2537,6 +2578,15 @@ func (UnimplementedOTCOptionsServiceServer) ExerciseContract(context.Context, *E
 }
 func (UnimplementedOTCOptionsServiceServer) ListNegotiationHistory(context.Context, *ListNegotiationHistoryRequest) (*ListMyOTCOffersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListNegotiationHistory not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) SubmitRating(context.Context, *SubmitOTCRatingRequest) (*OTCRatingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SubmitRating not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) GetTraderProfile(context.Context, *GetTraderProfileRequest) (*TraderProfileResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetTraderProfile not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) ListReceivedRatings(context.Context, *ListReceivedRatingsRequest) (*ListOTCRatingsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListReceivedRatings not implemented")
 }
 func (UnimplementedOTCOptionsServiceServer) mustEmbedUnimplementedOTCOptionsServiceServer() {}
 func (UnimplementedOTCOptionsServiceServer) testEmbeddedByValue()                           {}
@@ -2739,6 +2789,60 @@ func _OTCOptionsService_ListNegotiationHistory_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OTCOptionsService_SubmitRating_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitOTCRatingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).SubmitRating(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_SubmitRating_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).SubmitRating(ctx, req.(*SubmitOTCRatingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_GetTraderProfile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTraderProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).GetTraderProfile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_GetTraderProfile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).GetTraderProfile(ctx, req.(*GetTraderProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_ListReceivedRatings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListReceivedRatingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).ListReceivedRatings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_ListReceivedRatings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).ListReceivedRatings(ctx, req.(*ListReceivedRatingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OTCOptionsService_ServiceDesc is the grpc.ServiceDesc for OTCOptionsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2785,6 +2889,18 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListNegotiationHistory",
 			Handler:    _OTCOptionsService_ListNegotiationHistory_Handler,
+		},
+		{
+			MethodName: "SubmitRating",
+			Handler:    _OTCOptionsService_SubmitRating_Handler,
+		},
+		{
+			MethodName: "GetTraderProfile",
+			Handler:    _OTCOptionsService_GetTraderProfile_Handler,
+		},
+		{
+			MethodName: "ListReceivedRatings",
+			Handler:    _OTCOptionsService_ListReceivedRatings_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

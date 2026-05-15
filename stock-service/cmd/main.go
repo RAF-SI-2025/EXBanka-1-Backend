@@ -85,6 +85,7 @@ func main() {
 		&model.OTCOfferReadReceipt{},
 		&model.IdempotencyRecord{},
 		&model.WatchlistItem{},
+		&model.OTCTraderRating{},
 		// Phase 4 SI-TX: receiver-side mirror of inbound peer-bank
 		// OTC negotiations. Created/updated by PeerOTCGRPCHandler.
 		&model.PeerOtcNegotiation{},
@@ -656,9 +657,12 @@ func main() {
 		WithPeerContracts(peerOptionRepo)
 	otcExpiry.Start(ctx)
 
+	ratingRepo := repository.NewOTCTraderRatingRepository(db)
+	ratingSvc := service.NewOTCRatingService(ratingRepo, otcOfferRepo)
 	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).
 		WithListings(listingRepo).
-		WithPeerContracts(peerOptionRepo, ownRouting)
+		WithPeerContracts(peerOptionRepo, ownRouting).
+		WithRatings(ratingSvc)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()

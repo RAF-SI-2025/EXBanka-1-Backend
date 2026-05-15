@@ -9989,6 +9989,99 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/me/otc/ratings": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Rate the counterparty of an ACCEPTED OTC offer",
+                "parameters": [
+                    {
+                        "description": "offer_id + score (1..5) + optional comment",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.submitOTCRatingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/ratings/received": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List ratings the caller has received from OTC counterparties",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "1..100, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/peer-otc/negotiations": {
             "post": {
                 "security": [
@@ -10826,6 +10919,53 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/otc/traders/{owner_type}/{owner_id}/rating": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Get a trader's aggregate OTC rating + recent comments",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "client|bank",
+                        "name": "owner_type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "owner id (0 for bank)",
+                        "name": "owner_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1..100, default 20",
+                        "name": "recent_limit",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -12253,6 +12393,20 @@ const docTemplate = `{
             "properties": {
                 "response": {
                     "type": "string"
+                }
+            }
+        },
+        "handler.submitOTCRatingRequest": {
+            "type": "object",
+            "properties": {
+                "comment": {
+                    "type": "string"
+                },
+                "offer_id": {
+                    "type": "integer"
+                },
+                "score": {
+                    "type": "integer"
                 }
             }
         },
