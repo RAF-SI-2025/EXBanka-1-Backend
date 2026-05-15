@@ -24,6 +24,31 @@ func TestRegistry_AllEmailTypesPresent(t *testing.T) {
 	}
 }
 
+func TestRegistry_AllPushTypesPresent(t *testing.T) {
+	want := []string{
+		"ORDER_PLACED", "ORDER_APPROVED", "ORDER_DECLINED", "ORDER_PARTIALLY_FILLED",
+		"ORDER_FILLED", "ORDER_CANCELLED",
+		"OTC_OFFER_RECEIVED", "OTC_OFFER_COUNTERED", "OTC_OFFER_REJECTED", "OTC_OFFER_EXPIRED",
+		"OTC_CONTRACT_CREATED", "OTC_CONTRACT_EXERCISED", "OTC_CONTRACT_EXPIRED", "OTC_CONTRACT_FAILED",
+		"PAYMENT_SENT", "PAYMENT_RECEIVED", "PAYMENT_FAILED",
+		"TRANSFER_SENT", "TRANSFER_RECEIVED", "TRANSFER_FAILED",
+		"LOAN_REQUEST_SUBMITTED", "LOAN_REQUEST_APPROVED", "LOAN_REQUEST_REJECTED",
+		"LOAN_DISBURSED", "INSTALLMENT_COLLECTED", "INSTALLMENT_FAILED",
+		"ACCOUNT_OPENED", "ACCOUNT_STATUS_CHANGED", "ACCOUNT_NAME_UPDATED",
+		"ACCOUNT_LIMITS_UPDATED", "MAINTENANCE_FEE_CHARGED",
+		"CARD_CREATED", "CARD_STATUS_CHANGED", "CARD_TEMPORARY_BLOCKED",
+		"VIRTUAL_CARD_CREATED", "CARD_REQUEST_CREATED", "CARD_REQUEST_APPROVED", "CARD_REQUEST_REJECTED",
+	}
+	for _, typ := range want {
+		if _, ok := Get(typ, "push"); !ok {
+			t.Errorf("registry missing push type %q", typ)
+		}
+	}
+	if got := len(All("push")); got != len(want) {
+		t.Errorf("All(push) returned %d, want %d", got, len(want))
+	}
+}
+
 func TestRegistry_SelfConsistent(t *testing.T) {
 	for _, d := range All("") {
 		if d.Type == "" || d.Channel == "" || d.DefaultSubject == "" || d.DefaultBody == "" {
