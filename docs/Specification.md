@@ -898,6 +898,8 @@ Four new RPCs on `AccountService` back the securities-order reservation system. 
 
 `OrderGRPCService` — `CreateOrder` and `BuyOTCOffer` RPCs accept two new optional fields: `acting_employee_id` (uint64, employee placing the trade on behalf of a client; 0 means the caller is the client) and `on_behalf_of_client_id` (uint64, the client being traded for; 0 means the caller is trading for themselves). The gateway sets these fields when an employee uses the `POST /api/v3/orders` or `POST /api/v3/otc/offers/:id/buy-on-behalf` endpoints.
 
+`OTCOptionsService` — `CreateOTCOfferRequest` gained a `ticker` field (proto field 12): a human-readable underlying-stock ticker threaded from the api-gateway create-offer handler through to the persisted `OTCOffer.Ticker` (and onto the resulting `OptionContract.Ticker`), used for in-app notification rendering (Plan B1).
+
 `SourceAdminService` — destructive data-source management:
 - `SwitchSource(SwitchSourceRequest) returns (SwitchSourceResponse)` — switches the active stock data source. Request field: `source string` (one of `external`, `generated`, `simulator`). Response wraps a `SourceStatus` message.
 - `GetSourceStatus(GetSourceStatusRequest) returns (SourceStatus)` — returns the current source name and switch status. `SourceStatus` fields: `source string`, `status string` (`idle` | `reseeding` | `failed`), `started_at string` (RFC3339), `last_error string`.
@@ -1962,7 +1964,7 @@ Reached via the peer-facing `/api/v3/negotiations/:rid/:id` routes; acceptance t
 | `verification.challenge-verified` | verification-service | transaction-service | VerificationChallengeVerifiedMessage |
 | `verification.challenge-failed` | verification-service | transaction-service | VerificationChallengeFailedMessage |
 | `notification.mobile-push` | notification-service | api-gateway | MobilePushMessage |
-| `notification.general` | account/card/credit/auth/transaction-service | notification-service | GeneralNotificationMessage |
+| `notification.general` | account/card/credit/auth/transaction/stock-service | notification-service | GeneralNotificationMessage |
 | `stock.order-created` | stock-service | (consumers) | OrderCreatedMessage |
 | `stock.order-approved` | stock-service | (consumers) | OrderApprovedMessage |
 | `stock.order-declined` | stock-service | (consumers) | OrderDeclinedMessage |
@@ -1983,6 +1985,8 @@ Published to `notification.general` by various services. notification-service co
 | `loan_approved` | credit-service | Loan request approved |
 | `loan_rejected` | credit-service | Loan request rejected |
 | `password_changed` | auth-service | Password reset completed |
+
+**stock-service in-app notifications (Plan B1):** stock-service emits `GeneralNotificationMessage` intents on `notification.general` for every significant securities/OTC action — order placed/approved/declined/cancelled, order partial-fill and full-fill, OTC offer received/countered/rejected/expired, and OTC contract created/exercised/expired. These are **client-owned only** (bank-owned orders and bank-owned OTC parties emit nothing), **best-effort** (published after the action commits; publish failures are swallowed and never block the action), and rendered by notification-service via the `push`-channel template registry.
 
 ### Email Types (SendEmailMessage.EmailType)
 
@@ -2583,9 +2587,9 @@ All `PeerAuth` failures return 401 with empty body. Constant-time comparison via
 
 | Entity | Table | Purpose |
 |---|---|---|
-| `OTCOffer` | `otc_offers` | One negotiation thread between two parties on a stock-option contract. Carries direction, stock_id, qty, strike, premium, settlement_date, status. Initiator + counterparty identified by (`InitiatorOwnerType`, `InitiatorOwnerID`) / (`CounterpartyOwnerType`, `CounterpartyOwnerID`); `LastModifiedByPrincipalType`/`LastModifiedByPrincipalID` records the actor (principal) of the latest revision. `InitiatorAccountID` is the initiator's account bound at offer creation (pays the premium on `buy_initiated`, receives it on `sell_initiated`). (Renamed from the pre-Task-4 `(user_id, system_type)` triples by plan 2026-04-27-owner-type-schema.md.) Optimistic-locked. |
+| `OTCOffer` | `otc_offers` | One negotiation thread between two parties on a stock-option contract. Carries direction, stock_id, qty, strike, premium, settlement_date, status. Initiator + counterparty identified by (`InitiatorOwnerType`, `InitiatorOwnerID`) / (`CounterpartyOwnerType`, `CounterpartyOwnerID`); `LastModifiedByPrincipalType`/`LastModifiedByPrincipalID` records the actor (principal) of the latest revision. `InitiatorAccountID` is the initiator's account bound at offer creation (pays the premium on `buy_initiated`, receives it on `sell_initiated`). `Ticker` (string, size 16, not null, default `''`) carries a human-readable underlying-stock ticker for in-app notification rendering (Plan B1). (Renamed from the pre-Task-4 `(user_id, system_type)` triples by plan 2026-04-27-owner-type-schema.md.) Optimistic-locked. |
 | `OTCOfferRevision` | `otc_offer_revisions` | Append-only history of every CREATE/COUNTER/ACCEPT/REJECT action on an offer. Carries `ModifiedByPrincipalType`/`ModifiedByPrincipalID` (the principal who issued the revision, not the resource owner). (offer_id, revision_number) is unique. |
-| `OptionContract` | `option_contracts` | The premium-paid executed option produced by the accept saga. Buyer + seller identified by (`BuyerOwnerType`, `BuyerOwnerID`) / (`SellerOwnerType`, `SellerOwnerID`); `BuyerAccountID`/`SellerAccountID` are bound at accept time and read straight off the contract on exercise; status ∈ {ACTIVE, EXERCISED, EXPIRED, FAILED}. |
+| `OptionContract` | `option_contracts` | The premium-paid executed option produced by the accept saga. Buyer + seller identified by (`BuyerOwnerType`, `BuyerOwnerID`) / (`SellerOwnerType`, `SellerOwnerID`); `BuyerAccountID`/`SellerAccountID` are bound at accept time and read straight off the contract on exercise; status ∈ {ACTIVE, EXERCISED, EXPIRED, FAILED}. `Ticker` (string, size 16, not null, default `''`) carries a human-readable underlying-stock ticker for in-app notification rendering (Plan B1). |
 | `OTCOfferReadReceipt` | `otc_offer_read_receipts` | Composite-PK row tracking the most recent updated_at the owner has seen for an offer. PK is (`OwnerType`, `OwnerID`, `OfferID`); bank readers materialise as `OwnerID=0` because Postgres disallows NULL in primary keys. Drives the `unread` flag. |
 | `HoldingReservation.OTCContractID` | `holding_reservations.otc_contract_id` | New nullable column. Either OrderID or OTCContractID is set; CHECK constraint enforces the XOR. |
 
