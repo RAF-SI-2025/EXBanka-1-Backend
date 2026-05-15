@@ -30,18 +30,26 @@ type PaymentRepo interface {
 	ListByAccountNumbers(accountNumbers []string, page, pageSize int) ([]model.Payment, int64, error)
 }
 
+// notifier is the narrow slice of the Kafka producer the service uses for
+// in-app notification intents. A separate interface (not the concrete
+// *kafka.Producer) so unit tests can inject a recording stub.
+type notifier interface {
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+}
+
 type PaymentService struct {
 	paymentRepo    PaymentRepo
 	accountClient  accountpb.AccountServiceClient
 	feeSvc         *FeeService
 	producer       *kafka.Producer
+	notifier       notifier
 	bankRSDAccount string                        // account number of bank's RSD account
 	sagaRepo       *repository.SagaLogRepository // nil-safe: saga logging skipped when nil
 	retryConfig    shared.RetryConfig
 }
 
 func NewPaymentService(paymentRepo PaymentRepo, accountClient accountpb.AccountServiceClient, feeSvc *FeeService, producer *kafka.Producer, bankRSDAccount string, sagaRepo *repository.SagaLogRepository) *PaymentService {
-	return &PaymentService{
+	s := &PaymentService{
 		paymentRepo:    paymentRepo,
 		accountClient:  accountClient,
 		feeSvc:         feeSvc,
@@ -50,6 +58,10 @@ func NewPaymentService(paymentRepo PaymentRepo, accountClient accountpb.AccountS
 		sagaRepo:       sagaRepo,
 		retryConfig:    shared.DefaultRetryConfig,
 	}
+	if producer != nil {
+		s.notifier = producer
+	}
+	return s
 }
 
 // publishPaymentFailed publishes a payment-failed Kafka event (best-effort; errors are only logged).

@@ -45,6 +45,7 @@ type TransferService struct {
 	bankAccountClient accountpb.BankAccountServiceClient
 	feeSvc            *FeeService
 	producer          *kafka.Producer
+	notifier          notifier
 	retryConfig       shared.RetryConfig
 	sagaRepo          *repository.SagaLogRepository // nil-safe: saga logging skipped when nil
 	dlPublisher       sagaPublisher                 // nil-safe: dead-letter publishing skipped when nil
@@ -59,7 +60,7 @@ func NewTransferService(
 	producer *kafka.Producer,
 	sagaRepo *repository.SagaLogRepository,
 ) *TransferService {
-	return &TransferService{
+	s := &TransferService{
 		transferRepo:      transferRepo,
 		exchangeClient:    exchangeClient,
 		accountClient:     accountClient,
@@ -70,6 +71,10 @@ func NewTransferService(
 		sagaRepo:          sagaRepo,
 		dlPublisher:       producer,
 	}
+	if producer != nil {
+		s.notifier = producer
+	}
+	return s
 }
 
 // publishTransferFailed publishes a transfer-failed Kafka event (best-effort; errors are only logged).
