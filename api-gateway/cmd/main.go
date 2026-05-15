@@ -189,6 +189,12 @@ func main() {
 	}
 	defer priceAlertConn.Close()
 
+	recurringOrderClient, recurringOrderConn, err := grpcclients.NewRecurringOrderClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to recurring-order service: %v", err)
+	}
+	defer recurringOrderConn.Close()
+
 	// Blueprint service reuses the user-service connection
 	blueprintClient, blueprintConn, err := grpcclients.NewBlueprintClient(cfg.UserGRPCAddr)
 	if err != nil {
@@ -294,6 +300,7 @@ func main() {
 		OTCOptionsClient:    otcOptionsClient,
 		WatchlistClient:     watchlistClient,
 		PriceAlertClient:    priceAlertClient,
+		RecurringOrderClient: recurringOrderClient,
 		PeerTxClient:        peerTxClient,
 		PeerBankAdminClient: peerBankAdminClient,
 		PeerNonces:          peerNonceStore,

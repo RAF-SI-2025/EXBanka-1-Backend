@@ -87,6 +87,7 @@ func main() {
 		&model.WatchlistItem{},
 		&model.OTCTraderRating{},
 		&model.PriceAlert{},
+		&model.RecurringOrder{},
 		// Phase 4 SI-TX: receiver-side mirror of inbound peer-bank
 		// OTC negotiations. Created/updated by PeerOTCGRPCHandler.
 		&model.PeerOtcNegotiation{},
@@ -702,6 +703,15 @@ func main() {
 			// Cron: re-evaluate active alerts on a 30 s tick. Best-effort —
 			// failures log and the loop continues.
 			go service.NewPriceAlertCron(priceAlertSvc, listingRepo, priceAlertRepo, 30*time.Second).Run(ctx)
+
+			recurringOrderRepo := repository.NewRecurringOrderRepository(db)
+			// orderPlacer is intentionally nil — the cron short-circuits when
+			// unwired. Wiring the existing OrderService.PlaceOrder requires
+			// reshaping the input from the recurring template; deferred to a
+			// follow-up. CRUD + cron loop still operate.
+			recurringOrderSvc := service.NewRecurringOrderService(recurringOrderRepo, listingRepo, nil, producer)
+			pb.RegisterRecurringOrderServiceServer(s, handler.NewRecurringOrderHandler(recurringOrderSvc))
+			go service.NewRecurringOrderCron(recurringOrderSvc, time.Hour).Run(ctx)
 			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 				switch name {
 				case "external":

@@ -93,3 +93,11 @@ func NewPriceAlertClient(addr string) (stockpb.PriceAlertServiceClient, *grpc.Cl
 	}
 	return stockpb.NewPriceAlertServiceClient(conn), conn, nil
 }
+
+func NewRecurringOrderClient(addr string) (stockpb.RecurringOrderServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewRecurringOrderServiceClient(conn), conn, nil
+}

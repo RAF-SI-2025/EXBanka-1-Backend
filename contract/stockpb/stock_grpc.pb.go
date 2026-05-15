@@ -3342,6 +3342,298 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	RecurringOrderService_CreateOrder_FullMethodName = "/stock.RecurringOrderService/CreateOrder"
+	RecurringOrderService_GetOrder_FullMethodName    = "/stock.RecurringOrderService/GetOrder"
+	RecurringOrderService_PauseOrder_FullMethodName  = "/stock.RecurringOrderService/PauseOrder"
+	RecurringOrderService_ResumeOrder_FullMethodName = "/stock.RecurringOrderService/ResumeOrder"
+	RecurringOrderService_CancelOrder_FullMethodName = "/stock.RecurringOrderService/CancelOrder"
+	RecurringOrderService_ListMy_FullMethodName      = "/stock.RecurringOrderService/ListMy"
+)
+
+// RecurringOrderServiceClient is the client API for RecurringOrderService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type RecurringOrderServiceClient interface {
+	CreateOrder(ctx context.Context, in *CreateRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error)
+	GetOrder(ctx context.Context, in *GetRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error)
+	PauseOrder(ctx context.Context, in *GetRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error)
+	ResumeOrder(ctx context.Context, in *GetRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error)
+	CancelOrder(ctx context.Context, in *GetRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error)
+	ListMy(ctx context.Context, in *ListMyRecurringOrdersRequest, opts ...grpc.CallOption) (*ListMyRecurringOrdersResponse, error)
+}
+
+type recurringOrderServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewRecurringOrderServiceClient(cc grpc.ClientConnInterface) RecurringOrderServiceClient {
+	return &recurringOrderServiceClient{cc}
+}
+
+func (c *recurringOrderServiceClient) CreateOrder(ctx context.Context, in *CreateRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecurringOrderResponse)
+	err := c.cc.Invoke(ctx, RecurringOrderService_CreateOrder_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringOrderServiceClient) GetOrder(ctx context.Context, in *GetRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecurringOrderResponse)
+	err := c.cc.Invoke(ctx, RecurringOrderService_GetOrder_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringOrderServiceClient) PauseOrder(ctx context.Context, in *GetRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecurringOrderResponse)
+	err := c.cc.Invoke(ctx, RecurringOrderService_PauseOrder_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringOrderServiceClient) ResumeOrder(ctx context.Context, in *GetRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecurringOrderResponse)
+	err := c.cc.Invoke(ctx, RecurringOrderService_ResumeOrder_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringOrderServiceClient) CancelOrder(ctx context.Context, in *GetRecurringOrderRequest, opts ...grpc.CallOption) (*RecurringOrderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RecurringOrderResponse)
+	err := c.cc.Invoke(ctx, RecurringOrderService_CancelOrder_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *recurringOrderServiceClient) ListMy(ctx context.Context, in *ListMyRecurringOrdersRequest, opts ...grpc.CallOption) (*ListMyRecurringOrdersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMyRecurringOrdersResponse)
+	err := c.cc.Invoke(ctx, RecurringOrderService_ListMy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RecurringOrderServiceServer is the server API for RecurringOrderService service.
+// All implementations must embed UnimplementedRecurringOrderServiceServer
+// for forward compatibility.
+type RecurringOrderServiceServer interface {
+	CreateOrder(context.Context, *CreateRecurringOrderRequest) (*RecurringOrderResponse, error)
+	GetOrder(context.Context, *GetRecurringOrderRequest) (*RecurringOrderResponse, error)
+	PauseOrder(context.Context, *GetRecurringOrderRequest) (*RecurringOrderResponse, error)
+	ResumeOrder(context.Context, *GetRecurringOrderRequest) (*RecurringOrderResponse, error)
+	CancelOrder(context.Context, *GetRecurringOrderRequest) (*RecurringOrderResponse, error)
+	ListMy(context.Context, *ListMyRecurringOrdersRequest) (*ListMyRecurringOrdersResponse, error)
+	mustEmbedUnimplementedRecurringOrderServiceServer()
+}
+
+// UnimplementedRecurringOrderServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedRecurringOrderServiceServer struct{}
+
+func (UnimplementedRecurringOrderServiceServer) CreateOrder(context.Context, *CreateRecurringOrderRequest) (*RecurringOrderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateOrder not implemented")
+}
+func (UnimplementedRecurringOrderServiceServer) GetOrder(context.Context, *GetRecurringOrderRequest) (*RecurringOrderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetOrder not implemented")
+}
+func (UnimplementedRecurringOrderServiceServer) PauseOrder(context.Context, *GetRecurringOrderRequest) (*RecurringOrderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PauseOrder not implemented")
+}
+func (UnimplementedRecurringOrderServiceServer) ResumeOrder(context.Context, *GetRecurringOrderRequest) (*RecurringOrderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResumeOrder not implemented")
+}
+func (UnimplementedRecurringOrderServiceServer) CancelOrder(context.Context, *GetRecurringOrderRequest) (*RecurringOrderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelOrder not implemented")
+}
+func (UnimplementedRecurringOrderServiceServer) ListMy(context.Context, *ListMyRecurringOrdersRequest) (*ListMyRecurringOrdersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMy not implemented")
+}
+func (UnimplementedRecurringOrderServiceServer) mustEmbedUnimplementedRecurringOrderServiceServer() {}
+func (UnimplementedRecurringOrderServiceServer) testEmbeddedByValue()                               {}
+
+// UnsafeRecurringOrderServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to RecurringOrderServiceServer will
+// result in compilation errors.
+type UnsafeRecurringOrderServiceServer interface {
+	mustEmbedUnimplementedRecurringOrderServiceServer()
+}
+
+func RegisterRecurringOrderServiceServer(s grpc.ServiceRegistrar, srv RecurringOrderServiceServer) {
+	// If the following call panics, it indicates UnimplementedRecurringOrderServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&RecurringOrderService_ServiceDesc, srv)
+}
+
+func _RecurringOrderService_CreateOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateRecurringOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringOrderServiceServer).CreateOrder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringOrderService_CreateOrder_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringOrderServiceServer).CreateOrder(ctx, req.(*CreateRecurringOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringOrderService_GetOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecurringOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringOrderServiceServer).GetOrder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringOrderService_GetOrder_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringOrderServiceServer).GetOrder(ctx, req.(*GetRecurringOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringOrderService_PauseOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecurringOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringOrderServiceServer).PauseOrder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringOrderService_PauseOrder_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringOrderServiceServer).PauseOrder(ctx, req.(*GetRecurringOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringOrderService_ResumeOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecurringOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringOrderServiceServer).ResumeOrder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringOrderService_ResumeOrder_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringOrderServiceServer).ResumeOrder(ctx, req.(*GetRecurringOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringOrderService_CancelOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecurringOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringOrderServiceServer).CancelOrder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringOrderService_CancelOrder_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringOrderServiceServer).CancelOrder(ctx, req.(*GetRecurringOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RecurringOrderService_ListMy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyRecurringOrdersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RecurringOrderServiceServer).ListMy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RecurringOrderService_ListMy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RecurringOrderServiceServer).ListMy(ctx, req.(*ListMyRecurringOrdersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// RecurringOrderService_ServiceDesc is the grpc.ServiceDesc for RecurringOrderService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var RecurringOrderService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.RecurringOrderService",
+	HandlerType: (*RecurringOrderServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateOrder",
+			Handler:    _RecurringOrderService_CreateOrder_Handler,
+		},
+		{
+			MethodName: "GetOrder",
+			Handler:    _RecurringOrderService_GetOrder_Handler,
+		},
+		{
+			MethodName: "PauseOrder",
+			Handler:    _RecurringOrderService_PauseOrder_Handler,
+		},
+		{
+			MethodName: "ResumeOrder",
+			Handler:    _RecurringOrderService_ResumeOrder_Handler,
+		},
+		{
+			MethodName: "CancelOrder",
+			Handler:    _RecurringOrderService_CancelOrder_Handler,
+		},
+		{
+			MethodName: "ListMy",
+			Handler:    _RecurringOrderService_ListMy_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}
+
+const (
 	PriceAlertService_CreateAlert_FullMethodName = "/stock.PriceAlertService/CreateAlert"
 	PriceAlertService_UpdateAlert_FullMethodName = "/stock.PriceAlertService/UpdateAlert"
 	PriceAlertService_GetAlert_FullMethodName    = "/stock.PriceAlertService/GetAlert"

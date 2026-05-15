@@ -57,6 +57,7 @@ type Deps struct {
 	OTCOptionsClient    stockpb.OTCOptionsServiceClient
 	WatchlistClient     stockpb.WatchlistServiceClient
 	PriceAlertClient    stockpb.PriceAlertServiceClient
+	RecurringOrderClient stockpb.RecurringOrderServiceClient
 
 	// SI-TX peer-bank wiring (Phase 2 Task 14). PeerTxClient dispatches
 	// decoded SI-TX envelopes from POST /api/v3/interbank to
@@ -116,6 +117,7 @@ type Handlers struct {
 	Changelog        *handler.ChangelogHandler
 	Watchlist        *handler.WatchlistHandler
 	PriceAlert       *handler.PriceAlertHandler
+	RecurringOrder   *handler.RecurringOrderHandler
 
 	// SI-TX peer-facing wiring (Phase 2 Task 14). PeerTx serves
 	// POST /api/v3/interbank, PeerBankAdmin serves /api/v3/peer-banks
@@ -175,6 +177,7 @@ func NewHandlers(d Deps) *Handlers {
 		Changelog:        handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
 		Watchlist:        handler.NewWatchlistHandler(d.WatchlistClient),
 		PriceAlert:       handler.NewPriceAlertHandler(d.PriceAlertClient),
+		RecurringOrder:   handler.NewRecurringOrderHandler(d.RecurringOrderClient),
 		PeerTx:           handler.NewPeerTxHandler(d.PeerTxClient),
 		PeerBankAdmin:    handler.NewPeerBankAdminHandler(d.PeerBankAdminClient),
 		PeerAuthMW:       middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),

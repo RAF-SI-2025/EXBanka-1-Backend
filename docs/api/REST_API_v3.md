@@ -7627,6 +7627,49 @@ Returns identity info for a counterparty user. Peers call this when displaying u
 
 ---
 
+## 45. Recurring Securities Orders (Celina 3)
+
+User configures a weekly or monthly Market-order template; a scheduler materialises a real order on each due tick. Insufficient funds skip the tick and notify the owner; pause/resume/cancel are explicit lifecycle controls.
+
+### 45.1 List my recurring orders
+
+`GET /api/v3/me/recurring-orders` → `{ "recurring_orders": [...] }`.
+
+### 45.2 Create
+
+`POST /api/v3/me/recurring-orders`
+
+```json
+{
+  "listing_id": 7,
+  "side": "buy",
+  "quantity": 10,
+  "account_id": 42,
+  "interval": "monthly",
+  "day_of_month": 15,
+  "start_date_unix": 1731699200,
+  "end_date_unix": 0
+}
+```
+
+Validation:
+- `side` ∈ `buy` / `sell`.
+- `interval` ∈ `weekly` / `monthly`. `day_of_week` is required (0..6) for weekly; `day_of_month` is required (1..28) for monthly.
+- `end_date_unix=0` means "no end".
+
+### 45.3 Lifecycle actions
+
+- `POST /api/v3/me/recurring-orders/:id/pause` — transitions active → paused.
+- `POST /api/v3/me/recurring-orders/:id/resume` — transitions paused → active.
+- `POST /api/v3/me/recurring-orders/:id/cancel` — transitions to cancelled (terminal).
+- `GET  /api/v3/me/recurring-orders/:id` — read one.
+
+All four return `{ "recurring_order": { /* RecurringOrderResponse */ } }`.
+
+**Note:** The cron loop ticks hourly and currently no-ops on placement until the order-placer integration lands (CRUD + state transitions still operate). Once wired, insufficient-funds skips emit `RECURRING_ORDER_SKIPPED`; successful placements emit `RECURRING_ORDER_EXECUTED`.
+
+---
+
 ## 44. Transfer Status (Celina 4 / SI-TX)
 
 Surface the four-state client-facing lifecycle (`INITIATED`, `PENDING`, `COMPLETED`, `FAILED`) so the frontend can poll a single field without tracking the internal `pending`/`pending_verification`/`processing`/`completed`/`failed` enum or the SI-TX cross-bank split.

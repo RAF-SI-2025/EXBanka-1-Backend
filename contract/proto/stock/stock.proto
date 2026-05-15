@@ -1477,6 +1477,67 @@ message CheckSellerCanDeliverResponse {
   int64 available_quantity = 2;
 }
 
+// ---- RecurringOrderService ----------------------------------------------
+// Templates the user defines once that auto-place Market orders on a
+// weekly or monthly cadence. Insufficient funds skip the tick with a
+// RECURRING_ORDER_SKIPPED push; successful placements emit
+// RECURRING_ORDER_EXECUTED.
+
+service RecurringOrderService {
+  rpc CreateOrder(CreateRecurringOrderRequest) returns (RecurringOrderResponse);
+  rpc GetOrder(GetRecurringOrderRequest)       returns (RecurringOrderResponse);
+  rpc PauseOrder(GetRecurringOrderRequest)     returns (RecurringOrderResponse);
+  rpc ResumeOrder(GetRecurringOrderRequest)    returns (RecurringOrderResponse);
+  rpc CancelOrder(GetRecurringOrderRequest)    returns (RecurringOrderResponse);
+  rpc ListMy(ListMyRecurringOrdersRequest)     returns (ListMyRecurringOrdersResponse);
+}
+
+message CreateRecurringOrderRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  uint64 listing_id = 3;
+  string side       = 4;   // buy | sell
+  int64  quantity   = 5;
+  uint64 account_id = 6;
+  string interval   = 7;   // weekly | monthly
+  int32  day_of_week  = 8; // 0..6 when interval=weekly
+  int32  day_of_month = 9; // 1..28 when interval=monthly
+  int64  start_date_unix = 10;
+  int64  end_date_unix   = 11; // 0 = no end
+}
+
+message GetRecurringOrderRequest {
+  uint64 id = 1;
+  string owner_type = 2;
+  uint64 owner_id   = 3;
+}
+
+message ListMyRecurringOrdersRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+}
+
+message RecurringOrderResponse {
+  uint64 id = 1;
+  uint64 listing_id = 2;
+  string side       = 3;
+  int64  quantity   = 4;
+  uint64 account_id = 5;
+  string interval   = 6;
+  int32  day_of_week  = 7;
+  int32  day_of_month = 8;
+  int64  start_date_unix = 9;
+  int64  end_date_unix   = 10;
+  string status     = 11;
+  int64  last_run_unix = 12;
+  int64  next_run_unix = 13;
+  int64  created_at_unix = 14;
+}
+
+message ListMyRecurringOrdersResponse {
+  repeated RecurringOrderResponse items = 1;
+}
+
 // ---- PriceAlertService --------------------------------------------------
 // Per-owner reactive alerts on a listing's latest price or daily change %.
 // Single-shot alerts auto-deactivate on first match; recurring alerts

@@ -148,6 +148,16 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.PUT("/price-alerts/:id", bankIfEmp, h.PriceAlert.Update)
 		me.DELETE("/price-alerts/:id", bankIfEmp, h.PriceAlert.Delete)
 
+		// Recurring securities orders (weekly/monthly Market-order templates).
+		// CRUD + lifecycle (pause/resume/cancel). Cron tick fires per template;
+		// production wiring of the order-placer is deferred — see plan B6.
+		me.GET("/recurring-orders", bankIfEmp, h.RecurringOrder.ListMy)
+		me.POST("/recurring-orders", bankIfEmp, h.RecurringOrder.Create)
+		me.GET("/recurring-orders/:id", bankIfEmp, h.RecurringOrder.Get)
+		me.POST("/recurring-orders/:id/pause", bankIfEmp, h.RecurringOrder.Pause)
+		me.POST("/recurring-orders/:id/resume", bankIfEmp, h.RecurringOrder.Resume)
+		me.POST("/recurring-orders/:id/cancel", bankIfEmp, h.RecurringOrder.Cancel)
+
 		// Sessions
 		me.GET("/sessions", h.Session.ListMySessions)
 		me.DELETE("/sessions/:id", h.Session.RevokeSession)

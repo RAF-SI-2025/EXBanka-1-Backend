@@ -1291,6 +1291,12 @@ api-gateway:
 | GET | `/api/v3/me/otc/ratings/received` | - | OTCOptionsHandler.ListMyReceivedRatings | List ratings the caller has received from OTC counterparties (Celina 3) |
 | GET | `/api/v3/otc/traders/:owner_type/:owner_id/rating` | - | OTCOptionsHandler.GetTraderProfile | Public aggregate rating (avg + count) + recent comments for any trader (Celina 3) |
 | GET | `/api/v3/me/transfers/:id/status` | - | TransactionHandler.GetMyTransferStatus | Client-facing transfer status (INITIATED/PENDING/COMPLETED/FAILED) mapped from internal lifecycle (Celina 4) |
+| GET | `/api/v3/me/recurring-orders` | - | RecurringOrderHandler.ListMy | List caller's recurring securities-order templates (Celina 3) |
+| POST | `/api/v3/me/recurring-orders` | - | RecurringOrderHandler.Create | Create weekly/monthly Market-order template (Celina 3) |
+| GET | `/api/v3/me/recurring-orders/:id` | - | RecurringOrderHandler.Get | Read one recurring order (Celina 3) |
+| POST | `/api/v3/me/recurring-orders/:id/pause` | - | RecurringOrderHandler.Pause | Pause a recurring order (Celina 3) |
+| POST | `/api/v3/me/recurring-orders/:id/resume` | - | RecurringOrderHandler.Resume | Resume a paused recurring order (Celina 3) |
+| POST | `/api/v3/me/recurring-orders/:id/cancel` | - | RecurringOrderHandler.Cancel | Cancel a recurring order (Celina 3) |
 | GET | `/api/v3/me/price-alerts` | - | PriceAlertHandler.ListMy | List caller's price alerts (Celina 3) |
 | POST | `/api/v3/me/price-alerts` | - | PriceAlertHandler.Create | Create a price alert (gte/lte/daily_change_pct_*) (Celina 3) |
 | GET | `/api/v3/me/price-alerts/:id` | - | PriceAlertHandler.Get | Read one alert (Celina 3) |
