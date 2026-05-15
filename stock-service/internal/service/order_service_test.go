@@ -15,6 +15,7 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	contract "github.com/exbanka/contract/kafka"
 	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -252,10 +253,11 @@ func (m *mockSettingRepo) Set(key, value string) error {
 	return nil
 }
 
-// mockSecurityLookupRepo returns a configurable settlement date.
+// mockSecurityLookupRepo returns a configurable settlement date and ticker.
 type mockSecurityLookupRepo struct {
 	settlementDate time.Time
 	err            error
+	ticker         string
 }
 
 func (m *mockSecurityLookupRepo) GetFuturesSettlementDate(securityID uint64) (time.Time, error) {
@@ -263,7 +265,7 @@ func (m *mockSecurityLookupRepo) GetFuturesSettlementDate(securityID uint64) (ti
 }
 
 func (m *mockSecurityLookupRepo) GetSecurityTicker(_ string, _ uint64) (string, error) {
-	return "", nil
+	return m.ticker, nil
 }
 
 // mockProducer records published events.
@@ -272,6 +274,7 @@ type mockProducer struct {
 	approved  int
 	declined  int
 	cancelled int
+	notifs    []contract.GeneralNotificationMessage
 }
 
 func (m *mockProducer) PublishOrderCreated(ctx context.Context, msg interface{}) error {
@@ -291,6 +294,11 @@ func (m *mockProducer) PublishOrderDeclined(ctx context.Context, msg interface{}
 
 func (m *mockProducer) PublishOrderCancelled(ctx context.Context, msg interface{}) error {
 	m.cancelled++
+	return nil
+}
+
+func (m *mockProducer) PublishGeneralNotification(_ context.Context, msg contract.GeneralNotificationMessage) error {
+	m.notifs = append(m.notifs, msg)
 	return nil
 }
 
@@ -1163,6 +1171,58 @@ func TestCreateOrder_ClientAutoApproved_ApprovedByStamp(t *testing.T) {
 	}
 	if order.ApprovedBy != "no need for approval" {
 		t.Errorf("expected approvedBy 'no need for approval', got %q", order.ApprovedBy)
+	}
+}
+
+func TestOrderService_PlaceOrder_EmitsClientNotification(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	fx.accountClient.stub.accountCcy[1] = "USD"
+	fx.securityRepo.ticker = "AAPL"
+	prod := fx.producer
+
+	_, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 99, SystemType: "client", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), AccountID: 1,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond) // let the go func() publish run
+	var placed *contract.GeneralNotificationMessage
+	for i := range prod.notifs {
+		if prod.notifs[i].Type == "ORDER_PLACED" {
+			placed = &prod.notifs[i]
+		}
+	}
+	if placed == nil {
+		t.Fatal("expected an ORDER_PLACED notification")
+	}
+	if placed.UserID == 0 || placed.Data["ticker"] == "" || placed.RefType != "order" {
+		t.Errorf("bad notification: %+v", placed)
+	}
+}
+
+func TestOrderService_PlaceOrder_BankOwned_NoNotification(t *testing.T) {
+	fx := newOrderServiceFixture()
+	fx.listingRepo.addListing(defaultListing(1))
+	fx.accountClient.stub.accountCcy[1] = "USD"
+	prod := fx.producer
+
+	_, err := fx.svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 99, SystemType: "bank", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 5, LimitValue: ptrDec(100), AccountID: 1,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	for _, n := range prod.notifs {
+		if n.Type == "ORDER_PLACED" {
+			t.Errorf("bank-owned order must not emit a notification, got %+v", n)
+		}
 	}
 }
 

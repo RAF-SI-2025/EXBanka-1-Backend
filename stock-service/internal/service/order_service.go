@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -622,6 +623,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 			evt := buildOrderEvent(order)
 			go func() { _ = s.producer.PublishOrderCreated(context.Background(), evt) }()
 		}
+		s.notifyOrder(order, "ORDER_PLACED", map[string]string{
+			"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10),
+			"ticker": order.Ticker, "order_type": order.OrderType,
+		})
 		return order, nil
 	}
 	StockOrderTotal.WithLabelValues(req.OrderType, "approved").Inc()
@@ -642,6 +647,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		evt := buildOrderEvent(order)
 		go func() { _ = s.producer.PublishOrderCreated(context.Background(), evt) }()
 	}
+	s.notifyOrder(order, "ORDER_PLACED", map[string]string{
+		"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10),
+		"ticker": order.Ticker, "order_type": order.OrderType,
+	})
 
 	return order, nil
 }
@@ -717,6 +726,9 @@ func (s *OrderService) ApproveOrder(orderID uint64, supervisorID uint64, supervi
 	if s.producer != nil {
 		go func() { _ = s.producer.PublishOrderApproved(context.Background(), buildOrderEvent(order)) }()
 	}
+	s.notifyOrder(order, "ORDER_APPROVED", map[string]string{
+		"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10), "ticker": order.Ticker,
+	})
 
 	return order, nil
 }
@@ -746,6 +758,9 @@ func (s *OrderService) DeclineOrder(orderID uint64, supervisorID uint64, supervi
 	if s.producer != nil {
 		go func() { _ = s.producer.PublishOrderDeclined(context.Background(), buildOrderEvent(order)) }()
 	}
+	s.notifyOrder(order, "ORDER_DECLINED", map[string]string{
+		"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10), "ticker": order.Ticker,
+	})
 
 	return order, nil
 }
@@ -822,6 +837,9 @@ func (s *OrderService) CancelOrder(orderID uint64, ownerType model.OwnerType, ow
 	if s.producer != nil {
 		go func() { _ = s.producer.PublishOrderCancelled(context.Background(), buildOrderEvent(order)) }()
 	}
+	s.notifyOrder(order, "ORDER_CANCELLED", map[string]string{
+		"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10), "ticker": order.Ticker,
+	})
 
 	return order, nil
 }
@@ -1034,6 +1052,23 @@ func buildOrderEvent(order *model.Order) map[string]interface{} {
 		"status":        order.Status,
 		"timestamp":     time.Now().Unix(),
 	}
+}
+
+// notifyOrder emits an in-app notification for an order action. No-op for
+// bank-owned orders (no human recipient); best-effort (failures swallowed —
+// Kafka is observability, not a correctness gate).
+func (s *OrderService) notifyOrder(order *model.Order, notifType string, data map[string]string) {
+	if s.producer == nil || order.OwnerType != model.OwnerClient || order.OwnerID == nil {
+		return
+	}
+	msg := contract.GeneralNotificationMessage{
+		UserID:  *order.OwnerID,
+		Type:    notifType,
+		Data:    data,
+		RefType: "order",
+		RefID:   order.ID,
+	}
+	go func() { _ = s.producer.PublishGeneralNotification(context.Background(), msg) }()
 }
 
 // parseTimeHM parses "09:30" to (9, 30).
