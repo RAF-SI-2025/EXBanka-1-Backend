@@ -213,7 +213,10 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 
 	transfer, err := s.transferRepo.GetByID(transferID)
 	if err != nil {
-		return fmt.Errorf("transfer not found: %w", err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTransferNotFound
+		}
+		return fmt.Errorf("transfer lookup failed: %w", err)
 	}
 
 	// Idempotency: if already completed, nothing to do

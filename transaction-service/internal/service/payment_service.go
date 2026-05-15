@@ -175,7 +175,10 @@ func (s *PaymentService) ExecutePayment(ctx context.Context, paymentID uint64) e
 
 	payment, err := s.paymentRepo.GetByID(paymentID)
 	if err != nil {
-		return fmt.Errorf("payment not found: %w", err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrPaymentNotFound
+		}
+		return fmt.Errorf("payment lookup failed: %w", err)
 	}
 
 	// Idempotency: if already completed, nothing to do
