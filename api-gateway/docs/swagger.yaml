@@ -2867,43 +2867,6 @@ paths:
       summary: Reject a card request
       tags:
       - card-requests
-  /api/v2/cards/requests/me:
-    get:
-      description: Returns all card requests for the authenticated client.
-      parameters:
-      - description: Page number (default 1)
-        in: query
-        name: page
-        type: integer
-      - description: Page size (default 20)
-        in: query
-        name: page_size
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: list of card requests
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - ClientBearerAuth: []
-      summary: List my card requests
-      tags:
-      - card-requests
   /api/v2/clients:
     get:
       parameters:
@@ -4357,200 +4320,6 @@ paths:
       security:
       - BearerAuth: []
       summary: List loans by client
-      tags:
-      - loans
-  /api/v2/loans/requests:
-    get:
-      description: Returns all loan requests with optional filters. Requires credits.read
-        permission.
-      parameters:
-      - description: Page number (default 1)
-        in: query
-        name: page
-        type: integer
-      - description: Items per page (default 20)
-        in: query
-        name: page_size
-        type: integer
-      - description: Filter by loan type
-        in: query
-        name: loan_type_filter
-        type: string
-      - description: Filter by account number
-        in: query
-        name: account_number_filter
-        type: string
-      - description: Filter by status
-        in: query
-        name: status_filter
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: List loan requests
-      tags:
-      - loans
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Loan application data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.createLoanRequestBody'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Submit loan application
-      tags:
-      - loans
-  /api/v2/loans/requests/{id}:
-    get:
-      description: Returns a single loan request. Requires credits.read permission.
-      parameters:
-      - description: Loan request ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get loan request by ID
-      tags:
-      - loans
-  /api/v2/loans/requests/{id}/approve:
-    put:
-      description: Approves a pending loan request and creates the loan. Requires
-        credits.approve permission.
-      parameters:
-      - description: Loan request ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Approve loan request
-      tags:
-      - loans
-  /api/v2/loans/requests/{id}/reject:
-    put:
-      description: Rejects a pending loan request. Requires credits.approve permission.
-      parameters:
-      - description: Loan request ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Reject loan request
       tags:
       - loans
   /api/v2/loans/requests/client/{client_id}:
@@ -7344,6 +7113,159 @@ paths:
       summary: Get employee changelog
       tags:
       - Changelog
+  /api/v3/loan-requests:
+    get:
+      description: Returns all loan requests with optional filters. Requires credits.read
+        permission.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by loan type
+        in: query
+        name: loan_type_filter
+        type: string
+      - description: Filter by account number
+        in: query
+        name: account_number_filter
+        type: string
+      - description: Filter by status
+        in: query
+        name: status_filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List loan requests
+      tags:
+      - loans
+  /api/v3/loan-requests/{id}:
+    get:
+      description: Returns a single loan request. Requires credits.read permission.
+      parameters:
+      - description: Loan request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get loan request by ID
+      tags:
+      - loans
+  /api/v3/loan-requests/{id}/approve:
+    post:
+      description: Approves a pending loan request and creates the loan. Requires
+        credits.approve permission.
+      parameters:
+      - description: Loan request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Approve loan request
+      tags:
+      - loans
+  /api/v3/loan-requests/{id}/reject:
+    post:
+      description: Rejects a pending loan request. Requires credits.approve permission.
+      parameters:
+      - description: Loan request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reject loan request
+      tags:
+      - loans
   /api/v3/loans:
     get:
       description: Lists all loans (employee read). Filter by loan_type/account_number/status.
@@ -7444,6 +7366,85 @@ paths:
       summary: Get loan changelog
       tags:
       - Changelog
+  /api/v3/me/cards/requests:
+    get:
+      description: Returns all card requests for the authenticated client.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: list of card requests
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ClientBearerAuth: []
+      summary: List my card requests
+      tags:
+      - card-requests
+  /api/v3/me/loan-requests:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Loan application data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createLoanRequestBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Submit loan application
+      tags:
+      - loans
   /api/v3/me/otc/contracts:
     get:
       produces:

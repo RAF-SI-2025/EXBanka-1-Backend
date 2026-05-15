@@ -46,7 +46,7 @@ type createLoanRequestBody struct {
 // @Failure      400   {object}  map[string]string
 // @Failure      401   {object}  map[string]string
 // @Failure      500   {object}  map[string]string
-// @Router       /api/v2/loans/requests [post]
+// @Router       /api/v3/me/loan-requests [post]
 func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 	var req createLoanRequestBody
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -120,7 +120,7 @@ func (h *CreditHandler) CreateLoanRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      404  {object}  map[string]string
-// @Router       /api/v2/loans/requests/{id} [get]
+// @Router       /api/v3/loan-requests/{id} [get]
 func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -149,7 +149,7 @@ func (h *CreditHandler) GetLoanRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/v2/loans/requests [get]
+// @Router       /api/v3/loan-requests [get]
 func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
@@ -196,7 +196,7 @@ func (h *CreditHandler) ListLoanRequests(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/v2/loans/requests/{id}/approve [put]
+// @Router       /api/v3/loan-requests/{id}/approve [post]
 func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -228,7 +228,7 @@ func (h *CreditHandler) ApproveLoanRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}
 // @Failure      401  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
-// @Router       /api/v2/loans/requests/{id}/reject [put]
+// @Router       /api/v3/loan-requests/{id}/reject [post]
 func (h *CreditHandler) RejectLoanRequest(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

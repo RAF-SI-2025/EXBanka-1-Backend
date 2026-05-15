@@ -623,7 +623,7 @@ func (h *CardHandler) CreateCardRequest(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}  "list of card requests"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/v2/cards/requests/me [get]
+// @Router       /api/v3/me/cards/requests [get]
 func (h *CardHandler) ListMyCardRequests(c *gin.Context) {
 	uid, _ := c.Get("principal_id")
 	userID, ok := uid.(int64)
