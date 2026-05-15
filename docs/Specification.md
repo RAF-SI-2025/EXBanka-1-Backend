@@ -1980,13 +1980,19 @@ Published to `notification.general` by various services. notification-service co
 | `account_created` | account-service | Account created |
 | `card_issued` | card-service | Card created |
 | `card_blocked` | card-service | Card blocked |
-| `money_sent` | transaction-service | Payment/transfer executed (sender side) |
-| `money_received` | transaction-service | Payment/transfer executed (receiver side) |
+| `PAYMENT_SENT` | transaction-service | Payment completed (sender side) |
+| `PAYMENT_RECEIVED` | transaction-service | Payment completed (receiver side) |
+| `PAYMENT_FAILED` | transaction-service | Payment failed (sender side) |
+| `TRANSFER_SENT` | transaction-service | Transfer completed (sender side) |
+| `TRANSFER_RECEIVED` | transaction-service | Transfer completed (receiver side) |
+| `TRANSFER_FAILED` | transaction-service | Transfer failed (sender side) |
 | `loan_approved` | credit-service | Loan request approved |
 | `loan_rejected` | credit-service | Loan request rejected |
 | `password_changed` | auth-service | Password reset completed |
 
 **stock-service in-app notifications (Plan B1):** stock-service emits `GeneralNotificationMessage` intents on `notification.general` for every significant securities/OTC action — order placed/approved/declined/cancelled, order partial-fill and full-fill, OTC offer received/countered/rejected/expired, and OTC contract created/exercised/expired. These are **client-owned only** (bank-owned orders and bank-owned OTC parties emit nothing), **best-effort** (published after the action commits; publish failures are swallowed and never block the action), and rendered by notification-service via the `push`-channel template registry.
+
+**transaction-service in-app notifications (Plan B2):** transaction-service emits `GeneralNotificationMessage` intents on `notification.general` in the **`Data` form** for: `PAYMENT_SENT` and `PAYMENT_RECEIVED` (per side, on payment completion), `PAYMENT_FAILED` (sender, on payment failure), `TRANSFER_SENT` and `TRANSFER_RECEIVED` (per side, on transfer completion), and `TRANSFER_FAILED` (sender, on any failure branch). Sender/receiver are resolved via account-service `GetAccountByNumber`; bank-owned accounts (owner id `0` or `1_000_000_000`) are skipped. Best-effort, published after the status persist. `RefType`/`RefID`: `payment`/payment.ID or `transfer`/transfer.ID.
 
 ### Email Types (SendEmailMessage.EmailType)
 
