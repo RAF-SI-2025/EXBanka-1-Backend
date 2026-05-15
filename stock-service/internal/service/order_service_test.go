@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -268,13 +269,27 @@ func (m *mockSecurityLookupRepo) GetSecurityTicker(_ string, _ uint64) (string, 
 	return m.ticker, nil
 }
 
-// mockProducer records published events.
+// mockProducer records published events. notifs is appended to from the
+// detached goroutines notifyOrder spawns, so its access is mutex-guarded;
+// tests must read it via snapshotNotifs.
 type mockProducer struct {
 	created   int
 	approved  int
 	declined  int
 	cancelled int
-	notifs    []contract.GeneralNotificationMessage
+
+	mu     sync.Mutex
+	notifs []contract.GeneralNotificationMessage
+}
+
+// snapshotNotifs returns a copy of the recorded notifications under the lock,
+// so tests can scan them without racing the publish goroutines.
+func (m *mockProducer) snapshotNotifs() []contract.GeneralNotificationMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]contract.GeneralNotificationMessage, len(m.notifs))
+	copy(out, m.notifs)
+	return out
 }
 
 func (m *mockProducer) PublishOrderCreated(ctx context.Context, msg interface{}) error {
@@ -298,6 +313,8 @@ func (m *mockProducer) PublishOrderCancelled(ctx context.Context, msg interface{
 }
 
 func (m *mockProducer) PublishGeneralNotification(_ context.Context, msg contract.GeneralNotificationMessage) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.notifs = append(m.notifs, msg)
 	return nil
 }
@@ -1190,10 +1207,11 @@ func TestOrderService_PlaceOrder_EmitsClientNotification(t *testing.T) {
 	}
 
 	time.Sleep(50 * time.Millisecond) // let the go func() publish run
+	notifs := prod.snapshotNotifs()
 	var placed *contract.GeneralNotificationMessage
-	for i := range prod.notifs {
-		if prod.notifs[i].Type == "ORDER_PLACED" {
-			placed = &prod.notifs[i]
+	for i := range notifs {
+		if notifs[i].Type == "ORDER_PLACED" {
+			placed = &notifs[i]
 		}
 	}
 	if placed == nil {
@@ -1219,7 +1237,7 @@ func TestOrderService_PlaceOrder_BankOwned_NoNotification(t *testing.T) {
 	}
 
 	time.Sleep(50 * time.Millisecond)
-	for _, n := range prod.notifs {
+	for _, n := range prod.snapshotNotifs() {
 		if n.Type == "ORDER_PLACED" {
 			t.Errorf("bank-owned order must not emit a notification, got %+v", n)
 		}
@@ -1409,6 +1427,187 @@ func TestCancelOrder_NotFound(t *testing.T) {
 	_, err := svc.CancelOrder(999, model.OwnerClient, ptrU64(42))
 	if err == nil {
 		t.Fatal("expected error for non-existent order")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: ApproveOrder / DeclineOrder / CancelOrder notification emits
+// (Plan B1 — every notifyOrder emit site must have coverage)
+// ---------------------------------------------------------------------------
+
+// findNotif scans recorded notifications for one of the given Type. It reads
+// via snapshotNotifs so it never races the detached publish goroutines.
+func findNotif(prod *mockProducer, notifType string) *contract.GeneralNotificationMessage {
+	notifs := prod.snapshotNotifs()
+	for i := range notifs {
+		if notifs[i].Type == notifType {
+			return &notifs[i]
+		}
+	}
+	return nil
+}
+
+// createPendingOrder creates a client-owned order then forces it to "pending"
+// so ApproveOrder/DeclineOrder can run (the placement saga auto-approves).
+// SystemType "employee" maps to OwnerClient with the given owner id.
+func createPendingOrder(t *testing.T, svc *OrderService, orderRepo *mockOrderRepo, listingRepo *mockListingRepo) *model.Order {
+	t.Helper()
+	order := createDefaultOrder(t, svc, listingRepo)
+	stored, _ := orderRepo.GetByID(order.ID)
+	stored.Status = "pending"
+	stored.ApprovedBy = ""
+	_ = orderRepo.Update(stored)
+	return order
+}
+
+// createBankPendingOrder creates a bank-owned order in "pending" status. Bank
+// orders carry a nil owner_id, so notifyOrder must emit nothing for them.
+func createBankPendingOrder(t *testing.T, svc *OrderService, orderRepo *mockOrderRepo, listingRepo *mockListingRepo) *model.Order {
+	t.Helper()
+	listingRepo.addListing(defaultListing(1))
+	order, err := svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 99, SystemType: "bank", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 10, LimitValue: ptrDec(100), AccountID: 1,
+	})
+	if err != nil {
+		t.Fatalf("createBankPendingOrder failed: %v", err)
+	}
+	stored, _ := orderRepo.GetByID(order.ID)
+	stored.Status = "pending"
+	stored.ApprovedBy = ""
+	_ = orderRepo.Update(stored)
+	return order
+}
+
+func TestOrderService_ApproveOrder_EmitsClientNotification(t *testing.T) {
+	svc, orderRepo, listingRepo, _, _, prod, _ := buildService()
+	order := createPendingOrder(t, svc, orderRepo, listingRepo)
+
+	if _, err := svc.ApproveOrder(order.ID, 10, "Supervisor Smith"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond) // let the go func() publish run
+	n := findNotif(prod, "ORDER_APPROVED")
+	if n == nil {
+		t.Fatal("expected an ORDER_APPROVED notification")
+	}
+	if n.UserID == 0 {
+		t.Errorf("expected non-zero UserID, got %d", n.UserID)
+	}
+	if n.RefType != "order" {
+		t.Errorf("expected RefType 'order', got %q", n.RefType)
+	}
+	if n.RefID != order.ID {
+		t.Errorf("expected RefID %d, got %d", order.ID, n.RefID)
+	}
+	if n.Data["ticker"] != order.Ticker {
+		t.Errorf("expected Data[ticker] %q, got %q", order.Ticker, n.Data["ticker"])
+	}
+}
+
+func TestOrderService_ApproveOrder_BankOwned_NoNotification(t *testing.T) {
+	svc, orderRepo, listingRepo, _, _, prod, _ := buildService()
+	order := createBankPendingOrder(t, svc, orderRepo, listingRepo)
+
+	if _, err := svc.ApproveOrder(order.ID, 10, "Supervisor Smith"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if n := findNotif(prod, "ORDER_APPROVED"); n != nil {
+		t.Errorf("bank-owned order must not emit a notification, got %+v", n)
+	}
+}
+
+func TestOrderService_DeclineOrder_EmitsClientNotification(t *testing.T) {
+	svc, orderRepo, listingRepo, _, _, prod, _ := buildService()
+	order := createPendingOrder(t, svc, orderRepo, listingRepo)
+
+	if _, err := svc.DeclineOrder(order.ID, 10, "Supervisor Jones"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	n := findNotif(prod, "ORDER_DECLINED")
+	if n == nil {
+		t.Fatal("expected an ORDER_DECLINED notification")
+	}
+	if n.UserID == 0 {
+		t.Errorf("expected non-zero UserID, got %d", n.UserID)
+	}
+	if n.RefType != "order" {
+		t.Errorf("expected RefType 'order', got %q", n.RefType)
+	}
+	if n.RefID != order.ID {
+		t.Errorf("expected RefID %d, got %d", order.ID, n.RefID)
+	}
+	if n.Data["ticker"] != order.Ticker {
+		t.Errorf("expected Data[ticker] %q, got %q", order.Ticker, n.Data["ticker"])
+	}
+}
+
+func TestOrderService_DeclineOrder_BankOwned_NoNotification(t *testing.T) {
+	svc, orderRepo, listingRepo, _, _, prod, _ := buildService()
+	order := createBankPendingOrder(t, svc, orderRepo, listingRepo)
+
+	if _, err := svc.DeclineOrder(order.ID, 10, "Supervisor Jones"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if n := findNotif(prod, "ORDER_DECLINED"); n != nil {
+		t.Errorf("bank-owned order must not emit a notification, got %+v", n)
+	}
+}
+
+func TestOrderService_CancelOrder_EmitsClientNotification(t *testing.T) {
+	svc, _, listingRepo, _, _, prod, _ := buildService()
+	// A freshly placed client order is "approved" and not done — cancellable.
+	order := createDefaultOrder(t, svc, listingRepo)
+
+	if _, err := svc.CancelOrder(order.ID, model.OwnerClient, ptrU64(42)); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	n := findNotif(prod, "ORDER_CANCELLED")
+	if n == nil {
+		t.Fatal("expected an ORDER_CANCELLED notification")
+	}
+	if n.UserID == 0 {
+		t.Errorf("expected non-zero UserID, got %d", n.UserID)
+	}
+	if n.RefType != "order" {
+		t.Errorf("expected RefType 'order', got %q", n.RefType)
+	}
+	if n.RefID != order.ID {
+		t.Errorf("expected RefID %d, got %d", order.ID, n.RefID)
+	}
+	if n.Data["ticker"] != order.Ticker {
+		t.Errorf("expected Data[ticker] %q, got %q", order.Ticker, n.Data["ticker"])
+	}
+}
+
+func TestOrderService_CancelOrder_BankOwned_NoNotification(t *testing.T) {
+	svc, _, listingRepo, _, _, prod, _ := buildService()
+	listingRepo.addListing(defaultListing(1))
+	// Bank-owned order, auto-approved and cancellable.
+	order, err := svc.CreateOrder(context.Background(), CreateOrderRequest{
+		UserID: 99, SystemType: "bank", ListingID: 1, Direction: "buy",
+		OrderType: "limit", Quantity: 10, LimitValue: ptrDec(100), AccountID: 1,
+	})
+	if err != nil {
+		t.Fatalf("create failed: %v", err)
+	}
+
+	if _, err := svc.CancelOrder(order.ID, model.OwnerBank, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if n := findNotif(prod, "ORDER_CANCELLED"); n != nil {
+		t.Errorf("bank-owned order must not emit a notification, got %+v", n)
 	}
 }
 
