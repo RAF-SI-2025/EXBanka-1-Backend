@@ -2728,6 +2728,22 @@ Full cross-bank OTC option lifecycle: discovery → initiation → counter-offer
 | GET | `/api/v3/me/otc/contracts` | Existing endpoint, now also returns `peer_contracts` and `peer_total` for cross-bank rows where the caller is a participant (CREDIT side = this bank holds the buyer; DEBIT side = this bank holds the seller). |
 | POST | `/api/v3/me/otc/contracts/peer/:id/exercise` | Exercise. Buyer-only (rejects when this bank's row is `direction=DEBIT`). Body is `{buyer_account_number}`. Dispatches the 4-posting exercise SI-TX (strike money buyer→seller + option markers carrying `intent=exercise`). |
 
+> **Known gap — peer-OTC negotiation discovery.** Once a cross-bank negotiation
+> is created, both the buyer-side (on bank B) and the seller-side (on bank A)
+> have no client-facing read endpoint to list pending peer negotiations.
+> `peer_otc_negotiations` rows are written via the peer-protocol routes and
+> can only be looked up by foreign id via the peer protocol itself (which
+> sits behind `PeerAuth`, not a client JWT). The buyer-side `/me/otc/offers`
+> and `/me/otc/contracts` lists do NOT include rows from
+> `peer_otc_negotiations` while the negotiation is still `ongoing`. Until a
+> peer accept finalises into a `peer_option_contracts` row, the only way to
+> see pending negotiations from a UI is to display them client-side from the
+> initial `POST /me/peer-otc/negotiations` response. Resolving this needs a
+> new `GET /api/v3/me/peer-otc/negotiations` listing endpoint with role
+> resolution (caller is buyer if `client-N` matches the JWT's principal id;
+> caller is seller if `seller_id` does — applies on the bank that hosts the
+> seller's row). Surfaced 2026-05-15 while driving the Celina 5 audit.
+
 ### gRPC services
 
 - **`PeerOTCService`** (stock-service): 9 RPCs.
