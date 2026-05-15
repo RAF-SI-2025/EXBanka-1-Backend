@@ -329,7 +329,7 @@ func TestMaintenanceCron_StartReturnsAfterCancel(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
 	ledgerSvc := NewLedgerService(repository.NewLedgerRepository(db), db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

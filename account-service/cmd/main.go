@@ -109,7 +109,7 @@ func main() {
 	spendingCron := service.NewSpendingCronService(accountRepo)
 	spendingCron.Start(ctx)
 
-	maintenanceCron := service.NewMaintenanceCronService(accountRepo, ledgerService)
+	maintenanceCron := service.NewMaintenanceCronService(accountRepo, ledgerService, producer)
 	maintenanceCron.Start(ctx)
 
 	// Seed bank accounts for all supported currencies (idempotent)

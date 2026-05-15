@@ -6,16 +6,34 @@ import (
 	"log"
 	"time"
 
+	"github.com/exbanka/account-service/internal/model"
 	"github.com/exbanka/account-service/internal/repository"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
+
+// maintenanceProducer is the narrow slice of the Kafka producer the cron uses.
+// A separate interface (not the concrete *kafka.Producer) so unit tests can
+// inject a recording stub. Precedent: Plan B3 introduced cronNotifier on
+// credit-service's CronService for the same reason.
+type maintenanceProducer interface {
+	PublishMaintenanceFeeCharged(ctx context.Context, msg kafkamsg.MaintenanceFeeChargedMessage) error
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+}
 
 type MaintenanceCronService struct {
 	accountRepo *repository.AccountRepository
 	ledgerSvc   *LedgerService
+	producer    maintenanceProducer
 }
 
-func NewMaintenanceCronService(accountRepo *repository.AccountRepository, ledgerSvc *LedgerService) *MaintenanceCronService {
-	return &MaintenanceCronService{accountRepo: accountRepo, ledgerSvc: ledgerSvc}
+func NewMaintenanceCronService(accountRepo *repository.AccountRepository, ledgerSvc *LedgerService, producer maintenanceProducer) *MaintenanceCronService {
+	s := &MaintenanceCronService{accountRepo: accountRepo, ledgerSvc: ledgerSvc}
+	// Typed-nil guard: only assign when non-nil to avoid the
+	// non-nil-interface-holding-nil-pointer panic at the call site.
+	if producer != nil {
+		s.producer = producer
+	}
+	return s
 }
 
 // Start launches the monthly charge goroutine. It exits when ctx is cancelled.
@@ -82,6 +100,37 @@ func (s *MaintenanceCronService) chargeMaintenanceFees(ctx context.Context) {
 			continue
 		}
 		charged++
+		s.notifyMaintenanceFeeCharged(ctx, &acc)
 	}
 	log.Printf("maintenance fees charged: %d/%d accounts", charged, len(accounts))
+}
+
+// notifyMaintenanceFeeCharged publishes the domain MaintenanceFeeCharged
+// event and, for non-bank accounts, an in-app MAINTENANCE_FEE_CHARGED
+// notification. Errors are intentionally discarded (best-effort): the
+// ledger transfer has already committed and a Kafka outage must not
+// break the cron loop.
+func (s *MaintenanceCronService) notifyMaintenanceFeeCharged(ctx context.Context, acc *model.Account) {
+	if s.producer == nil || acc == nil {
+		return
+	}
+	amount := acc.MaintenanceFee.StringFixed(2)
+	_ = s.producer.PublishMaintenanceFeeCharged(ctx, kafkamsg.MaintenanceFeeChargedMessage{
+		AccountNumber: acc.AccountNumber,
+		Amount:        amount,
+		CurrencyCode:  acc.CurrencyCode,
+	})
+	if !acc.IsBankAccount {
+		_ = s.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID: acc.OwnerID,
+			Type:   "MAINTENANCE_FEE_CHARGED",
+			Data: map[string]string{
+				"account_number": acc.AccountNumber,
+				"amount":         amount,
+				"currency":       acc.CurrencyCode,
+			},
+			RefType: "account",
+			RefID:   acc.ID,
+		})
+	}
 }
