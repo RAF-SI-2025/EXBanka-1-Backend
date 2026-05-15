@@ -17,7 +17,7 @@ func TestNewEmailConsumer_AndClose(t *testing.T) {
 }
 
 func TestNewGeneralNotificationConsumer_AndClose(t *testing.T) {
-	c := NewGeneralNotificationConsumer("127.0.0.1:1", nil)
+	c := NewGeneralNotificationConsumer("127.0.0.1:1", nil, nil)
 	if c == nil || c.reader == nil {
 		t.Fatal("nil consumer or reader")
 	}
@@ -55,7 +55,7 @@ func TestEmailConsumer_Start_CtxCancel(t *testing.T) {
 }
 
 func TestGeneralNotificationConsumer_Start_CtxCancel(t *testing.T) {
-	c := NewGeneralNotificationConsumer("127.0.0.1:1", nil)
+	c := NewGeneralNotificationConsumer("127.0.0.1:1", nil, nil)
 	defer c.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	c.Start(ctx) // this kicks off a goroutine; cancel exits it.

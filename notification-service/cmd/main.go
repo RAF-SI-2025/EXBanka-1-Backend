@@ -81,7 +81,7 @@ func main() {
 	defer verificationConsumer.Close()
 
 	// General notification consumer (persistent user notifications)
-	generalConsumer := consumer.NewGeneralNotificationConsumer(cfg.KafkaBrokers, notifRepo)
+	generalConsumer := consumer.NewGeneralNotificationConsumer(cfg.KafkaBrokers, notifRepo, templateSvc)
 	generalConsumer.Start(ctx)
 	defer generalConsumer.Close()
 
