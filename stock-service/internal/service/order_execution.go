@@ -159,7 +159,19 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 			return
 		}
 
-		waitSeconds := e.calculateWaitTime(listing.Volume, remaining, order.AfterHours)
+		// Re-evaluate after-hours against the CURRENT testing-mode setting
+		// rather than the value stamped on the order row at placement
+		// time. When an admin flips testing_mode=true after an order was
+		// queued under real market hours, the stored AfterHours=true
+		// would otherwise add +30 min per portion (bug surfaced
+		// 2026-05-15: old orders don't fill in test mode).
+		afterHours := order.AfterHours
+		if afterHours && e.settingRepo != nil {
+			if v, _ := e.settingRepo.Get("testing_mode"); v == "true" {
+				afterHours = false
+			}
+		}
+		waitSeconds := e.calculateWaitTime(listing.Volume, remaining, afterHours)
 
 		select {
 		case <-time.After(time.Duration(waitSeconds) * time.Second):

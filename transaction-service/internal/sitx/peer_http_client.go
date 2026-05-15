@@ -20,12 +20,12 @@ import (
 // PeerHTTPTarget is the per-call target descriptor for the outbound HTTP
 // client. Constructed by callers from a peer_banks row.
 type PeerHTTPTarget struct {
-	BankCode        string // peer's 3-digit code (the recipient)
-	RoutingNumber   int64  // peer's routing number
-	OwnBankCode     string // OUR 3-digit code; surfaced as X-Bank-Code so the
+	BankCode      string // peer's 3-digit code (the recipient)
+	RoutingNumber int64  // peer's routing number
+	OwnBankCode   string // OUR 3-digit code; surfaced as X-Bank-Code so the
 	//                          peer can resolve us in its own peer_banks table
 	//                          to validate the HMAC.
-	OwnRouting      int64  // our routing number (for envelope's idempotenceKey)
+	OwnRouting      int64 // our routing number (for envelope's idempotenceKey)
 	BaseURL         string
 	APIToken        string // plaintext, sent as X-Api-Key
 	HMACOutboundKey string // optional; when set, also attach HMAC bundle headers

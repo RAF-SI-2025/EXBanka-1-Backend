@@ -97,6 +97,11 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "seller_bank_code must be a peer bank, not own bank")
 		return
 	}
+	// Normalize seller_id to the SI-TX wire form ("client-<N>" / "employee-<N>"):
+	// the seller's bank stores the row keyed on this string, and its own
+	// /me/peer-otc/negotiations list query matches against "client-<jwt id>".
+	// If the client sent a bare "1" the seller would never see the row.
+	req.SellerID = normalizeSITXPrincipalID(req.SellerID)
 
 	// Buyer identity: caller's principal_id from the JWT.
 	pid, ok := c.Get("principal_id")
@@ -397,6 +402,29 @@ func (h *PeerOTCInitiateHandler) CounterPeerNegotiation(c *gin.Context) {
 		}
 	}
 	c.Data(code, "application/json", respBody)
+}
+
+// normalizeSITXPrincipalID coerces a bare numeric id ("1") into the
+// prefixed form the SI-TX wire spec requires for ForeignBankId.id
+// ("client-1"). Already-prefixed values pass through unchanged. Empty
+// strings stay empty so the caller's validation can reject them.
+//
+// Convention: bare numbers default to the "client-" prefix because
+// the buyer-side initiate flow is overwhelmingly client-to-client.
+// Callers who genuinely mean "employee-<N>" must send the prefixed
+// form themselves — bare numbers are NEVER interpreted as employees.
+func normalizeSITXPrincipalID(in string) string {
+	in = strings.TrimSpace(in)
+	if in == "" {
+		return in
+	}
+	if strings.HasPrefix(in, "client-") || strings.HasPrefix(in, "employee-") {
+		return in
+	}
+	if _, err := strconv.ParseInt(in, 10, 64); err == nil {
+		return "client-" + in
+	}
+	return in
 }
 
 // parseCounterOfferBody pulls the SI-TX OtcOffer fields out of the
