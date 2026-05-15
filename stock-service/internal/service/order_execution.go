@@ -5,17 +5,20 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/shopspring/decimal"
 
+	contract "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 )
 
 // OrderFilledPublisher abstracts Kafka event publishing for order fill events.
 type OrderFilledPublisher interface {
 	PublishOrderFilled(ctx context.Context, msg interface{}) error
+	PublishGeneralNotification(ctx context.Context, msg contract.GeneralNotificationMessage) error
 }
 
 type OrderExecutionEngine struct {
@@ -247,6 +250,34 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 				// Do NOT fail the fill — Kafka is observability, not a
 				// correctness gate. A future saga-level publish_kafka step
 				// could be used to retry; acceptable for Phase 2.
+			}
+
+			// Emit an in-app notification per fill — partial while the order
+			// still has portions remaining, full once it completes. Only
+			// client-owned orders get a notification; bank-owned orders have
+			// no end user to notify.
+			if order.OwnerType == model.OwnerClient && order.OwnerID != nil {
+				notifType := "ORDER_PARTIALLY_FILLED"
+				data := map[string]string{
+					"direction":       order.Direction,
+					"filled_quantity": strconv.FormatInt(portionSize, 10),
+					"ticker":          order.Ticker,
+				}
+				if order.IsDone {
+					notifType = "ORDER_FILLED"
+					data = map[string]string{
+						"direction": order.Direction,
+						"quantity":  strconv.FormatInt(order.Quantity, 10),
+						"ticker":    order.Ticker,
+					}
+				}
+				_ = e.producer.PublishGeneralNotification(e.baseCtx, contract.GeneralNotificationMessage{
+					UserID:  *order.OwnerID,
+					Type:    notifType,
+					Data:    data,
+					RefType: "order",
+					RefID:   order.ID,
+				})
 			}
 		}
 

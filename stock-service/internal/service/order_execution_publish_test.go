@@ -9,6 +9,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	contract "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 )
 
@@ -19,6 +20,7 @@ import (
 type capturingPublisher struct {
 	mu     sync.Mutex
 	events []map[string]any
+	notifs []contract.GeneralNotificationMessage
 }
 
 func (p *capturingPublisher) PublishOrderFilled(_ context.Context, msg interface{}) error {
@@ -30,11 +32,26 @@ func (p *capturingPublisher) PublishOrderFilled(_ context.Context, msg interface
 	return nil
 }
 
+func (p *capturingPublisher) PublishGeneralNotification(_ context.Context, msg contract.GeneralNotificationMessage) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.notifs = append(p.notifs, msg)
+	return nil
+}
+
 func (p *capturingPublisher) snapshot() []map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := make([]map[string]any, len(p.events))
 	copy(out, p.events)
+	return out
+}
+
+func (p *capturingPublisher) notifSnapshot() []contract.GeneralNotificationMessage {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]contract.GeneralNotificationMessage, len(p.notifs))
+	copy(out, p.notifs)
 	return out
 }
 
@@ -273,5 +290,240 @@ func TestExecuteOrder_FillFailure_DoesNotPublishKafka(t *testing.T) {
 	}
 	if orderRepo.order.RemainingPortions != 1 {
 		t.Errorf("remaining_portions should remain 1 after failed fill, got %d", orderRepo.order.RemainingPortions)
+	}
+}
+
+// TestExecuteOrder_FullFill_EmitsOrderFilledNotification verifies that a fill
+// which completes a client-owned order emits an ORDER_FILLED in-app
+// notification with quantity/ticker/direction data.
+func TestExecuteOrder_FullFill_EmitsOrderFilledNotification(t *testing.T) {
+	baseCtx, baseCancel := context.WithCancel(context.Background())
+	defer baseCancel()
+
+	uid := uint64(9001)
+	orderRepo := &fakeBaseCtxOrderRepo{order: &model.Order{
+		ID:                301,
+		OwnerType:         model.OwnerClient,
+		OwnerID:           &uid,
+		Status:            "approved",
+		IsDone:            false,
+		Direction:         "buy",
+		SecurityType:      "stock",
+		Ticker:            "AAPL",
+		RemainingPortions: 5,
+		Quantity:          5,
+		AllOrNone:         true, // fills all 5 in one portion → order done
+		OrderType:         "market",
+		ContractSize:      1,
+		ListingID:         9,
+	}}
+	listingRepo := &fakeBaseCtxListingRepo{l: &model.Listing{
+		ID:     9,
+		Volume: 1_000_000,
+		Price:  decimal.NewFromInt(100),
+		High:   decimal.NewFromInt(100),
+		Low:    decimal.NewFromInt(100),
+	}}
+	txRepo := &fakeBaseCtxTxRepo{created: make(chan uint64, 1)}
+	fillHandler := &crossCurrencyFillHandler{filled: make(chan struct{})}
+	pub := &capturingPublisher{}
+
+	engine := NewOrderExecutionEngine(
+		baseCtx,
+		orderRepo, txRepo, listingRepo, &fakeBaseCtxSettingRepo{},
+		pub, fillHandler,
+	)
+
+	engine.StartOrderExecution(context.Background(), 301)
+
+	select {
+	case <-fillHandler.filled:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("fill handler never invoked within 3s")
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	var notifs []contract.GeneralNotificationMessage
+	for time.Now().Before(deadline) {
+		notifs = pub.notifSnapshot()
+		if len(notifs) >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(notifs) != 1 {
+		t.Fatalf("expected exactly 1 notification after full fill, got %d", len(notifs))
+	}
+
+	n := notifs[0]
+	if n.Type != "ORDER_FILLED" {
+		t.Errorf("Type: want ORDER_FILLED, got %q", n.Type)
+	}
+	if n.UserID != uid {
+		t.Errorf("UserID: want %d, got %d", uid, n.UserID)
+	}
+	if n.RefType != "order" {
+		t.Errorf("RefType: want %q, got %q", "order", n.RefType)
+	}
+	if n.RefID != 301 {
+		t.Errorf("RefID: want 301, got %d", n.RefID)
+	}
+	if n.Data["quantity"] != "5" {
+		t.Errorf("Data[quantity]: want %q, got %q", "5", n.Data["quantity"])
+	}
+	if n.Data["ticker"] != "AAPL" {
+		t.Errorf("Data[ticker]: want %q, got %q", "AAPL", n.Data["ticker"])
+	}
+	if n.Data["direction"] != "buy" {
+		t.Errorf("Data[direction]: want %q, got %q", "buy", n.Data["direction"])
+	}
+}
+
+// TestExecuteOrder_PartialFill_EmitsPartiallyFilledNotification verifies that a
+// fill which does NOT complete a client-owned order emits an
+// ORDER_PARTIALLY_FILLED notification carrying the filled quantity.
+func TestExecuteOrder_PartialFill_EmitsPartiallyFilledNotification(t *testing.T) {
+	baseCtx, baseCancel := context.WithCancel(context.Background())
+	defer baseCancel()
+
+	uid := uint64(9002)
+	// AllOrNone=false with RemainingPortions=10_000 means the engine's random
+	// portion size is in [1, 10_000]; only the single value 10_000 would
+	// complete the order, so the first fill is effectively guaranteed partial.
+	// Volume is set far above RemainingPortions so calculateWaitTime collapses
+	// to ~1s and the fill fires promptly.
+	orderRepo := &fakeBaseCtxOrderRepo{order: &model.Order{
+		ID:                302,
+		OwnerType:         model.OwnerClient,
+		OwnerID:           &uid,
+		Status:            "approved",
+		IsDone:            false,
+		Direction:         "sell",
+		SecurityType:      "stock",
+		Ticker:            "MSFT",
+		RemainingPortions: 10_000,
+		Quantity:          10_000,
+		AllOrNone:         false,
+		OrderType:         "market",
+		ContractSize:      1,
+		ListingID:         9,
+	}}
+	listingRepo := &fakeBaseCtxListingRepo{l: &model.Listing{
+		ID:     9,
+		Volume: 100_000_000,
+		Price:  decimal.NewFromInt(100),
+		High:   decimal.NewFromInt(100),
+		Low:    decimal.NewFromInt(100),
+	}}
+	txRepo := &fakeBaseCtxTxRepo{created: make(chan uint64, 1)}
+	fillHandler := &crossCurrencyFillHandler{filled: make(chan struct{})}
+	pub := &capturingPublisher{}
+
+	engine := NewOrderExecutionEngine(
+		baseCtx,
+		orderRepo, txRepo, listingRepo, &fakeBaseCtxSettingRepo{},
+		pub, fillHandler,
+	)
+
+	engine.StartOrderExecution(context.Background(), 302)
+
+	select {
+	case <-fillHandler.filled:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("fill handler never invoked within 3s")
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	var notifs []contract.GeneralNotificationMessage
+	for time.Now().Before(deadline) {
+		notifs = pub.notifSnapshot()
+		if len(notifs) >= 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// Stop the retry loop so the goroutine doesn't keep firing fills.
+	baseCancel()
+	if len(notifs) < 1 {
+		t.Fatalf("expected >=1 notification after partial fill, got %d", len(notifs))
+	}
+
+	n := notifs[0]
+	if n.Type != "ORDER_PARTIALLY_FILLED" {
+		t.Errorf("Type: want ORDER_PARTIALLY_FILLED, got %q", n.Type)
+	}
+	if n.UserID != uid {
+		t.Errorf("UserID: want %d, got %d", uid, n.UserID)
+	}
+	if n.RefType != "order" {
+		t.Errorf("RefType: want %q, got %q", "order", n.RefType)
+	}
+	if n.RefID != 302 {
+		t.Errorf("RefID: want 302, got %d", n.RefID)
+	}
+	if n.Data["filled_quantity"] == "" {
+		t.Errorf("Data[filled_quantity] should be populated, got empty")
+	}
+	if n.Data["ticker"] != "MSFT" {
+		t.Errorf("Data[ticker]: want %q, got %q", "MSFT", n.Data["ticker"])
+	}
+	if n.Data["direction"] != "sell" {
+		t.Errorf("Data[direction]: want %q, got %q", "sell", n.Data["direction"])
+	}
+}
+
+// TestExecuteOrder_BankOrderFill_EmitsNoNotification verifies that a fill on a
+// bank-owned order produces no in-app notification — there is no end user to
+// notify.
+func TestExecuteOrder_BankOrderFill_EmitsNoNotification(t *testing.T) {
+	baseCtx, baseCancel := context.WithCancel(context.Background())
+	defer baseCancel()
+
+	orderRepo := &fakeBaseCtxOrderRepo{order: &model.Order{
+		ID:                303,
+		OwnerType:         model.OwnerBank,
+		OwnerID:           nil,
+		Status:            "approved",
+		IsDone:            false,
+		Direction:         "buy",
+		SecurityType:      "stock",
+		Ticker:            "AAPL",
+		RemainingPortions: 1,
+		Quantity:          1,
+		AllOrNone:         true,
+		OrderType:         "market",
+		ContractSize:      1,
+		ListingID:         9,
+	}}
+	listingRepo := &fakeBaseCtxListingRepo{l: &model.Listing{
+		ID:     9,
+		Volume: 1_000_000,
+		Price:  decimal.NewFromInt(100),
+		High:   decimal.NewFromInt(100),
+		Low:    decimal.NewFromInt(100),
+	}}
+	txRepo := &fakeBaseCtxTxRepo{created: make(chan uint64, 1)}
+	fillHandler := &crossCurrencyFillHandler{filled: make(chan struct{})}
+	pub := &capturingPublisher{}
+
+	engine := NewOrderExecutionEngine(
+		baseCtx,
+		orderRepo, txRepo, listingRepo, &fakeBaseCtxSettingRepo{},
+		pub, fillHandler,
+	)
+
+	engine.StartOrderExecution(context.Background(), 303)
+
+	select {
+	case <-fillHandler.filled:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("fill handler never invoked within 3s")
+	}
+
+	// Give executeOrder time to reach (and skip) the notification step.
+	time.Sleep(200 * time.Millisecond)
+
+	if notifs := pub.notifSnapshot(); len(notifs) != 0 {
+		t.Fatalf("expected 0 notifications for bank-owned order, got %d: %+v", len(notifs), notifs)
 	}
 }
