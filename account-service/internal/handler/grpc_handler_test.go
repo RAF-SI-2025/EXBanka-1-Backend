@@ -171,11 +171,13 @@ func (m *mockLedgerSvc) GetLedgerEntries(accountNumber string, page, pageSize in
 type mockAccountProducer struct {
 	publishAccountCreatedFn       func(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
 	publishAccountStatusChangedFn func(ctx context.Context, msg kafkaprod.AccountStatusChangedMsg) error
+	publishAccountNameUpdatedFn   func(ctx context.Context, msg kafkamsg.AccountNameUpdatedMessage) error
 	publishGeneralNotificationFn  func(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
 	sendEmailFn                   func(ctx context.Context, msg kafkamsg.SendEmailMessage) error
 
 	accountCreatedCalls       []kafkamsg.AccountCreatedMessage
 	accountStatusChangedCalls []kafkaprod.AccountStatusChangedMsg
+	accountNameUpdatedCalls   []kafkamsg.AccountNameUpdatedMessage
 	generalNotificationCalls  []kafkamsg.GeneralNotificationMessage
 	sendEmailCalls            []kafkamsg.SendEmailMessage
 }
@@ -192,6 +194,14 @@ func (m *mockAccountProducer) PublishAccountStatusChanged(ctx context.Context, m
 	m.accountStatusChangedCalls = append(m.accountStatusChangedCalls, msg)
 	if m.publishAccountStatusChangedFn != nil {
 		return m.publishAccountStatusChangedFn(ctx, msg)
+	}
+	return nil
+}
+
+func (m *mockAccountProducer) PublishAccountNameUpdated(ctx context.Context, msg kafkamsg.AccountNameUpdatedMessage) error {
+	m.accountNameUpdatedCalls = append(m.accountNameUpdatedCalls, msg)
+	if m.publishAccountNameUpdatedFn != nil {
+		return m.publishAccountNameUpdatedFn(ctx, msg)
 	}
 	return nil
 }
@@ -578,6 +588,84 @@ func TestUpdateAccountName_ServiceError(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.AlreadyExists, status.Code(err))
+}
+
+func TestUpdateAccountName_PublishesDomainEvent(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.updateAccountNameFn = func(id, clientID uint64, newName string, changedBy int64) error {
+		return nil
+	}
+	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
+		a := sampleAccount(id)
+		a.AccountName = "Renamed"
+		return a, nil
+	}
+
+	_, err := h.UpdateAccountName(context.Background(), &pb.UpdateAccountNameRequest{
+		Id:       1,
+		ClientId: 42,
+		NewName:  "Renamed",
+	})
+	require.NoError(t, err)
+	require.Len(t, f.producer.accountNameUpdatedCalls, 1)
+	call := f.producer.accountNameUpdatedCalls[0]
+	assert.Equal(t, uint64(1), call.AccountID)
+	assert.Equal(t, "111000100000000011", call.AccountNumber)
+	assert.Equal(t, "Renamed", call.NewName)
+}
+
+func TestUpdateAccountName_EmitsNameUpdatedNotification(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.updateAccountNameFn = func(id, clientID uint64, newName string, changedBy int64) error {
+		return nil
+	}
+	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
+		a := sampleAccount(id)
+		a.AccountName = "Renamed"
+		return a, nil
+	}
+
+	_, err := h.UpdateAccountName(context.Background(), &pb.UpdateAccountNameRequest{
+		Id:       1,
+		ClientId: 42,
+		NewName:  "Renamed",
+	})
+	require.NoError(t, err)
+	require.Len(t, f.producer.generalNotificationCalls, 1)
+	n := f.producer.generalNotificationCalls[0]
+	assert.Equal(t, "ACCOUNT_NAME_UPDATED", n.Type)
+	assert.Equal(t, uint64(42), n.UserID)
+	assert.Equal(t, "111000100000000011", n.Data["account_number"])
+	assert.Equal(t, "Renamed", n.Data["new_name"])
+	assert.Equal(t, "account", n.RefType)
+	assert.Equal(t, uint64(1), n.RefID)
+	assert.Empty(t, n.Title)
+	assert.Empty(t, n.Message)
+}
+
+func TestUpdateAccountName_BankOwned_NoNotification(t *testing.T) {
+	h, f := newGRPCHandlerFixture(t)
+	f.accountSvc.updateAccountNameFn = func(id, clientID uint64, newName string, changedBy int64) error {
+		return nil
+	}
+	f.accountSvc.getAccountFn = func(id uint64) (*model.Account, error) {
+		a := sampleAccount(id)
+		a.AccountName = "Bank Operations"
+		a.IsBankAccount = true
+		a.OwnerID = 1_000_000_000
+		return a, nil
+	}
+
+	_, err := h.UpdateAccountName(context.Background(), &pb.UpdateAccountNameRequest{
+		Id:       1,
+		ClientId: 0,
+		NewName:  "Bank Operations",
+	})
+	require.NoError(t, err)
+	// Domain event still publishes for the audit channel.
+	require.Len(t, f.producer.accountNameUpdatedCalls, 1)
+	// No in-app notification for bank-owned accounts.
+	assert.Empty(t, f.producer.generalNotificationCalls)
 }
 
 // ---------------------------------------------------------------------------

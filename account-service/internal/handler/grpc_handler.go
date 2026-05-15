@@ -55,6 +55,7 @@ type ledgerSvcFacade interface {
 type accountProducer interface {
 	PublishAccountCreated(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
 	PublishAccountStatusChanged(ctx context.Context, msg kafkaprod.AccountStatusChangedMsg) error
+	PublishAccountNameUpdated(ctx context.Context, msg kafkamsg.AccountNameUpdatedMessage) error
 	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
 	SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error
 }
@@ -436,6 +437,27 @@ func (h *AccountGRPCHandler) UpdateAccountName(ctx context.Context, req *pb.Upda
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to fetch updated account: %v", err)
 	}
+
+	// Domain audit event — fires regardless of ownership (bank-owned accounts
+	// still get an entry on the changelog channel).
+	_ = h.producer.PublishAccountNameUpdated(ctx, kafkamsg.AccountNameUpdatedMessage{
+		AccountID:     account.ID,
+		AccountNumber: account.AccountNumber,
+		NewName:       account.AccountName,
+	})
+
+	// In-app notification (rendered downstream via the push template registry).
+	// Skip for bank-owned accounts — they have no human recipient.
+	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  account.OwnerID,
+			Type:    "ACCOUNT_NAME_UPDATED",
+			Data:    map[string]string{"account_number": account.AccountNumber, "new_name": account.AccountName},
+			RefType: "account",
+			RefID:   account.ID,
+		})
+	}
+
 	return toAccountResponse(account), nil
 }
 
