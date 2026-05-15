@@ -222,6 +222,9 @@ func (r *Refresher) fetchPeer(ctx context.Context, peer *transactionpb.PeerBank)
 	if full == nil || !full.GetActive() {
 		return nil, nil
 	}
+	// base_url already carries the peer's SI-TX path prefix (set by the
+	// registering admin) so cohort banks with different gateway
+	// layouts can all interop. We only append the leaf path.
 	url := strings.TrimRight(full.GetBaseUrl(), "/") + "/public-stock"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

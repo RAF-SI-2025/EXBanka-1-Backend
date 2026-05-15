@@ -139,7 +139,9 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 	}
 	body, _ := json.Marshal(offer)
 
-	// Construct the request to {peer.base_url}/negotiations.
+	// base_url already carries the peer's SI-TX path prefix (set by the
+	// registering admin) so cohort banks with different gateway
+	// layouts can all interop. We only append the leaf path.
 	url := strings.TrimRight(peer.GetBaseUrl(), "/") + "/negotiations"
 	httpReq, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {

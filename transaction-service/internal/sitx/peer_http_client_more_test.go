@@ -83,14 +83,16 @@ func TestPeerHTTPClient_NewTx_BadBody_DecodeError(t *testing.T) {
 }
 
 // TestPeerHTTPClient_HMAC_HeadersAttached verifies the HMAC bundle headers
-// are present when HMACOutboundKey is set.
+// are present when HMACOutboundKey is set, and that X-Bank-Code carries
+// the SENDER's code (so the receiver can look us up in its own
+// peer_banks table) — not the recipient's.
 func TestPeerHTTPClient_HMAC_HeadersAttached(t *testing.T) {
 	var sawSig, sawNonce, sawTS, sawBC bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sawSig = r.Header.Get("X-Bank-Signature") != ""
 		sawNonce = r.Header.Get("X-Nonce") != ""
 		sawTS = r.Header.Get("X-Timestamp") != ""
-		sawBC = r.Header.Get("X-Bank-Code") == "222"
+		sawBC = r.Header.Get("X-Bank-Code") == "111"
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
@@ -98,6 +100,7 @@ func TestPeerHTTPClient_HMAC_HeadersAttached(t *testing.T) {
 	client := sitx.NewPeerHTTPClient(http.DefaultClient)
 	target := &sitx.PeerHTTPTarget{
 		BankCode:        "222",
+		OwnBankCode:     "111",
 		BaseURL:         srv.URL,
 		APIToken:        "tok",
 		OwnRouting:      111,

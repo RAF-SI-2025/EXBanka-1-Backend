@@ -60,7 +60,7 @@ cd notification-service && go build -o bin/notification-service ./cmd
 ```bash
 docker compose --env-file .env.bank-b -f docker-compose.yml -f docker-compose.bank-b.yml up
 ```
-After both stacks are healthy, register each as a peer in the other via `POST /api/v3/peer-banks` using `http://host.docker.internal:<gateway-port>` as the `base_url`. Requires docker compose v2.24+ for the `!override` tag.
+After both stacks are healthy, register each as a peer in the other via `POST /api/v3/peer-banks`. `base_url` is the FULL SI-TX path prefix that the peer exposes its `/interbank`, `/public-stock`, and `/negotiations` endpoints under — for this codebase that's `http://host.docker.internal:<gateway-port>/api/v3`. The outbound clients (`transaction-service/internal/sitx/peer_http_client.go`, `stock-service/internal/otccache/cache.go`, `api-gateway/internal/handler/peer_otc_initiate_handler.go`) only append the leaf names (`/interbank`, `/public-stock`, `/negotiations`) so cohort banks with different gateway path layouts all interop — each peer's prefix lives in its registration row, not in our client code. Requires docker compose v2.24+ for the `!override` tag.
 
 ## Environment
 

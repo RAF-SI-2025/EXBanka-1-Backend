@@ -227,6 +227,7 @@ func main() {
 		return &sitx.PeerHTTPTarget{
 			BankCode:        row.BankCode,
 			RoutingNumber:   row.RoutingNumber,
+			OwnBankCode:     cfg.OwnBankCode,
 			OwnRouting:      ownRouting,
 			BaseURL:         row.BaseURL,
 			APIToken:        row.APITokenPlaintext,
