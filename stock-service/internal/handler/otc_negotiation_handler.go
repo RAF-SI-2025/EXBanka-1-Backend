@@ -297,6 +297,40 @@ func (h *OTCOptionsHandler) CancelNegotiation(ctx context.Context, in *stockpb.C
 	return negToProto(neg), nil
 }
 
+func (h *OTCOptionsHandler) CancelListing(ctx context.Context, in *stockpb.CancelListingRequest) (*stockpb.CancelListingResponse, error) {
+	if h.negotiations == nil {
+		return nil, status.Error(codes.Unimplemented, "OTCNegotiationService not wired")
+	}
+	ot, err := ownerTypeFromProto(in.GetCallerOwnerType())
+	if err != nil {
+		return nil, err
+	}
+	oid, err := resolveOwnerID(ot, in.GetCallerOwnerId())
+	if err != nil {
+		return nil, err
+	}
+	res, err := h.negotiations.CancelListing(ctx, service.CancelListingInput{
+		OfferID:             in.GetOfferId(),
+		CallerOwnerType:     ot,
+		CallerOwnerID:       oid,
+		ActingPrincipalType: in.GetActingPrincipalType(),
+		ActingPrincipalID:   in.GetActingPrincipalId(),
+		ActingEmployeeID:    optionalPtr(in.GetActingEmployeeId()),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*stockpb.OTCNegotiationResponse, 0, len(res.CancelledChains))
+	for i := range res.CancelledChains {
+		out = append(out, negToProto(&res.CancelledChains[i]))
+	}
+	return &stockpb.CancelListingResponse{
+		OfferId:          res.Offer.ID,
+		Status:           res.Offer.Status,
+		CancelledChains:  out,
+	}, nil
+}
+
 func (h *OTCOptionsHandler) ListMyNegotiations(ctx context.Context, in *stockpb.ListMyNegotiationsRequest) (*stockpb.ListNegotiationsResponse, error) {
 	if h.negotiations == nil {
 		return nil, status.Error(codes.Unimplemented, "OTCNegotiationService not wired")

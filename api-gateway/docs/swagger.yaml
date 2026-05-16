@@ -7595,11 +7595,27 @@ paths:
       - OTCOptions
   /api/v3/me/otc/options:
     get:
+      description: Same response shape as GET /api/v3/otc/options (kind/bank_code/best_bid/best_ask/active_chains_count/...)
+        but scoped to listings the caller posted. Only OPEN listings appear here (the
+        unified cache is open-only); for a full history of every offer you've ever
+        posted use GET /api/v3/me/otc/options/posted.
       parameters:
-      - description: initiator|counterparty|either
+      - description: Filter to one ticker
         in: query
-        name: role
+        name: ticker
         type: string
+      - description: sell_initiated|buy_initiated
+        in: query
+        name: direction
+        type: string
+      - description: 1-based, default 1
+        in: query
+        name: page
+        type: integer
+      - description: default 10
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
@@ -7610,7 +7626,7 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: List the caller's OTC offers
+      summary: Marketplace view of the caller's OWN open OTC option listings
       tags:
       - OTCOptions
     post:
@@ -7644,6 +7660,44 @@ paths:
       security:
       - BearerAuth: []
       summary: Create an OTC option offer
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/{id}:
+    delete:
+      description: Initiator-only. Status flips to "cancelled" and all open child
+        negotiation chains cascade-cancel. Returns 204 on success, 403 if caller is
+        not the listing's poster, 409 if listing is not open.
+      parameters:
+      - description: parent listing id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel (withdraw) your own OTC option listing
       tags:
       - OTCOptions
   /api/v3/me/otc/options/{id}/negotiations/{nid}:
@@ -7828,6 +7882,38 @@ paths:
       security:
       - BearerAuth: []
       summary: List the caller's OTC option negotiation chains
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/posted:
+    get:
+      description: Returns the raw OTCOffer rows for listings where the caller is
+        the initiator. Includes all statuses (open, consumed, accepted, rejected,
+        expired, cancelled). Use this for a "my posted offers" history view. For the
+        live-marketplace shape of my open involvement, use GET /api/v3/me/otc/options.
+      parameters:
+      - description: comma-separated; omit for all
+        in: query
+        name: statuses
+        type: string
+      - description: 1-based, default 1
+        in: query
+        name: page
+        type: integer
+      - description: default 20
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List every OTC option offer the caller has posted (any status)
       tags:
       - OTCOptions
   /api/v3/me/otc/ratings:

@@ -1225,9 +1225,10 @@ func (s *stubStockExchangeClient) GetTestingMode(_ context.Context, in *stockpb.
 // ---------------------------------------------------------------------------
 
 type stubOTCClient struct {
-	listFn        func(*stockpb.ListOTCOffersRequest) (*stockpb.ListOTCOffersResponse, error)
-	buyFn         func(*stockpb.BuyOTCOfferRequest) (*stockpb.OTCTransaction, error)
-	listUnifiedFn func(*stockpb.ListUnifiedOTCOffersRequest) (*stockpb.ListUnifiedOTCOffersResponse, error)
+	listFn              func(*stockpb.ListOTCOffersRequest) (*stockpb.ListOTCOffersResponse, error)
+	buyFn               func(*stockpb.BuyOTCOfferRequest) (*stockpb.OTCTransaction, error)
+	listUnifiedFn       func(*stockpb.ListUnifiedOTCOffersRequest) (*stockpb.ListUnifiedOTCOffersResponse, error)
+	listUnifiedOptionFn func(*stockpb.ListUnifiedOptionOffersRequest) (*stockpb.ListUnifiedOptionOffersResponse, error)
 }
 
 func (s *stubOTCClient) ListOffers(_ context.Context, in *stockpb.ListOTCOffersRequest, _ ...grpc.CallOption) (*stockpb.ListOTCOffersResponse, error) {
@@ -1249,10 +1250,13 @@ func (s *stubOTCClient) ListUnifiedOffers(_ context.Context, in *stockpb.ListUni
 	return &stockpb.ListUnifiedOTCOffersResponse{}, nil
 }
 
-// Phase-6 marketplace RPC. Stub returns zero-value; tests that need
-// custom responses can extend stubOTCClient with a listUnifiedOptionFn
-// field later — none currently exercise this path.
-func (s *stubOTCClient) ListUnifiedOptionOffers(_ context.Context, _ *stockpb.ListUnifiedOptionOffersRequest, _ ...grpc.CallOption) (*stockpb.ListUnifiedOptionOffersResponse, error) {
+// Phase-6 marketplace RPC. Tests can inject listUnifiedOptionFn to
+// capture the request (the /me/otc/options reshape needs to verify it
+// sets owner_only_seller_id correctly).
+func (s *stubOTCClient) ListUnifiedOptionOffers(_ context.Context, in *stockpb.ListUnifiedOptionOffersRequest, _ ...grpc.CallOption) (*stockpb.ListUnifiedOptionOffersResponse, error) {
+	if s.listUnifiedOptionFn != nil {
+		return s.listUnifiedOptionFn(in)
+	}
 	return &stockpb.ListUnifiedOptionOffersResponse{}, nil
 }
 

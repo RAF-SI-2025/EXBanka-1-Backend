@@ -296,6 +296,14 @@ var (
 	// this typed sentinel.
 	ErrOTCAcceptorAccountRequired = svcerr.New(codes.InvalidArgument, "acceptor_account_id is required to mint the option contract")
 
+	// ErrOTCCancelListingUnauthorized — caller tried to cancel a parent
+	// OTCOffer listing they didn't post. Only the initiator may cancel.
+	ErrOTCCancelListingUnauthorized = svcerr.New(codes.PermissionDenied, "only the listing's poster can cancel it")
+
+	// ErrOTCListingNotOpen — caller tried to cancel a listing that is no
+	// longer in an open status (e.g. already consumed, expired, or cancelled).
+	ErrOTCListingNotOpen = svcerr.New(codes.FailedPrecondition, "OTC listing is not open")
+
 	// --- Generic catch-alls (used by handlers when wrapping bare
 	// dependency errors before they become gRPC responses) ---
 

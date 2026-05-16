@@ -793,6 +793,14 @@ message ListUnifiedOptionOffersRequest {
   string direction = 4;   // "" | "sell_initiated" | "buy_initiated"
   int32  page      = 5;
   int32  page_size = 6;
+  // owner_only_seller_id, when non-empty, filters the snapshot to local
+  // listings whose SellerID exactly matches this string (SI-TX form:
+  // "client-<principal_id>" for client listings, "bank" for bank-owned).
+  // Used by GET /api/v3/me/otc/options to scope the marketplace view
+  // to the caller's own open listings without changing the response
+  // shape. Implies kind=local since cross-bank listings can never be
+  // ours.
+  string owner_only_seller_id = 7;
 }
 
 message ListUnifiedOptionOffersResponse {
@@ -1108,6 +1116,7 @@ service OTCOptionsService {
   rpc AcceptNegotiationChain(OTCAcceptNegotiationRequest) returns (OTCAcceptNegotiationResponse);
   rpc RejectNegotiation(RejectNegotiationRequest)     returns (OTCNegotiationResponse);
   rpc CancelNegotiation(CancelNegotiationRequest)     returns (OTCNegotiationResponse);
+  rpc CancelListing(CancelListingRequest)             returns (CancelListingResponse);
   rpc ListMyNegotiations(ListMyNegotiationsRequest)   returns (ListNegotiationsResponse);
   rpc ListNegotiationsByListing(ListNegotiationsByListingRequest) returns (ListNegotiationsResponse);
 }
@@ -1228,6 +1237,25 @@ message CancelNegotiationRequest {
   string acting_principal_type = 4;
   uint64 acting_principal_id   = 5;
   uint64 acting_employee_id    = 6;
+}
+
+// CancelListingRequest closes a parent OTCOffer listing the caller posted.
+// Cascade-cancels all open child chains in the same transaction.
+message CancelListingRequest {
+  uint64 offer_id              = 1;
+  string caller_owner_type     = 2;
+  uint64 caller_owner_id       = 3;
+  string acting_principal_type = 4;
+  uint64 acting_principal_id   = 5;
+  uint64 acting_employee_id    = 6;
+}
+
+// CancelListingResponse reports the cancelled parent and every chain
+// that cascade-cancelled. Empty chains slice ⇒ no bids were active.
+message CancelListingResponse {
+  uint64 offer_id                                  = 1;
+  string status                                    = 2; // always "cancelled"
+  repeated OTCNegotiationResponse cancelled_chains = 3;
 }
 
 message ListMyNegotiationsRequest {

@@ -2408,6 +2408,7 @@ const (
 	OTCOptionsService_AcceptNegotiationChain_FullMethodName    = "/stock.OTCOptionsService/AcceptNegotiationChain"
 	OTCOptionsService_RejectNegotiation_FullMethodName         = "/stock.OTCOptionsService/RejectNegotiation"
 	OTCOptionsService_CancelNegotiation_FullMethodName         = "/stock.OTCOptionsService/CancelNegotiation"
+	OTCOptionsService_CancelListing_FullMethodName             = "/stock.OTCOptionsService/CancelListing"
 	OTCOptionsService_ListMyNegotiations_FullMethodName        = "/stock.OTCOptionsService/ListMyNegotiations"
 	OTCOptionsService_ListNegotiationsByListing_FullMethodName = "/stock.OTCOptionsService/ListNegotiationsByListing"
 )
@@ -2442,6 +2443,7 @@ type OTCOptionsServiceClient interface {
 	AcceptNegotiationChain(ctx context.Context, in *OTCAcceptNegotiationRequest, opts ...grpc.CallOption) (*OTCAcceptNegotiationResponse, error)
 	RejectNegotiation(ctx context.Context, in *RejectNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error)
 	CancelNegotiation(ctx context.Context, in *CancelNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error)
+	CancelListing(ctx context.Context, in *CancelListingRequest, opts ...grpc.CallOption) (*CancelListingResponse, error)
 	ListMyNegotiations(ctx context.Context, in *ListMyNegotiationsRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error)
 	ListNegotiationsByListing(ctx context.Context, in *ListNegotiationsByListingRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error)
 }
@@ -2634,6 +2636,16 @@ func (c *oTCOptionsServiceClient) CancelNegotiation(ctx context.Context, in *Can
 	return out, nil
 }
 
+func (c *oTCOptionsServiceClient) CancelListing(ctx context.Context, in *CancelListingRequest, opts ...grpc.CallOption) (*CancelListingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelListingResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_CancelListing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *oTCOptionsServiceClient) ListMyNegotiations(ctx context.Context, in *ListMyNegotiationsRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListNegotiationsResponse)
@@ -2684,6 +2696,7 @@ type OTCOptionsServiceServer interface {
 	AcceptNegotiationChain(context.Context, *OTCAcceptNegotiationRequest) (*OTCAcceptNegotiationResponse, error)
 	RejectNegotiation(context.Context, *RejectNegotiationRequest) (*OTCNegotiationResponse, error)
 	CancelNegotiation(context.Context, *CancelNegotiationRequest) (*OTCNegotiationResponse, error)
+	CancelListing(context.Context, *CancelListingRequest) (*CancelListingResponse, error)
 	ListMyNegotiations(context.Context, *ListMyNegotiationsRequest) (*ListNegotiationsResponse, error)
 	ListNegotiationsByListing(context.Context, *ListNegotiationsByListingRequest) (*ListNegotiationsResponse, error)
 	mustEmbedUnimplementedOTCOptionsServiceServer()
@@ -2749,6 +2762,9 @@ func (UnimplementedOTCOptionsServiceServer) RejectNegotiation(context.Context, *
 }
 func (UnimplementedOTCOptionsServiceServer) CancelNegotiation(context.Context, *CancelNegotiationRequest) (*OTCNegotiationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CancelNegotiation not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) CancelListing(context.Context, *CancelListingRequest) (*CancelListingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelListing not implemented")
 }
 func (UnimplementedOTCOptionsServiceServer) ListMyNegotiations(context.Context, *ListMyNegotiationsRequest) (*ListNegotiationsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListMyNegotiations not implemented")
@@ -3101,6 +3117,24 @@ func _OTCOptionsService_CancelNegotiation_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OTCOptionsService_CancelListing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelListingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).CancelListing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_CancelListing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).CancelListing(ctx, req.(*CancelListingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _OTCOptionsService_ListMyNegotiations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListMyNegotiationsRequest)
 	if err := dec(in); err != nil {
@@ -3215,6 +3249,10 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CancelNegotiation",
 			Handler:    _OTCOptionsService_CancelNegotiation_Handler,
+		},
+		{
+			MethodName: "CancelListing",
+			Handler:    _OTCOptionsService_CancelListing_Handler,
 		},
 		{
 			MethodName: "ListMyNegotiations",

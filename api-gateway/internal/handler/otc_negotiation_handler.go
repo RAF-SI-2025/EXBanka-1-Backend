@@ -13,6 +13,7 @@
 //	POST   /api/v3/me/otc/options/:id/negotiations/:nid/accept
 //	POST   /api/v3/me/otc/options/:id/negotiations/:nid/reject
 //	DELETE /api/v3/me/otc/options/:id/negotiations/:nid
+//	DELETE /api/v3/me/otc/options/:id                   Cancel my listing
 //
 // All routes use AnyAuthMiddleware (client + employee tokens accepted)
 // + ResolveIdentity. Ownership/authorization is enforced inside the
@@ -268,6 +269,65 @@ func (h *OTCOptionsHandler) CancelMyNegotiation(c *gin.Context) {
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	if _, err := h.client.CancelNegotiation(c.Request.Context(), &stockpb.CancelNegotiationRequest{
 		NegotiationId:       negID,
+		CallerOwnerType:     identity.OwnerType,
+		CallerOwnerId:       derefU64(identity.OwnerID),
+		ActingPrincipalType: principalTypeFromIdentity(identity),
+		ActingPrincipalId:   identity.PrincipalID,
+		ActingEmployeeId:    derefU64(identity.ActingEmployeeID),
+	}); err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// CancelMyListing godoc
+// @Summary      Cancel (withdraw) your own OTC option listing
+// @Description  Initiator-only. Status flips to "cancelled" and all open child negotiation chains cascade-cancel. Returns 204 on success, 403 if caller is not the listing's poster, 409 if listing is not open.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id path int true "parent listing id"
+// @Success      204 {string} string ""
+// @Failure      403 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Failure      409 {object} map[string]interface{}
+// @Router       /api/v3/me/otc/options/{id} [delete]
+func (h *OTCOptionsHandler) CancelMyListing(c *gin.Context) {
+	offerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || offerID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
+		return
+	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	// Gateway-level ownership pre-check: fetch the offer and verify the
+	// caller is the initiator. The service-layer also checks (defense in
+	// depth) but per CLAUDE.md ownership must be verified before the gRPC
+	// call. GetOffer returns NotFound for non-participants which gives
+	// us a clean 404 for "offer doesn't exist or isn't mine".
+	detail, gerr := h.client.GetOffer(c.Request.Context(), &stockpb.GetOTCOfferRequest{
+		OfferId:         offerID,
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+	})
+	if gerr != nil {
+		handleGRPCError(c, gerr)
+		return
+	}
+	off := detail.GetOffer()
+	if off == nil {
+		apiError(c, http.StatusNotFound, ErrNotFound, "offer not found")
+		return
+	}
+	init := off.GetInitiator()
+	if init == nil ||
+		init.GetSystemType() != ownerToLegacySystemType(identity.OwnerType) ||
+		uint64(init.GetUserId()) != ownerToLegacyUserID(identity.OwnerID) {
+		apiError(c, http.StatusForbidden, ErrForbidden, "only the listing's poster can cancel it")
+		return
+	}
+	if _, err := h.client.CancelListing(c.Request.Context(), &stockpb.CancelListingRequest{
+		OfferId:             offerID,
 		CallerOwnerType:     identity.OwnerType,
 		CallerOwnerId:       derefU64(identity.OwnerID),
 		ActingPrincipalType: principalTypeFromIdentity(identity),

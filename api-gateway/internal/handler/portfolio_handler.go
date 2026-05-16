@@ -278,6 +278,41 @@ func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 // @Success      200 {object} map[string]interface{}
 // @Router       /api/v3/otc/options [get]
 func (h *PortfolioHandler) ListOTCOptions(c *gin.Context) {
+	h.listUnifiedOTCOptions(c, "")
+}
+
+// ListMyOTCOptions godoc
+// @Summary      Marketplace view of the caller's OWN open OTC option listings
+// @Description  Same response shape as GET /api/v3/otc/options (kind/bank_code/best_bid/best_ask/active_chains_count/...) but scoped to listings the caller posted. Only OPEN listings appear here (the unified cache is open-only); for a full history of every offer you've ever posted use GET /api/v3/me/otc/options/posted.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        ticker    query string false "Filter to one ticker"
+// @Param        direction query string false "sell_initiated|buy_initiated"
+// @Param        page      query int    false "1-based, default 1"
+// @Param        page_size query int    false "default 10"
+// @Success      200 {object} map[string]interface{}
+// @Router       /api/v3/me/otc/options [get]
+func (h *PortfolioHandler) ListMyOTCOptions(c *gin.Context) {
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	var sellerID string
+	if identity.OwnerType == "bank" {
+		sellerID = "bank"
+	} else if identity.OwnerID != nil {
+		sellerID = "client-" + strconv.FormatUint(*identity.OwnerID, 10)
+	} else {
+		// Defensive: identity resolved to something we can't map to a
+		// SellerID. Return empty rather than 500.
+		c.JSON(http.StatusOK, gin.H{"offers": []gin.H{}, "total_count": 0, "peers_total": 0, "peers_reached": 0, "partial": false, "last_refresh": ""})
+		return
+	}
+	h.listUnifiedOTCOptions(c, sellerID)
+}
+
+// listUnifiedOTCOptions is the shared workhorse for ListOTCOptions and
+// ListMyOTCOptions. When ownerOnlySellerID is non-empty it short-circuits
+// to local listings whose SellerID matches (used for /me/...).
+func (h *PortfolioHandler) listUnifiedOTCOptions(c *gin.Context, ownerOnlySellerID string) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	if page < 1 {
 		page = 1
@@ -301,12 +336,13 @@ func (h *PortfolioHandler) ListOTCOptions(c *gin.Context) {
 		}
 	}
 	resp, err := h.otcClient.ListUnifiedOptionOffers(c.Request.Context(), &stockpb.ListUnifiedOptionOffersRequest{
-		Ticker:    c.Query("ticker"),
-		Kind:      kind,
-		BankCode:  c.Query("bank_code"),
-		Direction: direction,
-		Page:      int32(page),
-		PageSize:  int32(pageSize),
+		Ticker:             c.Query("ticker"),
+		Kind:               kind,
+		BankCode:           c.Query("bank_code"),
+		Direction:          direction,
+		Page:               int32(page),
+		PageSize:           int32(pageSize),
+		OwnerOnlySellerId:  ownerOnlySellerID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)

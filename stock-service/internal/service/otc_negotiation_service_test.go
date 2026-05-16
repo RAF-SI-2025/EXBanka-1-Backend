@@ -415,6 +415,75 @@ func TestCancelNegotiation_BidderOnly(t *testing.T) {
 	}
 }
 
+func TestCancelListing_InitiatorOnly_CascadesChains(t *testing.T) {
+	env := newNegTestEnv(t)
+	listing := seedListing(t, env, 1 /*poster*/, model.OTCDirectionSellInitiated, model.OTCOfferStatusOpen)
+	// Two bidders open chains so we can verify cascade-cancel.
+	_, _ = env.svc.OpenNegotiation(context.Background(), sampleOpenInput(listing.ID, 7))
+	_, _ = env.svc.OpenNegotiation(context.Background(), sampleOpenInput(listing.ID, 8))
+
+	// Non-poster cannot cancel.
+	_, err := env.svc.CancelListing(context.Background(), CancelListingInput{
+		OfferID:             listing.ID,
+		CallerOwnerType:     model.OwnerClient,
+		CallerOwnerID:       u64p(99),
+		ActingPrincipalType: "client",
+		ActingPrincipalID:   99,
+	})
+	if !errors.Is(err, ErrOTCCancelListingUnauthorized) {
+		t.Fatalf("non-poster cancel: want ErrOTCCancelListingUnauthorized got %v", err)
+	}
+
+	// Poster can. Returns the cancelled siblings.
+	res, err := env.svc.CancelListing(context.Background(), CancelListingInput{
+		OfferID:             listing.ID,
+		CallerOwnerType:     model.OwnerClient,
+		CallerOwnerID:       u64p(1),
+		ActingPrincipalType: "client",
+		ActingPrincipalID:   1,
+	})
+	if err != nil {
+		t.Fatalf("poster cancel: %v", err)
+	}
+	if res.Offer.Status != model.OTCOfferStatusCancelled {
+		t.Errorf("parent status=%s want cancelled", res.Offer.Status)
+	}
+	if len(res.CancelledChains) != 2 {
+		t.Fatalf("want 2 cascade-cancelled chains, got %d", len(res.CancelledChains))
+	}
+	for _, ch := range res.CancelledChains {
+		if ch.Status != model.OTCNegotiationStatusCancelled {
+			t.Errorf("chain %d status=%s want cancelled", ch.ID, ch.Status)
+		}
+	}
+
+	// Second cancel on the same listing fails — no longer open.
+	_, err = env.svc.CancelListing(context.Background(), CancelListingInput{
+		OfferID:             listing.ID,
+		CallerOwnerType:     model.OwnerClient,
+		CallerOwnerID:       u64p(1),
+		ActingPrincipalType: "client",
+		ActingPrincipalID:   1,
+	})
+	if !errors.Is(err, ErrOTCListingNotOpen) {
+		t.Fatalf("second cancel: want ErrOTCListingNotOpen got %v", err)
+	}
+}
+
+func TestCancelListing_NotFound(t *testing.T) {
+	env := newNegTestEnv(t)
+	_, err := env.svc.CancelListing(context.Background(), CancelListingInput{
+		OfferID:             9999,
+		CallerOwnerType:     model.OwnerClient,
+		CallerOwnerID:       u64p(1),
+		ActingPrincipalType: "client",
+		ActingPrincipalID:   1,
+	})
+	if !errors.Is(err, ErrOTCOfferNotFound) {
+		t.Fatalf("want ErrOTCOfferNotFound got %v", err)
+	}
+}
+
 func TestListMyNegotiations_FiltersByBidder(t *testing.T) {
 	env := newNegTestEnv(t)
 	listing := seedListing(t, env, 1, model.OTCDirectionSellInitiated, model.OTCOfferStatusOpen)

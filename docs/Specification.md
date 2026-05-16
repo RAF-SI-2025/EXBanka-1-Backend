@@ -1491,8 +1491,10 @@ Many bidders can each open their own negotiation chain against the same listing;
 | GET    | `/api/v3/otc/options/:id`                              | OTCOptionsHandler.GetOffer                  | Detail (single listing) |
 | GET    | `/api/v3/otc/options/:id/negotiations`                 | OTCOptionsHandler.ListNegotiationsOnListing | Every chain on a listing — visible to all parties |
 | POST   | `/api/v3/otc/options/:id/bid`                          | OTCOptionsHandler.OpenNegotiationChain      | Place a bid — opens a new negotiation chain |
-| GET    | `/api/v3/me/otc/options`                               | OTCOptionsHandler.ListMyOffers              | Caller's own option offers |
+| GET    | `/api/v3/me/otc/options`                               | PortfolioHandler.ListMyOTCOptions           | Marketplace shape, scoped to caller's open listings (owner_only_seller_id filter on the unified cache) |
+| GET    | `/api/v3/me/otc/options/posted`                        | OTCOptionsHandler.ListMyPostedOffers        | Full history — every listing the caller posted, any status; raw `OTCOfferResponse` rows |
 | POST   | `/api/v3/me/otc/options`                               | OTCOptionsHandler.CreateOffer               | Create an option listing |
+| DELETE | `/api/v3/me/otc/options/:id`                           | OTCOptionsHandler.CancelMyListing           | Initiator-only — flips parent to `cancelled` and cascade-cancels all open child chains in one TX |
 | GET    | `/api/v3/me/otc/options/negotiations`                  | OTCOptionsHandler.ListMyNegotiations        | Caller's chains as a bidder |
 | POST   | `/api/v3/me/otc/options/:id/negotiations/:nid/counter` | OTCOptionsHandler.CounterMyNegotiation      | Counter current terms |
 | POST   | `/api/v3/me/otc/options/:id/negotiations/:nid/accept`  | OTCOptionsHandler.AcceptMyNegotiation       | Accept — first-accept-wins atomic TX |
@@ -2709,7 +2711,11 @@ All `PeerAuth` failures return 401 with empty body. Constant-time comparison via
 
 ### gRPC service: `OTCOptionsService`
 
-Defined in `contract/proto/stock/stock.proto`. RPCs: CreateOffer, ListMyOffers, GetOffer, CounterOffer, AcceptOffer, RejectOffer, ListMyContracts, GetContract, ExerciseContract.
+Defined in `contract/proto/stock/stock.proto`. RPCs: CreateOffer, ListMyOffers, GetOffer, CounterOffer, AcceptOffer, RejectOffer, ListMyContracts, GetContract, ExerciseContract, OpenNegotiation, CounterNegotiation, AcceptNegotiationChain, RejectNegotiation, CancelNegotiation, **CancelListing**, ListMyNegotiations, ListNegotiationsByListing.
+
+`CancelListing(CancelListingRequest) → CancelListingResponse` — closes a parent `OTCOffer` listing posted by the caller; cascade-cancels every still-open child `OTCNegotiation` in the same DB transaction. Authorization: caller's (owner_type, owner_id) must match the offer's `initiator_owner_*`. Listing status must be open. Returns the cancelled parent + the list of cascade-cancelled chain rows (so the gateway can publish per-chain `OTC_OFFER_CASCADE_CANCELLED` notifications). No fund/share unwinding — listings hold no reservations at the parent level; reservations only exist inside the accept saga and are guarded by the parent-status check there.
+
+`ListUnifiedOptionOffersRequest` gained an `owner_only_seller_id` string field: when non-empty the in-memory snapshot is filtered to `kind=local` entries whose `SellerID` exactly matches (SI-TX form: `"client-<principal_id>"` or `"bank"`). Used by `GET /api/v3/me/otc/options` to render the marketplace view scoped to the caller's own open listings without changing the response shape.
 
 ### Kafka topics
 

@@ -184,7 +184,8 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 
 		// OTC option trading (Spec 2): caller's offers/contracts.
 		// (Phase 8) /me/otc/offers renamed to /me/otc/options.
-		me.GET("/otc/options", bankIfEmp, h.OTCOptions.ListMyOffers)
+		me.GET("/otc/options", bankIfEmp, h.Portfolio.ListMyOTCOptions)
+		me.GET("/otc/options/posted", bankIfEmp, h.OTCOptions.ListMyPostedOffers)
 		me.POST("/otc/options", bankIfEmp, h.OTCOptions.CreateOffer)
 		me.GET("/otc/history", bankIfEmp, h.OTCOptions.ListNegotiationHistory)
 		me.POST("/otc/ratings", bankIfEmp, h.OTCOptions.SubmitRating)
@@ -203,6 +204,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/otc/options/:id/negotiations/:nid/accept", bankIfEmp, h.OTCOptions.AcceptMyNegotiation)
 		me.POST("/otc/options/:id/negotiations/:nid/reject", bankIfEmp, h.OTCOptions.RejectMyNegotiation)
 		me.DELETE("/otc/options/:id/negotiations/:nid", bankIfEmp, h.OTCOptions.CancelMyNegotiation)
+		me.DELETE("/otc/options/:id", bankIfEmp, h.OTCOptions.CancelMyListing)
 
 		// --- Phase 3: OTC stocks marketplace (sell + buy direction) ---
 		me.GET("/otc/stocks", bankIfEmp, h.OTCStock.ListMyOTCStocks)

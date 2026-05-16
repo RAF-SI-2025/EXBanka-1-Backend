@@ -250,6 +250,7 @@ func (h *OTCHandler) ListUnifiedOptionOffers(ctx context.Context, req *pb.ListUn
 	ticker := strings.ToUpper(req.GetTicker())
 	bankFilter := req.GetBankCode()
 
+	ownerOnly := req.GetOwnerOnlySellerId()
 	filtered := make([]otccache.OptionOffer, 0, len(snap.Offers))
 	for _, o := range snap.Offers {
 		if ticker != "" && strings.ToUpper(o.Ticker) != ticker {
@@ -263,6 +264,13 @@ func (h *OTCHandler) ListUnifiedOptionOffers(ctx context.Context, req *pb.ListUn
 		}
 		if direction != "" && o.Direction != direction {
 			continue
+		}
+		if ownerOnly != "" {
+			// Owner-scoped: cross-bank listings are never ours, and the
+			// SellerID must match exactly (SI-TX form).
+			if o.Kind != "local" || o.SellerID != ownerOnly {
+				continue
+			}
 		}
 		filtered = append(filtered, o)
 	}

@@ -757,6 +757,97 @@ func (s *OTCNegotiationService) CancelNegotiation(ctx context.Context, in Cancel
 	return updated, nil
 }
 
+// CancelListingInput closes a parent OTCOffer listing posted by the
+// caller. Only the initiator may cancel; the listing must still be open.
+// All still-open child chains are cascade-cancelled in the same TX.
+type CancelListingInput struct {
+	OfferID             uint64
+	CallerOwnerType     model.OwnerType
+	CallerOwnerID       *uint64
+	ActingPrincipalType string
+	ActingPrincipalID   uint64
+	ActingEmployeeID    *uint64
+}
+
+// CancelListingResult bundles the post-cancel state so the handler can
+// publish per-chain notifications outside the TX.
+type CancelListingResult struct {
+	Offer             *model.OTCOffer
+	CancelledChains   []model.OTCNegotiation
+}
+
+// CancelListing flips an open parent OTCOffer to "cancelled" and
+// cascade-cancels every still-open child chain in the same transaction.
+// Authorization: caller must match the listing's initiator owner.
+//
+// No reservations exist at the parent-listing level (the seller-can-
+// deliver check at offer creation is advisory, not a lock — reservations
+// are only taken inside the accept saga). So no money/share unwinding is
+// needed here.
+func (s *OTCNegotiationService) CancelListing(ctx context.Context, in CancelListingInput) (*CancelListingResult, error) {
+	result := &CancelListingResult{}
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		parent, err := s.offerRepo.LockByIDTx(tx, in.OfferID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrOTCOfferNotFound
+			}
+			return err
+		}
+		if !parent.IsOpenListing() {
+			return ErrOTCListingNotOpen
+		}
+		if !ownerMatches(parent.InitiatorOwnerType, parent.InitiatorOwnerID, in.CallerOwnerType, in.CallerOwnerID) {
+			return ErrOTCCancelListingUnauthorized
+		}
+
+		now := time.Now().UTC()
+		parent.Status = model.OTCOfferStatusCancelled
+		parent.LastModifiedByPrincipalType = in.ActingPrincipalType
+		parent.LastModifiedByPrincipalID = in.ActingPrincipalID
+		parent.ActingEmployeeID = in.ActingEmployeeID
+		if err := s.offerRepo.SaveTx(tx, parent); err != nil {
+			return err
+		}
+
+		siblings, err := s.negRepo.ListOpenByParentOfferForUpdate(tx, parent.ID)
+		if err != nil {
+			return err
+		}
+		cancelled := make([]model.OTCNegotiation, 0, len(siblings))
+		for i := range siblings {
+			sib := &siblings[i]
+			sib.Status = model.OTCNegotiationStatusCancelled
+			sib.LastActionByPrincipalType = in.ActingPrincipalType
+			sib.LastActionByPrincipalID = in.ActingPrincipalID
+			sib.LastActionByOwnerType = string(in.CallerOwnerType)
+			sib.LastActionByOwnerID = in.CallerOwnerID
+			sib.LastActionAt = now
+			sib.ActingEmployeeID = in.ActingEmployeeID
+			if err := s.negRepo.SaveTx(tx, sib); err != nil {
+				return err
+			}
+			cancelled = append(cancelled, *sib)
+		}
+		result.Offer = parent
+		result.CancelledChains = cancelled
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Notify each bidder whose chain was cancelled. Listing-poster
+	// cancellation is a self-action so no notification to self.
+	for _, ch := range result.CancelledChains {
+		s.publishNotif(ctx, ch.BidderOwnerType, ch.BidderOwnerID,
+			"OTC_OFFER_CASCADE_CANCELLED",
+			map[string]string{"ticker": result.Offer.Ticker, "reason": "listing_cancelled"},
+			"otc_negotiation", ch.ID,
+		)
+	}
+	return result, nil
+}
+
 // ListMyNegotiations returns negotiation chains where the caller is the
 // bidder. The listing-poster sees their chains via a different code path
 // (list all chains on offers they posted), surfaced from the handler.

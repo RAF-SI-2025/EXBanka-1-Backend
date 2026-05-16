@@ -198,6 +198,39 @@ func (h *OTCOptionsHandler) ListMyOffers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"offers": resp.Offers, "total": resp.Total})
 }
 
+// ListMyPostedOffers godoc
+// @Summary      List every OTC option offer the caller has posted (any status)
+// @Description  Returns the raw OTCOffer rows for listings where the caller is the initiator. Includes all statuses (open, consumed, accepted, rejected, expired, cancelled). Use this for a "my posted offers" history view. For the live-marketplace shape of my open involvement, use GET /api/v3/me/otc/options.
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        statuses  query string false "comma-separated; omit for all"
+// @Param        page      query int    false "1-based, default 1"
+// @Param        page_size query int    false "default 20"
+// @Success      200 {object} map[string]interface{}
+// @Router       /api/v3/me/otc/options/posted [get]
+func (h *OTCOptionsHandler) ListMyPostedOffers(c *gin.Context) {
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	var statuses []string
+	if s := c.Query("statuses"); s != "" {
+		statuses = splitCSV(s)
+	}
+	resp, err := h.client.ListMyOffers(c.Request.Context(), &stockpb.ListMyOTCOffersRequest{
+		ActorUserId:     int64(ownerToLegacyUserID(identity.OwnerID)),
+		ActorSystemType: ownerToLegacySystemType(identity.OwnerType),
+		Role:            "initiator",
+		Statuses:        statuses,
+		Page:            int32(page), PageSize: int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"offers": resp.Offers, "total": resp.Total})
+}
+
 // GetOffer godoc
 // @Summary      Get an OTC offer with revisions
 // @Tags         OTCOptions

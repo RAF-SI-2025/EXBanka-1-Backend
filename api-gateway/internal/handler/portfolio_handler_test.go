@@ -117,6 +117,8 @@ func portfolioRouter(h *handler.PortfolioHandler) *gin.Engine {
 	r.POST("/api/v2/me/holdings/:id/exercise", withCtx, h.ExerciseOption)
 	r.GET("/api/v2/otc/offers", withCtx, h.ListOTCOffers)
 	r.POST("/api/v2/otc/offers/:id/buy", withCtx, h.BuyOTCOffer)
+	r.GET("/api/v3/otc/options", withCtx, h.ListOTCOptions)
+	r.GET("/api/v3/me/otc/options", withCtx, h.ListMyOTCOptions)
 	return r
 }
 
@@ -493,4 +495,45 @@ func TestPortfolio_BuyOTCOfferOnBehalf_Success(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// ListMyOTCOptions reshape: the marketplace endpoint, scoped to the
+// caller. Must populate owner_only_seller_id with the SI-TX seller id
+// derived from the caller's identity.
+func TestPortfolio_ListMyOTCOptions_PassesOwnerFilter(t *testing.T) {
+	var captured *stockpb.ListUnifiedOptionOffersRequest
+	otc := &stubOTCClient{
+		listUnifiedOptionFn: func(in *stockpb.ListUnifiedOptionOffersRequest) (*stockpb.ListUnifiedOptionOffersResponse, error) {
+			captured = in
+			return &stockpb.ListUnifiedOptionOffersResponse{}, nil
+		},
+	}
+	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, &accountFullStub{})
+	r := portfolioRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v3/me/otc/options", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, captured)
+	// Caller is client principal 42 (setClientIdentity), so the SI-TX
+	// seller_id form is "client-42".
+	require.Equal(t, "client-42", captured.OwnerOnlySellerId)
+}
+
+// The public marketplace endpoint must NOT set the owner filter — it
+// returns everyone's open listings.
+func TestPortfolio_ListOTCOptions_NoOwnerFilter(t *testing.T) {
+	var captured *stockpb.ListUnifiedOptionOffersRequest
+	otc := &stubOTCClient{
+		listUnifiedOptionFn: func(in *stockpb.ListUnifiedOptionOffersRequest) (*stockpb.ListUnifiedOptionOffersResponse, error) {
+			captured = in
+			return &stockpb.ListUnifiedOptionOffersResponse{}, nil
+		},
+	}
+	h := handler.NewPortfolioHandler(&portfolioStub{}, otc, &accountFullStub{})
+	r := portfolioRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v3/otc/options", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, captured)
+	require.Equal(t, "", captured.OwnerOnlySellerId)
 }

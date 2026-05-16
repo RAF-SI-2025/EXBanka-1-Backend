@@ -7932,6 +7932,22 @@ Cancel (withdraw) the caller's own chain. **Bidder-only** — the listing's post
 
 ---
 
+#### DELETE /api/v3/me/otc/options/:id
+
+Cancel (withdraw) the caller's own OPEN parent listing. **Initiator-only** — only the poster can cancel; bidders use the per-chain DELETE above. The listing's status flips to `cancelled` and every still-open child negotiation chain cascade-cancels in the same DB transaction. Each cascaded chain's bidder receives an `OTC_OFFER_CASCADE_CANCELLED` notification with `reason="listing_cancelled"`.
+
+No funds or shares are unwound — none are reserved at listing-creation time; reservations only exist inside the accept saga, which can no longer run on a cancelled listing.
+
+**Response 204:** Listing cancelled. No body.
+
+**Response 403:** Caller is authenticated but is not the listing's initiator (e.g. they are the bound counterparty or a stranger).
+
+**Response 404:** Offer does not exist, or the caller is not a participant (the gateway's pre-check fetches the offer via the participant-scoped `GetOffer`, which returns NotFound for non-participants — confirming existence of a stranger's listing would itself be a data leak).
+
+**Response 409:** Listing is no longer open (already accepted/consumed, already cancelled, expired, etc.).
+
+---
+
 #### GET /api/v3/otc/options/:id/negotiations
 
 List every negotiation chain against a listing (any status). Used by the listing's poster to see all incoming bids, and by bidders to see what competing counter-bids look like.
@@ -7951,6 +7967,32 @@ List chains where the caller is the bidder.
 | `statuses` | string | Comma-separated filter: `open,countered,accepted,rejected,cancelled,expired` |
 | `page` | int | Default 1 |
 | `page_size` | int | Default 20, max 200 |
+
+---
+
+#### GET /api/v3/me/otc/options
+
+Marketplace view of the caller's OWN open OTC option listings. Returns the **same response shape as `GET /api/v3/otc/options`** (`kind` / `bank_code` / `routing_number` / `offer_id` / `seller_id` / `direction` / `ticker` / `amount` / `strike_price` / `strike_currency` / `premium` / `premium_currency` / `settlement_date` / `created_at` / optional `best_bid` / optional `best_ask` / optional `active_chains_count`), filtered to listings whose seller id matches the caller's SI-TX identity (`client-<principal_id>` for clients, `bank` for bank-on-behalf calls). Only listings in an OPEN status appear here — the unified cache is open-only. For full history (cancelled / accepted / expired listings the caller posted) use `GET /api/v3/me/otc/options/posted`.
+
+**Query Parameters:** same `ticker` / `direction` / `page` / `page_size` as `GET /api/v3/otc/options`. `kind` and `bank_code` are accepted but redundant (results are always `kind=local` by definition).
+
+**Response 200:** `{ "offers": [...], "total_count": int, "peers_total": 0, "peers_reached": 0, "partial": false, "last_refresh": "..." }`. (Peer fields are always zero/false on this endpoint since cross-bank listings can never be the caller's.)
+
+---
+
+#### GET /api/v3/me/otc/options/posted
+
+History view: every OTC option listing the caller has ever posted, **any status** (open, consumed, accepted, rejected, expired, cancelled). Unlike `GET /api/v3/me/otc/options` this returns the raw `OTCOfferResponse` rows (with `revisions`, `last_modified_by`, etc.), not the marketplace shape.
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `statuses` | string | Comma-separated filter: `open,countered,consumed,accepted,rejected,cancelled,expired,failed` |
+| `page` | int | Default 1 |
+| `page_size` | int | Default 20 |
+
+**Response 200:** `{ "offers": [OTCOfferResponse...], "total": int }`.
 
 ---
 

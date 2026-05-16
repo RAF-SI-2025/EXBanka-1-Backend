@@ -70,6 +70,7 @@ type stubOTCOptionsClient struct {
 	submitRatingFn           func(*stockpb.SubmitOTCRatingRequest) (*stockpb.OTCRatingResponse, error)
 	getTraderProfileFn       func(*stockpb.GetTraderProfileRequest) (*stockpb.TraderProfileResponse, error)
 	listReceivedRatingsFn    func(*stockpb.ListReceivedRatingsRequest) (*stockpb.ListOTCRatingsResponse, error)
+	cancelListingFn          func(*stockpb.CancelListingRequest) (*stockpb.CancelListingResponse, error)
 }
 
 func (s *stubOTCOptionsClient) CreateOffer(_ context.Context, in *stockpb.CreateOTCOfferRequest, _ ...grpc.CallOption) (*stockpb.OTCOfferResponse, error) {
@@ -169,6 +170,12 @@ func (s *stubOTCOptionsClient) RejectNegotiation(_ context.Context, _ *stockpb.R
 func (s *stubOTCOptionsClient) CancelNegotiation(_ context.Context, _ *stockpb.CancelNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
 	return &stockpb.OTCNegotiationResponse{}, nil
 }
+func (s *stubOTCOptionsClient) CancelListing(_ context.Context, in *stockpb.CancelListingRequest, _ ...grpc.CallOption) (*stockpb.CancelListingResponse, error) {
+	if s.cancelListingFn != nil {
+		return s.cancelListingFn(in)
+	}
+	return &stockpb.CancelListingResponse{OfferId: in.GetOfferId(), Status: "cancelled"}, nil
+}
 func (s *stubOTCOptionsClient) ListMyNegotiations(_ context.Context, _ *stockpb.ListMyNegotiationsRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {
 	return &stockpb.ListNegotiationsResponse{}, nil
 }
@@ -206,6 +213,8 @@ func otcOptionsRouter(h *handler.OTCOptionsHandler) *gin.Engine {
 	r.GET("/otc/contracts/:id", withCli, h.GetContract)
 	r.POST("/otc/contracts/:id/exercise", withCli, h.ExerciseContract)
 	r.POST("/me/otc/contracts/peer/:id/exercise", withCli, h.ExercisePeerContract)
+	r.GET("/me/otc/options/posted", withCli, h.ListMyPostedOffers)
+	r.DELETE("/me/otc/options/:id", withCli, h.CancelMyListing)
 	return r
 }
 
@@ -545,4 +554,86 @@ func TestOTCOpt_ExercisePeerContract_GRPCError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/otc/contracts/peer/8/exercise", strings.NewReader(body)))
 	require.Equal(t, http.StatusConflict, rec.Code)
+}
+
+// ListMyPostedOffers: caller's posted listings, role hardcoded to initiator.
+func TestOTCOpt_ListMyPostedOffers_HardcodesInitiator(t *testing.T) {
+	var captured *stockpb.ListMyOTCOffersRequest
+	cl := &stubOTCOptionsClient{
+		listMyOffersFn: func(in *stockpb.ListMyOTCOffersRequest) (*stockpb.ListMyOTCOffersResponse, error) {
+			captured = in
+			return &stockpb.ListMyOTCOffersResponse{Total: 0}, nil
+		},
+	}
+	r := otcOptionsRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/me/otc/options/posted?statuses=open,cancelled", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, captured)
+	require.Equal(t, "initiator", captured.Role)
+	require.Equal(t, int64(42), captured.ActorUserId)
+	require.Equal(t, []string{"open", "cancelled"}, captured.Statuses)
+}
+
+// CancelMyListing: 204 when caller is the initiator.
+func TestOTCOpt_CancelMyListing_Success(t *testing.T) {
+	cl := &stubOTCOptionsClient{
+		getOfferFn: func(in *stockpb.GetOTCOfferRequest) (*stockpb.OTCOfferDetailResponse, error) {
+			return &stockpb.OTCOfferDetailResponse{Offer: &stockpb.OTCOfferResponse{
+				Id:        in.OfferId,
+				Initiator: &stockpb.PartyRef{UserId: 42, SystemType: "client"},
+			}}, nil
+		},
+		cancelListingFn: func(in *stockpb.CancelListingRequest) (*stockpb.CancelListingResponse, error) {
+			require.Equal(t, uint64(6), in.OfferId)
+			require.Equal(t, "client", in.CallerOwnerType)
+			require.Equal(t, uint64(42), in.CallerOwnerId)
+			return &stockpb.CancelListingResponse{OfferId: 6, Status: "cancelled"}, nil
+		},
+	}
+	r := otcOptionsRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("DELETE", "/me/otc/options/6", nil))
+	require.Equal(t, http.StatusNoContent, rec.Code)
+}
+
+// CancelMyListing: 403 when caller is NOT the initiator (e.g. they're the counterparty or a stranger).
+func TestOTCOpt_CancelMyListing_NotInitiator(t *testing.T) {
+	cl := &stubOTCOptionsClient{
+		getOfferFn: func(in *stockpb.GetOTCOfferRequest) (*stockpb.OTCOfferDetailResponse, error) {
+			return &stockpb.OTCOfferDetailResponse{Offer: &stockpb.OTCOfferResponse{
+				Id:        in.OfferId,
+				Initiator: &stockpb.PartyRef{UserId: 99, SystemType: "client"},
+			}}, nil
+		},
+		cancelListingFn: func(*stockpb.CancelListingRequest) (*stockpb.CancelListingResponse, error) {
+			t.Fatalf("CancelListing should not be called when caller is not the initiator")
+			return nil, nil
+		},
+	}
+	r := otcOptionsRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("DELETE", "/me/otc/options/6", nil))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// CancelMyListing: 404 when the offer doesn't exist or isn't visible to caller (GetOffer returns NotFound).
+func TestOTCOpt_CancelMyListing_NotFound(t *testing.T) {
+	cl := &stubOTCOptionsClient{
+		getOfferFn: func(*stockpb.GetOTCOfferRequest) (*stockpb.OTCOfferDetailResponse, error) {
+			return nil, status.Error(codes.NotFound, "offer not found")
+		},
+	}
+	r := otcOptionsRouter(otcHandler(cl, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("DELETE", "/me/otc/options/6", nil))
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// CancelMyListing: bad id format yields 400.
+func TestOTCOpt_CancelMyListing_BadID(t *testing.T) {
+	r := otcOptionsRouter(otcHandler(&stubOTCOptionsClient{}, &stubPeerOTCExerciseClient{}))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("DELETE", "/me/otc/options/abc", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }

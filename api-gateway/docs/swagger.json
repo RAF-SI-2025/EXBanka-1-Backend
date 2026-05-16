@@ -9959,18 +9959,37 @@
                         "BearerAuth": []
                     }
                 ],
+                "description": "Same response shape as GET /api/v3/otc/options (kind/bank_code/best_bid/best_ask/active_chains_count/...) but scoped to listings the caller posted. Only OPEN listings appear here (the unified cache is open-only); for a full history of every offer you've ever posted use GET /api/v3/me/otc/options/posted.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "List the caller's OTC offers",
+                "summary": "Marketplace view of the caller's OWN open OTC option listings",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "initiator|counterparty|either",
-                        "name": "role",
+                        "description": "Filter to one ticker",
+                        "name": "ticker",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sell_initiated|buy_initiated",
+                        "name": "direction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 10",
+                        "name": "page_size",
                         "in": "query"
                     }
                 ],
@@ -10074,6 +10093,107 @@
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/posted": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the raw OTCOffer rows for listings where the caller is the initiator. Includes all statuses (open, consumed, accepted, rejected, expired, cancelled). Use this for a \"my posted offers\" history view. For the live-marketplace shape of my open involvement, use GET /api/v3/me/otc/options.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List every OTC option offer the caller has posted (any status)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "comma-separated; omit for all",
+                        "name": "statuses",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 20",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Initiator-only. Status flips to \"cancelled\" and all open child negotiation chains cascade-cancel. Returns 204 on success, 403 if caller is not the listing's poster, 409 if listing is not open.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Cancel (withdraw) your own OTC option listing",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
