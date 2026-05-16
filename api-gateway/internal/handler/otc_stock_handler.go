@@ -83,7 +83,16 @@ func (h *OTCStockHandler) CreateOTCStockOffer(c *gin.Context) {
 			apiError(c, http.StatusBadRequest, ErrValidation, "holding_id is required for direction=sell")
 			return
 		}
+		// Phase 11 — seller's asking price is now required (was
+		// previously auto-filled from holding.AveragePrice in the
+		// cache, and hardcoded to "0" in the peer /public-stock
+		// endpoint, both of which were wrong).
+		if req.PricePerUnit == "" {
+			apiError(c, http.StatusBadRequest, ErrValidation, "price_per_unit is required for direction=sell")
+			return
+		}
 		pbReq.HoldingId = req.HoldingID
+		pbReq.PricePerUnit = req.PricePerUnit
 	} else {
 		// direction == "buy" — validate buy-specific fields
 		if req.ListingID == 0 {

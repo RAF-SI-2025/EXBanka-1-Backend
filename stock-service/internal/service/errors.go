@@ -249,6 +249,12 @@ var (
 	// a security_type='stock' holding (no futures/forex/options).
 	ErrOTCStockSellOfferHoldingType = svcerr.New(codes.FailedPrecondition, "sell offer only supported on stock holdings")
 
+	// ErrOTCStockSellPriceRequired — Phase 11: seller must supply a
+	// positive price_per_unit when creating an OTC sell offer.
+	// Without it the cache + peer /public-stock endpoints can't show
+	// an asking price.
+	ErrOTCStockSellPriceRequired = svcerr.New(codes.InvalidArgument, "price_per_unit is required and must be > 0 for sell direction")
+
 	// --- OTC Negotiation (Phase 2 — parallel chains + first-accept-wins) ---
 
 	// ErrOTCNegotiationNotFound — negotiation lookup failed.

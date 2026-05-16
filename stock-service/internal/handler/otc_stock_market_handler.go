@@ -63,11 +63,19 @@ func (h *OTCStockMarketHandler) CreateOTCStockOffer(ctx context.Context, in *sto
 		if in.GetHoldingId() == 0 {
 			return nil, status.Error(codes.InvalidArgument, "holding_id required for direction=sell")
 		}
+		if in.GetPricePerUnit() == "" {
+			return nil, status.Error(codes.InvalidArgument, "price_per_unit required for direction=sell")
+		}
+		sellPrice, err := decimal.NewFromString(in.GetPricePerUnit())
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "price_per_unit must be a decimal: %v", err)
+		}
 		h2, err := h.svc.CreateSellOffer(ctx, service.CreateSellOfferInput{
 			HoldingID:       in.GetHoldingId(),
 			CallerOwnerType: ot,
 			CallerOwnerID:   oid,
 			Quantity:        in.GetQuantity(),
+			PricePerUnit:    sellPrice,
 		})
 		if err != nil {
 			return nil, err
@@ -234,6 +242,13 @@ func holdingToOTCStockOfferProto(h *model.Holding) *stockpb.OTCStockOfferRespons
 	if h.OwnerID != nil {
 		ownerID = *h.OwnerID
 	}
+	// Phase 11 — surface the seller's asking price (set on make-public);
+	// fall back to AveragePrice for legacy rows that have PublicQuantity
+	// > 0 but no explicit ask yet.
+	price := h.PublicPrice
+	if price.Sign() <= 0 {
+		price = h.AveragePrice
+	}
 	return &stockpb.OTCStockOfferResponse{
 		Direction:    "sell",
 		Id:           h.ID,
@@ -243,7 +258,7 @@ func holdingToOTCStockOfferProto(h *model.Holding) *stockpb.OTCStockOfferRespons
 		Ticker:       h.Ticker,
 		Name:         h.Name,
 		Quantity:     h.PublicQuantity,
-		PricePerUnit: h.AveragePrice.String(),
+		PricePerUnit: price.String(),
 		Currency:     "",
 		Status:       "", // public_quantity > 0 IS the active signal
 		CreatedAt:    h.UpdatedAt.UTC().Format(time.RFC3339),

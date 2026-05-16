@@ -227,15 +227,28 @@ func (h *PeerOTCGRPCHandler) GetPublicStocks(ctx context.Context, req *stockpb.G
 		} else {
 			ownerID = "0"
 		}
-		// PricePerStock is not on Holding directly — use a zero placeholder
-		// for now (Phase 4 minimum surface; future iteration can join with
-		// listing_daily_price_info or stocks table for live pricing).
+		// Phase 11 — surface the seller's set ask price + the listing's
+		// real currency. Fallbacks: AveragePrice (weighted-avg cost)
+		// for legacy rows without an explicit ask; "USD" if the
+		// currency resolver isn't wired or the lookup fails.
+		price := "0"
+		if hd.PublicPrice.Sign() > 0 {
+			price = hd.PublicPrice.String()
+		} else if hd.AveragePrice.Sign() > 0 {
+			price = hd.AveragePrice.String()
+		}
+		currency := "USD"
+		if h.otcOptionCurrency != nil {
+			if c, err := h.otcOptionCurrency.CurrencyForStock(hd.SecurityID); err == nil && c != "" {
+				currency = c
+			}
+		}
 		out = append(out, &stockpb.PeerPublicStock{
 			OwnerId:       &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: ownerID},
 			Ticker:        hd.Ticker,
 			Amount:        hd.PublicQuantity,
-			PricePerStock: "0",
-			Currency:      "USD",
+			PricePerStock: price,
+			Currency:      currency,
 		})
 	}
 	return &stockpb.GetPublicStocksResponse{Stocks: out}, nil

@@ -26,6 +26,13 @@ type Holding struct {
 	Quantity       int64           `gorm:"not null" json:"quantity"`
 	AveragePrice   decimal.Decimal `gorm:"type:numeric(18,4);not null" json:"average_price"`
 	PublicQuantity int64           `gorm:"not null;default:0" json:"public_quantity"` // OTC: shares available for purchase
+	// PublicPrice is the asking price per share the seller set when
+	// making the holding public (Phase 11). Used by the OTC stocks
+	// marketplace cache and the peer /public-stock endpoint. Zero
+	// means "no price set" — for legacy rows the cache falls back to
+	// AveragePrice (the weighted-avg buy cost). When PublicQuantity
+	// drops to zero (cancel), PublicPrice is also reset to zero.
+	PublicPrice decimal.Decimal `gorm:"type:numeric(18,4);not null;default:0" json:"public_price"`
 	// ReservedQuantity is the running total of units locked by active sell-side
 	// HoldingReservations. AvailableQuantity = Quantity - ReservedQuantity.
 	ReservedQuantity int64 `gorm:"not null;default:0" json:"reserved_quantity"`

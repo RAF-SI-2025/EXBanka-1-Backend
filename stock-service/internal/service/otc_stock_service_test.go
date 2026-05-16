@@ -214,7 +214,7 @@ func TestCreateSellOffer_HappyPath_Accumulates(t *testing.T) {
 	h := seedHolding(t, env, 7, 100, 0, 0)
 
 	updated, err := env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
-		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 5,
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 5, PricePerUnit: decimal.NewFromInt(155),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -224,7 +224,7 @@ func TestCreateSellOffer_HappyPath_Accumulates(t *testing.T) {
 	}
 	// Accumulate again.
 	updated, err = env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
-		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 3,
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 3, PricePerUnit: decimal.NewFromInt(160),
 	})
 	if err != nil {
 		t.Fatalf("second create: %v", err)
@@ -234,11 +234,60 @@ func TestCreateSellOffer_HappyPath_Accumulates(t *testing.T) {
 	}
 }
 
+// Phase 11 — price_per_unit is now required for sell direction.
+func TestCreateSellOffer_RejectsMissingPrice(t *testing.T) {
+	env := newOTCStockTestEnv(t)
+	h := seedHolding(t, env, 7, 100, 0, 0)
+	_, err := env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 5,
+		// PricePerUnit deliberately omitted → zero → must reject.
+	})
+	if !errors.Is(err, ErrOTCStockSellPriceRequired) {
+		t.Fatalf("want ErrOTCStockSellPriceRequired, got %v", err)
+	}
+	// Negative also rejected.
+	_, err = env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 5,
+		PricePerUnit: decimal.NewFromInt(-10),
+	})
+	if !errors.Is(err, ErrOTCStockSellPriceRequired) {
+		t.Fatalf("negative price: want ErrOTCStockSellPriceRequired, got %v", err)
+	}
+}
+
+// Phase 11 — accumulative call REPLACES the asking price with the
+// latest call's value, allowing the seller to re-price.
+func TestCreateSellOffer_ReplacesPriceOnRelist(t *testing.T) {
+	env := newOTCStockTestEnv(t)
+	h := seedHolding(t, env, 7, 100, 0, 0)
+	_, err := env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 5,
+		PricePerUnit: decimal.NewFromInt(155),
+	})
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	// Re-list with new price.
+	updated, err := env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 3,
+		PricePerUnit: decimal.NewFromInt(162),
+	})
+	if err != nil {
+		t.Fatalf("relist: %v", err)
+	}
+	if updated.PublicQuantity != 8 {
+		t.Errorf("accumulated qty=%d want 8", updated.PublicQuantity)
+	}
+	if !updated.PublicPrice.Equal(decimal.NewFromInt(162)) {
+		t.Errorf("public_price=%s want 162 (latest call wins)", updated.PublicPrice)
+	}
+}
+
 func TestCreateSellOffer_RejectsNonOwner(t *testing.T) {
 	env := newOTCStockTestEnv(t)
 	h := seedHolding(t, env, 7, 100, 0, 0)
 	_, err := env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
-		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(99), Quantity: 5,
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(99), Quantity: 5, PricePerUnit: decimal.NewFromInt(150),
 	})
 	if !errors.Is(err, ErrOTCContractNotParticipant) {
 		t.Fatalf("want ownership error, got %v", err)
@@ -253,7 +302,7 @@ func TestCreateSellOffer_RejectsNonStockHolding(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 	_, err := env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
-		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 5,
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 5, PricePerUnit: decimal.NewFromInt(155),
 	})
 	if !errors.Is(err, ErrOTCStockSellOfferHoldingType) {
 		t.Fatalf("want type-rejection, got %v", err)
@@ -266,13 +315,13 @@ func TestCreateSellOffer_RejectsIfNotEnoughAvailable(t *testing.T) {
 	h := seedHolding(t, env, 7, 100, 30, 60)
 
 	if _, err := env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
-		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 11,
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 11, PricePerUnit: decimal.NewFromInt(150),
 	}); !errors.Is(err, ErrOTCStockInsufficientShares) {
 		t.Fatalf("want insufficient-shares, got %v", err)
 	}
 	// Right at the boundary — should succeed.
 	if _, err := env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
-		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 10,
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 10, PricePerUnit: decimal.NewFromInt(150),
 	}); err != nil {
 		t.Fatalf("boundary qty=10 should succeed, got %v", err)
 	}
@@ -282,7 +331,7 @@ func TestCreateSellOffer_RejectsZeroQuantity(t *testing.T) {
 	env := newOTCStockTestEnv(t)
 	h := seedHolding(t, env, 7, 100, 0, 0)
 	_, err := env.svc.CreateSellOffer(context.Background(), CreateSellOfferInput{
-		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 0,
+		HoldingID: h.ID, CallerOwnerType: model.OwnerClient, CallerOwnerID: u64p(7), Quantity: 0, PricePerUnit: decimal.NewFromInt(150),
 	})
 	if !errors.Is(err, ErrOTCStockInsufficientShares) {
 		t.Fatalf("want insufficient-shares for qty=0, got %v", err)

@@ -74,6 +74,12 @@ type CreateSellOfferInput struct {
 	CallerOwnerType model.OwnerType
 	CallerOwnerID   *uint64
 	Quantity        int64
+	// PricePerUnit (Phase 11) is the seller's asking price per share.
+	// Must be > 0. On accumulative calls, REPLACES the holding's
+	// PublicPrice atomically with the latest TX — the seller's most
+	// recent ask wins; UI should warn before re-listing if a different
+	// price was already set.
+	PricePerUnit decimal.Decimal
 }
 
 type CreateBuyOfferInput struct {
@@ -163,6 +169,9 @@ func (s *OTCStockService) CreateSellOffer(ctx context.Context, in CreateSellOffe
 	if in.Quantity <= 0 {
 		return nil, fmt.Errorf("%w: quantity must be > 0", ErrOTCStockInsufficientShares)
 	}
+	if in.PricePerUnit.Sign() <= 0 {
+		return nil, ErrOTCStockSellPriceRequired
+	}
 	var out *model.Holding
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		h, err := s.holdingRepo.LockByIDTx(tx, in.HoldingID)
@@ -184,6 +193,13 @@ func (s *OTCStockService) CreateSellOffer(ctx context.Context, in CreateSellOffe
 			return ErrOTCStockInsufficientShares
 		}
 		h.PublicQuantity += in.Quantity
+		// Phase 11 — REPLACE the asking price with the latest call's
+		// value. If the seller wants to re-price, they re-call with
+		// the new price + an additional quantity (or zero quantity
+		// would be rejected above). The replacement semantic is the
+		// simplest one that lets a seller adjust their ask without a
+		// separate route.
+		h.PublicPrice = in.PricePerUnit
 		if err := s.holdingRepo.SaveTx(tx, h); err != nil {
 			return err
 		}
@@ -296,8 +312,8 @@ func (s *OTCStockService) CreateBuyOffer(ctx context.Context, in CreateBuyOfferI
 	return offer, nil
 }
 
-// CancelSellOffer zeros the holding's PublicQuantity. Atomic via
-// SELECT FOR UPDATE.
+// CancelSellOffer zeros the holding's PublicQuantity (and PublicPrice,
+// so a future re-list starts clean). Atomic via SELECT FOR UPDATE.
 func (s *OTCStockService) CancelSellOffer(ctx context.Context, in CancelSellOfferInput) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		h, err := s.holdingRepo.LockByIDTx(tx, in.HoldingID)
@@ -314,6 +330,7 @@ func (s *OTCStockService) CancelSellOffer(ctx context.Context, in CancelSellOffe
 			return ErrOTCStockNoActiveSellOffer
 		}
 		h.PublicQuantity = 0
+		h.PublicPrice = decimal.Zero
 		return s.holdingRepo.SaveTx(tx, h)
 	})
 }
