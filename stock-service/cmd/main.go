@@ -81,6 +81,11 @@ func main() {
 		&model.FundHolding{},
 		&model.OTCOffer{},
 		&model.OTCOfferRevision{},
+		// OTC stock buy-direction offers — created by /api/v3/me/otc/stocks
+		// with direction=buy. Backed by a cash reservation on the buyer's
+		// account (account-service ReserveFunds) keyed on the synthetic
+		// order_id allocated from otc_stock_buy_offer_res_seq below.
+		&model.OTCStockBuyOffer{},
 		&model.OptionContract{},
 		&model.OTCOfferReadReceipt{},
 		&model.IdempotencyRecord{},
@@ -108,6 +113,13 @@ func main() {
 	// leaves behind on every table that previously carried them. Idempotent —
 	// safe to remove after one or two deploy cycles.
 	dropLegacyOwnerColumns(db)
+
+	// Sequence backing OTCStockBuyOffer.AccountReservationOrderID. Offset
+	// start avoids collision with orders.id values used by other reservation
+	// flows (price-alert holds, recurring orders, etc.).
+	if err := db.Exec(`CREATE SEQUENCE IF NOT EXISTS otc_stock_buy_offer_res_seq START 1000000`).Error; err != nil {
+		log.Fatalf("create otc_stock_buy_offer_res_seq failed: %v", err)
+	}
 
 	// One-shot backfill for the new capital_gains.tax_collection_id column.
 	// Stamps every existing capital_gain row that already has a corresponding
