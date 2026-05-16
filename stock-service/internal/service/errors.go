@@ -209,6 +209,40 @@ var (
 	// account-service and transaction-service.
 	ErrIdempotencyMissing = svcerr.New(codes.InvalidArgument, "idempotency_key required")
 
+	// --- OTC Negotiation (Phase 2 — parallel chains + first-accept-wins) ---
+
+	// ErrOTCNegotiationNotFound — negotiation lookup failed.
+	ErrOTCNegotiationNotFound = svcerr.New(codes.NotFound, "OTC negotiation not found")
+
+	// ErrOTCNegotiationTerminal — caller attempted to mutate a chain
+	// that's already in a terminal status (accepted/rejected/cancelled/
+	// expired).
+	ErrOTCNegotiationTerminal = svcerr.New(codes.FailedPrecondition, "OTC negotiation is in terminal status")
+
+	// ErrOTCParentNotOpen — bidder/accepter targeted an OTCOffer listing
+	// that is no longer accepting negotiations (already consumed,
+	// cancelled, or expired). Occurs when a parallel chain wins the
+	// first-accept race.
+	ErrOTCParentNotOpen = svcerr.New(codes.FailedPrecondition, "OTC listing is no longer open")
+
+	// ErrOTCChainAlreadyExists — bidder already has an open chain against
+	// this listing. The one-chain-per-bidder invariant prevents a single
+	// user from opening multiple parallel chains on the same offer.
+	ErrOTCChainAlreadyExists = svcerr.New(codes.AlreadyExists, "negotiation chain already open for this bidder/listing")
+
+	// ErrOTCAcceptUnauthorized — only the party OPPOSITE to the most
+	// recent mover may accept. The caller proposed the current terms or
+	// is otherwise not authorized to accept them.
+	ErrOTCAcceptUnauthorized = svcerr.New(codes.PermissionDenied, "caller cannot accept current terms")
+
+	// ErrOTCCounterUnauthorized — caller is neither the bidder nor the
+	// listing's poster, so cannot propose a counter.
+	ErrOTCCounterUnauthorized = svcerr.New(codes.PermissionDenied, "caller cannot counter this chain")
+
+	// ErrOTCBidOwnListing — bidder attempted to open a chain against
+	// their OWN listing.
+	ErrOTCBidOwnListing = svcerr.New(codes.FailedPrecondition, "cannot open negotiation on own listing")
+
 	// --- Generic catch-alls (used by handlers when wrapping bare
 	// dependency errors before they become gRPC responses) ---
 

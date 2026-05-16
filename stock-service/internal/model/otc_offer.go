@@ -8,12 +8,25 @@ import (
 )
 
 const (
+	// Legacy status values — used by the pre-Phase-2 negotiation-thread
+	// model where OTCOffer rows mutated in-place through a single chain.
+	// New code creates listings with OTCOfferStatusOpen instead; helpers
+	// below treat PENDING/COUNTERED as synonyms for "open" so existing
+	// rows remain fillable through the new path.
 	OTCOfferStatusPending   = "PENDING"
 	OTCOfferStatusCountered = "COUNTERED"
 	OTCOfferStatusAccepted  = "ACCEPTED"
 	OTCOfferStatusRejected  = "REJECTED"
 	OTCOfferStatusExpired   = "EXPIRED"
 	OTCOfferStatusFailed    = "FAILED"
+
+	// New (Phase 2) lifecycle — OTCOffer is an immutable listing.
+	//   open      — accepting negotiations
+	//   consumed  — one negotiation chain accepted; siblings auto-cancelled
+	//   cancelled — poster withdrew before any accept
+	OTCOfferStatusOpen      = "open"
+	OTCOfferStatusConsumed  = "consumed"
+	OTCOfferStatusCancelled = "cancelled"
 
 	OTCDirectionSellInitiated = "sell_initiated"
 	OTCDirectionBuyInitiated  = "buy_initiated"
@@ -23,6 +36,18 @@ const (
 	OTCActionAccept  = "ACCEPT"
 	OTCActionReject  = "REJECT"
 )
+
+// IsOpenListing reports whether an OTCOffer is currently accepting
+// negotiations. Treats both the legacy thread statuses (PENDING,
+// COUNTERED) and the new listing status (open) as fillable. False for
+// any terminal status.
+func (o *OTCOffer) IsOpenListing() bool {
+	switch o.Status {
+	case OTCOfferStatusOpen, OTCOfferStatusPending, OTCOfferStatusCountered:
+		return true
+	}
+	return false
+}
 
 // OTCOffer is one back-and-forth thread between an initiator and a
 // counterparty over a potential option contract. Negotiation history is

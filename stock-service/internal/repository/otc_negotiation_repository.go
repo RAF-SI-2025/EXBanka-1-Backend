@@ -142,8 +142,24 @@ func (r *OTCNegotiationRepository) ListByBidder(
 func (r *OTCNegotiationRepository) FindChainByBidder(
 	parentOfferID uint64, bidderOwnerType model.OwnerType, bidderOwnerID *uint64,
 ) (*model.OTCNegotiation, error) {
+	return r.findChainByBidder(r.db, parentOfferID, bidderOwnerType, bidderOwnerID)
+}
+
+// FindChainByBidderTx variant for use inside an active transaction. The
+// non-Tx version uses r.db which acquires a fresh connection and would
+// deadlock under single-connection backends (sqlite :memory:) when the
+// caller already holds the TX's connection.
+func (r *OTCNegotiationRepository) FindChainByBidderTx(
+	tx *gorm.DB, parentOfferID uint64, bidderOwnerType model.OwnerType, bidderOwnerID *uint64,
+) (*model.OTCNegotiation, error) {
+	return r.findChainByBidder(tx, parentOfferID, bidderOwnerType, bidderOwnerID)
+}
+
+func (r *OTCNegotiationRepository) findChainByBidder(
+	db *gorm.DB, parentOfferID uint64, bidderOwnerType model.OwnerType, bidderOwnerID *uint64,
+) (*model.OTCNegotiation, error) {
 	var n model.OTCNegotiation
-	q := r.db.Where("parent_offer_id = ? AND bidder_owner_type = ?",
+	q := db.Where("parent_offer_id = ? AND bidder_owner_type = ?",
 		parentOfferID, bidderOwnerType)
 	if bidderOwnerType == model.OwnerClient {
 		q = q.Where("bidder_owner_id = ?", bidderOwnerID)

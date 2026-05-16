@@ -50,10 +50,10 @@ type OTCNegotiation struct {
 	// ParentOfferID points at the OTCOffer listing this chain negotiates
 	// against. Foreign-key not modeled with GORM tags (manual integrity)
 	// — same convention used by OTCOfferRevision.
-	ParentOfferID uint64 `gorm:"not null;index:idx_otcneg_parent,priority:1;index:ux_otcneg_chain,unique,priority:1" json:"parent_offer_id"`
+	ParentOfferID uint64 `gorm:"not null;index:idx_otcneg_parent;uniqueIndex:ux_otcneg_chain,priority:1" json:"parent_offer_id"`
 
-	BidderOwnerType OwnerType `gorm:"size:8;not null;index:ux_otcneg_chain,unique,priority:2;check:bidder_owner_type IN ('client','bank')" json:"bidder_owner_type"`
-	BidderOwnerID   *uint64   `gorm:"index:ux_otcneg_chain,unique,priority:3" json:"bidder_owner_id,omitempty"`
+	BidderOwnerType OwnerType `gorm:"size:8;not null;uniqueIndex:ux_otcneg_chain,priority:2;check:bidder_owner_type IN ('client','bank')" json:"bidder_owner_type"`
+	BidderOwnerID   *uint64   `gorm:"uniqueIndex:ux_otcneg_chain,priority:3" json:"bidder_owner_id,omitempty"`
 	BidderBankCode  *string   `gorm:"size:32" json:"bidder_bank_code,omitempty"`
 
 	// BidderAccountID is the bidder's account bound at chain creation:

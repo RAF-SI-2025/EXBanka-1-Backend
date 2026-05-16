@@ -6,6 +6,7 @@ import (
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -25,8 +26,19 @@ func (r *OTCOfferRepository) Create(o *model.OTCOffer) error {
 }
 
 func (r *OTCOfferRepository) GetByID(id uint64) (*model.OTCOffer, error) {
+	return r.getByID(r.db, id)
+}
+
+// GetByIDTx variant for use inside an active transaction (avoids
+// acquiring a second connection that would deadlock with the TX under
+// single-connection backends such as sqlite :memory: in tests).
+func (r *OTCOfferRepository) GetByIDTx(tx *gorm.DB, id uint64) (*model.OTCOffer, error) {
+	return r.getByID(tx, id)
+}
+
+func (r *OTCOfferRepository) getByID(db *gorm.DB, id uint64) (*model.OTCOffer, error) {
 	var o model.OTCOffer
-	err := r.db.First(&o, id).Error
+	err := db.First(&o, id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
@@ -36,6 +48,32 @@ func (r *OTCOfferRepository) GetByID(id uint64) (*model.OTCOffer, error) {
 // Save persists a modified offer. Optimistic-locked via the BeforeUpdate hook.
 func (r *OTCOfferRepository) Save(o *model.OTCOffer) error {
 	res := r.db.Save(o)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrOptimisticLock
+	}
+	return nil
+}
+
+// LockByIDTx does SELECT FOR UPDATE inside an active transaction. Required
+// by the first-accept-wins TX in OTCNegotiationService so two parallel
+// AcceptNegotiation calls on the same parent serialize: the second one
+// waits for the first to commit, then sees parent.Status != open and
+// rejects with ErrOTCParentNotOpen.
+func (r *OTCOfferRepository) LockByIDTx(tx *gorm.DB, id uint64) (*model.OTCOffer, error) {
+	var o model.OTCOffer
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&o, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	return &o, err
+}
+
+// SaveTx variant for use inside an existing transaction.
+func (r *OTCOfferRepository) SaveTx(tx *gorm.DB, o *model.OTCOffer) error {
+	res := tx.Save(o)
 	if res.Error != nil {
 		return res.Error
 	}
