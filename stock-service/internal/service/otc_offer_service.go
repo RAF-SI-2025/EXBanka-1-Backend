@@ -193,9 +193,13 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 	default:
 		return nil, errors.New("unknown direction")
 	}
-	if in.Direction == model.OTCDirectionBuyInitiated && in.CounterpartyUserID == nil {
-		return nil, errors.New("buy_initiated offers require a named counterparty")
-	}
+	// Phase 9 follow-up: the legacy single-chain model required a named
+	// counterparty on buy_initiated offers. The new parallel-chains
+	// marketplace lets anyone open a public buy_initiated LISTING for
+	// other users to bid on (the bidder becomes the seller at accept
+	// time via OTCNegotiationService). When a counterparty IS supplied
+	// the offer is "directed" — only the named user sees it in their
+	// list — but it's no longer required.
 	if (in.CounterpartyUserID == nil) != (in.CounterpartySystemType == nil) {
 		return nil, errors.New("counterparty user_id and system_type must both be set or both omitted")
 	}

@@ -199,17 +199,27 @@ func TestOTCOfferService_Create_RejectsUnknownDirection(t *testing.T) {
 	}
 }
 
-func TestOTCOfferService_Create_BuyInitiated_RequiresCounterparty(t *testing.T) {
+// Phase 9 follow-up: open buy_initiated listings (counterparty=null)
+// are now allowed — the parallel-chains marketplace lets any bidder
+// open a negotiation chain against them.
+func TestOTCOfferService_Create_BuyInitiated_OpenListingAllowed(t *testing.T) {
 	fx := newOTCCRUDFixture(t)
-	_, err := fx.svc.Create(context.Background(), CreateOfferInput{
+	o, err := fx.svc.Create(context.Background(), CreateOfferInput{
 		ActorUserID: 7, ActorSystemType: "client",
 		Direction: model.OTCDirectionBuyInitiated, StockID: 42,
 		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(150),
-		Premium:        decimal.NewFromInt(20),
-		SettlementDate: time.Now().AddDate(0, 0, 30),
+		Premium:            decimal.NewFromInt(20),
+		SettlementDate:     time.Now().AddDate(0, 0, 30),
+		InitiatorAccountID: 99,
 	})
-	if err == nil {
-		t.Fatal("expected error: buy_initiated requires counterparty")
+	if err != nil {
+		t.Fatalf("open buy_initiated listing should succeed, got %v", err)
+	}
+	if o.Direction != model.OTCDirectionBuyInitiated {
+		t.Errorf("direction=%s want buy_initiated", o.Direction)
+	}
+	if o.CounterpartyOwnerType != nil || o.CounterpartyOwnerID != nil {
+		t.Errorf("counterparty fields should be nil for open listing, got %v / %v", o.CounterpartyOwnerType, o.CounterpartyOwnerID)
 	}
 }
 
