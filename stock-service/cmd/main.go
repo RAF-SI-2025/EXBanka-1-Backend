@@ -86,6 +86,12 @@ func main() {
 		// account (account-service ReserveFunds) keyed on the synthetic
 		// order_id allocated from otc_stock_buy_offer_res_seq below.
 		&model.OTCStockBuyOffer{},
+		// Per-bidder negotiation chains against parent OTCOffer listings.
+		// Many bidders can negotiate one listing in parallel; first to
+		// accept wins atomically (see plan
+		// docs/superpowers/plans/2026-05-16-otc-options-marketplace.md).
+		&model.OTCNegotiation{},
+		&model.OTCNegotiationRevision{},
 		&model.OptionContract{},
 		&model.OTCOfferReadReceipt{},
 		&model.IdempotencyRecord{},
