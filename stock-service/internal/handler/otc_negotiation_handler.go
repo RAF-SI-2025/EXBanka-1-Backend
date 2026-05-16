@@ -231,6 +231,7 @@ func (h *OTCOptionsHandler) AcceptNegotiationChain(ctx context.Context, in *stoc
 		ActingPrincipalType: in.GetActingPrincipalType(),
 		ActingPrincipalID:   in.GetActingPrincipalId(),
 		ActingEmployeeID:    optionalPtr(in.GetActingEmployeeId()),
+		AcceptorAccountID:   in.GetAcceptorAccountId(),
 	})
 	if err != nil {
 		return nil, err
@@ -240,6 +241,7 @@ func (h *OTCOptionsHandler) AcceptNegotiationChain(ctx context.Context, in *stoc
 		ParentOfferId:     result.ParentOffer.ID,
 		ParentStatus:      result.ParentOffer.Status,
 		CancelledSiblings: negsToProto(result.CancelledSiblings),
+		Contract:          mintedContractToProto(result.Contract),
 	}, nil
 }
 
@@ -336,4 +338,42 @@ func optionalPtr(v uint64) *uint64 {
 		return nil
 	}
 	return &v
+}
+
+// mintedContractToProto projects a minted OptionContract onto the
+// thin wire shape carried in OTCAcceptNegotiationResponse.contract.
+// Returns nil for a nil input so the proto field stays unset when
+// the negotiation state flipped but the formation saga failed
+// (caller can detect this and surface a "minted=false" warning).
+func mintedContractToProto(c *model.OptionContract) *stockpb.OTCMintedContract {
+	if c == nil {
+		return nil
+	}
+	buyerID := uint64(0)
+	if c.BuyerOwnerID != nil {
+		buyerID = *c.BuyerOwnerID
+	}
+	sellerID := uint64(0)
+	if c.SellerOwnerID != nil {
+		sellerID = *c.SellerOwnerID
+	}
+	return &stockpb.OTCMintedContract{
+		Id:              c.ID,
+		OfferId:         c.OfferID,
+		BuyerOwnerType:  string(c.BuyerOwnerType),
+		BuyerOwnerId:    buyerID,
+		SellerOwnerType: string(c.SellerOwnerType),
+		SellerOwnerId:   sellerID,
+		Ticker:          c.Ticker,
+		Quantity:        c.Quantity.String(),
+		StrikePrice:     c.StrikePrice.String(),
+		PremiumPaid:     c.PremiumPaid.String(),
+		PremiumCurrency: c.PremiumCurrency,
+		StrikeCurrency:  c.StrikeCurrency,
+		SettlementDate:  c.SettlementDate.UTC().Format(time.RFC3339),
+		BuyerAccountId:  c.BuyerAccountID,
+		SellerAccountId: c.SellerAccountID,
+		Status:          c.Status,
+		PremiumPaidAt:   c.PremiumPaidAt.UTC().Format(time.RFC3339),
+	}
 }

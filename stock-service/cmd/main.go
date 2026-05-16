@@ -706,8 +706,13 @@ func main() {
 	// OTCOptionsHandler so its Open/Counter/AcceptChain/Reject/Cancel
 	// RPCs become live; without this WithNegotiations call they return
 	// Unimplemented.
+	// Phase 9: also wire the OTCOfferService as the ContractFormer so
+	// AcceptNegotiation actually mints OptionContract rows + runs the
+	// premium-payment saga (the saga reserves seller shares + buyer
+	// cash before any money moves).
 	otcNegRepo := repository.NewOTCNegotiationRepository(db)
-	otcNegotiationSvc := service.NewOTCNegotiationService(db, otcOfferRepo, otcNegRepo)
+	otcNegotiationSvc := service.NewOTCNegotiationService(db, otcOfferRepo, otcNegRepo).
+		WithContractFormer(otcOfferSvc)
 
 	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).
 		WithListings(listingRepo).

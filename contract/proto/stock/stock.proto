@@ -1158,21 +1158,49 @@ message OTCAcceptNegotiationRequest {
   string acting_principal_type = 4;
   uint64 acting_principal_id   = 5;
   uint64 acting_employee_id    = 6;
+  // Phase 9: the accepter's own account. Pays the premium when the
+  // accepter is the buyer (parent.direction = sell_initiated); receives
+  // the premium when accepter is the seller (parent.direction =
+  // buy_initiated). Required — accept now mints a contract and moves
+  // money, both of which need a bound account on the accepter's side.
+  uint64 acceptor_account_id   = 7;
 }
 
-// OTCAcceptNegotiationResponse carries enough state for the gateway to
-// mint the OptionContract row + kick off the premium-payment saga
-// without re-querying. cancelled_siblings lists every other chain on
-// the parent that the TX flipped to "cancelled" so the handler can
-// publish per-chain Kafka events.
-//
-// Name prefixed with OTC to disambiguate from the cross-bank
-// PeerOTCService.AcceptNegotiation message of the same root name.
+// OTCAcceptNegotiationResponse — Phase 9 includes the minted contract.
+// `cancelled_siblings` lists every other chain on the parent that the
+// state TX flipped to "cancelled". `contract` is the OptionContract
+// produced by the premium-payment saga that ran after the state TX
+// (null only when the saga failed and the negotiation was marked
+// "failed").
 message OTCAcceptNegotiationResponse {
   OTCNegotiationResponse winning            = 1;
   uint64                  parent_offer_id   = 2;
   string                  parent_status     = 3;
   repeated OTCNegotiationResponse cancelled_siblings = 4;
+  OTCMintedContract       contract          = 5;
+}
+
+// OTCMintedContract is a thin projection of model.OptionContract for
+// the AcceptNegotiation response. Same fields the existing
+// /me/otc/contracts route returns, minus the cross-bank-only ones.
+message OTCMintedContract {
+  uint64 id              = 1;
+  uint64 offer_id        = 2;
+  string buyer_owner_type = 3;
+  uint64 buyer_owner_id  = 4;
+  string seller_owner_type = 5;
+  uint64 seller_owner_id = 6;
+  string ticker          = 7;
+  string quantity        = 8;
+  string strike_price    = 9;
+  string premium_paid    = 10;
+  string premium_currency = 11;
+  string strike_currency = 12;
+  string settlement_date = 13;
+  uint64 buyer_account_id = 14;
+  uint64 seller_account_id = 15;
+  string status          = 16;
+  string premium_paid_at = 17;
 }
 
 message RejectNegotiationRequest {

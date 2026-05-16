@@ -10136,7 +10136,10 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Caller must be the party OPPOSITE to whoever proposed the current terms. Mints the option contract atomically; sibling chains on the parent listing cascade-cancel; parent flips to \"consumed\".",
+                "description": "Caller must be the party OPPOSITE to whoever proposed the current terms. After the negotiation state TX (which flips this chain to \"accepted\", parent to \"consumed\", and cascade-cancels every sibling chain), the contract-formation saga runs: mints OptionContract from the negotiation's snapshot terms, reserves seller's underlying shares, reserves+settles buyer's premium, credits the seller. If the saga fails (e.g. seller no longer has the shares, buyer is short on premium), the negotiation flips to \"failed\" and the parent stays consumed.",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -10158,11 +10161,27 @@ const docTemplate = `{
                         "name": "nid",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "acceptor_account_id — caller's account that pays the premium (if accepter is the buyer) or receives it (if accepter is the seller)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.acceptNegotiationRequest"
+                        }
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "acceptor_account_id missing or not owned",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10177,6 +10196,13 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "parent listing already consumed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "412": {
+                        "description": "contract-formation saga rejected (seller short on shares OR buyer short on premium)",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -12580,6 +12606,14 @@ const docTemplate = `{
                 "toCurrency": {
                     "type": "string",
                     "example": "USD"
+                }
+            }
+        },
+        "handler.acceptNegotiationRequest": {
+            "type": "object",
+            "properties": {
+                "acceptor_account_id": {
+                    "type": "integer"
                 }
             }
         },

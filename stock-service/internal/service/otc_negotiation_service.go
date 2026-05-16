@@ -19,6 +19,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -80,6 +81,10 @@ type AcceptNegotiationInput struct {
 	ActingPrincipalType string
 	ActingPrincipalID   uint64
 	ActingEmployeeID    *uint64
+	// AcceptorAccountID (Phase 9) is the caller's account that pays
+	// or receives the premium. Required — accept now mints a contract
+	// and runs the premium-payment saga. Must be the caller's account.
+	AcceptorAccountID uint64
 }
 
 // RejectNegotiationInput closes a chain without forming a contract.
@@ -108,21 +113,35 @@ type CancelNegotiationInput struct {
 // ---------- Outputs ----------
 
 // AcceptNegotiationResult bundles the state the caller needs after a
-// successful accept. The handler uses these to (1) mint the option
-// contract, (2) kick off the premium-payment saga, (3) publish Kafka
-// events for the cascade-cancelled siblings.
+// successful accept. Phase 9: now includes the minted OptionContract
+// (the contract-formation saga runs immediately after the state TX).
+// Cancelled siblings are listed so the handler can publish per-chain
+// Kafka events.
 type AcceptNegotiationResult struct {
 	WinningNegotiation *model.OTCNegotiation
 	ParentOffer        *model.OTCOffer
 	CancelledSiblings  []model.OTCNegotiation
+	Contract           *model.OptionContract // populated when mint succeeded; nil if the negotiation state flipped but contract formation failed
 }
 
 // ---------- Service ----------
+
+// ContractFormer is the narrow dependency OTCNegotiationService uses
+// to mint the OptionContract after a successful Accept state TX.
+// Implemented by *OTCOfferService.MintContractFromAcceptedNegotiation.
+// Defined here (not in OTCOfferService) so a test can swap in a fake.
+type ContractFormer interface {
+	MintContractFromAcceptedNegotiation(ctx context.Context, in MintFromNegotiationInput) (*model.OptionContract, error)
+}
 
 type OTCNegotiationService struct {
 	db        *gorm.DB
 	offerRepo *repository.OTCOfferRepository
 	negRepo   *repository.OTCNegotiationRepository
+	// former is optional — when nil, AcceptNegotiation falls back to
+	// the legacy state-only behaviour (negotiation flips to accepted,
+	// no contract minted). cmd/main.go wires it via WithContractFormer.
+	former ContractFormer
 }
 
 func NewOTCNegotiationService(
@@ -135,6 +154,14 @@ func NewOTCNegotiationService(
 		offerRepo: offerRepo,
 		negRepo:   negRepo,
 	}
+}
+
+// WithContractFormer wires the post-accept contract-formation saga.
+// Returns a copy so callers can chain wiring.
+func (s *OTCNegotiationService) WithContractFormer(f ContractFormer) *OTCNegotiationService {
+	cp := *s
+	cp.former = f
+	return &cp
 }
 
 // OpenNegotiation starts a fresh chain on a parent listing. Enforces:
@@ -409,7 +436,62 @@ func (s *OTCNegotiationService) AcceptNegotiation(ctx context.Context, in Accept
 	if err != nil {
 		return nil, err
 	}
+
+	// Phase 9: contract-formation saga runs AFTER the state TX commits.
+	// Designed this way (not inside the state TX) because the saga
+	// makes gRPC calls to account-service which can't be part of our
+	// local DB transaction. If formation fails the negotiation flips
+	// to "failed" so the front-end sees a coherent terminal state;
+	// the parent stays consumed and siblings stay cancelled (they
+	// were correctly out of the running regardless of whether the
+	// winning chain ultimately materialised a contract).
+	if s.former == nil {
+		// No former wired — legacy state-only behaviour. Contract
+		// remains nil in result; caller may surface a warning.
+		return result, nil
+	}
+	if in.AcceptorAccountID == 0 {
+		// Mark failed since formation cannot run without an acceptor
+		// account binding.
+		_ = s.markNegotiationFailed(ctx, result.WinningNegotiation.ID)
+		return nil, ErrOTCAcceptorAccountRequired
+	}
+	contract, mintErr := s.former.MintContractFromAcceptedNegotiation(ctx, MintFromNegotiationInput{
+		Parent:             result.ParentOffer,
+		Negotiation:        result.WinningNegotiation,
+		AcceptorOwnerType:  in.CallerOwnerType,
+		AcceptorOwnerID:    in.CallerOwnerID,
+		AcceptorAccountID:  in.AcceptorAccountID,
+		ActorPrincipalType: in.ActingPrincipalType,
+		ActorPrincipalID:   in.ActingPrincipalID,
+	})
+	if mintErr != nil {
+		// Negotiation state already flipped to accepted in the TX
+		// above. Flip to "failed" so /me/otc/options/negotiations
+		// reflects reality. Best-effort — the parent stays consumed
+		// regardless (siblings were correctly cancelled).
+		_ = s.markNegotiationFailed(ctx, result.WinningNegotiation.ID)
+		return nil, fmt.Errorf("mint contract: %w", mintErr)
+	}
+	result.Contract = contract
 	return result, nil
+}
+
+// markNegotiationFailed flips a negotiation's status to a terminal
+// "failed" state after the contract-formation saga returned an error.
+// Best-effort: if this fails the negotiation remains "accepted" but
+// no contract exists, which the front-end can detect by absence of
+// a contract row.
+func (s *OTCNegotiationService) markNegotiationFailed(ctx context.Context, negID uint64) error {
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		neg, err := s.negRepo.LockByID(tx, negID)
+		if err != nil {
+			return err
+		}
+		neg.Status = "failed"
+		neg.LastActionAt = time.Now().UTC()
+		return s.negRepo.SaveTx(tx, neg)
+	})
 }
 
 // RejectNegotiation closes a single chain without forming a contract.

@@ -153,17 +153,25 @@ func (h *OTCOptionsHandler) CounterMyNegotiation(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"negotiation": resp})
 }
 
+type acceptNegotiationRequest struct {
+	AcceptorAccountID uint64 `json:"acceptor_account_id"`
+}
+
 // AcceptMyNegotiation godoc
 // @Summary      Accept the current terms on an OTC option negotiation chain
-// @Description  Caller must be the party OPPOSITE to whoever proposed the current terms. Mints the option contract atomically; sibling chains on the parent listing cascade-cancel; parent flips to "consumed".
+// @Description  Caller must be the party OPPOSITE to whoever proposed the current terms. After the negotiation state TX (which flips this chain to "accepted", parent to "consumed", and cascade-cancels every sibling chain), the contract-formation saga runs: mints OptionContract from the negotiation's snapshot terms, reserves seller's underlying shares, reserves+settles buyer's premium, credits the seller. If the saga fails (e.g. seller no longer has the shares, buyer is short on premium), the negotiation flips to "failed" and the parent stays consumed.
 // @Tags         OTCOptions
 // @Security     BearerAuth
+// @Accept       json
 // @Produce      json
 // @Param        id path int true "parent listing id"
 // @Param        nid path int true "negotiation chain id"
+// @Param        body body acceptNegotiationRequest true "acceptor_account_id — caller's account that pays the premium (if accepter is the buyer) or receives it (if accepter is the seller)"
 // @Success      200 {object} map[string]interface{}
+// @Failure      400 {object} map[string]interface{} "acceptor_account_id missing or not owned"
 // @Failure      403 {object} map[string]interface{} "caller proposed current terms or not a party"
 // @Failure      409 {object} map[string]interface{} "parent listing already consumed"
+// @Failure      412 {object} map[string]interface{} "contract-formation saga rejected (seller short on shares OR buyer short on premium)"
 // @Router       /api/v3/me/otc/options/{id}/negotiations/{nid}/accept [post]
 func (h *OTCOptionsHandler) AcceptMyNegotiation(c *gin.Context) {
 	negID, err := strconv.ParseUint(c.Param("nid"), 10, 64)
@@ -171,7 +179,22 @@ func (h *OTCOptionsHandler) AcceptMyNegotiation(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid nid")
 		return
 	}
+	var req acceptNegotiationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
+		return
+	}
+	if req.AcceptorAccountID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "acceptor_account_id is required")
+		return
+	}
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	// Verify the acceptor's account belongs to them BEFORE forwarding —
+	// the service-side saga would reject too, but front-end gets a
+	// cleaner 403 vs an opaque InvalidArgument.
+	if err := ResolveAndCheckAccount(c, h.accounts, identity, req.AcceptorAccountID, 0); err != nil {
+		return
+	}
 	resp, err := h.client.AcceptNegotiationChain(c.Request.Context(), &stockpb.OTCAcceptNegotiationRequest{
 		NegotiationId:       negID,
 		CallerOwnerType:     identity.OwnerType,
@@ -179,6 +202,7 @@ func (h *OTCOptionsHandler) AcceptMyNegotiation(c *gin.Context) {
 		ActingPrincipalType: principalTypeFromIdentity(identity),
 		ActingPrincipalId:   identity.PrincipalID,
 		ActingEmployeeId:    derefU64(identity.ActingEmployeeID),
+		AcceptorAccountId:   req.AcceptorAccountID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
@@ -189,6 +213,7 @@ func (h *OTCOptionsHandler) AcceptMyNegotiation(c *gin.Context) {
 		"parent_offer_id":    resp.GetParentOfferId(),
 		"parent_status":      resp.GetParentStatus(),
 		"cancelled_siblings": resp.GetCancelledSiblings(),
+		"contract":           resp.GetContract(),
 	})
 }
 

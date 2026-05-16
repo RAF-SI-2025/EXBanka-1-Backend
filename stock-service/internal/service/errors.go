@@ -283,6 +283,13 @@ var (
 	// their OWN listing.
 	ErrOTCBidOwnListing = svcerr.New(codes.FailedPrecondition, "cannot open negotiation on own listing")
 
+	// ErrOTCAcceptorAccountRequired — AcceptNegotiation needs the
+	// acceptor's account_id to bind the premium-payment side of the
+	// minted contract (Phase 9). Without it the contract-formation
+	// saga can't run, so we mark the negotiation as failed and return
+	// this typed sentinel.
+	ErrOTCAcceptorAccountRequired = svcerr.New(codes.InvalidArgument, "acceptor_account_id is required to mint the option contract")
+
 	// --- Generic catch-alls (used by handlers when wrapping bare
 	// dependency errors before they become gRPC responses) ---
 

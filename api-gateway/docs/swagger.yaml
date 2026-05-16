@@ -16,6 +16,11 @@ definitions:
     - fromCurrency
     - toCurrency
     type: object
+  handler.acceptNegotiationRequest:
+    properties:
+      acceptor_account_id:
+        type: integer
+    type: object
   handler.activateDeviceReq:
     properties:
       code:
@@ -7656,9 +7661,16 @@ paths:
       - OTCOptions
   /api/v3/me/otc/options/{id}/negotiations/{nid}/accept:
     post:
-      description: Caller must be the party OPPOSITE to whoever proposed the current
-        terms. Mints the option contract atomically; sibling chains on the parent
-        listing cascade-cancel; parent flips to "consumed".
+      consumes:
+      - application/json
+      description: 'Caller must be the party OPPOSITE to whoever proposed the current
+        terms. After the negotiation state TX (which flips this chain to "accepted",
+        parent to "consumed", and cascade-cancels every sibling chain), the contract-formation
+        saga runs: mints OptionContract from the negotiation''s snapshot terms, reserves
+        seller''s underlying shares, reserves+settles buyer''s premium, credits the
+        seller. If the saga fails (e.g. seller no longer has the shares, buyer is
+        short on premium), the negotiation flips to "failed" and the parent stays
+        consumed.'
       parameters:
       - description: parent listing id
         in: path
@@ -7670,11 +7682,23 @@ paths:
         name: nid
         required: true
         type: integer
+      - description: acceptor_account_id — caller's account that pays the premium
+          (if accepter is the buyer) or receives it (if accepter is the seller)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.acceptNegotiationRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: acceptor_account_id missing or not owned
           schema:
             additionalProperties: true
             type: object
@@ -7685,6 +7709,12 @@ paths:
             type: object
         "409":
           description: parent listing already consumed
+          schema:
+            additionalProperties: true
+            type: object
+        "412":
+          description: contract-formation saga rejected (seller short on shares OR
+            buyer short on premium)
           schema:
             additionalProperties: true
             type: object
