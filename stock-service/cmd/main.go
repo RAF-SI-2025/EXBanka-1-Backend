@@ -662,6 +662,7 @@ func main() {
 		otcOfferRepo, otcRevisionRepo, optionContractRepo,
 		holdingRepo, otcReadReceiptRepo, producer,
 	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo).
+		WithStockMeta(&otcStockMetaAdapter{stocks: stockRepo, listings: listingRepo}).
 		WithOutbox(ob, db)
 
 	// --- Cross-bank OTC (Phase 4 SI-TX) ---

@@ -76,9 +76,23 @@ func (r *HoldingRepository) Upsert(ctx context.Context, holding *model.Holding) 
 			existing.AveragePrice = oldTotal.Add(newTotal).Div(decimal.NewFromInt(totalQty))
 		}
 		existing.Quantity = totalQty
-		existing.ListingID = holding.ListingID
-		existing.Ticker = holding.Ticker
-		existing.Name = holding.Name
+		// Display-metadata fields are only overwritten when the incoming
+		// caller provided a non-empty value. This prevents a partial
+		// upsert (e.g. one that knows quantity + average_price but not
+		// listing_id) from wiping the existing row's display fields.
+		// (Fix 2026-05-16: the OTC exercise saga previously called Upsert
+		// without Ticker/Name/ListingID and silently overwrote them on
+		// pre-existing rows.) New rows still get whatever the caller
+		// passed via the Create path above.
+		if holding.ListingID != 0 {
+			existing.ListingID = holding.ListingID
+		}
+		if holding.Ticker != "" {
+			existing.Ticker = holding.Ticker
+		}
+		if holding.Name != "" {
+			existing.Name = holding.Name
+		}
 		// Update the audit "last account used" pointer when the caller
 		// supplied one (zero is treated as "don't overwrite" so a
 		// reservation-only update doesn't wipe the last-used account).

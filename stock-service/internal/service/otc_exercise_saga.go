@@ -181,15 +181,44 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	// Post-saga best-effort: buyer holding upsert + contract.Save + publish.
 	// At this point money + seller-side shares have moved; failure here is
 	// logged loud and left for manual reconciliation.
-	if err := s.holdingRepo.Upsert(ctx, &model.Holding{
+	//
+	// Fix 2026-05-16: previously omitted Ticker / Name / ListingID, which
+	// left the buyer-credit holding with empty display fields — making it
+	// invisible/untradeable in the FE (no ticker → can't construct a sell
+	// order or render in the holdings list, can't make-public on the
+	// downstream OTC stock marketplace because lookups go through the
+	// ticker). Resolve the metadata now via stockMeta (optional dep);
+	// when unwired, only Ticker (from the contract) is populated and
+	// Name/ListingID stay empty — same as before but at least the row
+	// has its ticker now.
+	buyerHolding := &model.Holding{
 		OwnerType:    c.BuyerOwnerType,
 		OwnerID:      c.BuyerOwnerID,
 		SecurityType: "stock",
 		SecurityID:   c.StockID,
+		Ticker:       c.Ticker,
 		Quantity:     qty,
 		AveragePrice: c.StrikePrice,
 		AccountID:    c.BuyerAccountID,
-	}); err != nil {
+	}
+	if s.stockMeta != nil {
+		if stk, gerr := s.stockMeta.GetStockByID(c.StockID); gerr == nil && stk != nil {
+			buyerHolding.Name = stk.Name
+			// Defensive: trust the contract's ticker but if it's empty
+			// (older contract row), fall back to the stock's ticker.
+			if buyerHolding.Ticker == "" {
+				buyerHolding.Ticker = stk.Ticker
+			}
+		} else if gerr != nil {
+			log.Printf("WARN: OTC exercise saga=%s: stockMeta.GetStockByID(%d) failed (name will be blank): %v", sagaID, c.StockID, gerr)
+		}
+		if lst, lerr := s.stockMeta.GetListingBySecurityIDAndType(c.StockID, "stock"); lerr == nil && lst != nil {
+			buyerHolding.ListingID = lst.ID
+		} else if lerr != nil {
+			log.Printf("WARN: OTC exercise saga=%s: stockMeta.GetListingBySecurityIDAndType(%d) failed (listing_id will be 0): %v", sagaID, c.StockID, lerr)
+		}
+	}
+	if err := s.holdingRepo.Upsert(ctx, buyerHolding); err != nil {
 		log.Printf("CRITICAL: OTC exercise saga=%s: buyer holding upsert failed (money moved, shares left seller): %v", sagaID, err)
 	}
 

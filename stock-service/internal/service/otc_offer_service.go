@@ -58,6 +58,15 @@ type OTCOfferService struct {
 	exchange   FundExchangeClient
 	holdingRes *HoldingReservationService
 
+	// stockMeta resolves (Name, ListingID) for a stock_id at exercise
+	// time so the buyer-credit holding upsert carries the metadata the
+	// FE needs (otherwise the new row appears with blank ticker/name/
+	// listing_id and downstream "sell" / "make public" flows fail).
+	// Optional — when nil, the upsert proceeds with c.Ticker only and
+	// Name/ListingID stay empty (legacy behaviour). cmd/main.go wires
+	// it via WithStockMeta.
+	stockMeta OTCStockMetaResolver
+
 	// Outbox: when wired (via WithOutbox), post-saga Kafka publishes
 	// (otc.contract-created, otc.contract-exercised) go through the
 	// transactional outbox instead of best-effort producer.PublishRaw.
@@ -111,6 +120,19 @@ type OTCHoldingMutator interface {
 	Upsert(ctx context.Context, h *model.Holding) error
 }
 
+// OTCStockMetaResolver is the narrow lookup the exercise saga uses to
+// resolve display metadata (Name) and the underlying ListingID for a
+// stock_id. The exercise saga has the OptionContract's stock_id +
+// ticker but not the corresponding Listing row id (different per bank)
+// or the Stock display name — without these, the upserted buyer
+// holding lacks the fields the FE needs to render and to construct
+// downstream sell orders. (Fix for 2026-05-16: "user cant make public
+// or sell stock acquired thru contract".)
+type OTCStockMetaResolver interface {
+	GetStockByID(id uint64) (*model.Stock, error)
+	GetListingBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error)
+}
+
 // WithSaga wires the dependencies needed by Accept / ExerciseContract.
 // Without it, those methods reject with errOTCSagaDepsNotWired. Pass nil
 // for `exchange` to disable cross-currency support; same-currency flows
@@ -128,6 +150,16 @@ func (s *OTCOfferService) WithSaga(
 	cp.exchange = exchange
 	cp.holdingRes = holdingRes
 	cp.holdingRepo = holdingRepo
+	return &cp
+}
+
+// WithStockMeta wires the lookup used by the exercise saga to fill the
+// buyer-credit holding's display fields (Name, ListingID). Optional —
+// without it, those fields are left empty (Ticker is still populated
+// from the contract).
+func (s *OTCOfferService) WithStockMeta(r OTCStockMetaResolver) *OTCOfferService {
+	cp := *s
+	cp.stockMeta = r
 	return &cp
 }
 

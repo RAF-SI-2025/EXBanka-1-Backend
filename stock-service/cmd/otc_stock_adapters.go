@@ -19,6 +19,7 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
+	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
 
@@ -65,6 +66,25 @@ type stockListingResolverAdapter struct {
 	listings  *repository.ListingRepository
 	stocks    *repository.StockRepository
 	exchanges *repository.ExchangeRepository
+}
+
+// otcStockMetaAdapter satisfies service.OTCStockMetaResolver — the OTC
+// exercise saga uses it to resolve Name + ListingID for the
+// buyer-credit holding upsert. Without these fields, the new holding
+// row is invisible/untradeable in the FE (no ticker lookup → can't
+// place a sell order or make-public). See 2026-05-16 fix in
+// otc_exercise_saga.go.
+type otcStockMetaAdapter struct {
+	stocks   *repository.StockRepository
+	listings *repository.ListingRepository
+}
+
+func (a *otcStockMetaAdapter) GetStockByID(id uint64) (*model.Stock, error) {
+	return a.stocks.GetByID(id)
+}
+
+func (a *otcStockMetaAdapter) GetListingBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error) {
+	return a.listings.GetBySecurityIDAndType(securityID, securityType)
 }
 
 // GetListingCurrency: Listing → ExchangeID → StockExchange.Currency.
