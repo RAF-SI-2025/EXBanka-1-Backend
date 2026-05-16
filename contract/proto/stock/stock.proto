@@ -676,6 +676,11 @@ service OTCGRPCService {
   // pulled from every active peer bank's GET /public-stock. Backed by
   // an in-process cache refreshed every ~5 s by stock-service.
   rpc ListUnifiedOffers(ListUnifiedOTCOffersRequest) returns (ListUnifiedOTCOffersResponse);
+  // Phase 6: cross-bank discovery of OPEN OTC OPTION LISTINGS. Local
+  // rows come from otc_offers (Phase 2 marketplace); remote rows pulled
+  // every ~5 s from peer banks' GET /public-option-offers. Same partial-
+  // failure tolerance as ListUnifiedOffers (peers_total / peers_reached).
+  rpc ListUnifiedOptionOffers(ListUnifiedOptionOffersRequest) returns (ListUnifiedOptionOffersResponse);
 }
 
 message OTCOffer {
@@ -747,6 +752,46 @@ message ListUnifiedOTCOffersResponse {
   int32 peers_total = 3;
   int32 peers_reached = 4;
   bool partial = 5;
+  int64 last_refresh_unix = 6;
+}
+
+// Phase 6 — unified cross-bank view of open OTC OPTION listings.
+// Local rows come from this bank's otc_offers (status open + counterparty
+// NULL); remote rows come from peer banks' GET /public-option-offers
+// pulled every ~5 s by the cache refresher.
+message UnifiedOptionOffer {
+  string kind             = 1;   // "local" | "remote"
+  string bank_code        = 2;
+  int64  routing_number   = 3;
+  string offer_id         = 4;   // local: strconv(uint64); remote: foreign id
+  string seller_id        = 5;   // SI-TX-prefixed: "client-<N>" | "bank"
+  string seller_name      = 6;   // local-only display name; "" remote
+  string direction        = 7;   // "sell_initiated" | "buy_initiated"
+  string ticker           = 8;
+  int64  amount           = 9;
+  string strike_price     = 10;
+  string strike_currency  = 11;
+  string premium          = 12;
+  string premium_currency = 13;
+  string settlement_date  = 14;  // RFC3339 UTC
+  string created_at       = 15;
+}
+
+message ListUnifiedOptionOffersRequest {
+  string ticker    = 1;
+  string kind      = 2;   // "" | "local" | "remote"
+  string bank_code = 3;
+  string direction = 4;   // "" | "sell_initiated" | "buy_initiated"
+  int32  page      = 5;
+  int32  page_size = 6;
+}
+
+message ListUnifiedOptionOffersResponse {
+  repeated UnifiedOptionOffer offers = 1;
+  int64 total_count       = 2;
+  int32 peers_total       = 3;
+  int32 peers_reached     = 4;
+  bool  partial           = 5;
   int64 last_refresh_unix = 6;
 }
 
@@ -1503,6 +1548,13 @@ message ExerciseResponse {
 // money never moves on a contract the seller can't fulfil.
 service PeerOTCService {
   rpc GetPublicStocks(GetPublicStocksRequest) returns (GetPublicStocksResponse);
+  // Phase 6: peer-facing discovery of OPEN OTC OPTION listings.
+  // Returns OTCOffer rows on THIS bank where:
+  //   * status is open/PENDING (legacy alias) AND
+  //   * counterparty_owner_id IS NULL (undirected listings only) AND
+  //   * Private==false OR PrivateToBankCode == X-Bank-Code of caller.
+  // Wire shape parallels GetPublicStocks; PeerAuth via X-Api-Key.
+  rpc GetPublicOptionOffers(GetPublicOptionOffersRequest) returns (GetPublicOptionOffersResponse);
   rpc CreateNegotiation(CreateNegotiationRequest) returns (CreateNegotiationResponse);
   rpc UpdateNegotiation(UpdateNegotiationRequest) returns (UpdateNegotiationResponse);
   rpc GetNegotiation(GetNegotiationRequest) returns (GetNegotiationResponse);
@@ -1606,6 +1658,31 @@ message PeerPublicStock {
 
 message GetPublicStocksResponse {
   repeated PeerPublicStock stocks = 1;
+}
+
+// Phase 6 — discovery of open OTC OPTION listings (parallel chains
+// marketplace). See docs/superpowers/plans/2026-05-16-otc-options-cross-bank.md.
+message GetPublicOptionOffersRequest {
+  string peer_bank_code = 1; // X-Bank-Code stamped by PeerAuth ctx
+}
+
+message PeerPublicOptionOffer {
+  PeerForeignBankId offer_id        = 1;  // (own_routing, otc_offers.id stringified)
+  string            ticker          = 2;
+  int64             amount          = 3;
+  string            strike_price    = 4;
+  string            strike_currency = 5;
+  string            premium         = 6;
+  string            premium_currency = 7;
+  string            settlement_date = 8;  // RFC3339 UTC
+  PeerForeignBankId seller_id       = 9;  // SI-TX-prefixed: "client-<N>" | "bank"
+  string            direction       = 10; // "sell_initiated" | "buy_initiated"
+  string            created_at      = 11;
+  PeerForeignBankId last_modified_by = 12;
+}
+
+message GetPublicOptionOffersResponse {
+  repeated PeerPublicOptionOffer offers = 1;
 }
 
 message CreateNegotiationRequest {

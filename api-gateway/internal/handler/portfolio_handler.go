@@ -256,6 +256,96 @@ func (h *PortfolioHandler) ListOTCOffers(c *gin.Context) {
 	})
 }
 
+// ListOTCOptions godoc
+// @Summary      Unified marketplace view of OPEN OTC option listings
+// @Description  Phase 6 cross-bank discovery. Returns this bank's open
+//
+//	OTCOffer rows (kind=local) plus every active peer's
+//	open listings (kind=remote) merged in the in-memory
+//	cache (refreshed every ~5s). Filter by ticker / kind /
+//	bank_code / direction. Pagination is applied in-memory
+//	over the cached snapshot.
+//
+// @Tags         OTCOptions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        ticker    query string false "Filter to one ticker"
+// @Param        kind      query string false "local|remote"
+// @Param        bank_code query string false "Filter to one bank"
+// @Param        direction query string false "sell_initiated|buy_initiated"
+// @Param        page      query int    false "1-based, default 1"
+// @Param        page_size query int    false "default 10"
+// @Success      200 {object} map[string]interface{}
+// @Router       /api/v3/otc/options [get]
+func (h *PortfolioHandler) ListOTCOptions(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	kind := c.Query("kind")
+	if kind != "" {
+		if _, err := oneOf("kind", kind, "local", "remote"); err != nil {
+			apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+			return
+		}
+	}
+	direction := c.Query("direction")
+	if direction != "" {
+		if _, err := oneOf("direction", direction, "sell_initiated", "buy_initiated"); err != nil {
+			apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+			return
+		}
+	}
+	resp, err := h.otcClient.ListUnifiedOptionOffers(c.Request.Context(), &stockpb.ListUnifiedOptionOffersRequest{
+		Ticker:    c.Query("ticker"),
+		Kind:      kind,
+		BankCode:  c.Query("bank_code"),
+		Direction: direction,
+		Page:      int32(page),
+		PageSize:  int32(pageSize),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	offers := make([]gin.H, 0, len(resp.GetOffers()))
+	for _, o := range resp.GetOffers() {
+		offers = append(offers, gin.H{
+			"kind":             o.GetKind(),
+			"bank_code":        o.GetBankCode(),
+			"routing_number":   o.GetRoutingNumber(),
+			"offer_id":         o.GetOfferId(),
+			"seller_id":        o.GetSellerId(),
+			"seller_name":      o.GetSellerName(),
+			"direction":        o.GetDirection(),
+			"ticker":           o.GetTicker(),
+			"amount":           o.GetAmount(),
+			"strike_price":     o.GetStrikePrice(),
+			"strike_currency":  o.GetStrikeCurrency(),
+			"premium":          o.GetPremium(),
+			"premium_currency": o.GetPremiumCurrency(),
+			"settlement_date":  o.GetSettlementDate(),
+			"created_at":       o.GetCreatedAt(),
+		})
+	}
+	var lastRefresh string
+	if u := resp.GetLastRefreshUnix(); u > 0 {
+		lastRefresh = time.Unix(u, 0).UTC().Format("2006-01-02T15:04:05Z")
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"offers":        offers,
+		"total_count":   resp.GetTotalCount(),
+		"peers_total":   resp.GetPeersTotal(),
+		"peers_reached": resp.GetPeersReached(),
+		"partial":       resp.GetPartial(),
+		"last_refresh":  lastRefresh,
+	})
+}
+
 // BuyOTCOfferOnBehalf godoc
 // @Summary      Buy an OTC offer on behalf of a client
 // @Description  Employee-only. Requires orders.place-on-behalf permission. Gateway verifies the account belongs to the named client.

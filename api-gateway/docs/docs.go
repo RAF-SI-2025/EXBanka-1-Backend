@@ -12125,6 +12125,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/otc/options": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Phase 6 cross-bank discovery. Returns this bank's open",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Unified marketplace view of OPEN OTC option listings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter to one ticker",
+                        "name": "ticker",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "local|remote",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to one bank",
+                        "name": "bank_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sell_initiated|buy_initiated",
+                        "name": "direction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 10",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/otc/options/{id}/bid": {
             "post": {
                 "security": [
@@ -12267,6 +12331,41 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/public-option-offers": {
+            "get": {
+                "description": "Phase 6 cross-bank discovery. Returns this bank's",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-facing list of OPEN OTC option listings on this bank",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "501": {
+                        "description": "OTCOfferReader not wired",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

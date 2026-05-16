@@ -83,6 +83,29 @@ func (r *OTCOfferRepository) SaveTx(tx *gorm.DB, o *model.OTCOffer) error {
 	return nil
 }
 
+// ListOpenForCache returns every OTCOffer currently accepting bids —
+// status open/PENDING/COUNTERED AND counterparty_owner_id IS NULL.
+// Used by the cross-bank discovery cache (Phase 6) and the peer-facing
+// GET /api/v3/public-option-offers endpoint. Both must agree on the
+// SAME filter so peers see what local discovery sees.
+//
+// limit caps the result so a runaway listing pool can't OOM the
+// process; caller can pass a large number to effectively disable it.
+func (r *OTCOfferRepository) ListOpenForCache(limit int) ([]model.OTCOffer, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	openStatuses := []string{
+		model.OTCOfferStatusOpen,
+		model.OTCOfferStatusPending,
+		model.OTCOfferStatusCountered,
+	}
+	var out []model.OTCOffer
+	err := r.db.Where("status IN ? AND counterparty_owner_id IS NULL", openStatuses).
+		Order("created_at DESC").Limit(limit).Find(&out).Error
+	return out, err
+}
+
 // ListByOwner returns offers where the owner appears as initiator,
 // counterparty, or either, optionally filtered by status (variadic) and
 // stock_id (zero = no filter). owner_id may be nil for OwnerType=bank.

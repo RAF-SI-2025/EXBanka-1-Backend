@@ -241,6 +241,9 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// stamped on the gin context by middleware.PeerAuth and read
 		// inside each handler.
 		peer.GET("/public-stock", h.PeerOTC.GetPublicStocks)
+		// Phase 6: cross-bank discovery of OPEN OTC OPTION listings.
+		// Same auth (PeerAuth) and shape conventions as /public-stock.
+		peer.GET("/public-option-offers", h.PeerOTC.GetPublicOptionOffers)
 		peer.POST("/negotiations", h.PeerOTC.CreateNegotiation)
 		peer.PUT("/negotiations/:rid/:id", h.PeerOTC.UpdateNegotiation)
 		peer.GET("/negotiations/:rid/:id", h.PeerOTC.GetNegotiation)
@@ -304,6 +307,9 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// poster to see incoming bids, and by bidders to see what
 		// counter-bids competitors have placed.
 		otcRead.GET("/options/:id/negotiations", h.OTCOptions.ListNegotiationsOnListing)
+		// Phase 6 marketplace: unified local + cross-bank discovery
+		// of open option listings.
+		otcRead.GET("/options", h.Portfolio.ListOTCOptions)
 	}
 	// Trading actions require both securities.trade AND otc.trade.
 	otcOptionsTrade := v3.Group("/otc")

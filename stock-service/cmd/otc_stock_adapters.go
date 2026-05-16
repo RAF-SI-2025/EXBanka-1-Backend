@@ -79,3 +79,40 @@ func (a *stockListingResolverAdapter) GetListingTickerAndName(listingID uint64) 
 	}
 	return s.Ticker, s.Name, s.ID, nil
 }
+
+// optionCurrencyResolverAdapter implements otccache.OptionCurrencyResolver
+// AND handler.OptionCurrencyResolver by looking up the stock's listing →
+// exchange → currency. The two interfaces share the same single-method
+// shape (CurrencyForStock(stockID) (string, error)) so one adapter
+// satisfies both.
+type optionCurrencyResolverAdapter struct {
+	listings  *repository.ListingRepository
+	stocks    *repository.StockRepository
+	exchanges *repository.ExchangeRepository
+}
+
+func newOptionCurrencyResolverAdapter(
+	listings *repository.ListingRepository,
+	stocks *repository.StockRepository,
+	exchanges *repository.ExchangeRepository,
+) *optionCurrencyResolverAdapter {
+	return &optionCurrencyResolverAdapter{listings: listings, stocks: stocks, exchanges: exchanges}
+}
+
+// CurrencyForStock: Stock (lookup) → Listing.GetBySecurityIDAndType
+// → ExchangeID → StockExchange.Currency. Falls back to "" if any
+// lookup fails so the caller can default to "USD".
+func (a *optionCurrencyResolverAdapter) CurrencyForStock(stockID uint64) (string, error) {
+	listing, err := a.listings.GetBySecurityIDAndType(stockID, "stock")
+	if err != nil {
+		return "", err
+	}
+	if listing == nil {
+		return "", nil
+	}
+	ex, err := a.exchanges.GetByID(listing.ExchangeID)
+	if err != nil {
+		return "", err
+	}
+	return ex.Currency, nil
+}

@@ -77,6 +77,26 @@ type PeerOTCGRPCHandler struct {
 	peerTx          transactionpb.PeerTxServiceClient
 	ownRouting      int64
 	holdingReserver HoldingReserver // optional; nil disables seller-side share locking
+
+	// Phase 6 — cross-bank discovery of OPEN OTC OPTION listings. Wired
+	// via WithOTCOfferReader. When nil, GetPublicOptionOffers returns
+	// Unimplemented instead of nil-deref.
+	otcOffers         OTCOfferReader
+	otcOptionCurrency OptionCurrencyResolver
+}
+
+// OTCOfferReader is the narrow interface the peer endpoint uses to
+// read open OTC listings. OTCOfferRepository.ListOpenForCache
+// satisfies it.
+type OTCOfferReader interface {
+	ListOpenForCache(limit int) ([]model.OTCOffer, error)
+}
+
+// OptionCurrencyResolver maps a stockID → currency for the cache row.
+// Defined here (not in otccache/) so the handler doesn't depend on
+// the cache package.
+type OptionCurrencyResolver interface {
+	CurrencyForStock(stockID uint64) (string, error)
 }
 
 func NewPeerOTCGRPCHandler(
@@ -101,6 +121,94 @@ func NewPeerOTCGRPCHandler(
 // (Useful for tests and for stages where the reserver isn't ready.)
 func (h *PeerOTCGRPCHandler) SetHoldingReserver(r HoldingReserver) {
 	h.holdingReserver = r
+}
+
+// WithOTCOfferReader wires the Phase-6 cross-bank option-discovery
+// data source. Returns a copy so the caller can chain wire-up calls.
+// When called with a non-nil currency resolver, GetPublicOptionOffers
+// stamps strike/premium currency on each emitted row; otherwise the
+// peer endpoint falls back to "USD".
+func (h *PeerOTCGRPCHandler) WithOTCOfferReader(
+	offers OTCOfferReader, currency OptionCurrencyResolver,
+) *PeerOTCGRPCHandler {
+	cp := *h
+	cp.otcOffers = offers
+	cp.otcOptionCurrency = currency
+	return &cp
+}
+
+// GetPublicOptionOffers serves the peer-facing
+// GET /api/v3/public-option-offers endpoint (Phase 6 cross-bank
+// discovery). Returns this bank's OPEN, undirected option listings —
+// see OTCOfferRepository.ListOpenForCache for the exact filter.
+//
+// PrivateToBankCode honors a per-listing visibility hint: rows marked
+// Private=true are dropped UNLESS PrivateToBankCode equals the
+// requesting peer's X-Bank-Code (stamped by the api-gateway after
+// PeerAuth resolves the inbound credential).
+func (h *PeerOTCGRPCHandler) GetPublicOptionOffers(ctx context.Context, req *stockpb.GetPublicOptionOffersRequest) (*stockpb.GetPublicOptionOffersResponse, error) {
+	if h.otcOffers == nil {
+		return nil, status.Error(codes.Unimplemented, "OTCOfferReader not wired")
+	}
+	rows, err := h.otcOffers.ListOpenForCache(1000)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list open option offers: %v", err)
+	}
+	caller := req.GetPeerBankCode()
+	out := make([]*stockpb.PeerPublicOptionOffer, 0, len(rows))
+	for i := range rows {
+		o := &rows[i]
+		// Honor per-listing privacy. Private listings only surface to
+		// the named bank in PrivateToBankCode.
+		if o.Private {
+			if o.PrivateToBankCode == nil || *o.PrivateToBankCode != caller {
+				continue
+			}
+		}
+		sellerID := composePeerSellerID(o)
+		currency := "USD"
+		if h.otcOptionCurrency != nil {
+			if c, err := h.otcOptionCurrency.CurrencyForStock(o.StockID); err == nil && c != "" {
+				currency = c
+			}
+		}
+		out = append(out, &stockpb.PeerPublicOptionOffer{
+			OfferId: &stockpb.PeerForeignBankId{
+				RoutingNumber: h.ownRouting,
+				Id:            strconv.FormatUint(o.ID, 10),
+			},
+			Ticker:          o.Ticker,
+			Amount:          o.Quantity.IntPart(),
+			StrikePrice:     o.StrikePrice.String(),
+			StrikeCurrency:  currency,
+			Premium:         o.Premium.String(),
+			PremiumCurrency: currency,
+			SettlementDate:  o.SettlementDate.UTC().Format("2006-01-02T15:04:05Z"),
+			SellerId: &stockpb.PeerForeignBankId{
+				RoutingNumber: h.ownRouting,
+				Id:            sellerID,
+			},
+			Direction: o.Direction,
+			CreatedAt: o.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			LastModifiedBy: &stockpb.PeerForeignBankId{
+				RoutingNumber: h.ownRouting,
+				Id:            sellerID,
+			},
+		})
+	}
+	return &stockpb.GetPublicOptionOffersResponse{Offers: out}, nil
+}
+
+// composePeerSellerID mirrors the cache's helper but lives here so the
+// peer endpoint doesn't import the otccache package.
+func composePeerSellerID(o *model.OTCOffer) string {
+	if o.InitiatorOwnerType == model.OwnerBank {
+		return "bank"
+	}
+	if o.InitiatorOwnerID == nil {
+		return ""
+	}
+	return "client-" + strconv.FormatUint(*o.InitiatorOwnerID, 10)
 }
 
 func (h *PeerOTCGRPCHandler) GetPublicStocks(ctx context.Context, req *stockpb.GetPublicStocksRequest) (*stockpb.GetPublicStocksResponse, error) {

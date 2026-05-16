@@ -1249,6 +1249,13 @@ func (s *stubOTCClient) ListUnifiedOffers(_ context.Context, in *stockpb.ListUni
 	return &stockpb.ListUnifiedOTCOffersResponse{}, nil
 }
 
+// Phase-6 marketplace RPC. Stub returns zero-value; tests that need
+// custom responses can extend stubOTCClient with a listUnifiedOptionFn
+// field later — none currently exercise this path.
+func (s *stubOTCClient) ListUnifiedOptionOffers(_ context.Context, _ *stockpb.ListUnifiedOptionOffersRequest, _ ...grpc.CallOption) (*stockpb.ListUnifiedOptionOffersResponse, error) {
+	return &stockpb.ListUnifiedOptionOffersResponse{}, nil
+}
+
 // ---------------------------------------------------------------------------
 // TaxGRPCServiceClient
 // ---------------------------------------------------------------------------

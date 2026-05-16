@@ -77,3 +77,33 @@ type PublicStock struct {
 	PricePerStock decimal.Decimal `json:"pricePerStock"`
 	Currency      string          `json:"currency"`
 }
+
+// PublicOptionOffersResponse is the response shape of
+// GET /api/v3/public-option-offers — Phase 6 cross-bank option
+// discovery (parallel to /public-stock).
+type PublicOptionOffersResponse struct {
+	Offers []PublicOptionOffer `json:"offers"`
+}
+
+// PublicOptionOffer is one OPEN OTC option listing on a peer bank.
+// Discovering banks then drive negotiation via the existing
+// POST /api/v3/me/peer-otc/negotiations using offerId.routingNumber
+// as seller_bank_code and sellerId.id as seller_id.
+//
+// Money values use the canonical {amount, currency} pair so the
+// discovering UI can render strike + premium without inferring
+// currency from the listing's underlying.
+type PublicOptionOffer struct {
+	OfferID         ForeignBankId   `json:"offerId"`
+	Ticker          string          `json:"ticker"`
+	Amount          int64           `json:"amount"`
+	StrikePrice     decimal.Decimal `json:"strikePrice"`
+	StrikeCurrency  string          `json:"strikeCurrency"`
+	Premium         decimal.Decimal `json:"premium"`
+	PremiumCurrency string          `json:"premiumCurrency"`
+	SettlementDate  string          `json:"settlementDate"`
+	SellerID        ForeignBankId   `json:"sellerId"`
+	Direction       string          `json:"direction"` // "sell_initiated" | "buy_initiated"
+	CreatedAt       string          `json:"createdAt"`
+	LastModifiedBy  ForeignBankId   `json:"lastModifiedBy"`
+}

@@ -21,8 +21,9 @@ type otcSvcFacade interface {
 
 type OTCHandler struct {
 	pb.UnimplementedOTCGRPCServiceServer
-	otcSvc otcSvcFacade
-	cache  *otccache.Cache
+	otcSvc      otcSvcFacade
+	cache       *otccache.Cache
+	optionCache *otccache.OptionCache // optional; Phase 6 cross-bank option discovery
 }
 
 // NewOTCHandler keeps the prior signature for backwards compatibility
@@ -37,6 +38,15 @@ func NewOTCHandler(otcSvc *service.OTCService) *OTCHandler {
 // uses this once the cache + refresher are constructed.
 func NewOTCHandlerWithCache(otcSvc *service.OTCService, cache *otccache.Cache) *OTCHandler {
 	return &OTCHandler{otcSvc: otcSvc, cache: cache}
+}
+
+// WithOptionCache wires the Phase-6 cross-bank option-discovery cache
+// (parallel to the stocks-marketplace cache). Returns a copy so cmd/
+// main.go can chain wire-up calls.
+func (h *OTCHandler) WithOptionCache(c *otccache.OptionCache) *OTCHandler {
+	cp := *h
+	cp.optionCache = c
+	return &cp
 }
 
 func newOTCHandlerForTest(otcSvc otcSvcFacade) *OTCHandler {
@@ -209,3 +219,93 @@ func (h *OTCHandler) ListUnifiedOffers(ctx context.Context, req *pb.ListUnifiedO
 // _ explicit static check that OTCHandler still implements every
 // generated server interface method (caught at compile time).
 var _ pb.OTCGRPCServiceServer = (*OTCHandler)(nil)
+
+// ListUnifiedOptionOffers serves the Phase-6 cross-bank discovery view
+// of open OTC OPTION listings. Backed by OptionCache (refreshed every
+// ~5 s by OptionRefresher). Filters by ticker, kind (local|remote),
+// bank_code, and direction (sell_initiated|buy_initiated); paginates
+// in-memory over the cached snapshot. partial=true reflects the most
+// recent refresh missing one or more peers.
+func (h *OTCHandler) ListUnifiedOptionOffers(ctx context.Context, req *pb.ListUnifiedOptionOffersRequest) (*pb.ListUnifiedOptionOffersResponse, error) {
+	page := int(req.GetPage())
+	if page < 1 {
+		page = 1
+	}
+	pageSize := int(req.GetPageSize())
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	kind := req.GetKind()
+	if kind != "" && kind != "local" && kind != "remote" {
+		return nil, status.Error(codes.InvalidArgument, "kind must be 'local' or 'remote'")
+	}
+	direction := req.GetDirection()
+	if direction != "" && direction != "sell_initiated" && direction != "buy_initiated" {
+		return nil, status.Error(codes.InvalidArgument, "direction must be 'sell_initiated' or 'buy_initiated'")
+	}
+	if h.optionCache == nil {
+		return &pb.ListUnifiedOptionOffersResponse{}, nil
+	}
+	snap := h.optionCache.Get()
+	ticker := strings.ToUpper(req.GetTicker())
+	bankFilter := req.GetBankCode()
+
+	filtered := make([]otccache.OptionOffer, 0, len(snap.Offers))
+	for _, o := range snap.Offers {
+		if ticker != "" && strings.ToUpper(o.Ticker) != ticker {
+			continue
+		}
+		if kind != "" && o.Kind != kind {
+			continue
+		}
+		if bankFilter != "" && o.BankCode != bankFilter {
+			continue
+		}
+		if direction != "" && o.Direction != direction {
+			continue
+		}
+		filtered = append(filtered, o)
+	}
+	total := int64(len(filtered))
+	start := (page - 1) * pageSize
+	if start > len(filtered) {
+		start = len(filtered)
+	}
+	end := start + pageSize
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	out := make([]*pb.UnifiedOptionOffer, 0, end-start)
+	for _, o := range filtered[start:end] {
+		out = append(out, &pb.UnifiedOptionOffer{
+			Kind:            o.Kind,
+			BankCode:        o.BankCode,
+			RoutingNumber:   o.RoutingNumber,
+			OfferId:         o.OfferID,
+			SellerId:        o.SellerID,
+			SellerName:      o.SellerName,
+			Direction:       o.Direction,
+			Ticker:          o.Ticker,
+			Amount:          o.Amount,
+			StrikePrice:     o.StrikePrice,
+			StrikeCurrency:  o.StrikeCurrency,
+			Premium:         o.Premium,
+			PremiumCurrency: o.PremiumCurrency,
+			SettlementDate:  o.SettlementDate,
+			CreatedAt:       o.CreatedAt,
+		})
+	}
+	var lastRefreshUnix int64
+	if !snap.LastRefresh.IsZero() {
+		lastRefreshUnix = snap.LastRefresh.Unix()
+	}
+	_ = ctx
+	return &pb.ListUnifiedOptionOffersResponse{
+		Offers:          out,
+		TotalCount:      total,
+		PeersTotal:      int32(snap.PeersTotal),
+		PeersReached:    int32(snap.PeersReached),
+		Partial:         snap.PeersTotal > 0 && snap.PeersReached < snap.PeersTotal,
+		LastRefreshUnix: lastRefreshUnix,
+	}, nil
+}

@@ -521,6 +521,14 @@ func main() {
 	otcRefresher := otccache.NewRefresher(otcOfferCache, otcSvc, peerBankAdminClient, cfg.OwnBankCode, 5*time.Second)
 	go otcRefresher.Run(ctx)
 
+	// Phase 6 — cross-bank discovery of OPEN OTC OPTION listings.
+	// Currency resolved via the listings → exchanges chain (same lookup
+	// pattern used by the stocks marketplace adapter).
+	optionCurrencyResolver := newOptionCurrencyResolverAdapter(listingRepo, stockRepo, exchangeRepo)
+	optionOfferCache := otccache.NewOptionCache()
+	// Refresher + handler wiring lives further down — needs otcOfferRepo
+	// and ownRouting which haven't been constructed yet at this point.
+
 	// Start the outbox drainer. Adapter wraps producer.PublishRaw to satisfy
 	// outbox.Producer (which expects (ctx, topic, []byte)). The drainer ticks
 	// every 500ms publishing up to 100 pending rows per tick; failures
@@ -670,6 +678,19 @@ func main() {
 	peerOptionRepo := repository.NewPeerOptionContractRepository(db)
 	peerOtcHandler := handler.NewPeerOTCGRPCHandler(peerOtcRepo, peerOptionRepo, holdingRepo, peerTxClient, ownRouting)
 	peerOtcHandler.SetHoldingReserver(holdingReservationSvc)
+	// Phase 6: cross-bank option discovery — the peer endpoint
+	// (GET /api/v3/public-option-offers) needs the OTC offers repo +
+	// the currency resolver to stamp strike/premium currency.
+	peerOtcHandler = peerOtcHandler.WithOTCOfferReader(otcOfferRepo, optionCurrencyResolver)
+
+	// Phase 6 refresher: now that otcOfferRepo and ownRouting exist,
+	// start the OPTION cache refresher that polls every active peer's
+	// GET /api/v3/public-option-offers every 5 s.
+	optionRefresher := otccache.NewOptionRefresher(
+		optionOfferCache, otcOfferRepo, optionCurrencyResolver,
+		peerBankAdminClient, cfg.OwnBankCode, ownRouting, 5*time.Second,
+	)
+	go optionRefresher.Run(ctx)
 
 	// OTC expiry cron (daily). Covers intra-bank option_contracts and
 	// — via WithPeerContracts — cross-bank peer_option_contracts.
@@ -728,7 +749,7 @@ func main() {
 			pb.RegisterSecurityGRPCServiceServer(s, handler.NewSecurityHandler(secSvc, listingSvc, candleSvc, listingRepo))
 			pb.RegisterOrderGRPCServiceServer(s, handler.NewOrderHandler(orderSvc, execEngine))
 			pb.RegisterPortfolioGRPCServiceServer(s, handler.NewPortfolioHandler(portfolioSvc, taxSvc))
-			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandlerWithCache(otcSvc, otcOfferCache))
+			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandlerWithCache(otcSvc, otcOfferCache).WithOptionCache(optionOfferCache))
 			pb.RegisterTaxGRPCServiceServer(s, handler.NewTaxHandler(taxSvc))
 			pb.RegisterInvestmentFundServiceServer(s, fundHandler)
 			pb.RegisterOTCOptionsServiceServer(s, otcOptionsHandler)
