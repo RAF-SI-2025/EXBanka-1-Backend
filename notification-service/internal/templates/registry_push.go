@@ -116,6 +116,25 @@ var pushDefs = []Definition{
 		DefaultBody:    "Your OTC offer on {{ticker}} has expired.",
 	},
 	{
+		Type: "OTC_OFFER_CANCELLED", Channel: "push",
+		Description: "The other party cancelled an OTC negotiation chain you were in.",
+		Variables: []Variable{
+			{"ticker", "Underlying ticker", "AAPL"},
+		},
+		DefaultSubject: "OTC offer cancelled",
+		DefaultBody:    "Your OTC negotiation on {{ticker}} was cancelled by the other party.",
+	},
+	{
+		Type: "OTC_OFFER_CASCADE_CANCELLED", Channel: "push",
+		Description: "Your bid was cancelled because the seller accepted a competing bid on the same listing.",
+		Variables: []Variable{
+			{"ticker", "Underlying ticker", "AAPL"},
+			{"accepted_premium", "Premium that won the listing", "45.00"},
+		},
+		DefaultSubject: "OTC bid cancelled — competitor won",
+		DefaultBody:    "Your bid on {{ticker}} was cancelled because the seller accepted a competing offer at premium {{accepted_premium}}.",
+	},
+	{
 		Type: "OTC_CONTRACT_CREATED", Channel: "push",
 		Description: "An OTC offer was accepted and a contract was created.",
 		Variables: []Variable{

@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
+	contractkafka "github.com/exbanka/contract/kafka"
 	contractsitx "github.com/exbanka/contract/sitx"
 	stockpb "github.com/exbanka/contract/stockpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
@@ -21,6 +22,14 @@ import (
 	"github.com/exbanka/stock-service/internal/repository"
 	"github.com/exbanka/stock-service/internal/service"
 )
+
+// PeerNotifier is the producer dependency for cross-bank inbound
+// notification intents. Each bank notifies ONLY its own local users
+// — the SI-TX protocol propagates state changes between banks, and
+// each side's handler emits its own notification independently.
+type PeerNotifier interface {
+	PublishGeneralNotification(ctx context.Context, msg contractkafka.GeneralNotificationMessage) error
+}
 
 // HoldingReader is the subset of HoldingRepository methods that
 // PeerOTCGRPCHandler needs. Decoupled for testability.
@@ -83,6 +92,86 @@ type PeerOTCGRPCHandler struct {
 	// Unimplemented instead of nil-deref.
 	otcOffers         OTCOfferReader
 	otcOptionCurrency OptionCurrencyResolver
+
+	// Optional in-app notification producer. nil ⇒ silent (legacy mode).
+	notifier PeerNotifier
+
+	// Optional best-bid / best-ask aggregator (Part A 2026-05-16).
+	// nil ⇒ peer-facing rows omit the new fields (wire-compatible
+	// with peers that don't expect them).
+	bidsAgg AggregateBidsFn
+}
+
+// WithBidsAggregator wires the best-bid aggregator used by
+// GetPublicOptionOffers. Returns the handler for chaining.
+func (h *PeerOTCGRPCHandler) WithBidsAggregator(fn AggregateBidsFn) *PeerOTCGRPCHandler {
+	h.bidsAgg = fn
+	return h
+}
+
+// WithNotifier wires the in-app notification producer. Returns the
+// handler for chaining.
+func (h *PeerOTCGRPCHandler) WithNotifier(n PeerNotifier) *PeerOTCGRPCHandler {
+	h.notifier = n
+	return h
+}
+
+// localClientUserID resolves "client-N" → N when the row's matching
+// routing number is this bank's. Returns (0, false) when:
+//   - the row is for the other bank's user (no local notification)
+//   - the participant id isn't a plain "client-N" string (employee,
+//     bank, malformed)
+//
+// Used by the inbound peer handlers to determine whether to publish
+// a notification, and to whom.
+func (h *PeerOTCGRPCHandler) localClientUserID(routing int64, participantID string) (uint64, bool) {
+	if routing != h.ownRouting {
+		return 0, false
+	}
+	const prefix = "client-"
+	if !strings.HasPrefix(participantID, prefix) {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(participantID[len(prefix):], 10, 64)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	return id, true
+}
+
+// publishPeerNotif is best-effort. Logs a warning on failure. Skips
+// when the notifier isn't wired or the recipient resolution failed.
+func (h *PeerOTCGRPCHandler) publishPeerNotif(
+	ctx context.Context,
+	userID uint64,
+	notifType string,
+	data map[string]string,
+	refType string,
+	refID uint64,
+) {
+	if h.notifier == nil || userID == 0 {
+		return
+	}
+	if err := h.notifier.PublishGeneralNotification(ctx, contractkafka.GeneralNotificationMessage{
+		UserID:  userID,
+		Type:    notifType,
+		Data:    data,
+		RefType: refType,
+		RefID:   refID,
+	}); err != nil {
+		log.Printf("WARN: peer otc notif %s for user %d failed: %v", notifType, userID, err)
+	}
+}
+
+// notifDataFromOffer extracts the ticker/strike/premium fields from
+// a decoded sitx.OtcOffer, defensive against partially-populated rows.
+func notifDataFromOffer(offer contractsitx.OtcOffer) map[string]string {
+	return map[string]string{
+		"ticker":       offer.Ticker,
+		"quantity":     strconv.FormatInt(offer.Amount, 10),
+		"strike_price": offer.PricePerStock.String(),
+		"premium":      offer.Premium.String(),
+	}
 }
 
 // OTCOfferReader is the narrow interface the peer endpoint uses to
@@ -98,6 +187,21 @@ type OTCOfferReader interface {
 type OptionCurrencyResolver interface {
 	CurrencyForStock(stockID uint64) (string, error)
 }
+
+// PeerOfferAggregate is the handler-local projection used by
+// GetPublicOptionOffers when populating the per-row best_bid /
+// best_ask / active_chains_count surface.
+type PeerOfferAggregate struct {
+	BestBid     string
+	BestAsk     string
+	ActiveCount int32
+}
+
+// AggregateBidsFn is the narrow dependency GetPublicOptionOffers uses
+// to enrich each row. nil ⇒ those fields stay empty (older-bank-compat).
+// Wired in cmd/main.go as a thin adapter over the repository's typed
+// AggregateActiveBidsByOffer return.
+type AggregateBidsFn func(offerIDs []uint64) (map[uint64]PeerOfferAggregate, error)
 
 func NewPeerOTCGRPCHandler(
 	negRepo *repository.PeerOtcNegotiationRepository,
@@ -154,6 +258,21 @@ func (h *PeerOTCGRPCHandler) GetPublicOptionOffers(ctx context.Context, req *sto
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list open option offers: %v", err)
 	}
+	// Aggregate best-bid / best-ask once for every row in this call
+	// (Part A 2026-05-16). Best-effort: a failed aggregation degrades
+	// to omitting the fields, not failing the peer endpoint.
+	var aggregates map[uint64]PeerOfferAggregate
+	if h.bidsAgg != nil && len(rows) > 0 {
+		ids := make([]uint64, 0, len(rows))
+		for i := range rows {
+			ids = append(ids, rows[i].ID)
+		}
+		if got, aggErr := h.bidsAgg(ids); aggErr != nil {
+			log.Printf("WARN: peer GetPublicOptionOffers: aggregate active bids failed (omitting fields): %v", aggErr)
+		} else {
+			aggregates = got
+		}
+	}
 	caller := req.GetPeerBankCode()
 	out := make([]*stockpb.PeerPublicOptionOffer, 0, len(rows))
 	for i := range rows {
@@ -172,7 +291,7 @@ func (h *PeerOTCGRPCHandler) GetPublicOptionOffers(ctx context.Context, req *sto
 				currency = c
 			}
 		}
-		out = append(out, &stockpb.PeerPublicOptionOffer{
+		row := &stockpb.PeerPublicOptionOffer{
 			OfferId: &stockpb.PeerForeignBankId{
 				RoutingNumber: h.ownRouting,
 				Id:            strconv.FormatUint(o.ID, 10),
@@ -194,7 +313,17 @@ func (h *PeerOTCGRPCHandler) GetPublicOptionOffers(ctx context.Context, req *sto
 				RoutingNumber: h.ownRouting,
 				Id:            sellerID,
 			},
-		})
+		}
+		if agg, ok := aggregates[o.ID]; ok {
+			row.ActiveChainsCount = agg.ActiveCount
+			switch o.Direction {
+			case "buy_initiated":
+				row.BestAsk = agg.BestAsk
+			default:
+				row.BestBid = agg.BestBid
+			}
+		}
+		out = append(out, row)
 	}
 	return &stockpb.GetPublicOptionOffersResponse{Offers: out}, nil
 }
@@ -286,6 +415,14 @@ func (h *PeerOTCGRPCHandler) CreateNegotiation(ctx context.Context, req *stockpb
 	if err := h.negRepo.Create(neg); err != nil {
 		return nil, status.Errorf(codes.Internal, "create: %v", err)
 	}
+	// Inbound bid from a peer → notify our local seller (if the seller
+	// side is local). Best-effort, after-commit.
+	if uid, ok := h.localClientUserID(neg.SellerRoutingNumber, neg.SellerID); ok {
+		h.publishPeerNotif(ctx, uid, "OTC_OFFER_RECEIVED",
+			notifDataFromOffer(protoToOffer(req.GetOffer())),
+			"otc_negotiation", neg.ID,
+		)
+	}
 	return &stockpb.CreateNegotiationResponse{
 		NegotiationId: &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: foreignID},
 	}, nil
@@ -301,6 +438,35 @@ func (h *PeerOTCGRPCHandler) UpdateNegotiation(ctx context.Context, req *stockpb
 	}
 	if err := h.negRepo.UpdateOffer(req.GetPeerBankCode(), req.GetNegotiationId().GetId(), string(offerJSON)); err != nil {
 		return nil, status.Errorf(codes.Internal, "update: %v", err)
+	}
+	// Inbound counter — the peer that posted carries lastModifiedBy
+	// on the offer. The OTHER party in our local row is the recipient.
+	if h.notifier != nil {
+		row, gerr := h.negRepo.GetByPeerAndID(req.GetPeerBankCode(), req.GetNegotiationId().GetId())
+		if gerr == nil {
+			actorRouting := req.GetOffer().GetLastModifiedBy().GetRoutingNumber()
+			actorID := req.GetOffer().GetLastModifiedBy().GetId()
+			// Identify the local party that is NOT the actor.
+			var localUID uint64
+			if row.BuyerRoutingNumber == h.ownRouting &&
+				!(row.BuyerRoutingNumber == actorRouting && row.BuyerID == actorID) {
+				if uid, ok := h.localClientUserID(row.BuyerRoutingNumber, row.BuyerID); ok {
+					localUID = uid
+				}
+			}
+			if localUID == 0 && row.SellerRoutingNumber == h.ownRouting &&
+				!(row.SellerRoutingNumber == actorRouting && row.SellerID == actorID) {
+				if uid, ok := h.localClientUserID(row.SellerRoutingNumber, row.SellerID); ok {
+					localUID = uid
+				}
+			}
+			if localUID != 0 {
+				h.publishPeerNotif(ctx, localUID, "OTC_OFFER_COUNTERED",
+					notifDataFromOffer(protoToOffer(req.GetOffer())),
+					"otc_negotiation", row.ID,
+				)
+			}
+		}
 	}
 	return &stockpb.UpdateNegotiationResponse{}, nil
 }
@@ -332,12 +498,42 @@ func (h *PeerOTCGRPCHandler) DeleteNegotiation(ctx context.Context, req *stockpb
 	if req.GetNegotiationId() == nil {
 		return nil, status.Error(codes.InvalidArgument, "negotiation_id required")
 	}
-	// SI-TX §3.5: "DELETE … sets isOngoing to false". The negotiation row
-	// is preserved so a subsequent GET still returns OtcNegotiation with
-	// isOngoing=false instead of 404. Status="cancelled" maps to
-	// isOngoing=false in the gateway's GET handler.
+	// Load BEFORE the status flip so we can distinguish caller-driven
+	// cancel (ParentOfferID nil — free-form chain) from cascade-cancel
+	// (ParentOfferID set — discovered chain whose seller accepted a
+	// competing bid). Only used for the notification choice; the row
+	// state change is identical either way.
+	row, gerr := h.negRepo.GetByPeerAndID(req.GetPeerBankCode(), req.GetNegotiationId().GetId())
+
 	if err := h.negRepo.UpdateStatus(req.GetPeerBankCode(), req.GetNegotiationId().GetId(), "cancelled"); err != nil {
 		return nil, status.Errorf(codes.Internal, "cancel: %v", err)
+	}
+	if gerr == nil && row != nil && h.notifier != nil {
+		notifType := "OTC_OFFER_CANCELLED"
+		data := map[string]string{}
+		// Cascade heuristic: a discovered-group chain DELETEd by the
+		// seller side means the cascade fired (the seller would have
+		// accepted a competing bid). Free-form chains (no parent)
+		// can't be cascade victims, so they're plain cancels.
+		if row.ParentOfferRouting != nil && row.ParentOfferID != nil && *row.ParentOfferID != "" {
+			notifType = "OTC_OFFER_CASCADE_CANCELLED"
+			var offer contractsitx.OtcOffer
+			_ = json.Unmarshal([]byte(row.OfferJSON), &offer)
+			data["ticker"] = offer.Ticker
+			data["accepted_premium"] = offer.Premium.String()
+		} else {
+			var offer contractsitx.OtcOffer
+			_ = json.Unmarshal([]byte(row.OfferJSON), &offer)
+			data["ticker"] = offer.Ticker
+		}
+		// Recipient: the LOCAL party in this row (whichever side has
+		// own_routing). For caller-driven cancels the caller is the
+		// other bank's user, so the local party is the recipient.
+		if uid, ok := h.localClientUserID(row.BuyerRoutingNumber, row.BuyerID); ok {
+			h.publishPeerNotif(ctx, uid, notifType, data, "otc_negotiation", row.ID)
+		} else if uid, ok := h.localClientUserID(row.SellerRoutingNumber, row.SellerID); ok {
+			h.publishPeerNotif(ctx, uid, notifType, data, "otc_negotiation", row.ID)
+		}
 	}
 	return &stockpb.DeleteNegotiationResponse{}, nil
 }
@@ -397,9 +593,22 @@ func (h *PeerOTCGRPCHandler) CascadeCancelSiblings(ctx context.Context, req *sto
 				sib.PeerBankCode, sib.ForeignID, uerr)
 			continue
 		}
+		// Project the cancelled row into the same wire shape the FE
+		// already renders for /me/peer-otc/negotiations list rows so
+		// the cross-bank accept response matches the local one. Best-
+		// effort: a failed OfferJSON decode still yields a valid row
+		// (id-only) — FE just won't have the offer terms for that one.
+		var offer contractsitx.OtcOffer
+		_ = json.Unmarshal([]byte(sib.OfferJSON), &offer)
 		out = append(out, &stockpb.CascadedSibling{
 			PeerBankCode: sib.PeerBankCode,
 			ForeignId:    sib.ForeignID,
+			BuyerId:      &stockpb.PeerForeignBankId{RoutingNumber: sib.BuyerRoutingNumber, Id: sib.BuyerID},
+			SellerId:     &stockpb.PeerForeignBankId{RoutingNumber: sib.SellerRoutingNumber, Id: sib.SellerID},
+			Offer:        offerToProto(offer),
+			Status:       "cancelled",
+			Role:         "seller", // cascade fires on accept — caller is always the seller
+			UpdatedAt:    sib.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		})
 	}
 	return &stockpb.CascadeCancelSiblingsResponse{Siblings: out}, nil
@@ -479,6 +688,23 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 		// Background sweep can reconcile.
 		log.Printf("WARN: peer-otc accept status update failed for %s/%s: %v",
 			req.GetPeerBankCode(), req.GetNegotiationId().GetId(), uerr)
+	}
+
+	// Seller-side notification: this bank is the SELLER's bank (the
+	// inbound /accept lands here because the buyer's bank POSTed). The
+	// local user is the seller. The buyer's bank emits its own
+	// OTC_CONTRACT_CREATED notification independently when it processes
+	// the SI-TX postings on its side.
+	if uid, ok := h.localClientUserID(row.SellerRoutingNumber, row.SellerID); ok {
+		h.publishPeerNotif(ctx, uid, "OTC_CONTRACT_CREATED",
+			map[string]string{
+				"ticker":       offer.Ticker,
+				"quantity":     strconv.FormatInt(offer.Amount, 10),
+				"strike_price": offer.PricePerStock.String(),
+				"premium_paid": offer.Premium.String(),
+			},
+			"otc_negotiation", row.ID,
+		)
 	}
 
 	return &stockpb.AcceptNegotiationResponse{

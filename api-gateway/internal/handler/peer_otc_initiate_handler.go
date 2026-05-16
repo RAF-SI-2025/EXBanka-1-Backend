@@ -535,6 +535,7 @@ func (h *PeerOTCInitiateHandler) AcceptPeerNegotiation(c *gin.Context) {
 	// /me/peer-otc/negotiations list reflects the terminal state
 	// immediately. The counterparty's row was already flipped by its
 	// AcceptNegotiation peer handler when the SI-TX dispatched.
+	var cancelledSiblings []*stockpb.CascadedSibling
 	if h.peerOTC != nil && code >= 200 && code < 300 {
 		_, _ = h.peerOTC.MarkNegotiationAccepted(c.Request.Context(), &stockpb.MarkNegotiationAcceptedRequest{
 			PeerBankCode:  peerBankCode,
@@ -551,7 +552,8 @@ func (h *PeerOTCInitiateHandler) AcceptPeerNegotiation(c *gin.Context) {
 			PeerBankCode: peerBankCode,
 			ForeignId:    foreignID,
 		}); cerr == nil && cresp != nil {
-			for _, sib := range cresp.GetSiblings() {
+			cancelledSiblings = cresp.GetSiblings()
+			for _, sib := range cancelledSiblings {
 				// proxyPeerNegotiation expects rid as the routing of
 				// the bank that ISSUED the foreign_id — that's the
 				// SIBLING's PeerBankCode from our perspective (the
@@ -561,7 +563,19 @@ func (h *PeerOTCInitiateHandler) AcceptPeerNegotiation(c *gin.Context) {
 			}
 		}
 	}
-	c.Data(code, "application/json", respBody)
+
+	// Compose a response that mirrors the intra-bank accept shape
+	// (winning + parent_offer_id + parent_status + cancelled_siblings
+	// + contract): the business logic is different, the presentation
+	// is the same. The peer's /accept body is { transactionId,
+	// status } — we splat those keys in alongside cancelled_siblings
+	// so a single FE component handles both flows.
+	var peerBody map[string]any
+	if perr := json.Unmarshal(respBody, &peerBody); perr != nil || peerBody == nil {
+		peerBody = map[string]any{}
+	}
+	peerBody["cancelled_siblings"] = cancelledSiblings
+	c.JSON(code, peerBody)
 }
 
 // CancelPeerNegotiation godoc

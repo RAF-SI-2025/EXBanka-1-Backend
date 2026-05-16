@@ -6,11 +6,23 @@ package repository
 import (
 	"errors"
 
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/exbanka/stock-service/internal/model"
 )
+
+// ChainAggregate is the per-parent active-chain summary that powers
+// the marketplace listing's best-bid / best-ask surface. The caller
+// picks BestBid for sell_initiated parents (buyers compete upward) or
+// BestAsk for buy_initiated parents (sellers compete downward); both
+// are computed in one query so the caller doesn't dispatch twice.
+type ChainAggregate struct {
+	BestBid     decimal.Decimal
+	BestAsk     decimal.Decimal
+	ActiveCount int32
+}
 
 type OTCNegotiationRepository struct {
 	db *gorm.DB
@@ -204,4 +216,43 @@ func (r *OTCNegotiationRepository) NextRevisionNumber(tx *gorm.DB, negotiationID
 		return 0, err
 	}
 	return current + 1, nil
+}
+
+// AggregateActiveBidsByOffer summarises every parent's active-chain
+// pricing for the marketplace best-bid / best-ask surface. One query,
+// GROUP BY parent_offer_id, filters status IN ('open','countered').
+// Parents with zero active chains are absent from the result map (NOT
+// keyed with zero values) so the caller can distinguish "no
+// competition" from "competition at zero". Empty input ⇒ empty map.
+func (r *OTCNegotiationRepository) AggregateActiveBidsByOffer(offerIDs []uint64) (map[uint64]ChainAggregate, error) {
+	out := map[uint64]ChainAggregate{}
+	if len(offerIDs) == 0 {
+		return out, nil
+	}
+	type row struct {
+		ParentOfferID uint64
+		BestBid       decimal.Decimal
+		BestAsk       decimal.Decimal
+		ActiveCount   int32
+	}
+	var rows []row
+	err := r.db.Model(&model.OTCNegotiation{}).
+		Select("parent_offer_id, MAX(premium) AS best_bid, MIN(premium) AS best_ask, COUNT(*) AS active_count").
+		Where("parent_offer_id IN ? AND status IN ?", offerIDs, []string{
+			model.OTCNegotiationStatusOpen,
+			model.OTCNegotiationStatusCountered,
+		}).
+		Group("parent_offer_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.ParentOfferID] = ChainAggregate{
+			BestBid:     r.BestBid,
+			BestAsk:     r.BestAsk,
+			ActiveCount: r.ActiveCount,
+		}
+	}
+	return out, nil
 }

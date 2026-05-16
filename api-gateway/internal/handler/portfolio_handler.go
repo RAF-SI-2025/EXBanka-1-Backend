@@ -314,7 +314,7 @@ func (h *PortfolioHandler) ListOTCOptions(c *gin.Context) {
 	}
 	offers := make([]gin.H, 0, len(resp.GetOffers()))
 	for _, o := range resp.GetOffers() {
-		offers = append(offers, gin.H{
+		row := gin.H{
 			"kind":             o.GetKind(),
 			"bank_code":        o.GetBankCode(),
 			"routing_number":   o.GetRoutingNumber(),
@@ -330,7 +330,20 @@ func (h *PortfolioHandler) ListOTCOptions(c *gin.Context) {
 			"premium_currency": o.GetPremiumCurrency(),
 			"settlement_date":  o.GetSettlementDate(),
 			"created_at":       o.GetCreatedAt(),
-		})
+		}
+		// Part A 2026-05-16 best-bid/best-ask surface. Empty strings
+		// ⇒ no active competition (or remote peer doesn't publish).
+		// FE renders "—" in that case.
+		if o.GetBestBid() != "" {
+			row["best_bid"] = o.GetBestBid()
+		}
+		if o.GetBestAsk() != "" {
+			row["best_ask"] = o.GetBestAsk()
+		}
+		if o.GetActiveChainsCount() > 0 {
+			row["active_chains_count"] = o.GetActiveChainsCount()
+		}
+		offers = append(offers, row)
 	}
 	var lastRefresh string
 	if u := resp.GetLastRefreshUnix(); u > 0 {

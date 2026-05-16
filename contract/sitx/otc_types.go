@@ -118,4 +118,13 @@ type PublicOptionOffer struct {
 	Direction       string          `json:"direction"` // "sell_initiated" | "buy_initiated"
 	CreatedAt       string          `json:"createdAt"`
 	LastModifiedBy  ForeignBankId   `json:"lastModifiedBy"`
+
+	// Best-bid / best-ask surface (Part A 2026-05-16). STRICTLY
+	// OPTIONAL — peers that don't upgrade omit these fields and the
+	// JSON unmarshaller leaves them as zero values, which we treat
+	// as "not reported" in the cache projection. Publishers populate
+	// from their local OTCNegotiationRepository.AggregateActiveBidsByOffer.
+	BestBid           string `json:"bestBid,omitempty"`
+	BestAsk           string `json:"bestAsk,omitempty"`
+	ActiveChainsCount int32  `json:"activeChainsCount,omitempty"`
 }

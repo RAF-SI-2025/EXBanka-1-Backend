@@ -49,7 +49,31 @@ type OptionOffer struct {
 	PremiumCurrency string
 	SettlementDate  string // RFC3339 UTC
 	CreatedAt       string // RFC3339 UTC
+
+	// Best-bid / best-ask aggregation (Part A 2026-05-16). Empty
+	// strings ⇒ no active chains OR a remote peer that doesn't
+	// publish these fields. ActiveChainsCount == 0 carries the same
+	// meaning. FE renders "—" in that case.
+	BestBid           string
+	BestAsk           string
+	ActiveChainsCount int32
 }
+
+// OfferAggregate is otccache's local projection of the
+// best-bid / best-ask / active-count surface for one parent listing.
+// The wiring code in cmd/main.go adapts the repository's typed result
+// into this string-shape so otccache stays decoupled from repository.
+type OfferAggregate struct {
+	BestBid     string
+	BestAsk     string
+	ActiveCount int32
+}
+
+// AggregateActiveBidsFn is the narrow dependency the local-fetch path
+// uses. Pass nil to disable enrichment (legacy mode — fields stay
+// empty). Implemented in cmd/main.go as a thin adapter over
+// *repository.OTCNegotiationRepository.AggregateActiveBidsByOffer.
+type AggregateActiveBidsFn func(offerIDs []uint64) (map[uint64]OfferAggregate, error)
 
 type OptionSnapshot struct {
 	Offers       []OptionOffer
@@ -119,6 +143,10 @@ type OptionRefresher struct {
 	ownBankCode string
 	ownRouting  int64
 	interval    time.Duration
+	// aggregateBids is optional. When non-nil, the local-fetch path
+	// enriches each row with best_bid/best_ask/active_chains_count.
+	// nil ⇒ rows stay empty in those fields (legacy mode).
+	aggregateBids AggregateActiveBidsFn
 }
 
 func NewOptionRefresher(
@@ -140,6 +168,13 @@ func NewOptionRefresher(
 		ownRouting:  ownRouting,
 		interval:    interval,
 	}
+}
+
+// WithAggregateBids wires the best-bid aggregation dependency. Returns
+// the refresher so callers can chain.
+func (r *OptionRefresher) WithAggregateBids(fn AggregateActiveBidsFn) *OptionRefresher {
+	r.aggregateBids = fn
+	return r
 }
 
 // Run blocks until ctx is cancelled. Initial refresh on start, then
@@ -213,11 +248,26 @@ func (r *OptionRefresher) fetchLocal() ([]OptionOffer, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Bulk-aggregate active chain pricing for every local row in one
+	// query (Part A 2026-05-16). Best-effort: aggregation errors fall
+	// back to empty fields rather than failing the whole refresh.
+	var aggregates map[uint64]OfferAggregate
+	if r.aggregateBids != nil && len(rows) > 0 {
+		ids := make([]uint64, 0, len(rows))
+		for i := range rows {
+			ids = append(ids, rows[i].ID)
+		}
+		if got, aggErr := r.aggregateBids(ids); aggErr != nil {
+			log.Printf("otccache(options): aggregate active bids failed (continuing without enrichment): %v", aggErr)
+		} else {
+			aggregates = got
+		}
+	}
 	out := make([]OptionOffer, 0, len(rows))
 	for i := range rows {
 		o := &rows[i]
 		currency := r.resolveCurrency(o.StockID)
-		out = append(out, OptionOffer{
+		row := OptionOffer{
 			Kind:            "local",
 			BankCode:        r.ownBankCode,
 			RoutingNumber:   r.ownRouting,
@@ -233,7 +283,21 @@ func (r *OptionRefresher) fetchLocal() ([]OptionOffer, error) {
 			PremiumCurrency: currency,
 			SettlementDate:  o.SettlementDate.UTC().Format(time.RFC3339),
 			CreatedAt:       o.CreatedAt.UTC().Format(time.RFC3339),
-		})
+		}
+		// Pick the side relevant to the parent's direction. A buyer-
+		// posted listing (buy_initiated) has sellers bidding their ask
+		// downward → expose best_ask; a seller-posted listing has
+		// buyers bidding their premium upward → expose best_bid.
+		if agg, ok := aggregates[o.ID]; ok {
+			row.ActiveChainsCount = agg.ActiveCount
+			switch o.Direction {
+			case "buy_initiated":
+				row.BestAsk = agg.BestAsk
+			default:
+				row.BestBid = agg.BestBid
+			}
+		}
+		out = append(out, row)
 	}
 	return out, nil
 }
@@ -271,20 +335,23 @@ func (r *OptionRefresher) fetchPeer(ctx context.Context, peer *transactionpb.Pee
 	out := make([]OptionOffer, 0, len(resp.Offers))
 	for _, o := range resp.Offers {
 		out = append(out, OptionOffer{
-			Kind:            "remote",
-			BankCode:        peer.GetBankCode(),
-			RoutingNumber:   o.OfferID.RoutingNumber,
-			OfferID:         o.OfferID.ID,
-			SellerID:        o.SellerID.ID,
-			Direction:       o.Direction,
-			Ticker:          o.Ticker,
-			Amount:          o.Amount,
-			StrikePrice:     o.StrikePrice.String(),
-			StrikeCurrency:  o.StrikeCurrency,
-			Premium:         o.Premium.String(),
-			PremiumCurrency: o.PremiumCurrency,
-			SettlementDate:  o.SettlementDate,
-			CreatedAt:       o.CreatedAt,
+			Kind:              "remote",
+			BankCode:          peer.GetBankCode(),
+			RoutingNumber:     o.OfferID.RoutingNumber,
+			OfferID:           o.OfferID.ID,
+			SellerID:          o.SellerID.ID,
+			Direction:         o.Direction,
+			Ticker:            o.Ticker,
+			Amount:            o.Amount,
+			StrikePrice:       o.StrikePrice.String(),
+			StrikeCurrency:    o.StrikeCurrency,
+			Premium:           o.Premium.String(),
+			PremiumCurrency:   o.PremiumCurrency,
+			SettlementDate:    o.SettlementDate,
+			CreatedAt:         o.CreatedAt,
+			BestBid:           o.BestBid,           // empty when peer doesn't publish
+			BestAsk:           o.BestAsk,           // empty when peer doesn't publish
+			ActiveChainsCount: o.ActiveChainsCount, // 0 when peer doesn't publish
 		})
 	}
 	return out, nil

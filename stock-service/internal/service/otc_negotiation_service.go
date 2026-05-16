@@ -20,14 +20,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 
+	contractkafka "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
+
+// OTCNotifier is the narrow producer dependency for the in-app
+// notification intents (notification.general). Optional — when nil,
+// the service runs without emitting notifications (matches the legacy
+// behaviour and keeps the test surface small).
+type OTCNotifier interface {
+	PublishGeneralNotification(ctx context.Context, msg contractkafka.GeneralNotificationMessage) error
+}
 
 // ---------- Inputs ----------
 
@@ -142,6 +152,9 @@ type OTCNegotiationService struct {
 	// the legacy state-only behaviour (negotiation flips to accepted,
 	// no contract minted). cmd/main.go wires it via WithContractFormer.
 	former ContractFormer
+	// notifier is optional — when nil, no in-app notifications fire.
+	// cmd/main.go wires it via WithNotifier.
+	notifier OTCNotifier
 }
 
 func NewOTCNegotiationService(
@@ -164,6 +177,58 @@ func (s *OTCNegotiationService) WithContractFormer(f ContractFormer) *OTCNegotia
 	return &cp
 }
 
+// WithNotifier wires the in-app notification producer. Returns a copy
+// so wiring chains. nil ⇒ notifications disabled (legacy mode).
+func (s *OTCNegotiationService) WithNotifier(n OTCNotifier) *OTCNegotiationService {
+	cp := *s
+	cp.notifier = n
+	return &cp
+}
+
+// publishNotif is a best-effort notification publisher. Skips bank
+// recipients (no per-bank inbox) and nil-id rows defensively. Always
+// returns nil-equivalent — a failed publish must NEVER fail the
+// business action (CLAUDE.md Kafka rule).
+func (s *OTCNegotiationService) publishNotif(
+	ctx context.Context,
+	recipientType model.OwnerType,
+	recipientID *uint64,
+	notifType string,
+	data map[string]string,
+	refType string,
+	refID uint64,
+) {
+	if s.notifier == nil {
+		return
+	}
+	if recipientType != model.OwnerClient || recipientID == nil {
+		return
+	}
+	if err := s.notifier.PublishGeneralNotification(ctx, contractkafka.GeneralNotificationMessage{
+		UserID:  *recipientID,
+		Type:    notifType,
+		Data:    data,
+		RefType: refType,
+		RefID:   refID,
+	}); err != nil {
+		log.Printf("WARN: otc notif %s for user %d failed: %v", notifType, *recipientID, err)
+	}
+}
+
+// otherParty returns the (type, id) of whoever in the chain is NOT the
+// caller. Used for Counter/Reject — the recipient is always the side
+// that didn't act.
+func otherParty(
+	negBidderType model.OwnerType, negBidderID *uint64,
+	parentInitType model.OwnerType, parentInitID *uint64,
+	callerType model.OwnerType, callerID *uint64,
+) (model.OwnerType, *uint64) {
+	if ownerMatches(negBidderType, negBidderID, callerType, callerID) {
+		return parentInitType, parentInitID
+	}
+	return negBidderType, negBidderID
+}
+
 // OpenNegotiation starts a fresh chain on a parent listing. Enforces:
 //   - parent exists + is open (legacy PENDING/COUNTERED count as open)
 //   - bidder is not the parent's poster (no self-trade)
@@ -172,6 +237,7 @@ func (s *OTCNegotiationService) WithContractFormer(f ContractFormer) *OTCNegotia
 // Inserts the OTCNegotiation row + the initial BID revision in one TX.
 func (s *OTCNegotiationService) OpenNegotiation(ctx context.Context, in OpenNegotiationInput) (*model.OTCNegotiation, error) {
 	var created *model.OTCNegotiation
+	var parentSnapshot *model.OTCOffer
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		parent, err := s.offerRepo.LockByIDTx(tx, in.ParentOfferID)
 		if err != nil {
@@ -235,11 +301,25 @@ func (s *OTCNegotiationService) OpenNegotiation(ctx context.Context, in OpenNego
 			return err
 		}
 		created = neg
+		parentSnapshot = parent
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	// Notify the listing's poster that a new bid landed. Best-effort,
+	// after-commit (CLAUDE.md Kafka rule).
+	s.publishNotif(ctx,
+		parentSnapshot.InitiatorOwnerType, parentSnapshot.InitiatorOwnerID,
+		"OTC_OFFER_RECEIVED",
+		map[string]string{
+			"ticker":       parentSnapshot.Ticker,
+			"quantity":     created.Quantity.String(),
+			"strike_price": created.StrikePrice.String(),
+			"premium":      created.Premium.String(),
+		},
+		"otc_negotiation", created.ID,
+	)
 	return created, nil
 }
 
@@ -248,6 +328,7 @@ func (s *OTCNegotiationService) OpenNegotiation(ctx context.Context, in OpenNego
 // snapshot terms to the new proposal and flips status to "countered".
 func (s *OTCNegotiationService) CounterNegotiation(ctx context.Context, in CounterNegotiationInput) (*model.OTCNegotiation, error) {
 	var updated *model.OTCNegotiation
+	var parentSnapshot *model.OTCOffer
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		neg, err := s.negRepo.LockByID(tx, in.NegotiationID)
 		if err != nil {
@@ -308,11 +389,27 @@ func (s *OTCNegotiationService) CounterNegotiation(ctx context.Context, in Count
 			return err
 		}
 		updated = neg
+		parentSnapshot = parent
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	// Notify the OTHER party in the chain — the side that didn't act.
+	otherType, otherID := otherParty(
+		updated.BidderOwnerType, updated.BidderOwnerID,
+		parentSnapshot.InitiatorOwnerType, parentSnapshot.InitiatorOwnerID,
+		in.CallerOwnerType, in.CallerOwnerID,
+	)
+	s.publishNotif(ctx, otherType, otherID, "OTC_OFFER_COUNTERED",
+		map[string]string{
+			"ticker":       parentSnapshot.Ticker,
+			"quantity":     updated.Quantity.String(),
+			"strike_price": updated.StrikePrice.String(),
+			"premium":      updated.Premium.String(),
+		},
+		"otc_negotiation", updated.ID,
+	)
 	return updated, nil
 }
 
@@ -474,6 +571,46 @@ func (s *OTCNegotiationService) AcceptNegotiation(ctx context.Context, in Accept
 		return nil, fmt.Errorf("mint contract: %w", mintErr)
 	}
 	result.Contract = contract
+	// Notify each cancelled sibling's bidder that their chain lost to
+	// a competing accept. accepted_premium = the winning premium so
+	// the bidder sees the going rate.
+	acceptedPremium := result.WinningNegotiation.Premium.String()
+	for i := range result.CancelledSiblings {
+		sib := &result.CancelledSiblings[i]
+		s.publishNotif(ctx,
+			sib.BidderOwnerType, sib.BidderOwnerID,
+			"OTC_OFFER_CASCADE_CANCELLED",
+			map[string]string{
+				"ticker":           result.ParentOffer.Ticker,
+				"accepted_premium": acceptedPremium,
+			},
+			"otc_negotiation", sib.ID,
+		)
+	}
+	// OTC_CONTRACT_CREATED for both parties — the contract entity
+	// now exists and the premium has moved.
+	s.publishNotif(ctx,
+		result.WinningNegotiation.BidderOwnerType, result.WinningNegotiation.BidderOwnerID,
+		"OTC_CONTRACT_CREATED",
+		map[string]string{
+			"ticker":       result.ParentOffer.Ticker,
+			"quantity":     result.WinningNegotiation.Quantity.String(),
+			"strike_price": result.WinningNegotiation.StrikePrice.String(),
+			"premium_paid": acceptedPremium,
+		},
+		"otc_contract", contract.ID,
+	)
+	s.publishNotif(ctx,
+		result.ParentOffer.InitiatorOwnerType, result.ParentOffer.InitiatorOwnerID,
+		"OTC_CONTRACT_CREATED",
+		map[string]string{
+			"ticker":       result.ParentOffer.Ticker,
+			"quantity":     result.WinningNegotiation.Quantity.String(),
+			"strike_price": result.WinningNegotiation.StrikePrice.String(),
+			"premium_paid": acceptedPremium,
+		},
+		"otc_contract", contract.ID,
+	)
 	return result, nil
 }
 
@@ -499,6 +636,7 @@ func (s *OTCNegotiationService) markNegotiationFailed(ctx context.Context, negID
 // stays open — other chains (if any) continue.
 func (s *OTCNegotiationService) RejectNegotiation(ctx context.Context, in RejectNegotiationInput) (*model.OTCNegotiation, error) {
 	var updated *model.OTCNegotiation
+	var parentSnapshot *model.OTCOffer
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		neg, err := s.negRepo.LockByID(tx, in.NegotiationID)
 		if err != nil {
@@ -550,11 +688,21 @@ func (s *OTCNegotiationService) RejectNegotiation(ctx context.Context, in Reject
 			return err
 		}
 		updated = neg
+		parentSnapshot = parent
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	otherType, otherID := otherParty(
+		updated.BidderOwnerType, updated.BidderOwnerID,
+		parentSnapshot.InitiatorOwnerType, parentSnapshot.InitiatorOwnerID,
+		in.CallerOwnerType, in.CallerOwnerID,
+	)
+	s.publishNotif(ctx, otherType, otherID, "OTC_OFFER_REJECTED",
+		map[string]string{"ticker": parentSnapshot.Ticker},
+		"otc_negotiation", updated.ID,
+	)
 	return updated, nil
 }
 
@@ -562,6 +710,7 @@ func (s *OTCNegotiationService) RejectNegotiation(ctx context.Context, in Reject
 // listing-poster cannot cancel a bidder's chain (use Reject for that).
 func (s *OTCNegotiationService) CancelNegotiation(ctx context.Context, in CancelNegotiationInput) (*model.OTCNegotiation, error) {
 	var updated *model.OTCNegotiation
+	var parentSnapshot *model.OTCOffer
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		neg, err := s.negRepo.LockByID(tx, in.NegotiationID)
 		if err != nil {
@@ -576,6 +725,10 @@ func (s *OTCNegotiationService) CancelNegotiation(ctx context.Context, in Cancel
 		if !ownerMatches(neg.BidderOwnerType, neg.BidderOwnerID, in.CallerOwnerType, in.CallerOwnerID) {
 			return ErrOTCCounterUnauthorized
 		}
+		parent, perr := s.offerRepo.GetByIDTx(tx, neg.ParentOfferID)
+		if perr != nil {
+			return perr
+		}
 		now := time.Now().UTC()
 		neg.Status = model.OTCNegotiationStatusCancelled
 		neg.LastActionByPrincipalType = in.ActingPrincipalType
@@ -588,11 +741,19 @@ func (s *OTCNegotiationService) CancelNegotiation(ctx context.Context, in Cancel
 			return err
 		}
 		updated = neg
+		parentSnapshot = parent
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	// Bidder cancelled their own chain → notify the listing poster.
+	s.publishNotif(ctx,
+		parentSnapshot.InitiatorOwnerType, parentSnapshot.InitiatorOwnerID,
+		"OTC_OFFER_CANCELLED",
+		map[string]string{"ticker": parentSnapshot.Ticker},
+		"otc_negotiation", updated.ID,
+	)
 	return updated, nil
 }
 

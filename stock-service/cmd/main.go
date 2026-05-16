@@ -678,6 +678,7 @@ func main() {
 	peerOptionRepo := repository.NewPeerOptionContractRepository(db)
 	peerOtcHandler := handler.NewPeerOTCGRPCHandler(peerOtcRepo, peerOptionRepo, holdingRepo, peerTxClient, ownRouting)
 	peerOtcHandler.SetHoldingReserver(holdingReservationSvc)
+	peerOtcHandler = peerOtcHandler.WithNotifier(producer)
 	// Phase 6: cross-bank option discovery — the peer endpoint
 	// (GET /api/v3/public-option-offers) needs the OTC offers repo +
 	// the currency resolver to stamp strike/premium currency.
@@ -690,7 +691,10 @@ func main() {
 		optionOfferCache, otcOfferRepo, optionCurrencyResolver,
 		peerBankAdminClient, cfg.OwnBankCode, ownRouting, 5*time.Second,
 	)
-	go optionRefresher.Run(ctx)
+	// Part A 2026-05-16 — best-bid / best-ask wiring is deferred to
+	// AFTER the otc-negotiation repo is constructed (a few lines
+	// below). The refresher goroutine is started THERE so the first
+	// refresh cycle already has aggregation wired.
 
 	// OTC expiry cron (daily). Covers intra-bank option_contracts and
 	// — via WithPeerContracts — cross-bank peer_option_contracts.
@@ -712,7 +716,48 @@ func main() {
 	// cash before any money moves).
 	otcNegRepo := repository.NewOTCNegotiationRepository(db)
 	otcNegotiationSvc := service.NewOTCNegotiationService(db, otcOfferRepo, otcNegRepo).
-		WithContractFormer(otcOfferSvc)
+		WithContractFormer(otcOfferSvc).
+		WithNotifier(producer)
+
+	// Part A 2026-05-16 — best-bid / best-ask aggregator wiring.
+	// Adapters convert the repo's typed map[uint64]ChainAggregate to
+	// the cache / peer-handler's string-shape projection, keeping the
+	// downstream packages decoupled from gorm/decimal.
+	cacheAgg := func(offerIDs []uint64) (map[uint64]otccache.OfferAggregate, error) {
+		got, err := otcNegRepo.AggregateActiveBidsByOffer(offerIDs)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[uint64]otccache.OfferAggregate, len(got))
+		for id, a := range got {
+			out[id] = otccache.OfferAggregate{
+				BestBid:     a.BestBid.String(),
+				BestAsk:     a.BestAsk.String(),
+				ActiveCount: a.ActiveCount,
+			}
+		}
+		return out, nil
+	}
+	optionRefresher.WithAggregateBids(cacheAgg)
+	// Now that aggregation is wired, kick off the refresher.
+	go optionRefresher.Run(ctx)
+
+	peerAgg := func(offerIDs []uint64) (map[uint64]handler.PeerOfferAggregate, error) {
+		got, err := otcNegRepo.AggregateActiveBidsByOffer(offerIDs)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[uint64]handler.PeerOfferAggregate, len(got))
+		for id, a := range got {
+			out[id] = handler.PeerOfferAggregate{
+				BestBid:     a.BestBid.String(),
+				BestAsk:     a.BestAsk.String(),
+				ActiveCount: a.ActiveCount,
+			}
+		}
+		return out, nil
+	}
+	peerOtcHandler.WithBidsAggregator(peerAgg)
 
 	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).
 		WithListings(listingRepo).

@@ -7,8 +7,11 @@
 //  4. Read the activation token from the notification.send-email Kafka topic.
 //  5. ActivateAccount via auth-service gRPC with the token + desired password.
 //
-// Flow (client):
-//  1. Derive client email from admin email (insert +testclient before @).
+// Flow (clients — three of them, each repeating the same dance):
+//  1. Derive client emails from admin email by inserting +testclient,
+//     +testclient2, +testclient3 before the @. Three clients makes
+//     multi-bidder OTC flows (Phase 2 cascade, intra-bank parallel
+//     negotiations, etc.) work without needing manual setup.
 //  2. Try Login — if it succeeds, the client already exists and is active → done.
 //  3. CreateClient via client-service gRPC (idempotent, ignores AlreadyExists).
 //  4. Read the activation token from the notification.send-email Kafka topic.
@@ -73,7 +76,7 @@ func main() {
 	password := getenv("ADMIN_PASSWORD", "Admin1234!")
 
 	log.Printf("seeder: admin email=%s", email)
-	log.Printf("seeder: will also seed test agent + supervisor + client (same password)")
+	log.Printf("seeder: will also seed test agent + supervisor + 3 test clients (same password)")
 
 	// ── 0. Initial cooldown — in Kubernetes, services may be starting simultaneously ──
 	cooldown := getenv("SEEDER_COOLDOWN", "30s")
@@ -141,9 +144,49 @@ func main() {
 	})
 
 	// ── 3. Client bootstrapping ───────────────────────────────────────────────
-	seedClient(ctx, authClient, clientSvcClient, kafka, deriveTestEmail(email, "testclient"), password)
+	//
+	// Three test clients with deterministic JMBG / phone so re-runs are
+	// idempotent and cross-client flows (e.g. OTC multi-bidder testing
+	// on a single bank) have a ready-made cast. testclient stays the
+	// original email for backward compat with existing test fixtures;
+	// testclient2 + testclient3 are the additions.
+	for _, c := range []clientSpec{
+		{
+			EmailSuffix: "testclient",
+			FirstName:   "Test",
+			LastName:    "Client",
+			Phone:       "+381000000001",
+			Jmbg:        "1506995000001",
+		},
+		{
+			EmailSuffix: "testclient2",
+			FirstName:   "Test",
+			LastName:    "ClientTwo",
+			Phone:       "+381000000011",
+			Jmbg:        "1506995000011",
+		},
+		{
+			EmailSuffix: "testclient3",
+			FirstName:   "Test",
+			LastName:    "ClientThree",
+			Phone:       "+381000000021",
+			Jmbg:        "1506995000021",
+		},
+	} {
+		seedClient(ctx, authClient, clientSvcClient, kafka, deriveTestEmail(email, c.EmailSuffix), password, c)
+	}
 
 	log.Println("seeder: all bootstrapping complete")
+}
+
+// clientSpec mirrors employeeSpec: deterministic per-client fields so
+// re-runs are idempotent on AlreadyExists.
+type clientSpec struct {
+	EmailSuffix string // local-part suffix inserted after "admin+"
+	FirstName   string
+	LastName    string
+	Phone       string
+	Jmbg        string
 }
 
 // employeeSpec captures the per-employee parameters for seedEmployee.
@@ -256,7 +299,7 @@ func deriveTestEmail(adminEmail, suffix string) string {
 	return local + "+" + suffix + "@" + parts[1]
 }
 
-// seedClient provisions a default test client account, mirroring the admin flow:
+// seedClient provisions one test client account, mirroring the admin flow:
 // login check → create → Kafka activation token → activate.
 func seedClient(
 	ctx context.Context,
@@ -265,8 +308,9 @@ func seedClient(
 	kafkaBrokers string,
 	clientEmail string,
 	password string,
+	spec clientSpec,
 ) {
-	log.Printf("seeder: client email=%s", clientEmail)
+	log.Printf("seeder: client email=%s name=%s %s", clientEmail, spec.FirstName, spec.LastName)
 
 	// 1. Try Login — already bootstrapped?
 	loginCtx, loginCancel := context.WithTimeout(ctx, 10*time.Second)
@@ -276,7 +320,7 @@ func seedClient(
 		Password: password,
 	})
 	if loginErr == nil {
-		log.Println("seeder: test client already active — skipping")
+		log.Printf("seeder: %s already active — skipping", clientEmail)
 		return
 	}
 
@@ -293,32 +337,32 @@ func seedClient(
 		createCtx, createCancel := context.WithTimeout(ctx, 15*time.Second)
 		defer createCancel()
 		_, createErr := clientSvcClient.CreateClient(createCtx, &clientpb.CreateClientRequest{
-			FirstName:   "Test",
-			LastName:    "Client",
+			FirstName:   spec.FirstName,
+			LastName:    spec.LastName,
 			DateOfBirth: time.Date(1995, 6, 15, 0, 0, 0, 0, time.UTC).Unix(),
 			Gender:      "other",
 			Email:       clientEmail,
-			Phone:       "+381000000001",
+			Phone:       spec.Phone,
 			Address:     "Test Client Address",
-			Jmbg:        "1506995000001",
+			Jmbg:        spec.Jmbg,
 		})
 		if createErr != nil {
 			st, _ := status.FromError(createErr)
 			if st.Code() != codes.AlreadyExists {
-				log.Fatalf("seeder: CreateClient failed: %v", createErr)
+				log.Fatalf("seeder: CreateClient(%s) failed: %v", clientEmail, createErr)
 			}
-			log.Println("seeder: client already exists (AlreadyExists)")
+			log.Printf("seeder: %s already exists (AlreadyExists)", clientEmail)
 		} else {
-			log.Println("seeder: client created")
+			log.Printf("seeder: client created — %s", clientEmail)
 		}
 	} else {
-		log.Println("seeder: client already exists, continuing to activation")
+		log.Printf("seeder: %s already exists, continuing to activation", clientEmail)
 	}
 
 	// 4. Wait for activation token on Kafka
-	log.Println("seeder: waiting for client activation token on Kafka…")
+	log.Printf("seeder: waiting for activation token for %s…", clientEmail)
 	token := readActivationToken(kafkaBrokers, clientEmail, authClient)
-	log.Printf("seeder: got client activation token (len=%d)", len(token))
+	log.Printf("seeder: got activation token for %s (len=%d)", clientEmail, len(token))
 
 	// 5. Activate account
 	actCtx, actCancel := context.WithTimeout(ctx, 15*time.Second)
@@ -329,10 +373,10 @@ func seedClient(
 		ConfirmPassword: password,
 	})
 	if err != nil {
-		log.Fatalf("seeder: client ActivateAccount failed: %v", err)
+		log.Fatalf("seeder: ActivateAccount(%s) failed: %v", clientEmail, err)
 	}
 
-	log.Printf("seeder: test client account active — email=%s", clientEmail)
+	log.Printf("seeder: %s account active", clientEmail)
 }
 
 // readActivationToken scans the notification.send-email Kafka topic for an

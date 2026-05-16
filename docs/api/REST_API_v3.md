@@ -7672,7 +7672,7 @@ Create a sell or buy OTC stock offer. Direction-keyed body.
 | `holding_id` | int | direction=sell | Caller's holding to publish shares from. Accumulative — calling twice with qty=N each time results in 2N public shares. |
 | `listing_id` | int | direction=buy | Stock listing to bid on |
 | `quantity` | int | always | Positive integer |
-| `price_per_unit` | string (decimal) | direction=buy | Bid price |
+| `price_per_unit` | string (decimal) | **always (Phase 11)** | direction=sell: seller's asking price per share (re-list with new price overwrites — latest call wins). direction=buy: buyer's bid price. Stored on `Holding.PublicPrice` for sell; backs the `/public-stock` peer endpoint + the local `/otc/stocks` cache so peer banks see the real ask rather than the previous "0" placeholder. |
 | `buyer_account_id` | int | direction=buy | Caller's account; cash will be reserved here at create time. Currency must match the listing's exchange currency. |
 
 **Response 201:** `{ "offer": OTCStockOfferResponse }` — direction-aware projection.
@@ -7974,21 +7974,23 @@ Unified cross-bank discovery view: every open OTC option listing on this bank + 
 {
   "offers": [
     {
-      "kind":             "remote",
-      "bank_code":        "222",
-      "routing_number":   222,
-      "offer_id":         "42",
-      "seller_id":        "client-7",
-      "seller_name":      "",
-      "direction":        "sell_initiated",
-      "ticker":           "AAPL",
-      "amount":           50,
-      "strike_price":     "180.50",
-      "strike_currency":  "USD",
-      "premium":          "700.00",
-      "premium_currency": "USD",
-      "settlement_date":  "2026-12-31T00:00:00Z",
-      "created_at":       "2026-05-10T14:00:00Z"
+      "kind":                "remote",
+      "bank_code":           "222",
+      "routing_number":      222,
+      "offer_id":            "42",
+      "seller_id":           "client-7",
+      "seller_name":         "",
+      "direction":           "sell_initiated",
+      "ticker":              "AAPL",
+      "amount":              50,
+      "strike_price":        "180.50",
+      "strike_currency":     "USD",
+      "premium":             "700.00",
+      "premium_currency":    "USD",
+      "settlement_date":     "2026-12-31T00:00:00Z",
+      "created_at":          "2026-05-10T14:00:00Z",
+      "best_bid":            "850",
+      "active_chains_count": 3
     }
   ],
   "total_count":   1,
@@ -7999,7 +8001,99 @@ Unified cross-bank discovery view: every open OTC option listing on this bank + 
 }
 ```
 
+**Best-bid / best-ask surface (Part A 2026-05-16).** Three optional fields surface aggregated active-chain pricing so a prospective bidder sees that competition is live before placing an offer at the seller's static ask:
+
+| Field | When present | Meaning |
+|---|---|---|
+| `best_bid` | parent `direction = sell_initiated` AND ≥1 active chain | MAX premium across `open`/`countered` chains — the going buy-side bid |
+| `best_ask` | parent `direction = buy_initiated` AND ≥1 active chain | MIN premium across `open`/`countered` chains — the lowest seller is willing to accept |
+| `active_chains_count` | ≥1 active chain | Count of `open` or `countered` chains on the listing |
+
+All three are **omitted from the JSON when no active chains exist** (or when the row is remote and the peer bank doesn't publish them — graceful older-bank compat: their offers just don't show the surface and the FE renders "—"). Re-aggregated on every cache refresh (~5 s), so a freshly-placed counter shows up within one tick.
+
 After picking a remote offer, bidders drive negotiation via `POST /api/v3/me/peer-otc/negotiations` using `bank_code` as `seller_bank_code` and `seller_id.id` from the discovered row.
+
+#### Cross-bank cascade-cancel on accept (Phase 10)
+
+Mirrors the intra-bank Phase 2 first-accept-wins cascade for cross-bank negotiations. Two bidders on different banks can both negotiate the same seller's listing; when the seller accepts one chain, every sibling chain (under that seller, with matching `parent_offer_id`) auto-cancels on both the seller's bank and each bidder's bank.
+
+**The atomic per-listing key.** The user's concern "seller should be able to have two option offers at the same time with same ticker" is honoured because cascade matches on the listing's actual `parent_offer_id` (the OTCOffer row id), NOT on ticker+settlement_date. Two legitimately distinct listings on the same ticker+date have different `parent_offer_id` values → they're in different cascade groups → accepting one never touches the other.
+
+**Capturing the key.** Bidders get it from the discovery payload (`offer_id` + `routing_number` in the `/otc/options` row) and pass it in the initiate body:
+
+```
+POST /api/v3/me/peer-otc/negotiations
+{
+  "seller_bank_code": "111",
+  "seller_id":        "client-7",
+  "stock":            { "ticker": "AAPL" },
+  "settlement_date":  "2027-08-01T00:00:00Z",
+  "price_per_unit":   { "amount": "175", "currency": "USD" },
+  "premium":          { "amount": "40",  "currency": "USD" },
+  "amount":           2,
+  "parent_offer_id":  { "routingNumber": 111, "id": "42" }   ← new (optional)
+}
+```
+
+The gateway forwards `parentOfferId` in the SI-TX `OtcOffer` body; the seller's bank stores it on `peer_otc_negotiations.parent_offer_routing` / `.parent_offer_id`. The buyer-side mirror also stores it. Free-form bidders (no discovery) omit the field — they're never part of any cascade group, so a seller's free-form listings stay safe.
+
+**Cascade flow on accept.** When seller calls `POST /api/v3/me/peer-otc/negotiations/:rid/:id/accept`:
+
+1. Existing proxy → SI-TX dispatch → premium move → option contracts on both banks.
+2. Local mirror flip via `MarkNegotiationAccepted` (unchanged).
+3. **NEW**: gateway calls `CascadeCancelSiblings` on stock-service; the response lists every other `ongoing` chain under the same seller with the same `parent_offer_id` (all of which are now flipped to `cancelled` locally on the seller's bank).
+4. **NEW**: for each cancelled sibling, the gateway fires `DELETE /api/v3/negotiations/:rid/:id` to that bidder's bank so the bidder's mirror flips to `cancelled` too.
+
+**Out-of-cascade rows preserved.** Rows with NULL `parent_offer_id` (free-form bids) are excluded by the cascade query. The seller can hold two distinct listings on the same ticker+settlement_date without accidental cross-cancel.
+
+**Response shape — parity with intra-bank accept.** The gateway returns `cancelled_siblings` in the cross-bank accept response so the FE can render local and cross-bank accepts with the same component. Each entry projects the same fields the FE already consumes from `GET /me/peer-otc/negotiations` (buyer_id, seller_id, offer, status, role, updated_at) — different business logic backs the two flows, but the presentation shape is the same.
+
+```json
+POST /api/v3/me/peer-otc/negotiations/{rid}/{id}/accept   ← cross-bank
+
+{
+  "transactionId": "tx-...",        // proxied from peer's /accept
+  "status":        "accepted",      // proxied from peer's /accept
+  "cancelled_siblings": [
+    {
+      "peer_bank_code": "222",
+      "foreign_id":     "neg-7",
+      "buyer_id":       { "routingNumber": 222, "id": "client-3" },
+      "seller_id":      { "routingNumber": 111, "id": "client-7" },
+      "offer": {
+        "ticker":           "AAPL",
+        "amount":           2,
+        "price_per_stock":  "175",
+        "currency":         "USD",
+        "premium":          "40",
+        "premium_currency": "USD",
+        "settlement_date":  "2027-08-01T00:00:00Z",
+        "parent_offer_id":  { "routingNumber": 111, "id": "42" }
+      },
+      "status":     "cancelled",
+      "role":       "seller",        // caller's side — cascade fires on accept
+      "updated_at": "2026-05-16T..."
+    }
+  ]
+}
+```
+
+The intra-bank equivalent (`POST /me/otc/options/:id/negotiations/:nid/accept`) returns the same `cancelled_siblings` key, populated with `OTCNegotiationResponse` rows (`id`, `parent_offer_id`, `bidder_*`, `quantity`, `strike_price`, `premium`, `settlement_date`, `status`, `last_action_*`). FE keys off `cancelled_siblings[*]` without branching the cascade UI on flow type.
+
+#### Notification coverage (2026-05-16)
+
+Every OTC option negotiation lifecycle event now produces an in-app notification visible at `GET /api/v3/me/notifications`. Each bank notifies **only its own local users**; cross-bank state changes propagate via the SI-TX protocol and both banks then independently publish their own notifications.
+
+| Event | Recipient | Notification type |
+|---|---|---|
+| Someone bid on your listing | Listing poster (seller) | `OTC_OFFER_RECEIVED` |
+| Counter on your chain | The OTHER party in the chain | `OTC_OFFER_COUNTERED` |
+| Chain rejected | The OTHER party | `OTC_OFFER_REJECTED` |
+| Bidder cancelled their chain | Listing poster | `OTC_OFFER_CANCELLED` |
+| Your bid was cancelled because seller accepted a competitor | Each losing bidder | `OTC_OFFER_CASCADE_CANCELLED` (carries `accepted_premium` so you see the winning price) |
+| Negotiation accepted → contract minted | Both parties | `OTC_CONTRACT_CREATED` |
+
+Templates are admin-editable via the 3a notification template management endpoints (`PUT /api/v3/notification-templates/:type/:channel`). All notifications carry `ref_type=otc_negotiation` (lifecycle events) or `ref_type=otc_contract` (final mint) with `ref_id` set, so the FE can deep-link from a feed entry to the chain or contract view.
 
 ### 47.3 Peer protocol (SI-TX cross-bank)
 
@@ -8014,22 +8108,28 @@ Peer-facing endpoint for cross-bank option discovery. Same auth as `/api/v3/publ
 {
   "offers": [
     {
-      "offerId":         { "routingNumber": 111, "id": "42" },
-      "ticker":          "AAPL",
-      "amount":          50,
-      "strikePrice":     "180.50",
-      "strikeCurrency":  "USD",
-      "premium":         "700",
-      "premiumCurrency": "USD",
-      "settlementDate":  "2026-12-31T00:00:00Z",
-      "sellerId":        { "routingNumber": 111, "id": "client-7" },
-      "direction":       "sell_initiated",
-      "createdAt":       "2026-05-10T14:00:00Z",
-      "lastModifiedBy":  { "routingNumber": 111, "id": "client-7" }
+      "offerId":           { "routingNumber": 111, "id": "42" },
+      "ticker":            "AAPL",
+      "amount":            50,
+      "strikePrice":       "180.50",
+      "strikeCurrency":    "USD",
+      "premium":           "700",
+      "premiumCurrency":   "USD",
+      "settlementDate":    "2026-12-31T00:00:00Z",
+      "sellerId":          { "routingNumber": 111, "id": "client-7" },
+      "direction":         "sell_initiated",
+      "createdAt":         "2026-05-10T14:00:00Z",
+      "lastModifiedBy":    { "routingNumber": 111, "id": "client-7" },
+      "bestBid":           "850",
+      "activeChainsCount": 3
     }
   ]
 }
 ```
+
+**Best-bid / best-ask fields (Part A 2026-05-16).** `bestBid`, `bestAsk`, `activeChainsCount` are **strictly optional** — peers running an older protocol simply omit them. The JSON unmarshaller leaves them empty / 0, which the cache treats as "not reported"; the FE renders "—" for those rows. No coordination with other faculty banks is required: any bank can ship Part A and the others' clients still interop, and the bank that ships it surfaces best-bid info to its own clients for its own listings.
+
+Population rule: `bestBid` is set for `sell_initiated` parents (buyers compete on premium upward); `bestAsk` is set for `buy_initiated` parents (sellers compete on premium downward). `activeChainsCount` is the count of negotiation chains in `open` or `countered` status against the listing.
 
 Each entry corresponds to one `OTCOffer` row on this bank with `status IN ('open','PENDING','COUNTERED')` AND `counterparty_owner_id IS NULL`. `Private=true` rows are dropped unless `PrivateToBankCode` equals the calling peer's bank code.
 

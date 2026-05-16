@@ -775,6 +775,15 @@ message UnifiedOptionOffer {
   string premium_currency = 13;
   string settlement_date  = 14;  // RFC3339 UTC
   string created_at       = 15;
+  // Best-bid / best-ask surface (Part A 2026-05-16). Populated from
+  // active OTCNegotiation rows (status IN open/countered). best_bid =
+  // MAX(premium) on sell_initiated parents; best_ask = MIN(premium)
+  // on buy_initiated parents. Empty string ⇒ no active chains (or
+  // remote peer doesn't support the field — wire-compatible: older
+  // peers omit it and proto3 deserializes to "" on our side).
+  string best_bid             = 16;
+  string best_ask             = 17;
+  int32  active_chains_count  = 18;
 }
 
 message ListUnifiedOptionOffersRequest {
@@ -1660,10 +1669,21 @@ message CascadeCancelSiblingsRequest {
 }
 
 // CascadedSibling identifies one chain that was cancelled by the
-// cascade and which bank needs to be notified to flip its mirror.
+// cascade. peer_bank_code + foreign_id are the routing tuple the
+// gateway uses to fire the outbound DELETE; the rest of the fields
+// are a wire-shape projection of the cancelled negotiation (same
+// shape as PeerNegotiationListItem) so the FE can render the
+// cancelled-siblings list in the cross-bank accept response with
+// the same UI it uses for /me/peer-otc/negotiations rows.
 message CascadedSibling {
   string peer_bank_code = 1; // bidder's bank-code (for outbound DELETE)
   string foreign_id     = 2; // foreign id on the bidder's bank
+  PeerForeignBankId buyer_id  = 3;
+  PeerForeignBankId seller_id = 4;
+  PeerOtcOffer      offer     = 5;
+  string            status    = 6; // always "cancelled" for cascade results
+  string            role      = 7; // caller's side — always "seller" (cascade fires on accept)
+  string            updated_at = 8; // ISO-8601
 }
 
 message CascadeCancelSiblingsResponse {
@@ -1767,6 +1787,15 @@ message PeerPublicOptionOffer {
   string            direction       = 10; // "sell_initiated" | "buy_initiated"
   string            created_at      = 11;
   PeerForeignBankId last_modified_by = 12;
+  // Best-bid / best-ask surface (Part A 2026-05-16). STRICTLY
+  // ADDITIVE: peers that don't upgrade simply omit these fields and
+  // the receiver sees them as "" / 0 (proto3 default), which the
+  // unified-cache projection treats as "not reported". Peers
+  // publishing them populate from their own
+  // OTCNegotiationRepository.AggregateActiveBidsByOffer.
+  string best_bid             = 13;
+  string best_ask             = 14;
+  int32  active_chains_count  = 15;
 }
 
 message GetPublicOptionOffersResponse {
