@@ -133,6 +133,151 @@ func TestOTCExerciseContract_EmitsExercisedNotifications(t *testing.T) {
 	}
 }
 
+// TestOTCExerciseContract_RecordsSellerCapitalGain: a successful exercise of
+// a sell_initiated contract realises the seller's P/L from cost basis up to
+// the strike price. The fixture seeds the seller with AveragePrice=100,
+// Quantity=100 and a sell_initiated offer at StrikePrice=5000, Qty=10 — so
+// exercising the resulting contract should produce one CapitalGain row with
+// BuyPricePerUnit=100, SellPricePerUnit=5000, Quantity=10, TotalGain=49000.
+// This is the bug the user surfaced: "buy at one price, write a contract,
+// get exercised at higher price → profit must show up".
+func TestOTCExerciseContract_RecordsSellerCapitalGain(t *testing.T) {
+	fx := newAcceptSagaFixture(t)
+	cgRepo := newMockCapitalGainRepo()
+	fx.svc = fx.svc.WithCapitalGain(cgRepo)
+
+	contract, err := fx.svc.Accept(context.Background(), AcceptInput{
+		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
+		AcceptorAccountID: 5001,
+	})
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if _, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
+		ContractID: contract.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
+	}); err != nil {
+		t.Fatalf("exercise: %v", err)
+	}
+
+	// Filter to stock CG: Accept also wrote 2 SecurityType="option"
+	// premium rows (writer + buyer), which we ignore here. This test
+	// only asserts the EXERCISE-time stock realisation.
+	var stockGains []model.CapitalGain
+	for _, g := range cgRepo.gains {
+		if g.SecurityType == "stock" {
+			stockGains = append(stockGains, g)
+		}
+	}
+	if len(stockGains) != 1 {
+		t.Fatalf("expected 1 stock capital gain row from exercise, got %d (all rows: %d)", len(stockGains), len(cgRepo.gains))
+	}
+	cg := stockGains[0]
+	sellerUID := uint64(fx.sellerID)
+	if cg.OwnerType != model.OwnerClient || cg.OwnerID == nil || *cg.OwnerID != sellerUID {
+		t.Errorf("owner = %s/%v, want client/%d", cg.OwnerType, cg.OwnerID, sellerUID)
+	}
+	if !cg.OTC {
+		t.Error("OTC flag should be true for option-exercise gain")
+	}
+	if cg.Quantity != 10 {
+		t.Errorf("Quantity = %d, want 10", cg.Quantity)
+	}
+	if !cg.BuyPricePerUnit.Equal(decimal.NewFromInt(100)) {
+		t.Errorf("BuyPricePerUnit = %s, want 100 (seller's AveragePrice pre-exercise)", cg.BuyPricePerUnit)
+	}
+	if !cg.SellPricePerUnit.Equal(decimal.NewFromInt(5000)) {
+		t.Errorf("SellPricePerUnit = %s, want 5000 (StrikePrice)", cg.SellPricePerUnit)
+	}
+	wantGain := decimal.NewFromInt(49000) // (5000 - 100) * 10
+	if !cg.TotalGain.Equal(wantGain) {
+		t.Errorf("TotalGain = %s, want %s", cg.TotalGain, wantGain)
+	}
+	if cg.AccountID != contract.SellerAccountID {
+		t.Errorf("AccountID = %d, want %d (seller account)", cg.AccountID, contract.SellerAccountID)
+	}
+}
+
+// TestAcceptSaga_RecordsOptionPremiumCapitalGains: a successful acceptance
+// realises the option premium as two SecurityType="option" capital gain
+// rows — +premium for the writer (seller), −premium for the buyer.
+// This is the accounting that makes "total P/L" work for any combination
+// of stock + option events: regardless of whether the option later
+// exercises or expires, the premium is already booked.
+func TestAcceptSaga_RecordsOptionPremiumCapitalGains(t *testing.T) {
+	fx := newAcceptSagaFixture(t)
+	cgRepo := newMockCapitalGainRepo()
+	fx.svc = fx.svc.WithCapitalGain(cgRepo)
+
+	_, err := fx.svc.Accept(context.Background(), AcceptInput{
+		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
+		AcceptorAccountID: 5001,
+	})
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+
+	if len(cgRepo.gains) != 2 {
+		t.Fatalf("expected 2 capital gain rows (writer + buyer), got %d", len(cgRepo.gains))
+	}
+	sellerUID := uint64(fx.sellerID)
+	buyerUID := uint64(fx.buyerID)
+	var writerCG, buyerCG *model.CapitalGain
+	for i := range cgRepo.gains {
+		g := &cgRepo.gains[i]
+		if g.OwnerID != nil && *g.OwnerID == sellerUID {
+			writerCG = g
+		} else if g.OwnerID != nil && *g.OwnerID == buyerUID {
+			buyerCG = g
+		}
+	}
+	if writerCG == nil {
+		t.Fatalf("missing writer CG row")
+	}
+	if buyerCG == nil {
+		t.Fatalf("missing buyer CG row")
+	}
+	// Premium in fixture = 50000.
+	wantPremium := decimal.NewFromInt(50000)
+	if writerCG.SecurityType != "option" {
+		t.Errorf("writer SecurityType = %q, want option", writerCG.SecurityType)
+	}
+	if !writerCG.TotalGain.Equal(wantPremium) {
+		t.Errorf("writer TotalGain = %s, want +%s", writerCG.TotalGain, wantPremium)
+	}
+	if buyerCG.SecurityType != "option" {
+		t.Errorf("buyer SecurityType = %q, want option", buyerCG.SecurityType)
+	}
+	if !buyerCG.TotalGain.Equal(wantPremium.Neg()) {
+		t.Errorf("buyer TotalGain = %s, want -%s", buyerCG.TotalGain, wantPremium)
+	}
+	if !writerCG.OTC || !buyerCG.OTC {
+		t.Error("both option CG rows must have OTC=true")
+	}
+}
+
+// TestOTCExerciseContract_NoCapitalGainRepoWired: without WithCapitalGain the
+// exercise still succeeds (shares + money move). Legacy callers continue to
+// work; the missing gain is a known degraded mode, not an error.
+func TestOTCExerciseContract_NoCapitalGainRepoWired(t *testing.T) {
+	fx := newAcceptSagaFixture(t)
+	contract, err := fx.svc.Accept(context.Background(), AcceptInput{
+		OfferID: fx.offer.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
+		AcceptorAccountID: 5001,
+	})
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	exercised, err := fx.svc.ExerciseContract(context.Background(), ExerciseInput{
+		ContractID: contract.ID, ActorUserID: fx.buyerID, ActorSystemType: "client",
+	})
+	if err != nil {
+		t.Fatalf("exercise: %v", err)
+	}
+	if exercised.Status != model.OptionContractStatusExercised {
+		t.Errorf("status = %s, want EXERCISED", exercised.Status)
+	}
+}
+
 // TestOTCExerciseContract_NotBuyer rejects when the actor isn't the contract buyer.
 func TestOTCExerciseContract_NotBuyer(t *testing.T) {
 	fx := newAcceptSagaFixture(t)

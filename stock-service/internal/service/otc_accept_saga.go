@@ -237,6 +237,58 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		Action:                  model.OTCActionAccept,
 	})
 
+	// Option premium realised P/L (SecurityType="option"). Writer
+	// receives the premium → +TotalGain; buyer pays the premium →
+	// −TotalGain. Both are realised at acceptance, NOT at exercise
+	// or expiry, so:
+	//   - if the option later expires worthless, no further entry is
+	//     needed (premium loss/gain already booked correctly);
+	//   - if the option is later exercised, the strike-priced stock
+	//     transfer realises stock P/L on top via the exercise saga
+	//     (writer's stock CG; buyer's later stock sell), giving
+	//     correct end-to-end totals.
+	// Best-effort: a CG write failure logs WARN and does not reverse
+	// the saga (money already moved).
+	if s.capitalGainRepo != nil {
+		now := time.Now()
+		writerCG := &model.CapitalGain{
+			OwnerType:        sellerOwnerType,
+			OwnerID:          sellerOwnerID,
+			OTC:              true,
+			SecurityType:     "option",
+			Ticker:           contract.Ticker,
+			Quantity:         qty,
+			BuyPricePerUnit:  decimal.Zero,
+			SellPricePerUnit: o.Premium.Div(decimal.NewFromInt(qty)),
+			TotalGain:        o.Premium,
+			Currency:         premiumCcy,
+			AccountID:        sellerAccountID,
+			TaxYear:          now.Year(),
+			TaxMonth:         int(now.Month()),
+		}
+		buyerCG := &model.CapitalGain{
+			OwnerType:        buyerOwnerType,
+			OwnerID:          buyerOwnerID,
+			OTC:              true,
+			SecurityType:     "option",
+			Ticker:           contract.Ticker,
+			Quantity:         qty,
+			BuyPricePerUnit:  o.Premium.Div(decimal.NewFromInt(qty)),
+			SellPricePerUnit: decimal.Zero,
+			TotalGain:        o.Premium.Neg(),
+			Currency:         premiumCcy,
+			AccountID:        buyerAccountID,
+			TaxYear:          now.Year(),
+			TaxMonth:         int(now.Month()),
+		}
+		if cgErr := s.capitalGainRepo.Create(writerCG); cgErr != nil {
+			log.Printf("WARN: OTC accept saga=%s: writer premium capital gain create failed: %v", sagaID, cgErr)
+		}
+		if cgErr := s.capitalGainRepo.Create(buyerCG); cgErr != nil {
+			log.Printf("WARN: OTC accept saga=%s: buyer premium capital gain create failed: %v", sagaID, cgErr)
+		}
+	}
+
 	// Post-saga Kafka publish goes through the transactional outbox when
 	// wired so a crash between business commit and Kafka send doesn't drop
 	// the otc.contract-created event. Falls back to direct PublishRaw

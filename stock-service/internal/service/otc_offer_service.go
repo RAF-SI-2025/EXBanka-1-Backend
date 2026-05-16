@@ -76,6 +76,14 @@ type OTCOfferService struct {
 	// don't wire a DB still work.
 	outbox   *outbox.Outbox
 	outboxDB *gorm.DB
+
+	// capitalGainRepo records the seller's realised P/L when an option
+	// contract is exercised — mirroring the CapitalGain row that
+	// PortfolioService.recordCapitalGain writes on a normal sell fill and
+	// OTCService.BuyOffer writes on a direct OTC stock sale. Optional —
+	// when nil the saga still runs (shares + money move) and a WARN is
+	// logged. Wired via WithCapitalGain.
+	capitalGainRepo CapitalGainRepo
 }
 
 // WithOutbox wires the transactional outbox + the GORM handle the saga
@@ -150,6 +158,16 @@ func (s *OTCOfferService) WithSaga(
 	cp.exchange = exchange
 	cp.holdingRes = holdingRes
 	cp.holdingRepo = holdingRepo
+	return &cp
+}
+
+// WithCapitalGain wires the repository that records the seller's realised
+// P/L on a successful exercise. Optional — without it the exercise saga
+// still moves shares and money, but no CapitalGain row is written and the
+// seller's portfolio reports zero gain on the sale (the pre-fix behaviour).
+func (s *OTCOfferService) WithCapitalGain(repo CapitalGainRepo) *OTCOfferService {
+	cp := *s
+	cp.capitalGainRepo = repo
 	return &cp
 }
 

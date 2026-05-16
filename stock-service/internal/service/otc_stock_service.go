@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -145,6 +146,12 @@ type OTCStockService struct {
 	buyOfferRepo    *repository.OTCStockBuyOfferRepository
 	listingResolver OTCStockListingResolver
 	accountClient   OTCStockAccountClient
+
+	// capitalGainRepo records the seller's realised P/L when their
+	// shares are consumed by FillBuyOffer. Optional — when nil the saga
+	// still runs (shares + money move), matching the pre-fix degraded
+	// mode. Wired via WithCapitalGain.
+	capitalGainRepo CapitalGainRepo
 }
 
 func NewOTCStockService(
@@ -161,6 +168,16 @@ func NewOTCStockService(
 		listingResolver: listingResolver,
 		accountClient:   accountClient,
 	}
+}
+
+// WithCapitalGain wires the repository that records the seller's realised
+// P/L when FillBuyOffer commits. Optional — without it the fill still
+// settles money and shares but no CG row is written (the pre-fix
+// behaviour).
+func (s *OTCStockService) WithCapitalGain(repo CapitalGainRepo) *OTCStockService {
+	cp := *s
+	cp.capitalGainRepo = repo
+	return &cp
 }
 
 // CreateSellOffer makes additional shares of a holding publicly available
@@ -575,6 +592,37 @@ func (s *OTCStockService) FillBuyOffer(ctx context.Context, in FillBuyOfferInput
 		// the orphan and complete the upsert.
 		// (Logged via the holding repo internals if it has logging.)
 		_ = idemCompDebit // reserved for future use if upsert is retried
+	}
+
+	// === Step 6: Seller-side capital gain (best-effort) ===
+	// Realised P/L = (fill price − seller's cost basis) × qty. Cost basis
+	// is the seller's pre-fill AveragePrice captured in holdingPre (see
+	// step 2). Same shape as the CG row written by PortfolioService for a
+	// normal sell fill and OTCService.BuyOffer for a direct OTC stock
+	// sale, so portfolio summaries treat all three sell paths uniformly.
+	// Best-effort: a failure here logs WARN but does NOT reverse the
+	// already-committed cash + share movements.
+	if s.capitalGainRepo != nil && holdingPre != nil {
+		gain := offer.PricePerUnit.Sub(holdingPre.AveragePrice).Mul(decimal.NewFromInt(in.Quantity))
+		cg := &model.CapitalGain{
+			OwnerType:        in.SellerOwnerType,
+			OwnerID:          in.SellerOwnerID,
+			OTC:              true,
+			SecurityType:     "stock",
+			Ticker:           offer.Ticker,
+			Quantity:         in.Quantity,
+			BuyPricePerUnit:  holdingPre.AveragePrice,
+			SellPricePerUnit: offer.PricePerUnit,
+			TotalGain:        gain,
+			Currency:         offer.CurrencyCode,
+			AccountID:        in.SellerAccountID,
+			TaxYear:          time.Now().Year(),
+			TaxMonth:         int(time.Now().Month()),
+			ActingEmployeeID: in.ActingEmployeeID,
+		}
+		if cgErr := s.capitalGainRepo.Create(cg); cgErr != nil {
+			log.Printf("WARN: OTC stock buy-offer #%d fill: capital gain create failed (money/shares already moved): %v", offer.ID, cgErr)
+		}
 	}
 
 	return &FillBuyOfferResult{

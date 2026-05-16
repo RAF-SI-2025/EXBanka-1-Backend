@@ -664,6 +664,7 @@ func main() {
 		holdingRepo, otcReadReceiptRepo, producer,
 	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo).
 		WithStockMeta(&otcStockMetaAdapter{stocks: stockRepo, listings: listingRepo}).
+		WithCapitalGain(capitalGainRepo).
 		WithOutbox(ob, db)
 
 	// --- Cross-bank OTC (Phase 4 SI-TX) ---
@@ -685,6 +686,7 @@ func main() {
 	// (GET /api/v3/public-option-offers) needs the OTC offers repo +
 	// the currency resolver to stamp strike/premium currency.
 	peerOtcHandler = peerOtcHandler.WithOTCOfferReader(otcOfferRepo, optionCurrencyResolver)
+	peerOtcHandler = peerOtcHandler.WithCapitalGain(capitalGainRepo)
 
 	// Phase 6 refresher: now that otcOfferRepo and ownRouting exist,
 	// start the OPTION cache refresher that polls every active peer's
@@ -785,7 +787,7 @@ func main() {
 		db, holdingRepo, buyOfferRepo,
 		&stockListingResolverAdapter{listings: listingRepo, stocks: stockRepo, exchanges: exchangeRepo},
 		newStockAccountClientAdapter(stockAccountClient),
-	)
+	).WithCapitalGain(capitalGainRepo)
 	otcStockMarketHandler := handler.NewOTCStockMarketHandler(otcStockSvc)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)

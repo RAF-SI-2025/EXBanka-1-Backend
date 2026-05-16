@@ -182,6 +182,20 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 		// Execute this portion
 		execPrice := e.getExecutionPrice(order, listing)
 
+		// Defence in depth: never commit a limit / stop_limit fill that
+		// violates the user's price condition. isOrderTriggered should
+		// have already filtered this out, but the market quote may have
+		// moved during the per-portion wait above, and we re-read the
+		// listing in any case. Skip this iteration and try again.
+		if !execPriceAllowed(order, execPrice) {
+			select {
+			case <-time.After(30 * time.Second):
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+
 		txn := &model.OrderTransaction{
 			OrderID:      orderID,
 			Quantity:     portionSize,
@@ -312,44 +326,88 @@ func (e *OrderExecutionEngine) executeOrder(ctx context.Context, orderID uint64)
 
 func (e *OrderExecutionEngine) isOrderTriggered(order *model.Order) bool {
 	switch order.OrderType {
-	case "market", "limit":
-		return true // always triggered
+	case "market":
+		return true
+	case "limit":
+		listing, err := e.listingRepo.GetByID(order.ListingID)
+		if err != nil {
+			return false
+		}
+		return limitConditionMet(order, listing)
 	case "stop":
 		listing, err := e.listingRepo.GetByID(order.ListingID)
 		if err != nil {
 			return false
 		}
-		if order.StopValue == nil {
-			return true
-		}
-		if order.Direction == "buy" {
-			return listing.High.GreaterThanOrEqual(*order.StopValue)
-		}
-		return listing.Low.LessThanOrEqual(*order.StopValue)
+		return stopConditionMet(order, listing)
 	case "stop_limit":
 		listing, err := e.listingRepo.GetByID(order.ListingID)
 		if err != nil {
 			return false
 		}
-		if order.StopValue == nil {
-			return true
-		}
-		if order.Direction == "buy" {
-			return listing.High.GreaterThanOrEqual(*order.StopValue)
-		}
-		return listing.Low.LessThanOrEqual(*order.StopValue)
+		// Stop-limit fires only when the stop trigger has been crossed AND
+		// the live quote sits on the right side of the limit. Skipping the
+		// limit check after a stop trigger let stop-limits fill at any
+		// price once the stop was hit — defeating the limit's protection.
+		return stopConditionMet(order, listing) && limitConditionMet(order, listing)
 	}
 	return true
 }
 
-func (e *OrderExecutionEngine) getExecutionPrice(order *model.Order, listing *model.Listing) decimal.Decimal {
-	// Fall back to listing.Price whenever the side-specific quote (High/ask for
-	// buys, Low/bid for sells) is zero — happens on externally-sourced listings
-	// where the source has only populated Price. Mirrors the pattern already in
-	// OrderService.computeNativeReservation so the engine and placement saga
-	// agree on price. Without this, market buys on such listings produced
-	// txn.TotalPrice=0, which PartialSettleReservation rejected, and the engine
-	// spun on failed fills forever.
+// stopConditionMet reports whether the stop trigger price has been crossed for
+// a stop / stop_limit order. Buy stops activate when the intraday high reaches
+// the stop level; sell stops activate when the intraday low reaches it. A nil
+// StopValue is treated as "no stop" (immediately triggered) so the rest of the
+// engine behaves as a plain limit.
+func stopConditionMet(order *model.Order, listing *model.Listing) bool {
+	if order.StopValue == nil {
+		return true
+	}
+	if order.Direction == "buy" {
+		return listing.High.GreaterThanOrEqual(*order.StopValue)
+	}
+	return listing.Low.LessThanOrEqual(*order.StopValue)
+}
+
+// limitConditionMet reports whether the live quote satisfies a limit /
+// stop_limit order's LimitValue. Buy-limits require ask <= LimitValue
+// (we won't pay more than the user authorised); sell-limits require
+// bid >= LimitValue (we won't sell for less). A nil LimitValue means the
+// order is missing its price condition — treated as "not triggered" so a
+// malformed limit never fills.
+func limitConditionMet(order *model.Order, listing *model.Listing) bool {
+	if order.LimitValue == nil {
+		return false
+	}
+	ask, bid := sideQuotes(listing)
+	if order.Direction == "buy" {
+		return ask.LessThanOrEqual(*order.LimitValue)
+	}
+	return bid.GreaterThanOrEqual(*order.LimitValue)
+}
+
+// execPriceAllowed reports whether a proposed execution price respects a
+// limit / stop_limit order's LimitValue. Market and stop orders fill at any
+// price; limit/stop_limit must not cross the user's authorised price.
+func execPriceAllowed(order *model.Order, execPrice decimal.Decimal) bool {
+	switch order.OrderType {
+	case "limit", "stop_limit":
+		if order.LimitValue == nil {
+			return false
+		}
+		if order.Direction == "buy" {
+			return execPrice.LessThanOrEqual(*order.LimitValue)
+		}
+		return execPrice.GreaterThanOrEqual(*order.LimitValue)
+	}
+	return true
+}
+
+// sideQuotes returns (ask, bid) for a listing, falling back to listing.Price
+// when the side-specific quote is zero — matches the pattern in
+// getExecutionPrice so the trigger check and the price calc agree on which
+// number is "the current ask" / "the current bid".
+func sideQuotes(listing *model.Listing) (decimal.Decimal, decimal.Decimal) {
 	ask := listing.High
 	if ask.IsZero() {
 		ask = listing.Price
@@ -358,28 +416,23 @@ func (e *OrderExecutionEngine) getExecutionPrice(order *model.Order, listing *mo
 	if bid.IsZero() {
 		bid = listing.Price
 	}
-	switch order.OrderType {
-	case "market", "stop":
-		if order.Direction == "buy" {
-			return ask
-		}
-		return bid
-	case "limit", "stop_limit":
-		if order.LimitValue == nil {
-			return listing.Price
-		}
-		if order.Direction == "buy" {
-			if order.LimitValue.LessThan(ask) {
-				return *order.LimitValue
-			}
-			return ask
-		}
-		if order.LimitValue.GreaterThan(bid) {
-			return *order.LimitValue
-		}
-		return bid
+	return ask, bid
+}
+
+// getExecutionPrice returns the price the next fill will execute at: the live
+// ask for buys, the live bid for sells. The limit/stop_limit price condition
+// is enforced upstream in isOrderTriggered, so getExecutionPrice no longer
+// clamps to LimitValue — previously a buy-limit at 100 facing an ask of 120
+// returned 100, fabricating a fill at a price no real seller would offer.
+// Falls back to listing.Price whenever the side-specific quote is zero,
+// matching OrderService.computeNativeReservation so the engine and placement
+// saga agree on the price.
+func (e *OrderExecutionEngine) getExecutionPrice(order *model.Order, listing *model.Listing) decimal.Decimal {
+	ask, bid := sideQuotes(listing)
+	if order.Direction == "buy" {
+		return ask
 	}
-	return listing.Price
+	return bid
 }
 
 func (e *OrderExecutionEngine) calculateWaitTime(volume, remaining int64, afterHours bool) int64 {

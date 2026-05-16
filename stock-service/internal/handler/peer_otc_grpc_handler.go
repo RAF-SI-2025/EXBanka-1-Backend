@@ -7,6 +7,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
@@ -75,6 +76,7 @@ type HoldingReserver interface {
 		ownerID *uint64,
 		ticker string,
 		qty int64,
+		strikePrice decimal.Decimal,
 	) error
 }
 
@@ -100,6 +102,26 @@ type PeerOTCGRPCHandler struct {
 	// nil ⇒ peer-facing rows omit the new fields (wire-compatible
 	// with peers that don't expect them).
 	bidsAgg AggregateBidsFn
+
+	// capitalGainRepo records the seller's realised P/L on cross-bank
+	// exercise (DEBIT direction). Optional — nil falls back to the
+	// pre-fix degraded mode where no CG is written. Wired via
+	// WithCapitalGain.
+	capitalGainRepo PeerCapitalGainRepo
+}
+
+// PeerCapitalGainRepo is the narrow surface PeerOTCGRPCHandler uses to
+// persist a CapitalGain on cross-bank exercise — satisfied by
+// *repository.CapitalGainRepository.
+type PeerCapitalGainRepo interface {
+	Create(gain *model.CapitalGain) error
+}
+
+// WithCapitalGain wires the repository that records seller-side P/L on
+// cross-bank exercise. Returns the handler for chaining.
+func (h *PeerOTCGRPCHandler) WithCapitalGain(repo PeerCapitalGainRepo) *PeerOTCGRPCHandler {
+	h.capitalGainRepo = repo
+	return h
 }
 
 // WithBidsAggregator wires the best-bid aggregator used by
@@ -1000,17 +1022,54 @@ func (h *PeerOTCGRPCHandler) recordOptionExercise(ctx context.Context, req *stoc
 
 	switch req.GetDirection() {
 	case contractsitx.DirectionDebit:
-		// Seller side. Consume the reservation, decrement holding.
-		if _, err := h.holdingReserver.ConsumeForPeerOptionContract(ctx, contract.ID, contract.Quantity); err != nil {
+		// Seller side. Consume the reservation, decrement holding,
+		// then record realised P/L for the seller (strike price minus
+		// cost basis × qty). The cost basis is snapshotted under the
+		// row lock inside ConsumeForPeerOptionContract so this CG
+		// write is race-free with concurrent buys/sells on the same
+		// holding.
+		settle, err := h.holdingReserver.ConsumeForPeerOptionContract(ctx, contract.ID, contract.Quantity)
+		if err != nil {
 			return nil, status.Errorf(codes.Internal, "consume seller reservation: %v", err)
+		}
+		if h.capitalGainRepo != nil {
+			sellerType, sellerID, parseErr := parseSellerOwner(contract.SellerID)
+			if parseErr != nil {
+				log.Printf("WARN: peer-option contract %d exercise: seller_id %q not parseable; capital gain not recorded: %v", contract.ID, contract.SellerID, parseErr)
+			} else {
+				gain := contract.StrikePrice.Sub(settle.AveragePriceBefore).Mul(decimal.NewFromInt(contract.Quantity))
+				cg := &model.CapitalGain{
+					OwnerType:        sellerType,
+					OwnerID:          sellerID,
+					OTC:              true,
+					SecurityType:     "stock",
+					Ticker:           contract.Ticker,
+					Quantity:         contract.Quantity,
+					BuyPricePerUnit:  settle.AveragePriceBefore,
+					SellPricePerUnit: contract.StrikePrice,
+					TotalGain:        gain,
+					Currency:         contract.Currency,
+					TaxYear:          time.Now().Year(),
+					TaxMonth:         int(time.Now().Month()),
+				}
+				if cgErr := h.capitalGainRepo.Create(cg); cgErr != nil {
+					log.Printf("WARN: peer-option contract %d exercise: seller capital gain create failed (money/shares already moved): %v", contract.ID, cgErr)
+				}
+			}
 		}
 	case contractsitx.DirectionCredit:
 		// Buyer side. Credit the buyer's holding for the gained shares.
+		// AveragePrice = StrikePrice (the per-share price paid on
+		// exercise). Premium paid at acceptance is tracked separately
+		// as a SecurityType="option" CapitalGain row written by the
+		// acceptance saga — never folded into the stock cost basis,
+		// so later stock sells produce the same P/L as a matching
+		// market buy at the strike would.
 		ownerType, ownerID, parseErr := parseSellerOwner(contract.BuyerID)
 		if parseErr != nil {
 			log.Printf("WARN: peer-option contract %d exercise: buyer_id %q not parseable; holding not credited: %v", contract.ID, contract.BuyerID, parseErr)
 		} else {
-			if err := h.holdingReserver.CreditBuyerHoldingForPeerOption(ctx, ownerType, ownerID, contract.Ticker, contract.Quantity); err != nil {
+			if err := h.holdingReserver.CreditBuyerHoldingForPeerOption(ctx, ownerType, ownerID, contract.Ticker, contract.Quantity, contract.StrikePrice); err != nil {
 				log.Printf("WARN: peer-option contract %d exercise: credit buyer holding failed: %v", contract.ID, err)
 			}
 		}

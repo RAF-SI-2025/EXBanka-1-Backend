@@ -67,6 +67,31 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	if c.BuyerAccountID == 0 || c.SellerAccountID == 0 {
 		return nil, errors.New("contract has no bound accounts")
 	}
+
+	// Snapshot the seller's cost basis BEFORE the saga consumes their
+	// holding — needed by the post-saga CapitalGain write so the seller's
+	// realised P/L on the strike sale is recorded. Done up here (not
+	// inside StepConsumeSellerHolding) so a fetch failure can short-
+	// circuit the exercise cleanly before any money moves. Skipped when
+	// neither the capital-gain repo nor the holdings lookup is wired
+	// (legacy test wiring) — the saga still runs, just without the P/L
+	// row, matching pre-fix behaviour.
+	var sellerCostBasis decimal.Decimal
+	sellerCostBasisKnown := false
+	if s.capitalGainRepo != nil && s.holdings != nil {
+		sellerHolding, herr := s.holdings.GetByOwnerAndSecurity(
+			c.SellerOwnerType, c.SellerOwnerID, "stock", c.StockID,
+		)
+		if herr != nil {
+			// Seller's holding row may have already been consumed by a
+			// retried exercise; in that case AveragePrice is unknowable
+			// and we proceed without writing CapitalGain (logged below).
+			log.Printf("WARN: OTC exercise contract=%d: seller holding lookup failed (capital gain will be skipped): %v", c.ID, herr)
+		} else if sellerHolding != nil {
+			sellerCostBasis = sellerHolding.AveragePrice
+			sellerCostBasisKnown = true
+		}
+	}
 	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: c.BuyerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get buyer account: %w", err)
@@ -220,6 +245,36 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	}
 	if err := s.holdingRepo.Upsert(ctx, buyerHolding); err != nil {
 		log.Printf("CRITICAL: OTC exercise saga=%s: buyer holding upsert failed (money moved, shares left seller): %v", sagaID, err)
+	}
+
+	// Seller-side realised P/L: strike price × qty - cost basis × qty.
+	// Mirrors PortfolioService.recordCapitalGain and OTCService.BuyOffer's
+	// capital-gain emission so a user who buys at X and writes a call
+	// that gets exercised at Y sees the (Y - X) gain in their portfolio
+	// summary. Best-effort: a failure here does NOT reverse the saga
+	// (shares + strike money have already moved).
+	if s.capitalGainRepo != nil && sellerCostBasisKnown {
+		gain := c.StrikePrice.Sub(sellerCostBasis).Mul(decimal.NewFromInt(qty))
+		cg := &model.CapitalGain{
+			OwnerType:        c.SellerOwnerType,
+			OwnerID:          c.SellerOwnerID,
+			OTC:              true,
+			SecurityType:     "stock",
+			Ticker:           c.Ticker,
+			Quantity:         qty,
+			BuyPricePerUnit:  sellerCostBasis,
+			SellPricePerUnit: c.StrikePrice,
+			TotalGain:        gain,
+			Currency:         c.StrikeCurrency,
+			AccountID:        c.SellerAccountID,
+			TaxYear:          time.Now().Year(),
+			TaxMonth:         int(time.Now().Month()),
+		}
+		if cgErr := s.capitalGainRepo.Create(cg); cgErr != nil {
+			log.Printf("WARN: OTC exercise saga=%s: seller capital gain create failed (money/shares already moved): %v", sagaID, cgErr)
+		}
+	} else if s.capitalGainRepo != nil && !sellerCostBasisKnown {
+		log.Printf("WARN: OTC exercise saga=%s: seller capital gain skipped (cost basis unknown — holding lookup failed pre-saga)", sagaID)
 	}
 
 	now := time.Now().UTC()

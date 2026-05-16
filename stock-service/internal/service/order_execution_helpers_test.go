@@ -53,7 +53,11 @@ func TestEngine_GetExecutionPrice_HighZeroFallsBackToPrice(t *testing.T) {
 	}
 }
 
-func TestEngine_GetExecutionPrice_LimitBuyClampsToAsk(t *testing.T) {
+// Limit orders fill at the market quote (ask for buy, bid for sell). The price
+// condition is enforced by isOrderTriggered — getExecutionPrice is only ever
+// reached when the limit is already satisfied, so it returns the live quote
+// rather than the (more favourable) limit value the user typed in.
+func TestEngine_GetExecutionPrice_LimitBuyReturnsAsk(t *testing.T) {
 	e := newTestEngine()
 	listing := &model.Listing{Price: decimal.NewFromInt(100), High: decimal.NewFromInt(105), Low: decimal.NewFromInt(95)}
 	limit := decimal.NewFromInt(110)
@@ -64,7 +68,7 @@ func TestEngine_GetExecutionPrice_LimitBuyClampsToAsk(t *testing.T) {
 	}
 }
 
-func TestEngine_GetExecutionPrice_LimitSellClampsToBid(t *testing.T) {
+func TestEngine_GetExecutionPrice_LimitSellReturnsBid(t *testing.T) {
 	e := newTestEngine()
 	listing := &model.Listing{Price: decimal.NewFromInt(100), High: decimal.NewFromInt(105), Low: decimal.NewFromInt(95)}
 	limit := decimal.NewFromInt(90)
@@ -75,24 +79,13 @@ func TestEngine_GetExecutionPrice_LimitSellClampsToBid(t *testing.T) {
 	}
 }
 
-func TestEngine_GetExecutionPrice_LimitWithinSpreadBuy(t *testing.T) {
-	e := newTestEngine()
-	listing := &model.Listing{Price: decimal.NewFromInt(100), High: decimal.NewFromInt(105), Low: decimal.NewFromInt(95)}
-	limit := decimal.NewFromInt(102)
-	order := &model.Order{OrderType: "limit", Direction: "buy", LimitValue: &limit}
-	got := e.getExecutionPrice(order, listing)
-	if !got.Equal(decimal.NewFromInt(102)) {
-		t.Errorf("got %s want 102", got)
-	}
-}
-
-func TestEngine_GetExecutionPrice_LimitNoValueFallsBack(t *testing.T) {
+func TestEngine_GetExecutionPrice_LimitNoValueFallsBackToQuote(t *testing.T) {
 	e := newTestEngine()
 	listing := &model.Listing{Price: decimal.NewFromInt(100), High: decimal.NewFromInt(105), Low: decimal.NewFromInt(95)}
 	order := &model.Order{OrderType: "limit", Direction: "buy"}
 	got := e.getExecutionPrice(order, listing)
-	if !got.Equal(decimal.NewFromInt(100)) {
-		t.Errorf("got %s want 100", got)
+	if !got.Equal(decimal.NewFromInt(105)) {
+		t.Errorf("got %s want 105 (ask)", got)
 	}
 }
 
@@ -113,15 +106,171 @@ func TestEngine_IsOrderTriggered_MarketAlwaysTrue(t *testing.T) {
 	if !e.isOrderTriggered(&model.Order{OrderType: "market"}) {
 		t.Error("market should be triggered")
 	}
-	if !e.isOrderTriggered(&model.Order{OrderType: "limit"}) {
-		t.Error("limit should be triggered")
-	}
 }
 
 func TestEngine_IsOrderTriggered_UnknownTypeReturnsTrue(t *testing.T) {
 	e := newTestEngine()
 	if !e.isOrderTriggered(&model.Order{OrderType: "weird"}) {
 		t.Error("unknown order type should fall through to true")
+	}
+}
+
+// ---------------- isOrderTriggered: limit ----------------
+
+func makeListing(price, high, low int64) *model.Listing {
+	return &model.Listing{
+		ID: 7, Price: decimal.NewFromInt(price),
+		High: decimal.NewFromInt(high), Low: decimal.NewFromInt(low),
+	}
+}
+
+func TestEngine_IsOrderTriggered_BuyLimit_AskAboveLimit_NotTriggered(t *testing.T) {
+	listing := makeListing(100, 120, 80)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	limit := decimal.NewFromInt(110) // willing to buy at <= 110, ask is 120
+	order := &model.Order{OrderType: "limit", Direction: "buy", ListingID: 7, LimitValue: &limit}
+	if e.isOrderTriggered(order) {
+		t.Error("buy-limit with ask above limit should NOT be triggered")
+	}
+}
+
+func TestEngine_IsOrderTriggered_BuyLimit_AskAtLimit_Triggered(t *testing.T) {
+	listing := makeListing(100, 110, 80)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	limit := decimal.NewFromInt(110)
+	order := &model.Order{OrderType: "limit", Direction: "buy", ListingID: 7, LimitValue: &limit}
+	if !e.isOrderTriggered(order) {
+		t.Error("buy-limit with ask equal to limit should be triggered")
+	}
+}
+
+func TestEngine_IsOrderTriggered_SellLimit_BidBelowLimit_NotTriggered(t *testing.T) {
+	listing := makeListing(100, 120, 80)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	limit := decimal.NewFromInt(90) // willing to sell at >= 90, bid is 80
+	order := &model.Order{OrderType: "limit", Direction: "sell", ListingID: 7, LimitValue: &limit}
+	if e.isOrderTriggered(order) {
+		t.Error("sell-limit with bid below limit should NOT be triggered")
+	}
+}
+
+func TestEngine_IsOrderTriggered_SellLimit_BidAtLimit_Triggered(t *testing.T) {
+	listing := makeListing(100, 120, 90)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	limit := decimal.NewFromInt(90)
+	order := &model.Order{OrderType: "limit", Direction: "sell", ListingID: 7, LimitValue: &limit}
+	if !e.isOrderTriggered(order) {
+		t.Error("sell-limit with bid equal to limit should be triggered")
+	}
+}
+
+func TestEngine_IsOrderTriggered_Limit_NoLimitValue_NotTriggered(t *testing.T) {
+	listing := makeListing(100, 105, 95)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	order := &model.Order{OrderType: "limit", Direction: "buy", ListingID: 7}
+	if e.isOrderTriggered(order) {
+		t.Error("limit without LimitValue should NOT be triggered (defensive)")
+	}
+}
+
+// ---------------- isOrderTriggered: stop_limit ----------------
+
+func TestEngine_IsOrderTriggered_StopLimit_Buy_StopNotCrossed_NotTriggered(t *testing.T) {
+	// High=110, stop=120 (not crossed yet)
+	listing := makeListing(100, 110, 95)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	stop, limit := decimal.NewFromInt(120), decimal.NewFromInt(130)
+	order := &model.Order{OrderType: "stop_limit", Direction: "buy", ListingID: 7, StopValue: &stop, LimitValue: &limit}
+	if e.isOrderTriggered(order) {
+		t.Error("stop-limit buy with stop not crossed should NOT be triggered")
+	}
+}
+
+func TestEngine_IsOrderTriggered_StopLimit_Buy_StopCrossed_LimitTooLow_NotTriggered(t *testing.T) {
+	// High=125 (stop crossed), but limit=120 < ask=125
+	listing := makeListing(100, 125, 95)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	stop, limit := decimal.NewFromInt(120), decimal.NewFromInt(120)
+	order := &model.Order{OrderType: "stop_limit", Direction: "buy", ListingID: 7, StopValue: &stop, LimitValue: &limit}
+	if e.isOrderTriggered(order) {
+		t.Error("stop-limit buy with stop crossed but ask above limit should NOT be triggered")
+	}
+}
+
+func TestEngine_IsOrderTriggered_StopLimit_Buy_StopCrossed_LimitMet_Triggered(t *testing.T) {
+	// High=122 (stop=120 crossed), limit=130 >= ask=122
+	listing := makeListing(100, 122, 95)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	stop, limit := decimal.NewFromInt(120), decimal.NewFromInt(130)
+	order := &model.Order{OrderType: "stop_limit", Direction: "buy", ListingID: 7, StopValue: &stop, LimitValue: &limit}
+	if !e.isOrderTriggered(order) {
+		t.Error("stop-limit buy with stop crossed AND ask within limit should be triggered")
+	}
+}
+
+func TestEngine_IsOrderTriggered_StopLimit_Sell_StopNotCrossed_NotTriggered(t *testing.T) {
+	// Low=85, stop=80 — not crossed yet (price hasn't fallen far enough)
+	listing := makeListing(100, 110, 85)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	stop, limit := decimal.NewFromInt(80), decimal.NewFromInt(70)
+	order := &model.Order{OrderType: "stop_limit", Direction: "sell", ListingID: 7, StopValue: &stop, LimitValue: &limit}
+	if e.isOrderTriggered(order) {
+		t.Error("stop-limit sell with stop not crossed should NOT be triggered")
+	}
+}
+
+func TestEngine_IsOrderTriggered_StopLimit_Sell_StopCrossed_LimitTooHigh_NotTriggered(t *testing.T) {
+	// Low=75 (stop=80 crossed), limit=90 > bid=75
+	listing := makeListing(100, 110, 75)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	stop, limit := decimal.NewFromInt(80), decimal.NewFromInt(90)
+	order := &model.Order{OrderType: "stop_limit", Direction: "sell", ListingID: 7, StopValue: &stop, LimitValue: &limit}
+	if e.isOrderTriggered(order) {
+		t.Error("stop-limit sell with stop crossed but bid below limit should NOT be triggered")
+	}
+}
+
+func TestEngine_IsOrderTriggered_StopLimit_Sell_StopCrossed_LimitMet_Triggered(t *testing.T) {
+	// Low=75 (stop=80 crossed), limit=70 <= bid=75
+	listing := makeListing(100, 110, 75)
+	e := NewOrderExecutionEngine(context.Background(),
+		&fakeBaseCtxOrderRepo{}, &fakeBaseCtxTxRepo{},
+		&fakeBaseCtxListingRepo{l: listing}, &fakeBaseCtxSettingRepo{},
+		fakeBaseCtxPublisher{}, &fakeBaseCtxFillHandler{})
+	stop, limit := decimal.NewFromInt(80), decimal.NewFromInt(70)
+	order := &model.Order{OrderType: "stop_limit", Direction: "sell", ListingID: 7, StopValue: &stop, LimitValue: &limit}
+	if !e.isOrderTriggered(order) {
+		t.Error("stop-limit sell with stop crossed AND bid within limit should be triggered")
 	}
 }
 
