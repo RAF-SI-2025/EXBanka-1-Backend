@@ -438,11 +438,11 @@ func TestListMyNegotiations_FiltersByBidder(t *testing.T) {
 // check and must handle every (type, id) edge case.
 func TestOwnerMatches(t *testing.T) {
 	cases := []struct {
-		name             string
-		t1, t2           model.OwnerType
-		id1Set, id2Set   bool
-		id1, id2         uint64
-		want             bool
+		name           string
+		t1, t2         model.OwnerType
+		id1Set, id2Set bool
+		id1, id2       uint64
+		want           bool
 	}{
 		{"both bank nil", model.OwnerBank, model.OwnerBank, false, false, 0, 0, true},
 		{"bank vs client", model.OwnerBank, model.OwnerClient, false, false, 0, 0, false},

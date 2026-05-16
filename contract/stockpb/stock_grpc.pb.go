@@ -2344,19 +2344,26 @@ var InvestmentFundService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	OTCOptionsService_CreateOffer_FullMethodName            = "/stock.OTCOptionsService/CreateOffer"
-	OTCOptionsService_ListMyOffers_FullMethodName           = "/stock.OTCOptionsService/ListMyOffers"
-	OTCOptionsService_GetOffer_FullMethodName               = "/stock.OTCOptionsService/GetOffer"
-	OTCOptionsService_CounterOffer_FullMethodName           = "/stock.OTCOptionsService/CounterOffer"
-	OTCOptionsService_AcceptOffer_FullMethodName            = "/stock.OTCOptionsService/AcceptOffer"
-	OTCOptionsService_RejectOffer_FullMethodName            = "/stock.OTCOptionsService/RejectOffer"
-	OTCOptionsService_ListMyContracts_FullMethodName        = "/stock.OTCOptionsService/ListMyContracts"
-	OTCOptionsService_GetContract_FullMethodName            = "/stock.OTCOptionsService/GetContract"
-	OTCOptionsService_ExerciseContract_FullMethodName       = "/stock.OTCOptionsService/ExerciseContract"
-	OTCOptionsService_ListNegotiationHistory_FullMethodName = "/stock.OTCOptionsService/ListNegotiationHistory"
-	OTCOptionsService_SubmitRating_FullMethodName           = "/stock.OTCOptionsService/SubmitRating"
-	OTCOptionsService_GetTraderProfile_FullMethodName       = "/stock.OTCOptionsService/GetTraderProfile"
-	OTCOptionsService_ListReceivedRatings_FullMethodName    = "/stock.OTCOptionsService/ListReceivedRatings"
+	OTCOptionsService_CreateOffer_FullMethodName               = "/stock.OTCOptionsService/CreateOffer"
+	OTCOptionsService_ListMyOffers_FullMethodName              = "/stock.OTCOptionsService/ListMyOffers"
+	OTCOptionsService_GetOffer_FullMethodName                  = "/stock.OTCOptionsService/GetOffer"
+	OTCOptionsService_CounterOffer_FullMethodName              = "/stock.OTCOptionsService/CounterOffer"
+	OTCOptionsService_AcceptOffer_FullMethodName               = "/stock.OTCOptionsService/AcceptOffer"
+	OTCOptionsService_RejectOffer_FullMethodName               = "/stock.OTCOptionsService/RejectOffer"
+	OTCOptionsService_ListMyContracts_FullMethodName           = "/stock.OTCOptionsService/ListMyContracts"
+	OTCOptionsService_GetContract_FullMethodName               = "/stock.OTCOptionsService/GetContract"
+	OTCOptionsService_ExerciseContract_FullMethodName          = "/stock.OTCOptionsService/ExerciseContract"
+	OTCOptionsService_ListNegotiationHistory_FullMethodName    = "/stock.OTCOptionsService/ListNegotiationHistory"
+	OTCOptionsService_SubmitRating_FullMethodName              = "/stock.OTCOptionsService/SubmitRating"
+	OTCOptionsService_GetTraderProfile_FullMethodName          = "/stock.OTCOptionsService/GetTraderProfile"
+	OTCOptionsService_ListReceivedRatings_FullMethodName       = "/stock.OTCOptionsService/ListReceivedRatings"
+	OTCOptionsService_OpenNegotiation_FullMethodName           = "/stock.OTCOptionsService/OpenNegotiation"
+	OTCOptionsService_CounterNegotiation_FullMethodName        = "/stock.OTCOptionsService/CounterNegotiation"
+	OTCOptionsService_AcceptNegotiationChain_FullMethodName    = "/stock.OTCOptionsService/AcceptNegotiationChain"
+	OTCOptionsService_RejectNegotiation_FullMethodName         = "/stock.OTCOptionsService/RejectNegotiation"
+	OTCOptionsService_CancelNegotiation_FullMethodName         = "/stock.OTCOptionsService/CancelNegotiation"
+	OTCOptionsService_ListMyNegotiations_FullMethodName        = "/stock.OTCOptionsService/ListMyNegotiations"
+	OTCOptionsService_ListNegotiationsByListing_FullMethodName = "/stock.OTCOptionsService/ListNegotiationsByListing"
 )
 
 // OTCOptionsServiceClient is the client API for OTCOptionsService service.
@@ -2379,6 +2386,18 @@ type OTCOptionsServiceClient interface {
 	SubmitRating(ctx context.Context, in *SubmitOTCRatingRequest, opts ...grpc.CallOption) (*OTCRatingResponse, error)
 	GetTraderProfile(ctx context.Context, in *GetTraderProfileRequest, opts ...grpc.CallOption) (*TraderProfileResponse, error)
 	ListReceivedRatings(ctx context.Context, in *ListReceivedRatingsRequest, opts ...grpc.CallOption) (*ListOTCRatingsResponse, error)
+	// --- Phase 2 marketplace: parallel negotiation chains -----------
+	// OTCOffer is the (immutable) listing; many bidders each open their
+	// own OTCNegotiation chain. First-to-accept wins atomically; parent
+	// listing flips to "consumed" and sibling chains cascade-cancel.
+	// See docs/superpowers/plans/2026-05-16-otc-options-marketplace.md.
+	OpenNegotiation(ctx context.Context, in *OpenNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error)
+	CounterNegotiation(ctx context.Context, in *CounterNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error)
+	AcceptNegotiationChain(ctx context.Context, in *OTCAcceptNegotiationRequest, opts ...grpc.CallOption) (*OTCAcceptNegotiationResponse, error)
+	RejectNegotiation(ctx context.Context, in *RejectNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error)
+	CancelNegotiation(ctx context.Context, in *CancelNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error)
+	ListMyNegotiations(ctx context.Context, in *ListMyNegotiationsRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error)
+	ListNegotiationsByListing(ctx context.Context, in *ListNegotiationsByListingRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error)
 }
 
 type oTCOptionsServiceClient struct {
@@ -2519,6 +2538,76 @@ func (c *oTCOptionsServiceClient) ListReceivedRatings(ctx context.Context, in *L
 	return out, nil
 }
 
+func (c *oTCOptionsServiceClient) OpenNegotiation(ctx context.Context, in *OpenNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCNegotiationResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_OpenNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) CounterNegotiation(ctx context.Context, in *CounterNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCNegotiationResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_CounterNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) AcceptNegotiationChain(ctx context.Context, in *OTCAcceptNegotiationRequest, opts ...grpc.CallOption) (*OTCAcceptNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCAcceptNegotiationResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_AcceptNegotiationChain_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) RejectNegotiation(ctx context.Context, in *RejectNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCNegotiationResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_RejectNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) CancelNegotiation(ctx context.Context, in *CancelNegotiationRequest, opts ...grpc.CallOption) (*OTCNegotiationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCNegotiationResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_CancelNegotiation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) ListMyNegotiations(ctx context.Context, in *ListMyNegotiationsRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNegotiationsResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_ListMyNegotiations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCOptionsServiceClient) ListNegotiationsByListing(ctx context.Context, in *ListNegotiationsByListingRequest, opts ...grpc.CallOption) (*ListNegotiationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListNegotiationsResponse)
+	err := c.cc.Invoke(ctx, OTCOptionsService_ListNegotiationsByListing_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OTCOptionsServiceServer is the server API for OTCOptionsService service.
 // All implementations must embed UnimplementedOTCOptionsServiceServer
 // for forward compatibility.
@@ -2539,6 +2628,18 @@ type OTCOptionsServiceServer interface {
 	SubmitRating(context.Context, *SubmitOTCRatingRequest) (*OTCRatingResponse, error)
 	GetTraderProfile(context.Context, *GetTraderProfileRequest) (*TraderProfileResponse, error)
 	ListReceivedRatings(context.Context, *ListReceivedRatingsRequest) (*ListOTCRatingsResponse, error)
+	// --- Phase 2 marketplace: parallel negotiation chains -----------
+	// OTCOffer is the (immutable) listing; many bidders each open their
+	// own OTCNegotiation chain. First-to-accept wins atomically; parent
+	// listing flips to "consumed" and sibling chains cascade-cancel.
+	// See docs/superpowers/plans/2026-05-16-otc-options-marketplace.md.
+	OpenNegotiation(context.Context, *OpenNegotiationRequest) (*OTCNegotiationResponse, error)
+	CounterNegotiation(context.Context, *CounterNegotiationRequest) (*OTCNegotiationResponse, error)
+	AcceptNegotiationChain(context.Context, *OTCAcceptNegotiationRequest) (*OTCAcceptNegotiationResponse, error)
+	RejectNegotiation(context.Context, *RejectNegotiationRequest) (*OTCNegotiationResponse, error)
+	CancelNegotiation(context.Context, *CancelNegotiationRequest) (*OTCNegotiationResponse, error)
+	ListMyNegotiations(context.Context, *ListMyNegotiationsRequest) (*ListNegotiationsResponse, error)
+	ListNegotiationsByListing(context.Context, *ListNegotiationsByListingRequest) (*ListNegotiationsResponse, error)
 	mustEmbedUnimplementedOTCOptionsServiceServer()
 }
 
@@ -2587,6 +2688,27 @@ func (UnimplementedOTCOptionsServiceServer) GetTraderProfile(context.Context, *G
 }
 func (UnimplementedOTCOptionsServiceServer) ListReceivedRatings(context.Context, *ListReceivedRatingsRequest) (*ListOTCRatingsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListReceivedRatings not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) OpenNegotiation(context.Context, *OpenNegotiationRequest) (*OTCNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method OpenNegotiation not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) CounterNegotiation(context.Context, *CounterNegotiationRequest) (*OTCNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CounterNegotiation not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) AcceptNegotiationChain(context.Context, *OTCAcceptNegotiationRequest) (*OTCAcceptNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptNegotiationChain not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) RejectNegotiation(context.Context, *RejectNegotiationRequest) (*OTCNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RejectNegotiation not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) CancelNegotiation(context.Context, *CancelNegotiationRequest) (*OTCNegotiationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelNegotiation not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) ListMyNegotiations(context.Context, *ListMyNegotiationsRequest) (*ListNegotiationsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMyNegotiations not implemented")
+}
+func (UnimplementedOTCOptionsServiceServer) ListNegotiationsByListing(context.Context, *ListNegotiationsByListingRequest) (*ListNegotiationsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListNegotiationsByListing not implemented")
 }
 func (UnimplementedOTCOptionsServiceServer) mustEmbedUnimplementedOTCOptionsServiceServer() {}
 func (UnimplementedOTCOptionsServiceServer) testEmbeddedByValue()                           {}
@@ -2843,6 +2965,132 @@ func _OTCOptionsService_ListReceivedRatings_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OTCOptionsService_OpenNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OpenNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).OpenNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_OpenNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).OpenNegotiation(ctx, req.(*OpenNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_CounterNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CounterNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).CounterNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_CounterNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).CounterNegotiation(ctx, req.(*CounterNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_AcceptNegotiationChain_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OTCAcceptNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).AcceptNegotiationChain(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_AcceptNegotiationChain_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).AcceptNegotiationChain(ctx, req.(*OTCAcceptNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_RejectNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RejectNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).RejectNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_RejectNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).RejectNegotiation(ctx, req.(*RejectNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_CancelNegotiation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelNegotiationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).CancelNegotiation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_CancelNegotiation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).CancelNegotiation(ctx, req.(*CancelNegotiationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_ListMyNegotiations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyNegotiationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).ListMyNegotiations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_ListMyNegotiations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).ListMyNegotiations(ctx, req.(*ListMyNegotiationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCOptionsService_ListNegotiationsByListing_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListNegotiationsByListingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCOptionsServiceServer).ListNegotiationsByListing(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCOptionsService_ListNegotiationsByListing_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCOptionsServiceServer).ListNegotiationsByListing(ctx, req.(*ListNegotiationsByListingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OTCOptionsService_ServiceDesc is the grpc.ServiceDesc for OTCOptionsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2901,6 +3149,229 @@ var OTCOptionsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListReceivedRatings",
 			Handler:    _OTCOptionsService_ListReceivedRatings_Handler,
+		},
+		{
+			MethodName: "OpenNegotiation",
+			Handler:    _OTCOptionsService_OpenNegotiation_Handler,
+		},
+		{
+			MethodName: "CounterNegotiation",
+			Handler:    _OTCOptionsService_CounterNegotiation_Handler,
+		},
+		{
+			MethodName: "AcceptNegotiationChain",
+			Handler:    _OTCOptionsService_AcceptNegotiationChain_Handler,
+		},
+		{
+			MethodName: "RejectNegotiation",
+			Handler:    _OTCOptionsService_RejectNegotiation_Handler,
+		},
+		{
+			MethodName: "CancelNegotiation",
+			Handler:    _OTCOptionsService_CancelNegotiation_Handler,
+		},
+		{
+			MethodName: "ListMyNegotiations",
+			Handler:    _OTCOptionsService_ListMyNegotiations_Handler,
+		},
+		{
+			MethodName: "ListNegotiationsByListing",
+			Handler:    _OTCOptionsService_ListNegotiationsByListing_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "stock/stock.proto",
+}
+
+const (
+	OTCStockMarketGRPCService_CreateOTCStockOffer_FullMethodName = "/stock.OTCStockMarketGRPCService/CreateOTCStockOffer"
+	OTCStockMarketGRPCService_CancelOTCStockOffer_FullMethodName = "/stock.OTCStockMarketGRPCService/CancelOTCStockOffer"
+	OTCStockMarketGRPCService_ListMyOTCStocks_FullMethodName     = "/stock.OTCStockMarketGRPCService/ListMyOTCStocks"
+)
+
+// OTCStockMarketGRPCServiceClient is the client API for OTCStockMarketGRPCService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// --------------------------------------------------------------------
+// OTCStockMarketGRPCService — Phase 3 stocks marketplace (sell + buy
+// directions). Wires the new OTCStockService. Fill RPCs are deferred
+// to Phase 3B; for now the deprecated OTCGRPCService.BuyOffer backs
+// sell-side fills under the legacy route.
+// See docs/superpowers/plans/2026-05-16-otc-stocks-marketplace.md.
+// --------------------------------------------------------------------
+type OTCStockMarketGRPCServiceClient interface {
+	CreateOTCStockOffer(ctx context.Context, in *CreateOTCStockOfferRequest, opts ...grpc.CallOption) (*OTCStockOfferResponse, error)
+	CancelOTCStockOffer(ctx context.Context, in *CancelOTCStockOfferRequest, opts ...grpc.CallOption) (*CancelOTCStockOfferResponse, error)
+	ListMyOTCStocks(ctx context.Context, in *ListMyOTCStocksRequest, opts ...grpc.CallOption) (*ListMyOTCStocksResponse, error)
+}
+
+type oTCStockMarketGRPCServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewOTCStockMarketGRPCServiceClient(cc grpc.ClientConnInterface) OTCStockMarketGRPCServiceClient {
+	return &oTCStockMarketGRPCServiceClient{cc}
+}
+
+func (c *oTCStockMarketGRPCServiceClient) CreateOTCStockOffer(ctx context.Context, in *CreateOTCStockOfferRequest, opts ...grpc.CallOption) (*OTCStockOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCStockOfferResponse)
+	err := c.cc.Invoke(ctx, OTCStockMarketGRPCService_CreateOTCStockOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCStockMarketGRPCServiceClient) CancelOTCStockOffer(ctx context.Context, in *CancelOTCStockOfferRequest, opts ...grpc.CallOption) (*CancelOTCStockOfferResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelOTCStockOfferResponse)
+	err := c.cc.Invoke(ctx, OTCStockMarketGRPCService_CancelOTCStockOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *oTCStockMarketGRPCServiceClient) ListMyOTCStocks(ctx context.Context, in *ListMyOTCStocksRequest, opts ...grpc.CallOption) (*ListMyOTCStocksResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMyOTCStocksResponse)
+	err := c.cc.Invoke(ctx, OTCStockMarketGRPCService_ListMyOTCStocks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OTCStockMarketGRPCServiceServer is the server API for OTCStockMarketGRPCService service.
+// All implementations must embed UnimplementedOTCStockMarketGRPCServiceServer
+// for forward compatibility.
+//
+// --------------------------------------------------------------------
+// OTCStockMarketGRPCService — Phase 3 stocks marketplace (sell + buy
+// directions). Wires the new OTCStockService. Fill RPCs are deferred
+// to Phase 3B; for now the deprecated OTCGRPCService.BuyOffer backs
+// sell-side fills under the legacy route.
+// See docs/superpowers/plans/2026-05-16-otc-stocks-marketplace.md.
+// --------------------------------------------------------------------
+type OTCStockMarketGRPCServiceServer interface {
+	CreateOTCStockOffer(context.Context, *CreateOTCStockOfferRequest) (*OTCStockOfferResponse, error)
+	CancelOTCStockOffer(context.Context, *CancelOTCStockOfferRequest) (*CancelOTCStockOfferResponse, error)
+	ListMyOTCStocks(context.Context, *ListMyOTCStocksRequest) (*ListMyOTCStocksResponse, error)
+	mustEmbedUnimplementedOTCStockMarketGRPCServiceServer()
+}
+
+// UnimplementedOTCStockMarketGRPCServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedOTCStockMarketGRPCServiceServer struct{}
+
+func (UnimplementedOTCStockMarketGRPCServiceServer) CreateOTCStockOffer(context.Context, *CreateOTCStockOfferRequest) (*OTCStockOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateOTCStockOffer not implemented")
+}
+func (UnimplementedOTCStockMarketGRPCServiceServer) CancelOTCStockOffer(context.Context, *CancelOTCStockOfferRequest) (*CancelOTCStockOfferResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelOTCStockOffer not implemented")
+}
+func (UnimplementedOTCStockMarketGRPCServiceServer) ListMyOTCStocks(context.Context, *ListMyOTCStocksRequest) (*ListMyOTCStocksResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMyOTCStocks not implemented")
+}
+func (UnimplementedOTCStockMarketGRPCServiceServer) mustEmbedUnimplementedOTCStockMarketGRPCServiceServer() {
+}
+func (UnimplementedOTCStockMarketGRPCServiceServer) testEmbeddedByValue() {}
+
+// UnsafeOTCStockMarketGRPCServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to OTCStockMarketGRPCServiceServer will
+// result in compilation errors.
+type UnsafeOTCStockMarketGRPCServiceServer interface {
+	mustEmbedUnimplementedOTCStockMarketGRPCServiceServer()
+}
+
+func RegisterOTCStockMarketGRPCServiceServer(s grpc.ServiceRegistrar, srv OTCStockMarketGRPCServiceServer) {
+	// If the following call panics, it indicates UnimplementedOTCStockMarketGRPCServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&OTCStockMarketGRPCService_ServiceDesc, srv)
+}
+
+func _OTCStockMarketGRPCService_CreateOTCStockOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateOTCStockOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCStockMarketGRPCServiceServer).CreateOTCStockOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCStockMarketGRPCService_CreateOTCStockOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCStockMarketGRPCServiceServer).CreateOTCStockOffer(ctx, req.(*CreateOTCStockOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCStockMarketGRPCService_CancelOTCStockOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelOTCStockOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCStockMarketGRPCServiceServer).CancelOTCStockOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCStockMarketGRPCService_CancelOTCStockOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCStockMarketGRPCServiceServer).CancelOTCStockOffer(ctx, req.(*CancelOTCStockOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OTCStockMarketGRPCService_ListMyOTCStocks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyOTCStocksRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCStockMarketGRPCServiceServer).ListMyOTCStocks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCStockMarketGRPCService_ListMyOTCStocks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCStockMarketGRPCServiceServer).ListMyOTCStocks(ctx, req.(*ListMyOTCStocksRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// OTCStockMarketGRPCService_ServiceDesc is the grpc.ServiceDesc for OTCStockMarketGRPCService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var OTCStockMarketGRPCService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "stock.OTCStockMarketGRPCService",
+	HandlerType: (*OTCStockMarketGRPCServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateOTCStockOffer",
+			Handler:    _OTCStockMarketGRPCService_CreateOTCStockOffer_Handler,
+		},
+		{
+			MethodName: "CancelOTCStockOffer",
+			Handler:    _OTCStockMarketGRPCService_CancelOTCStockOffer_Handler,
+		},
+		{
+			MethodName: "ListMyOTCStocks",
+			Handler:    _OTCStockMarketGRPCService_ListMyOTCStocks_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

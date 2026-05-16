@@ -19,13 +19,13 @@ import (
 // ---------- test doubles ----------
 
 type stocksFakeAccountClient struct {
-	mu                sync.Mutex
-	acct              *accountpb.AccountResponse
-	stocksReserveCalls      []stocksReserveCall
-	stocksReleaseCalls      []stocksReleaseCall
-	failReserveErr    error
-	failReleaseErr    error
-	failGetAccountErr error
+	mu                 sync.Mutex
+	acct               *accountpb.AccountResponse
+	stocksReserveCalls []stocksReserveCall
+	stocksReleaseCalls []stocksReleaseCall
+	failReserveErr     error
+	failReleaseErr     error
+	failGetAccountErr  error
 }
 
 type stocksReserveCall struct {
@@ -67,11 +67,11 @@ func (f *stocksFakeAccountClient) GetAccount(ctx context.Context, accountID uint
 }
 
 type stocksFakeListingResolver struct {
-	currency  string
-	ticker    string
-	name      string
-	stockID   uint64
-	err       error
+	currency string
+	ticker   string
+	name     string
+	stockID  uint64
+	err      error
 }
 
 func (f *stocksFakeListingResolver) GetListingCurrency(listingID uint64) (string, error) {
@@ -84,12 +84,12 @@ func (f *stocksFakeListingResolver) GetListingTickerAndName(listingID uint64) (s
 // ---------- env ----------
 
 type otcStockTestEnv struct {
-	db           *gorm.DB
-	svc          *OTCStockService
-	holdingRepo  *repository.HoldingRepository
-	buyOfferRepo *repository.OTCStockBuyOfferRepository
+	db            *gorm.DB
+	svc           *OTCStockService
+	holdingRepo   *repository.HoldingRepository
+	buyOfferRepo  *repository.OTCStockBuyOfferRepository
 	accountClient *stocksFakeAccountClient
-	listing      *stocksFakeListingResolver
+	listing       *stocksFakeListingResolver
 }
 
 func newOTCStockTestEnv(t *testing.T) *otcStockTestEnv {

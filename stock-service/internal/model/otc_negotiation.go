@@ -73,10 +73,10 @@ type OTCNegotiation struct {
 	// "client" or "employee" (audit); OwnerType is the resource owner
 	// (the bidder on bid/counter from bidder side; the parent's poster on
 	// counter/accept/reject from listing side).
-	LastActionByPrincipalType string  `gorm:"size:10;not null" json:"last_action_by_principal_type"`
-	LastActionByPrincipalID   uint64  `gorm:"not null" json:"last_action_by_principal_id"`
-	LastActionByOwnerType     string  `gorm:"size:8;not null" json:"last_action_by_owner_type"`
-	LastActionByOwnerID       *uint64 `json:"last_action_by_owner_id,omitempty"`
+	LastActionByPrincipalType string    `gorm:"size:10;not null" json:"last_action_by_principal_type"`
+	LastActionByPrincipalID   uint64    `gorm:"not null" json:"last_action_by_principal_id"`
+	LastActionByOwnerType     string    `gorm:"size:8;not null" json:"last_action_by_owner_type"`
+	LastActionByOwnerID       *uint64   `json:"last_action_by_owner_id,omitempty"`
 	LastActionAt              time.Time `gorm:"not null" json:"last_action_at"`
 
 	ActingEmployeeID *uint64 `gorm:"index" json:"acting_employee_id,omitempty"`

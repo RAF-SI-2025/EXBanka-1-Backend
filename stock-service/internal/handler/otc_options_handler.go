@@ -31,7 +31,8 @@ type OTCOptionsHandler struct {
 	peerContracts *repository.PeerOptionContractRepository // optional; surfaces cross-bank contracts in /me/otc/contracts
 	listings      *repository.ListingRepository            // optional; populates market_reference_price
 	ownRouting    int64
-	ratings       *service.OTCRatingService // optional; backs SubmitRating / GetTraderProfile / ListReceivedRatings
+	ratings       *service.OTCRatingService      // optional; backs SubmitRating / GetTraderProfile / ListReceivedRatings
+	negotiations  *service.OTCNegotiationService // optional; backs Phase-2 parallel-chain RPCs (Open/Counter/AcceptChain/Reject/Cancel/List*)
 }
 
 func NewOTCOptionsHandler(svc *service.OTCOfferService, contracts *repository.OptionContractRepository) *OTCOptionsHandler {

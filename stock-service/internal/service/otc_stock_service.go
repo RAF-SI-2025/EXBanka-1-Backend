@@ -4,16 +4,16 @@
 //
 // Two directions:
 //
-//   sell offers — public_quantity on the seller's Holding (existing
-//                 model). Accumulative: multiple sell-create calls add up.
-//                 Atomic via SELECT FOR UPDATE on the holding row +
-//                 OTCSafeAvailable check.
+//	sell offers — public_quantity on the seller's Holding (existing
+//	              model). Accumulative: multiple sell-create calls add up.
+//	              Atomic via SELECT FOR UPDATE on the holding row +
+//	              OTCSafeAvailable check.
 //
-//   buy offers  — OTCStockBuyOffer rows. Cash is held in an account-
-//                 service reservation (ReserveFunds keyed on a synthetic
-//                 order_id from otc_stock_buy_offer_res_seq) so a seller
-//                 filling the offer is guaranteed payment. Reservation
-//                 is released on cancel.
+//	buy offers  — OTCStockBuyOffer rows. Cash is held in an account-
+//	              service reservation (ReserveFunds keyed on a synthetic
+//	              order_id from otc_stock_buy_offer_res_seq) so a seller
+//	              filling the offer is guaranteed payment. Reservation
+//	              is released on cancel.
 //
 // Fill saga implementations (FillSellOffer, FillBuyOffer) are intentionally
 // out-of-scope for this commit — they require multi-step compensation
@@ -66,14 +66,14 @@ type CreateSellOfferInput struct {
 }
 
 type CreateBuyOfferInput struct {
-	BuyerOwnerType  model.OwnerType
-	BuyerOwnerID    *uint64
-	BuyerFirstName  string
-	BuyerLastName   string
-	BuyerAccountID  uint64
-	ListingID       uint64
-	Quantity        int64
-	PricePerUnit    decimal.Decimal
+	BuyerOwnerType   model.OwnerType
+	BuyerOwnerID     *uint64
+	BuyerFirstName   string
+	BuyerLastName    string
+	BuyerAccountID   uint64
+	ListingID        uint64
+	Quantity         int64
+	PricePerUnit     decimal.Decimal
 	ActingEmployeeID *uint64
 }
 
@@ -102,16 +102,16 @@ type ListMyOTCStocksInput struct {
 // OTCStockListing is the union view of a sell or buy offer used by
 // ListMyOTCStocks. The handler maps this 1:1 onto the gRPC response.
 type OTCStockListing struct {
-	Direction     string // "sell" | "buy"
-	ID            uint64 // holdings.id for sell, otc_stock_buy_offers.id for buy
-	Ticker        string
-	Name          string
-	Quantity      int64  // sell: PublicQuantity; buy: RemainingQuantity
-	PricePerUnit  decimal.Decimal
-	Currency      string
-	Status        string // sell: "" (active iff PublicQuantity > 0); buy: row.Status
-	AccountID     uint64
-	CreatedAt     time.Time
+	Direction    string // "sell" | "buy"
+	ID           uint64 // holdings.id for sell, otc_stock_buy_offers.id for buy
+	Ticker       string
+	Name         string
+	Quantity     int64 // sell: PublicQuantity; buy: RemainingQuantity
+	PricePerUnit decimal.Decimal
+	Currency     string
+	Status       string // sell: "" (active iff PublicQuantity > 0); buy: row.Status
+	AccountID    uint64
+	CreatedAt    time.Time
 }
 
 type ListMyOTCStocksResult struct {
@@ -122,11 +122,11 @@ type ListMyOTCStocksResult struct {
 // ---------- Service ----------
 
 type OTCStockService struct {
-	db                *gorm.DB
-	holdingRepo       *repository.HoldingRepository
-	buyOfferRepo      *repository.OTCStockBuyOfferRepository
-	listingResolver   OTCStockListingResolver
-	accountClient     OTCStockAccountClient
+	db              *gorm.DB
+	holdingRepo     *repository.HoldingRepository
+	buyOfferRepo    *repository.OTCStockBuyOfferRepository
+	listingResolver OTCStockListingResolver
+	accountClient   OTCStockAccountClient
 }
 
 func NewOTCStockService(

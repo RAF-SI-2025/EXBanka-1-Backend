@@ -680,10 +680,30 @@ func main() {
 
 	ratingRepo := repository.NewOTCTraderRatingRepository(db)
 	ratingSvc := service.NewOTCRatingService(ratingRepo, otcOfferRepo)
+
+	// Phase 2: parallel-negotiation-chains service. Wired into the
+	// OTCOptionsHandler so its Open/Counter/AcceptChain/Reject/Cancel
+	// RPCs become live; without this WithNegotiations call they return
+	// Unimplemented.
+	otcNegRepo := repository.NewOTCNegotiationRepository(db)
+	otcNegotiationSvc := service.NewOTCNegotiationService(db, otcOfferRepo, otcNegRepo)
+
 	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).
 		WithListings(listingRepo).
 		WithPeerContracts(peerOptionRepo, ownRouting).
-		WithRatings(ratingSvc)
+		WithRatings(ratingSvc).
+		WithNegotiations(otcNegotiationSvc)
+
+	// Phase 3: OTC stocks marketplace (sell + buy direction). The
+	// service uses narrow OTCStockListingResolver + OTCStockAccountClient
+	// interfaces — wire concrete adapters here so tests can swap them.
+	buyOfferRepo := repository.NewOTCStockBuyOfferRepository(db)
+	otcStockSvc := service.NewOTCStockService(
+		db, holdingRepo, buyOfferRepo,
+		&stockListingResolverAdapter{listings: listingRepo, stocks: stockRepo, exchanges: exchangeRepo},
+		newStockAccountClientAdapter(stockAccountClient),
+	)
+	otcStockMarketHandler := handler.NewOTCStockMarketHandler(otcStockSvc)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
@@ -712,6 +732,7 @@ func main() {
 			pb.RegisterTaxGRPCServiceServer(s, handler.NewTaxHandler(taxSvc))
 			pb.RegisterInvestmentFundServiceServer(s, fundHandler)
 			pb.RegisterOTCOptionsServiceServer(s, otcOptionsHandler)
+			pb.RegisterOTCStockMarketGRPCServiceServer(s, otcStockMarketHandler)
 			pb.RegisterPeerOTCServiceServer(s, peerOtcHandler)
 			watchlistRepo := repository.NewWatchlistRepository(db)
 			watchlistSvc := service.NewWatchlistService(watchlistRepo, listingRepo, stockRepo, optionRepo, futuresRepo, forexRepo)
