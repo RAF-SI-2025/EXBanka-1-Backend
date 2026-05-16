@@ -129,7 +129,8 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// Portfolio
 		me.GET("/portfolio", bankIfEmp, h.Portfolio.ListHoldings)
 		me.GET("/portfolio/summary", bankIfEmp, h.Portfolio.GetPortfolioSummary)
-		me.POST("/portfolio/:id/make-public", bankIfEmp, h.Portfolio.MakePublic)
+		// (Phase 8) /me/portfolio/:id/make-public deleted — use
+		// POST /api/v3/me/otc/stocks with direction=sell.
 		me.POST("/portfolio/:id/exercise", bankIfEmp, h.Portfolio.ExerciseOption)
 		me.GET("/holdings/:id/transactions", bankIfEmp, h.Portfolio.ListHoldingTransactions)
 
@@ -182,7 +183,9 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.GET("/investment-funds", bankIfEmp, h.Fund.ListMyPositions)
 
 		// OTC option trading (Spec 2): caller's offers/contracts.
-		me.GET("/otc/offers", bankIfEmp, h.OTCOptions.ListMyOffers)
+		// (Phase 8) /me/otc/offers renamed to /me/otc/options.
+		me.GET("/otc/options", bankIfEmp, h.OTCOptions.ListMyOffers)
+		me.POST("/otc/options", bankIfEmp, h.OTCOptions.CreateOffer)
 		me.GET("/otc/history", bankIfEmp, h.OTCOptions.ListNegotiationHistory)
 		me.POST("/otc/ratings", bankIfEmp, h.OTCOptions.SubmitRating)
 		me.GET("/otc/ratings/received", bankIfEmp, h.OTCOptions.ListMyReceivedRatings)
@@ -278,18 +281,20 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		securities.GET("/candles", h.Securities.GetCandles)
 	}
 
-	// ── OTC (AnyAuth for browsing, securities.trade for buying) ─
-	otc := v3.Group("/otc/offers")
-	otc.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
+	// ── OTC stocks marketplace (Phase 8 clean cut — replaces the
+	// legacy /api/v3/otc/offers group). Browsing is AnyAuth; buying
+	// requires the securities/otc trade permission.
+	otcStocksRead := v3.Group("/otc/stocks")
+	otcStocksRead.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
 	{
-		otc.GET("", h.Portfolio.ListOTCOffers)
+		otcStocksRead.GET("", h.Portfolio.ListOTCOffers)
 	}
-	otcTrade := v3.Group("/otc/offers")
-	otcTrade.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
-	otcTrade.Use(middleware.RequirePermissionOrClient(middleware.PermAny, perms.Otc.Trade.Accept, perms.Securities.Trade.Any))
-	otcTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
+	otcStocksTrade := v3.Group("/otc/stocks")
+	otcStocksTrade.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
+	otcStocksTrade.Use(middleware.RequirePermissionOrClient(middleware.PermAny, perms.Otc.Trade.Accept, perms.Securities.Trade.Any))
+	otcStocksTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
-		otcTrade.POST("/:id/buy", h.Portfolio.BuyOTCOffer)
+		otcStocksTrade.POST("/:id/buy", h.Portfolio.BuyOTCOffer)
 	}
 
 	// ── OTC option trading (Spec 2) — read endpoints ─────────────
@@ -297,7 +302,8 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 	otcRead.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
 	otcRead.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
-		otcRead.GET("/offers/:id", h.OTCOptions.GetOffer)
+		// (Phase 8) /otc/offers/:id renamed to /otc/options/:id.
+		otcRead.GET("/options/:id", h.OTCOptions.GetOffer)
 		otcRead.GET("/contracts/:id", h.OTCOptions.GetContract)
 		// Public trader profile — aggregate rating + recent comments.
 		// Visible to all authenticated callers; useful for OTC discovery.
@@ -317,10 +323,13 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 	otcOptionsTrade.Use(middleware.RequirePermissionOrClient(middleware.PermAll, perms.Securities.Trade.Any, perms.Otc.Trade.Accept))
 	otcOptionsTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
-		otcOptionsTrade.POST("/offers", h.OTCOptions.CreateOffer)
-		otcOptionsTrade.POST("/offers/:id/counter", h.OTCOptions.CounterOffer)
-		otcOptionsTrade.POST("/offers/:id/accept", h.OTCOptions.AcceptOffer)
-		otcOptionsTrade.POST("/offers/:id/reject", h.OTCOptions.RejectOffer)
+		// (Phase 8 clean cut) The legacy single-chain options ops
+		// — POST /otc/offers + counter/accept/reject — are deleted.
+		// CreateOffer is reachable as POST /api/v3/me/otc/options
+		// (defined above in the /me group). Per-chain mutations live
+		// at /api/v3/me/otc/options/:id/negotiations/:nid/{counter,
+		// accept,reject} so frontends can never accidentally mix the
+		// two negotiation models.
 		otcOptionsTrade.POST("/contracts/:id/exercise", h.OTCOptions.ExerciseContract)
 		// Phase 2 marketplace: open a new negotiation chain by bidding
 		// on a listing. Many bidders can each open one chain.
@@ -802,14 +811,14 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			ordersOnBehalf.POST("", h.StockOrder.CreateOrderOnBehalf)
 		}
 
-		// OTC — employee on-behalf buying. The verb-suffixed action makes
-		// intent explicit at the URL.
-		otcOnBehalf := protected.Group("/otc/offers")
-		otcOnBehalf.Use(middleware.RequireAnyPermission(
+		// OTC stocks — employee on-behalf buying (Phase 8 rename:
+		// /otc/offers/:id/buy-on-behalf moved here).
+		otcStocksOnBehalf := protected.Group("/otc/stocks")
+		otcStocksOnBehalf.Use(middleware.RequireAnyPermission(
 			perms.Otc.Trade.Accept, perms.Otc.Trade.OnBehalf))
-		otcOnBehalf.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
+		otcStocksOnBehalf.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
-			otcOnBehalf.POST("/:id/buy-on-behalf", h.Portfolio.BuyOTCOfferOnBehalf)
+			otcStocksOnBehalf.POST("/:id/buy-on-behalf", h.Portfolio.BuyOTCOfferOnBehalf)
 		}
 
 		// Order management (supervisor) — read split from approve/reject.

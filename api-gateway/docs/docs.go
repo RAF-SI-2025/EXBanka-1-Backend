@@ -9958,7 +9958,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/me/otc/offers": {
+        "/api/v3/me/otc/options": {
             "get": {
                 "security": [
                     {
@@ -9983,6 +9983,57 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Create an OTC option offer",
+                "parameters": [
+                    {
+                        "description": "offer details (ticker-keyed; account_id is the initiator's account)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createOTCOfferRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -11898,233 +11949,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v3/otc/offers": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCOptions"
-                ],
-                "summary": "Create an OTC option offer",
-                "parameters": [
-                    {
-                        "description": "offer details (ticker-keyed; account_id is the initiator's account)",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.createOTCOfferRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/otc/offers/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCOptions"
-                ],
-                "summary": "Get an OTC offer with revisions",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "offer id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/otc/offers/{id}/accept": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCOptions"
-                ],
-                "summary": "Accept an OTC offer (premium-payment saga)",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "offer id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "acceptor's own account id",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.acceptOTCOfferRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/otc/offers/{id}/counter": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCOptions"
-                ],
-                "summary": "Counter an OTC offer",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "offer id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "new terms",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.counterOTCOfferRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v3/otc/offers/{id}/reject": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "OTCOptions"
-                ],
-                "summary": "Reject an OTC offer",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "offer id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/api/v3/otc/options": {
             "get": {
                 "security": [
@@ -12176,6 +12000,40 @@ const docTemplate = `{
                         "description": "default 10",
                         "name": "page_size",
                         "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/otc/options/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Get an OTC offer with revisions",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "offer id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -12650,17 +12508,6 @@ const docTemplate = `{
                 }
             }
         },
-        "handler.acceptOTCOfferRequest": {
-            "type": "object",
-            "properties": {
-                "account_id": {
-                    "type": "integer"
-                },
-                "on_behalf_of_client_id": {
-                    "type": "integer"
-                }
-            }
-        },
         "handler.activateDeviceReq": {
             "type": "object",
             "required": [
@@ -12745,26 +12592,6 @@ const docTemplate = `{
         "handler.counterNegotiationRequest": {
             "type": "object",
             "properties": {
-                "premium": {
-                    "type": "string"
-                },
-                "quantity": {
-                    "type": "string"
-                },
-                "settlement_date": {
-                    "type": "string"
-                },
-                "strike_price": {
-                    "type": "string"
-                }
-            }
-        },
-        "handler.counterOTCOfferRequest": {
-            "type": "object",
-            "properties": {
-                "on_behalf_of_client_id": {
-                    "type": "integer"
-                },
                 "premium": {
                     "type": "string"
                 },

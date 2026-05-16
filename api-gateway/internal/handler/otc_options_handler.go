@@ -56,7 +56,7 @@ type createOTCOfferRequest struct {
 // @Success      201 {object} map[string]interface{}
 // @Failure      400 {object} map[string]interface{}
 // @Failure      403 {object} map[string]interface{}
-// @Router       /api/v3/otc/offers [post]
+// @Router       /api/v3/me/otc/options [post]
 func (h *OTCOptionsHandler) CreateOffer(c *gin.Context) {
 	var req createOTCOfferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -180,7 +180,7 @@ func (h *OTCOptionsHandler) ListNegotiationHistory(c *gin.Context) {
 // @Produce      json
 // @Param        role query string false "initiator|counterparty|either"
 // @Success      200 {object} map[string]interface{}
-// @Router       /api/v3/me/otc/offers [get]
+// @Router       /api/v3/me/otc/options [get]
 func (h *OTCOptionsHandler) ListMyOffers(c *gin.Context) {
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -205,7 +205,7 @@ func (h *OTCOptionsHandler) ListMyOffers(c *gin.Context) {
 // @Produce      json
 // @Param        id path int true "offer id"
 // @Success      200 {object} map[string]interface{}
-// @Router       /api/v3/otc/offers/{id} [get]
+// @Router       /api/v3/otc/options/{id} [get]
 func (h *OTCOptionsHandler) GetOffer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -233,16 +233,12 @@ type counterOTCOfferRequest struct {
 	OnBehalfOfClientID uint64 `json:"on_behalf_of_client_id,omitempty"`
 }
 
-// CounterOffer godoc
-// @Summary      Counter an OTC offer
-// @Tags         OTCOptions
-// @Security     BearerAuth
-// @Accept       json
-// @Produce      json
-// @Param        id path int true "offer id"
-// @Param        body body counterOTCOfferRequest true "new terms"
-// @Success      200 {object} map[string]interface{}
-// @Router       /api/v3/otc/offers/{id}/counter [post]
+// CounterOffer — legacy single-chain counter handler. NOT ROUTED as of
+// Phase 8 (the per-negotiation chain route at
+// /api/v3/me/otc/options/:id/negotiations/:nid/counter replaces it).
+// Method retained because the handler-layer test suite still exercises
+// it; do not re-route without architecture review (frontends should
+// only see the negotiation-chain routes).
 func (h *OTCOptionsHandler) CounterOffer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -275,18 +271,11 @@ type acceptOTCOfferRequest struct {
 	OnBehalfOfClientID uint64 `json:"on_behalf_of_client_id,omitempty"`
 }
 
-// AcceptOffer godoc
-// @Summary      Accept an OTC offer (premium-payment saga)
-// @Tags         OTCOptions
-// @Security     BearerAuth
-// @Accept       json
-// @Produce      json
-// @Param        id path int true "offer id"
-// @Param        body body acceptOTCOfferRequest true "acceptor's own account id"
-// @Success      201 {object} map[string]interface{}
-// @Failure      400 {object} map[string]interface{}
-// @Failure      403 {object} map[string]interface{}
-// @Router       /api/v3/otc/offers/{id}/accept [post]
+// AcceptOffer — legacy single-chain accept. NOT ROUTED as of Phase 8.
+// Replaced by the per-chain route at
+// /api/v3/me/otc/options/:id/negotiations/:nid/accept which is backed
+// by the first-accept-wins TX in stock-service. Method retained for
+// existing handler tests; do not re-route.
 func (h *OTCOptionsHandler) AcceptOffer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -316,14 +305,9 @@ func (h *OTCOptionsHandler) AcceptOffer(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
-// RejectOffer godoc
-// @Summary      Reject an OTC offer
-// @Tags         OTCOptions
-// @Security     BearerAuth
-// @Produce      json
-// @Param        id path int true "offer id"
-// @Success      200 {object} map[string]interface{}
-// @Router       /api/v3/otc/offers/{id}/reject [post]
+// RejectOffer — legacy single-chain reject. NOT ROUTED as of Phase 8.
+// Replaced by /api/v3/me/otc/options/:id/negotiations/:nid/reject.
+// Method retained for handler tests; do not re-route.
 func (h *OTCOptionsHandler) RejectOffer(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
