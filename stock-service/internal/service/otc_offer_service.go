@@ -98,9 +98,9 @@ func (s *OTCOfferService) publishViaOutboxOrDirect(ctx context.Context, topic st
 // sagas use. Superset of FundAccountClient (adds reservation lifecycle).
 type OTCAccountClient interface {
 	FundAccountClient
-	ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency, idempotencyKey string) (*accountpb.ReserveFundsResponse, error)
-	ReleaseReservation(ctx context.Context, sagaOrderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
-	PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error)
+	ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency, idempotencyKey, orderKind string) (*accountpb.ReserveFundsResponse, error)
+	ReleaseReservation(ctx context.Context, sagaOrderID uint64, idempotencyKey, orderKind string) (*accountpb.ReleaseReservationResponse, error)
+	PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo, idempotencyKey, orderKind string) (*accountpb.PartialSettleReservationResponse, error)
 }
 
 // OTCHoldingMutator is the surface needed to credit a buyer's holding on

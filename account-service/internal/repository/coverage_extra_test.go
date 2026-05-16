@@ -614,7 +614,7 @@ func TestReservationRepo_UpdateStatus(t *testing.T) {
 	r.Status = model.ReservationStatusReleased
 	require.NoError(t, repo.UpdateStatus(r))
 
-	got, _ := repo.GetByOrderID(8001)
+	got, _ := repo.GetByOrderID(8001, "")
 	assert.Equal(t, model.ReservationStatusReleased, got.Status)
 }
 
@@ -629,7 +629,7 @@ func TestReservationRepo_GetByOrderIDForUpdate(t *testing.T) {
 	require.NoError(t, repo.Create(r))
 
 	err := db.Transaction(func(tx *gorm.DB) error {
-		got, err := repo.WithTx(tx).GetByOrderIDForUpdate(8101)
+		got, err := repo.WithTx(tx).GetByOrderIDForUpdate(8101, "")
 		if err != nil {
 			return err
 		}
@@ -640,7 +640,7 @@ func TestReservationRepo_GetByOrderIDForUpdate(t *testing.T) {
 
 	// Missing returns ErrRecordNotFound.
 	err = db.Transaction(func(tx *gorm.DB) error {
-		_, err := repo.WithTx(tx).GetByOrderIDForUpdate(99999)
+		_, err := repo.WithTx(tx).GetByOrderIDForUpdate(99999, "")
 		return err
 	})
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)

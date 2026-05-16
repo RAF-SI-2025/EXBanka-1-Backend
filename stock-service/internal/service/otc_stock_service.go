@@ -33,6 +33,7 @@ import (
 	"gorm.io/gorm"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -42,12 +43,12 @@ import (
 // OTCStockAccountClient is the subset of grpc.AccountClient we touch. A
 // test mock implements only these methods.
 type OTCStockAccountClient interface {
-	ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey string) (*accountpb.ReserveFundsResponse, error)
-	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
+	ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey, orderKind string) (*accountpb.ReserveFundsResponse, error)
+	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey, orderKind string) (*accountpb.ReleaseReservationResponse, error)
 	// PartialSettleReservation commits part of a reservation as a debit
 	// on the buyer's account. Required by FillBuyOffer to consume the
 	// reserved cash that backs the standing buy offer.
-	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error)
+	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey, orderKind string) (*accountpb.PartialSettleReservationResponse, error)
 	// CreditAccount adds to the named account (used to credit the seller
 	// after a buy-offer fill).
 	CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error)
@@ -295,7 +296,7 @@ func (s *OTCStockService) CreateBuyOffer(ctx context.Context, in CreateBuyOfferI
 	// window is bounded. On reserve failure we roll the row to cancelled.
 	idempKey := fmt.Sprintf("otc-buy-offer-create-%d", offer.ID)
 	if _, err := s.accountClient.ReserveFunds(ctx, in.BuyerAccountID, offer.AccountReservationOrderID,
-		reservedAmount, listingCurrency, idempKey); err != nil {
+		reservedAmount, listingCurrency, idempKey, orderkind.OTCStockBuy); err != nil {
 		// Compensate: flip status to cancelled so the orphan reconciler
 		// can release nothing (reservation was never created).
 		_ = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -365,7 +366,7 @@ func (s *OTCStockService) CancelBuyOffer(ctx context.Context, in CancelBuyOfferI
 	// no-op on missing reservations so a crash here is safe — the orphan
 	// reconciler can re-call later.
 	idempKey := fmt.Sprintf("otc-buy-offer-cancel-%d", in.OfferID)
-	if _, err := s.accountClient.ReleaseReservation(ctx, resOrderID, idempKey); err != nil {
+	if _, err := s.accountClient.ReleaseReservation(ctx, resOrderID, idempKey, orderkind.OTCStockBuy); err != nil {
 		return fmt.Errorf("release reservation: %w", err)
 	}
 	return nil
@@ -519,6 +520,7 @@ func (s *OTCStockService) FillBuyOffer(ctx context.Context, in FillBuyOfferInput
 		settleAmount,
 		fmt.Sprintf("OTC stock buy-offer #%d fill", offer.ID),
 		idemSettle,
+		orderkind.OTCStockBuy,
 	)
 	if err != nil {
 		// Compensate step 2 (re-credit seller's holding) + step 1.

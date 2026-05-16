@@ -40,6 +40,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
@@ -217,12 +218,12 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 				// the premium on the buyer's account; fails if balance
 				// is insufficient.
 				_, e := s.accounts.ReserveFunds(ctx, buyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy,
-					saga.IdempotencyKey(sagaID, saga.StepReservePremium))
+					saga.IdempotencyKey(sagaID, saga.StepReservePremium), orderkind.OTCPremium)
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReleaseReservation(ctx, contract.ID,
-					saga.IdempotencyKey(sagaID, saga.StepReservePremium)+":compensate")
+					saga.IdempotencyKey(sagaID, saga.StepReservePremium)+":compensate", orderkind.OTCPremium)
 				return e
 			},
 		}).
@@ -230,7 +231,7 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 			Name: saga.StepSettlePremiumBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo,
-					saga.IdempotencyKey(sagaID, saga.StepSettlePremiumBuyer))
+					saga.IdempotencyKey(sagaID, saga.StepSettlePremiumBuyer), orderkind.OTCPremium)
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {

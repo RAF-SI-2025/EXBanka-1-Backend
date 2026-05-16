@@ -22,7 +22,7 @@ func TestReservationRepo_InsertAndGetByOrderID(t *testing.T) {
 	if err := repo.Create(r); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	got, err := repo.GetByOrderID(1001)
+	got, err := repo.GetByOrderID(1001, "")
 	if err != nil {
 		t.Fatalf("GetByOrderID: %v", err)
 	}

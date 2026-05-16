@@ -40,6 +40,18 @@ func main() {
 	if err := db.AutoMigrate(&model.Currency{}, &model.Company{}, &model.Account{}, &model.LedgerEntry{}, &model.Changelog{}, &model.BankOperation{}, &model.AccountReservation{}, &model.AccountReservationSettlement{}, &model.IncomingReservation{}, &model.IdempotencyRecord{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
+	// Order-kind namespace migration (2026-05-16): older deployments had a
+	// single-column UNIQUE on account_reservations.order_id, which caused
+	// caller-namespace collisions (e.g. stock Order.ID == OTC
+	// OptionContract.ID). The new composite UNIQUE is (order_id,
+	// order_kind). AutoMigrate adds the new column + new index but does
+	// NOT drop the legacy single-column index, so we do that explicitly
+	// here. Idempotent — no-op when the index was never created.
+	if db.Migrator().HasIndex(&model.AccountReservation{}, "idx_account_reservations_order_id") {
+		if err := db.Migrator().DropIndex(&model.AccountReservation{}, "idx_account_reservations_order_id"); err != nil {
+			log.Printf("warn: drop legacy account_reservations.order_id unique index: %v", err)
+		}
+	}
 	if err := model.SeedCurrencies(db); err != nil {
 		log.Printf("warn: failed to seed currencies: %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
@@ -128,12 +129,12 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			Name: saga.StepReserveStrike,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReserveFunds(ctx, c.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy,
-					saga.IdempotencyKey(sagaID, saga.StepReserveStrike))
+					saga.IdempotencyKey(sagaID, saga.StepReserveStrike), orderkind.OTCStrike)
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReleaseReservation(ctx, syntheticTxnID,
-					saga.IdempotencyKey(sagaID, saga.StepReserveStrike)+":compensate")
+					saga.IdempotencyKey(sagaID, saga.StepReserveStrike)+":compensate", orderkind.OTCStrike)
 				return e
 			},
 		}).
@@ -141,7 +142,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			Name: saga.StepSettleStrikeBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, settleMemo,
-					saga.IdempotencyKey(sagaID, saga.StepSettleStrikeBuyer))
+					saga.IdempotencyKey(sagaID, saga.StepSettleStrikeBuyer), orderkind.OTCStrike)
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {

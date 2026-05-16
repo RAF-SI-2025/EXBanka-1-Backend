@@ -61,7 +61,7 @@ func TestGetReservation_NotExisting_ReturnsExistsFalse(t *testing.T) {
 	ledgerRepo := repository.NewLedgerRepository(db)
 	svc := NewReservationService(db, accountRepo, resRepo, ledgerRepo)
 
-	st, amount, settled, ids, exists, err := svc.GetReservation(context.Background(), 99999)
+	st, amount, settled, ids, exists, err := svc.GetReservation(context.Background(), 99999, "")
 	require.NoError(t, err)
 	assert.False(t, exists)
 	assert.Equal(t, "", st)
@@ -81,7 +81,7 @@ func TestReserveFunds_NonPositive_RejectedInvalidArg(t *testing.T) {
 	ledgerRepo := repository.NewLedgerRepository(db)
 	svc := NewReservationService(db, accountRepo, resRepo, ledgerRepo)
 
-	_, err := svc.ReserveFunds(context.Background(), 1, 1, decimal.Zero, "RSD")
+	_, err := svc.ReserveFunds(context.Background(), 1, 1, decimal.Zero, "RSD", "")
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -94,7 +94,7 @@ func TestReserveFunds_AccountNotFound(t *testing.T) {
 	ledgerRepo := repository.NewLedgerRepository(db)
 	svc := NewReservationService(db, accountRepo, resRepo, ledgerRepo)
 
-	_, err := svc.ReserveFunds(context.Background(), 1, 99999, decimal.NewFromInt(100), "RSD")
+	_, err := svc.ReserveFunds(context.Background(), 1, 99999, decimal.NewFromInt(100), "RSD", "")
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.NotFound, st.Code())
@@ -111,7 +111,7 @@ func TestPartialSettle_NonPositive_RejectedInvalidArg(t *testing.T) {
 	ledgerRepo := repository.NewLedgerRepository(db)
 	svc := NewReservationService(db, accountRepo, resRepo, ledgerRepo)
 
-	_, err := svc.PartialSettleReservation(context.Background(), 1, 1, decimal.Zero, "")
+	_, err := svc.PartialSettleReservation(context.Background(), 1, 1, decimal.Zero, "", "")
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -124,7 +124,7 @@ func TestPartialSettle_ReservationMissing(t *testing.T) {
 	ledgerRepo := repository.NewLedgerRepository(db)
 	svc := NewReservationService(db, accountRepo, resRepo, ledgerRepo)
 
-	_, err := svc.PartialSettleReservation(context.Background(), 99999, 99999, decimal.NewFromInt(10), "")
+	_, err := svc.PartialSettleReservation(context.Background(), 99999, 99999, decimal.NewFromInt(10), "", "")
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.FailedPrecondition, st.Code())
@@ -135,12 +135,12 @@ func TestPartialSettle_ReservationMissing(t *testing.T) {
 func TestPartialSettle_AlreadyReleased(t *testing.T) {
 	svc, _, _, accountID, _ := newReservationFixture(t)
 	ctx := context.Background()
-	_, err := svc.ReserveFunds(ctx, 700, accountID, decimal.NewFromInt(100), "RSD")
+	_, err := svc.ReserveFunds(ctx, 700, accountID, decimal.NewFromInt(100), "RSD", "")
 	require.NoError(t, err)
-	_, err = svc.ReleaseReservation(ctx, 700)
+	_, err = svc.ReleaseReservation(ctx, 700, "")
 	require.NoError(t, err)
 
-	_, err = svc.PartialSettleReservation(ctx, 700, 9999, decimal.NewFromInt(50), "")
+	_, err = svc.PartialSettleReservation(ctx, 700, 9999, decimal.NewFromInt(50), "", "")
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.FailedPrecondition, st.Code())

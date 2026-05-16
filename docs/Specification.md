@@ -886,10 +886,16 @@ An agent extending an existing service needs to know which gRPC services already
 
 Four new RPCs on `AccountService` back the securities-order reservation system. All run inside `SELECT FOR UPDATE` transactions on the target account.
 
-- `ReserveFunds(account_id, order_id, amount, currency_code) returns (reservation_id, reserved_balance, available_balance)` — creates an `AccountReservation`, increments `Account.ReservedBalance`, decrements `Account.AvailableBalance`. Idempotent on `order_id`: a retry with the same `order_id` returns the existing reservation. Returns `FailedPrecondition` on currency mismatch or insufficient available balance.
-- `ReleaseReservation(order_id) returns (released_amount, reserved_balance)` — transitions the reservation to `released`, rolls `ReservedBalance` back, restores `AvailableBalance`. No-op (with empty response) if the reservation is missing, already released, or already settled.
-- `PartialSettleReservation(order_id, order_transaction_id, amount, memo) returns (settled_amount, remaining_reserved, balance_after, ledger_entry_id)` — settles part (or all) of a reservation against a specific fill. Writes a `LedgerEntry` so the fill appears in transaction history, debits `Balance`, decrements `ReservedBalance`, and when the reservation is fully consumed transitions status to `settled`. Idempotent on `order_transaction_id` via a unique index on `AccountReservationSettlement.order_transaction_id`.
-- `GetReservation(order_id) returns (exists, status, amount, settled_total, settled_transaction_ids)` — read-only; used by stock-service saga recovery to determine which fill saga steps already committed on account-service.
+- `ReserveFunds(account_id, order_id, amount, currency_code, idempotency_key, order_kind) returns (reservation_id, reserved_balance, available_balance)` — creates an `AccountReservation`, increments `Account.ReservedBalance`, decrements `Account.AvailableBalance`. Idempotent on `(order_id, order_kind)`: a retry with the same pair returns the existing reservation. Returns `FailedPrecondition` on currency mismatch or insufficient available balance.
+- `ReleaseReservation(order_id, idempotency_key, order_kind) returns (released_amount, reserved_balance)` — transitions the reservation to `released`, rolls `ReservedBalance` back, restores `AvailableBalance`. No-op (with empty response) if the reservation is missing, already released, or already settled.
+- `PartialSettleReservation(order_id, order_transaction_id, amount, memo, idempotency_key, order_kind) returns (settled_amount, remaining_reserved, balance_after, ledger_entry_id)` — settles part (or all) of a reservation against a specific fill. Writes a `LedgerEntry` so the fill appears in transaction history, debits `Balance`, decrements `ReservedBalance`, and when the reservation is fully consumed transitions status to `settled`. Idempotent on `order_transaction_id` via a unique index on `AccountReservationSettlement.order_transaction_id`.
+- `GetReservation(order_id, order_kind) returns (exists, status, amount, settled_total, settled_transaction_ids)` — read-only; used by stock-service saga recovery to determine which fill saga steps already committed on account-service.
+
+**`order_kind` discriminator (added 2026-05-16):** every reservation RPC carries an `order_kind` string that disambiguates which caller-namespace the `order_id` belongs to. Without it, two different callers using auto-increment IDs from different stock-service tables (e.g. `Order.ID` for stock placement vs `OptionContract.ID` for OTC accept, both starting at 1) would silently collide on the single-column `order_id` unique index, leading to the second arrival reusing the first's released reservation and seeing `reservation status=released` from the settle step. The unique index on `account_reservations` is now composite `(order_id, order_kind)`. Empty `order_kind` defaults to `"stock_order"` for one-version-behind callers. Current values (constants in `contract/shared/orderkind` and `account-service/internal/model`):
+- `stock_order` — stock placement / forex fill / portfolio fill (Order.ID)
+- `otc_premium` — OTC option accept saga, premium reservation (OptionContract.ID)
+- `otc_strike` — OTC option exercise saga, strike reservation (OptionContract.ID)
+- `otc_stock_buy` — OTC stock buy-offer cash reservation (OTCStockBuyOffer.AccountReservationOrderID)
 
 **stock-service gRPC additions:**
 
@@ -1659,10 +1665,11 @@ Version(int64), CreatedAt, UpdatedAt, DeletedAt(soft delete)
 
 **AccountReservation** — Idempotency + state ledger for an order's hold on an account. Immutable except for `Status`/`Version`.
 ```
-ID(uint64), AccountID(uint64,indexed), OrderID(uint64,unique), Amount(numeric18,4),
-CurrencyCode(3), Status(active|released|settled,indexed), CreatedAt, UpdatedAt, Version(int64)
+ID(uint64), AccountID(uint64,indexed), OrderID(uint64), OrderKind(size:32,default:'stock_order'),
+Amount(numeric18,4), CurrencyCode(3), Status(active|released|settled,indexed),
+CreatedAt, UpdatedAt, Version(int64), UNIQUE(OrderID, OrderKind)
 ```
-`OrderID` is the idempotency key — retrying `ReserveFunds` with the same `order_id` is a safe no-op. `Amount` is immutable after insert; only `Status` transitions.
+`(OrderID, OrderKind)` is the composite idempotency key — retrying `ReserveFunds` with the same pair is a safe no-op. `OrderKind` is the caller-namespace discriminator (see RPC section above for current values). `Amount` is immutable after insert; only `Status` transitions.
 
 **AccountReservationSettlement** — Append-only; one row per partial settle. The `OrderTransactionID` comes from stock-service's `OrderTransaction.ID` and is the cross-service idempotency key.
 ```

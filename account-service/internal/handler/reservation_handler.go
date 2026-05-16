@@ -13,10 +13,10 @@ import (
 
 // reservationSvcFacade is the narrow interface of ReservationService used by ReservationHandler.
 type reservationSvcFacade interface {
-	ReserveFunds(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode string) (*service.ReserveFundsResult, error)
-	ReleaseReservation(ctx context.Context, orderID uint64) (*service.ReleaseResult, error)
-	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*service.PartialSettleResult, error)
-	GetReservation(ctx context.Context, orderID uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error)
+	ReserveFunds(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode, orderKind string) (*service.ReserveFundsResult, error)
+	ReleaseReservation(ctx context.Context, orderID uint64, orderKind string) (*service.ReleaseResult, error)
+	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, orderKind string) (*service.PartialSettleResult, error)
+	GetReservation(ctx context.Context, orderID uint64, orderKind string) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error)
 }
 
 // ReservationHandler implements the four reservation RPCs on AccountService.
@@ -46,7 +46,7 @@ func (h *ReservationHandler) ReserveFunds(ctx context.Context, req *pb.ReserveFu
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid amount")
 	}
-	res, err := h.svc.ReserveFunds(ctx, req.GetOrderId(), req.GetAccountId(), amount, req.GetCurrencyCode())
+	res, err := h.svc.ReserveFunds(ctx, req.GetOrderId(), req.GetAccountId(), amount, req.GetCurrencyCode(), req.GetOrderKind())
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (h *ReservationHandler) ReserveFunds(ctx context.Context, req *pb.ReserveFu
 // ReleaseReservation delegates to the service layer. Service returns zero
 // ReleasedAmount for missing / non-active reservations rather than an error.
 func (h *ReservationHandler) ReleaseReservation(ctx context.Context, req *pb.ReleaseReservationRequest) (*pb.ReleaseReservationResponse, error) {
-	res, err := h.svc.ReleaseReservation(ctx, req.GetOrderId())
+	res, err := h.svc.ReleaseReservation(ctx, req.GetOrderId(), req.GetOrderKind())
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (h *ReservationHandler) PartialSettleReservation(ctx context.Context, req *
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid amount")
 	}
-	res, err := h.svc.PartialSettleReservation(ctx, req.GetOrderId(), req.GetOrderTransactionId(), amount, req.GetMemo())
+	res, err := h.svc.PartialSettleReservation(ctx, req.GetOrderId(), req.GetOrderTransactionId(), amount, req.GetMemo(), req.GetOrderKind())
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (h *ReservationHandler) PartialSettleReservation(ctx context.Context, req *
 // response Exists field is false and all decimal/status fields are the
 // zero values.
 func (h *ReservationHandler) GetReservation(ctx context.Context, req *pb.GetReservationRequest) (*pb.GetReservationResponse, error) {
-	st, amount, settled, ids, exists, err := h.svc.GetReservation(ctx, req.GetOrderId())
+	st, amount, settled, ids, exists, err := h.svc.GetReservation(ctx, req.GetOrderId(), req.GetOrderKind())
 	if err != nil {
 		return nil, err
 	}

@@ -43,7 +43,7 @@ type stocksReleaseCall struct {
 	idempKey string
 }
 
-func (f *stocksFakeAccountClient) ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currency, idempKey string) (*accountpb.ReserveFundsResponse, error) {
+func (f *stocksFakeAccountClient) ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currency, idempKey, _ string) (*accountpb.ReserveFundsResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failReserveErr != nil {
@@ -53,7 +53,7 @@ func (f *stocksFakeAccountClient) ReserveFunds(ctx context.Context, accountID, o
 	return &accountpb.ReserveFundsResponse{ReservedBalance: amount.String()}, nil
 }
 
-func (f *stocksFakeAccountClient) ReleaseReservation(ctx context.Context, orderID uint64, idempKey string) (*accountpb.ReleaseReservationResponse, error) {
+func (f *stocksFakeAccountClient) ReleaseReservation(ctx context.Context, orderID uint64, idempKey, _ string) (*accountpb.ReleaseReservationResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failReleaseErr != nil {
@@ -82,7 +82,7 @@ type stocksCreditCall struct {
 	idempKey      string
 }
 
-func (f *stocksFakeAccountClient) PartialSettleReservation(_ context.Context, orderID, orderTxID uint64, amount decimal.Decimal, _, idempKey string) (*accountpb.PartialSettleReservationResponse, error) {
+func (f *stocksFakeAccountClient) PartialSettleReservation(_ context.Context, orderID, orderTxID uint64, amount decimal.Decimal, _, idempKey, _ string) (*accountpb.PartialSettleReservationResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failSettleErr != nil {

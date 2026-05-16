@@ -32,12 +32,12 @@ func newStockAccountClientAdapter(c *stockgrpc.AccountClient) *stockAccountClien
 	return &stockAccountClientAdapter{wrapped: c}
 }
 
-func (a *stockAccountClientAdapter) ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey string) (*accountpb.ReserveFundsResponse, error) {
-	return a.wrapped.ReserveFunds(ctx, accountID, orderID, amount, currencyCode, idempotencyKey)
+func (a *stockAccountClientAdapter) ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey, orderKind string) (*accountpb.ReserveFundsResponse, error) {
+	return a.wrapped.ReserveFunds(ctx, accountID, orderID, amount, currencyCode, idempotencyKey, orderKind)
 }
 
-func (a *stockAccountClientAdapter) ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error) {
-	return a.wrapped.ReleaseReservation(ctx, orderID, idempotencyKey)
+func (a *stockAccountClientAdapter) ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey, orderKind string) (*accountpb.ReleaseReservationResponse, error) {
+	return a.wrapped.ReleaseReservation(ctx, orderID, idempotencyKey, orderKind)
 }
 
 func (a *stockAccountClientAdapter) GetAccount(ctx context.Context, accountID uint64) (*accountpb.AccountResponse, error) {
@@ -46,8 +46,8 @@ func (a *stockAccountClientAdapter) GetAccount(ctx context.Context, accountID ui
 
 // PartialSettleReservation — used by FillBuyOffer to consume part of
 // the buyer's pre-reserved cash and write the matching ledger entry.
-func (a *stockAccountClientAdapter) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error) {
-	return a.wrapped.PartialSettleReservation(ctx, orderID, orderTransactionID, amount, memo, idempotencyKey)
+func (a *stockAccountClientAdapter) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey, orderKind string) (*accountpb.PartialSettleReservationResponse, error) {
+	return a.wrapped.PartialSettleReservation(ctx, orderID, orderTransactionID, amount, memo, idempotencyKey, orderKind)
 }
 
 // CreditAccount — used by FillBuyOffer to credit the seller's account.

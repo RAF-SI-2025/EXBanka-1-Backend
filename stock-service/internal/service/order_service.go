@@ -17,6 +17,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	contract "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
 	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/model"
@@ -57,8 +58,8 @@ type OrderSettings interface {
 // for placement. Defined as an interface so tests can stub it without
 // constructing the real wrapper.
 type AccountClientAPI interface {
-	ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey string) (*accountpb.ReserveFundsResponse, error)
-	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
+	ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey, orderKind string) (*accountpb.ReserveFundsResponse, error)
+	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey, orderKind string) (*accountpb.ReleaseReservationResponse, error)
 	Stub() accountpb.AccountServiceClient
 }
 
@@ -528,12 +529,12 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 			Name: saga.StepReserveFunds,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, rerr := s.accountClient.ReserveFunds(ctx, req.AccountID, order.ID, reserveAmount, reserveCurrency,
-					saga.IdempotencyKey(sagaID, saga.StepReserveFunds))
+					saga.IdempotencyKey(sagaID, saga.StepReserveFunds), orderkind.StockOrder)
 				return rerr
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID,
-					saga.IdempotencyKey(sagaID, saga.StepReserveFunds)+":compensate")
+					saga.IdempotencyKey(sagaID, saga.StepReserveFunds)+":compensate", orderkind.StockOrder)
 				return rerr
 			},
 		}).
@@ -806,7 +807,7 @@ func (s *OrderService) CancelOrder(orderID uint64, ownerType model.OwnerType, ow
 		// CancelOrder is outside the placement saga, so we synthesize a
 		// stable key from the order id — retries of CancelOrder remain safe.
 		cancelKey := fmt.Sprintf("cancel-order-%d", order.ID)
-		if _, relErr := s.accountClient.ReleaseReservation(cancelCtx, order.ID, cancelKey); relErr != nil {
+		if _, relErr := s.accountClient.ReleaseReservation(cancelCtx, order.ID, cancelKey, orderkind.StockOrder); relErr != nil {
 			log.Printf("WARN: cancel order %d: ReleaseReservation failed: %v", order.ID, relErr)
 		}
 	}

@@ -150,29 +150,29 @@ func decimalEqual(a, b string) bool {
 // ---------------------------------------------------------------------------
 
 type mockReservationSvc struct {
-	reserveFn func(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode string) (*service.ReserveFundsResult, error)
-	releaseFn func(ctx context.Context, orderID uint64) (*service.ReleaseResult, error)
-	partialFn func(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*service.PartialSettleResult, error)
-	getFn     func(ctx context.Context, orderID uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error)
+	reserveFn func(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode, orderKind string) (*service.ReserveFundsResult, error)
+	releaseFn func(ctx context.Context, orderID uint64, orderKind string) (*service.ReleaseResult, error)
+	partialFn func(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, orderKind string) (*service.PartialSettleResult, error)
+	getFn     func(ctx context.Context, orderID uint64, orderKind string) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error)
 }
 
-func (m *mockReservationSvc) ReserveFunds(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode string) (*service.ReserveFundsResult, error) {
+func (m *mockReservationSvc) ReserveFunds(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode, orderKind string) (*service.ReserveFundsResult, error) {
 	if m.reserveFn != nil {
-		return m.reserveFn(ctx, orderID, accountID, amount, currencyCode)
+		return m.reserveFn(ctx, orderID, accountID, amount, currencyCode, orderKind)
 	}
 	return &service.ReserveFundsResult{ReservationID: 1, ReservedBalance: amount, AvailableBalance: decimal.NewFromInt(1000)}, nil
 }
 
-func (m *mockReservationSvc) ReleaseReservation(ctx context.Context, orderID uint64) (*service.ReleaseResult, error) {
+func (m *mockReservationSvc) ReleaseReservation(ctx context.Context, orderID uint64, orderKind string) (*service.ReleaseResult, error) {
 	if m.releaseFn != nil {
-		return m.releaseFn(ctx, orderID)
+		return m.releaseFn(ctx, orderID, orderKind)
 	}
 	return &service.ReleaseResult{ReleasedAmount: decimal.NewFromInt(100), ReservedBalance: decimal.Zero}, nil
 }
 
-func (m *mockReservationSvc) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*service.PartialSettleResult, error) {
+func (m *mockReservationSvc) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, orderKind string) (*service.PartialSettleResult, error) {
 	if m.partialFn != nil {
-		return m.partialFn(ctx, orderID, orderTransactionID, amount, memo)
+		return m.partialFn(ctx, orderID, orderTransactionID, amount, memo, orderKind)
 	}
 	return &service.PartialSettleResult{
 		SettledAmount: amount, RemainingReserved: decimal.Zero,
@@ -180,16 +180,16 @@ func (m *mockReservationSvc) PartialSettleReservation(ctx context.Context, order
 	}, nil
 }
 
-func (m *mockReservationSvc) GetReservation(ctx context.Context, orderID uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
+func (m *mockReservationSvc) GetReservation(ctx context.Context, orderID uint64, orderKind string) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
 	if m.getFn != nil {
-		return m.getFn(ctx, orderID)
+		return m.getFn(ctx, orderID, orderKind)
 	}
 	return "active", decimal.NewFromInt(1000), decimal.NewFromInt(500), []uint64{1, 2}, true, nil
 }
 
 func TestReservationHandler_PartialSettle_Success(t *testing.T) {
 	svc := &mockReservationSvc{
-		partialFn: func(_ context.Context, _, _ uint64, amt decimal.Decimal, _ string) (*service.PartialSettleResult, error) {
+		partialFn: func(_ context.Context, _, _ uint64, amt decimal.Decimal, _, _ string) (*service.PartialSettleResult, error) {
 			return &service.PartialSettleResult{
 				SettledAmount: amt, RemainingReserved: decimal.NewFromInt(20),
 				BalanceAfter: decimal.NewFromInt(900), LedgerEntryID: 5,
@@ -218,7 +218,7 @@ func TestReservationHandler_PartialSettle_InvalidAmount(t *testing.T) {
 
 func TestReservationHandler_PartialSettle_ServiceError(t *testing.T) {
 	svc := &mockReservationSvc{
-		partialFn: func(_ context.Context, _, _ uint64, _ decimal.Decimal, _ string) (*service.PartialSettleResult, error) {
+		partialFn: func(_ context.Context, _, _ uint64, _ decimal.Decimal, _, _ string) (*service.PartialSettleResult, error) {
 			return nil, status.Error(codes.FailedPrecondition, "settle failed")
 		},
 	}
@@ -231,7 +231,7 @@ func TestReservationHandler_PartialSettle_ServiceError(t *testing.T) {
 
 func TestReservationHandler_GetReservation_Empty(t *testing.T) {
 	svc := &mockReservationSvc{
-		getFn: func(_ context.Context, _ uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
+		getFn: func(_ context.Context, _ uint64, _ string) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
 			return "", decimal.Zero, decimal.Zero, nil, false, nil
 		},
 	}
@@ -247,7 +247,7 @@ func TestReservationHandler_GetReservation_Empty(t *testing.T) {
 
 func TestReservationHandler_GetReservation_ServiceError(t *testing.T) {
 	svc := &mockReservationSvc{
-		getFn: func(_ context.Context, _ uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
+		getFn: func(_ context.Context, _ uint64, _ string) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
 			return "", decimal.Zero, decimal.Zero, nil, false, status.Error(codes.Internal, "db down")
 		},
 	}
@@ -260,7 +260,7 @@ func TestReservationHandler_GetReservation_ServiceError(t *testing.T) {
 
 func TestReservationHandler_ReleaseReservation_ServiceError(t *testing.T) {
 	svc := &mockReservationSvc{
-		releaseFn: func(_ context.Context, _ uint64) (*service.ReleaseResult, error) {
+		releaseFn: func(_ context.Context, _ uint64, _ string) (*service.ReleaseResult, error) {
 			return nil, status.Error(codes.Internal, "release failed")
 		},
 	}
