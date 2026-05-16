@@ -7718,11 +7718,76 @@ Cancel the caller's sell or buy offer.
 
 ---
 
-#### GET /api/v3/otc/stocks (deferred to Phase 8)
+#### GET /api/v3/otc/stocks
 
-The unified marketplace listing of both directions across local + remote banks. Until Phase 8 deletes the old route, use `GET /api/v3/otc/offers` for the equivalent local+remote stock view (sell-only).
+Unified marketplace listing of sell + buy directions across local + remote peer banks. Same partial-failure semantics as `/otc/options` (cache refreshed every ~5 s; `peers_total` / `peers_reached` / `partial=true` reflect the most recent refresh). Replaces the legacy `GET /api/v3/otc/offers` deleted in Phase 8.
 
-**Phase 3B deferral:** Fill RPCs (`POST /otc/stocks/:id/buy` for filling sell offers, `POST /otc/stocks/:id/sell` for filling buy offers) are not yet wired. Use the legacy `POST /api/v3/otc/offers/:id/buy` until Phase 3B + 8 land.
+**Query Parameters:** `direction` (`sell`|`buy`), `ticker`, `kind` (`local`|`remote`), `bank_code`, `page`, `page_size` (default 10).
+
+---
+
+#### POST /api/v3/otc/stocks/:id/buy
+
+Fill a sell offer with the caller's cash. Race-hardened in Phase 3B follow-up: the seller's holding is `SELECT FOR UPDATE`'d before any money moves, so two concurrent buyers cannot double-spend the same `PublicQuantity` on the same holding. Replaces `POST /api/v3/otc/offers/:id/buy` (deleted in Phase 8).
+
+**Request Body:** `{ "quantity": int, "account_id": int }` (caller's account that pays).
+
+---
+
+#### POST /api/v3/otc/stocks/:id/sell
+
+**Phase 3B — buy-direction fill.** Caller sells the requested quantity of shares into an existing buy offer. The seller's holding is locked with `SELECT FOR UPDATE` and a shares-available check (`Quantity - ReservedQuantity ≥ requested qty`) runs **before** any money moves — the caller literally cannot sell shares they don't have. The buyer's cash was already reserved at buy-offer-create time via account-service `ReserveFunds`, so payment is guaranteed; `PartialSettleReservation` consumes part of that reservation atomically.
+
+**Authentication:** Any JWT + `securities.trade` OR `otc.trade.accept`.
+
+**Path Parameters:**
+- `id` — `otc_stock_buy_offers.id` of the buy offer being filled.
+
+**Request Body:**
+```json
+{
+  "quantity": 5,
+  "seller_account_id": 42
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `quantity` | int | Positive integer; must be ≤ offer's `remaining_quantity` |
+| `seller_account_id` | int | Caller's account that receives proceeds; must match buyer offer's currency |
+
+**Saga ordering:**
+1. `SELECT FOR UPDATE` buy offer + decrement `RemainingQuantity` + `ReservedAmount`; flip status to `filled` when `RemainingQuantity` reaches 0.
+2. `SELECT FOR UPDATE` seller's holding by `(owner, stock_id)` + verify shares + decrement `Quantity`.
+3. `PartialSettleReservation` on buyer's reservation (debits buyer; ledger entry).
+4. `CreditAccount` on seller's chosen destination.
+5. `Upsert` buyer's holding (best-effort post-money bookkeeping).
+
+Failure at any step reverses the prior steps via compensating account-service calls + repo updates with deterministic idempotency keys.
+
+**Response 200:**
+```json
+{
+  "fill": {
+    "offer_id": 7,
+    "filled_quantity": 5,
+    "price_per_unit": "100.00",
+    "total_amount": "500.00",
+    "seller_credited_account_number": "111000123456789011"
+  }
+}
+```
+
+**Response 400:** Validation (non-positive quantity, missing `seller_account_id`).
+
+**Response 403:** `seller_account_id` does not belong to caller.
+
+**Response 412:**
+- `ErrOTCStockBuyOfferNotActive` — offer already filled/cancelled/expired.
+- `ErrOTCStockInsufficientRemainingQty` — fill exceeds offer's `remaining_quantity`.
+- `ErrOTCStockInsufficientShares` — seller is short on shares (no money moves).
+- `ErrOTCStockCurrencyMismatch` — seller's account currency differs from offer's.
+- `ErrOTCBuyOwnOffer` — caller is the buy offer's owner.
 
 ### 47.2 Options marketplace — parallel negotiation chains
 
@@ -7770,14 +7835,33 @@ Counter the current terms on one of the caller's chains. Either party (the chain
 
 Accept the current terms on a chain. Caller must be the party **opposite** to whoever proposed the current terms (i.e. you cannot "accept your own offer" — you have to wait for the other side's response).
 
-**Transaction (first-accept-wins):**
+**Phase 9: now two-stage.** The accept performs negotiation state transitions in a DB transaction AND immediately runs the 4-step contract-formation saga (mints the `OptionContract` row, reserves the seller's underlying shares, reserves+settles the buyer's premium, credits the seller). The safety invariants — **cannot sell what you don't have / cannot buy if you don't have money** — are enforced by the saga; if the seller's holding has dropped below `quantity` OR the buyer's balance has dropped below `premium`, the saga aborts and the negotiation is flipped to a terminal `failed` status so the front-end sees coherent state.
+
+**Request Body:**
+```json
+{
+  "acceptor_account_id": 42
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `acceptor_account_id` | int | Caller's account — pays the premium if accepter is the buyer (parent direction = `sell_initiated`); receives the premium if accepter is the seller (parent direction = `buy_initiated`). Currency must match the seller's account currency or a cross-currency FX conversion is performed via exchange-service. |
+
+**Stage 1 — negotiation state TX (first-accept-wins):**
 1. `SELECT FOR UPDATE` on the winning negotiation row.
 2. `SELECT FOR UPDATE` on the parent OTCOffer listing.
-3. Reject with 412 if parent is no longer open (a parallel sibling already won — your call serialized behind theirs and lost).
+3. Reject with 412 if parent is no longer open (a parallel sibling already won — your call serialised behind theirs and lost).
 4. Verify the caller is the opposite party to `last_action_by_owner_*`.
 5. Flip the winning negotiation to `accepted` + append ACCEPT revision.
 6. Flip parent listing to `consumed`.
 7. `SELECT FOR UPDATE` every sibling chain in `open`/`countered` status and flip them to `cancelled` (cascade).
+
+**Stage 2 — contract-formation saga (runs after the TX commits):**
+1. `reserve_and_contract` — create `OptionContract` row + `ReserveForOTCContract` on seller's holding. **Seller-can-deliver check**: aborts if seller no longer has free shares; contract row is deleted in the Backward path.
+2. `reserve_premium` — `ReserveFunds` on buyer's account. **Buyer-has-cash check**: aborts if buyer's balance dropped below premium; seller's share reservation released.
+3. `settle_premium_buyer` — `PartialSettleReservation` (debits the premium from the buyer's reservation).
+4. `credit_premium_seller` — `CreditAccount` on seller (in seller's currency).
 
 **Response 200:**
 ```json
@@ -7785,15 +7869,46 @@ Accept the current terms on a chain. Caller must be the party **opposite** to wh
   "winning":             OTCNegotiationResponse,
   "parent_offer_id":     123,
   "parent_status":       "consumed",
-  "cancelled_siblings":  [OTCNegotiationResponse...]
+  "cancelled_siblings":  [OTCNegotiationResponse...],
+  "contract": {
+    "id":                17,
+    "offer_id":          123,
+    "buyer_owner_type":  "client",
+    "buyer_owner_id":    7,
+    "seller_owner_type": "client",
+    "seller_owner_id":   42,
+    "ticker":            "AAPL",
+    "quantity":          "10",
+    "strike_price":      "175.50",
+    "premium_paid":      "700.00",
+    "premium_currency":  "USD",
+    "strike_currency":   "USD",
+    "settlement_date":   "2027-08-01T00:00:00Z",
+    "buyer_account_id":  42,
+    "seller_account_id": 99,
+    "status":            "ACTIVE",
+    "premium_paid_at":   "2026-05-16T03:20:00Z"
+  }
 }
 ```
 
-The handler then uses these to mint the OptionContract and kick off the premium-payment saga (the contract minting itself is Phase 3B-deferred; the negotiation state transitions land here).
+`contract` is `null` when the formation saga failed; in that case the negotiation status is `failed`, the parent stays `consumed`, and the front-end can surface a "contract not formed" warning + suggest re-listing.
 
-**Response 403:** Caller proposed the current terms (`ErrOTCAcceptUnauthorized`) or is not a party to the chain.
+**Exercise:** the minted `OptionContract` row is consumable by `POST /api/v3/otc/contracts/:id/exercise` (see existing exercise route) — strike money moves buyer→seller, the reserved seller shares are consumed and credited to the buyer's holding.
 
-**Response 412:** Parent listing no longer open OR negotiation is in a terminal state.
+**Response 400:**
+- `acceptor_account_id` missing or zero.
+- `ErrOTCAcceptorAccountRequired` from the service if the gRPC layer is reached without it.
+
+**Response 403:**
+- Caller proposed the current terms (`ErrOTCAcceptUnauthorized`) or is not a party to the chain.
+- `acceptor_account_id` does not belong to caller (gateway-side ownership check).
+
+**Response 412:**
+- Parent listing no longer open OR negotiation is in a terminal state.
+- Settlement date is no longer in the future.
+- Seller short on shares at saga step 1 / buyer short on cash at saga step 2 — negotiation flipped to `failed`.
+- Cross-currency premium without exchange-service wired.
 
 ---
 
