@@ -122,7 +122,6 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	state.Set("step:credit_strike_seller:amount", strikeSellerCcy)
 	state.Set("step:credit_strike_seller:currency", strikeCcy)
 	state.Set("step:consume_seller_holding:amount", c.Quantity)
-	state.Set("step:consume_seller_holding:currency", "shares")
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{

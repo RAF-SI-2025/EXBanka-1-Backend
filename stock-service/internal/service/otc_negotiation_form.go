@@ -179,7 +179,6 @@ func (s *OTCOfferService) MintContractFromAcceptedNegotiation(ctx context.Contex
 
 	state := saga.NewState()
 	state.Set("step:reserve_and_contract:amount", neg.Quantity)
-	state.Set("step:reserve_and_contract:currency", "shares")
 	state.Set("step:reserve_premium:amount", premiumBuyerCcy)
 	state.Set("step:reserve_premium:currency", buyerCcy)
 	state.Set("step:settle_premium_buyer:amount", premiumBuyerCcy)

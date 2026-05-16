@@ -145,7 +145,6 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 
 	state := saga.NewState()
 	state.Set("step:reserve_and_contract:amount", o.Quantity)
-	state.Set("step:reserve_and_contract:currency", "shares")
 	state.Set("step:reserve_premium:amount", premiumBuyerCcy)
 	state.Set("step:reserve_premium:currency", buyerCcy)
 	state.Set("step:settle_premium_buyer:amount", premiumBuyerCcy)
