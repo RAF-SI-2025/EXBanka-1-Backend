@@ -209,6 +209,46 @@ var (
 	// account-service and transaction-service.
 	ErrIdempotencyMissing = svcerr.New(codes.InvalidArgument, "idempotency_key required")
 
+	// --- OTC Stocks Marketplace (Phase 3 — buy + sell direction) ---
+
+	// ErrOTCStockBuyOfferNotFound — buy-side offer lookup failed.
+	ErrOTCStockBuyOfferNotFound = svcerr.New(codes.NotFound, "OTC stock buy offer not found")
+
+	// ErrOTCStockBuyOfferNotActive — caller targeted a buy offer that is
+	// no longer fillable (already filled / cancelled / expired).
+	ErrOTCStockBuyOfferNotActive = svcerr.New(codes.FailedPrecondition, "OTC stock buy offer is not active")
+
+	// ErrOTCStockBuyOfferOwnership — caller tried to cancel a buy offer
+	// they do not own.
+	ErrOTCStockBuyOfferOwnership = svcerr.New(codes.PermissionDenied, "OTC stock buy offer does not belong to caller")
+
+	// ErrOTCStockInsufficientRemainingQty — fill attempt exceeds the
+	// remaining_quantity on the buy offer.
+	ErrOTCStockInsufficientRemainingQty = svcerr.New(codes.FailedPrecondition, "insufficient remaining quantity on buy offer")
+
+	// ErrOTCStockNoActiveSellOffer — cancel-sell-offer called on a
+	// holding with public_quantity == 0.
+	ErrOTCStockNoActiveSellOffer = svcerr.New(codes.FailedPrecondition, "holding has no active sell offer to cancel")
+
+	// ErrOTCStockDirectionRequired — POST /me/otc/stocks body must carry
+	// direction in {sell, buy}.
+	ErrOTCStockDirectionRequired = svcerr.New(codes.InvalidArgument, "direction must be sell or buy")
+
+	// ErrOTCStockCurrencyMismatch — buy offer's listing currency does not
+	// match the buyer's account currency. Required at create time so the
+	// reserved amount = quantity * price_per_unit is deterministic.
+	ErrOTCStockCurrencyMismatch = svcerr.New(codes.FailedPrecondition, "listing currency must match buyer account currency")
+
+	// ErrOTCStockInsufficientShares — sell-offer create would exceed the
+	// holding's OTC-safe available quantity (Quantity - ReservedQuantity -
+	// PublicQuantity), which protects shares already committed to orders
+	// or other sell offers.
+	ErrOTCStockInsufficientShares = svcerr.New(codes.FailedPrecondition, "insufficient available shares for OTC sell offer")
+
+	// ErrOTCStockSellOfferHoldingType — sell offer can only be created on
+	// a security_type='stock' holding (no futures/forex/options).
+	ErrOTCStockSellOfferHoldingType = svcerr.New(codes.FailedPrecondition, "sell offer only supported on stock holdings")
+
 	// --- OTC Negotiation (Phase 2 — parallel chains + first-accept-wins) ---
 
 	// ErrOTCNegotiationNotFound — negotiation lookup failed.

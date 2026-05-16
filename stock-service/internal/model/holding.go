@@ -56,3 +56,19 @@ func (h *Holding) BeforeUpdate(tx *gorm.DB) error {
 	h.Version++
 	return nil
 }
+
+// OTCSafeAvailable reports the number of units the owner can commit to a
+// NEW sell-side OTC listing (i.e. PublicQuantity uplift). It subtracts
+// both order-side reservations AND the existing public quantity so a
+// user can't double-commit the same shares to multiple sell offers OR
+// pull from a holding already committed to an open order.
+//
+// Returns zero if the calculation underflows (defensive — should never
+// happen with consistent data).
+func (h *Holding) OTCSafeAvailable() int64 {
+	avail := h.Quantity - h.ReservedQuantity - h.PublicQuantity
+	if avail < 0 {
+		return 0
+	}
+	return avail
+}

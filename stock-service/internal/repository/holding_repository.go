@@ -106,6 +106,29 @@ func (r *HoldingRepository) GetByID(id uint64) (*model.Holding, error) {
 	return &holding, nil
 }
 
+// LockByIDTx does SELECT FOR UPDATE inside an active transaction. Used by
+// OTCStockService's CreateSellOffer/CancelSellOffer/FillSellOffer to
+// serialize concurrent public_quantity mutations on the same holding.
+func (r *HoldingRepository) LockByIDTx(tx *gorm.DB, id uint64) (*model.Holding, error) {
+	var holding model.Holding
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, id).Error; err != nil {
+		return nil, err
+	}
+	return &holding, nil
+}
+
+// SaveTx variant for use inside an existing transaction.
+func (r *HoldingRepository) SaveTx(tx *gorm.DB, holding *model.Holding) error {
+	result := tx.Save(holding)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrOptimisticLock
+	}
+	return nil
+}
+
 func (r *HoldingRepository) Update(holding *model.Holding) error {
 	result := r.db.Save(holding)
 	if result.Error != nil {
