@@ -171,6 +171,21 @@ func (r *HoldingRepository) GetByOwnerAndTicker(ownerType model.OwnerType, owner
 	return &holding, nil
 }
 
+// LockByOwnerAndSecurityTx does SELECT FOR UPDATE inside an active
+// transaction. Used by OTCStockService.FillBuyOffer to serialise
+// concurrent fills against the same seller holding so two parallel
+// sellers can't both "sell" the same shares.
+func (r *HoldingRepository) LockByOwnerAndSecurityTx(tx *gorm.DB, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error) {
+	var holding model.Holding
+	q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("security_type = ? AND security_id = ?", securityType, securityID)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	if err := q.First(&holding).Error; err != nil {
+		return nil, err
+	}
+	return &holding, nil
+}
+
 func (r *HoldingRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, filter HoldingFilter) ([]model.Holding, int64, error) {
 	var holdings []model.Holding
 	var total int64

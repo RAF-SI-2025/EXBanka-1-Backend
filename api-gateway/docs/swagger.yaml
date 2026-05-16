@@ -775,6 +775,13 @@ definitions:
     required:
     - current_refresh_token
     type: object
+  handler.sellOTCStockOfferRequest:
+    properties:
+      quantity:
+        type: integer
+      seller_account_id:
+        type: integer
+    type: object
   handler.setBiometricsReq:
     properties:
       enabled:
@@ -8998,6 +9005,56 @@ paths:
       summary: List every negotiation chain against a given OTC option listing
       tags:
       - OTCOptions
+  /api/v3/otc/stocks/{id}/sell:
+    post:
+      consumes:
+      - application/json
+      description: The caller sells the requested quantity of shares into
+      parameters:
+      - description: otc_stock_buy_offers.id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: quantity + seller's destination account
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.sellOTCStockOfferRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "412":
+          description: offer not active OR seller short on shares
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Fill a buy-direction OTC stock offer (sell into it)
+      tags:
+      - OTCStocks
   /api/v3/otc/traders/{owner_type}/{owner_id}/rating:
     get:
       parameters:

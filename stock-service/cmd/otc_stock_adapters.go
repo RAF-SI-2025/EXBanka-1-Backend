@@ -44,6 +44,23 @@ func (a *stockAccountClientAdapter) GetAccount(ctx context.Context, accountID ui
 	return a.wrapped.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: accountID})
 }
 
+// PartialSettleReservation — used by FillBuyOffer to consume part of
+// the buyer's pre-reserved cash and write the matching ledger entry.
+func (a *stockAccountClientAdapter) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error) {
+	return a.wrapped.PartialSettleReservation(ctx, orderID, orderTransactionID, amount, memo, idempotencyKey)
+}
+
+// CreditAccount — used by FillBuyOffer to credit the seller's account.
+func (a *stockAccountClientAdapter) CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	return a.wrapped.CreditAccount(ctx, accountNumber, amount, memo, idempotencyKey)
+}
+
+// DebitAccount — used by FillBuyOffer compensation paths to reverse a
+// previous credit.
+func (a *stockAccountClientAdapter) DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	return a.wrapped.DebitAccount(ctx, accountNumber, amount, memo, idempotencyKey)
+}
+
 type stockListingResolverAdapter struct {
 	listings  *repository.ListingRepository
 	stocks    *repository.StockRepository

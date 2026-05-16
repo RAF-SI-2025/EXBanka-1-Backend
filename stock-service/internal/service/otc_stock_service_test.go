@@ -23,9 +23,13 @@ type stocksFakeAccountClient struct {
 	acct               *accountpb.AccountResponse
 	stocksReserveCalls []stocksReserveCall
 	stocksReleaseCalls []stocksReleaseCall
+	settleCalls        []stocksSettleCall
+	creditCalls        []stocksCreditCall
 	failReserveErr     error
 	failReleaseErr     error
 	failGetAccountErr  error
+	failSettleErr      error
+	failCreditErr      error
 }
 
 type stocksReserveCall struct {
@@ -63,6 +67,40 @@ func (f *stocksFakeAccountClient) GetAccount(ctx context.Context, accountID uint
 	if f.failGetAccountErr != nil {
 		return nil, f.failGetAccountErr
 	}
+	return f.acct, nil
+}
+
+// FillBuyOffer dependencies — recorded to assert call ordering.
+type stocksSettleCall struct {
+	orderID, orderTxID uint64
+	amount             decimal.Decimal
+	idempKey           string
+}
+type stocksCreditCall struct {
+	accountNumber string
+	amount        decimal.Decimal
+	idempKey      string
+}
+
+func (f *stocksFakeAccountClient) PartialSettleReservation(_ context.Context, orderID, orderTxID uint64, amount decimal.Decimal, _, idempKey string) (*accountpb.PartialSettleReservationResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failSettleErr != nil {
+		return nil, f.failSettleErr
+	}
+	f.settleCalls = append(f.settleCalls, stocksSettleCall{orderID, orderTxID, amount, idempKey})
+	return &accountpb.PartialSettleReservationResponse{}, nil
+}
+func (f *stocksFakeAccountClient) CreditAccount(_ context.Context, acct string, amount decimal.Decimal, _, idempKey string) (*accountpb.AccountResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failCreditErr != nil {
+		return nil, f.failCreditErr
+	}
+	f.creditCalls = append(f.creditCalls, stocksCreditCall{acct, amount, idempKey})
+	return f.acct, nil
+}
+func (f *stocksFakeAccountClient) DebitAccount(_ context.Context, _ string, _ decimal.Decimal, _, _ string) (*accountpb.AccountResponse, error) {
 	return f.acct, nil
 }
 
@@ -437,5 +475,222 @@ func TestListMyListings_FiltersByDirection(t *testing.T) {
 	})
 	if res.Total != 1 || res.Listings[0].Direction != "buy" {
 		t.Errorf("buy-only filter returned %d items, first dir=%s", res.Total, res.Listings[0].Direction)
+	}
+}
+
+// ---------- FillBuyOffer (Phase 3B) ----------
+
+// seedActiveBuyOffer creates an active buy offer in the buyer-owner=99
+// shape, sized for the requested quantity at $100/share.
+func seedActiveBuyOffer(t *testing.T, env *otcStockTestEnv, buyerOwnerID uint64, stockID uint64, qty int64) *model.OTCStockBuyOffer {
+	t.Helper()
+	pricePerUnit := decimal.NewFromInt(100)
+	reserved := pricePerUnit.Mul(decimal.NewFromInt(qty))
+	o := &model.OTCStockBuyOffer{
+		BuyerOwnerType:            model.OwnerClient,
+		BuyerOwnerID:              &buyerOwnerID,
+		BuyerAccountID:            999,
+		BuyerAccountNumber:        "111000000000000099",
+		StockID:                   stockID,
+		ListingID:                 1,
+		Ticker:                    "AAPL",
+		Name:                      "Apple Inc",
+		OriginalQuantity:          qty,
+		RemainingQuantity:         qty,
+		PricePerUnit:              pricePerUnit,
+		CurrencyCode:              "USD",
+		ReservedAmount:            reserved,
+		OriginalReservedAmount:    reserved,
+		AccountReservationOrderID: 7_777_777,
+		Status:                    model.OTCStockBuyOfferStatusActive,
+	}
+	if err := env.buyOfferRepo.Create(o); err != nil {
+		t.Fatalf("seed buy offer: %v", err)
+	}
+	return o
+}
+
+func TestFillBuyOffer_HappyPath_DecrementsOfferAndSettles(t *testing.T) {
+	env := newOTCStockTestEnv(t)
+	// Seller has 10 shares of stock_id=100 (AAPL); buyer wants 6.
+	seller := uint64(7)
+	seedHolding(t, env, seller, 10, 0, 0)
+	offer := seedActiveBuyOffer(t, env, 99 /*buyer*/, 100 /*stock_id*/, 6)
+
+	res, err := env.svc.FillBuyOffer(context.Background(), FillBuyOfferInput{
+		OfferID:         offer.ID,
+		SellerOwnerType: model.OwnerClient,
+		SellerOwnerID:   &seller,
+		Quantity:        6,
+		SellerAccountID: 42,
+	})
+	if err != nil {
+		t.Fatalf("fill: %v", err)
+	}
+	if res.FilledQuantity != 6 {
+		t.Errorf("filled=%d want 6", res.FilledQuantity)
+	}
+	wantTotal := decimal.NewFromInt(600)
+	if !res.TotalAmount.Equal(wantTotal) {
+		t.Errorf("total=%s want 600", res.TotalAmount)
+	}
+
+	// Buy offer: remaining → 0, status → filled, reserved → 0.
+	updated, _ := env.buyOfferRepo.GetByID(offer.ID)
+	if updated.RemainingQuantity != 0 {
+		t.Errorf("remaining=%d want 0", updated.RemainingQuantity)
+	}
+	if updated.Status != model.OTCStockBuyOfferStatusFilled {
+		t.Errorf("status=%s want filled", updated.Status)
+	}
+
+	// Seller holding decremented by 6.
+	var h model.Holding
+	env.db.Where("owner_id = ? AND stock_id_unused IS NULL", seller).Find(&h) // best-effort sqlite; just check sum below
+	holdings, _, _ := env.holdingRepo.ListByOwner(model.OwnerClient, &seller, repository.HoldingFilter{Page: 1, PageSize: 10})
+	if len(holdings) == 0 {
+		t.Fatalf("seller holding gone (unexpected — we only decremented to 4)")
+	}
+	if holdings[0].Quantity != 4 {
+		t.Errorf("seller holding qty=%d want 4", holdings[0].Quantity)
+	}
+
+	// Account-service calls: one settle + one credit, both with the
+	// settle amount.
+	if len(env.accountClient.settleCalls) != 1 {
+		t.Fatalf("expected 1 settle call, got %d", len(env.accountClient.settleCalls))
+	}
+	if !env.accountClient.settleCalls[0].amount.Equal(wantTotal) {
+		t.Errorf("settle amount=%s want 600", env.accountClient.settleCalls[0].amount)
+	}
+	if env.accountClient.settleCalls[0].orderID != 7_777_777 {
+		t.Errorf("settle order_id=%d want 7777777", env.accountClient.settleCalls[0].orderID)
+	}
+	if len(env.accountClient.creditCalls) != 1 {
+		t.Fatalf("expected 1 credit call, got %d", len(env.accountClient.creditCalls))
+	}
+	if !env.accountClient.creditCalls[0].amount.Equal(wantTotal) {
+		t.Errorf("credit amount=%s want 600", env.accountClient.creditCalls[0].amount)
+	}
+}
+
+func TestFillBuyOffer_PartialFill_LeavesOfferActive(t *testing.T) {
+	env := newOTCStockTestEnv(t)
+	seller := uint64(7)
+	seedHolding(t, env, seller, 10, 0, 0)
+	offer := seedActiveBuyOffer(t, env, 99, 100, 10) // buyer wants 10
+
+	res, err := env.svc.FillBuyOffer(context.Background(), FillBuyOfferInput{
+		OfferID:         offer.ID,
+		SellerOwnerType: model.OwnerClient,
+		SellerOwnerID:   &seller,
+		Quantity:        4, // sell only 4 of the 10
+		SellerAccountID: 42,
+	})
+	if err != nil {
+		t.Fatalf("fill: %v", err)
+	}
+	if res.FilledQuantity != 4 {
+		t.Errorf("filled=%d want 4", res.FilledQuantity)
+	}
+	updated, _ := env.buyOfferRepo.GetByID(offer.ID)
+	if updated.RemainingQuantity != 6 {
+		t.Errorf("remaining=%d want 6", updated.RemainingQuantity)
+	}
+	if updated.Status != model.OTCStockBuyOfferStatusActive {
+		t.Errorf("status=%s want active", updated.Status)
+	}
+	if !updated.ReservedAmount.Equal(decimal.NewFromInt(600)) { // 1000 - 400
+		t.Errorf("reserved_amount=%s want 600", updated.ReservedAmount)
+	}
+}
+
+// CRITICAL safety test — seller cannot sell what they don't have.
+func TestFillBuyOffer_RejectsIfSellerShort_NoMoneyMoves(t *testing.T) {
+	env := newOTCStockTestEnv(t)
+	seller := uint64(7)
+	seedHolding(t, env, seller, 3, 0, 0) // seller only owns 3
+	offer := seedActiveBuyOffer(t, env, 99, 100, 10)
+
+	_, err := env.svc.FillBuyOffer(context.Background(), FillBuyOfferInput{
+		OfferID:         offer.ID,
+		SellerOwnerType: model.OwnerClient,
+		SellerOwnerID:   &seller,
+		Quantity:        5, // > 3 owned
+		SellerAccountID: 42,
+	})
+	if !errors.Is(err, ErrOTCStockInsufficientShares) {
+		t.Fatalf("want ErrOTCStockInsufficientShares, got %v", err)
+	}
+	// Zero account-service calls — money must NOT have moved.
+	if len(env.accountClient.settleCalls) != 0 || len(env.accountClient.creditCalls) != 0 {
+		t.Errorf("money moved despite insufficient shares: settle=%d credit=%d", len(env.accountClient.settleCalls), len(env.accountClient.creditCalls))
+	}
+	// Buy offer should be COMPENSATED back to active 10/1000 (the
+	// step-1 decrement was reverted by compensateBuyOfferDecrement).
+	o, _ := env.buyOfferRepo.GetByID(offer.ID)
+	if o.RemainingQuantity != 10 {
+		t.Errorf("post-compensation remaining=%d want 10", o.RemainingQuantity)
+	}
+	if o.Status != model.OTCStockBuyOfferStatusActive {
+		t.Errorf("post-compensation status=%s want active", o.Status)
+	}
+}
+
+func TestFillBuyOffer_RejectsSelfFill(t *testing.T) {
+	env := newOTCStockTestEnv(t)
+	// Seller and buyer are the same client → must reject.
+	owner := uint64(7)
+	seedHolding(t, env, owner, 10, 0, 0)
+	offer := seedActiveBuyOffer(t, env, owner /*buyer*/, 100, 5)
+
+	_, err := env.svc.FillBuyOffer(context.Background(), FillBuyOfferInput{
+		OfferID:         offer.ID,
+		SellerOwnerType: model.OwnerClient,
+		SellerOwnerID:   &owner,
+		Quantity:        5,
+		SellerAccountID: 42,
+	})
+	if !errors.Is(err, ErrOTCBuyOwnOffer) {
+		t.Fatalf("want ErrOTCBuyOwnOffer for self-fill, got %v", err)
+	}
+}
+
+func TestFillBuyOffer_RejectsCancelledOffer(t *testing.T) {
+	env := newOTCStockTestEnv(t)
+	seller := uint64(7)
+	seedHolding(t, env, seller, 10, 0, 0)
+	offer := seedActiveBuyOffer(t, env, 99, 100, 5)
+	// Manually flip to cancelled.
+	offer.Status = model.OTCStockBuyOfferStatusCancelled
+	_ = env.buyOfferRepo.Save(offer)
+
+	_, err := env.svc.FillBuyOffer(context.Background(), FillBuyOfferInput{
+		OfferID:         offer.ID,
+		SellerOwnerType: model.OwnerClient,
+		SellerOwnerID:   &seller,
+		Quantity:        5,
+		SellerAccountID: 42,
+	})
+	if !errors.Is(err, ErrOTCStockBuyOfferNotActive) {
+		t.Fatalf("want ErrOTCStockBuyOfferNotActive, got %v", err)
+	}
+}
+
+func TestFillBuyOffer_RejectsExceedsRemaining(t *testing.T) {
+	env := newOTCStockTestEnv(t)
+	seller := uint64(7)
+	seedHolding(t, env, seller, 100, 0, 0)
+	offer := seedActiveBuyOffer(t, env, 99, 100, 5) // buyer wants only 5
+
+	_, err := env.svc.FillBuyOffer(context.Background(), FillBuyOfferInput{
+		OfferID:         offer.ID,
+		SellerOwnerType: model.OwnerClient,
+		SellerOwnerID:   &seller,
+		Quantity:        6, // > offer.RemainingQuantity
+		SellerAccountID: 42,
+	})
+	if !errors.Is(err, ErrOTCStockInsufficientRemainingQty) {
+		t.Fatalf("want ErrOTCStockInsufficientRemainingQty, got %v", err)
 	}
 }

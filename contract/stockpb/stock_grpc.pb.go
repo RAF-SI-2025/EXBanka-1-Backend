@@ -3233,6 +3233,7 @@ const (
 	OTCStockMarketGRPCService_CreateOTCStockOffer_FullMethodName = "/stock.OTCStockMarketGRPCService/CreateOTCStockOffer"
 	OTCStockMarketGRPCService_CancelOTCStockOffer_FullMethodName = "/stock.OTCStockMarketGRPCService/CancelOTCStockOffer"
 	OTCStockMarketGRPCService_ListMyOTCStocks_FullMethodName     = "/stock.OTCStockMarketGRPCService/ListMyOTCStocks"
+	OTCStockMarketGRPCService_SellOTCStockOffer_FullMethodName   = "/stock.OTCStockMarketGRPCService/SellOTCStockOffer"
 )
 
 // OTCStockMarketGRPCServiceClient is the client API for OTCStockMarketGRPCService service.
@@ -3250,6 +3251,12 @@ type OTCStockMarketGRPCServiceClient interface {
 	CreateOTCStockOffer(ctx context.Context, in *CreateOTCStockOfferRequest, opts ...grpc.CallOption) (*OTCStockOfferResponse, error)
 	CancelOTCStockOffer(ctx context.Context, in *CancelOTCStockOfferRequest, opts ...grpc.CallOption) (*CancelOTCStockOfferResponse, error)
 	ListMyOTCStocks(ctx context.Context, in *ListMyOTCStocksRequest, opts ...grpc.CallOption) (*ListMyOTCStocksResponse, error)
+	// SellOTCStockOffer fills a buy-direction offer: seller decrements
+	// their holding, buyer's reserved cash is settled via account-service
+	// PartialSettleReservation, seller's account is credited, buyer's
+	// holding is upserted. Multi-step saga with compensation on each
+	// intermediate failure.
+	SellOTCStockOffer(ctx context.Context, in *SellOTCStockOfferRequest, opts ...grpc.CallOption) (*OTCStockFillResult, error)
 }
 
 type oTCStockMarketGRPCServiceClient struct {
@@ -3290,6 +3297,16 @@ func (c *oTCStockMarketGRPCServiceClient) ListMyOTCStocks(ctx context.Context, i
 	return out, nil
 }
 
+func (c *oTCStockMarketGRPCServiceClient) SellOTCStockOffer(ctx context.Context, in *SellOTCStockOfferRequest, opts ...grpc.CallOption) (*OTCStockFillResult, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(OTCStockFillResult)
+	err := c.cc.Invoke(ctx, OTCStockMarketGRPCService_SellOTCStockOffer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OTCStockMarketGRPCServiceServer is the server API for OTCStockMarketGRPCService service.
 // All implementations must embed UnimplementedOTCStockMarketGRPCServiceServer
 // for forward compatibility.
@@ -3305,6 +3322,12 @@ type OTCStockMarketGRPCServiceServer interface {
 	CreateOTCStockOffer(context.Context, *CreateOTCStockOfferRequest) (*OTCStockOfferResponse, error)
 	CancelOTCStockOffer(context.Context, *CancelOTCStockOfferRequest) (*CancelOTCStockOfferResponse, error)
 	ListMyOTCStocks(context.Context, *ListMyOTCStocksRequest) (*ListMyOTCStocksResponse, error)
+	// SellOTCStockOffer fills a buy-direction offer: seller decrements
+	// their holding, buyer's reserved cash is settled via account-service
+	// PartialSettleReservation, seller's account is credited, buyer's
+	// holding is upserted. Multi-step saga with compensation on each
+	// intermediate failure.
+	SellOTCStockOffer(context.Context, *SellOTCStockOfferRequest) (*OTCStockFillResult, error)
 	mustEmbedUnimplementedOTCStockMarketGRPCServiceServer()
 }
 
@@ -3323,6 +3346,9 @@ func (UnimplementedOTCStockMarketGRPCServiceServer) CancelOTCStockOffer(context.
 }
 func (UnimplementedOTCStockMarketGRPCServiceServer) ListMyOTCStocks(context.Context, *ListMyOTCStocksRequest) (*ListMyOTCStocksResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListMyOTCStocks not implemented")
+}
+func (UnimplementedOTCStockMarketGRPCServiceServer) SellOTCStockOffer(context.Context, *SellOTCStockOfferRequest) (*OTCStockFillResult, error) {
+	return nil, status.Error(codes.Unimplemented, "method SellOTCStockOffer not implemented")
 }
 func (UnimplementedOTCStockMarketGRPCServiceServer) mustEmbedUnimplementedOTCStockMarketGRPCServiceServer() {
 }
@@ -3400,6 +3426,24 @@ func _OTCStockMarketGRPCService_ListMyOTCStocks_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OTCStockMarketGRPCService_SellOTCStockOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SellOTCStockOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OTCStockMarketGRPCServiceServer).SellOTCStockOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OTCStockMarketGRPCService_SellOTCStockOffer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OTCStockMarketGRPCServiceServer).SellOTCStockOffer(ctx, req.(*SellOTCStockOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OTCStockMarketGRPCService_ServiceDesc is the grpc.ServiceDesc for OTCStockMarketGRPCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3418,6 +3462,10 @@ var OTCStockMarketGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListMyOTCStocks",
 			Handler:    _OTCStockMarketGRPCService_ListMyOTCStocks_Handler,
+		},
+		{
+			MethodName: "SellOTCStockOffer",
+			Handler:    _OTCStockMarketGRPCService_SellOTCStockOffer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -12150,6 +12150,81 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/otc/stocks/{id}/sell": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The caller sells the requested quantity of shares into",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCStocks"
+                ],
+                "summary": "Fill a buy-direction OTC stock offer (sell into it)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "otc_stock_buy_offers.id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "quantity + seller's destination account",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.sellOTCStockOfferRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "412": {
+                        "description": "offer not active OR seller short on shares",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/otc/traders/{owner_type}/{owner_id}/rating": {
             "get": {
                 "security": [
@@ -13624,6 +13699,17 @@ const docTemplate = `{
             "properties": {
                 "current_refresh_token": {
                     "type": "string"
+                }
+            }
+        },
+        "handler.sellOTCStockOfferRequest": {
+            "type": "object",
+            "properties": {
+                "quantity": {
+                    "type": "integer"
+                },
+                "seller_account_id": {
+                    "type": "integer"
                 }
             }
         },

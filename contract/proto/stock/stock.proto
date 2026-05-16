@@ -1221,6 +1221,30 @@ service OTCStockMarketGRPCService {
   rpc CreateOTCStockOffer(CreateOTCStockOfferRequest) returns (OTCStockOfferResponse);
   rpc CancelOTCStockOffer(CancelOTCStockOfferRequest) returns (CancelOTCStockOfferResponse);
   rpc ListMyOTCStocks(ListMyOTCStocksRequest)         returns (ListMyOTCStocksResponse);
+
+  // SellOTCStockOffer fills a buy-direction offer: seller decrements
+  // their holding, buyer's reserved cash is settled via account-service
+  // PartialSettleReservation, seller's account is credited, buyer's
+  // holding is upserted. Multi-step saga with compensation on each
+  // intermediate failure.
+  rpc SellOTCStockOffer(SellOTCStockOfferRequest) returns (OTCStockFillResult);
+}
+
+message SellOTCStockOfferRequest {
+  uint64 offer_id              = 1; // otc_stock_buy_offers.id
+  string seller_owner_type     = 2;
+  uint64 seller_owner_id       = 3;
+  int64  quantity              = 4;
+  uint64 seller_account_id     = 5; // where proceeds are credited
+  uint64 acting_employee_id    = 6;
+}
+
+message OTCStockFillResult {
+  uint64 offer_id        = 1;
+  int64  filled_quantity = 2;
+  string price_per_unit  = 3;
+  string total_amount    = 4;
+  string seller_credited_account_number = 5;
 }
 
 message OTCStockOfferResponse {

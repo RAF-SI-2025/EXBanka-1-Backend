@@ -154,6 +154,75 @@ func (h *OTCStockHandler) CancelOTCStockOffer(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+type sellOTCStockOfferRequest struct {
+	Quantity        int64  `json:"quantity"`
+	SellerAccountID uint64 `json:"seller_account_id"`
+}
+
+// SellOTCStockOffer godoc
+// @Summary      Fill a buy-direction OTC stock offer (sell into it)
+// @Description  The caller sells the requested quantity of shares into
+//
+//	an existing buy offer. The seller's holding is locked
+//	with SELECT FOR UPDATE and a shares-available check
+//	(Quantity - ReservedQuantity) runs BEFORE any money
+//	moves — you literally cannot sell shares you don't
+//	have. The buyer's cash was already reserved at
+//	buy-offer-create time so payment is guaranteed.
+//
+// @Tags         OTCStocks
+// @Security     BearerAuth
+// @Accept       json
+// @Produce      json
+// @Param        id   path int                       true "otc_stock_buy_offers.id"
+// @Param        body body sellOTCStockOfferRequest  true "quantity + seller's destination account"
+// @Success      200  {object} map[string]interface{}
+// @Failure      400  {object} map[string]interface{}
+// @Failure      403  {object} map[string]interface{}
+// @Failure      404  {object} map[string]interface{}
+// @Failure      412  {object} map[string]interface{} "offer not active OR seller short on shares"
+// @Router       /api/v3/otc/stocks/{id}/sell [post]
+func (h *OTCStockHandler) SellOTCStockOffer(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid id")
+		return
+	}
+	var req sellOTCStockOfferRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
+		return
+	}
+	if err := positive("quantity", float64(req.Quantity)); err != nil {
+		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+		return
+	}
+	if req.SellerAccountID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "seller_account_id is required")
+		return
+	}
+	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
+	// Verify the seller's destination account belongs to them before
+	// forwarding — prevents callers from routing proceeds to a random
+	// account.
+	if err := ResolveAndCheckAccount(c, h.accounts, identity, req.SellerAccountID, 0); err != nil {
+		return
+	}
+	resp, err := h.client.SellOTCStockOffer(c.Request.Context(), &stockpb.SellOTCStockOfferRequest{
+		OfferId:          id,
+		SellerOwnerType:  identity.OwnerType,
+		SellerOwnerId:    derefU64Ptr(identity.OwnerID),
+		Quantity:         req.Quantity,
+		SellerAccountId:  req.SellerAccountID,
+		ActingEmployeeId: derefU64Ptr(identity.ActingEmployeeID),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"fill": resp})
+}
+
 // ListMyOTCStocks godoc
 // @Summary      List the caller's OTC stock offers (both directions)
 // @Description  Returns sell offers (holdings with public_quantity > 0) and buy offers (otc_stock_buy_offers rows) where the caller is the owner. Filter with `?direction=sell|buy`.

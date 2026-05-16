@@ -295,6 +295,10 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 	otcStocksTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
 		otcStocksTrade.POST("/:id/buy", h.Portfolio.BuyOTCOffer)
+		// Phase 3B: fill a buy-direction offer with the caller's shares.
+		// Seller-can-deliver check + cash-already-reserved guarantee live
+		// inside OTCStockService.FillBuyOffer.
+		otcStocksTrade.POST("/:id/sell", h.OTCStock.SellOTCStockOffer)
 	}
 
 	// ── OTC option trading (Spec 2) — read endpoints ─────────────

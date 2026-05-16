@@ -145,6 +145,52 @@ func (h *OTCStockMarketHandler) CancelOTCStockOffer(ctx context.Context, in *sto
 	return &stockpb.CancelOTCStockOfferResponse{Ok: true}, nil
 }
 
+// SellOTCStockOffer fills a buy-direction offer. Driven by FillBuyOffer
+// which enforces the seller-can-deliver share check inside the same TX
+// that decrements their holding (via SELECT FOR UPDATE), and consumes
+// the buyer's pre-reserved cash via PartialSettleReservation so the
+// buyer can never overdraw.
+func (h *OTCStockMarketHandler) SellOTCStockOffer(ctx context.Context, in *stockpb.SellOTCStockOfferRequest) (*stockpb.OTCStockFillResult, error) {
+	if h.svc == nil {
+		return nil, status.Error(codes.Unimplemented, "OTCStockService not wired")
+	}
+	if in.GetQuantity() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "quantity must be > 0")
+	}
+	if in.GetOfferId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "offer_id is required")
+	}
+	if in.GetSellerAccountId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "seller_account_id is required")
+	}
+	ot, err := ownerTypeFromProto(in.GetSellerOwnerType())
+	if err != nil {
+		return nil, err
+	}
+	oid, err := resolveOwnerID(ot, in.GetSellerOwnerId())
+	if err != nil {
+		return nil, err
+	}
+	res, err := h.svc.FillBuyOffer(ctx, service.FillBuyOfferInput{
+		OfferID:          in.GetOfferId(),
+		SellerOwnerType:  ot,
+		SellerOwnerID:    oid,
+		Quantity:         in.GetQuantity(),
+		SellerAccountID:  in.GetSellerAccountId(),
+		ActingEmployeeID: optionalPtr(in.GetActingEmployeeId()),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &stockpb.OTCStockFillResult{
+		OfferId:                     res.OfferID,
+		FilledQuantity:              res.FilledQuantity,
+		PricePerUnit:                res.PricePerUnit.String(),
+		TotalAmount:                 res.TotalAmount.String(),
+		SellerCreditedAccountNumber: res.SellerCreditedAccountNumber,
+	}, nil
+}
+
 func (h *OTCStockMarketHandler) ListMyOTCStocks(ctx context.Context, in *stockpb.ListMyOTCStocksRequest) (*stockpb.ListMyOTCStocksResponse, error) {
 	if h.svc == nil {
 		return nil, status.Error(codes.Unimplemented, "OTCStockService not wired")
