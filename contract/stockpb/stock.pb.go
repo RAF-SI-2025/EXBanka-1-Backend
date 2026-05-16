@@ -13175,8 +13175,15 @@ type PeerOtcOffer struct {
 	// the seller bank can match siblings on accept. Optional; absent
 	// value (zero routing_number + empty id) means "no parent group".
 	ParentOfferId *PeerForeignBankId `protobuf:"bytes,9,opt,name=parent_offer_id,json=parentOfferId,proto3" json:"parent_offer_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Fix #1 (2026-05-16) — the buyer's pre-bound 18-digit bank account
+	// number. When set, the seller's bank uses this exact account number
+	// for the buyer-debit posting on accept (no resolution from
+	// "client-<id>" → "first account in this currency"). Optional for
+	// backward compat with peer banks that don't emit it; falls back to
+	// participant-id resolution at the receiver's posting_executor.
+	BuyerAccountNumber string `protobuf:"bytes,10,opt,name=buyer_account_number,json=buyerAccountNumber,proto3" json:"buyer_account_number,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *PeerOtcOffer) Reset() {
@@ -13270,6 +13277,13 @@ func (x *PeerOtcOffer) GetParentOfferId() *PeerForeignBankId {
 		return x.ParentOfferId
 	}
 	return nil
+}
+
+func (x *PeerOtcOffer) GetBuyerAccountNumber() string {
+	if x != nil {
+		return x.BuyerAccountNumber
+	}
+	return ""
 }
 
 type GetPublicStocksRequest struct {
@@ -17600,7 +17614,7 @@ const file_stock_stock_proto_rawDesc = "" +
 	"updated_at\x18\a \x01(\tR\tupdatedAt\"J\n" +
 	"\x11PeerForeignBankId\x12%\n" +
 	"\x0erouting_number\x18\x01 \x01(\x03R\rroutingNumber\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\tR\x02id\"\xf6\x02\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"\xa8\x03\n" +
 	"\fPeerOtcOffer\x12\x16\n" +
 	"\x06ticker\x18\x01 \x01(\tR\x06ticker\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\x03R\x06amount\x12&\n" +
@@ -17610,7 +17624,9 @@ const file_stock_stock_proto_rawDesc = "" +
 	"\x10premium_currency\x18\x06 \x01(\tR\x0fpremiumCurrency\x12'\n" +
 	"\x0fsettlement_date\x18\a \x01(\tR\x0esettlementDate\x12B\n" +
 	"\x10last_modified_by\x18\b \x01(\v2\x18.stock.PeerForeignBankIdR\x0elastModifiedBy\x12@\n" +
-	"\x0fparent_offer_id\x18\t \x01(\v2\x18.stock.PeerForeignBankIdR\rparentOfferId\">\n" +
+	"\x0fparent_offer_id\x18\t \x01(\v2\x18.stock.PeerForeignBankIdR\rparentOfferId\x120\n" +
+	"\x14buyer_account_number\x18\n" +
+	" \x01(\tR\x12buyerAccountNumber\">\n" +
 	"\x16GetPublicStocksRequest\x12$\n" +
 	"\x0epeer_bank_code\x18\x01 \x01(\tR\fpeerBankCode\"\xba\x01\n" +
 	"\x0fPeerPublicStock\x123\n" +

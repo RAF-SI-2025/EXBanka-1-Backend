@@ -1778,6 +1778,13 @@ message PeerOtcOffer {
   // the seller bank can match siblings on accept. Optional; absent
   // value (zero routing_number + empty id) means "no parent group".
   PeerForeignBankId parent_offer_id = 9;
+  // Fix #1 (2026-05-16) — the buyer's pre-bound 18-digit bank account
+  // number. When set, the seller's bank uses this exact account number
+  // for the buyer-debit posting on accept (no resolution from
+  // "client-<id>" → "first account in this currency"). Optional for
+  // backward compat with peer banks that don't emit it; falls back to
+  // participant-id resolution at the receiver's posting_executor.
+  string buyer_account_number = 10;
 }
 
 message GetPublicStocksRequest {

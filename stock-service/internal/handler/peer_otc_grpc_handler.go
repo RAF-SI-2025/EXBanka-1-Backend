@@ -387,6 +387,35 @@ func (h *PeerOTCGRPCHandler) CreateNegotiation(ctx context.Context, req *stockpb
 	if req.GetOffer() == nil || req.GetBuyerId() == nil || req.GetSellerId() == nil {
 		return nil, status.Error(codes.InvalidArgument, "offer, buyer_id, seller_id are required")
 	}
+	// Fix #7 (2026-05-16, SECURITY) — the authenticated peer's routing
+	// MUST match the claimed buyer's routing. Without this, a peer
+	// authenticated as Bank A could submit a bid claiming Bank C as the
+	// buyer; on accept, the cross-bank SI-TX would route the premium
+	// debit to Bank C's posting_executor which would resolve "client-N"
+	// against Bank C's local users — debiting a third bank's account
+	// for an option that bank never agreed to. Fix #1 partially
+	// mitigates by pinning a specific account number, but a peer that
+	// omits buyerAccountNumber would still hit the participant-id
+	// resolution path. Defense at the source: require auth-routing ==
+	// claimed buyer-routing.
+	peerRouting, parseErr := strconv.ParseInt(req.GetPeerBankCode(), 10, 64)
+	if parseErr != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "peer_bank_code %q is not numeric", req.GetPeerBankCode())
+	}
+	if req.GetBuyerId().GetRoutingNumber() != peerRouting {
+		return nil, status.Errorf(codes.PermissionDenied,
+			"buyer_id.routing_number (%d) must match the authenticated peer's routing (%d)",
+			req.GetBuyerId().GetRoutingNumber(), peerRouting)
+	}
+	// Fix #9 (2026-05-16) — the seller on an inbound bid MUST be a
+	// user of this bank. A bid with a foreign seller_routing would
+	// create an orphaned row (no local user matches it, no
+	// notification fires, accept fails). Reject up front.
+	if req.GetSellerId().GetRoutingNumber() != h.ownRouting {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"seller_id.routing_number (%d) must match this bank's routing (%d) — inbound bids target a seller on this bank only",
+			req.GetSellerId().GetRoutingNumber(), h.ownRouting)
+	}
 	offerJSON, err := json.Marshal(protoToOffer(req.GetOffer()))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "marshal offer: %v", err)
@@ -666,11 +695,24 @@ func (h *PeerOTCGRPCHandler) AcceptNegotiation(ctx context.Context, req *stockpb
 	optAssetID := string(optDescJSON)
 
 	premium := offer.Premium.String()
+	// Fix #1 (2026-05-16) — prefer the buyer-pinned account number from
+	// the OtcOffer wire payload over the participant-id ("client-N")
+	// fallback. The buyer's bank set BuyerAccountNumber at bid time so
+	// the SI-TX posting executor doesn't have to pick "first active
+	// <currency> account" for the buyer — which was non-deterministic
+	// and silently failed when the buyer had no account in the offer's
+	// currency. Sellers stay on participant-id resolution (the
+	// seller-credit is a credit; no per-account binding needed since
+	// any active <currency> account works for incoming funds).
+	buyerAccountID := row.BuyerID
+	if offer.BuyerAccountNumber != "" {
+		buyerAccountID = offer.BuyerAccountNumber
+	}
 	postings := []*transactionpb.SiTxPosting{
-		{RoutingNumber: row.BuyerRoutingNumber, AccountId: row.BuyerID, AssetId: offer.PremiumCurrency, Amount: premium, Direction: contractsitx.DirectionDebit},
+		{RoutingNumber: row.BuyerRoutingNumber, AccountId: buyerAccountID, AssetId: offer.PremiumCurrency, Amount: premium, Direction: contractsitx.DirectionDebit},
 		{RoutingNumber: row.SellerRoutingNumber, AccountId: row.SellerID, AssetId: offer.PremiumCurrency, Amount: premium, Direction: contractsitx.DirectionCredit},
 		{RoutingNumber: row.SellerRoutingNumber, AccountId: row.SellerID, AssetId: optAssetID, Amount: "1", Direction: contractsitx.DirectionDebit},
-		{RoutingNumber: row.BuyerRoutingNumber, AccountId: row.BuyerID, AssetId: optAssetID, Amount: "1", Direction: contractsitx.DirectionCredit},
+		{RoutingNumber: row.BuyerRoutingNumber, AccountId: buyerAccountID, AssetId: optAssetID, Amount: "1", Direction: contractsitx.DirectionCredit},
 	}
 
 	resp, err := h.peerTx.InitiateOutboundTxWithPostings(ctx, &transactionpb.SiTxInitiateWithPostingsRequest{
@@ -731,15 +773,16 @@ func protoToOffer(p *stockpb.PeerOtcOffer) contractsitx.OtcOffer {
 		}
 	}
 	return contractsitx.OtcOffer{
-		Ticker:          p.GetTicker(),
-		Amount:          p.GetAmount(),
-		PricePerStock:   pricePerStock,
-		Currency:        p.GetCurrency(),
-		Premium:         premium,
-		PremiumCurrency: p.GetPremiumCurrency(),
-		SettlementDate:  p.GetSettlementDate(),
-		LastModifiedBy:  lastModBy,
-		ParentOfferID:   parentOfferID,
+		Ticker:             p.GetTicker(),
+		Amount:             p.GetAmount(),
+		PricePerStock:      pricePerStock,
+		Currency:           p.GetCurrency(),
+		Premium:            premium,
+		PremiumCurrency:    p.GetPremiumCurrency(),
+		SettlementDate:     p.GetSettlementDate(),
+		LastModifiedBy:     lastModBy,
+		ParentOfferID:      parentOfferID,
+		BuyerAccountNumber: p.GetBuyerAccountNumber(),
 	}
 }
 
@@ -760,6 +803,7 @@ func offerToProto(o contractsitx.OtcOffer) *stockpb.PeerOtcOffer {
 			RoutingNumber: o.ParentOfferID.RoutingNumber,
 			Id:            o.ParentOfferID.ID,
 		},
+		BuyerAccountNumber: o.BuyerAccountNumber,
 	}
 }
 
@@ -865,6 +909,16 @@ func (h *PeerOTCGRPCHandler) RecordOptionContract(ctx context.Context, req *stoc
 func (h *PeerOTCGRPCHandler) CheckSellerCanDeliver(ctx context.Context, req *stockpb.CheckSellerCanDeliverRequest) (*stockpb.CheckSellerCanDeliverResponse, error) {
 	if req.GetSellerId() == nil || req.GetTicker() == "" || req.GetQuantity() <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "seller_id, ticker, and positive quantity are required")
+	}
+	// Fix #8 (2026-05-16, defense) — caller MUST be asking about a
+	// seller on THIS bank's routing. The only intended caller
+	// (transaction-service posting_executor) pre-filters by ownRouting
+	// before invoking us, but we don't rely on that — a future caller
+	// that forgets the pre-filter would otherwise silently look up
+	// LOCAL client-N's holdings against a foreign seller's request,
+	// returning a misleading "can deliver" or "insufficient" verdict.
+	if req.GetSellerId().GetRoutingNumber() != h.ownRouting {
+		return &stockpb.CheckSellerCanDeliverResponse{Ok: false, AvailableQuantity: 0}, nil
 	}
 	ownerType, ownerID, parseErr := parseSellerOwner(req.GetSellerId().GetId())
 	if parseErr != nil {
@@ -1121,7 +1175,7 @@ func (h *PeerOTCGRPCHandler) ListMyPeerNegotiations(ctx context.Context, req *st
 			role = "seller"
 		}
 		out.Items = append(out.Items, &stockpb.PeerNegotiationListItem{
-			Id:        &stockpb.PeerForeignBankId{RoutingNumber: int64(roleRouting(row, role)), Id: row.ForeignID},
+			Id:        &stockpb.PeerForeignBankId{RoutingNumber: negotiationOwningRouting(row), Id: row.ForeignID},
 			BuyerId:   &stockpb.PeerForeignBankId{RoutingNumber: row.BuyerRoutingNumber, Id: row.BuyerID},
 			SellerId:  &stockpb.PeerForeignBankId{RoutingNumber: row.SellerRoutingNumber, Id: row.SellerID},
 			Offer:     offerToProto(offer),
@@ -1133,16 +1187,13 @@ func (h *PeerOTCGRPCHandler) ListMyPeerNegotiations(ctx context.Context, req *st
 	return out, nil
 }
 
-// roleRouting returns the *other* bank's routing for the surfaced
-// negotiation id — i.e. the bank where the foreign_id was assigned. If
-// the caller is the buyer (this bank hosts the buyer), the negotiation
-// id was assigned by the seller's bank, so we surface seller_routing.
-// If the caller is the seller, the id is locally-issued (this bank
-// assigned it on CreateNegotiation) so we surface our own routing —
-// which is the row's seller_routing.
-func roleRouting(row *model.PeerOtcNegotiation, role string) int64 {
-	if role == "buyer" {
-		return row.SellerRoutingNumber
-	}
+// negotiationOwningRouting returns the routing of the bank that ISSUED
+// the foreign_id — always the seller's bank, regardless of which role
+// the caller plays. The id is generated server-side at CreateNegotiation,
+// which is invoked on the seller's bank by the buyer's bank via SI-TX.
+// The role parameter no longer affects the answer but is kept on call
+// sites for documentation: callers ARE doing role-aware projection
+// even though the routing dimension collapses to one value.
+func negotiationOwningRouting(row *model.PeerOtcNegotiation) int64 {
 	return row.SellerRoutingNumber
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -331,6 +332,11 @@ func (s *HoldingReservationService) ReserveForPeerOptionContract(
 	if qty <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "qty must be > 0")
 	}
+	// Tickers across banks may arrive in mixed case via SI-TX (the
+	// peer's quoting convention is theirs, not ours). Normalize to
+	// upper for the holdings lookup so "csco" from a peer still
+	// matches our local "CSCO" holding row. (Fix #4, 2026-05-16.)
+	ticker = strings.ToUpper(ticker)
 	var out *ReserveHoldingResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var holding model.Holding

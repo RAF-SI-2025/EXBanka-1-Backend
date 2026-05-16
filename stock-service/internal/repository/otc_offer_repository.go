@@ -109,21 +109,31 @@ func (r *OTCOfferRepository) ListOpenForCache(limit int) ([]model.OTCOffer, erro
 // ListByOwner returns offers where the owner appears as initiator,
 // counterparty, or either, optionally filtered by status (variadic) and
 // stock_id (zero = no filter). owner_id may be nil for OwnerType=bank.
+//
+// Defense-in-depth (Fix #3, 2026-05-16): the matched side must have
+// bank_code IS NULL (no writer populates these columns today; this
+// filter prevents future cross-bank writes from leaking via owner_id
+// collision). See OptionContractRepository.ListByOwner for the full
+// rationale.
 func (r *OTCOfferRepository) ListByOwner(ownerType model.OwnerType, ownerID *uint64, role string, statuses []string, stockID uint64, page, pageSize int) ([]model.OTCOffer, int64, error) {
 	q := r.db.Model(&model.OTCOffer{})
 	switch role {
 	case "initiator":
-		q = scopeOwner(q, "initiator_owner_type", "initiator_owner_id", ownerType, ownerID)
+		q = scopeOwner(q, "initiator_owner_type", "initiator_owner_id", ownerType, ownerID).
+			Where("initiator_bank_code IS NULL")
 	case "counterparty":
-		q = scopeOwner(q, "counterparty_owner_type", "counterparty_owner_id", ownerType, ownerID)
+		q = scopeOwner(q, "counterparty_owner_type", "counterparty_owner_id", ownerType, ownerID).
+			Where("counterparty_bank_code IS NULL")
 	default:
 		// Match owner as either initiator OR counterparty. Inline the scopeOwner
-		// expansion since we need an OR over two column-pair predicates.
+		// expansion since we need an OR over two column-pair predicates. Each
+		// side carries its own bank_code NULL guard so a foreign-counterparty
+		// row never matches via the initiator-id predicate.
 		if ownerID == nil {
-			q = q.Where("(initiator_owner_type = ? AND initiator_owner_id IS NULL) OR (counterparty_owner_type = ? AND counterparty_owner_id IS NULL)",
+			q = q.Where("(initiator_owner_type = ? AND initiator_owner_id IS NULL AND initiator_bank_code IS NULL) OR (counterparty_owner_type = ? AND counterparty_owner_id IS NULL AND counterparty_bank_code IS NULL)",
 				ownerType, ownerType)
 		} else {
-			q = q.Where("(initiator_owner_type = ? AND initiator_owner_id = ?) OR (counterparty_owner_type = ? AND counterparty_owner_id = ?)",
+			q = q.Where("(initiator_owner_type = ? AND initiator_owner_id = ? AND initiator_bank_code IS NULL) OR (counterparty_owner_type = ? AND counterparty_owner_id = ? AND counterparty_bank_code IS NULL)",
 				ownerType, *ownerID, ownerType, *ownerID)
 		}
 	}

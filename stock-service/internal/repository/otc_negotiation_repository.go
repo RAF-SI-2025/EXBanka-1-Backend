@@ -116,11 +116,19 @@ func (r *OTCNegotiationRepository) ListOpenByParentOfferForUpdate(tx *gorm.DB, p
 
 // ListByBidder returns chains where the caller is the bidder. Used by
 // GET /api/v3/me/otc/options (the "bids I placed" half of the view).
+//
+// Defense-in-depth (Fix #3, 2026-05-16): also requires bidder_bank_code
+// IS NULL — cross-bank bids live in peer_otc_negotiations and never
+// populate this column, so the filter is a no-op today. If a future
+// path ever writes bidder_bank_code, this query stays safe by excluding
+// foreign-bank rows (it would NOT silently leak Bank B's client-1 to
+// Bank A's client-1 with the same numeric id).
 func (r *OTCNegotiationRepository) ListByBidder(
 	ownerType model.OwnerType, ownerID *uint64, statuses []string, page, pageSize int,
 ) ([]model.OTCNegotiation, int64, error) {
 	q := r.db.Model(&model.OTCNegotiation{}).
-		Where("bidder_owner_type = ?", ownerType)
+		Where("bidder_owner_type = ?", ownerType).
+		Where("bidder_bank_code IS NULL")
 	if ownerType == model.OwnerClient {
 		q = q.Where("bidder_owner_id = ?", ownerID)
 	} else {

@@ -77,9 +77,12 @@ func TestCreateNegotiation_NotifiesLocalSeller(t *testing.T) {
 	}
 }
 
-// TestCreateNegotiation_NoLocalParty_NoNotif — neither side is local
-// (own_routing=111 but both routings are 222) → nothing published.
-func TestCreateNegotiation_NoLocalParty_NoNotif(t *testing.T) {
+// TestCreateNegotiation_BankSeller_NoNotif — seller is the local bank
+// (not a client) → no notification fires. Post-Fix #7/#9 the seller's
+// routing MUST be local, so this is the only "no notif on Create" path
+// left (pre-fix this was paired with "neither party local", which is
+// now rejected up front by the routing assertion).
+func TestCreateNegotiation_BankSeller_NoNotif(t *testing.T) {
 	h, _, _, _ := newPeerOtcHandler(t)
 	notif := &peerNotifCapture{}
 	h = h.WithNotifier(notif)
@@ -87,7 +90,7 @@ func TestCreateNegotiation_NoLocalParty_NoNotif(t *testing.T) {
 	_, err := h.CreateNegotiation(context.Background(), &stockpb.CreateNegotiationRequest{
 		PeerBankCode: "222",
 		BuyerId:      &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-3"},
-		SellerId:     &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-7"},
+		SellerId:     &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "bank"},
 		Offer: &stockpb.PeerOtcOffer{
 			Ticker: "AAPL", Amount: 2,
 			PricePerStock: "175", Currency: "USD",
@@ -99,7 +102,52 @@ func TestCreateNegotiation_NoLocalParty_NoNotif(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	if got := notif.snapshot(); len(got) != 0 {
-		t.Errorf("no local party should mean no notif, got %+v", got)
+		t.Errorf("bank seller should mean no client notif, got %+v", got)
+	}
+}
+
+// TestCreateNegotiation_RejectsBuyerRoutingSpoofing — Fix #7 security
+// check: a peer authenticated as 222 cannot claim bank 333 as the
+// buyer's routing. Pre-fix this would have created a row that, on
+// accept, sent a debit posting to bank 333 (silently moving a third
+// bank's user's money).
+func TestCreateNegotiation_RejectsBuyerRoutingSpoofing(t *testing.T) {
+	h, _, _, _ := newPeerOtcHandler(t)
+
+	_, err := h.CreateNegotiation(context.Background(), &stockpb.CreateNegotiationRequest{
+		PeerBankCode: "222",
+		BuyerId:      &stockpb.PeerForeignBankId{RoutingNumber: 333, Id: "client-3"}, // CLAIMS bank 333
+		SellerId:     &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-9"},
+		Offer: &stockpb.PeerOtcOffer{
+			Ticker: "AAPL", Amount: 2,
+			PricePerStock: "175", Currency: "USD",
+			Premium: "40", PremiumCurrency: "USD",
+			SettlementDate: "2027-08-01T00:00:00Z",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected PermissionDenied for buyer-routing spoof, got nil")
+	}
+}
+
+// TestCreateNegotiation_RejectsForeignSeller — Fix #9 consistency
+// check: the seller in an inbound bid must be on this bank.
+func TestCreateNegotiation_RejectsForeignSeller(t *testing.T) {
+	h, _, _, _ := newPeerOtcHandler(t)
+
+	_, err := h.CreateNegotiation(context.Background(), &stockpb.CreateNegotiationRequest{
+		PeerBankCode: "222",
+		BuyerId:      &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-3"},
+		SellerId:     &stockpb.PeerForeignBankId{RoutingNumber: 333, Id: "client-9"}, // bank 333 ≠ own (111)
+		Offer: &stockpb.PeerOtcOffer{
+			Ticker: "AAPL", Amount: 2,
+			PricePerStock: "175", Currency: "USD",
+			Premium: "40", PremiumCurrency: "USD",
+			SettlementDate: "2027-08-01T00:00:00Z",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected InvalidArgument for foreign seller routing, got nil")
 	}
 }
 
@@ -146,6 +194,11 @@ func TestDeleteNegotiation_FreeFormChain_PlainCancelled(t *testing.T) {
 
 // TestDeleteNegotiation_DiscoveredChain_CascadeCancelled — chain
 // has parent_offer_id ⇒ cascade heuristic ⇒ CASCADE_CANCELLED type.
+// Post-Fix #7/#9 the test inverts the original routings: the inbound
+// /negotiations is always received by the SELLER's bank, so the seller
+// must be local (own_routing=111) and the buyer must be on the
+// authenticated peer (222). The cancel notification therefore fires
+// to the local SELLER (client-9), not the foreign buyer.
 func TestDeleteNegotiation_DiscoveredChain_CascadeCancelled(t *testing.T) {
 	h, _, _, _ := newPeerOtcHandler(t)
 	notif := &peerNotifCapture{}
@@ -153,14 +206,14 @@ func TestDeleteNegotiation_DiscoveredChain_CascadeCancelled(t *testing.T) {
 
 	createResp, err := h.CreateNegotiation(context.Background(), &stockpb.CreateNegotiationRequest{
 		PeerBankCode: "222",
-		BuyerId:      &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-3"}, // we are the BUYER side here
-		SellerId:     &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-9"},
+		BuyerId:      &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-3"}, // foreign bidder
+		SellerId:     &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-9"}, // local seller (us)
 		Offer: &stockpb.PeerOtcOffer{
 			Ticker: "AAPL", Amount: 2,
 			PricePerStock: "175", Currency: "USD",
 			Premium: "40", PremiumCurrency: "USD",
 			SettlementDate: "2027-08-01T00:00:00Z",
-			ParentOfferId:  &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "42"},
+			ParentOfferId:  &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "42"},
 		},
 	})
 	if err != nil {
@@ -181,7 +234,7 @@ func TestDeleteNegotiation_DiscoveredChain_CascadeCancelled(t *testing.T) {
 	if got == nil {
 		t.Fatalf("expected OTC_OFFER_CASCADE_CANCELLED, got %+v", notif.snapshot())
 	}
-	if got.UserID != 3 {
+	if got.UserID != 9 {
 		t.Errorf("recipient = %d, want 3 (local buyer whose chain lost)", got.UserID)
 	}
 	if got.Data["accepted_premium"] == "" {

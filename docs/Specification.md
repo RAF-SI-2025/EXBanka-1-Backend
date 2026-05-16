@@ -2777,7 +2777,7 @@ Full cross-bank OTC option lifecycle: discovery → initiation → counter-offer
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/api/v3/me/peer-otc/negotiations` | Initiate. Buyer-side entry. Reads `buyerId` from the JWT, resolves the seller's bank via `PeerBankAdminService.ResolvePeerByBankCode`, HTTP-POSTs an `OtcOffer` to the peer's `/api/v3/negotiations`. Returns the seller-bank-assigned `ForeignBankId`. |
+| POST | `/api/v3/me/peer-otc/negotiations` | Initiate. Buyer-side entry. Reads `buyerId` from the JWT, resolves the seller's bank via `PeerBankAdminService.ResolvePeerByBankCode`, HTTP-POSTs an `OtcOffer` to the peer's `/api/v3/negotiations`. Returns the seller-bank-assigned `ForeignBankId`. **Body REQUIRES `bidder_account_id`** (Fix #1, 2026-05-16): gateway validates ownership + active status + currency match (account.currency_code must equal premium.currency; no cross-bank FX). Account number is pinned into the SI-TX `OtcOffer.BuyerAccountNumber` so the seller's bank's posting executor uses this exact account on accept instead of resolving `client-<id>` to "first active account in this currency". |
 | GET | `/api/v3/me/otc/contracts` | Existing endpoint, now also returns `peer_contracts` and `peer_total` for cross-bank rows where the caller is a participant (CREDIT side = this bank holds the buyer; DEBIT side = this bank holds the seller). |
 | POST | `/api/v3/me/otc/contracts/peer/:id/exercise` | Exercise. Buyer-only (rejects when this bank's row is `direction=DEBIT`). Body is `{buyer_account_number}`. Dispatches the 4-posting exercise SI-TX (strike money buyer→seller + option markers carrying `intent=exercise`). |
 
@@ -2797,6 +2797,14 @@ The buyer-side mirror is persisted by a new `PeerOTCService.RecordOutboundNegoti
 The auto-mirroring of counter/cancel onto the caller's local row is best-effort: failure logs but does not roll back the authoritative state on the counterparty's bank. If a mirror update fails the caller can re-pull via `GET /api/v3/negotiations/:rid/:id` on the counterparty later.
 
 **Important — `seller_id` / `buyer_id` format.** The SI-TX wire spec requires `ForeignBankId.id` to be the prefixed form `client-<N>` or `employee-<N>`. The `POST /me/peer-otc/negotiations` body's `seller_id` is passed through verbatim into that wire field, so clients must send `"seller_id": "client-1"`, not `"seller_id": "1"`. Otherwise the seller's bank persists a row with `seller_id="1"` which doesn't match any of its clients' principal ids — the negotiation will be invisible to the seller-side `GET /me/peer-otc/negotiations` list. The gateway should ideally normalise this; that remains a follow-up.
+
+**Cross-bank routing assertions (Fix #7/#8/#9, 2026-05-16).** The inbound `PeerOTCGRPCHandler.CreateNegotiation` rejects:
+- buyer-routing spoofing: `buyer_id.routing_number` must equal the authenticated peer's routing (security — without this, peer A could submit a bid claiming peer C as buyer, causing the cross-bank accept to debit a third bank's user)
+- foreign-seller bids: `seller_id.routing_number` must equal this bank's `OWN_BANK_CODE`-derived routing (inbound bids by definition target a local seller)
+
+`CheckSellerCanDeliver` also asserts `seller_id.routing_number == ownRouting` and returns `ok=false` otherwise (defense — its only intended caller pre-filters, but the assertion is a safety net for future callers).
+
+**Cross-bank FX limitation (Fix #2, 2026-05-16).** SI-TX postings must balance per `asset_id` across banks. The buyer's bank therefore cannot convert at execution time — the buyer must already hold an account in the offer's currency. The intra-bank accept saga's `exchange-service.Convert` path does NOT extend to the cross-bank flow. Bids with currency mismatch are rejected at the gateway with HTTP 400 and an explanatory error.
 
 ### gRPC services
 

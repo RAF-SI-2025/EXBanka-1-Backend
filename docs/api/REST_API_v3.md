@@ -8066,16 +8066,31 @@ Mirrors the intra-bank Phase 2 first-accept-wins cascade for cross-bank negotiat
 ```
 POST /api/v3/me/peer-otc/negotiations
 {
-  "seller_bank_code": "111",
-  "seller_id":        "client-7",
-  "stock":            { "ticker": "AAPL" },
-  "settlement_date":  "2027-08-01T00:00:00Z",
-  "price_per_unit":   { "amount": "175", "currency": "USD" },
-  "premium":          { "amount": "40",  "currency": "USD" },
-  "amount":           2,
-  "parent_offer_id":  { "routingNumber": 111, "id": "42" }   ← new (optional)
+  "seller_bank_code":  "111",
+  "seller_id":         "client-7",
+  "stock":             { "ticker": "AAPL" },
+  "settlement_date":   "2027-08-01T00:00:00Z",
+  "price_per_unit":    { "amount": "175", "currency": "USD" },
+  "premium":           { "amount": "40",  "currency": "USD" },
+  "amount":            2,
+  "bidder_account_id": 13,                                   ← REQUIRED (Fix #1, 2026-05-16)
+  "parent_offer_id":   { "routingNumber": 111, "id": "42" }  ← optional
 }
 ```
+
+**`bidder_account_id` (Fix #1, 2026-05-16).** REQUIRED. The buyer's account that pays the premium on accept. Gateway validates: (a) account exists and belongs to caller; (b) account is `active`; (c) **account currency matches `premium.currency`**. Cross-bank SI-TX has no FX (postings must balance per asset_id across banks, so converting on the buyer's side would break conservation) — open an account in the offer's currency or pick one. The resolved 18-digit account number is threaded into the SI-TX `OtcOffer` as `buyerAccountNumber` so the seller's bank uses this exact account for the buyer-debit posting on accept, instead of resolving `client-<id>` to "first active account in this currency" (which was non-deterministic and silently failed when the buyer had no matching account).
+
+**Security note (Fix #7, 2026-05-16).** The seller's bank rejects inbound bids whose `buyerId.routingNumber` doesn't match the authenticated peer's routing — a peer cannot spoof a third bank as the buyer (which previously would have routed the premium debit to that third bank's account).
+
+**Errors:**
+
+| Status | Code | When |
+|---|---|---|
+| 400 | `validation_error` | `bidder_account_id` missing or zero |
+| 400 | `validation_error` | currency mismatch (account.currency_code ≠ premium.currency) |
+| 403 | `forbidden` | `bidder_account_id` does not belong to caller |
+| 404 | `not_found` | `bidder_account_id` not found, or peer bank not registered |
+| 424 | `internal_error` | `bidder_account_id` is not active |
 
 The gateway forwards `parentOfferId` in the SI-TX `OtcOffer` body; the seller's bank stores it on `peer_otc_negotiations.parent_offer_routing` / `.parent_offer_id`. The buyer-side mirror also stores it. Free-form bidders (no discovery) omit the field — they're never part of any cascade group, so a seller's free-form listings stay safe.
 

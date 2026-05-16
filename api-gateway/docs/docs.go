@@ -13622,6 +13622,10 @@ const docTemplate = `{
                 "amount": {
                     "type": "integer"
                 },
+                "bidder_account_id": {
+                    "description": "Fix #1 (2026-05-16) — the buyer's bank account that pays the\npremium on accept. REQUIRED. Gateway validates the account belongs\nto the caller and its currency matches premium.currency (no\ncross-bank FX in SI-TX yet). The resolved account number is\nthreaded through to the seller's bank in the OtcOffer wire payload\nas buyerAccountNumber so the seller's bank's posting executor\nuses this exact account (no \"first active USD account\" guesswork).",
+                    "type": "integer"
+                },
                 "parent_offer_id": {
                     "description": "Phase 10 — optional cross-bank cascade-cancel grouping key. When\nthe bidder discovered this listing via /public-option-offers,\nthey pass the listing's (routingNumber, id) here so the seller's\nbank can group sibling chains and cascade-cancel them on accept.\nFree-form bidders (no discovery) leave this unset; they're never\npart of a sibling group.",
                     "type": "object",

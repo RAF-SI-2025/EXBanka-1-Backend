@@ -34,6 +34,16 @@ type OtcOffer struct {
 	// unset — backwards-compatible with peer banks that don't yet emit
 	// this field. A zero RoutingNumber + empty ID means "no parent".
 	ParentOfferID ForeignBankId `json:"parentOfferId,omitempty"`
+
+	// Fix #1 (2026-05-16) — the buyer's pre-bound bank account number on
+	// THEIR bank. When set, the seller's bank uses this exact account
+	// number for the buyer-debit posting on accept, instead of resolving
+	// the "client-<id>" participant id to "first active account in the
+	// requested currency". omitempty so peer banks that haven't upgraded
+	// can still bid (their requests fall back to the legacy participant-
+	// id resolution path in transaction-service/sitx/posting_executor).
+	// Format is the bank's 18-digit account number (e.g. "111000164448338821").
+	BuyerAccountNumber string `json:"buyerAccountNumber,omitempty"`
 }
 
 // OtcNegotiation is the full negotiation record (offer + meta).

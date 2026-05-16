@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	accountpb "github.com/exbanka/contract/accountpb"
 	stockpb "github.com/exbanka/contract/stockpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 )
@@ -33,17 +34,19 @@ import (
 // {peer}/api/v3/negotiations carrying the SI-TX OtcOffer payload.
 type PeerOTCInitiateHandler struct {
 	peerAdmin   transactionpb.PeerBankAdminServiceClient
-	peerOTC     stockpb.PeerOTCServiceClient // for RecordOutboundNegotiation + ListMyPeerNegotiations
+	peerOTC     stockpb.PeerOTCServiceClient   // for RecordOutboundNegotiation + ListMyPeerNegotiations
+	accounts    accountpb.AccountServiceClient // for buyer-account validation (Fix #1/#2)
 	httpClient  *http.Client
 	ownRouting  int64
 	ownBankCode string
 	hmacWindow  time.Duration
 }
 
-func NewPeerOTCInitiateHandler(peerAdmin transactionpb.PeerBankAdminServiceClient, peerOTC stockpb.PeerOTCServiceClient, ownRouting int64, ownBankCode string) *PeerOTCInitiateHandler {
+func NewPeerOTCInitiateHandler(peerAdmin transactionpb.PeerBankAdminServiceClient, peerOTC stockpb.PeerOTCServiceClient, accounts accountpb.AccountServiceClient, ownRouting int64, ownBankCode string) *PeerOTCInitiateHandler {
 	return &PeerOTCInitiateHandler{
 		peerAdmin:   peerAdmin,
 		peerOTC:     peerOTC,
+		accounts:    accounts,
 		httpClient:  &http.Client{Timeout: 30 * time.Second},
 		ownRouting:  ownRouting,
 		ownBankCode: ownBankCode,
@@ -71,6 +74,15 @@ type initiateNegotiationRequest struct {
 		Currency string `json:"currency"`
 	} `json:"premium"`
 	Amount int64 `json:"amount"`
+
+	// Fix #1 (2026-05-16) — the buyer's bank account that pays the
+	// premium on accept. REQUIRED. Gateway validates the account belongs
+	// to the caller and its currency matches premium.currency (no
+	// cross-bank FX in SI-TX yet). The resolved account number is
+	// threaded through to the seller's bank in the OtcOffer wire payload
+	// as buyerAccountNumber so the seller's bank's posting executor
+	// uses this exact account (no "first active USD account" guesswork).
+	BidderAccountID uint64 `json:"bidder_account_id"`
 
 	// Phase 10 — optional cross-bank cascade-cancel grouping key. When
 	// the bidder discovered this listing via /public-option-offers,
@@ -104,6 +116,14 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "seller_bank_code, seller_id, stock.ticker, amount are required")
 		return
 	}
+	if req.BidderAccountID == 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "bidder_account_id is required (the account that will be debited for the premium on accept)")
+		return
+	}
+	if req.Premium.Currency == "" {
+		apiError(c, http.StatusBadRequest, ErrValidation, "premium.currency is required")
+		return
+	}
 	if req.SellerBankCode == h.ownBankCode {
 		apiError(c, http.StatusBadRequest, ErrValidation, "seller_bank_code must be a peer bank, not own bank")
 		return
@@ -126,6 +146,33 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 		return
 	}
 	buyerID := "client-" + strconv.FormatInt(pidInt, 10)
+
+	// Fix #1/#2 (2026-05-16) — validate the buyer's account: ownership,
+	// active, and currency-matches-premium. Cross-bank flows have NO FX
+	// (SI-TX postings must balance per asset_id across banks, so we
+	// can't convert at the buyer's bank without breaking conservation).
+	// Failing here gives the FE a clear 400 instead of an opaque
+	// NO_SUCH_ASSET vote at SI-TX accept time.
+	buyerAcct, gerr := h.accounts.GetAccount(c.Request.Context(), &accountpb.GetAccountRequest{Id: req.BidderAccountID})
+	if gerr != nil {
+		apiError(c, http.StatusNotFound, ErrNotFound, "bidder_account_id not found")
+		return
+	}
+	if buyerAcct.GetOwnerId() != uint64(pidInt) {
+		apiError(c, http.StatusForbidden, ErrForbidden, "bidder_account_id does not belong to caller")
+		return
+	}
+	if buyerAcct.GetStatus() != "active" {
+		apiError(c, http.StatusFailedDependency, ErrInternal, "bidder_account_id is not active")
+		return
+	}
+	if buyerAcct.GetCurrencyCode() != req.Premium.Currency {
+		apiError(c, http.StatusBadRequest, ErrValidation,
+			fmt.Sprintf("currency mismatch: account is %s but premium.currency is %s (cross-bank SI-TX has no FX — open an account in %s or pick one)",
+				buyerAcct.GetCurrencyCode(), req.Premium.Currency, req.Premium.Currency))
+		return
+	}
+	buyerAccountNumber := buyerAcct.GetAccountNumber()
 
 	// Resolve the peer.
 	resp, err := h.peerAdmin.ResolvePeerByBankCode(c.Request.Context(), &transactionpb.ResolvePeerByBankCodeRequest{BankCode: req.SellerBankCode})
@@ -157,6 +204,9 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 		"sellerId":       map[string]interface{}{"routingNumber": peer.GetRoutingNumber(), "id": req.SellerID},
 		"amount":         req.Amount,
 		"lastModifiedBy": map[string]interface{}{"routingNumber": h.ownRouting, "id": buyerID},
+		// Fix #1 — pin the buyer's account so the seller's bank doesn't
+		// pick "first active <currency> account" on accept.
+		"buyerAccountNumber": buyerAccountNumber,
 	}
 	// Phase 10 — propagate the per-listing cascade-cancel key when the
 	// bidder supplied one (discovered the listing via /public-option-
@@ -227,14 +277,15 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 		// when supplied so the buyer-side row carries the same cascade
 		// grouping as the seller-side row stored on the peer bank.
 		mirrorOffer := &stockpb.PeerOtcOffer{
-			Ticker:          req.Stock.Ticker,
-			Amount:          req.Amount,
-			PricePerStock:   req.PricePerUnit.Amount,
-			Currency:        req.PricePerUnit.Currency,
-			Premium:         req.Premium.Amount,
-			PremiumCurrency: req.Premium.Currency,
-			SettlementDate:  req.SettlementDate,
-			LastModifiedBy:  &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: buyerID},
+			Ticker:             req.Stock.Ticker,
+			Amount:             req.Amount,
+			PricePerStock:      req.PricePerUnit.Amount,
+			Currency:           req.PricePerUnit.Currency,
+			Premium:            req.Premium.Amount,
+			PremiumCurrency:    req.Premium.Currency,
+			SettlementDate:     req.SettlementDate,
+			LastModifiedBy:     &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: buyerID},
+			BuyerAccountNumber: buyerAccountNumber,
 		}
 		if req.ParentOfferID != nil && req.ParentOfferID.ID != "" {
 			mirrorOffer.ParentOfferId = &stockpb.PeerForeignBankId{

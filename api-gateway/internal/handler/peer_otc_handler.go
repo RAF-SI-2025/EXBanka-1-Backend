@@ -138,6 +138,11 @@ type peerOtcOfferReq struct {
 	SellerID       peerForeignBankIdReq    `json:"sellerId"`
 	Amount         int64                   `json:"amount"`
 	LastModifiedBy peerForeignBankIdReq    `json:"lastModifiedBy"`
+	// Fix #1 (2026-05-16) — the buyer's 18-digit account number,
+	// optionally pinned by the buyer's bank so the seller's bank uses
+	// this exact account for the buyer-debit posting on accept.
+	// Empty string ⇒ legacy path (participant-id resolution).
+	BuyerAccountNumber string `json:"buyerAccountNumber,omitempty"`
 }
 
 func (h *PeerOTCHandler) CreateNegotiation(c *gin.Context) {
@@ -282,6 +287,7 @@ func offerReqToProto(o peerOtcOfferReq) *stockpb.PeerOtcOffer {
 			RoutingNumber: o.LastModifiedBy.RoutingNumber,
 			Id:            o.LastModifiedBy.ID,
 		},
+		BuyerAccountNumber: o.BuyerAccountNumber,
 	}
 }
 
@@ -293,7 +299,7 @@ func protoOfferToJSON(o *stockpb.PeerOtcOffer) gin.H {
 	if o == nil {
 		return gin.H{}
 	}
-	return gin.H{
+	out := gin.H{
 		"stock":          gin.H{"ticker": o.GetTicker()},
 		"settlementDate": o.GetSettlementDate(),
 		"pricePerUnit":   gin.H{"amount": o.GetPricePerStock(), "currency": o.GetCurrency()},
@@ -301,6 +307,10 @@ func protoOfferToJSON(o *stockpb.PeerOtcOffer) gin.H {
 		"amount":         o.GetAmount(),
 		"lastModifiedBy": gin.H{"routingNumber": o.GetLastModifiedBy().GetRoutingNumber(), "id": o.GetLastModifiedBy().GetId()},
 	}
+	if n := o.GetBuyerAccountNumber(); n != "" {
+		out["buyerAccountNumber"] = n
+	}
+	return out
 }
 
 // peerCtxString safely extracts a string from a gin context value
