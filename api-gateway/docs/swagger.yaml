@@ -628,6 +628,20 @@ definitions:
     properties:
       amount:
         type: integer
+      parent_offer_id:
+        description: |-
+          Phase 10 — optional cross-bank cascade-cancel grouping key. When
+          the bidder discovered this listing via /public-option-offers,
+          they pass the listing's (routingNumber, id) here so the seller's
+          bank can group sibling chains and cascade-cancel them on accept.
+          Free-form bidders (no discovery) leave this unset; they're never
+          part of a sibling group.
+        properties:
+          id:
+            type: string
+          routingNumber:
+            type: integer
+        type: object
       premium:
         properties:
           amount:

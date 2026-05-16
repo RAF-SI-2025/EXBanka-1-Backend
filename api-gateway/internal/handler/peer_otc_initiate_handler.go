@@ -71,6 +71,17 @@ type initiateNegotiationRequest struct {
 		Currency string `json:"currency"`
 	} `json:"premium"`
 	Amount int64 `json:"amount"`
+
+	// Phase 10 — optional cross-bank cascade-cancel grouping key. When
+	// the bidder discovered this listing via /public-option-offers,
+	// they pass the listing's (routingNumber, id) here so the seller's
+	// bank can group sibling chains and cascade-cancel them on accept.
+	// Free-form bidders (no discovery) leave this unset; they're never
+	// part of a sibling group.
+	ParentOfferID *struct {
+		RoutingNumber int64  `json:"routingNumber"`
+		ID            string `json:"id"`
+	} `json:"parent_offer_id,omitempty"`
 }
 
 // CreatePeerNegotiation godoc
@@ -147,6 +158,16 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 		"amount":         req.Amount,
 		"lastModifiedBy": map[string]interface{}{"routingNumber": h.ownRouting, "id": buyerID},
 	}
+	// Phase 10 — propagate the per-listing cascade-cancel key when the
+	// bidder supplied one (discovered the listing via /public-option-
+	// offers). Both banks' negotiation rows will store it; on accept,
+	// the seller's bank cascade-cancels chains sharing the same key.
+	if req.ParentOfferID != nil && req.ParentOfferID.ID != "" {
+		offer["parentOfferId"] = map[string]interface{}{
+			"routingNumber": req.ParentOfferID.RoutingNumber,
+			"id":            req.ParentOfferID.ID,
+		}
+	}
 	body, _ := json.Marshal(offer)
 
 	// base_url already carries the peer's SI-TX path prefix (set by the
@@ -202,25 +223,35 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 	// because the seller's bank already accepted; the user can resync
 	// later by polling /api/v3/negotiations/:rid/:id from the gateway.
 	if h.peerOTC != nil {
+		// Build the local-mirror offer, including the parent_offer_id
+		// when supplied so the buyer-side row carries the same cascade
+		// grouping as the seller-side row stored on the peer bank.
+		mirrorOffer := &stockpb.PeerOtcOffer{
+			Ticker:          req.Stock.Ticker,
+			Amount:          req.Amount,
+			PricePerStock:   req.PricePerUnit.Amount,
+			Currency:        req.PricePerUnit.Currency,
+			Premium:         req.Premium.Amount,
+			PremiumCurrency: req.Premium.Currency,
+			SettlementDate:  req.SettlementDate,
+			LastModifiedBy:  &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: buyerID},
+		}
+		if req.ParentOfferID != nil && req.ParentOfferID.ID != "" {
+			mirrorOffer.ParentOfferId = &stockpb.PeerForeignBankId{
+				RoutingNumber: req.ParentOfferID.RoutingNumber,
+				Id:            req.ParentOfferID.ID,
+			}
+		}
 		_, recErr := h.peerOTC.RecordOutboundNegotiation(c.Request.Context(), &stockpb.RecordOutboundNegotiationRequest{
 			PeerBankCode:  req.SellerBankCode,
 			NegotiationId: &stockpb.PeerForeignBankId{RoutingNumber: pr.RoutingNumber, Id: pr.ID},
 			BuyerId:       &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: buyerID},
 			SellerId:      &stockpb.PeerForeignBankId{RoutingNumber: peer.GetRoutingNumber(), Id: req.SellerID},
-			Offer: &stockpb.PeerOtcOffer{
-				Ticker:          req.Stock.Ticker,
-				Amount:          req.Amount,
-				PricePerStock:   req.PricePerUnit.Amount,
-				Currency:        req.PricePerUnit.Currency,
-				Premium:         req.Premium.Amount,
-				PremiumCurrency: req.Premium.Currency,
-				SettlementDate:  req.SettlementDate,
-				LastModifiedBy:  &stockpb.PeerForeignBankId{RoutingNumber: h.ownRouting, Id: buyerID},
-			},
+			Offer:         mirrorOffer,
 		})
 		if recErr != nil {
-			// Log via gin context; surface to operator without failing the
-			// client request — the peer already accepted.
+			// Surface to operator without failing the client request —
+			// the peer already accepted.
 			c.Writer.Header().Set("X-Mirror-Warning", "buyer-side persistence failed: "+recErr.Error())
 		}
 	}
@@ -509,6 +540,26 @@ func (h *PeerOTCInitiateHandler) AcceptPeerNegotiation(c *gin.Context) {
 			PeerBankCode:  peerBankCode,
 			NegotiationId: &stockpb.PeerForeignBankId{Id: foreignID},
 		})
+
+		// Phase 10 — cross-bank cascade-cancel. Ask stock-service for
+		// every sibling chain that shares the just-accepted chain's
+		// parent_offer_id (atomic per-listing key), cancel them
+		// locally on this bank, AND fire outbound DELETE on each
+		// bidder's bank so their mirrors flip to cancelled too.
+		// Best-effort: failures here don't reverse the accept.
+		if cresp, cerr := h.peerOTC.CascadeCancelSiblings(c.Request.Context(), &stockpb.CascadeCancelSiblingsRequest{
+			PeerBankCode: peerBankCode,
+			ForeignId:    foreignID,
+		}); cerr == nil && cresp != nil {
+			for _, sib := range cresp.GetSiblings() {
+				// proxyPeerNegotiation expects rid as the routing of
+				// the bank that ISSUED the foreign_id — that's the
+				// SIBLING's PeerBankCode from our perspective (the
+				// other bidder's bank). DELETE to /negotiations/.../
+				// at that bank flips their bidder-side mirror.
+				_, _, _ = h.proxyPeerNegotiation(c, sib.GetPeerBankCode(), sib.GetPeerBankCode(), sib.GetForeignId(), http.MethodDelete, "", nil)
+			}
+		}
 	}
 	c.Data(code, "application/json", respBody)
 }

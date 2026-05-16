@@ -13502,6 +13502,18 @@ const docTemplate = `{
                 "amount": {
                     "type": "integer"
                 },
+                "parent_offer_id": {
+                    "description": "Phase 10 — optional cross-bank cascade-cancel grouping key. When\nthe bidder discovered this listing via /public-option-offers,\nthey pass the listing's (routingNumber, id) here so the seller's\nbank can group sibling chains and cascade-cancel them on accept.\nFree-form bidders (no discovery) leave this unset; they're never\npart of a sibling group.",
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string"
+                        },
+                        "routingNumber": {
+                            "type": "integer"
+                        }
+                    }
+                },
                 "premium": {
                     "type": "object",
                     "properties": {

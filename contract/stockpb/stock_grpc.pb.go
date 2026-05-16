@@ -3486,6 +3486,7 @@ const (
 	PeerOTCService_RecordOutboundNegotiation_FullMethodName = "/stock.PeerOTCService/RecordOutboundNegotiation"
 	PeerOTCService_ListMyPeerNegotiations_FullMethodName    = "/stock.PeerOTCService/ListMyPeerNegotiations"
 	PeerOTCService_MarkNegotiationAccepted_FullMethodName   = "/stock.PeerOTCService/MarkNegotiationAccepted"
+	PeerOTCService_CascadeCancelSiblings_FullMethodName     = "/stock.PeerOTCService/CascadeCancelSiblings"
 )
 
 // PeerOTCServiceClient is the client API for PeerOTCService service.
@@ -3542,6 +3543,16 @@ type PeerOTCServiceClient interface {
 	// (above) is reserved for the bank that actually dispatches the
 	// option-formation SI-TX — calling that one twice would re-dispatch.
 	MarkNegotiationAccepted(ctx context.Context, in *MarkNegotiationAcceptedRequest, opts ...grpc.CallOption) (*MarkNegotiationAcceptedResponse, error)
+	// Phase 10 — cross-bank cascade-cancel of sibling chains on accept.
+	// Called by the seller's gateway after MarkNegotiationAccepted. The
+	// RPC returns every other ongoing peer_otc_negotiations row whose
+	// seller is the same AND whose offer matches the accepted offer's
+	// ticker + settlement_date — those are "the same parallel-bid
+	// siblings" in the user's mental model. Each match is marked
+	// status=cancelled locally; the response carries (peer_bank_code,
+	// foreign_id) tuples so the gateway can fire outbound DELETEs to
+	// each bidder's bank to update their mirrors.
+	CascadeCancelSiblings(ctx context.Context, in *CascadeCancelSiblingsRequest, opts ...grpc.CallOption) (*CascadeCancelSiblingsResponse, error)
 }
 
 type peerOTCServiceClient struct {
@@ -3682,6 +3693,16 @@ func (c *peerOTCServiceClient) MarkNegotiationAccepted(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *peerOTCServiceClient) CascadeCancelSiblings(ctx context.Context, in *CascadeCancelSiblingsRequest, opts ...grpc.CallOption) (*CascadeCancelSiblingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CascadeCancelSiblingsResponse)
+	err := c.cc.Invoke(ctx, PeerOTCService_CascadeCancelSiblings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PeerOTCServiceServer is the server API for PeerOTCService service.
 // All implementations must embed UnimplementedPeerOTCServiceServer
 // for forward compatibility.
@@ -3736,6 +3757,16 @@ type PeerOTCServiceServer interface {
 	// (above) is reserved for the bank that actually dispatches the
 	// option-formation SI-TX — calling that one twice would re-dispatch.
 	MarkNegotiationAccepted(context.Context, *MarkNegotiationAcceptedRequest) (*MarkNegotiationAcceptedResponse, error)
+	// Phase 10 — cross-bank cascade-cancel of sibling chains on accept.
+	// Called by the seller's gateway after MarkNegotiationAccepted. The
+	// RPC returns every other ongoing peer_otc_negotiations row whose
+	// seller is the same AND whose offer matches the accepted offer's
+	// ticker + settlement_date — those are "the same parallel-bid
+	// siblings" in the user's mental model. Each match is marked
+	// status=cancelled locally; the response carries (peer_bank_code,
+	// foreign_id) tuples so the gateway can fire outbound DELETEs to
+	// each bidder's bank to update their mirrors.
+	CascadeCancelSiblings(context.Context, *CascadeCancelSiblingsRequest) (*CascadeCancelSiblingsResponse, error)
 	mustEmbedUnimplementedPeerOTCServiceServer()
 }
 
@@ -3784,6 +3815,9 @@ func (UnimplementedPeerOTCServiceServer) ListMyPeerNegotiations(context.Context,
 }
 func (UnimplementedPeerOTCServiceServer) MarkNegotiationAccepted(context.Context, *MarkNegotiationAcceptedRequest) (*MarkNegotiationAcceptedResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MarkNegotiationAccepted not implemented")
+}
+func (UnimplementedPeerOTCServiceServer) CascadeCancelSiblings(context.Context, *CascadeCancelSiblingsRequest) (*CascadeCancelSiblingsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CascadeCancelSiblings not implemented")
 }
 func (UnimplementedPeerOTCServiceServer) mustEmbedUnimplementedPeerOTCServiceServer() {}
 func (UnimplementedPeerOTCServiceServer) testEmbeddedByValue()                        {}
@@ -4040,6 +4074,24 @@ func _PeerOTCService_MarkNegotiationAccepted_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PeerOTCService_CascadeCancelSiblings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CascadeCancelSiblingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerOTCServiceServer).CascadeCancelSiblings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerOTCService_CascadeCancelSiblings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerOTCServiceServer).CascadeCancelSiblings(ctx, req.(*CascadeCancelSiblingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PeerOTCService_ServiceDesc is the grpc.ServiceDesc for PeerOTCService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -4098,6 +4150,10 @@ var PeerOTCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MarkNegotiationAccepted",
 			Handler:    _PeerOTCService_MarkNegotiationAccepted_Handler,
+		},
+		{
+			MethodName: "CascadeCancelSiblings",
+			Handler:    _PeerOTCService_CascadeCancelSiblings_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

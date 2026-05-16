@@ -1637,6 +1637,37 @@ service PeerOTCService {
   // (above) is reserved for the bank that actually dispatches the
   // option-formation SI-TX — calling that one twice would re-dispatch.
   rpc MarkNegotiationAccepted(MarkNegotiationAcceptedRequest) returns (MarkNegotiationAcceptedResponse);
+
+  // Phase 10 — cross-bank cascade-cancel of sibling chains on accept.
+  // Called by the seller's gateway after MarkNegotiationAccepted. The
+  // RPC returns every other ongoing peer_otc_negotiations row whose
+  // seller is the same AND whose offer matches the accepted offer's
+  // ticker + settlement_date — those are "the same parallel-bid
+  // siblings" in the user's mental model. Each match is marked
+  // status=cancelled locally; the response carries (peer_bank_code,
+  // foreign_id) tuples so the gateway can fire outbound DELETEs to
+  // each bidder's bank to update their mirrors.
+  rpc CascadeCancelSiblings(CascadeCancelSiblingsRequest) returns (CascadeCancelSiblingsResponse);
+}
+
+message CascadeCancelSiblingsRequest {
+  // The negotiation that was just accepted — sets the "seller side" +
+  // "offer terms" the cascade matches on. Caller passes the gateway-
+  // side keys (the gateway only knows (peer_bank_code, foreign_id)
+  // because that's what proxyPeerNegotiation already uses).
+  string peer_bank_code = 1; // peer-bank code of the accepted chain
+  string foreign_id     = 2; // foreign id of the accepted chain
+}
+
+// CascadedSibling identifies one chain that was cancelled by the
+// cascade and which bank needs to be notified to flip its mirror.
+message CascadedSibling {
+  string peer_bank_code = 1; // bidder's bank-code (for outbound DELETE)
+  string foreign_id     = 2; // foreign id on the bidder's bank
+}
+
+message CascadeCancelSiblingsResponse {
+  repeated CascadedSibling siblings = 1;
 }
 
 message MarkNegotiationAcceptedRequest {
@@ -1694,6 +1725,11 @@ message PeerOtcOffer {
   string premium_currency = 6;
   string settlement_date = 7;
   PeerForeignBankId last_modified_by = 8;
+  // Phase 10 — cross-bank cascade-cancel grouping. Bidders capture
+  // this from /public-option-offers discovery and pass it through so
+  // the seller bank can match siblings on accept. Optional; absent
+  // value (zero routing_number + empty id) means "no parent group".
+  PeerForeignBankId parent_offer_id = 9;
 }
 
 message GetPublicStocksRequest {

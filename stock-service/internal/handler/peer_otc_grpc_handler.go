@@ -260,6 +260,16 @@ func (h *PeerOTCGRPCHandler) CreateNegotiation(ctx context.Context, req *stockpb
 		OfferJSON:           string(offerJSON),
 		Status:              "ongoing",
 	}
+	// Phase 10 — capture the bidder-supplied parent_offer_id for the
+	// cross-bank cascade-cancel grouping. Both fields must be set for
+	// the row to participate in cascade matching; either-or absent
+	// means free-form (no cascade).
+	if p := req.GetOffer().GetParentOfferId(); p != nil && p.GetId() != "" {
+		r := p.GetRoutingNumber()
+		id := p.GetId()
+		neg.ParentOfferRouting = &r
+		neg.ParentOfferID = &id
+	}
 	if err := h.negRepo.Create(neg); err != nil {
 		return nil, status.Errorf(codes.Internal, "create: %v", err)
 	}
@@ -317,6 +327,69 @@ func (h *PeerOTCGRPCHandler) DeleteNegotiation(ctx context.Context, req *stockpb
 		return nil, status.Errorf(codes.Internal, "cancel: %v", err)
 	}
 	return &stockpb.DeleteNegotiationResponse{}, nil
+}
+
+// CascadeCancelSiblings is the Phase 10 cross-bank cascade. Given a
+// just-accepted peer_otc_negotiations row, finds every OTHER ongoing
+// chain whose seller is the same AND whose (parent_offer_routing,
+// parent_offer_id) matches — i.e. they were initiated against the
+// SAME discovered listing on the seller's bank. Each matched row is
+// flipped to status=cancelled locally; the response carries
+// (peer_bank_code, foreign_id) tuples so the calling gateway can
+// fire outbound DELETEs to each bidder's bank to update their mirrors.
+//
+// Match criteria (precise — no false positives):
+//   - seller_routing_number = accepted.seller_routing_number
+//   - seller_id             = accepted.seller_id
+//   - status                = "ongoing"
+//   - parent_offer_routing  = accepted.parent_offer_routing
+//   - parent_offer_id       = accepted.parent_offer_id
+//   - NOT (peer_bank_code = accepted.peer_bank_code AND foreign_id = accepted.foreign_id)
+//
+// Returns an empty list when the accepted chain has no parent
+// (free-form initiate, not discovered) — those chains are never part
+// of a sibling group, so a seller can hold two distinct same-ticker
+// listings without accidental cross-cancel.
+func (h *PeerOTCGRPCHandler) CascadeCancelSiblings(ctx context.Context, req *stockpb.CascadeCancelSiblingsRequest) (*stockpb.CascadeCancelSiblingsResponse, error) {
+	if h.negRepo == nil {
+		return nil, status.Error(codes.Unimplemented, "negotiation repo not wired")
+	}
+	accepted, err := h.negRepo.GetByPeerAndID(req.GetPeerBankCode(), req.GetForeignId())
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Error(codes.NotFound, "accepted negotiation not found")
+		}
+		return nil, status.Errorf(codes.Internal, "lookup accepted: %v", err)
+	}
+	// Free-form chains (no parent) are not part of any sibling group.
+	if accepted.ParentOfferRouting == nil || accepted.ParentOfferID == nil || *accepted.ParentOfferID == "" {
+		return &stockpb.CascadeCancelSiblingsResponse{}, nil
+	}
+	candidates, err := h.negRepo.ListBySellerAndParentOffer(
+		accepted.SellerRoutingNumber, accepted.SellerID,
+		*accepted.ParentOfferRouting, *accepted.ParentOfferID,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list siblings: %v", err)
+	}
+	out := make([]*stockpb.CascadedSibling, 0, len(candidates))
+	for i := range candidates {
+		sib := &candidates[i]
+		// Skip the just-accepted row itself.
+		if sib.PeerBankCode == accepted.PeerBankCode && sib.ForeignID == accepted.ForeignID {
+			continue
+		}
+		if uerr := h.negRepo.UpdateStatus(sib.PeerBankCode, sib.ForeignID, "cancelled"); uerr != nil {
+			log.Printf("WARN: cascade-cancel sibling %s/%s status update failed: %v",
+				sib.PeerBankCode, sib.ForeignID, uerr)
+			continue
+		}
+		out = append(out, &stockpb.CascadedSibling{
+			PeerBankCode: sib.PeerBankCode,
+			ForeignId:    sib.ForeignID,
+		})
+	}
+	return &stockpb.CascadeCancelSiblingsResponse{Siblings: out}, nil
 }
 
 // MarkNegotiationAccepted flips a local mirror row to status=accepted
@@ -411,6 +484,13 @@ func protoToOffer(p *stockpb.PeerOtcOffer) contractsitx.OtcOffer {
 			ID:            p.GetLastModifiedBy().GetId(),
 		}
 	}
+	var parentOfferID contractsitx.ForeignBankId
+	if p.GetParentOfferId() != nil {
+		parentOfferID = contractsitx.ForeignBankId{
+			RoutingNumber: p.GetParentOfferId().GetRoutingNumber(),
+			ID:            p.GetParentOfferId().GetId(),
+		}
+	}
 	return contractsitx.OtcOffer{
 		Ticker:          p.GetTicker(),
 		Amount:          p.GetAmount(),
@@ -420,6 +500,7 @@ func protoToOffer(p *stockpb.PeerOtcOffer) contractsitx.OtcOffer {
 		PremiumCurrency: p.GetPremiumCurrency(),
 		SettlementDate:  p.GetSettlementDate(),
 		LastModifiedBy:  lastModBy,
+		ParentOfferID:   parentOfferID,
 	}
 }
 
@@ -435,6 +516,10 @@ func offerToProto(o contractsitx.OtcOffer) *stockpb.PeerOtcOffer {
 		LastModifiedBy: &stockpb.PeerForeignBankId{
 			RoutingNumber: o.LastModifiedBy.RoutingNumber,
 			Id:            o.LastModifiedBy.ID,
+		},
+		ParentOfferId: &stockpb.PeerForeignBankId{
+			RoutingNumber: o.ParentOfferID.RoutingNumber,
+			Id:            o.ParentOfferID.ID,
 		},
 	}
 }
@@ -753,6 +838,14 @@ func (h *PeerOTCGRPCHandler) RecordOutboundNegotiation(ctx context.Context, req 
 		SellerID:            req.GetSellerId().GetId(),
 		OfferJSON:           string(offerJSON),
 		Status:              "ongoing",
+	}
+	// Phase 10 — mirror the parent_offer_id on the buyer-side row so
+	// /me/peer-otc/negotiations surfaces the linkage on both ends.
+	if p := req.GetOffer().GetParentOfferId(); p != nil && p.GetId() != "" {
+		r := p.GetRoutingNumber()
+		id := p.GetId()
+		neg.ParentOfferRouting = &r
+		neg.ParentOfferID = &id
 	}
 	if err := h.negRepo.Upsert(neg); err != nil {
 		return nil, status.Errorf(codes.Internal, "upsert: %v", err)

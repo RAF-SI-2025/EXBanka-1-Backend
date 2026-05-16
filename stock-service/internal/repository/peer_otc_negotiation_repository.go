@@ -41,6 +41,28 @@ func (r *PeerOtcNegotiationRepository) UpdateStatus(peerCode, foreignID, status 
 		Updates(map[string]interface{}{"status": status}).Error
 }
 
+// ListBySellerAndParentOffer returns every ongoing negotiation under
+// the given seller whose parent_offer matches the supplied (routing,
+// id) tuple. Phase 10 cascade-cancel: when one chain is accepted, the
+// seller's bank flips every other chain sharing the same precise
+// parent_offer_id to cancelled. The match key is atomic per listing
+// (sourced from /public-option-offers discovery) so two LEGITIMATELY
+// DISTINCT listings on the same ticker + settlement date never
+// accidentally cancel each other — they get different parent ids.
+//
+// Rows initiated free-form (no parent) are excluded by the IS NOT
+// NULL guard.
+func (r *PeerOtcNegotiationRepository) ListBySellerAndParentOffer(
+	sellerRouting int64, sellerID string, parentRouting int64, parentID string,
+) ([]model.PeerOtcNegotiation, error) {
+	var out []model.PeerOtcNegotiation
+	err := r.db.Where(
+		"seller_routing_number = ? AND seller_id = ? AND status = ? AND parent_offer_routing = ? AND parent_offer_id = ?",
+		sellerRouting, sellerID, "ongoing", parentRouting, parentID).
+		Order("created_at ASC").Find(&out).Error
+	return out, err
+}
+
 func (r *PeerOtcNegotiationRepository) Delete(peerCode, foreignID string) error {
 	return r.db.Where("peer_bank_code = ? AND foreign_id = ?", peerCode, foreignID).
 		Delete(&model.PeerOtcNegotiation{}).Error

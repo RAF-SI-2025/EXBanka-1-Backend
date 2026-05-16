@@ -22,6 +22,18 @@ type OtcOffer struct {
 	PremiumCurrency string          `json:"premiumCurrency"`
 	SettlementDate  string          `json:"settlementDate"`
 	LastModifiedBy  ForeignBankId   `json:"lastModifiedBy"`
+
+	// Phase 10 — cross-bank cascade-cancel grouping. When the bidder
+	// discovered this listing via /public-option-offers, they capture
+	// the listing's offerId here and pass it through; both banks' local
+	// peer_otc_negotiations rows store it. Cascade on accept matches on
+	// this exact key (NOT on ticker+date, which would cause false
+	// positives for two distinct same-ticker listings).
+	//
+	// omitempty so free-form negotiations (no discovery) leave it
+	// unset — backwards-compatible with peer banks that don't yet emit
+	// this field. A zero RoutingNumber + empty ID means "no parent".
+	ParentOfferID ForeignBankId `json:"parentOfferId,omitempty"`
 }
 
 // OtcNegotiation is the full negotiation record (offer + meta).
