@@ -29,6 +29,7 @@ type portfolioStub struct {
 	exerciseFn     func(*stockpb.ExerciseOptionRequest) (*stockpb.ExerciseResult, error)
 	listTxFn       func(*stockpb.ListHoldingTransactionsRequest) (*stockpb.ListHoldingTransactionsResponse, error)
 	exerciseByIDFn func(*stockpb.ExerciseOptionByOptionIDRequest) (*stockpb.ExerciseResult, error)
+	getHoldingFn   func(*stockpb.GetHoldingRequest) (*stockpb.HoldingWithOwner, error)
 }
 
 func (s *portfolioStub) ListHoldings(_ context.Context, in *stockpb.ListHoldingsRequest, _ ...grpc.CallOption) (*stockpb.ListHoldingsResponse, error) {
@@ -66,6 +67,21 @@ func (s *portfolioStub) ExerciseOptionByOptionID(_ context.Context, in *stockpb.
 		return s.exerciseByIDFn(in)
 	}
 	return &stockpb.ExerciseResult{}, nil
+}
+
+// GetHolding stub: per-test fn or a default "owned by client 42" row so
+// the new R5 ownership pre-check in ExerciseOption tests passes without
+// per-test wiring. Tests that need to exercise the 404 path can set
+// getHoldingFn to return a different owner_id.
+func (s *portfolioStub) GetHolding(_ context.Context, in *stockpb.GetHoldingRequest, _ ...grpc.CallOption) (*stockpb.HoldingWithOwner, error) {
+	if s.getHoldingFn != nil {
+		return s.getHoldingFn(in)
+	}
+	return &stockpb.HoldingWithOwner{
+		Holding:   &stockpb.Holding{Id: in.GetId(), SecurityType: "option", Ticker: "OPT-test"},
+		OwnerType: "client",
+		OwnerId:   42,
+	}, nil
 }
 
 // setClientIdentity mimics what AuthMiddleware + ResolveIdentity(OwnerIsBankIfEmployee)

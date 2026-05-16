@@ -133,6 +133,14 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 	// /me/peer-otc/negotiations list query matches against "client-<jwt id>".
 	// If the client sent a bare "1" the seller would never see the row.
 	req.SellerID = normalizeSITXPrincipalID(req.SellerID)
+	// Fix R6 (2026-05-16): reject malformed seller ids up front — after
+	// normalization "client-abc" or "client--1" would slip through and
+	// fail at the seller's bank with a confusing "no such user" error.
+	if !sitxPrincipalIDPattern.MatchString(req.SellerID) {
+		apiError(c, http.StatusBadRequest, ErrValidation,
+			`seller_id must match "client-<N>" or "employee-<N>" (after normalization)`)
+		return
+	}
 
 	// Buyer identity: caller's principal_id from the JWT.
 	pid, ok := c.Get("principal_id")
@@ -187,6 +195,18 @@ func (h *PeerOTCInitiateHandler) CreatePeerNegotiation(c *gin.Context) {
 	peer := resp.GetPeerBank()
 	if !peer.GetActive() {
 		apiError(c, http.StatusFailedDependency, ErrInternal, "peer bank is inactive")
+		return
+	}
+	// Fix R7 (2026-05-16): when the bidder supplies a parent_offer_id
+	// (Phase 10 cascade-cancel grouping key), assert its routing equals
+	// the seller's bank routing. A bid claiming parent_offer_id from
+	// some OTHER bank can't be part of the seller's cascade group
+	// (the seller's bank's cascade query filters by its own routing),
+	// so the row would be stored as orphaned garbage. Fail fast.
+	if req.ParentOfferID != nil && req.ParentOfferID.RoutingNumber != peer.GetRoutingNumber() {
+		apiError(c, http.StatusBadRequest, ErrValidation,
+			fmt.Sprintf("parent_offer_id.routingNumber (%d) must match the seller's bank routing (%d)",
+				req.ParentOfferID.RoutingNumber, peer.GetRoutingNumber()))
 		return
 	}
 

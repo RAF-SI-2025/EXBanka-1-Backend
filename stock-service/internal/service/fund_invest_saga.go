@@ -175,7 +175,10 @@ func (s *FundService) Invest(ctx context.Context, in InvestInput) (*model.FundCo
 		Add(saga.Step{
 			Name: saga.StepUpsertPosition,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				return s.positions.IncrementContribution(in.FundID, posOwnerType, posOwnerID, amountRSD)
+				// Fix R2 (2026-05-16): pass contrib.ID so the repository's
+				// idempotency ledger (fund_position_settlements) can
+				// short-circuit a retry instead of double-counting.
+				return s.positions.IncrementContribution(in.FundID, posOwnerType, posOwnerID, amountRSD, contrib.ID)
 			},
 			// Last step: nothing to roll back to, so no Backward needed.
 		})

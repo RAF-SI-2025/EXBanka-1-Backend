@@ -56,17 +56,19 @@ func TestFundRepository_NameUnique_AmongActive(t *testing.T) {
 
 func TestClientFundPositionRepository_UpsertIncrements(t *testing.T) {
 	db := newTestDB(t)
-	if err := db.AutoMigrate(&model.ClientFundPosition{}); err != nil {
+	if err := db.AutoMigrate(&model.ClientFundPosition{}, &model.FundPositionSettlement{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	r := NewClientFundPositionRepository(db)
 
 	delta := decimal.NewFromInt(500)
 	uid := uint64(99)
-	if err := r.IncrementContribution(1, model.OwnerClient, &uid, delta); err != nil {
+	// Two distinct contributions → cumulative (Fix R2 idempotency keys
+	// on contribution_id, so different ids each count).
+	if err := r.IncrementContribution(1, model.OwnerClient, &uid, delta, uint64(101)); err != nil {
 		t.Fatalf("upsert 1: %v", err)
 	}
-	if err := r.IncrementContribution(1, model.OwnerClient, &uid, delta); err != nil {
+	if err := r.IncrementContribution(1, model.OwnerClient, &uid, delta, uint64(102)); err != nil {
 		t.Fatalf("upsert 2: %v", err)
 	}
 	got, err := r.GetByFundAndOwner(1, model.OwnerClient, &uid)
@@ -75,6 +77,14 @@ func TestClientFundPositionRepository_UpsertIncrements(t *testing.T) {
 	}
 	if !got.TotalContributedRSD.Equal(decimal.NewFromInt(1000)) {
 		t.Errorf("got %s want 1000", got.TotalContributedRSD)
+	}
+	// Replay with the SAME contribution_id is a no-op (idempotent).
+	if err := r.IncrementContribution(1, model.OwnerClient, &uid, delta, uint64(101)); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	again, _ := r.GetByFundAndOwner(1, model.OwnerClient, &uid)
+	if !again.TotalContributedRSD.Equal(decimal.NewFromInt(1000)) {
+		t.Errorf("replay should be no-op, got %s want 1000", again.TotalContributedRSD)
 	}
 }
 

@@ -159,6 +159,22 @@ func (h *PortfolioHandler) ExerciseOption(c *gin.Context) {
 	}
 	identity := c.MustGet("identity").(*middleware.ResolvedIdentity)
 
+	// Fix R5 (2026-05-16): gateway-side ownership pre-check per
+	// CLAUDE.md hard requirement. Without this we'd be trusting the
+	// service to enforce — defense in depth says verify here too. 404
+	// (not 403) for non-owner because we don't want to leak whether
+	// the holding id exists for someone else.
+	got, gerr := h.portfolioClient.GetHolding(c.Request.Context(), &stockpb.GetHoldingRequest{Id: id})
+	if gerr != nil {
+		handleGRPCError(c, gerr)
+		return
+	}
+	if got.GetOwnerType() != string(identity.OwnerType) ||
+		got.GetOwnerId() != derefU64(identity.OwnerID) {
+		apiError(c, 404, ErrNotFound, "holding not found")
+		return
+	}
+
 	resp, err := h.portfolioClient.ExerciseOption(c.Request.Context(), &stockpb.ExerciseOptionRequest{
 		HoldingId:  id,
 		UserId:     ownerToLegacyUserID(identity.OwnerID),

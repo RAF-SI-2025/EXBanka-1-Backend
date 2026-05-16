@@ -146,6 +146,9 @@ func (s *stubPortfolioClient) ExerciseOptionByOptionID(ctx context.Context, in *
 	}
 	return nil, nil
 }
+func (s *stubPortfolioClient) GetHolding(ctx context.Context, in *stockpb.GetHoldingRequest, opts ...grpc.CallOption) (*stockpb.HoldingWithOwner, error) {
+	return &stockpb.HoldingWithOwner{Holding: &stockpb.Holding{Id: in.GetId()}, OwnerType: "client", OwnerId: 42}, nil
+}
 
 // --- helper ---
 

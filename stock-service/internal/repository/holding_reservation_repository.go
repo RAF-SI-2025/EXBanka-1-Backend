@@ -89,6 +89,23 @@ func (r *HoldingReservationRepository) GetByPeerOptionContractID(peerOptionContr
 	return &res, nil
 }
 
+// GetByPeerOptionContractIDForUpdate is the SELECT FOR UPDATE variant.
+// Required inside transactions that subsequently mutate the reservation
+// (Consume / Release) so a concurrent settle-and-release on the same
+// peer-OTC contract can't both pass the active-status check and then
+// double-decrement holding.reserved_quantity. (Fix R1, 2026-05-16:
+// audit caught that the intra-bank sibling already had the *ForUpdate
+// variant but the cross-bank one was missed.)
+func (r *HoldingReservationRepository) GetByPeerOptionContractIDForUpdate(peerOptionContractID uint64) (*model.HoldingReservation, error) {
+	var res model.HoldingReservation
+	err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("peer_option_contract_id = ?", peerOptionContractID).First(&res).Error
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // GetByOTCContractID returns the reservation row keyed on OTCContractID
 // (mirror of GetByOrderID for the OTC option-contract path).
 func (r *HoldingReservationRepository) GetByOTCContractID(otcContractID uint64) (*model.HoldingReservation, error) {

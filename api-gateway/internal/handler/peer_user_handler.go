@@ -27,6 +27,17 @@ func NewPeerUserHandler(c clientpb.ClientServiceClient, u userpb.UserServiceClie
 	return &PeerUserHandler{clientClient: c, userClient: u, ownRouting: ownRouting}
 }
 
+// GetUser godoc
+// @Summary      Peer-to-peer: resolve a foreign user to display name
+// @Description  Inbound from a peer bank. Looks up a local (client-N / employee-N) and returns first+last name for OTC negotiation display. Routing number in path MUST match this bank's routing — calls for foreign users return 404.
+// @Tags         PeerOTC
+// @Produce      json
+// @Param        rid path int true "routing number (must equal this bank's routing)"
+// @Param        id path string true "principal id, e.g. client-1 or employee-3"
+// @Success      200 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/user/{rid}/{id} [get]
 func (h *PeerUserHandler) GetUser(c *gin.Context) {
 	rid, err := strconv.ParseInt(c.Param("rid"), 10, 64)
 	if err != nil {

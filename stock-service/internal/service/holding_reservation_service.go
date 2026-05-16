@@ -634,7 +634,12 @@ func (s *HoldingReservationService) ConsumeForPeerOptionContract(
 	syntheticTxnID := peerOptionContractID + peerOTCSettlementOffset
 	var out *PartialSettleHoldingResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		res, err := s.resRepo.WithTx(tx).GetByPeerOptionContractID(peerOptionContractID)
+		// Fix R1 (2026-05-16): use the SELECT FOR UPDATE variant so a
+		// concurrent ReleaseForPeerOptionContract on the same row can't
+		// pass the active-status check after we've already started
+		// settling — without the row lock, both flows would decrement
+		// holding.reserved_quantity for the same shares.
+		res, err := s.resRepo.WithTx(tx).GetByPeerOptionContractIDForUpdate(peerOptionContractID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return status.Error(codes.FailedPrecondition, "peer option reservation not found")
@@ -712,7 +717,9 @@ func (s *HoldingReservationService) ConsumeForPeerOptionContract(
 func (s *HoldingReservationService) ReleaseForPeerOptionContract(ctx context.Context, peerOptionContractID uint64) (*ReleaseHoldingResult, error) {
 	var out *ReleaseHoldingResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		res, err := s.resRepo.WithTx(tx).GetByPeerOptionContractID(peerOptionContractID)
+		// Fix R1 (2026-05-16): use the SELECT FOR UPDATE variant —
+		// see ConsumeForPeerOptionContract for the full rationale.
+		res, err := s.resRepo.WithTx(tx).GetByPeerOptionContractIDForUpdate(peerOptionContractID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				out = &ReleaseHoldingResult{ReleasedQuantity: 0, ReservedQuantity: 0}

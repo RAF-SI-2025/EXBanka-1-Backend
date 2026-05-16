@@ -702,14 +702,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 			Name: saga.StepDecrementHolding,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, perr := s.holdingReservationSvc.PartialSettle(ctx, order.ID, txn.ID, txn.Quantity)
-				if perr != nil {
-					return perr
-				}
-				// Capital gain is part of the logical holding transition, so
-				// record it inside the same saga step. A failure here is
-				// treated the same as PartialSettle failure — credit_proceeds
-				// gets reversed via its Backward.
-				return s.recordCapitalGain(order, txn, listing)
+				return perr
 			},
 			// Holding decrement is the last step before commission (which
 			// runs outside the saga). No Backward needed.
@@ -717,6 +710,19 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 
 	if err := sg.Execute(ctx, state); err != nil {
 		return err
+	}
+
+	// Fix R4 (2026-05-16): recordCapitalGain runs HERE (post-saga, best-
+	// effort), not inside StepDecrementHolding. Previously a capital-gain
+	// failure caused the saga to roll back AFTER PartialSettle had already
+	// decremented the holding (PartialSettle has no Backward), leaving the
+	// seller with shares missing AND a reversed-credit on the buyer — an
+	// inconsistent intermediate state. Logging the gain is a separate
+	// audit concern and must not be allowed to flip money flows that have
+	// already committed.
+	if cgErr := s.recordCapitalGain(order, txn, listing); cgErr != nil {
+		log.Printf("WARN: capital gain record failed for sell order %d fill %d: %v (money/shares already moved)",
+			order.ID, txn.ID, cgErr)
 	}
 
 	// Best-effort commission credit (separate sub-saga).
@@ -955,13 +961,38 @@ func (s *PortfolioService) MakePublic(holdingID uint64, ownerType model.OwnerTyp
 	if holding.SecurityType != "stock" {
 		return nil, fmt.Errorf("only stocks can be made public for OTC trading: %w", ErrPublicOnlyStocks)
 	}
-	if quantity < 0 || quantity > holding.Quantity {
-		return nil, fmt.Errorf("invalid public quantity: %w", ErrInvalidPublicQuantity)
+	// Fix R3 (2026-05-16): cap PublicQuantity at the FREE balance
+	// (Quantity - ReservedQuantity), not just total Quantity. Previously
+	// a user with 100 shares + 50 reserved against an open OTC option
+	// contract could publish all 100; a downstream OTC stock fill would
+	// then try to debit 100 free shares (only 50 actually free) and the
+	// settle saga would fail mid-fill. Reject up front.
+	available := holding.Quantity - holding.ReservedQuantity
+	if available < 0 {
+		available = 0
+	}
+	if quantity < 0 || quantity > available {
+		return nil, fmt.Errorf("invalid public quantity (available %d): %w", available, ErrInvalidPublicQuantity)
 	}
 
 	holding.PublicQuantity = quantity
 
 	if err := s.holdingRepo.Update(holding); err != nil {
+		return nil, err
+	}
+	return holding, nil
+}
+
+// GetHoldingByID returns the raw Holding row for the gRPC GetHolding
+// RPC. Used by api-gateway for the CLAUDE.md ownership pre-check
+// before mutating ops like ExerciseOption / MakePublic (Fix R5,
+// 2026-05-16). Returns ErrHoldingNotFound if missing.
+func (s *PortfolioService) GetHoldingByID(holdingID uint64) (*model.Holding, error) {
+	holding, err := s.holdingRepo.GetByID(holdingID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("holding not found: %w", ErrHoldingNotFound)
+		}
 		return nil, err
 	}
 	return holding, nil

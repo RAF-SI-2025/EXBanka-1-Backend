@@ -726,6 +726,51 @@ definitions:
     required:
     - email
     type: object
+  handler.peerForeignBankIdReq:
+    properties:
+      id:
+        type: string
+      routingNumber:
+        type: integer
+    type: object
+  handler.peerMonetaryValueReq:
+    properties:
+      amount:
+        type: string
+      currency:
+        type: string
+    type: object
+  handler.peerOtcOfferReq:
+    properties:
+      amount:
+        type: integer
+      buyerAccountNumber:
+        description: |-
+          Fix #1 (2026-05-16) — the buyer's 18-digit account number,
+          optionally pinned by the buyer's bank so the seller's bank uses
+          this exact account for the buyer-debit posting on accept.
+          Empty string ⇒ legacy path (participant-id resolution).
+        type: string
+      buyerId:
+        $ref: '#/definitions/handler.peerForeignBankIdReq'
+      lastModifiedBy:
+        $ref: '#/definitions/handler.peerForeignBankIdReq'
+      premium:
+        $ref: '#/definitions/handler.peerMonetaryValueReq'
+      pricePerUnit:
+        $ref: '#/definitions/handler.peerMonetaryValueReq'
+      sellerId:
+        $ref: '#/definitions/handler.peerForeignBankIdReq'
+      settlementDate:
+        type: string
+      stock:
+        $ref: '#/definitions/handler.peerStockDescriptionReq'
+    type: object
+  handler.peerStockDescriptionReq:
+    properties:
+      ticker:
+        type: string
+    type: object
   handler.previewTransferRequest:
     properties:
       amount:
@@ -7173,6 +7218,30 @@ paths:
       summary: Get employee changelog
       tags:
       - Changelog
+  /api/v3/interbank:
+    post:
+      consumes:
+      - application/json
+      description: Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key
+        or HMAC). Forwards the envelope to transaction-service which classifies on
+        `type` and dispatches.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX /
+        VOTE)'
+      tags:
+      - PeerOTC
   /api/v3/loan-requests:
     get:
       description: Returns all loan requests with optional filters. Requires credits.read
@@ -8826,6 +8895,190 @@ paths:
       summary: Remove a listing from the caller's watchlist
       tags:
       - Watchlist
+  /api/v3/negotiations:
+    post:
+      consumes:
+      - application/json
+      description: 'Inbound from a peer bank''s SI-TX layer. Authenticated via PeerAuth
+        (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code,
+        foreign_id). buyerId.routingNumber MUST match the authenticated peer''s routing
+        (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9).'
+      parameters:
+      - description: SI-TX OtcOffer wire shape
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.peerOtcOfferReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: ForeignBankId of the newly-created negotiation
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: create OTC option negotiation'
+      tags:
+      - PeerOTC
+  /api/v3/negotiations/{rid}/{id}:
+    delete:
+      description: Inbound from a peer bank. Soft-cancels the negotiation row (status
+        → cancelled). The row is preserved for audit per SI-TX §3.5.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: cancel an OTC negotiation'
+      tags:
+      - PeerOTC
+    get:
+      description: Inbound from a peer bank. Returns the full SI-TX OtcNegotiation
+        record for the (peer_bank_code, foreign_id) pair.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: read an OTC negotiation'
+      tags:
+      - PeerOTC
+    put:
+      consumes:
+      - application/json
+      description: Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations
+        row. Only the peer that created the row (matched by peer_bank_code) can update
+        it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.
+      parameters:
+      - description: routing number (this bank's, that issued the foreign_id)
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: new SI-TX OtcOffer terms
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.peerOtcOfferReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: counter-offer on an existing OTC negotiation'
+      tags:
+      - PeerOTC
+  /api/v3/negotiations/{rid}/{id}/accept:
+    get:
+      description: Inbound from the buyer's bank. The seller's bank composes the 4-posting
+        NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset,
+        buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies
+        GET semantics.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: transactionId + status
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: accept an OTC negotiation (triggers option-formation
+        SI-TX)'
+      tags:
+      - PeerOTC
   /api/v3/notification-templates:
     get:
       description: Lists every notification template type with its supported {{variables}},
@@ -9227,8 +9480,11 @@ paths:
       - OTCOptions
   /api/v3/public-option-offers:
     get:
-      description: Phase 6 cross-bank discovery. Returns this bank's
+      description: |-
+        Phase 6 cross-bank discovery. Returns this bank's
+        Inbound from a peer bank. Returns this bank's open option listings (kind=local). Includes best_bid / best_ask / active_chains_count when available so the peer's cache can surface a richer marketplace view.
       produces:
+      - application/json
       - application/json
       responses:
         "200":
@@ -9246,7 +9502,29 @@ paths:
           schema:
             additionalProperties: true
             type: object
-      summary: Peer-facing list of OPEN OTC option listings on this bank
+      summary: 'Peer-to-peer: list public OPEN OTC option listings (Phase 6 discovery)'
+      tags:
+      - PeerOTC
+      - PeerOTC
+  /api/v3/public-stock:
+    get:
+      description: Inbound from a peer bank. Returns this bank's holdings flagged
+        public_quantity > 0 — the candidate OTC sellers a discovering bank can negotiate
+        against. SI-TX §3.2.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: list public stock holdings'
       tags:
       - PeerOTC
   /api/v3/roles/{id}/permissions:
@@ -9422,6 +9700,43 @@ paths:
       summary: Get the current stock data source and status
       tags:
       - Admin
+  /api/v3/user/{rid}/{id}:
+    get:
+      description: Inbound from a peer bank. Looks up a local (client-N / employee-N)
+        and returns first+last name for OTC negotiation display. Routing number in
+        path MUST match this bank's routing — calls for foreign users return 404.
+      parameters:
+      - description: routing number (must equal this bank's routing)
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: principal id, e.g. client-1 or employee-3
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: resolve a foreign user to display name'
+      tags:
+      - PeerOTC
 securityDefinitions:
   BearerAuth:
     description: Enter "Bearer <token>"

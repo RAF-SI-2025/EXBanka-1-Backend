@@ -511,6 +511,11 @@ service PortfolioGRPCService {
   rpc MakePublic(MakePublicRequest) returns (Holding);
   rpc ExerciseOption(ExerciseOptionRequest) returns (ExerciseResult);
   rpc ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult);
+  // GetHolding returns one Holding by ID. Carries owner_type +
+  // owner_id alongside the response so the gateway can perform the
+  // CLAUDE.md ownership pre-check before calling mutating RPCs like
+  // ExerciseOption / MakePublic. (Fix R5, 2026-05-16.)
+  rpc GetHolding(GetHoldingRequest) returns (HoldingWithOwner);
   // ListHoldingTransactions returns the executed order-transactions that
   // contributed to a given holding. Since holdings aggregate per
   // (user_id, system_type, security_type, security_id) (see Part A), this
@@ -547,6 +552,19 @@ message ListHoldingsRequest {
 message ListHoldingsResponse {
   repeated Holding holdings = 1;
   int64 total_count = 2;
+}
+
+// GetHoldingRequest / HoldingWithOwner — used by api-gateway for the
+// pre-mutate ownership check (Fix R5). HoldingWithOwner is Holding +
+// owner_type + owner_id so the gateway can assert the caller matches
+// without doing a follow-up lookup.
+message GetHoldingRequest {
+  uint64 id = 1;
+}
+message HoldingWithOwner {
+  Holding holding = 1;
+  string owner_type = 2;  // "client" | "bank"
+  uint64 owner_id = 3;    // 0 when owner_type=="bank"
 }
 
 message GetPortfolioSummaryRequest {

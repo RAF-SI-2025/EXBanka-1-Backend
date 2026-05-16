@@ -77,6 +77,7 @@ func main() {
 		&model.SagaLog{},
 		&model.InvestmentFund{},
 		&model.ClientFundPosition{},
+		&model.FundPositionSettlement{},
 		&model.FundContribution{},
 		&model.FundHolding{},
 		&model.OTCOffer{},
@@ -703,6 +704,16 @@ func main() {
 		WithOutbox(ob, db).
 		WithPeerContracts(peerOptionRepo)
 	otcExpiry.Start(ctx)
+
+	// Fix R8 (2026-05-16) — daily safety-net scan: any holding_reservation
+	// stuck `active` past 24h whose linked entity (Order / OptionContract /
+	// PeerOptionContract) is in a terminal state gets logged at WARN for
+	// operator follow-up. Does NOT auto-release (risk of yanking the lock
+	// out from under a long-running saga). Run in a background goroutine
+	// that honors ctx cancellation.
+	staleScan := service.NewStaleReservationScanner(db, holdingReservationRepo, orderRepo, optionContractRepo, 24*time.Hour, 24*time.Hour).
+		WithPeerContracts(peerOptionRepo)
+	go staleScan.Run(ctx)
 
 	ratingRepo := repository.NewOTCTraderRatingRepository(db)
 	ratingSvc := service.NewOTCRatingService(ratingRepo, otcOfferRepo)

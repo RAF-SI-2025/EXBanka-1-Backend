@@ -58,6 +58,10 @@ func (m *mockPortfolioSvc) ExerciseOption(holdingID uint64, ownerType model.Owne
 	return &service.ExerciseResult{ID: holdingID}, nil
 }
 
+func (m *mockPortfolioSvc) GetHoldingByID(holdingID uint64) (*model.Holding, error) {
+	return &model.Holding{ID: holdingID, OwnerType: model.OwnerClient, Ticker: "TEST"}, nil
+}
+
 func (m *mockPortfolioSvc) ListHoldingTransactions(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error) {
 	if m.listTxFn != nil {
 		return m.listTxFn(holdingID, ownerType, ownerID, direction, page, pageSize)

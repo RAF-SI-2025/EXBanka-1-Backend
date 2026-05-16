@@ -207,7 +207,9 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	// Position decrement is best-effort: money already moved, and position
 	// rows are recoverable from the saga log if this fails. Do NOT include
 	// in the saga — a decrement failure must not reverse the redemption.
-	if err := s.positions.DecrementContribution(in.FundID, posOwnerType, posOwnerID, in.AmountRSD); err != nil {
+	// Fix R2 (2026-05-16): pass contrib.ID for idempotency — a retry of
+	// this best-effort step (or recovery sweep) must not double-subtract.
+	if err := s.positions.DecrementContribution(in.FundID, posOwnerType, posOwnerID, in.AmountRSD, contrib.ID); err != nil {
 		log.Printf("WARN: redeem position decrement failed for saga %s: %v (money already moved)", sagaID, err)
 	}
 

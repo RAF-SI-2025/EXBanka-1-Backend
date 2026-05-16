@@ -1139,6 +1139,7 @@ const (
 	PortfolioGRPCService_MakePublic_FullMethodName               = "/stock.PortfolioGRPCService/MakePublic"
 	PortfolioGRPCService_ExerciseOption_FullMethodName           = "/stock.PortfolioGRPCService/ExerciseOption"
 	PortfolioGRPCService_ExerciseOptionByOptionID_FullMethodName = "/stock.PortfolioGRPCService/ExerciseOptionByOptionID"
+	PortfolioGRPCService_GetHolding_FullMethodName               = "/stock.PortfolioGRPCService/GetHolding"
 	PortfolioGRPCService_ListHoldingTransactions_FullMethodName  = "/stock.PortfolioGRPCService/ListHoldingTransactions"
 )
 
@@ -1151,6 +1152,11 @@ type PortfolioGRPCServiceClient interface {
 	MakePublic(ctx context.Context, in *MakePublicRequest, opts ...grpc.CallOption) (*Holding, error)
 	ExerciseOption(ctx context.Context, in *ExerciseOptionRequest, opts ...grpc.CallOption) (*ExerciseResult, error)
 	ExerciseOptionByOptionID(ctx context.Context, in *ExerciseOptionByOptionIDRequest, opts ...grpc.CallOption) (*ExerciseResult, error)
+	// GetHolding returns one Holding by ID. Carries owner_type +
+	// owner_id alongside the response so the gateway can perform the
+	// CLAUDE.md ownership pre-check before calling mutating RPCs like
+	// ExerciseOption / MakePublic. (Fix R5, 2026-05-16.)
+	GetHolding(ctx context.Context, in *GetHoldingRequest, opts ...grpc.CallOption) (*HoldingWithOwner, error)
 	// ListHoldingTransactions returns the executed order-transactions that
 	// contributed to a given holding. Since holdings aggregate per
 	// (user_id, system_type, security_type, security_id) (see Part A), this
@@ -1217,6 +1223,16 @@ func (c *portfolioGRPCServiceClient) ExerciseOptionByOptionID(ctx context.Contex
 	return out, nil
 }
 
+func (c *portfolioGRPCServiceClient) GetHolding(ctx context.Context, in *GetHoldingRequest, opts ...grpc.CallOption) (*HoldingWithOwner, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HoldingWithOwner)
+	err := c.cc.Invoke(ctx, PortfolioGRPCService_GetHolding_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *portfolioGRPCServiceClient) ListHoldingTransactions(ctx context.Context, in *ListHoldingTransactionsRequest, opts ...grpc.CallOption) (*ListHoldingTransactionsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListHoldingTransactionsResponse)
@@ -1236,6 +1252,11 @@ type PortfolioGRPCServiceServer interface {
 	MakePublic(context.Context, *MakePublicRequest) (*Holding, error)
 	ExerciseOption(context.Context, *ExerciseOptionRequest) (*ExerciseResult, error)
 	ExerciseOptionByOptionID(context.Context, *ExerciseOptionByOptionIDRequest) (*ExerciseResult, error)
+	// GetHolding returns one Holding by ID. Carries owner_type +
+	// owner_id alongside the response so the gateway can perform the
+	// CLAUDE.md ownership pre-check before calling mutating RPCs like
+	// ExerciseOption / MakePublic. (Fix R5, 2026-05-16.)
+	GetHolding(context.Context, *GetHoldingRequest) (*HoldingWithOwner, error)
 	// ListHoldingTransactions returns the executed order-transactions that
 	// contributed to a given holding. Since holdings aggregate per
 	// (user_id, system_type, security_type, security_id) (see Part A), this
@@ -1266,6 +1287,9 @@ func (UnimplementedPortfolioGRPCServiceServer) ExerciseOption(context.Context, *
 }
 func (UnimplementedPortfolioGRPCServiceServer) ExerciseOptionByOptionID(context.Context, *ExerciseOptionByOptionIDRequest) (*ExerciseResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExerciseOptionByOptionID not implemented")
+}
+func (UnimplementedPortfolioGRPCServiceServer) GetHolding(context.Context, *GetHoldingRequest) (*HoldingWithOwner, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetHolding not implemented")
 }
 func (UnimplementedPortfolioGRPCServiceServer) ListHoldingTransactions(context.Context, *ListHoldingTransactionsRequest) (*ListHoldingTransactionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListHoldingTransactions not implemented")
@@ -1381,6 +1405,24 @@ func _PortfolioGRPCService_ExerciseOptionByOptionID_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PortfolioGRPCService_GetHolding_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetHoldingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PortfolioGRPCServiceServer).GetHolding(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PortfolioGRPCService_GetHolding_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PortfolioGRPCServiceServer).GetHolding(ctx, req.(*GetHoldingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PortfolioGRPCService_ListHoldingTransactions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListHoldingTransactionsRequest)
 	if err := dec(in); err != nil {
@@ -1425,6 +1467,10 @@ var PortfolioGRPCService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExerciseOptionByOptionID",
 			Handler:    _PortfolioGRPCService_ExerciseOptionByOptionID_Handler,
+		},
+		{
+			MethodName: "GetHolding",
+			Handler:    _PortfolioGRPCService_GetHolding_Handler,
 		},
 		{
 			MethodName: "ListHoldingTransactions",
