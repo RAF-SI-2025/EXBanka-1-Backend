@@ -9,7 +9,9 @@ import (
 
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	"github.com/exbanka/stock-service/internal/model"
@@ -28,10 +30,21 @@ type mockHoldingRepo struct {
 	failNextUpsert error // if non-nil, next Upsert call will fail and clear this field
 	failNextUpdate error // if non-nil, next Update call will fail and clear this field
 	failNextDelete error // if non-nil, next Delete call will fail and clear this field
+	// txDB is a minimal sqlite-backed *gorm.DB returned by DB(). The
+	// in-memory mock data lives in `holdings` above — txDB exists ONLY
+	// so callers can drive db.Transaction (Phase 3B BuyOffer race-fix).
+	// Inside the TX, LockByIDTx looks up `holdings` directly rather
+	// than reading from txDB, so the in-memory state stays authoritative.
+	txDB *gorm.DB
 }
 
 func newMockHoldingRepo() *mockHoldingRepo {
-	return &mockHoldingRepo{holdings: make(map[uint64]*model.Holding), nextID: 1}
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	return &mockHoldingRepo{
+		holdings: make(map[uint64]*model.Holding),
+		nextID:   1,
+		txDB:     db,
+	}
 }
 
 // holdingOwnerEqual compares two holdings on (owner_type, owner_id).
@@ -165,6 +178,21 @@ func (m *mockHoldingRepo) FindOldestLongOptionHolding(ownerType model.OwnerType,
 		}
 	}
 	return oldest, nil
+}
+
+// DB returns the mock's sqlite handle so callers can run
+// db.Transaction. Inside the TX, LockByIDTx reads from the in-memory
+// holdings map — the sqlite DB exists purely to satisfy the gorm
+// Transaction API and provide isolation semantics for tests that
+// happen to spawn parallel calls. Real concurrency tests use the
+// production repository.
+func (m *mockHoldingRepo) DB() *gorm.DB { return m.txDB }
+
+// LockByIDTx returns the holding from the in-memory map. The tx
+// parameter is unused (no real row-level locking on the mock's
+// sqlite, which has no underlying rows for these mocks).
+func (m *mockHoldingRepo) LockByIDTx(_ *gorm.DB, id uint64) (*model.Holding, error) {
+	return m.GetByID(id)
 }
 
 // addHolding inserts a holding directly for test setup.

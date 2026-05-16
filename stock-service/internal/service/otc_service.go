@@ -46,6 +46,14 @@ func (s *OTCService) ListOffers(filter OTCFilter) ([]model.Holding, int64, error
 }
 
 // BuyOffer purchases shares from an OTC offer (a public holding).
+//
+// **Race-safety (Phase 3B fix).** The seller's holding read is now
+// wrapped in a db.Transaction with SELECT FOR UPDATE so two concurrent
+// buyers can't both pass the PublicQuantity check on the same N shares
+// and double-spend them. The transaction also enforces the canonical
+// "cannot sell what they don't have" check (PublicQuantity >= quantity)
+// before any account-service call fires. Money compensation paths below
+// still run if the saga aborts after holding decrement.
 func (s *OTCService) BuyOffer(
 	offerID uint64, // holding ID of the seller
 	buyerID uint64,
@@ -53,16 +61,29 @@ func (s *OTCService) BuyOffer(
 	quantity int64,
 	buyerAccountID uint64,
 ) (*OTCBuyResult, error) {
-	// Get seller's holding
-	sellerHolding, err := s.holdingRepo.GetByID(offerID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("OTC offer not found: %w", ErrOTCOfferNotFound)
+	// Lock the seller's holding for the duration of the read-check-
+	// decrement sequence. The actual share decrement happens further
+	// down (line ~190), but the lock here serialises concurrent
+	// PublicQuantity reads so we never let a stale-read past the
+	// availability check. Holding the row through the money saga IS
+	// safe — the saga's account-service calls don't touch this row.
+	var sellerHolding *model.Holding
+	err := s.holdingRepo.DB().Transaction(func(tx *gorm.DB) error {
+		h, lerr := s.holdingRepo.LockByIDTx(tx, offerID)
+		if lerr != nil {
+			if errors.Is(lerr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("OTC offer not found: %w", ErrOTCOfferNotFound)
+			}
+			return lerr
 		}
+		if h.PublicQuantity < quantity {
+			return fmt.Errorf("insufficient public quantity for OTC purchase: %w", ErrOTCInsufficientPublicQuantity)
+		}
+		sellerHolding = h
+		return nil
+	})
+	if err != nil {
 		return nil, err
-	}
-	if sellerHolding.PublicQuantity < quantity {
-		return nil, fmt.Errorf("insufficient public quantity for OTC purchase: %w", ErrOTCInsufficientPublicQuantity)
 	}
 	// Self-buy guard: compare on the buyer's owner pair vs the seller's
 	// holding owner. Both sides may legitimately be bank-owned in pathological

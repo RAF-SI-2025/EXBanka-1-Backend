@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -150,6 +151,12 @@ type HoldingRepo interface {
 	// with security_type="option", security_id=optionID, (owner_type, owner_id),
 	// quantity>0. Returns (nil, nil) when no such holding exists.
 	FindOldestLongOptionHolding(ownerType model.OwnerType, ownerID *uint64, optionID uint64) (*model.Holding, error)
+	// DB exposes the underlying *gorm.DB so the service layer can drive
+	// db.Transaction for read-check-decrement races on holdings (Phase 3B
+	// race-fix in OTCService.BuyOffer).
+	DB() *gorm.DB
+	// LockByIDTx does SELECT FOR UPDATE inside an active transaction.
+	LockByIDTx(tx *gorm.DB, id uint64) (*model.Holding, error)
 }
 
 // --- Tax ---

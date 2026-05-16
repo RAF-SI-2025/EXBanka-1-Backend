@@ -34,6 +34,11 @@ func NewHoldingRepository(db *gorm.DB) *HoldingRepository {
 	return &HoldingRepository{db: db}
 }
 
+// DB exposes the underlying *gorm.DB. Used by service-layer callers
+// that need to drive db.Transaction directly (read-check-decrement
+// patterns where the lock must span multiple repo calls).
+func (r *HoldingRepository) DB() *gorm.DB { return r.db }
+
 // Upsert creates a new holding or updates an existing one with weighted average price.
 // Uses SELECT FOR UPDATE to prevent race conditions on concurrent fills.
 // The aggregation key is (owner_type, owner_id, security_type, security_id)
