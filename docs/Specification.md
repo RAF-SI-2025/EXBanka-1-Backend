@@ -1467,11 +1467,51 @@ These routes are reached by other banks in the SI-TX cohort, not by employees or
 |---|---|---|
 | GET | `/swagger/*any` | Swagger UI |
 
+### OTC Stocks Marketplace (Phase 3 / 3B refactor)
+
+Stocks marketplace with sell + buy directions. Detailed in [REST_API_v3 §47.1](api/REST_API_v3.md#471-stocks-marketplace). Replaces the legacy `/otc/offers/*` stock routes deleted in Phase 8.
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET    | `/api/v3/otc/stocks`                   | PortfolioHandler.ListOTCOffers       | Unified marketplace (local + remote sell offers from peer banks) |
+| POST   | `/api/v3/otc/stocks/:id/buy`           | PortfolioHandler.BuyOTCOffer         | Fill a sell offer — race-hardened in 3B with SELECT FOR UPDATE on seller holding |
+| POST   | `/api/v3/otc/stocks/:id/buy-on-behalf` | PortfolioHandler.BuyOTCOfferOnBehalf | Employee fills a sell offer for a client |
+| POST   | `/api/v3/otc/stocks/:id/sell`          | OTCStockHandler.SellOTCStockOffer    | Phase 3B: fill a buy offer with caller's shares — saga with cash-reservation settle |
+| GET    | `/api/v3/me/otc/stocks`                | OTCStockHandler.ListMyOTCStocks      | Caller's own offers (sell + buy directions; `?direction=sell\|buy` to filter) |
+| POST   | `/api/v3/me/otc/stocks`                | OTCStockHandler.CreateOTCStockOffer  | Create a sell OR buy offer (direction-keyed body) |
+| DELETE | `/api/v3/me/otc/stocks/:id`            | OTCStockHandler.CancelOTCStockOffer  | Cancel own offer (`?direction=sell\|buy` required) |
+
+### OTC Options Marketplace — parallel negotiation chains (Phase 2 / 6)
+
+Many bidders can each open their own negotiation chain against the same listing; first-to-accept wins atomically (cascade-cancels siblings). See [REST_API_v3 §47.2](api/REST_API_v3.md#472-options-marketplace--parallel-negotiation-chains). Replaces the deleted `/otc/offers/*` option routes.
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET    | `/api/v3/otc/options`                                  | PortfolioHandler.ListOTCOptions             | Unified local + cross-bank discovery of OPEN option listings |
+| GET    | `/api/v3/otc/options/:id`                              | OTCOptionsHandler.GetOffer                  | Detail (single listing) |
+| GET    | `/api/v3/otc/options/:id/negotiations`                 | OTCOptionsHandler.ListNegotiationsOnListing | Every chain on a listing — visible to all parties |
+| POST   | `/api/v3/otc/options/:id/bid`                          | OTCOptionsHandler.OpenNegotiationChain      | Place a bid — opens a new negotiation chain |
+| GET    | `/api/v3/me/otc/options`                               | OTCOptionsHandler.ListMyOffers              | Caller's own option offers |
+| POST   | `/api/v3/me/otc/options`                               | OTCOptionsHandler.CreateOffer               | Create an option listing |
+| GET    | `/api/v3/me/otc/options/negotiations`                  | OTCOptionsHandler.ListMyNegotiations        | Caller's chains as a bidder |
+| POST   | `/api/v3/me/otc/options/:id/negotiations/:nid/counter` | OTCOptionsHandler.CounterMyNegotiation      | Counter current terms |
+| POST   | `/api/v3/me/otc/options/:id/negotiations/:nid/accept`  | OTCOptionsHandler.AcceptMyNegotiation       | Accept — first-accept-wins atomic TX |
+| POST   | `/api/v3/me/otc/options/:id/negotiations/:nid/reject`  | OTCOptionsHandler.RejectMyNegotiation       | Reject one chain only |
+| DELETE | `/api/v3/me/otc/options/:id/negotiations/:nid`         | OTCOptionsHandler.CancelMyNegotiation       | Bidder withdraws their own chain |
+| GET    | `/api/v3/public-option-offers`                         | PeerOTCHandler.GetPublicOptionOffers        | Peer-facing discovery endpoint (PeerAuth) |
+
 ---
 
 ## 18. Complete Entity Reference
 
 > **New feature entities:** Investment-fund entities are catalogued in [§24](#24-investment-funds-celina-4). Intra-bank OTC option entities (`OTCOffer`, `OTCOfferRevision`, `OptionContract`, `OTCOfferReadReceipt`) are in [§26](#26-intra-bank-otc-options-celina-4--spec-2). Cross-bank OTC additions (`InterBankSagaLog`; `OTCOffer.Public/Private`; `OptionContract.CrossbankTxID/CrossbankExerciseTxID`; `HoldingReservation.OTCContractID`) are in [§27](#27-cross-bank-otc-options-celina-5--spec-4--foundation). The `Order` model gained a `FundID *uint64` column for on-behalf-of-fund order placement.
+>
+> **OTC marketplace refactor (Phases 1B / 3 / 3B) entities:**
+> - `OTCStockBuyOffer` — standing buy-direction OTC stock offer. Cash held in an account-service reservation keyed on `AccountReservationOrderID` (allocated from `otc_stock_buy_offer_res_seq`). Lifecycle status enum `active|filled|cancelled|expired`. Versioned (optimistic locking) + `BeforeUpdate` hook.
+> - `OTCNegotiation` — one bidder's negotiation chain against a parent `OTCOffer` listing (Phase 2 parallel-chains model). Unique index `(parent_offer_id, bidder_owner_type, bidder_owner_id)` enforces one chain per bidder per listing. Status enum `open|countered|accepted|rejected|cancelled|expired`.
+> - `OTCNegotiationRevision` — append-only history row for one move (BID, COUNTER, ACCEPT, REJECT) within an `OTCNegotiation`. Unique index `(negotiation_id, revision_number)` enforces monotonic ordering.
+> - `OTCOffer` (existing model) — gained semantic dual-use: legacy single-chain negotiations still mutate it in place; Phase 2 marketplace treats it as an immutable LISTING with status `open|consumed|cancelled` (legacy `PENDING|COUNTERED` aliased as "open" via `IsOpenListing()` helper). Per-bidder chains live in `OTCNegotiation` rows above.
+> - `Holding` (existing model) — gained `OTCSafeAvailable() = Quantity - ReservedQuantity - PublicQuantity` helper used by `OTCStockService.CreateSellOffer` to prevent double-commit of shares already locked by orders or earlier public offers.
 
 **InvestmentFund extension** (Celina 4 / closed-end funds) — `investment_funds` table gains:
 
