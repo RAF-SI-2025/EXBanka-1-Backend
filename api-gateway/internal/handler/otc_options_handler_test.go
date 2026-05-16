@@ -151,6 +151,31 @@ func (s *stubOTCOptionsClient) ListReceivedRatings(_ context.Context, in *stockp
 	return &stockpb.ListOTCRatingsResponse{}, nil
 }
 
+// Phase-2 marketplace RPCs — added by the OTC options refactor. Tests
+// don't exercise these directly (covered by otc_negotiation_handler_test.go
+// and stock-service tests), so the stub returns zero-value responses.
+func (s *stubOTCOptionsClient) OpenNegotiation(_ context.Context, _ *stockpb.OpenNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
+	return &stockpb.OTCNegotiationResponse{}, nil
+}
+func (s *stubOTCOptionsClient) CounterNegotiation(_ context.Context, _ *stockpb.CounterNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
+	return &stockpb.OTCNegotiationResponse{}, nil
+}
+func (s *stubOTCOptionsClient) AcceptNegotiationChain(_ context.Context, _ *stockpb.OTCAcceptNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCAcceptNegotiationResponse, error) {
+	return &stockpb.OTCAcceptNegotiationResponse{}, nil
+}
+func (s *stubOTCOptionsClient) RejectNegotiation(_ context.Context, _ *stockpb.RejectNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
+	return &stockpb.OTCNegotiationResponse{}, nil
+}
+func (s *stubOTCOptionsClient) CancelNegotiation(_ context.Context, _ *stockpb.CancelNegotiationRequest, _ ...grpc.CallOption) (*stockpb.OTCNegotiationResponse, error) {
+	return &stockpb.OTCNegotiationResponse{}, nil
+}
+func (s *stubOTCOptionsClient) ListMyNegotiations(_ context.Context, _ *stockpb.ListMyNegotiationsRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {
+	return &stockpb.ListNegotiationsResponse{}, nil
+}
+func (s *stubOTCOptionsClient) ListNegotiationsByListing(_ context.Context, _ *stockpb.ListNegotiationsByListingRequest, _ ...grpc.CallOption) (*stockpb.ListNegotiationsResponse, error) {
+	return &stockpb.ListNegotiationsResponse{}, nil
+}
+
 var _ stockpb.OTCOptionsServiceClient = (*stubOTCOptionsClient)(nil)
 
 // stubPeerOTCExerciseClient is a minimal PeerOTCServiceClient that only

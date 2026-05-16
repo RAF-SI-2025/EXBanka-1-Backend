@@ -177,6 +177,12 @@ func main() {
 	}
 	defer otcOptionsConn.Close()
 
+	otcStockMarketClient, otcStockMarketConn, err := grpcclients.NewOTCStockMarketClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to OTC stock market service: %v", err)
+	}
+	defer otcStockMarketConn.Close()
+
 	watchlistClient, watchlistConn, err := grpcclients.NewWatchlistClient(cfg.StockGRPCAddr)
 	if err != nil {
 		log.Fatalf("failed to connect to watchlist service: %v", err)
@@ -304,6 +310,7 @@ func main() {
 		SourceAdminClient:    sourceAdminClient,
 		FundClient:           fundClient,
 		OTCOptionsClient:     otcOptionsClient,
+		OTCStockMarketClient: otcStockMarketClient,
 		WatchlistClient:      watchlistClient,
 		PriceAlertClient:     priceAlertClient,
 		RecurringOrderClient: recurringOrderClient,

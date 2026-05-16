@@ -77,6 +77,17 @@ definitions:
     required:
     - permission
     type: object
+  handler.counterNegotiationRequest:
+    properties:
+      premium:
+        type: string
+      quantity:
+        type: string
+      settlement_date:
+        type: string
+      strike_price:
+        type: string
+    type: object
   handler.counterOTCOfferRequest:
     properties:
       on_behalf_of_client_id:
@@ -408,6 +419,26 @@ definitions:
       ticker:
         type: string
     type: object
+  handler.createOTCStockOfferRequest:
+    properties:
+      buyer_account_id:
+        description: buy only
+        type: integer
+      direction:
+        description: '"sell" | "buy"'
+        type: string
+      holding_id:
+        description: sell only
+        type: integer
+      listing_id:
+        description: buy only
+        type: integer
+      price_per_unit:
+        description: buy only (decimal)
+        type: string
+      quantity:
+        type: integer
+    type: object
   handler.createOptionOrderRequest:
     properties:
       account_id:
@@ -665,6 +696,19 @@ definitions:
         type: string
     required:
     - refresh_token
+    type: object
+  handler.openNegotiationRequest:
+    properties:
+      bidder_account_id:
+        type: integer
+      premium:
+        type: string
+      quantity:
+        type: string
+      settlement_date:
+        type: string
+      strike_price:
+        type: string
     type: object
   handler.passwordResetRequest:
     properties:
@@ -7563,6 +7607,165 @@ paths:
       summary: List the caller's OTC offers
       tags:
       - OTCOptions
+  /api/v3/me/otc/options/{id}/negotiations/{nid}:
+    delete:
+      description: Bidder-only — the listing's poster cannot cancel a bidder's chain
+        (use reject instead).
+      parameters:
+      - description: parent listing id (sanity check)
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Cancel (withdraw) your own OTC option negotiation chain
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/{id}/negotiations/{nid}/accept:
+    post:
+      description: Caller must be the party OPPOSITE to whoever proposed the current
+        terms. Mints the option contract atomically; sibling chains on the parent
+        listing cascade-cancel; parent flips to "consumed".
+      parameters:
+      - description: parent listing id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: caller proposed current terms or not a party
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: parent listing already consumed
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Accept the current terms on an OTC option negotiation chain
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/{id}/negotiations/{nid}/counter:
+    post:
+      consumes:
+      - application/json
+      description: Either the bidder or the listing's poster may counter. Updates
+        the chain's terms; status flips to "countered".
+      parameters:
+      - description: parent listing id (sanity check; not used)
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      - description: new terms
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.counterNegotiationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Counter on one of your OTC option negotiation chains
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/{id}/negotiations/{nid}/reject:
+    post:
+      description: Either party may reject. The chain ends without forming a contract;
+        parent listing stays open.
+      parameters:
+      - description: parent listing id (sanity check)
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reject an OTC option negotiation chain
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/negotiations:
+    get:
+      description: Returns chains where the caller is the bidder. Filter with `?statuses=open,countered,accepted,rejected,cancelled,expired`.
+      parameters:
+      - description: comma-separated; omit for all
+        in: query
+        name: statuses
+        type: string
+      - description: 1-based, default 1
+        in: query
+        name: page
+        type: integer
+      - description: default 20, max 200
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's OTC option negotiation chains
+      tags:
+      - OTCOptions
   /api/v3/me/otc/ratings:
     post:
       consumes:
@@ -7622,6 +7825,115 @@ paths:
       summary: List ratings the caller has received from OTC counterparties
       tags:
       - OTCOptions
+  /api/v3/me/otc/stocks:
+    get:
+      description: Returns sell offers (holdings with public_quantity > 0) and buy
+        offers (otc_stock_buy_offers rows) where the caller is the owner. Filter with
+        `?direction=sell|buy`.
+      parameters:
+      - description: sell|buy (omit for both)
+        in: query
+        name: direction
+        type: string
+      - description: 1-based, default 1
+        in: query
+        name: page
+        type: integer
+      - description: default 20, max 200
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's OTC stock offers (both directions)
+      tags:
+      - OTCStocks
+    post:
+      consumes:
+      - application/json
+      description: direction=sell publishes shares from `holding_id` (accumulative);
+        direction=buy creates a standing buy offer at `price_per_unit` backed by a
+        cash reservation on `buyer_account_id`.
+      parameters:
+      - description: offer details (direction-keyed)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createOTCStockOfferRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create an OTC stock sell or buy offer
+      tags:
+      - OTCStocks
+  /api/v3/me/otc/stocks/{id}:
+    delete:
+      description: 'Direction-keyed: sell cancels by holding_id (zeros public_quantity);
+        buy cancels by offer_id (releases reserved cash).'
+      parameters:
+      - description: holding_id (sell) or otc_stock_buy_offers.id (buy)
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: sell|buy
+        in: query
+        name: direction
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel your own OTC stock sell or buy offer
+      tags:
+      - OTCStocks
   /api/v3/me/peer-otc/negotiations:
     get:
       description: Returns rows from this bank's peer_otc_negotiations where the caller
@@ -8684,6 +8996,75 @@ paths:
       security:
       - BearerAuth: []
       summary: Reject an OTC offer
+      tags:
+      - OTCOptions
+  /api/v3/otc/options/{id}/bid:
+    post:
+      consumes:
+      - application/json
+      description: Many bidders can each open their own chain against the same listing.
+        First to accept wins atomically; siblings cascade-cancel.
+      parameters:
+      - description: parent OTCOffer listing id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: initial bid terms + bidder's account
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.openNegotiationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: chain already open for caller on this listing
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Place a bid on an OTC option listing (opens a negotiation chain)
+      tags:
+      - OTCOptions
+  /api/v3/otc/options/{id}/negotiations:
+    get:
+      description: Used by the listing's poster to see all incoming bids. Returns
+        chains in any status (active + terminal).
+      parameters:
+      - description: parent OTCOffer listing id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List every negotiation chain against a given OTC option listing
       tags:
       - OTCOptions
   /api/v3/otc/traders/{owner_type}/{owner_id}/rating:

@@ -188,6 +188,24 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.GET("/otc/ratings/received", bankIfEmp, h.OTCOptions.ListMyReceivedRatings)
 		me.GET("/otc/contracts", bankIfEmp, h.OTCOptions.ListMyContracts)
 
+		// --- Phase 2: parallel-negotiation-chain marketplace ---
+		// Listing-poster sees all chains via the OPEN
+		// /otc/options/:id/negotiations route (not under /me) so it's
+		// reachable without owning the listing — gateway-side ownership
+		// would block the poster from seeing their own listing's bids.
+		// Per-chain actions stay under /me/ since they always act on
+		// the caller's own chain (bid, counter, accept, reject, cancel).
+		me.GET("/otc/options/negotiations", bankIfEmp, h.OTCOptions.ListMyNegotiations)
+		me.POST("/otc/options/:id/negotiations/:nid/counter", bankIfEmp, h.OTCOptions.CounterMyNegotiation)
+		me.POST("/otc/options/:id/negotiations/:nid/accept", bankIfEmp, h.OTCOptions.AcceptMyNegotiation)
+		me.POST("/otc/options/:id/negotiations/:nid/reject", bankIfEmp, h.OTCOptions.RejectMyNegotiation)
+		me.DELETE("/otc/options/:id/negotiations/:nid", bankIfEmp, h.OTCOptions.CancelMyNegotiation)
+
+		// --- Phase 3: OTC stocks marketplace (sell + buy direction) ---
+		me.GET("/otc/stocks", bankIfEmp, h.OTCStock.ListMyOTCStocks)
+		me.POST("/otc/stocks", bankIfEmp, h.OTCStock.CreateOTCStockOffer)
+		me.DELETE("/otc/stocks/:id", bankIfEmp, h.OTCStock.CancelOTCStockOffer)
+
 		// Cross-bank OTC option exercise (Celina-5 SI-TX). Buyer-only
 		// (only the buyer's bank holds direction=CREDIT contracts);
 		// stock-service rejects non-buyer-side calls.
@@ -281,6 +299,11 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// Public trader profile — aggregate rating + recent comments.
 		// Visible to all authenticated callers; useful for OTC discovery.
 		otcRead.GET("/traders/:owner_type/:owner_id/rating", h.OTCOptions.GetTraderProfile)
+		// Phase 2 marketplace: every chain against a parent listing.
+		// Visible to all authenticated callers — used by the listing's
+		// poster to see incoming bids, and by bidders to see what
+		// counter-bids competitors have placed.
+		otcRead.GET("/options/:id/negotiations", h.OTCOptions.ListNegotiationsOnListing)
 	}
 	// Trading actions require both securities.trade AND otc.trade.
 	otcOptionsTrade := v3.Group("/otc")
@@ -293,6 +316,9 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		otcOptionsTrade.POST("/offers/:id/accept", h.OTCOptions.AcceptOffer)
 		otcOptionsTrade.POST("/offers/:id/reject", h.OTCOptions.RejectOffer)
 		otcOptionsTrade.POST("/contracts/:id/exercise", h.OTCOptions.ExerciseContract)
+		// Phase 2 marketplace: open a new negotiation chain by bidding
+		// on a listing. Many bidders can each open one chain.
+		otcOptionsTrade.POST("/options/:id/bid", h.OTCOptions.OpenNegotiationChain)
 	}
 
 	// ── Mobile auth (public) ────────────────────────────────────

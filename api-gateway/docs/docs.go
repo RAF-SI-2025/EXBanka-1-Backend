@@ -9991,6 +9991,245 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/me/otc/options/negotiations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns chains where the caller is the bidder. Filter with ` + "`" + `?statuses=open,countered,accepted,rejected,cancelled,expired` + "`" + `.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List the caller's OTC option negotiation chains",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "comma-separated; omit for all",
+                        "name": "statuses",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 20, max 200",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}/negotiations/{nid}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Bidder-only — the listing's poster cannot cancel a bidder's chain (use reject instead).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Cancel (withdraw) your own OTC option negotiation chain",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id (sanity check)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "negotiation chain id",
+                        "name": "nid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}/negotiations/{nid}/accept": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Caller must be the party OPPOSITE to whoever proposed the current terms. Mints the option contract atomically; sibling chains on the parent listing cascade-cancel; parent flips to \"consumed\".",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Accept the current terms on an OTC option negotiation chain",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "negotiation chain id",
+                        "name": "nid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "caller proposed current terms or not a party",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "parent listing already consumed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}/negotiations/{nid}/counter": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Either the bidder or the listing's poster may counter. Updates the chain's terms; status flips to \"countered\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Counter on one of your OTC option negotiation chains",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id (sanity check; not used)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "negotiation chain id",
+                        "name": "nid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new terms",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.counterNegotiationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}/negotiations/{nid}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Either party may reject. The chain ends without forming a contract; parent listing stays open.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Reject an OTC option negotiation chain",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id (sanity check)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "negotiation chain id",
+                        "name": "nid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/otc/ratings": {
             "post": {
                 "security": [
@@ -10076,6 +10315,166 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/stocks": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns sell offers (holdings with public_quantity \u003e 0) and buy offers (otc_stock_buy_offers rows) where the caller is the owner. Filter with ` + "`" + `?direction=sell|buy` + "`" + `.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCStocks"
+                ],
+                "summary": "List the caller's OTC stock offers (both directions)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "sell|buy (omit for both)",
+                        "name": "direction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 20, max 200",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "direction=sell publishes shares from ` + "`" + `holding_id` + "`" + ` (accumulative); direction=buy creates a standing buy offer at ` + "`" + `price_per_unit` + "`" + ` backed by a cash reservation on ` + "`" + `buyer_account_id` + "`" + `.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCStocks"
+                ],
+                "summary": "Create an OTC stock sell or buy offer",
+                "parameters": [
+                    {
+                        "description": "offer details (direction-keyed)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createOTCStockOfferRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/stocks/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Direction-keyed: sell cancels by holding_id (zeros public_quantity); buy cancels by offer_id (releases reserved cash).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCStocks"
+                ],
+                "summary": "Cancel your own OTC stock sell or buy offer",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "holding_id (sell) or otc_stock_buy_offers.id (buy)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "sell|buy",
+                        "name": "direction",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -11726,6 +12125,109 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v3/otc/options/{id}/bid": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Many bidders can each open their own chain against the same listing. First to accept wins atomically; siblings cascade-cancel.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Place a bid on an OTC option listing (opens a negotiation chain)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent OTCOffer listing id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "initial bid terms + bidder's account",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.openNegotiationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "chain already open for caller on this listing",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/otc/options/{id}/negotiations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List every negotiation chain against a given OTC option listing",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent OTCOffer listing id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/otc/traders/{owner_type}/{owner_id}/rating": {
             "get": {
                 "security": [
@@ -12137,6 +12639,23 @@ const docTemplate = `{
             ],
             "properties": {
                 "permission": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.counterNegotiationRequest": {
+            "type": "object",
+            "properties": {
+                "premium": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "string"
+                },
+                "settlement_date": {
+                    "type": "string"
+                },
+                "strike_price": {
                     "type": "string"
                 }
             }
@@ -12616,6 +13135,34 @@ const docTemplate = `{
                 }
             }
         },
+        "handler.createOTCStockOfferRequest": {
+            "type": "object",
+            "properties": {
+                "buyer_account_id": {
+                    "description": "buy only",
+                    "type": "integer"
+                },
+                "direction": {
+                    "description": "\"sell\" | \"buy\"",
+                    "type": "string"
+                },
+                "holding_id": {
+                    "description": "sell only",
+                    "type": "integer"
+                },
+                "listing_id": {
+                    "description": "buy only",
+                    "type": "integer"
+                },
+                "price_per_unit": {
+                    "description": "buy only (decimal)",
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "integer"
+                }
+            }
+        },
         "handler.createOptionOrderRequest": {
             "type": "object",
             "properties": {
@@ -13000,6 +13547,26 @@ const docTemplate = `{
             ],
             "properties": {
                 "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.openNegotiationRequest": {
+            "type": "object",
+            "properties": {
+                "bidder_account_id": {
+                    "type": "integer"
+                },
+                "premium": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "string"
+                },
+                "settlement_date": {
+                    "type": "string"
+                },
+                "strike_price": {
                     "type": "string"
                 }
             }
