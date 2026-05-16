@@ -325,9 +325,9 @@ func (h *OTCOptionsHandler) CancelListing(ctx context.Context, in *stockpb.Cance
 		out = append(out, negToProto(&res.CancelledChains[i]))
 	}
 	return &stockpb.CancelListingResponse{
-		OfferId:          res.Offer.ID,
-		Status:           res.Offer.Status,
-		CancelledChains:  out,
+		OfferId:         res.Offer.ID,
+		Status:          res.Offer.Status,
+		CancelledChains: out,
 	}, nil
 }
 

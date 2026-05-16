@@ -772,8 +772,8 @@ type CancelListingInput struct {
 // CancelListingResult bundles the post-cancel state so the handler can
 // publish per-chain notifications outside the TX.
 type CancelListingResult struct {
-	Offer             *model.OTCOffer
-	CancelledChains   []model.OTCNegotiation
+	Offer           *model.OTCOffer
+	CancelledChains []model.OTCNegotiation
 }
 
 // CancelListing flips an open parent OTCOffer to "cancelled" and

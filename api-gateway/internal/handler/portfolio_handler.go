@@ -336,13 +336,13 @@ func (h *PortfolioHandler) listUnifiedOTCOptions(c *gin.Context, ownerOnlySeller
 		}
 	}
 	resp, err := h.otcClient.ListUnifiedOptionOffers(c.Request.Context(), &stockpb.ListUnifiedOptionOffersRequest{
-		Ticker:             c.Query("ticker"),
-		Kind:               kind,
-		BankCode:           c.Query("bank_code"),
-		Direction:          direction,
-		Page:               int32(page),
-		PageSize:           int32(pageSize),
-		OwnerOnlySellerId:  ownerOnlySellerID,
+		Ticker:            c.Query("ticker"),
+		Kind:              kind,
+		BankCode:          c.Query("bank_code"),
+		Direction:         direction,
+		Page:              int32(page),
+		PageSize:          int32(pageSize),
+		OwnerOnlySellerId: ownerOnlySellerID,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
