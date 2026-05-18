@@ -2,9 +2,7 @@ name: CD
 
 on:
   push:
-    branches: [Development]
-  pull_request:
-    branches: [Development]
+    branches: [deploy]
 
 env:
   REGISTRY: ghcr.io
