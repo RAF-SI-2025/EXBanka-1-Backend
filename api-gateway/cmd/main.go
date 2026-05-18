@@ -177,6 +177,36 @@ func main() {
 	}
 	defer otcOptionsConn.Close()
 
+	otcStockMarketClient, otcStockMarketConn, err := grpcclients.NewOTCStockMarketClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to OTC stock market service: %v", err)
+	}
+	defer otcStockMarketConn.Close()
+
+	watchlistClient, watchlistConn, err := grpcclients.NewWatchlistClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to watchlist service: %v", err)
+	}
+	defer watchlistConn.Close()
+
+	priceAlertClient, priceAlertConn, err := grpcclients.NewPriceAlertClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to price-alert service: %v", err)
+	}
+	defer priceAlertConn.Close()
+
+	recurringOrderClient, recurringOrderConn, err := grpcclients.NewRecurringOrderClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to recurring-order service: %v", err)
+	}
+	defer recurringOrderConn.Close()
+
+	recurringFundClient, recurringFundConn, err := grpcclients.NewRecurringFundClient(cfg.StockGRPCAddr)
+	if err != nil {
+		log.Fatalf("failed to connect to recurring-fund service: %v", err)
+	}
+	defer recurringFundConn.Close()
+
 	// Blueprint service reuses the user-service connection
 	blueprintClient, blueprintConn, err := grpcclients.NewBlueprintClient(cfg.UserGRPCAddr)
 	if err != nil {
@@ -253,39 +283,44 @@ func main() {
 	// version — see api-gateway/internal/router/router_versioning.md
 	// for the v4-add-later pattern.
 	deps := router.Deps{
-		AuthClient:          authClient,
-		UserClient:          userClient,
-		ClientClient:        clientClient,
-		AccountClient:       accountClient,
-		CardClient:          cardClient,
-		TxClient:            txClient,
-		CreditClient:        creditClient,
-		EmpLimitClient:      empLimitClient,
-		ClientLimitClient:   clientLimitClient,
-		VirtualCardClient:   virtualCardClient,
-		BankAccountClient:   bankAccountClient,
-		FeeClient:           feeClient,
-		CardRequestClient:   cardRequestClient,
-		ExchangeClient:      exchangeClient,
-		StockExchangeClient: stockExchangeClient,
-		SecurityClient:      securityClient,
-		OrderClient:         orderClient,
-		PortfolioClient:     portfolioClient,
-		OTCClient:           otcClient,
-		TaxClient:           taxClient,
-		ActuaryClient:       actuaryClient,
-		BlueprintClient:     blueprintClient,
-		VerificationClient:  verificationClient,
-		NotificationClient:  notificationClient,
-		SourceAdminClient:   sourceAdminClient,
-		FundClient:          fundClient,
-		OTCOptionsClient:    otcOptionsClient,
-		PeerTxClient:        peerTxClient,
-		PeerBankAdminClient: peerBankAdminClient,
-		PeerNonces:          peerNonceStore,
-		PeerBanks:           peerBankResolver,
-		OwnBankCode:         cfg.OwnBankCode,
-		PeerOTCClient:       peerOTCClient,
+		AuthClient:           authClient,
+		UserClient:           userClient,
+		ClientClient:         clientClient,
+		AccountClient:        accountClient,
+		CardClient:           cardClient,
+		TxClient:             txClient,
+		CreditClient:         creditClient,
+		EmpLimitClient:       empLimitClient,
+		ClientLimitClient:    clientLimitClient,
+		VirtualCardClient:    virtualCardClient,
+		BankAccountClient:    bankAccountClient,
+		FeeClient:            feeClient,
+		CardRequestClient:    cardRequestClient,
+		ExchangeClient:       exchangeClient,
+		StockExchangeClient:  stockExchangeClient,
+		SecurityClient:       securityClient,
+		OrderClient:          orderClient,
+		PortfolioClient:      portfolioClient,
+		OTCClient:            otcClient,
+		TaxClient:            taxClient,
+		ActuaryClient:        actuaryClient,
+		BlueprintClient:      blueprintClient,
+		VerificationClient:   verificationClient,
+		NotificationClient:   notificationClient,
+		SourceAdminClient:    sourceAdminClient,
+		FundClient:           fundClient,
+		OTCOptionsClient:     otcOptionsClient,
+		OTCStockMarketClient: otcStockMarketClient,
+		WatchlistClient:      watchlistClient,
+		PriceAlertClient:     priceAlertClient,
+		RecurringOrderClient: recurringOrderClient,
+		RecurringFundClient:  recurringFundClient,
+		PeerTxClient:         peerTxClient,
+		PeerBankAdminClient:  peerBankAdminClient,
+		PeerNonces:           peerNonceStore,
+		PeerBanks:            peerBankResolver,
+		OwnBankCode:          cfg.OwnBankCode,
+		PeerOTCClient:        peerOTCClient,
 	}
 	h := router.NewHandlers(deps)
 	router.SetupV3(r, h)

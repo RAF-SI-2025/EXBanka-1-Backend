@@ -14,20 +14,21 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
-// AcceptInput captures the parameters of an Accept call. AccountIDs are
-// passed in by the caller (the gateway resolves them from the user's session
-// or from request body).
+// AcceptInput captures the parameters of an Accept call.
 type AcceptInput struct {
 	OfferID         uint64
 	ActorUserID     int64
 	ActorSystemType string
-	BuyerAccountID  uint64 // buyer's account that pays the premium
-	SellerAccountID uint64 // seller's account that receives the premium
+	// AcceptorAccountID is the accepting party's own account. The other
+	// side's account is read from offer.InitiatorAccountID. Which is buyer
+	// vs seller is decided by offer.direction.
+	AcceptorAccountID uint64
 }
 
 // Accept runs the premium-payment saga (§6.1 of spec):
@@ -67,11 +68,27 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 
 	buyerOwnerType, buyerOwnerID, sellerOwnerType, sellerOwnerID := identifyOTCBuyerSellerOwners(o, in.ActorUserID, in.ActorSystemType)
 
-	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.BuyerAccountID})
+	// The initiator bound their account at create; the acceptor binds theirs
+	// now. Which is buyer vs seller follows offer.direction: on a
+	// sell_initiated offer the initiator is the seller and the acceptor the
+	// buyer; on a buy_initiated offer it is the reverse.
+	var buyerAccountID, sellerAccountID uint64
+	if o.Direction == model.OTCDirectionSellInitiated {
+		sellerAccountID = o.InitiatorAccountID
+		buyerAccountID = in.AcceptorAccountID
+	} else {
+		buyerAccountID = o.InitiatorAccountID
+		sellerAccountID = in.AcceptorAccountID
+	}
+	if buyerAccountID == 0 || sellerAccountID == 0 {
+		return nil, errors.New("both buyer and seller accounts must be bound")
+	}
+
+	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: buyerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get buyer account: %w", err)
 	}
-	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.SellerAccountID})
+	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: sellerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get seller account: %w", err)
 	}
@@ -111,10 +128,12 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		BuyerOwnerID:    buyerOwnerID,
 		SellerOwnerType: sellerOwnerType,
 		SellerOwnerID:   sellerOwnerID,
-		StockID:         o.StockID, Quantity: o.Quantity, StrikePrice: o.StrikePrice,
+		StockID:         o.StockID, Ticker: o.Ticker, Quantity: o.Quantity, StrikePrice: o.StrikePrice,
 		PremiumPaid: o.Premium, PremiumCurrency: premiumCcy, StrikeCurrency: premiumCcy,
 		SettlementDate: o.SettlementDate, Status: model.OptionContractStatusActive,
 		SagaID: sagaID, PremiumPaidAt: time.Now().UTC(),
+		BuyerAccountID:  buyerAccountID,
+		SellerAccountID: sellerAccountID,
 	}
 
 	// Pre-compute idempotency keys + memos. The contract.ID is unknown
@@ -127,7 +146,6 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 
 	state := saga.NewState()
 	state.Set("step:reserve_and_contract:amount", o.Quantity)
-	state.Set("step:reserve_and_contract:currency", "shares")
 	state.Set("step:reserve_premium:amount", premiumBuyerCcy)
 	state.Set("step:reserve_premium:currency", buyerCcy)
 	state.Set("step:settle_premium_buyer:amount", premiumBuyerCcy)
@@ -160,13 +178,13 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		Add(saga.Step{
 			Name: saga.StepReservePremium,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy,
-					saga.IdempotencyKey(sagaID, saga.StepReservePremium))
+				_, e := s.accounts.ReserveFunds(ctx, buyerAccountID, contract.ID, premiumBuyerCcy, buyerCcy,
+					saga.IdempotencyKey(sagaID, saga.StepReservePremium), orderkind.OTCPremium)
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReleaseReservation(ctx, contract.ID,
-					saga.IdempotencyKey(sagaID, saga.StepReservePremium)+":compensate")
+					saga.IdempotencyKey(sagaID, saga.StepReservePremium)+":compensate", orderkind.OTCPremium)
 				return e
 			},
 		}).
@@ -174,7 +192,7 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 			Name: saga.StepSettlePremiumBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.PartialSettleReservation(ctx, contract.ID, 1, premiumBuyerCcy, settleMemo,
-					saga.IdempotencyKey(sagaID, saga.StepSettlePremiumBuyer))
+					saga.IdempotencyKey(sagaID, saga.StepSettlePremiumBuyer), orderkind.OTCPremium)
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
@@ -219,6 +237,58 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 		Action:                  model.OTCActionAccept,
 	})
 
+	// Option premium realised P/L (SecurityType="option"). Writer
+	// receives the premium → +TotalGain; buyer pays the premium →
+	// −TotalGain. Both are realised at acceptance, NOT at exercise
+	// or expiry, so:
+	//   - if the option later expires worthless, no further entry is
+	//     needed (premium loss/gain already booked correctly);
+	//   - if the option is later exercised, the strike-priced stock
+	//     transfer realises stock P/L on top via the exercise saga
+	//     (writer's stock CG; buyer's later stock sell), giving
+	//     correct end-to-end totals.
+	// Best-effort: a CG write failure logs WARN and does not reverse
+	// the saga (money already moved).
+	if s.capitalGainRepo != nil {
+		now := time.Now()
+		writerCG := &model.CapitalGain{
+			OwnerType:        sellerOwnerType,
+			OwnerID:          sellerOwnerID,
+			OTC:              true,
+			SecurityType:     "option",
+			Ticker:           contract.Ticker,
+			Quantity:         qty,
+			BuyPricePerUnit:  decimal.Zero,
+			SellPricePerUnit: o.Premium.Div(decimal.NewFromInt(qty)),
+			TotalGain:        o.Premium,
+			Currency:         premiumCcy,
+			AccountID:        sellerAccountID,
+			TaxYear:          now.Year(),
+			TaxMonth:         int(now.Month()),
+		}
+		buyerCG := &model.CapitalGain{
+			OwnerType:        buyerOwnerType,
+			OwnerID:          buyerOwnerID,
+			OTC:              true,
+			SecurityType:     "option",
+			Ticker:           contract.Ticker,
+			Quantity:         qty,
+			BuyPricePerUnit:  o.Premium.Div(decimal.NewFromInt(qty)),
+			SellPricePerUnit: decimal.Zero,
+			TotalGain:        o.Premium.Neg(),
+			Currency:         premiumCcy,
+			AccountID:        buyerAccountID,
+			TaxYear:          now.Year(),
+			TaxMonth:         int(now.Month()),
+		}
+		if cgErr := s.capitalGainRepo.Create(writerCG); cgErr != nil {
+			log.Printf("WARN: OTC accept saga=%s: writer premium capital gain create failed: %v", sagaID, cgErr)
+		}
+		if cgErr := s.capitalGainRepo.Create(buyerCG); cgErr != nil {
+			log.Printf("WARN: OTC accept saga=%s: buyer premium capital gain create failed: %v", sagaID, cgErr)
+		}
+	}
+
 	// Post-saga Kafka publish goes through the transactional outbox when
 	// wired so a crash between business commit and Kafka send doesn't drop
 	// the otc.contract-created event. Falls back to direct PublishRaw
@@ -239,6 +309,16 @@ func (s *OTCOfferService) Accept(ctx context.Context, in AcceptInput) (*model.Op
 	if data, err := json.Marshal(payload); err == nil {
 		s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCContractCreated, data, sagaID)
 	}
+
+	// In-app notifications to both client parties (no-op for bank parties /
+	// nil notifier). Best-effort — money already moved.
+	ccData := map[string]string{
+		"ticker": contract.Ticker, "quantity": contract.Quantity.String(),
+		"strike_price": contract.StrikePrice.String(), "premium_paid": contract.PremiumPaid.String(),
+	}
+	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(buyerOwnerType), OwnerID: buyerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
+	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(sellerOwnerType), OwnerID: sellerOwnerID}, "OTC_CONTRACT_CREATED", "otc_contract", contract.ID, ccData)
+
 	return contract, nil
 }
 

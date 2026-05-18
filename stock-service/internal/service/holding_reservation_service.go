@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -64,10 +65,16 @@ type ReleaseHoldingResult struct {
 }
 
 // PartialSettleHoldingResult is returned by PartialSettle.
+//
+// AveragePriceBefore captures the seller's cost basis snapshot at the
+// instant the consume runs (under the row lock), so callers can write a
+// realised CapitalGain row without a second DB read race. Populated by
+// ConsumeForPeerOptionContract; left zero by paths that don't need it.
 type PartialSettleHoldingResult struct {
-	SettledQuantity   int64
-	RemainingReserved int64
-	QuantityAfter     int64
+	SettledQuantity    int64
+	RemainingReserved  int64
+	QuantityAfter      int64
+	AveragePriceBefore decimal.Decimal
 }
 
 // Reserve locks `qty` shares of the given holding for `orderID`. Idempotent on
@@ -331,6 +338,11 @@ func (s *HoldingReservationService) ReserveForPeerOptionContract(
 	if qty <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "qty must be > 0")
 	}
+	// Tickers across banks may arrive in mixed case via SI-TX (the
+	// peer's quoting convention is theirs, not ours). Normalize to
+	// upper for the holdings lookup so "csco" from a peer still
+	// matches our local "CSCO" holding row. (Fix #4, 2026-05-16.)
+	ticker = strings.ToUpper(ticker)
 	var out *ReserveHoldingResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var holding model.Holding
@@ -628,7 +640,12 @@ func (s *HoldingReservationService) ConsumeForPeerOptionContract(
 	syntheticTxnID := peerOptionContractID + peerOTCSettlementOffset
 	var out *PartialSettleHoldingResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		res, err := s.resRepo.WithTx(tx).GetByPeerOptionContractID(peerOptionContractID)
+		// Fix R1 (2026-05-16): use the SELECT FOR UPDATE variant so a
+		// concurrent ReleaseForPeerOptionContract on the same row can't
+		// pass the active-status check after we've already started
+		// settling — without the row lock, both flows would decrement
+		// holding.reserved_quantity for the same shares.
+		res, err := s.resRepo.WithTx(tx).GetByPeerOptionContractIDForUpdate(peerOptionContractID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return status.Error(codes.FailedPrecondition, "peer option reservation not found")
@@ -665,12 +682,20 @@ func (s *HoldingReservationService) ConsumeForPeerOptionContract(
 		}
 		if createResult.RowsAffected == 0 {
 			out = &PartialSettleHoldingResult{
-				SettledQuantity:   qty,
-				RemainingReserved: holding.ReservedQuantity,
-				QuantityAfter:     holding.Quantity,
+				SettledQuantity:    qty,
+				RemainingReserved:  holding.ReservedQuantity,
+				QuantityAfter:      holding.Quantity,
+				AveragePriceBefore: holding.AveragePrice,
 			}
 			return nil
 		}
+		// Snapshot the seller's cost basis BEFORE the holding row mutates
+		// so the caller can write a CapitalGain row for the realised
+		// strike-priced sale. Cost basis doesn't change as shares leave
+		// (weighted average is preserved), but capturing here keeps the
+		// snapshot inside the row lock so a concurrent buy/sell can't
+		// shift AveragePrice between consume and CG write.
+		costBasisBefore := holding.AveragePrice
 		holding.ReservedQuantity -= qty
 		if holding.ReservedQuantity < 0 {
 			holding.ReservedQuantity = 0
@@ -687,9 +712,10 @@ func (s *HoldingReservationService) ConsumeForPeerOptionContract(
 			}
 		}
 		out = &PartialSettleHoldingResult{
-			SettledQuantity:   qty,
-			RemainingReserved: holding.ReservedQuantity,
-			QuantityAfter:     holding.Quantity,
+			SettledQuantity:    qty,
+			RemainingReserved:  holding.ReservedQuantity,
+			QuantityAfter:      holding.Quantity,
+			AveragePriceBefore: costBasisBefore,
 		}
 		return nil
 	})
@@ -706,7 +732,9 @@ func (s *HoldingReservationService) ConsumeForPeerOptionContract(
 func (s *HoldingReservationService) ReleaseForPeerOptionContract(ctx context.Context, peerOptionContractID uint64) (*ReleaseHoldingResult, error) {
 	var out *ReleaseHoldingResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		res, err := s.resRepo.WithTx(tx).GetByPeerOptionContractID(peerOptionContractID)
+		// Fix R1 (2026-05-16): use the SELECT FOR UPDATE variant —
+		// see ConsumeForPeerOptionContract for the full rationale.
+		res, err := s.resRepo.WithTx(tx).GetByPeerOptionContractIDForUpdate(peerOptionContractID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				out = &ReleaseHoldingResult{ReleasedQuantity: 0, ReservedQuantity: 0}
@@ -758,12 +786,20 @@ func (s *HoldingReservationService) ReleaseForPeerOptionContract(ctx context.Con
 // Idempotency relies on the caller — peer_option_contracts row
 // status="exercised" + the COMMIT_TX idempotency record together
 // prevent double-credits across replays.
+//
+// strikePrice is the per-share price the buyer paid on exercise and
+// becomes the new holding's AveragePrice (when this is the buyer's
+// first holding for the ticker) or is folded into the running
+// weighted average (when the buyer already held shares). Premium paid
+// at acceptance is accounted for separately as a CapitalGain row with
+// SecurityType="option" — it does NOT belong in cost basis.
 func (s *HoldingReservationService) CreditBuyerHoldingForPeerOption(
 	ctx context.Context,
 	ownerType model.OwnerType,
 	ownerID *uint64,
 	ticker string,
 	qty int64,
+	strikePrice decimal.Decimal,
 ) error {
 	if qty <= 0 {
 		return status.Error(codes.InvalidArgument, "qty must be > 0")
@@ -779,7 +815,16 @@ func (s *HoldingReservationService) CreditBuyerHoldingForPeerOption(
 		}
 		err := q.First(&holding).Error
 		if err == nil {
-			holding.Quantity += qty
+			// Existing position: weighted-average cost basis across the
+			// pre-existing shares and the strike-priced shares we're
+			// crediting now. Mirrors HoldingRepository.Upsert math so
+			// the cross-bank exercise produces the same cost basis a
+			// matching market buy at the strike would have.
+			oldTotal := holding.AveragePrice.Mul(decimal.NewFromInt(holding.Quantity))
+			newTotal := strikePrice.Mul(decimal.NewFromInt(qty))
+			totalQty := holding.Quantity + qty
+			holding.AveragePrice = oldTotal.Add(newTotal).Div(decimal.NewFromInt(totalQty))
+			holding.Quantity = totalQty
 			return shared.CheckRowsAffected(tx.Save(&holding))
 		}
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -789,9 +834,10 @@ func (s *HoldingReservationService) CreditBuyerHoldingForPeerOption(
 		// row passes existing not-null + unique constraints. Listing
 		// id and security id default to 0 here; subsequent reads will
 		// resolve them when the user interacts with the holding via
-		// portfolio endpoints. Average price is 0 — the option's
-		// strike isn't a market price and doesn't represent the user's
-		// average cost basis on the share itself.
+		// portfolio endpoints. AveragePrice = strike: the user paid
+		// the strike per share to acquire these, so later sells use
+		// the strike as cost basis (premium tracked separately via
+		// the option CG row written at acceptance).
 		newHolding := model.Holding{
 			OwnerType:        ownerType,
 			OwnerID:          ownerID,
@@ -802,7 +848,7 @@ func (s *HoldingReservationService) CreditBuyerHoldingForPeerOption(
 			Name:             ticker,
 			Quantity:         qty,
 			ReservedQuantity: 0,
-			AveragePrice:     decimal.Zero,
+			AveragePrice:     strikePrice,
 		}
 		return tx.Create(&newHolding).Error
 	})

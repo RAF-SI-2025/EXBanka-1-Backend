@@ -77,3 +77,46 @@ func NewOTCOptionsClient(addr string) (stockpb.OTCOptionsServiceClient, *grpc.Cl
 	}
 	return stockpb.NewOTCOptionsServiceClient(conn), conn, nil
 }
+
+// NewOTCStockMarketClient connects to the Phase-3 OTCStockMarketGRPCService
+// (sell+buy direction stocks marketplace). Used by the gateway's
+// /api/v3/otc/stocks/* and /api/v3/me/otc/stocks routes.
+func NewOTCStockMarketClient(addr string) (stockpb.OTCStockMarketGRPCServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewOTCStockMarketGRPCServiceClient(conn), conn, nil
+}
+
+func NewWatchlistClient(addr string) (stockpb.WatchlistServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewWatchlistServiceClient(conn), conn, nil
+}
+
+func NewPriceAlertClient(addr string) (stockpb.PriceAlertServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewPriceAlertServiceClient(conn), conn, nil
+}
+
+func NewRecurringOrderClient(addr string) (stockpb.RecurringOrderServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewRecurringOrderServiceClient(conn), conn, nil
+}
+
+func NewRecurringFundClient(addr string) (stockpb.RecurringFundServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewRecurringFundServiceClient(conn), conn, nil
+}

@@ -34,6 +34,11 @@ func NewHoldingRepository(db *gorm.DB) *HoldingRepository {
 	return &HoldingRepository{db: db}
 }
 
+// DB exposes the underlying *gorm.DB. Used by service-layer callers
+// that need to drive db.Transaction directly (read-check-decrement
+// patterns where the lock must span multiple repo calls).
+func (r *HoldingRepository) DB() *gorm.DB { return r.db }
+
 // Upsert creates a new holding or updates an existing one with weighted average price.
 // Uses SELECT FOR UPDATE to prevent race conditions on concurrent fills.
 // The aggregation key is (owner_type, owner_id, security_type, security_id)
@@ -71,9 +76,23 @@ func (r *HoldingRepository) Upsert(ctx context.Context, holding *model.Holding) 
 			existing.AveragePrice = oldTotal.Add(newTotal).Div(decimal.NewFromInt(totalQty))
 		}
 		existing.Quantity = totalQty
-		existing.ListingID = holding.ListingID
-		existing.Ticker = holding.Ticker
-		existing.Name = holding.Name
+		// Display-metadata fields are only overwritten when the incoming
+		// caller provided a non-empty value. This prevents a partial
+		// upsert (e.g. one that knows quantity + average_price but not
+		// listing_id) from wiping the existing row's display fields.
+		// (Fix 2026-05-16: the OTC exercise saga previously called Upsert
+		// without Ticker/Name/ListingID and silently overwrote them on
+		// pre-existing rows.) New rows still get whatever the caller
+		// passed via the Create path above.
+		if holding.ListingID != 0 {
+			existing.ListingID = holding.ListingID
+		}
+		if holding.Ticker != "" {
+			existing.Ticker = holding.Ticker
+		}
+		if holding.Name != "" {
+			existing.Name = holding.Name
+		}
 		// Update the audit "last account used" pointer when the caller
 		// supplied one (zero is treated as "don't overwrite" so a
 		// reservation-only update doesn't wipe the last-used account).
@@ -104,6 +123,29 @@ func (r *HoldingRepository) GetByID(id uint64) (*model.Holding, error) {
 		return nil, err
 	}
 	return &holding, nil
+}
+
+// LockByIDTx does SELECT FOR UPDATE inside an active transaction. Used by
+// OTCStockService's CreateSellOffer/CancelSellOffer/FillSellOffer to
+// serialize concurrent public_quantity mutations on the same holding.
+func (r *HoldingRepository) LockByIDTx(tx *gorm.DB, id uint64) (*model.Holding, error) {
+	var holding model.Holding
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&holding, id).Error; err != nil {
+		return nil, err
+	}
+	return &holding, nil
+}
+
+// SaveTx variant for use inside an existing transaction.
+func (r *HoldingRepository) SaveTx(tx *gorm.DB, holding *model.Holding) error {
+	result := tx.Save(holding)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrOptimisticLock
+	}
+	return nil
 }
 
 func (r *HoldingRepository) Update(holding *model.Holding) error {
@@ -141,6 +183,21 @@ func (r *HoldingRepository) GetByOwnerAndSecurity(ownerType model.OwnerType, own
 func (r *HoldingRepository) GetByOwnerAndTicker(ownerType model.OwnerType, ownerID *uint64, securityType, ticker string) (*model.Holding, error) {
 	var holding model.Holding
 	q := r.db.Where("security_type = ? AND ticker = ?", securityType, ticker)
+	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
+	if err := q.First(&holding).Error; err != nil {
+		return nil, err
+	}
+	return &holding, nil
+}
+
+// LockByOwnerAndSecurityTx does SELECT FOR UPDATE inside an active
+// transaction. Used by OTCStockService.FillBuyOffer to serialise
+// concurrent fills against the same seller holding so two parallel
+// sellers can't both "sell" the same shares.
+func (r *HoldingRepository) LockByOwnerAndSecurityTx(tx *gorm.DB, ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error) {
+	var holding model.Holding
+	q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("security_type = ? AND security_id = ?", securityType, securityID)
 	q = scopeOwner(q, "owner_type", "owner_id", ownerType, ownerID)
 	if err := q.First(&holding).Error; err != nil {
 		return nil, err

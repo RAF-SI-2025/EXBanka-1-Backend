@@ -133,10 +133,10 @@ func TestPeerOTC_UpdateNegotiation_Success(t *testing.T) {
 		"settlementDate": "2026-12-31",
 		"pricePerUnit":   map[string]any{"amount": "200", "currency": "USD"},
 		"premium":        map[string]any{"amount": "10", "currency": "USD"},
-		"buyerId":        map[string]any{"routingNumber": 222, "id": "b"},
-		"sellerId":       map[string]any{"routingNumber": 111, "id": "s"},
+		"buyerId":        map[string]any{"routingNumber": 222, "id": "client-1"},
+		"sellerId":       map[string]any{"routingNumber": 111, "id": "client-3"},
 		"amount":         50,
-		"lastModifiedBy": map[string]any{"routingNumber": 222, "id": "u"},
+		"lastModifiedBy": map[string]any{"routingNumber": 222, "id": "client-1"},
 	})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/negotiations/222/neg-1", bytes.NewReader(body))
@@ -175,10 +175,10 @@ func TestPeerOTC_UpdateNegotiation_GRPCError(t *testing.T) {
 		"settlementDate": "2026-12-31",
 		"pricePerUnit":   map[string]any{"amount": "200", "currency": "USD"},
 		"premium":        map[string]any{"amount": "10", "currency": "USD"},
-		"buyerId":        map[string]any{"routingNumber": 222, "id": "b"},
-		"sellerId":       map[string]any{"routingNumber": 111, "id": "s"},
+		"buyerId":        map[string]any{"routingNumber": 222, "id": "client-1"},
+		"sellerId":       map[string]any{"routingNumber": 111, "id": "client-3"},
 		"amount":         50,
-		"lastModifiedBy": map[string]any{"routingNumber": 222, "id": "u"},
+		"lastModifiedBy": map[string]any{"routingNumber": 222, "id": "client-1"},
 	})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/negotiations/222/neg-1", bytes.NewReader(body))

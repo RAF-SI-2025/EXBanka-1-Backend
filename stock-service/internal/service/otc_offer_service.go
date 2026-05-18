@@ -25,6 +25,14 @@ type OTCHoldingLookup interface {
 	GetByOwnerAndSecurity(ownerType model.OwnerType, ownerID *uint64, securityType string, securityID uint64) (*model.Holding, error)
 }
 
+// otcNotifier is the narrow surface used to emit in-app notifications for OTC
+// offer events. Satisfied by *kafkaprod.Producer (Task 1 gave it the method).
+// Declared as an interface so tests can inject a recording stub — the concrete
+// *kafkaprod.Producer is otherwise impossible to observe.
+type otcNotifier interface {
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+}
+
 // OTCOfferService owns negotiation flows: create, counter, reject, list, get.
 // Money flow (premium payment, exercise) lives in separate sagas. The
 // service-layer seller-invariant check (§4.6 of spec) ensures a seller
@@ -38,12 +46,26 @@ type OTCOfferService struct {
 	receipts    *repository.OTCReadReceiptRepository
 	producer    *kafkaprod.Producer
 
+	// notifier emits in-app (push) notifications for OTC offer events. Set to
+	// the same *kafkaprod.Producer as `producer` by NewOTCOfferService; tests
+	// inject a recording stub.
+	notifier otcNotifier
+
 	// saga deps (optional; wired via WithSaga). Required by Accept and
 	// ExerciseContract.
 	sagaRepo   SagaLogRepo
 	accounts   OTCAccountClient
 	exchange   FundExchangeClient
 	holdingRes *HoldingReservationService
+
+	// stockMeta resolves (Name, ListingID) for a stock_id at exercise
+	// time so the buyer-credit holding upsert carries the metadata the
+	// FE needs (otherwise the new row appears with blank ticker/name/
+	// listing_id and downstream "sell" / "make public" flows fail).
+	// Optional — when nil, the upsert proceeds with c.Ticker only and
+	// Name/ListingID stay empty (legacy behaviour). cmd/main.go wires
+	// it via WithStockMeta.
+	stockMeta OTCStockMetaResolver
 
 	// Outbox: when wired (via WithOutbox), post-saga Kafka publishes
 	// (otc.contract-created, otc.contract-exercised) go through the
@@ -54,6 +76,14 @@ type OTCOfferService struct {
 	// don't wire a DB still work.
 	outbox   *outbox.Outbox
 	outboxDB *gorm.DB
+
+	// capitalGainRepo records the seller's realised P/L when an option
+	// contract is exercised — mirroring the CapitalGain row that
+	// PortfolioService.recordCapitalGain writes on a normal sell fill and
+	// OTCService.BuyOffer writes on a direct OTC stock sale. Optional —
+	// when nil the saga still runs (shares + money move) and a WARN is
+	// logged. Wired via WithCapitalGain.
+	capitalGainRepo CapitalGainRepo
 }
 
 // WithOutbox wires the transactional outbox + the GORM handle the saga
@@ -85,9 +115,9 @@ func (s *OTCOfferService) publishViaOutboxOrDirect(ctx context.Context, topic st
 // sagas use. Superset of FundAccountClient (adds reservation lifecycle).
 type OTCAccountClient interface {
 	FundAccountClient
-	ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency, idempotencyKey string) (*accountpb.ReserveFundsResponse, error)
-	ReleaseReservation(ctx context.Context, sagaOrderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
-	PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error)
+	ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency, idempotencyKey, orderKind string) (*accountpb.ReserveFundsResponse, error)
+	ReleaseReservation(ctx context.Context, sagaOrderID uint64, idempotencyKey, orderKind string) (*accountpb.ReleaseReservationResponse, error)
+	PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo, idempotencyKey, orderKind string) (*accountpb.PartialSettleReservationResponse, error)
 }
 
 // OTCHoldingMutator is the surface needed to credit a buyer's holding on
@@ -96,6 +126,19 @@ type OTCAccountClient interface {
 // stamped for cross-service audit.
 type OTCHoldingMutator interface {
 	Upsert(ctx context.Context, h *model.Holding) error
+}
+
+// OTCStockMetaResolver is the narrow lookup the exercise saga uses to
+// resolve display metadata (Name) and the underlying ListingID for a
+// stock_id. The exercise saga has the OptionContract's stock_id +
+// ticker but not the corresponding Listing row id (different per bank)
+// or the Stock display name — without these, the upserted buyer
+// holding lacks the fields the FE needs to render and to construct
+// downstream sell orders. (Fix for 2026-05-16: "user cant make public
+// or sell stock acquired thru contract".)
+type OTCStockMetaResolver interface {
+	GetStockByID(id uint64) (*model.Stock, error)
+	GetListingBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error)
 }
 
 // WithSaga wires the dependencies needed by Accept / ExerciseContract.
@@ -118,6 +161,26 @@ func (s *OTCOfferService) WithSaga(
 	return &cp
 }
 
+// WithCapitalGain wires the repository that records the seller's realised
+// P/L on a successful exercise. Optional — without it the exercise saga
+// still moves shares and money, but no CapitalGain row is written and the
+// seller's portfolio reports zero gain on the sale (the pre-fix behaviour).
+func (s *OTCOfferService) WithCapitalGain(repo CapitalGainRepo) *OTCOfferService {
+	cp := *s
+	cp.capitalGainRepo = repo
+	return &cp
+}
+
+// WithStockMeta wires the lookup used by the exercise saga to fill the
+// buyer-credit holding's display fields (Name, ListingID). Optional —
+// without it, those fields are left empty (Ticker is still populated
+// from the contract).
+func (s *OTCOfferService) WithStockMeta(r OTCStockMetaResolver) *OTCOfferService {
+	cp := *s
+	cp.stockMeta = r
+	return &cp
+}
+
 var errOTCSagaDepsNotWired = errors.New("OTC saga dependencies not wired")
 
 func NewOTCOfferService(
@@ -128,10 +191,25 @@ func NewOTCOfferService(
 	receipts *repository.OTCReadReceiptRepository,
 	producer *kafkaprod.Producer,
 ) *OTCOfferService {
-	return &OTCOfferService{
+	s := &OTCOfferService{
 		offers: offers, revisions: revisions, contracts: contracts,
 		holdings: holdings, receipts: receipts, producer: producer,
 	}
+	// Wire the notifier to the same producer. Guard against assigning a typed
+	// nil into the interface (which would make s.notifier != nil but panic on
+	// call) by only setting it when the producer is actually present.
+	if producer != nil {
+		s.notifier = producer
+	}
+	return s
+}
+
+// notifyOTCParty emits an in-app notification to one OTC party. No-op for bank
+// parties (OwnerType != "client" or nil OwnerID) and best-effort. Delegates to
+// the package-level notifyOTCPartyVia so the OTC expiry cron (a separate type)
+// shares the same emit logic.
+func (s *OTCOfferService) notifyOTCParty(ctx context.Context, party kafkamsg.OTCParty, notifType, refType string, refID uint64, data map[string]string) {
+	notifyOTCPartyVia(ctx, s.notifier, party, notifType, refType, refID, data)
 }
 
 // CreateOfferInput captures the fields a new offer needs.
@@ -140,12 +218,14 @@ type CreateOfferInput struct {
 	ActorSystemType        string
 	Direction              string
 	StockID                uint64
+	Ticker                 string
 	Quantity               decimal.Decimal
 	StrikePrice            decimal.Decimal
 	Premium                decimal.Decimal
 	SettlementDate         time.Time
 	CounterpartyUserID     *int64
 	CounterpartySystemType *string
+	InitiatorAccountID     uint64
 }
 
 func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*model.OTCOffer, error) {
@@ -163,9 +243,13 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 	default:
 		return nil, errors.New("unknown direction")
 	}
-	if in.Direction == model.OTCDirectionBuyInitiated && in.CounterpartyUserID == nil {
-		return nil, errors.New("buy_initiated offers require a named counterparty")
-	}
+	// Phase 9 follow-up: the legacy single-chain model required a named
+	// counterparty on buy_initiated offers. The new parallel-chains
+	// marketplace lets anyone open a public buy_initiated LISTING for
+	// other users to bid on (the bidder becomes the seller at accept
+	// time via OTCNegotiationService). When a counterparty IS supplied
+	// the offer is "directed" — only the named user sees it in their
+	// list — but it's no longer required.
 	if (in.CounterpartyUserID == nil) != (in.CounterpartySystemType == nil) {
 		return nil, errors.New("counterparty user_id and system_type must both be set or both omitted")
 	}
@@ -193,6 +277,7 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 		CounterpartyOwnerID:         cpOwnerID,
 		Direction:                   in.Direction,
 		StockID:                     in.StockID,
+		Ticker:                      in.Ticker,
 		Quantity:                    in.Quantity,
 		StrikePrice:                 in.StrikePrice,
 		Premium:                     in.Premium,
@@ -200,6 +285,7 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 		Status:                      model.OTCOfferStatusPending,
 		LastModifiedByPrincipalType: in.ActorSystemType,
 		LastModifiedByPrincipalID:   uint64(in.ActorUserID),
+		InitiatorAccountID:          in.InitiatorAccountID,
 	}
 	if err := s.offers.Create(o); err != nil {
 		return nil, err
@@ -237,6 +323,14 @@ func (s *OTCOfferService) Create(ctx context.Context, in CreateOfferInput) (*mod
 		if data, err := json.Marshal(payload); err == nil {
 			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCreated, data, "")
 		}
+	}
+	if o.CounterpartyOwnerType != nil {
+		s.notifyOTCParty(ctx, kafkamsg.OTCParty{
+			OwnerType: string(*o.CounterpartyOwnerType), OwnerID: o.CounterpartyOwnerID,
+		}, "OTC_OFFER_RECEIVED", "otc_offer", o.ID, map[string]string{
+			"ticker": o.Ticker, "quantity": o.Quantity.String(),
+			"strike_price": o.StrikePrice.String(), "premium": o.Premium.String(),
+		})
 	}
 	return o, nil
 }
@@ -326,6 +420,10 @@ func (s *OTCOfferService) Counter(ctx context.Context, in CounterInput) (*model.
 			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferCountered, data, "")
 		}
 	}
+	s.notifyOTCParty(ctx, otcOtherParty(o, in.ActorUserID, in.ActorSystemType), "OTC_OFFER_COUNTERED", "otc_offer", o.ID, map[string]string{
+		"ticker": o.Ticker, "quantity": o.Quantity.String(),
+		"strike_price": o.StrikePrice.String(), "premium": o.Premium.String(),
+	})
 	return o, nil
 }
 
@@ -375,6 +473,9 @@ func (s *OTCOfferService) Reject(ctx context.Context, in RejectInput) (*model.OT
 			s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCOfferRejected, data, "")
 		}
 	}
+	s.notifyOTCParty(ctx, otcOtherParty(o, in.ActorUserID, in.ActorSystemType), "OTC_OFFER_REJECTED", "otc_offer", o.ID, map[string]string{
+		"ticker": o.Ticker,
+	})
 	return o, nil
 }
 
@@ -382,6 +483,14 @@ func (s *OTCOfferService) Reject(ctx context.Context, in RejectInput) (*model.OT
 func (s *OTCOfferService) ListMyOffers(userID int64, systemType, role string, statuses []string, stockID uint64, page, pageSize int) ([]model.OTCOffer, int64, error) {
 	ownerType, ownerID := model.OwnerFromLegacy(uint64(userID), systemType)
 	return s.offers.ListByOwner(ownerType, ownerID, role, statuses, stockID, page, pageSize)
+}
+
+// ListNegotiationHistory returns the caller's terminal OTC negotiations
+// (accepted/rejected/expired/failed) — the read-only "history" view per
+// Celina-3. Callers can narrow by status, date range, and counterparty.
+func (s *OTCOfferService) ListNegotiationHistory(userID int64, systemType string, f repository.HistoryFilter) ([]model.OTCOffer, int64, error) {
+	ownerType, ownerID := model.OwnerFromLegacy(uint64(userID), systemType)
+	return s.offers.ListNegotiationHistory(ownerType, ownerID, f)
 }
 
 // LastReadReceipt returns the read-receipt for (userID, systemType, offerID),

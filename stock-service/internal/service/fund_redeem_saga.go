@@ -52,6 +52,11 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	if err != nil {
 		return nil, fmt.Errorf("fund not found: %v: %w", err, ErrFundNotFound)
 	}
+	// Closed-end funds never allow mid-life redemptions — the supervisor
+	// liquidates the whole pool at maturity and distributes pro-rata.
+	if fund.FundType == model.FundTypeClosed && fund.FundStatus != model.FundStatusOpen {
+		return nil, fmt.Errorf("closed funds do not allow mid-life redemptions (status=%s): %w", fund.FundStatus, ErrFundInactive)
+	}
 	if !fund.Active {
 		return nil, fmt.Errorf("fund is inactive: %w", ErrFundInactive)
 	}
@@ -202,7 +207,9 @@ func (s *FundService) Redeem(ctx context.Context, in RedeemInput) (*model.FundCo
 	// Position decrement is best-effort: money already moved, and position
 	// rows are recoverable from the saga log if this fails. Do NOT include
 	// in the saga — a decrement failure must not reverse the redemption.
-	if err := s.positions.DecrementContribution(in.FundID, posOwnerType, posOwnerID, in.AmountRSD); err != nil {
+	// Fix R2 (2026-05-16): pass contrib.ID for idempotency — a retry of
+	// this best-effort step (or recovery sweep) must not double-subtract.
+	if err := s.positions.DecrementContribution(in.FundID, posOwnerType, posOwnerID, in.AmountRSD, contrib.ID); err != nil {
 		log.Printf("WARN: redeem position decrement failed for saga %s: %v (money already moved)", sagaID, err)
 	}
 

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +29,14 @@ func NewPeerOTCHandler(c stockpb.PeerOTCServiceClient) *PeerOTCHandler {
 	return &PeerOTCHandler{client: c}
 }
 
+// GetPublicStocks godoc
+// @Summary      Peer-to-peer: list public stock holdings
+// @Description  Inbound from a peer bank. Returns this bank's holdings flagged public_quantity > 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2.
+// @Tags         PeerOTC
+// @Produce      json
+// @Success      200 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{}
+// @Router       /api/v3/public-stock [get]
 func (h *PeerOTCHandler) GetPublicStocks(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	resp, err := h.client.GetPublicStocks(c.Request.Context(), &stockpb.GetPublicStocksRequest{
@@ -48,6 +57,58 @@ func (h *PeerOTCHandler) GetPublicStocks(c *gin.Context) {
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"stocks": out})
+}
+
+// GetPublicOptionOffers godoc
+// @Summary      Peer-facing list of OPEN OTC option listings on this bank
+// @Description  Phase 6 cross-bank discovery. Returns this bank's
+//
+//	OPEN, undirected option listings as PeerPublicOptionOffer
+//	rows in SI-TX shape. Auth via X-Api-Key (PeerAuth);
+//	X-Bank-Code is stamped into peer_bank_code so privately-
+//	targeted listings are filtered per-caller.
+//
+// @Tags         PeerOTC
+// @Produce      json
+// @Success      200 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{}
+// @Failure      501 {object} map[string]interface{} "OTCOfferReader not wired"
+// @Router       /api/v3/public-option-offers [get]
+// GetPublicOptionOffers godoc
+// @Summary      Peer-to-peer: list public OPEN OTC option listings (Phase 6 discovery)
+// @Description  Inbound from a peer bank. Returns this bank's open option listings (kind=local). Includes best_bid / best_ask / active_chains_count when available so the peer's cache can surface a richer marketplace view.
+// @Tags         PeerOTC
+// @Produce      json
+// @Success      200 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{}
+// @Router       /api/v3/public-option-offers [get]
+func (h *PeerOTCHandler) GetPublicOptionOffers(c *gin.Context) {
+	pbCode, _ := c.Get("peer_bank_code")
+	resp, err := h.client.GetPublicOptionOffers(c.Request.Context(), &stockpb.GetPublicOptionOffersRequest{
+		PeerBankCode: peerCtxString(pbCode),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	out := make([]gin.H, 0, len(resp.GetOffers()))
+	for _, o := range resp.GetOffers() {
+		out = append(out, gin.H{
+			"offerId":         gin.H{"routingNumber": o.GetOfferId().GetRoutingNumber(), "id": o.GetOfferId().GetId()},
+			"ticker":          o.GetTicker(),
+			"amount":          o.GetAmount(),
+			"strikePrice":     o.GetStrikePrice(),
+			"strikeCurrency":  o.GetStrikeCurrency(),
+			"premium":         o.GetPremium(),
+			"premiumCurrency": o.GetPremiumCurrency(),
+			"settlementDate":  o.GetSettlementDate(),
+			"sellerId":        gin.H{"routingNumber": o.GetSellerId().GetRoutingNumber(), "id": o.GetSellerId().GetId()},
+			"direction":       o.GetDirection(),
+			"createdAt":       o.GetCreatedAt(),
+			"lastModifiedBy":  gin.H{"routingNumber": o.GetLastModifiedBy().GetRoutingNumber(), "id": o.GetLastModifiedBy().GetId()},
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"offers": out})
 }
 
 // peerForeignBankIdReq is the SI-TX ForeignBankId on the wire.
@@ -94,8 +155,73 @@ type peerOtcOfferReq struct {
 	SellerID       peerForeignBankIdReq    `json:"sellerId"`
 	Amount         int64                   `json:"amount"`
 	LastModifiedBy peerForeignBankIdReq    `json:"lastModifiedBy"`
+	// Fix #1 (2026-05-16) — the buyer's 18-digit account number,
+	// optionally pinned by the buyer's bank so the seller's bank uses
+	// this exact account for the buyer-debit posting on accept.
+	// Empty string ⇒ legacy path (participant-id resolution).
+	BuyerAccountNumber string `json:"buyerAccountNumber,omitempty"`
 }
 
+// sitxPrincipalIDPattern matches the SI-TX wire form for participant
+// ids — "client-<digits>" or "employee-<digits>". Used by the inbound
+// peer-OTC handlers (Fix R6, 2026-05-16) so a peer can't submit
+// "client-abc" or "client--1" and have it persisted as a row that
+// then breaks downstream lookups.
+var sitxPrincipalIDPattern = regexp.MustCompile(`^(client|employee)-\d+$`)
+
+// validateInboundOtcOffer enforces the format invariants on an inbound
+// SI-TX OtcOffer: currency codes must be 3-letter ISO codes the bank
+// supports, participant ids must match the SI-TX wire form, and core
+// numeric fields must be non-zero. Returns a non-empty string with a
+// human-readable reason on failure; the caller wraps it in apiError.
+// (Fix R6, 2026-05-16.)
+func validateInboundOtcOffer(off peerOtcOfferReq) string {
+	if !knownCurrency(off.PricePerUnit.Currency) {
+		return "pricePerUnit.currency must be one of the bank's supported ISO 4217 codes"
+	}
+	if !knownCurrency(off.Premium.Currency) {
+		return "premium.currency must be one of the bank's supported ISO 4217 codes"
+	}
+	if off.BuyerID.ID == "" || off.SellerID.ID == "" {
+		return "buyerId.id and sellerId.id are required"
+	}
+	if !sitxPrincipalIDPattern.MatchString(off.BuyerID.ID) {
+		return `buyerId.id must match "client-<N>" or "employee-<N>"`
+	}
+	if !sitxPrincipalIDPattern.MatchString(off.SellerID.ID) {
+		return `sellerId.id must match "client-<N>" or "employee-<N>"`
+	}
+	if off.Amount <= 0 {
+		return "amount must be > 0"
+	}
+	return ""
+}
+
+// knownCurrency mirrors account-service's SeedCurrencies set. Keep in
+// sync (account-service is the SoR; this list is a defense-in-depth
+// gate at the gateway so malformed peer requests fail fast instead of
+// landing in account-service and getting rejected with currency_mismatch
+// at settle time).
+func knownCurrency(c string) bool {
+	switch c {
+	case "RSD", "EUR", "CHF", "USD", "GBP", "JPY", "CAD", "AUD":
+		return true
+	}
+	return false
+}
+
+// CreateNegotiation godoc
+// @Summary      Peer-to-peer: create OTC option negotiation
+// @Description  Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code, foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9).
+// @Tags         PeerOTC
+// @Accept       json
+// @Produce      json
+// @Param        body body peerOtcOfferReq true "SI-TX OtcOffer wire shape"
+// @Success      201 {object} map[string]interface{} "ForeignBankId of the newly-created negotiation"
+// @Failure      400 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{}
+// @Failure      403 {object} map[string]interface{}
+// @Router       /api/v3/negotiations [post]
 func (h *PeerOTCHandler) CreateNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	var off peerOtcOfferReq
@@ -103,8 +229,8 @@ func (h *PeerOTCHandler) CreateNegotiation(c *gin.Context) {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
 		return
 	}
-	if off.BuyerID.ID == "" || off.SellerID.ID == "" {
-		apiError(c, http.StatusBadRequest, ErrValidation, "buyerId and sellerId are required")
+	if reason := validateInboundOtcOffer(off); reason != "" {
+		apiError(c, http.StatusBadRequest, ErrValidation, reason)
 		return
 	}
 	resp, err := h.client.CreateNegotiation(c.Request.Context(), &stockpb.CreateNegotiationRequest{
@@ -123,6 +249,19 @@ func (h *PeerOTCHandler) CreateNegotiation(c *gin.Context) {
 	})
 }
 
+// UpdateNegotiation godoc
+// @Summary      Peer-to-peer: counter-offer on an existing OTC negotiation
+// @Description  Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations row. Only the peer that created the row (matched by peer_bank_code) can update it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.
+// @Tags         PeerOTC
+// @Accept       json
+// @Produce      json
+// @Param        rid path int true "routing number (this bank's, that issued the foreign_id)"
+// @Param        id  path string true "foreign negotiation id"
+// @Param        body body peerOtcOfferReq true "new SI-TX OtcOffer terms"
+// @Success      200
+// @Failure      400 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{}
+// @Router       /api/v3/negotiations/{rid}/{id} [put]
 func (h *PeerOTCHandler) UpdateNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	rid, idStr, ok := parseRidID(c)
@@ -132,6 +271,10 @@ func (h *PeerOTCHandler) UpdateNegotiation(c *gin.Context) {
 	var req peerOtcOfferReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
+		return
+	}
+	if reason := validateInboundOtcOffer(req); reason != "" {
+		apiError(c, http.StatusBadRequest, ErrValidation, reason)
 		return
 	}
 	if _, err := h.client.UpdateNegotiation(c.Request.Context(), &stockpb.UpdateNegotiationRequest{
@@ -145,6 +288,17 @@ func (h *PeerOTCHandler) UpdateNegotiation(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// GetNegotiation godoc
+// @Summary      Peer-to-peer: read an OTC negotiation
+// @Description  Inbound from a peer bank. Returns the full SI-TX OtcNegotiation record for the (peer_bank_code, foreign_id) pair.
+// @Tags         PeerOTC
+// @Produce      json
+// @Param        rid path int true "routing number"
+// @Param        id path string true "foreign negotiation id"
+// @Success      200 {object} map[string]interface{}
+// @Failure      401 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/negotiations/{rid}/{id} [get]
 func (h *PeerOTCHandler) GetNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	rid, idStr, ok := parseRidID(c)
@@ -170,6 +324,16 @@ func (h *PeerOTCHandler) GetNegotiation(c *gin.Context) {
 	c.JSON(http.StatusOK, body)
 }
 
+// DeleteNegotiation godoc
+// @Summary      Peer-to-peer: cancel an OTC negotiation
+// @Description  Inbound from a peer bank. Soft-cancels the negotiation row (status → cancelled). The row is preserved for audit per SI-TX §3.5.
+// @Tags         PeerOTC
+// @Produce      json
+// @Param        rid path int true "routing number"
+// @Param        id path string true "foreign negotiation id"
+// @Success      204
+// @Failure      401 {object} map[string]interface{}
+// @Router       /api/v3/negotiations/{rid}/{id} [delete]
 func (h *PeerOTCHandler) DeleteNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	rid, idStr, ok := parseRidID(c)
@@ -186,6 +350,17 @@ func (h *PeerOTCHandler) DeleteNegotiation(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// AcceptNegotiation godoc
+// @Summary      Peer-to-peer: accept an OTC negotiation (triggers option-formation SI-TX)
+// @Description  Inbound from the buyer's bank. The seller's bank composes the 4-posting NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset, buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies GET semantics.
+// @Tags         PeerOTC
+// @Produce      json
+// @Param        rid path int true "routing number"
+// @Param        id path string true "foreign negotiation id"
+// @Success      200 {object} map[string]interface{} "transactionId + status"
+// @Failure      401 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/negotiations/{rid}/{id}/accept [get]
 func (h *PeerOTCHandler) AcceptNegotiation(c *gin.Context) {
 	pbCode, _ := c.Get("peer_bank_code")
 	rid, idStr, ok := parseRidID(c)
@@ -238,6 +413,7 @@ func offerReqToProto(o peerOtcOfferReq) *stockpb.PeerOtcOffer {
 			RoutingNumber: o.LastModifiedBy.RoutingNumber,
 			Id:            o.LastModifiedBy.ID,
 		},
+		BuyerAccountNumber: o.BuyerAccountNumber,
 	}
 }
 
@@ -249,7 +425,7 @@ func protoOfferToJSON(o *stockpb.PeerOtcOffer) gin.H {
 	if o == nil {
 		return gin.H{}
 	}
-	return gin.H{
+	out := gin.H{
 		"stock":          gin.H{"ticker": o.GetTicker()},
 		"settlementDate": o.GetSettlementDate(),
 		"pricePerUnit":   gin.H{"amount": o.GetPricePerStock(), "currency": o.GetCurrency()},
@@ -257,6 +433,10 @@ func protoOfferToJSON(o *stockpb.PeerOtcOffer) gin.H {
 		"amount":         o.GetAmount(),
 		"lastModifiedBy": gin.H{"routingNumber": o.GetLastModifiedBy().GetRoutingNumber(), "id": o.GetLastModifiedBy().GetId()},
 	}
+	if n := o.GetBuyerAccountNumber(); n != "" {
+		out["buyerAccountNumber"] = n
+	}
+	return out
 }
 
 // peerCtxString safely extracts a string from a gin context value

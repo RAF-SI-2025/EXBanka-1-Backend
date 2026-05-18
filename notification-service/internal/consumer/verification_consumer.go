@@ -32,9 +32,10 @@ type VerificationConsumer struct {
 	sender    emailDispatcher
 	producer  genericPublisher
 	inboxRepo inboxItemCreator
+	templates templateRenderer
 }
 
-func NewVerificationConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer, inboxRepo *repository.MobileInboxRepository) *VerificationConsumer {
+func NewVerificationConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer, inboxRepo *repository.MobileInboxRepository, templateSvc *svc.TemplateService) *VerificationConsumer {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:  strings.Split(brokers, ","),
 		Topic:    kafkamsg.TopicVerificationChallengeCreated,
@@ -47,12 +48,13 @@ func NewVerificationConsumer(brokers string, emailSender *sender.EmailSender, pr
 		sender:    emailSender,
 		producer:  producer,
 		inboxRepo: inboxRepo,
+		templates: templateSvc,
 	}
 }
 
 // newVerificationConsumerForTest constructs a consumer with mocks; no reader.
-func newVerificationConsumerForTest(s emailDispatcher, p genericPublisher, repo inboxItemCreator) *VerificationConsumer {
-	return &VerificationConsumer{sender: s, producer: p, inboxRepo: repo}
+func newVerificationConsumerForTest(s emailDispatcher, p genericPublisher, repo inboxItemCreator, r templateRenderer) *VerificationConsumer {
+	return &VerificationConsumer{sender: s, producer: p, inboxRepo: repo, templates: r}
 }
 
 func (c *VerificationConsumer) Start(ctx context.Context) {
@@ -100,10 +102,14 @@ func (c *VerificationConsumer) handleEmailDelivery(event kafkamsg.VerificationCh
 		}
 	}
 
-	subject, body := sender.BuildEmail(kafkamsg.EmailTypeTransactionVerify, map[string]string{
+	subject, body, renderErr := c.templates.Render(string(kafkamsg.EmailTypeTransactionVerify), "email", map[string]string{
 		"verification_code": code,
 		"expires_in":        "5 minutes",
 	})
+	if renderErr != nil {
+		log.Printf("verification consumer: render error: %v", renderErr)
+		return
+	}
 	// We need the user's email — for email delivery, the verification-service
 	// should have set it. We extract from display_data if available.
 	email := ""

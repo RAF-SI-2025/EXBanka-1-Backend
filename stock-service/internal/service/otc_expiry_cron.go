@@ -29,6 +29,11 @@ type OTCExpiryCron struct {
 	batchSize     int
 	cronUTC       string
 
+	// notifier emits in-app (push) notifications for OTC expiry events. Set
+	// to the same *kafkaprod.Producer as `producer` by NewOTCExpiryCron;
+	// tests inject a recording stub. nil disables in-app notifications.
+	notifier otcNotifier
+
 	// Outbox: optional, enables durable post-commit Kafka publish for the
 	// expire events. When nil, the legacy direct-publish path is used so
 	// unit tests that don't wire a DB still work.
@@ -67,7 +72,29 @@ func NewOTCExpiryCron(
 	if cronUTC == "" {
 		cronUTC = "02:00"
 	}
-	return &OTCExpiryCron{contracts: c, offers: o, holdingRes: h, producer: p, batchSize: batchSize, cronUTC: cronUTC}
+	cr := &OTCExpiryCron{contracts: c, offers: o, holdingRes: h, producer: p, batchSize: batchSize, cronUTC: cronUTC}
+	// Wire the notifier to the same producer. Guard against assigning a typed
+	// nil into the interface (which would make cr.notifier != nil but panic on
+	// call) by only setting it when the producer is actually present.
+	if p != nil {
+		cr.notifier = p
+	}
+	return cr
+}
+
+// notifyOTCPartyVia emits an in-app notification to one OTC party via the
+// given notifier. No-op for bank parties / nil notifier; best-effort.
+func notifyOTCPartyVia(ctx context.Context, n otcNotifier, party kafkamsg.OTCParty, notifType, refType string, refID uint64, data map[string]string) {
+	if n == nil || party.OwnerType != "client" || party.OwnerID == nil {
+		return
+	}
+	_ = n.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  *party.OwnerID,
+		Type:    notifType,
+		Data:    data,
+		RefType: refType,
+		RefID:   refID,
+	})
 }
 
 // RunOnce executes both expiry passes (contracts + offers).
@@ -166,6 +193,11 @@ func (cr *OTCExpiryCron) expireContract(ctx context.Context, c *model.OptionCont
 			publishSagaEvent(ctx, cr.outbox, cr.outboxDB, cr.producer, kafkamsg.TopicOTCContractExpired, data, "")
 		}
 	}
+	// In-app notifications to both client parties (no-op for bank parties /
+	// nil notifier).
+	ceData := map[string]string{"ticker": c.Ticker}
+	notifyOTCPartyVia(ctx, cr.notifier, kafkamsg.OTCParty{OwnerType: string(c.BuyerOwnerType), OwnerID: c.BuyerOwnerID}, "OTC_CONTRACT_EXPIRED", "otc_contract", c.ID, ceData)
+	notifyOTCPartyVia(ctx, cr.notifier, kafkamsg.OTCParty{OwnerType: string(c.SellerOwnerType), OwnerID: c.SellerOwnerID}, "OTC_CONTRACT_EXPIRED", "otc_contract", c.ID, ceData)
 	return nil
 }
 
@@ -188,6 +220,16 @@ func (cr *OTCExpiryCron) expireOffer(ctx context.Context, o *model.OTCOffer) err
 		if data, err := json.Marshal(payload); err == nil {
 			publishSagaEvent(ctx, cr.outbox, cr.outboxDB, cr.producer, kafkamsg.TopicOTCOfferExpired, data, "")
 		}
+	}
+	// In-app notifications to the initiator + counterparty client parties
+	// (no-op for bank parties / nil notifier).
+	notifyOTCPartyVia(ctx, cr.notifier, kafkamsg.OTCParty{
+		OwnerType: string(o.InitiatorOwnerType), OwnerID: o.InitiatorOwnerID,
+	}, "OTC_OFFER_EXPIRED", "otc_offer", o.ID, map[string]string{"ticker": o.Ticker})
+	if o.CounterpartyOwnerType != nil {
+		notifyOTCPartyVia(ctx, cr.notifier, kafkamsg.OTCParty{
+			OwnerType: string(*o.CounterpartyOwnerType), OwnerID: o.CounterpartyOwnerID,
+		}, "OTC_OFFER_EXPIRED", "otc_offer", o.ID, map[string]string{"ticker": o.Ticker})
 	}
 	return nil
 }

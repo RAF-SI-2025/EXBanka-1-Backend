@@ -37,21 +37,26 @@ func (c *AccountClient) Stub() pb.AccountServiceClient {
 	return c.stub
 }
 
-// ReserveFunds holds funds on the user's account for a securities order.
-// Idempotent on orderID: retries are safe no-ops — account-service replays
-// the original response for a duplicate (accountID, orderID) pair.
+// ReserveFunds holds funds on the user's account for a (orderID, orderKind)
+// pair. Idempotent on that pair: retries return the cached response.
+//
+// orderKind names the caller-namespace (e.g. "stock_order", "otc_premium")
+// so two different callers can each use their own auto-increment id space
+// without colliding inside account_reservations. See account-service's
+// model.OrderKind* constants. Empty defaults to "stock_order" on the server.
 //
 // idempotencyKey is the saga-step idempotency cache key required by
-// account-service's wrapped handler (Plan 2026-04-27 Task 9). Saga callers
-// MUST supply a deterministic key (saga.IdempotencyKey(sagaID, step))
-// so retries return the cached response without re-executing.
-func (c *AccountClient) ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey string) (*pb.ReserveFundsResponse, error) {
+// account-service's wrapped handler. Saga callers MUST supply a deterministic
+// key (saga.IdempotencyKey(sagaID, step)) so retries return the cached
+// response without re-executing.
+func (c *AccountClient) ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey, orderKind string) (*pb.ReserveFundsResponse, error) {
 	return c.stub.ReserveFunds(ctx, &pb.ReserveFundsRequest{
 		AccountId:      accountID,
 		OrderId:        orderID,
 		Amount:         amount.String(),
 		CurrencyCode:   currencyCode,
 		IdempotencyKey: idempotencyKey,
+		OrderKind:      orderKind,
 	})
 }
 
@@ -60,11 +65,12 @@ func (c *AccountClient) ReserveFunds(ctx context.Context, accountID, orderID uin
 // account-service returns a zero released_amount in those cases instead of
 // an error so cancel paths can be called unconditionally.
 //
-// idempotencyKey: see ReserveFunds.
-func (c *AccountClient) ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*pb.ReleaseReservationResponse, error) {
+// orderKind / idempotencyKey: see ReserveFunds.
+func (c *AccountClient) ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey, orderKind string) (*pb.ReleaseReservationResponse, error) {
 	return c.stub.ReleaseReservation(ctx, &pb.ReleaseReservationRequest{
 		OrderId:        orderID,
 		IdempotencyKey: idempotencyKey,
+		OrderKind:      orderKind,
 	})
 }
 
@@ -73,22 +79,23 @@ func (c *AccountClient) ReleaseReservation(ctx context.Context, orderID uint64, 
 // orderTransactionID: retries are safe no-ops — the same ledger entry is
 // returned rather than double-debiting the account.
 //
-// idempotencyKey: see ReserveFunds.
-func (c *AccountClient) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey string) (*pb.PartialSettleReservationResponse, error) {
+// orderKind / idempotencyKey: see ReserveFunds.
+func (c *AccountClient) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey, orderKind string) (*pb.PartialSettleReservationResponse, error) {
 	return c.stub.PartialSettleReservation(ctx, &pb.PartialSettleReservationRequest{
 		OrderId:            orderID,
 		OrderTransactionId: orderTransactionID,
 		Amount:             amount.String(),
 		Memo:               memo,
 		IdempotencyKey:     idempotencyKey,
+		OrderKind:          orderKind,
 	})
 }
 
 // GetReservation is read-only; stock-service uses it for crash-recovery
 // reconciliation to check whether a pending settlement already committed
 // before the process crashed.
-func (c *AccountClient) GetReservation(ctx context.Context, orderID uint64) (*pb.GetReservationResponse, error) {
-	return c.stub.GetReservation(ctx, &pb.GetReservationRequest{OrderId: orderID})
+func (c *AccountClient) GetReservation(ctx context.Context, orderID uint64, orderKind string) (*pb.GetReservationResponse, error) {
+	return c.stub.GetReservation(ctx, &pb.GetReservationRequest{OrderId: orderID, OrderKind: orderKind})
 }
 
 // CreditAccount increases the balance of the account identified by

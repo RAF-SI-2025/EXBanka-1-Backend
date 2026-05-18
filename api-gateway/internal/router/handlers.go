@@ -28,33 +28,38 @@ import (
 // Deps groups every gRPC client the gateway depends on. It tidies the
 // signature of NewHandlers and keeps cmd/main.go a flat assignment block.
 type Deps struct {
-	AuthClient          authpb.AuthServiceClient
-	UserClient          userpb.UserServiceClient
-	ClientClient        clientpb.ClientServiceClient
-	AccountClient       accountpb.AccountServiceClient
-	CardClient          cardpb.CardServiceClient
-	TxClient            transactionpb.TransactionServiceClient
-	CreditClient        creditpb.CreditServiceClient
-	EmpLimitClient      userpb.EmployeeLimitServiceClient
-	ClientLimitClient   clientpb.ClientLimitServiceClient
-	VirtualCardClient   cardpb.VirtualCardServiceClient
-	BankAccountClient   accountpb.BankAccountServiceClient
-	FeeClient           transactionpb.FeeServiceClient
-	CardRequestClient   cardpb.CardRequestServiceClient
-	ExchangeClient      exchangepb.ExchangeServiceClient
-	StockExchangeClient stockpb.StockExchangeGRPCServiceClient
-	SecurityClient      stockpb.SecurityGRPCServiceClient
-	OrderClient         stockpb.OrderGRPCServiceClient
-	PortfolioClient     stockpb.PortfolioGRPCServiceClient
-	OTCClient           stockpb.OTCGRPCServiceClient
-	TaxClient           stockpb.TaxGRPCServiceClient
-	ActuaryClient       userpb.ActuaryServiceClient
-	BlueprintClient     userpb.BlueprintServiceClient
-	VerificationClient  verificationpb.VerificationGRPCServiceClient
-	NotificationClient  notificationpb.NotificationServiceClient
-	SourceAdminClient   stockpb.SourceAdminServiceClient
-	FundClient          stockpb.InvestmentFundServiceClient
-	OTCOptionsClient    stockpb.OTCOptionsServiceClient
+	AuthClient           authpb.AuthServiceClient
+	UserClient           userpb.UserServiceClient
+	ClientClient         clientpb.ClientServiceClient
+	AccountClient        accountpb.AccountServiceClient
+	CardClient           cardpb.CardServiceClient
+	TxClient             transactionpb.TransactionServiceClient
+	CreditClient         creditpb.CreditServiceClient
+	EmpLimitClient       userpb.EmployeeLimitServiceClient
+	ClientLimitClient    clientpb.ClientLimitServiceClient
+	VirtualCardClient    cardpb.VirtualCardServiceClient
+	BankAccountClient    accountpb.BankAccountServiceClient
+	FeeClient            transactionpb.FeeServiceClient
+	CardRequestClient    cardpb.CardRequestServiceClient
+	ExchangeClient       exchangepb.ExchangeServiceClient
+	StockExchangeClient  stockpb.StockExchangeGRPCServiceClient
+	SecurityClient       stockpb.SecurityGRPCServiceClient
+	OrderClient          stockpb.OrderGRPCServiceClient
+	PortfolioClient      stockpb.PortfolioGRPCServiceClient
+	OTCClient            stockpb.OTCGRPCServiceClient
+	TaxClient            stockpb.TaxGRPCServiceClient
+	ActuaryClient        userpb.ActuaryServiceClient
+	BlueprintClient      userpb.BlueprintServiceClient
+	VerificationClient   verificationpb.VerificationGRPCServiceClient
+	NotificationClient   notificationpb.NotificationServiceClient
+	SourceAdminClient    stockpb.SourceAdminServiceClient
+	FundClient           stockpb.InvestmentFundServiceClient
+	OTCOptionsClient     stockpb.OTCOptionsServiceClient
+	OTCStockMarketClient stockpb.OTCStockMarketGRPCServiceClient
+	WatchlistClient      stockpb.WatchlistServiceClient
+	PriceAlertClient     stockpb.PriceAlertServiceClient
+	RecurringOrderClient stockpb.RecurringOrderServiceClient
+	RecurringFundClient  stockpb.RecurringFundServiceClient
 
 	// SI-TX peer-bank wiring (Phase 2 Task 14). PeerTxClient dispatches
 	// decoded SI-TX envelopes from POST /api/v3/interbank to
@@ -110,8 +115,13 @@ type Handlers struct {
 	OptionsV2        *handler.OptionsV2Handler
 	Fund             *handler.InvestmentFundHandler
 	OTCOptions       *handler.OTCOptionsHandler
+	OTCStock         *handler.OTCStockHandler
 	PeerTxDispatcher *handler.PeerTxDispatcherHandler
 	Changelog        *handler.ChangelogHandler
+	Watchlist        *handler.WatchlistHandler
+	PriceAlert       *handler.PriceAlertHandler
+	RecurringOrder   *handler.RecurringOrderHandler
+	RecurringFund    *handler.RecurringFundHandler
 
 	// SI-TX peer-facing wiring (Phase 2 Task 14). PeerTx serves
 	// POST /api/v3/interbank, PeerBankAdmin serves /api/v3/peer-banks
@@ -166,14 +176,19 @@ func NewHandlers(d Deps) *Handlers {
 		Verification:     handler.NewVerificationHandler(d.VerificationClient, d.NotificationClient),
 		OptionsV2:        handler.NewOptionsV2Handler(d.SecurityClient, d.OrderClient, d.PortfolioClient),
 		Fund:             handler.NewInvestmentFundHandler(d.FundClient),
-		OTCOptions:       handler.NewOTCOptionsHandler(d.OTCOptionsClient, d.PeerOTCClient),
+		OTCOptions:       handler.NewOTCOptionsHandler(d.OTCOptionsClient, d.PeerOTCClient, d.SecurityClient, d.AccountClient),
+		OTCStock:         handler.NewOTCStockHandler(d.OTCStockMarketClient, d.AccountClient),
 		PeerTxDispatcher: handler.NewPeerTxDispatcherHandler(tx, d.PeerTxClient, d.OwnBankCode),
 		Changelog:        handler.NewChangelogHandler(d.AccountClient, d.CardClient, d.ClientClient, d.CreditClient, d.UserClient),
+		Watchlist:        handler.NewWatchlistHandler(d.WatchlistClient),
+		PriceAlert:       handler.NewPriceAlertHandler(d.PriceAlertClient),
+		RecurringOrder:   handler.NewRecurringOrderHandler(d.RecurringOrderClient),
+		RecurringFund:    handler.NewRecurringFundHandler(d.RecurringFundClient),
 		PeerTx:           handler.NewPeerTxHandler(d.PeerTxClient),
 		PeerBankAdmin:    handler.NewPeerBankAdminHandler(d.PeerBankAdminClient),
 		PeerAuthMW:       middleware.PeerAuth(d.PeerBanks, d.PeerNonces, 5*time.Minute),
 		PeerOTC:          handler.NewPeerOTCHandler(d.PeerOTCClient),
 		PeerUser:         handler.NewPeerUserHandler(d.ClientClient, d.UserClient, ownRouting),
-		PeerOTCInitiate:  handler.NewPeerOTCInitiateHandler(d.PeerBankAdminClient, ownRouting, d.OwnBankCode),
+		PeerOTCInitiate:  handler.NewPeerOTCInitiateHandler(d.PeerBankAdminClient, d.PeerOTCClient, d.AccountClient, ownRouting, d.OwnBankCode),
 	}
 }

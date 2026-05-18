@@ -15,6 +15,7 @@ use (
 	./test-app
 	./tools/perm-codegen
 	./tools/proto-idempotency-check
+	./tools/seed-otc-scenarios
 	./transaction-service
 	./user-service
 	./verification-service

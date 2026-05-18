@@ -24,12 +24,14 @@ import (
 
 type stubAcct struct {
 	accountpb.AccountServiceClient
-	updateErr error
-	calls     int
+	updateErr        error
+	calls            int
+	lastIdempotencyK string
 }
 
 func (s *stubAcct) UpdateBalance(ctx context.Context, in *accountpb.UpdateBalanceRequest, opts ...grpc.CallOption) (*accountpb.AccountResponse, error) {
 	s.calls++
+	s.lastIdempotencyK = in.IdempotencyKey
 	if s.updateErr != nil {
 		return nil, s.updateErr
 	}
@@ -132,14 +134,41 @@ func TestClassifier_Retry_BadAmountType(t *testing.T) {
 func TestClassifier_Retry_Success(t *testing.T) {
 	stub := &stubAcct{}
 	c := saga.NewClassifier(stub, shared.RetryConfig{MaxAttempts: 2, BaseDelay: time.Millisecond}, nil, nil)
-	step := sharedsaga.StuckStep{Payload: map[string]any{
-		"account_number": "111-1", "amount": decimal.NewFromInt(100),
-	}}
+	step := sharedsaga.StuckStep{
+		SagaID:   "saga-abc",
+		StepName: "debit_sender",
+		Payload: map[string]any{
+			"account_number": "111-1", "amount": decimal.NewFromInt(100),
+		},
+	}
 	if err := c.Retry(context.Background(), step); err != nil {
 		t.Fatalf("retry success: %v", err)
 	}
 	if stub.calls < 1 {
 		t.Fatal("UpdateBalance not called")
+	}
+	if stub.lastIdempotencyK == "" {
+		t.Fatal("Retry must set IdempotencyKey; account-service rejects empty key with InvalidArgument")
+	}
+}
+
+func TestClassifier_Retry_Compensation_AppendsSuffix(t *testing.T) {
+	stub := &stubAcct{}
+	c := saga.NewClassifier(stub, shared.RetryConfig{MaxAttempts: 1, BaseDelay: time.Millisecond}, nil, nil)
+	step := sharedsaga.StuckStep{
+		SagaID:       "saga-def",
+		StepName:     "credit_recipient",
+		Compensation: true,
+		Payload: map[string]any{
+			"account_number": "222-2", "amount": decimal.NewFromInt(50),
+		},
+	}
+	if err := c.Retry(context.Background(), step); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	want := sharedsaga.IdempotencyKey("saga-def", sharedsaga.StepKind("credit_recipient")) + ":compensate"
+	if stub.lastIdempotencyK != want {
+		t.Fatalf("compensation key: want %q, got %q", want, stub.lastIdempotencyK)
 	}
 }
 

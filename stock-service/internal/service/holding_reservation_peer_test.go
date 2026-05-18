@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -146,7 +147,8 @@ func TestHoldingReservationService_ConsumeForPeerOptionContract(t *testing.T) {
 func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_NewBuyer(t *testing.T) {
 	svc, holdingRepo, h := newHoldingReservationFixture(t)
 	buyerUID := uint64(99)
-	if err := svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, h.Ticker, 5); err != nil {
+	strike := decimal.NewFromInt(150)
+	if err := svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, h.Ticker, 5, strike); err != nil {
 		t.Fatalf("credit: %v", err)
 	}
 	got, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", h.Ticker)
@@ -155,5 +157,42 @@ func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_NewBuyer(t *t
 	}
 	if got.Quantity != 5 {
 		t.Errorf("buyer qty=%d want 5", got.Quantity)
+	}
+	if !got.AveragePrice.Equal(strike) {
+		t.Errorf("buyer average_price=%s want 150 (strike)", got.AveragePrice)
+	}
+}
+
+// CreditBuyerHoldingForPeerOption with an existing holding produces a
+// weighted-average cost basis across the pre-existing shares and the
+// strike-priced shares. Without this, two cross-bank exercises into the
+// same ticker would silently overwrite cost basis.
+func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_WeightedAverage(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	buyerUID := uint64(99)
+	// Seed an existing position: 10 shares at avg=100.
+	pre := &model.Holding{
+		OwnerType: model.OwnerClient, OwnerID: &buyerUID,
+		SecurityType: "stock", Ticker: h.Ticker, Name: h.Ticker,
+		Quantity: 10, AveragePrice: decimal.NewFromInt(100),
+	}
+	if err := holdingRepo.Upsert(context.Background(), pre); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	strike := decimal.NewFromInt(200)
+	if err := svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, h.Ticker, 10, strike); err != nil {
+		t.Fatalf("credit: %v", err)
+	}
+	got, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", h.Ticker)
+	if err != nil {
+		t.Fatalf("lookup buyer holding: %v", err)
+	}
+	if got.Quantity != 20 {
+		t.Errorf("buyer qty=%d want 20", got.Quantity)
+	}
+	// (10 × 100 + 10 × 200) / 20 = 150
+	want := decimal.NewFromInt(150)
+	if !got.AveragePrice.Equal(want) {
+		t.Errorf("buyer average_price=%s want %s (weighted avg)", got.AveragePrice, want)
 	}
 }

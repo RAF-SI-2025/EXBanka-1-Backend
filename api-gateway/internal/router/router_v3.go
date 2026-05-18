@@ -99,6 +99,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.POST("/transfers/preview", h.Tx.PreviewTransfer)
 		me.GET("/transfers", h.Tx.ListMyTransfers)
 		me.GET("/transfers/:id", h.PeerTxDispatcher.GetTransferByID)
+		me.GET("/transfers/:id/status", h.Tx.GetMyTransferStatus)
 		me.POST("/transfers/:id/execute", h.Tx.ExecuteTransfer)
 
 		// Payment recipients
@@ -128,12 +129,43 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// Portfolio
 		me.GET("/portfolio", bankIfEmp, h.Portfolio.ListHoldings)
 		me.GET("/portfolio/summary", bankIfEmp, h.Portfolio.GetPortfolioSummary)
-		me.POST("/portfolio/:id/make-public", bankIfEmp, h.Portfolio.MakePublic)
+		// (Phase 8) /me/portfolio/:id/make-public deleted — use
+		// POST /api/v3/me/otc/stocks with direction=sell.
 		me.POST("/portfolio/:id/exercise", bankIfEmp, h.Portfolio.ExerciseOption)
 		me.GET("/holdings/:id/transactions", bankIfEmp, h.Portfolio.ListHoldingTransactions)
 
 		// Tax
 		me.GET("/tax", bankIfEmp, h.Tax.ListMyTaxRecords)
+
+		// Watchlist (personal list of tracked listings)
+		me.GET("/watchlist", bankIfEmp, h.Watchlist.ListMy)
+		me.POST("/watchlist", bankIfEmp, h.Watchlist.AddItem)
+		me.DELETE("/watchlist/:listing_id", bankIfEmp, h.Watchlist.RemoveItem)
+
+		// Price alerts (per-owner thresholds on listing price / daily-change %)
+		me.GET("/price-alerts", bankIfEmp, h.PriceAlert.ListMy)
+		me.POST("/price-alerts", bankIfEmp, h.PriceAlert.Create)
+		me.GET("/price-alerts/:id", bankIfEmp, h.PriceAlert.Get)
+		me.PUT("/price-alerts/:id", bankIfEmp, h.PriceAlert.Update)
+		me.DELETE("/price-alerts/:id", bankIfEmp, h.PriceAlert.Delete)
+
+		// Recurring securities orders (weekly/monthly Market-order templates).
+		// CRUD + lifecycle (pause/resume/cancel). Cron tick fires per template;
+		// production wiring of the order-placer is deferred — see plan B6.
+		me.GET("/recurring-orders", bankIfEmp, h.RecurringOrder.ListMy)
+		me.POST("/recurring-orders", bankIfEmp, h.RecurringOrder.Create)
+		me.GET("/recurring-orders/:id", bankIfEmp, h.RecurringOrder.Get)
+		me.POST("/recurring-orders/:id/pause", bankIfEmp, h.RecurringOrder.Pause)
+		me.POST("/recurring-orders/:id/resume", bankIfEmp, h.RecurringOrder.Resume)
+		me.POST("/recurring-orders/:id/cancel", bankIfEmp, h.RecurringOrder.Cancel)
+
+		// Recurring fund investments (monthly DCA into a single fund)
+		me.GET("/recurring-funds", h.RecurringFund.ListMy)
+		me.POST("/recurring-funds", h.RecurringFund.Create)
+		me.GET("/recurring-funds/:id", h.RecurringFund.Get)
+		me.POST("/recurring-funds/:id/pause", h.RecurringFund.Pause)
+		me.POST("/recurring-funds/:id/resume", h.RecurringFund.Resume)
+		me.DELETE("/recurring-funds/:id", h.RecurringFund.Cancel)
 
 		// Sessions
 		me.GET("/sessions", h.Session.ListMySessions)
@@ -151,8 +183,33 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		me.GET("/investment-funds", bankIfEmp, h.Fund.ListMyPositions)
 
 		// OTC option trading (Spec 2): caller's offers/contracts.
-		me.GET("/otc/offers", bankIfEmp, h.OTCOptions.ListMyOffers)
+		// (Phase 8) /me/otc/offers renamed to /me/otc/options.
+		me.GET("/otc/options", bankIfEmp, h.Portfolio.ListMyOTCOptions)
+		me.GET("/otc/options/posted", bankIfEmp, h.OTCOptions.ListMyPostedOffers)
+		me.POST("/otc/options", bankIfEmp, h.OTCOptions.CreateOffer)
+		me.GET("/otc/history", bankIfEmp, h.OTCOptions.ListNegotiationHistory)
+		me.POST("/otc/ratings", bankIfEmp, h.OTCOptions.SubmitRating)
+		me.GET("/otc/ratings/received", bankIfEmp, h.OTCOptions.ListMyReceivedRatings)
 		me.GET("/otc/contracts", bankIfEmp, h.OTCOptions.ListMyContracts)
+
+		// --- Phase 2: parallel-negotiation-chain marketplace ---
+		// Listing-poster sees all chains via the OPEN
+		// /otc/options/:id/negotiations route (not under /me) so it's
+		// reachable without owning the listing — gateway-side ownership
+		// would block the poster from seeing their own listing's bids.
+		// Per-chain actions stay under /me/ since they always act on
+		// the caller's own chain (bid, counter, accept, reject, cancel).
+		me.GET("/otc/options/negotiations", bankIfEmp, h.OTCOptions.ListMyNegotiations)
+		me.POST("/otc/options/:id/negotiations/:nid/counter", bankIfEmp, h.OTCOptions.CounterMyNegotiation)
+		me.POST("/otc/options/:id/negotiations/:nid/accept", bankIfEmp, h.OTCOptions.AcceptMyNegotiation)
+		me.POST("/otc/options/:id/negotiations/:nid/reject", bankIfEmp, h.OTCOptions.RejectMyNegotiation)
+		me.DELETE("/otc/options/:id/negotiations/:nid", bankIfEmp, h.OTCOptions.CancelMyNegotiation)
+		me.DELETE("/otc/options/:id", bankIfEmp, h.OTCOptions.CancelMyListing)
+
+		// --- Phase 3: OTC stocks marketplace (sell + buy direction) ---
+		me.GET("/otc/stocks", bankIfEmp, h.OTCStock.ListMyOTCStocks)
+		me.POST("/otc/stocks", bankIfEmp, h.OTCStock.CreateOTCStockOffer)
+		me.DELETE("/otc/stocks/:id", bankIfEmp, h.OTCStock.CancelOTCStockOffer)
 
 		// Cross-bank OTC option exercise (Celina-5 SI-TX). Buyer-only
 		// (only the buyer's bank holds direction=CREDIT contracts);
@@ -165,6 +222,13 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// JWT identity as buyerId and HTTP-POSTs to the seller bank's
 		// /api/v3/negotiations.
 		me.POST("/peer-otc/negotiations", h.PeerOTCInitiate.CreatePeerNegotiation)
+		// Discovery + client-facing negotiation controls (Phase 4 SI-TX
+		// follow-up). Both the buyer and the seller's own bank surface
+		// their own peer_otc_negotiations rows through these routes.
+		me.GET("/peer-otc/negotiations", h.PeerOTCInitiate.ListMyPeerNegotiations)
+		me.PUT("/peer-otc/negotiations/:rid/:id", h.PeerOTCInitiate.CounterPeerNegotiation)
+		me.POST("/peer-otc/negotiations/:rid/:id/accept", h.PeerOTCInitiate.AcceptPeerNegotiation)
+		me.DELETE("/peer-otc/negotiations/:rid/:id", h.PeerOTCInitiate.CancelPeerNegotiation)
 	}
 
 	// ── SI-TX peer-facing route (Phase 2 Task 14) ────────────────────
@@ -182,6 +246,9 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		// stamped on the gin context by middleware.PeerAuth and read
 		// inside each handler.
 		peer.GET("/public-stock", h.PeerOTC.GetPublicStocks)
+		// Phase 6: cross-bank discovery of OPEN OTC OPTION listings.
+		// Same auth (PeerAuth) and shape conventions as /public-stock.
+		peer.GET("/public-option-offers", h.PeerOTC.GetPublicOptionOffers)
 		peer.POST("/negotiations", h.PeerOTC.CreateNegotiation)
 		peer.PUT("/negotiations/:rid/:id", h.PeerOTC.UpdateNegotiation)
 		peer.GET("/negotiations/:rid/:id", h.PeerOTC.GetNegotiation)
@@ -216,18 +283,24 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		securities.GET("/candles", h.Securities.GetCandles)
 	}
 
-	// ── OTC (AnyAuth for browsing, securities.trade for buying) ─
-	otc := v3.Group("/otc/offers")
-	otc.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
+	// ── OTC stocks marketplace (Phase 8 clean cut — replaces the
+	// legacy /api/v3/otc/offers group). Browsing is AnyAuth; buying
+	// requires the securities/otc trade permission.
+	otcStocksRead := v3.Group("/otc/stocks")
+	otcStocksRead.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
 	{
-		otc.GET("", h.Portfolio.ListOTCOffers)
+		otcStocksRead.GET("", h.Portfolio.ListOTCOffers)
 	}
-	otcTrade := v3.Group("/otc/offers")
-	otcTrade.Use(middleware.AuthMiddleware(h.Auth.Client()))
-	otcTrade.Use(middleware.RequireAnyPermission(perms.Otc.Trade.Accept, perms.Securities.Trade.Any))
-	otcTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
+	otcStocksTrade := v3.Group("/otc/stocks")
+	otcStocksTrade.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
+	otcStocksTrade.Use(middleware.RequirePermissionOrClient(middleware.PermAny, perms.Otc.Trade.Accept, perms.Securities.Trade.Any))
+	otcStocksTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
-		otcTrade.POST("/:id/buy", h.Portfolio.BuyOTCOffer)
+		otcStocksTrade.POST("/:id/buy", h.Portfolio.BuyOTCOffer)
+		// Phase 3B: fill a buy-direction offer with the caller's shares.
+		// Seller-can-deliver check + cash-already-reserved guarantee live
+		// inside OTCStockService.FillBuyOffer.
+		otcStocksTrade.POST("/:id/sell", h.OTCStock.SellOTCStockOffer)
 	}
 
 	// ── OTC option trading (Spec 2) — read endpoints ─────────────
@@ -235,20 +308,38 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 	otcRead.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
 	otcRead.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
-		otcRead.GET("/offers/:id", h.OTCOptions.GetOffer)
+		// (Phase 8) /otc/offers/:id renamed to /otc/options/:id.
+		otcRead.GET("/options/:id", h.OTCOptions.GetOffer)
 		otcRead.GET("/contracts/:id", h.OTCOptions.GetContract)
+		// Public trader profile — aggregate rating + recent comments.
+		// Visible to all authenticated callers; useful for OTC discovery.
+		otcRead.GET("/traders/:owner_type/:owner_id/rating", h.OTCOptions.GetTraderProfile)
+		// Phase 2 marketplace: every chain against a parent listing.
+		// Visible to all authenticated callers — used by the listing's
+		// poster to see incoming bids, and by bidders to see what
+		// counter-bids competitors have placed.
+		otcRead.GET("/options/:id/negotiations", h.OTCOptions.ListNegotiationsOnListing)
+		// Phase 6 marketplace: unified local + cross-bank discovery
+		// of open option listings.
+		otcRead.GET("/options", h.Portfolio.ListOTCOptions)
 	}
 	// Trading actions require both securities.trade AND otc.trade.
 	otcOptionsTrade := v3.Group("/otc")
 	otcOptionsTrade.Use(middleware.AnyAuthMiddleware(h.Auth.Client()))
-	otcOptionsTrade.Use(middleware.RequireAllPermissions(perms.Securities.Trade.Any, perms.Otc.Trade.Accept))
+	otcOptionsTrade.Use(middleware.RequirePermissionOrClient(middleware.PermAll, perms.Securities.Trade.Any, perms.Otc.Trade.Accept))
 	otcOptionsTrade.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 	{
-		otcOptionsTrade.POST("/offers", h.OTCOptions.CreateOffer)
-		otcOptionsTrade.POST("/offers/:id/counter", h.OTCOptions.CounterOffer)
-		otcOptionsTrade.POST("/offers/:id/accept", h.OTCOptions.AcceptOffer)
-		otcOptionsTrade.POST("/offers/:id/reject", h.OTCOptions.RejectOffer)
+		// (Phase 8 clean cut) The legacy single-chain options ops
+		// — POST /otc/offers + counter/accept/reject — are deleted.
+		// CreateOffer is reachable as POST /api/v3/me/otc/options
+		// (defined above in the /me group). Per-chain mutations live
+		// at /api/v3/me/otc/options/:id/negotiations/:nid/{counter,
+		// accept,reject} so frontends can never accidentally mix the
+		// two negotiation models.
 		otcOptionsTrade.POST("/contracts/:id/exercise", h.OTCOptions.ExerciseContract)
+		// Phase 2 marketplace: open a new negotiation chain by bidding
+		// on a listing. Many bidders can each open one chain.
+		otcOptionsTrade.POST("/options/:id/bid", h.OTCOptions.OpenNegotiationChain)
 	}
 
 	// ── Mobile auth (public) ────────────────────────────────────
@@ -515,6 +606,7 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		bankAccountsRead.Use(middleware.RequirePermission(perms.BankAccounts.Manage.Any))
 		{
 			bankAccountsRead.GET("", h.Account.ListBankAccounts)
+			bankAccountsRead.GET("/:id/activity", h.Account.GetBankAccountActivity)
 		}
 		bankAccountsCreate := protected.Group("/bank-accounts")
 		bankAccountsCreate.Use(middleware.RequirePermission(perms.BankAccounts.Manage.Any))
@@ -525,6 +617,16 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 		bankAccountsDeactivate.Use(middleware.RequirePermission(perms.BankAccounts.Manage.Any))
 		{
 			bankAccountsDeactivate.DELETE("/:id", h.Account.DeleteBankAccount)
+		}
+
+		// Notification templates — admin-managed copy + variable discovery.
+		notifTemplates := protected.Group("/notification-templates")
+		notifTemplates.Use(middleware.RequirePermission(perms.Notifications.Templates.Manage))
+		{
+			notifTemplates.GET("", h.Notification.ListNotificationTemplates)
+			notifTemplates.GET("/:channel/:type", h.Notification.GetNotificationTemplate)
+			notifTemplates.PUT("/:channel/:type", h.Notification.SetNotificationTemplate)
+			notifTemplates.DELETE("/:channel/:type", h.Notification.ResetNotificationTemplate)
 		}
 
 		// ── SI-TX peer-banks admin (Phase 2 Task 14) ───────────────────
@@ -715,14 +817,14 @@ func SetupV3(r *gin.Engine, h *Handlers) {
 			ordersOnBehalf.POST("", h.StockOrder.CreateOrderOnBehalf)
 		}
 
-		// OTC — employee on-behalf buying. The verb-suffixed action makes
-		// intent explicit at the URL.
-		otcOnBehalf := protected.Group("/otc/offers")
-		otcOnBehalf.Use(middleware.RequireAnyPermission(
-			perms.Otc.Trade.Accept, perms.Orders.Place.OnBehalfClient))
-		otcOnBehalf.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
+		// OTC stocks — employee on-behalf buying (Phase 8 rename:
+		// /otc/offers/:id/buy-on-behalf moved here).
+		otcStocksOnBehalf := protected.Group("/otc/stocks")
+		otcStocksOnBehalf.Use(middleware.RequireAnyPermission(
+			perms.Otc.Trade.Accept, perms.Otc.Trade.OnBehalf))
+		otcStocksOnBehalf.Use(middleware.ResolveIdentity(middleware.OwnerIsBankIfEmployee))
 		{
-			otcOnBehalf.POST("/:id/buy-on-behalf", h.Portfolio.BuyOTCOfferOnBehalf)
+			otcStocksOnBehalf.POST("/:id/buy-on-behalf", h.Portfolio.BuyOTCOfferOnBehalf)
 		}
 
 		// Order management (supervisor) — read split from approve/reject.

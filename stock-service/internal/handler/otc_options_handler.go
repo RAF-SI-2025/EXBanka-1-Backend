@@ -31,10 +31,20 @@ type OTCOptionsHandler struct {
 	peerContracts *repository.PeerOptionContractRepository // optional; surfaces cross-bank contracts in /me/otc/contracts
 	listings      *repository.ListingRepository            // optional; populates market_reference_price
 	ownRouting    int64
+	ratings       *service.OTCRatingService      // optional; backs SubmitRating / GetTraderProfile / ListReceivedRatings
+	negotiations  *service.OTCNegotiationService // optional; backs Phase-2 parallel-chain RPCs (Open/Counter/AcceptChain/Reject/Cancel/List*)
 }
 
 func NewOTCOptionsHandler(svc *service.OTCOfferService, contracts *repository.OptionContractRepository) *OTCOptionsHandler {
 	return &OTCOptionsHandler{svc: svc, contracts: contracts}
+}
+
+// WithRatings wires the OTC trader-rating service. When unset the
+// rating RPCs return Unimplemented.
+func (h *OTCOptionsHandler) WithRatings(r *service.OTCRatingService) *OTCOptionsHandler {
+	cp := *h
+	cp.ratings = r
+	return &cp
 }
 
 // WithPeerContracts wires the cross-bank option-contracts repository
@@ -86,11 +96,16 @@ func (h *OTCOptionsHandler) CreateOffer(ctx context.Context, in *stockpb.CreateO
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "settlement_date must be YYYY-MM-DD")
 	}
+	if in.AccountId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
 	input := service.CreateOfferInput{
 		ActorUserID: in.ActorUserId, ActorSystemType: in.ActorSystemType,
 		Direction: in.Direction, StockID: in.StockId,
+		Ticker:   in.Ticker,
 		Quantity: qty, StrikePrice: strike, Premium: prem,
-		SettlementDate: settle,
+		SettlementDate:     settle,
+		InitiatorAccountID: in.AccountId,
 	}
 	if in.Counterparty != nil && in.Counterparty.UserId != 0 {
 		uid := in.Counterparty.UserId
@@ -117,6 +132,39 @@ func (h *OTCOptionsHandler) ListMyOffers(ctx context.Context, in *stockpb.ListMy
 		// updated_at. Caller is its own last-modifier => always read.
 		unread := h.computeUnread(&rows[i], in.ActorUserId, in.ActorSystemType)
 		out.Offers = append(out.Offers, h.withOfferMarketRef(&rows[i], toOTCOfferProto(&rows[i], unread)))
+	}
+	return out, nil
+}
+
+// ListNegotiationHistory returns terminal OTC offers (accepted, rejected,
+// expired, failed) for the caller. Celina-3 "Istorija pregovora".
+func (h *OTCOptionsHandler) ListNegotiationHistory(ctx context.Context, in *stockpb.ListNegotiationHistoryRequest) (*stockpb.ListMyOTCOffersResponse, error) {
+	f := repository.HistoryFilter{
+		Statuses: in.Statuses,
+		Page:     int(in.Page),
+		PageSize: int(in.PageSize),
+	}
+	if in.SinceUnix > 0 {
+		t := time.Unix(in.SinceUnix, 0).UTC()
+		f.Since = &t
+	}
+	if in.UntilUnix > 0 {
+		t := time.Unix(in.UntilUnix, 0).UTC()
+		f.Until = &t
+	}
+	if in.CounterpartyId > 0 {
+		cp := in.CounterpartyId
+		f.CounterpartyID = &cp
+	}
+	rows, total, err := h.svc.ListNegotiationHistory(in.ActorUserId, in.ActorSystemType, f)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	out := &stockpb.ListMyOTCOffersResponse{Total: total, Offers: make([]*stockpb.OTCOfferResponse, 0, len(rows))}
+	for i := range rows {
+		// History entries are immutable from the caller's perspective so
+		// "unread" is always false — they're explicitly viewing past data.
+		out.Offers = append(out.Offers, h.withOfferMarketRef(&rows[i], toOTCOfferProto(&rows[i], false)))
 	}
 	return out, nil
 }
@@ -186,12 +234,12 @@ func (h *OTCOptionsHandler) CounterOffer(ctx context.Context, in *stockpb.Counte
 }
 
 func (h *OTCOptionsHandler) AcceptOffer(ctx context.Context, in *stockpb.AcceptOTCOfferRequest) (*stockpb.AcceptOfferResponse, error) {
-	if in.BuyerAccountId == 0 || in.SellerAccountId == 0 {
-		return nil, status.Error(codes.InvalidArgument, "buyer_account_id and seller_account_id are required")
+	if in.AccountId == 0 {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
 	}
 	c, err := h.svc.Accept(ctx, service.AcceptInput{
 		OfferID: in.OfferId, ActorUserID: in.ActorUserId, ActorSystemType: in.ActorSystemType,
-		BuyerAccountID: in.BuyerAccountId, SellerAccountID: in.SellerAccountId,
+		AcceptorAccountID: in.AccountId,
 	})
 	if err != nil {
 		return nil, mapOTCErr(err)
@@ -287,12 +335,8 @@ func (h *OTCOptionsHandler) GetContract(ctx context.Context, in *stockpb.GetCont
 }
 
 func (h *OTCOptionsHandler) ExerciseContract(ctx context.Context, in *stockpb.ExerciseContractRequest) (*stockpb.ExerciseResponse, error) {
-	if in.BuyerAccountId == 0 || in.SellerAccountId == 0 {
-		return nil, status.Error(codes.InvalidArgument, "buyer_account_id and seller_account_id are required")
-	}
 	c, err := h.svc.ExerciseContract(ctx, service.ExerciseInput{
 		ContractID: in.ContractId, ActorUserID: in.ActorUserId, ActorSystemType: in.ActorSystemType,
-		BuyerAccountID: in.BuyerAccountId, SellerAccountID: in.SellerAccountId,
 	})
 	if err != nil {
 		return nil, mapOTCErr(err)
@@ -410,4 +454,119 @@ func mapOTCErr(err error) error {
 		return status.Error(codes.NotFound, "not_found")
 	}
 	return err
+}
+
+// --- OTC trader rating RPCs (Celina 3) -----------------------------------
+
+func (h *OTCOptionsHandler) SubmitRating(ctx context.Context, in *stockpb.SubmitOTCRatingRequest) (*stockpb.OTCRatingResponse, error) {
+	if h.ratings == nil {
+		return nil, status.Error(codes.Unimplemented, "ratings service not wired")
+	}
+	rt := model.OwnerType(in.RaterOwnerType)
+	if !rt.Valid() {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid rater_owner_type %q", in.RaterOwnerType)
+	}
+	var rid *uint64
+	if rt != model.OwnerBank {
+		if in.RaterOwnerId == 0 {
+			return nil, status.Error(codes.InvalidArgument, "rater_owner_id required for non-bank")
+		}
+		id := in.RaterOwnerId
+		rid = &id
+	}
+	if in.Score < 1 || in.Score > 5 {
+		return nil, status.Error(codes.InvalidArgument, "score must be 1..5")
+	}
+	row, err := h.ratings.Submit(service.SubmitInput{
+		OfferID:        in.OfferId,
+		RaterOwnerType: rt,
+		RaterOwnerID:   rid,
+		Score:          int(in.Score),
+		Comment:        in.Comment,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ratingToProto(row), nil
+}
+
+func (h *OTCOptionsHandler) GetTraderProfile(ctx context.Context, in *stockpb.GetTraderProfileRequest) (*stockpb.TraderProfileResponse, error) {
+	if h.ratings == nil {
+		return nil, status.Error(codes.Unimplemented, "ratings service not wired")
+	}
+	rt := model.OwnerType(in.OwnerType)
+	if !rt.Valid() {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid owner_type %q", in.OwnerType)
+	}
+	var rid *uint64
+	if rt != model.OwnerBank {
+		if in.OwnerId == 0 {
+			return nil, status.Error(codes.InvalidArgument, "owner_id required for non-bank")
+		}
+		id := in.OwnerId
+		rid = &id
+	}
+	profile, err := h.ratings.GetProfile(rt, rid, int(in.RecentLimit))
+	if err != nil {
+		return nil, err
+	}
+	out := &stockpb.TraderProfileResponse{
+		OwnerType: string(profile.OwnerType),
+		OwnerId:   ownerIDOr0(profile.OwnerID),
+		Average:   profile.Avg,
+		Count:     profile.Count,
+		Recent:    make([]*stockpb.OTCRatingResponse, 0, len(profile.Recent)),
+	}
+	for i := range profile.Recent {
+		out.Recent = append(out.Recent, ratingToProto(&profile.Recent[i]))
+	}
+	return out, nil
+}
+
+func (h *OTCOptionsHandler) ListReceivedRatings(ctx context.Context, in *stockpb.ListReceivedRatingsRequest) (*stockpb.ListOTCRatingsResponse, error) {
+	if h.ratings == nil {
+		return nil, status.Error(codes.Unimplemented, "ratings service not wired")
+	}
+	rt := model.OwnerType(in.OwnerType)
+	if !rt.Valid() {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid owner_type %q", in.OwnerType)
+	}
+	var rid *uint64
+	if rt != model.OwnerBank {
+		if in.OwnerId == 0 {
+			return nil, status.Error(codes.InvalidArgument, "owner_id required for non-bank")
+		}
+		id := in.OwnerId
+		rid = &id
+	}
+	rows, err := h.ratings.ListReceived(rt, rid, int(in.Limit))
+	if err != nil {
+		return nil, err
+	}
+	out := &stockpb.ListOTCRatingsResponse{Ratings: make([]*stockpb.OTCRatingResponse, 0, len(rows))}
+	for i := range rows {
+		out.Ratings = append(out.Ratings, ratingToProto(&rows[i]))
+	}
+	return out, nil
+}
+
+func ratingToProto(r *model.OTCTraderRating) *stockpb.OTCRatingResponse {
+	return &stockpb.OTCRatingResponse{
+		Id:             r.ID,
+		OfferId:        r.OfferID,
+		RaterOwnerType: string(r.RaterOwnerType),
+		RaterOwnerId:   ownerIDOr0(r.RaterOwnerID),
+		RatedOwnerType: string(r.RatedOwnerType),
+		RatedOwnerId:   ownerIDOr0(r.RatedOwnerID),
+		Score:          int32(r.Score),
+		Comment:        r.Comment,
+		CreatedAtUnix:  r.CreatedAt.Unix(),
+	}
+}
+
+func ownerIDOr0(p *uint64) uint64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }

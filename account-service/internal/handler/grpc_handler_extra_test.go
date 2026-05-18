@@ -76,7 +76,7 @@ func TestAccountHandler_ReserveFunds_RequiresKey(t *testing.T) {
 func TestAccountHandler_ReserveFunds_Success(t *testing.T) {
 	h, mockRes, _ := newAccountHandlerWithReservation(t)
 	called := 0
-	mockRes.reserveFn = func(_ context.Context, _, _ uint64, amt decimal.Decimal, _ string) (*service.ReserveFundsResult, error) {
+	mockRes.reserveFn = func(_ context.Context, _, _ uint64, amt decimal.Decimal, _, _ string) (*service.ReserveFundsResult, error) {
 		called++
 		return &service.ReserveFundsResult{
 			ReservationID: 5, ReservedBalance: amt, AvailableBalance: decimal.NewFromInt(900),
@@ -106,7 +106,7 @@ func TestAccountHandler_ReleaseReservation_RequiresKey(t *testing.T) {
 
 func TestAccountHandler_ReleaseReservation_Success(t *testing.T) {
 	h, mockRes, _ := newAccountHandlerWithReservation(t)
-	mockRes.releaseFn = func(_ context.Context, _ uint64) (*service.ReleaseResult, error) {
+	mockRes.releaseFn = func(_ context.Context, _ uint64, _ string) (*service.ReleaseResult, error) {
 		return &service.ReleaseResult{ReleasedAmount: decimal.NewFromInt(80), ReservedBalance: decimal.NewFromInt(20)}, nil
 	}
 	resp, err := h.ReleaseReservation(context.Background(), &pb.ReleaseReservationRequest{
@@ -127,7 +127,7 @@ func TestAccountHandler_PartialSettleReservation_RequiresKey(t *testing.T) {
 
 func TestAccountHandler_PartialSettleReservation_Success(t *testing.T) {
 	h, mockRes, _ := newAccountHandlerWithReservation(t)
-	mockRes.partialFn = func(_ context.Context, _, _ uint64, amt decimal.Decimal, _ string) (*service.PartialSettleResult, error) {
+	mockRes.partialFn = func(_ context.Context, _, _ uint64, amt decimal.Decimal, _, _ string) (*service.PartialSettleResult, error) {
 		return &service.PartialSettleResult{
 			SettledAmount: amt, RemainingReserved: decimal.Zero,
 			BalanceAfter: decimal.NewFromInt(950), LedgerEntryID: 7,
@@ -143,7 +143,7 @@ func TestAccountHandler_PartialSettleReservation_Success(t *testing.T) {
 
 func TestAccountHandler_GetReservation_NoIdempotencyNeeded(t *testing.T) {
 	h, mockRes, _ := newAccountHandlerWithReservation(t)
-	mockRes.getFn = func(_ context.Context, _ uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
+	mockRes.getFn = func(_ context.Context, _ uint64, _ string) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
 		return "active", decimal.NewFromInt(100), decimal.Zero, nil, true, nil
 	}
 	resp, err := h.GetReservation(context.Background(), &pb.GetReservationRequest{OrderId: 1})

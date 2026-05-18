@@ -285,6 +285,17 @@ message ReserveFundsRequest {
     string amount = 3;         // decimal string
     string currency_code = 4;  // must equal account currency
     string idempotency_key = 5;  // saga step idempotency
+    // order_kind discriminates which caller-namespace `order_id` belongs
+    // to so two callers (e.g. stock placement and OTC accept) can each
+    // use their own auto-increment id space without colliding inside
+    // account_reservations. Values currently in use:
+    //   "stock_order"     — stock placement / forex fill / portfolio fill
+    //   "otc_premium"     — OTC option accept saga (premium reservation)
+    //   "otc_strike"      — OTC option exercise saga (strike reservation)
+    //   "otc_stock_buy"   — OTC stock buy-offer cash reservation
+    // Empty defaults to "stock_order" for backward compatibility with
+    // one-version-behind clients.
+    string order_kind = 6;
 }
 message ReserveFundsResponse {
     uint64 reservation_id = 1;
@@ -295,6 +306,7 @@ message ReserveFundsResponse {
 message ReleaseReservationRequest {
     uint64 order_id = 1;
     string idempotency_key = 2;  // saga step idempotency
+    string order_kind = 3;        // see ReserveFundsRequest.order_kind
 }
 message ReleaseReservationResponse {
     string released_amount = 1;
@@ -307,6 +319,7 @@ message PartialSettleReservationRequest {
     string amount = 3;
     string memo = 4;                    // written to ledger_entries
     string idempotency_key = 5;        // saga step idempotency
+    string order_kind = 6;              // see ReserveFundsRequest.order_kind
 }
 message PartialSettleReservationResponse {
     string settled_amount = 1;
@@ -317,6 +330,7 @@ message PartialSettleReservationResponse {
 
 message GetReservationRequest {
     uint64 order_id = 1;
+    string order_kind = 2;  // see ReserveFundsRequest.order_kind
 }
 message GetReservationResponse {
     bool exists = 1;

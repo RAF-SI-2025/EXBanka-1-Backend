@@ -20,7 +20,7 @@ func TestVerificationConsumer_EmailDelivery_HappyPath(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubGenericPublisher{}
 	repo := &stubInboxItemCreator{}
-	c := newVerificationConsumerForTest(sender, pub, repo)
+	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
 	display, err := json.Marshal(map[string]string{
 		"code":  "123456",
@@ -42,7 +42,8 @@ func TestVerificationConsumer_EmailDelivery_HappyPath(t *testing.T) {
 	got, ok := sender.lastCall()
 	require.True(t, ok)
 	assert.Equal(t, "user@example.com", got.To)
-	assert.Contains(t, got.Body, "123456", "verification code must appear in email body")
+	assert.Equal(t, "S", got.Subject)
+	assert.Equal(t, "B", got.Body)
 
 	// Email-delivery path must NOT touch the inbox or push topic.
 	assert.Empty(t, repo.created)
@@ -53,7 +54,7 @@ func TestVerificationConsumer_EmailDelivery_MissingEmailIsSkipped(t *testing.T) 
 	sender := &stubEmailSender{}
 	pub := &stubGenericPublisher{}
 	repo := &stubInboxItemCreator{}
-	c := newVerificationConsumerForTest(sender, pub, repo)
+	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
 	display, err := json.Marshal(map[string]string{"code": "123456"})
 	require.NoError(t, err)
@@ -76,7 +77,7 @@ func TestVerificationConsumer_EmailDelivery_SendErrorDoesNotPanic(t *testing.T) 
 	sender := &stubEmailSender{sendErr: errors.New("smtp")}
 	pub := &stubGenericPublisher{}
 	repo := &stubInboxItemCreator{}
-	c := newVerificationConsumerForTest(sender, pub, repo)
+	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
 	display, err := json.Marshal(map[string]string{
 		"code":  "999000",
@@ -102,7 +103,7 @@ func TestVerificationConsumer_MobileDelivery_HappyPath(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubGenericPublisher{}
 	repo := &stubInboxItemCreator{}
-	c := newVerificationConsumerForTest(sender, pub, repo)
+	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
 	display, err := json.Marshal(map[string]interface{}{
 		"code":     "555888",
@@ -148,7 +149,7 @@ func TestVerificationConsumer_MobileDelivery_InvalidExpiresAt(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubGenericPublisher{}
 	repo := &stubInboxItemCreator{}
-	c := newVerificationConsumerForTest(sender, pub, repo)
+	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
 	event := kafkamsg.VerificationChallengeCreatedMessage{
 		ChallengeID:     1,
@@ -168,7 +169,7 @@ func TestVerificationConsumer_MobileDelivery_RepoErrorSkipsPush(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubGenericPublisher{}
 	repo := &stubInboxItemCreator{createErr: errors.New("db unavailable")}
-	c := newVerificationConsumerForTest(sender, pub, repo)
+	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
 	event := kafkamsg.VerificationChallengeCreatedMessage{
 		ChallengeID:     1,
@@ -188,7 +189,7 @@ func TestVerificationConsumer_MobileDelivery_PushFailureDoesNotPanic(t *testing.
 	sender := &stubEmailSender{}
 	pub := &stubGenericPublisher{publishErr: errors.New("kafka")}
 	repo := &stubInboxItemCreator{}
-	c := newVerificationConsumerForTest(sender, pub, repo)
+	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
 	event := kafkamsg.VerificationChallengeCreatedMessage{
 		ChallengeID:     1,
@@ -208,7 +209,7 @@ func TestVerificationConsumer_HandleMessage_UnknownChannel(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubGenericPublisher{}
 	repo := &stubInboxItemCreator{}
-	c := newVerificationConsumerForTest(sender, pub, repo)
+	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
 	event := kafkamsg.VerificationChallengeCreatedMessage{
 		ChallengeID:     1,
@@ -229,7 +230,7 @@ func TestVerificationConsumer_HandleMessage_MalformedJSON(t *testing.T) {
 	sender := &stubEmailSender{}
 	pub := &stubGenericPublisher{}
 	repo := &stubInboxItemCreator{}
-	c := newVerificationConsumerForTest(sender, pub, repo)
+	c := newVerificationConsumerForTest(sender, pub, repo, &stubRenderer{subject: "S", body: "B"})
 
 	c.handleMessage(context.Background(), []byte("{this is not"))
 

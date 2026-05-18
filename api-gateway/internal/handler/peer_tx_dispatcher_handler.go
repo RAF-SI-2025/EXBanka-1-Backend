@@ -57,12 +57,22 @@ func (h *PeerTxDispatcherHandler) CreateTransfer(c *gin.Context) {
 	// Tolerant unmarshal: amount may arrive as a JSON number (legacy
 	// intra-bank shape) or as a string (SI-TX shape). RawMessage lets us
 	// decide based on the routing branch which form to forward.
+	//
+	// Currency: the SI-TX wire shape uses "currency"; the intra-bank
+	// /me/transfers body uses "from_currency" / "to_currency" (since the
+	// intra-bank handler supports FX conversion). For peer-bank
+	// dispatch we need ONE currency on the posting AssetID, so we
+	// prefer "currency" but fall back to "from_currency" so the
+	// intra-bank caller doesn't have to know the SI-TX field name.
+	// Without this, the peer's vote builder rejects with
+	// "NO_SUCH_ASSET" because the posting AssetID is empty.
 	var req struct {
 		FromAccountNumber string          `json:"from_account_number"`
 		ToAccountNumber   string          `json:"to_account_number"`
 		ReceiverAccount   string          `json:"receiverAccount,omitempty"`
 		Amount            json.RawMessage `json:"amount"`
 		Currency          string          `json:"currency,omitempty"`
+		FromCurrency      string          `json:"from_currency,omitempty"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, "invalid body")
@@ -77,11 +87,15 @@ func (h *PeerTxDispatcherHandler) CreateTransfer(c *gin.Context) {
 		// Inter-bank dispatch via PeerTxService. Stringify amount so it
 		// matches the SiTxInitiateRequest.amount string contract.
 		amount := strings.Trim(string(req.Amount), `"`)
+		currency := req.Currency
+		if currency == "" {
+			currency = req.FromCurrency
+		}
 		resp, err := h.peerTx.InitiateOutboundTx(c.Request.Context(), &transactionpb.SiTxInitiateRequest{
 			FromAccountNumber: req.FromAccountNumber,
 			ToAccountNumber:   receiver,
 			Amount:            amount,
-			Currency:          req.Currency,
+			Currency:          currency,
 		})
 		if err != nil {
 			handleGRPCError(c, err)

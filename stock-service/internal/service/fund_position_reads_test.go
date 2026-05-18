@@ -26,6 +26,7 @@ func fundPositionDB(t *testing.T) (*FundService, *gorm.DB, *repository.ClientFun
 	if err := db.AutoMigrate(
 		&model.InvestmentFund{},
 		&model.ClientFundPosition{},
+		&model.FundPositionSettlement{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -59,7 +60,7 @@ func TestFundService_ListMyPositionsDTO_HappyPath(t *testing.T) {
 		t.Fatalf("create fund: %v", err)
 	}
 	uid := uint64(7)
-	if err := posRepo.IncrementContribution(created.ID, model.OwnerClient, &uid, decimal.NewFromInt(1000)); err != nil {
+	if err := posRepo.IncrementContribution(created.ID, model.OwnerClient, &uid, decimal.NewFromInt(1000), uint64(1)); err != nil {
 		t.Fatalf("increment: %v", err)
 	}
 	rows, err := svc.ListMyPositionsDTO(context.Background(), model.OwnerClient, &uid)

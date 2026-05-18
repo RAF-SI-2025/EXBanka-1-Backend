@@ -26,6 +26,7 @@ import (
 type secStub struct {
 	listStocksFn     func(*stockpb.ListStocksRequest) (*stockpb.ListStocksResponse, error)
 	getStockFn       func(*stockpb.GetStockRequest) (*stockpb.StockDetail, error)
+	getByTickerFn    func(*stockpb.GetStockByTickerRequest) (*stockpb.StockDetail, error)
 	stockHistoryFn   func(*stockpb.GetPriceHistoryRequest) (*stockpb.PriceHistoryResponse, error)
 	listFuturesFn    func(*stockpb.ListFuturesRequest) (*stockpb.ListFuturesResponse, error)
 	getFuturesFn     func(*stockpb.GetFuturesRequest) (*stockpb.FuturesDetail, error)
@@ -49,6 +50,12 @@ func (s *secStub) GetStock(_ context.Context, in *stockpb.GetStockRequest, _ ...
 		return s.getStockFn(in)
 	}
 	return &stockpb.StockDetail{Id: in.Id}, nil
+}
+func (s *secStub) GetStockByTicker(_ context.Context, in *stockpb.GetStockByTickerRequest, _ ...grpc.CallOption) (*stockpb.StockDetail, error) {
+	if s.getByTickerFn != nil {
+		return s.getByTickerFn(in)
+	}
+	return &stockpb.StockDetail{Ticker: in.Ticker}, nil
 }
 func (s *secStub) GetStockHistory(_ context.Context, in *stockpb.GetPriceHistoryRequest, _ ...grpc.CallOption) (*stockpb.PriceHistoryResponse, error) {
 	if s.stockHistoryFn != nil {

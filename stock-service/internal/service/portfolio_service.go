@@ -13,6 +13,7 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
@@ -30,7 +31,7 @@ import (
 //   - Stub() for direct GetAccount/UpdateBalance access on paths that predate
 //     Phase 2 (stateAccountNo-based commission, legacy helpers, exercise-option).
 type FillAccountClient interface {
-	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error)
+	PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey, orderKind string) (*accountpb.PartialSettleReservationResponse, error)
 	// CreditAccount and DebitAccount take an idempotencyKey (empty string
 	// opts out). Callers driven by the fill/compensation saga pass a
 	// deterministic key derived from the order-transaction ID so a retried
@@ -42,7 +43,7 @@ type FillAccountClient interface {
 	// on top of the expected fill amount; settlement only consumes the actual
 	// fill, leaving the buffer stuck on the user's account until this is
 	// called. Safe to call when nothing is reserved.
-	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
+	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey, orderKind string) (*accountpb.ReleaseReservationResponse, error)
 	Stub() accountpb.AccountServiceClient
 }
 
@@ -334,7 +335,7 @@ func (s *PortfolioService) processBuyFillSaga(order *model.Order, txn *model.Ord
 				st.Set("step:settle_reservation:amount", settleAmount)
 				st.Set("step:settle_reservation:currency", accountCurrency)
 				_, serr := s.fillClient.PartialSettleReservation(ctx, order.ID, txn.ID, settleAmount, memo,
-					saga.IdempotencyKey(sagaID, saga.StepSettleReservation))
+					saga.IdempotencyKey(sagaID, saga.StepSettleReservation), orderkind.StockOrder)
 				return serr
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
@@ -549,12 +550,12 @@ func (s *PortfolioService) processBuyFillLegacy(order *model.Order, txn *model.O
 	).Div(decimal.NewFromInt(order.Quantity))
 	debitAmount := txn.TotalPrice.Add(proportionalCommission)
 
-	if err := s.debitAccount(order.AccountID, debitAmount); err != nil {
+	if err := s.debitAccount(order.AccountID, debitAmount, fmt.Sprintf("legacy-buyfill-debit-%d-%d", order.ID, txn.ID)); err != nil {
 		return err
 	}
 
 	// Credit bank account with commission
-	if err := s.creditBankCommission(proportionalCommission); err != nil {
+	if err := s.creditBankCommission(proportionalCommission, fmt.Sprintf("legacy-buyfill-commission-%d-%d", order.ID, txn.ID)); err != nil {
 		return err
 	}
 
@@ -701,14 +702,7 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 			Name: saga.StepDecrementHolding,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, perr := s.holdingReservationSvc.PartialSettle(ctx, order.ID, txn.ID, txn.Quantity)
-				if perr != nil {
-					return perr
-				}
-				// Capital gain is part of the logical holding transition, so
-				// record it inside the same saga step. A failure here is
-				// treated the same as PartialSettle failure — credit_proceeds
-				// gets reversed via its Backward.
-				return s.recordCapitalGain(order, txn, listing)
+				return perr
 			},
 			// Holding decrement is the last step before commission (which
 			// runs outside the saga). No Backward needed.
@@ -716,6 +710,19 @@ func (s *PortfolioService) processSellFillSaga(order *model.Order, txn *model.Or
 
 	if err := sg.Execute(ctx, state); err != nil {
 		return err
+	}
+
+	// Fix R4 (2026-05-16): recordCapitalGain runs HERE (post-saga, best-
+	// effort), not inside StepDecrementHolding. Previously a capital-gain
+	// failure caused the saga to roll back AFTER PartialSettle had already
+	// decremented the holding (PartialSettle has no Backward), leaving the
+	// seller with shares missing AND a reversed-credit on the buyer — an
+	// inconsistent intermediate state. Logging the gain is a separate
+	// audit concern and must not be allowed to flip money flows that have
+	// already committed.
+	if cgErr := s.recordCapitalGain(order, txn, listing); cgErr != nil {
+		log.Printf("WARN: capital gain record failed for sell order %d fill %d: %v (money/shares already moved)",
+			order.ID, txn.ID, cgErr)
 	}
 
 	// Best-effort commission credit (separate sub-saga).
@@ -806,7 +813,7 @@ func (s *PortfolioService) ReleaseResidualReservation(ctx context.Context, order
 	}
 	// Stable per-order key — repeated calls hit the cache and become no-ops.
 	releaseKey := fmt.Sprintf("release-residual-%d", orderID)
-	_, err := s.fillClient.ReleaseReservation(ctx, orderID, releaseKey)
+	_, err := s.fillClient.ReleaseReservation(ctx, orderID, releaseKey, orderkind.StockOrder)
 	return err
 }
 
@@ -872,11 +879,11 @@ func (s *PortfolioService) processSellFillLegacy(order *model.Order, txn *model.
 	).Div(decimal.NewFromInt(order.Quantity))
 	creditAmount := txn.TotalPrice.Sub(proportionalCommission)
 
-	if err := s.creditAccount(order.AccountID, creditAmount); err != nil {
+	if err := s.creditAccount(order.AccountID, creditAmount, fmt.Sprintf("legacy-sellfill-credit-%d-%d", order.ID, txn.ID)); err != nil {
 		return err
 	}
 
-	return s.creditBankCommission(proportionalCommission)
+	return s.creditBankCommission(proportionalCommission, fmt.Sprintf("legacy-sellfill-commission-%d-%d", order.ID, txn.ID))
 }
 
 // ListHoldings returns an (owner_type, owner_id) owner's holdings with
@@ -954,13 +961,38 @@ func (s *PortfolioService) MakePublic(holdingID uint64, ownerType model.OwnerTyp
 	if holding.SecurityType != "stock" {
 		return nil, fmt.Errorf("only stocks can be made public for OTC trading: %w", ErrPublicOnlyStocks)
 	}
-	if quantity < 0 || quantity > holding.Quantity {
-		return nil, fmt.Errorf("invalid public quantity: %w", ErrInvalidPublicQuantity)
+	// Fix R3 (2026-05-16): cap PublicQuantity at the FREE balance
+	// (Quantity - ReservedQuantity), not just total Quantity. Previously
+	// a user with 100 shares + 50 reserved against an open OTC option
+	// contract could publish all 100; a downstream OTC stock fill would
+	// then try to debit 100 free shares (only 50 actually free) and the
+	// settle saga would fail mid-fill. Reject up front.
+	available := holding.Quantity - holding.ReservedQuantity
+	if available < 0 {
+		available = 0
+	}
+	if quantity < 0 || quantity > available {
+		return nil, fmt.Errorf("invalid public quantity (available %d): %w", available, ErrInvalidPublicQuantity)
 	}
 
 	holding.PublicQuantity = quantity
 
 	if err := s.holdingRepo.Update(holding); err != nil {
+		return nil, err
+	}
+	return holding, nil
+}
+
+// GetHoldingByID returns the raw Holding row for the gRPC GetHolding
+// RPC. Used by api-gateway for the CLAUDE.md ownership pre-check
+// before mutating ops like ExerciseOption / MakePublic (Fix R5,
+// 2026-05-16). Returns ErrHoldingNotFound if missing.
+func (s *PortfolioService) GetHoldingByID(holdingID uint64) (*model.Holding, error) {
+	holding, err := s.holdingRepo.GetByID(holdingID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("holding not found: %w", ErrHoldingNotFound)
+		}
 		return nil, err
 	}
 	return holding, nil
@@ -1004,6 +1036,19 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 	sharesAffected := holding.Quantity * 100 // 1 option = 100 shares
 	var profit decimal.Decimal
 
+	// Per-holding deterministic idempotency keys for the option-exercise
+	// path. Compensation steps reuse the original step's prefix so account-
+	// service's ledger dedup absorbs replays. ExerciseOption is a single
+	// shot per holding row (the holding is deleted at the end) so re-entry
+	// for the same holding can only happen on retry of a failed leg.
+	exDebitKey := fmt.Sprintf("exercise-option-%d:debit", holdingID)
+	exDebitCompStockErr := fmt.Sprintf("exercise-option-%d:debit-comp-stock-lookup", holdingID)
+	exDebitCompUpsert := fmt.Sprintf("exercise-option-%d:debit-comp-upsert", holdingID)
+	exCreditKey := fmt.Sprintf("exercise-option-%d:credit", holdingID)
+	exCreditCompDelete := fmt.Sprintf("exercise-option-%d:credit-comp-delete", holdingID)
+	exCreditCompUpdate := fmt.Sprintf("exercise-option-%d:credit-comp-update", holdingID)
+	exCreditCompCapGain := fmt.Sprintf("exercise-option-%d:credit-comp-capgain", holdingID)
+
 	if option.OptionType == "call" {
 		// CALL: stock price must be > strike price
 		if stockListing.Price.LessThanOrEqual(option.StrikePrice) {
@@ -1013,7 +1058,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 
 		// Debit account by strike × shares (buying stock at strike price)
 		debitAmount := option.StrikePrice.Mul(decimal.NewFromInt(sharesAffected))
-		if err := s.debitAccount(holding.AccountID, debitAmount); err != nil {
+		if err := s.debitAccount(holding.AccountID, debitAmount, exDebitKey); err != nil {
 			return nil, err
 		}
 
@@ -1021,7 +1066,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 		stock, err := s.stockRepo.GetByID(option.StockID)
 		if err != nil {
 			// Compensate: re-credit the debit amount
-			_ = s.creditAccount(holding.AccountID, debitAmount)
+			_ = s.creditAccount(holding.AccountID, debitAmount, exDebitCompStockErr)
 			return nil, err
 		}
 		stockHolding := &model.Holding{
@@ -1040,7 +1085,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 		}
 		if err := s.holdingRepo.Upsert(context.Background(), stockHolding); err != nil {
 			// Compensate: re-credit the debit amount
-			_ = s.creditAccount(holding.AccountID, debitAmount)
+			_ = s.creditAccount(holding.AccountID, debitAmount, exDebitCompUpsert)
 			return nil, err
 		}
 
@@ -1063,7 +1108,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 
 		// Credit account by strike × shares (selling stock at strike price)
 		creditAmount := option.StrikePrice.Mul(decimal.NewFromInt(sharesAffected))
-		if err := s.creditAccount(holding.AccountID, creditAmount); err != nil {
+		if err := s.creditAccount(holding.AccountID, creditAmount, exCreditKey); err != nil {
 			return nil, err
 		}
 
@@ -1079,13 +1124,13 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 		if stockHolding.Quantity == 0 {
 			if err := s.holdingRepo.Delete(stockHolding.ID); err != nil {
 				// Compensate: re-debit the credit amount
-				_ = s.debitAccount(holding.AccountID, creditAmount)
+				_ = s.debitAccount(holding.AccountID, creditAmount, exCreditCompDelete)
 				return nil, err
 			}
 		} else {
 			if err := s.holdingRepo.Update(stockHolding); err != nil {
 				// Compensate: re-debit the credit amount
-				_ = s.debitAccount(holding.AccountID, creditAmount)
+				_ = s.debitAccount(holding.AccountID, creditAmount, exCreditCompUpdate)
 				return nil, err
 			}
 		}
@@ -1108,7 +1153,7 @@ func (s *PortfolioService) ExerciseOption(holdingID uint64, ownerType model.Owne
 		}
 		if err := s.capitalGainRepo.Create(capitalGain); err != nil {
 			// Compensate: re-debit the credit amount
-			_ = s.debitAccount(holding.AccountID, creditAmount)
+			_ = s.debitAccount(holding.AccountID, creditAmount, exCreditCompCapGain)
 			return nil, err
 		}
 	}
@@ -1148,8 +1193,13 @@ func (s *PortfolioService) ExerciseOptionByOptionID(ctx context.Context, optionI
 }
 
 // --- Account helpers ---
+//
+// All three helpers require a non-empty idempotencyKey. account-service's
+// UpdateBalance rejects empty keys with InvalidArgument since the Phase-2
+// ledger work; callers must thread a deterministic per-step key so retries
+// dedup at the ledger level instead of double-debiting / double-crediting.
 
-func (s *PortfolioService) debitAccount(accountID uint64, amount decimal.Decimal) error {
+func (s *PortfolioService) debitAccount(accountID uint64, amount decimal.Decimal, idempotencyKey string) error {
 	acctResp, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: accountID})
 	if err != nil {
 		return err
@@ -1158,11 +1208,12 @@ func (s *PortfolioService) debitAccount(accountID uint64, amount decimal.Decimal
 		AccountNumber:   acctResp.AccountNumber,
 		Amount:          amount.Neg().StringFixed(4), // negative for debit
 		UpdateAvailable: true,
+		IdempotencyKey:  idempotencyKey,
 	})
 	return err
 }
 
-func (s *PortfolioService) creditAccount(accountID uint64, amount decimal.Decimal) error {
+func (s *PortfolioService) creditAccount(accountID uint64, amount decimal.Decimal, idempotencyKey string) error {
 	acctResp, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: accountID})
 	if err != nil {
 		return err
@@ -1171,11 +1222,12 @@ func (s *PortfolioService) creditAccount(accountID uint64, amount decimal.Decima
 		AccountNumber:   acctResp.AccountNumber,
 		Amount:          amount.StringFixed(4), // positive for credit
 		UpdateAvailable: true,
+		IdempotencyKey:  idempotencyKey,
 	})
 	return err
 }
 
-func (s *PortfolioService) creditBankCommission(commission decimal.Decimal) error {
+func (s *PortfolioService) creditBankCommission(commission decimal.Decimal, idempotencyKey string) error {
 	if commission.IsZero() {
 		return nil
 	}
@@ -1183,6 +1235,7 @@ func (s *PortfolioService) creditBankCommission(commission decimal.Decimal) erro
 		AccountNumber:   s.stateAccountNo,
 		Amount:          commission.StringFixed(4),
 		UpdateAvailable: true,
+		IdempotencyKey:  idempotencyKey,
 	})
 	return err
 }

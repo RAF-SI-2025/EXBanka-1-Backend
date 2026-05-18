@@ -2084,64 +2084,6 @@
                 }
             }
         },
-        "/api/v2/cards/requests/me": {
-            "get": {
-                "security": [
-                    {
-                        "ClientBearerAuth": []
-                    }
-                ],
-                "description": "Returns all card requests for the authenticated client.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "card-requests"
-                ],
-                "summary": "List my card requests",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Page number (default 1)",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page size (default 20)",
-                        "name": "page_size",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "list of card requests",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v2/cards/requests/{id}": {
             "get": {
                 "security": [
@@ -4980,146 +4922,6 @@
                 }
             }
         },
-        "/api/v2/loans/requests": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns all loan requests with optional filters. Requires credits.read permission.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "loans"
-                ],
-                "summary": "List loan requests",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Page number (default 1)",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Items per page (default 20)",
-                        "name": "page_size",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by loan type",
-                        "name": "loan_type_filter",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by account number",
-                        "name": "account_number_filter",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by status",
-                        "name": "status_filter",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "loans"
-                ],
-                "summary": "Submit loan application",
-                "parameters": [
-                    {
-                        "description": "Loan application data",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.createLoanRequestBody"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/v2/loans/requests/client/{client_id}": {
             "get": {
                 "security": [
@@ -5183,165 +4985,6 @@
                     },
                     "403": {
                         "description": "Forbidden",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v2/loans/requests/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns a single loan request. Requires credits.read permission.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "loans"
-                ],
-                "summary": "Get loan request by ID",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Loan request ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v2/loans/requests/{id}/approve": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Approves a pending loan request and creates the loan. Requires credits.approve permission.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "loans"
-                ],
-                "summary": "Approve loan request",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Loan request ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v2/loans/requests/{id}/reject": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Rejects a pending loan request. Requires credits.approve permission.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "loans"
-                ],
-                "summary": "Reject loan request",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Loan request ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -8935,6 +8578,74 @@
                 }
             }
         },
+        "/api/v3/bank-accounts/{id}/activity": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns paginated ledger entries (debits/credits) for a bank-owned account. Employee-only; the account must be a bank account or the request is rejected with 404.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "accounts"
+                ],
+                "summary": "List a bank account's ledger activity",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Bank account ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 20, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "entries, total_count",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "validation_error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "missing bank_accounts.manage permission",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "not a bank account / account not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/cards/authorized-persons": {
             "post": {
                 "security": [
@@ -9584,6 +9295,272 @@
                 }
             }
         },
+        "/api/v3/interbank": {
+            "post": {
+                "description": "Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key or HMAC). Forwards the envelope to transaction-service which classifies on `type` and dispatches.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX / VOTE)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/loan-requests": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all loan requests with optional filters. Requires credits.read permission.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "loans"
+                ],
+                "summary": "List loan requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (default 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by loan type",
+                        "name": "loan_type_filter",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by account number",
+                        "name": "account_number_filter",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status_filter",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/loan-requests/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single loan request. Requires credits.read permission.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "loans"
+                ],
+                "summary": "Get loan request by ID",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Loan request ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/loan-requests/{id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approves a pending loan request and creates the loan. Requires credits.approve permission.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "loans"
+                ],
+                "summary": "Approve loan request",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Loan request ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/loan-requests/{id}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rejects a pending loan request. Requires credits.approve permission.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "loans"
+                ],
+                "summary": "Reject loan request",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Loan request ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/loans": {
             "get": {
                 "security": [
@@ -9735,6 +9712,130 @@
                 }
             }
         },
+        "/api/v3/me/cards/requests": {
+            "get": {
+                "security": [
+                    {
+                        "ClientBearerAuth": []
+                    }
+                ],
+                "description": "Returns all card requests for the authenticated client.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "card-requests"
+                ],
+                "summary": "List my card requests",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (default 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "list of card requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/loan-requests": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "loans"
+                ],
+                "summary": "Submit loan application",
+                "parameters": [
+                    {
+                        "description": "Loan application data",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createLoanRequestBody"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/otc/contracts": {
             "get": {
                 "security": [
@@ -9807,12 +9908,140 @@
                 }
             }
         },
-        "/api/v3/me/otc/offers": {
+        "/api/v3/me/otc/history": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
+                ],
+                "description": "Returns OTC offers in terminal statuses (accepted, rejected, expired, failed). Filter by status, date range, and counterparty.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List the caller's terminal OTC negotiations (history)",
+                "parameters": [
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "ACCEPTED|REJECTED|EXPIRED|FAILED (repeatable)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "YYYY-MM-DD",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "YYYY-MM-DD",
+                        "name": "until",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "owner id of the other party",
+                        "name": "counterparty_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based page (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1..100, default 20",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Same response shape as GET /api/v3/otc/options (kind/bank_code/best_bid/best_ask/active_chains_count/...) but scoped to listings the caller posted. Only OPEN listings appear here (the unified cache is open-only); for a full history of every offer you've ever posted use GET /api/v3/me/otc/options/posted.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Marketplace view of the caller's OWN open OTC option listings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter to one ticker",
+                        "name": "ticker",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sell_initiated|buy_initiated",
+                        "name": "direction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 10",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
                 ],
                 "produces": [
                     "application/json"
@@ -9820,12 +10049,75 @@
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "List the caller's OTC offers",
+                "summary": "Create an OTC option offer",
+                "parameters": [
+                    {
+                        "description": "offer details (ticker-keyed; account_id is the initiator's account)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createOTCOfferRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/negotiations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns chains where the caller is the bidder. Filter with `?statuses=open,countered,accepted,rejected,cancelled,expired`.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List the caller's OTC option negotiation chains",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "initiator|counterparty|either",
-                        "name": "role",
+                        "description": "comma-separated; omit for all",
+                        "name": "statuses",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 20, max 200",
+                        "name": "page_size",
                         "in": "query"
                     }
                 ],
@@ -9840,7 +10132,612 @@
                 }
             }
         },
+        "/api/v3/me/otc/options/posted": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the raw OTCOffer rows for listings where the caller is the initiator. Includes all statuses (open, consumed, accepted, rejected, expired, cancelled). Use this for a \"my posted offers\" history view. For the live-marketplace shape of my open involvement, use GET /api/v3/me/otc/options.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List every OTC option offer the caller has posted (any status)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "comma-separated; omit for all",
+                        "name": "statuses",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 20",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Initiator-only. Status flips to \"cancelled\" and all open child negotiation chains cascade-cancel. Returns 204 on success, 403 if caller is not the listing's poster, 409 if listing is not open.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Cancel (withdraw) your own OTC option listing",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}/negotiations/{nid}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Bidder-only — the listing's poster cannot cancel a bidder's chain (use reject instead).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Cancel (withdraw) your own OTC option negotiation chain",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id (sanity check)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "negotiation chain id",
+                        "name": "nid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}/negotiations/{nid}/accept": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Caller must be the party OPPOSITE to whoever proposed the current terms. After the negotiation state TX (which flips this chain to \"accepted\", parent to \"consumed\", and cascade-cancels every sibling chain), the contract-formation saga runs: mints OptionContract from the negotiation's snapshot terms, reserves seller's underlying shares, reserves+settles buyer's premium, credits the seller. If the saga fails (e.g. seller no longer has the shares, buyer is short on premium), the negotiation flips to \"failed\" and the parent stays consumed.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Accept the current terms on an OTC option negotiation chain",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "negotiation chain id",
+                        "name": "nid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "acceptor_account_id — caller's account that pays the premium (if accepter is the buyer) or receives it (if accepter is the seller)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.acceptNegotiationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "acceptor_account_id missing or not owned",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "caller proposed current terms or not a party",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "parent listing already consumed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "412": {
+                        "description": "contract-formation saga rejected (seller short on shares OR buyer short on premium)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}/negotiations/{nid}/counter": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Either the bidder or the listing's poster may counter. Updates the chain's terms; status flips to \"countered\".",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Counter on one of your OTC option negotiation chains",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id (sanity check; not used)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "negotiation chain id",
+                        "name": "nid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new terms",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.counterNegotiationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/options/{id}/negotiations/{nid}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Either party may reject. The chain ends without forming a contract; parent listing stays open.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Reject an OTC option negotiation chain",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "parent listing id (sanity check)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "negotiation chain id",
+                        "name": "nid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/ratings": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Rate the counterparty of an ACCEPTED OTC offer",
+                "parameters": [
+                    {
+                        "description": "offer_id + score (1..5) + optional comment",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.submitOTCRatingRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/ratings/received": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List ratings the caller has received from OTC counterparties",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "1..100, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/stocks": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns sell offers (holdings with public_quantity \u003e 0) and buy offers (otc_stock_buy_offers rows) where the caller is the owner. Filter with `?direction=sell|buy`.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCStocks"
+                ],
+                "summary": "List the caller's OTC stock offers (both directions)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "sell|buy (omit for both)",
+                        "name": "direction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 20, max 200",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "direction=sell publishes shares from `holding_id` (accumulative); direction=buy creates a standing buy offer at `price_per_unit` backed by a cash reservation on `buyer_account_id`.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCStocks"
+                ],
+                "summary": "Create an OTC stock sell or buy offer",
+                "parameters": [
+                    {
+                        "description": "offer details (direction-keyed)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createOTCStockOfferRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/otc/stocks/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Direction-keyed: sell cancels by holding_id (zeros public_quantity); buy cancels by offer_id (releases reserved cash).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCStocks"
+                ],
+                "summary": "Cancel your own OTC stock sell or buy offer",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "holding_id (sell) or otc_stock_buy_offers.id (buy)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "sell|buy",
+                        "name": "direction",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/me/peer-otc/negotiations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns rows from this bank's peer_otc_negotiations where the caller is either the buyer (this bank hosts the buyer) or the seller. Use `role=buyer` / `role=seller` to filter.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "List the caller's pending peer-OTC negotiations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "buyer|seller (default: both)",
+                        "name": "role",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -9872,6 +10769,724 @@
                 "responses": {
                     "201": {
                         "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/peer-otc/negotiations/{rid}/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates the negotiation offer on the counterparty's bank. Body is the same OtcOffer shape as the initial POST. The gateway proxies a PUT to the counterparty's /api/v3/negotiations/:rid/:id. The local mirror row is updated by the inbound webhook from the counterparty after they refetch.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Counter-offer on a cross-bank OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "routing number of the bank that issued the negotiation id",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft-cancels the negotiation on the counterparty's bank (DELETE flips isOngoing to false; the row is preserved per SI-TX §3.5). The local mirror is updated by the inbound webhook from the counterparty after they refetch.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Cancel a cross-bank OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/peer-otc/negotiations/{rid}/{id}/accept": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Calls the counterparty's /api/v3/negotiations/:rid/:id/accept which begins the option-formation SI-TX (4-posting NEW_TX). Returns the transaction_id assigned by the counterparty.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCOptions"
+                ],
+                "summary": "Accept a cross-bank OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/price-alerts": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "List the caller's price alerts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "Create a price alert",
+                "parameters": [
+                    {
+                        "description": "alert",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createPriceAlertRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/price-alerts/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "Get one of the caller's price alerts",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "alert id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "Update a price alert",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "alert id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "alert fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.updatePriceAlertRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PriceAlerts"
+                ],
+                "summary": "Delete a price alert",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "alert id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/recurring-funds": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringFunds"
+                ],
+                "summary": "List my recurring fund investments",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringFunds"
+                ],
+                "summary": "Create a monthly DCA fund-investment template",
+                "parameters": [
+                    {
+                        "description": "template",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createRecurringFundRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/recurring-funds/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringFunds"
+                ],
+                "summary": "Get a recurring fund investment",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringFunds"
+                ],
+                "summary": "Cancel a recurring fund investment",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/recurring-funds/{id}/pause": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringFunds"
+                ],
+                "summary": "Pause a recurring fund investment",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/recurring-funds/{id}/resume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringFunds"
+                ],
+                "summary": "Resume a paused recurring fund investment",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/recurring-orders": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringOrders"
+                ],
+                "summary": "List the caller's recurring orders",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringOrders"
+                ],
+                "summary": "Create a recurring (weekly/monthly) Market order template",
+                "parameters": [
+                    {
+                        "description": "template",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.createRecurringOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/recurring-orders/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringOrders"
+                ],
+                "summary": "Get one of the caller's recurring orders",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "recurring order id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/recurring-orders/{id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringOrders"
+                ],
+                "summary": "Cancel a recurring order",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "recurring order id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/recurring-orders/{id}/pause": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringOrders"
+                ],
+                "summary": "Pause a recurring order",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "recurring order id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/recurring-orders/{id}/resume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "RecurringOrders"
+                ],
+                "summary": "Resume a paused recurring order",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "recurring order id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10045,6 +11660,640 @@
                 }
             }
         },
+        "/api/v3/me/transfers/{id}/status": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Maps the internal transfer lifecycle (pending/processing/completed/failed) to the four-state public vocabulary (INITIATED/PENDING/COMPLETED/FAILED). Frontend polls this to render the SI-TX status in real time. Notifications for each terminal transition flow via TRANSFER_SENT/RECEIVED/FAILED in-app events.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transactions"
+                ],
+                "summary": "Get the client-facing status of one of the caller's transfers",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "transfer id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/watchlist": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Watchlist"
+                ],
+                "summary": "List the caller's watchlist with current prices + daily change",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "stock|option|futures|forex",
+                        "name": "listing_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Watchlist"
+                ],
+                "summary": "Add a listing to the caller's watchlist",
+                "parameters": [
+                    {
+                        "description": "listing_id to track",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.addWatchlistRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/me/watchlist/{listing_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Watchlist"
+                ],
+                "summary": "Remove a listing from the caller's watchlist",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "listing id",
+                        "name": "listing_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/negotiations": {
+            "post": {
+                "description": "Inbound from a peer bank's SI-TX layer. Authenticated via PeerAuth (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code, foreign_id). buyerId.routingNumber MUST match the authenticated peer's routing (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: create OTC option negotiation",
+                "parameters": [
+                    {
+                        "description": "SI-TX OtcOffer wire shape",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.peerOtcOfferReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "ForeignBankId of the newly-created negotiation",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/negotiations/{rid}/{id}": {
+            "get": {
+                "description": "Inbound from a peer bank. Returns the full SI-TX OtcNegotiation record for the (peer_bank_code, foreign_id) pair.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: read an OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign negotiation id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations row. Only the peer that created the row (matched by peer_bank_code) can update it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: counter-offer on an existing OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number (this bank's, that issued the foreign_id)",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign negotiation id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new SI-TX OtcOffer terms",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.peerOtcOfferReq"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Inbound from a peer bank. Soft-cancels the negotiation row (status → cancelled). The row is preserved for audit per SI-TX §3.5.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: cancel an OTC negotiation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign negotiation id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/negotiations/{rid}/{id}/accept": {
+            "get": {
+                "description": "Inbound from the buyer's bank. The seller's bank composes the 4-posting NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset, buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies GET semantics.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: accept an OTC negotiation (triggers option-formation SI-TX)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "foreign negotiation id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "transactionId + status",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/notification-templates": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists every notification template type with its supported {{variables}}, default text, and current (possibly customized) text. The discovery endpoint for the template editor.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-templates"
+                ],
+                "summary": "List notification templates (discovery)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by channel: email | push",
+                        "name": "channel",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/notification-templates/{channel}/{type}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-templates"
+                ],
+                "summary": "Get one notification template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel: email | push",
+                        "name": "channel",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Template type, e.g. ACCOUNT_CREATED",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Sets the subject/body override for a template type. Placeholders must use {{variable_name}} and reference only that type's known variables.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-templates"
+                ],
+                "summary": "Customize a notification template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel: email | push",
+                        "name": "channel",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Template type",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "subject + body",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.setNotificationTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-templates"
+                ],
+                "summary": "Reset a notification template to its default",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Channel: email | push",
+                        "name": "channel",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Template type",
+                        "name": "type",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/api/v3/otc/contracts/{id}": {
             "get": {
                 "security": [
@@ -10105,10 +12354,9 @@
                         "required": true
                     },
                     {
-                        "description": "buyer + seller account IDs",
+                        "description": "optional on-behalf client id; accounts come from the contract",
                         "name": "body",
                         "in": "body",
-                        "required": true,
                         "schema": {
                             "$ref": "#/definitions/handler.exerciseRequest"
                         }
@@ -10125,37 +12373,62 @@
                 }
             }
         },
-        "/api/v3/otc/offers": {
-            "post": {
+        "/api/v3/otc/options": {
+            "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Phase 6 cross-bank discovery. Returns this bank's open",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "Create an OTC option offer",
+                "summary": "Unified marketplace view of OPEN OTC option listings",
                 "parameters": [
                     {
-                        "description": "offer details",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.createOTCOfferRequest"
-                        }
+                        "type": "string",
+                        "description": "Filter to one ticker",
+                        "name": "ticker",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "local|remote",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter to one bank",
+                        "name": "bank_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "sell_initiated|buy_initiated",
+                        "name": "direction",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1-based, default 1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "default 10",
+                        "name": "page_size",
+                        "in": "query"
                     }
                 ],
                 "responses": {
-                    "201": {
-                        "description": "Created",
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10164,7 +12437,7 @@
                 }
             }
         },
-        "/api/v3/otc/offers/{id}": {
+        "/api/v3/otc/options/{id}": {
             "get": {
                 "security": [
                     {
@@ -10198,13 +12471,14 @@
                 }
             }
         },
-        "/api/v3/otc/offers/{id}/accept": {
+        "/api/v3/otc/options/{id}/bid": {
             "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
+                "description": "Many bidders can each open their own chain against the same listing. First to accept wins atomically; siblings cascade-cancel.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10214,22 +12488,22 @@
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "Accept an OTC offer (premium-payment saga)",
+                "summary": "Place a bid on an OTC option listing (opens a negotiation chain)",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "offer id",
+                        "description": "parent OTCOffer listing id",
                         "name": "id",
                         "in": "path",
                         "required": true
                     },
                     {
-                        "description": "buyer + seller account IDs",
+                        "description": "initial bid terms + bidder's account",
                         "name": "body",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/handler.acceptOTCOfferRequest"
+                            "$ref": "#/definitions/handler.openNegotiationRequest"
                         }
                     }
                 ],
@@ -10240,43 +12514,53 @@
                             "type": "object",
                             "additionalProperties": true
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "chain already open for caller on this listing",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
         },
-        "/api/v3/otc/offers/{id}/counter": {
-            "post": {
+        "/api/v3/otc/options/{id}/negotiations": {
+            "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "consumes": [
-                    "application/json"
-                ],
+                "description": "Used by the listing's poster to see all incoming bids. Returns chains in any status (active + terminal).",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "Counter an OTC offer",
+                "summary": "List every negotiation chain against a given OTC option listing",
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "offer id",
+                        "description": "parent OTCOffer listing id",
                         "name": "id",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "description": "new terms",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.counterOTCOfferRequest"
-                        }
                     }
                 ],
                 "responses": {
@@ -10290,8 +12574,83 @@
                 }
             }
         },
-        "/api/v3/otc/offers/{id}/reject": {
+        "/api/v3/otc/stocks/{id}/sell": {
             "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The caller sells the requested quantity of shares into",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OTCStocks"
+                ],
+                "summary": "Fill a buy-direction OTC stock offer (sell into it)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "otc_stock_buy_offers.id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "quantity + seller's destination account",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.sellOTCStockOfferRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "412": {
+                        "description": "offer not active OR seller short on shares",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/otc/traders/{owner_type}/{owner_id}/rating": {
+            "get": {
                 "security": [
                     {
                         "BearerAuth": []
@@ -10303,19 +12662,97 @@
                 "tags": [
                     "OTCOptions"
                 ],
-                "summary": "Reject an OTC offer",
+                "summary": "Get a trader's aggregate OTC rating + recent comments",
                 "parameters": [
                     {
-                        "type": "integer",
-                        "description": "offer id",
-                        "name": "id",
+                        "type": "string",
+                        "description": "client|bank",
+                        "name": "owner_type",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "owner id (0 for bank)",
+                        "name": "owner_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1..100, default 20",
+                        "name": "recent_limit",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/public-option-offers": {
+            "get": {
+                "description": "Phase 6 cross-bank discovery. Returns this bank's\nInbound from a peer bank. Returns this bank's open option listings (kind=local). Includes best_bid / best_ask / active_chains_count when available so the peer's cache can surface a richer marketplace view.",
+                "produces": [
+                    "application/json",
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC",
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: list public OPEN OTC option listings (Phase 6 discovery)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "501": {
+                        "description": "OTCOfferReader not wired",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v3/public-stock": {
+            "get": {
+                "description": "Inbound from a peer bank. Returns this bank's holdings flagged public_quantity \u003e 0 — the candidate OTC sellers a discovering bank can negotiate against. SI-TX §3.2.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: list public stock holdings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -10575,6 +13012,57 @@
                     }
                 }
             }
+        },
+        "/api/v3/user/{rid}/{id}": {
+            "get": {
+                "description": "Inbound from a peer bank. Looks up a local (client-N / employee-N) and returns first+last name for OTC negotiation display. Routing number in path MUST match this bank's routing — calls for foreign users return 404.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PeerOTC"
+                ],
+                "summary": "Peer-to-peer: resolve a foreign user to display name",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "routing number (must equal this bank's routing)",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "principal id, e.g. client-1 or employee-3",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -10600,13 +13088,10 @@
                 }
             }
         },
-        "handler.acceptOTCOfferRequest": {
+        "handler.acceptNegotiationRequest": {
             "type": "object",
             "properties": {
-                "buyer_account_id": {
-                    "type": "integer"
-                },
-                "seller_account_id": {
+                "acceptor_account_id": {
                     "type": "integer"
                 }
             }
@@ -10649,6 +13134,14 @@
                 }
             }
         },
+        "handler.addWatchlistRequest": {
+            "type": "object",
+            "properties": {
+                "listing_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "handler.applyBlueprintBody": {
             "type": "object",
             "required": [
@@ -10684,7 +13177,7 @@
                 }
             }
         },
-        "handler.counterOTCOfferRequest": {
+        "handler.counterNegotiationRequest": {
             "type": "object",
             "properties": {
                 "premium": {
@@ -11124,6 +13617,9 @@
         "handler.createOTCOfferRequest": {
             "type": "object",
             "properties": {
+                "account_id": {
+                    "type": "integer"
+                },
                 "counterparty_system_type": {
                     "type": "string"
                 },
@@ -11132,6 +13628,9 @@
                 },
                 "direction": {
                     "type": "string"
+                },
+                "on_behalf_of_client_id": {
+                    "type": "integer"
                 },
                 "premium": {
                     "type": "string"
@@ -11142,11 +13641,39 @@
                 "settlement_date": {
                     "type": "string"
                 },
-                "stock_id": {
-                    "type": "integer"
-                },
                 "strike_price": {
                     "type": "string"
+                },
+                "ticker": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.createOTCStockOfferRequest": {
+            "type": "object",
+            "properties": {
+                "buyer_account_id": {
+                    "description": "buy only",
+                    "type": "integer"
+                },
+                "direction": {
+                    "description": "\"sell\" | \"buy\"",
+                    "type": "string"
+                },
+                "holding_id": {
+                    "description": "sell only",
+                    "type": "integer"
+                },
+                "listing_id": {
+                    "description": "buy only",
+                    "type": "integer"
+                },
+                "price_per_unit": {
+                    "description": "buy only (decimal)",
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "integer"
                 }
             }
         },
@@ -11229,6 +13756,78 @@
                 },
                 "to_account_number": {
                     "type": "string"
+                }
+            }
+        },
+        "handler.createPriceAlertRequest": {
+            "type": "object",
+            "properties": {
+                "condition": {
+                    "type": "string"
+                },
+                "cooldown_seconds": {
+                    "type": "integer"
+                },
+                "email_too": {
+                    "type": "boolean"
+                },
+                "is_recurring": {
+                    "type": "boolean"
+                },
+                "listing_id": {
+                    "type": "integer"
+                },
+                "threshold": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.createRecurringFundRequest": {
+            "type": "object",
+            "properties": {
+                "amount_rsd": {
+                    "type": "string"
+                },
+                "day_of_month": {
+                    "type": "integer"
+                },
+                "fund_id": {
+                    "type": "integer"
+                },
+                "source_account_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "handler.createRecurringOrderRequest": {
+            "type": "object",
+            "properties": {
+                "account_id": {
+                    "type": "integer"
+                },
+                "day_of_month": {
+                    "type": "integer"
+                },
+                "day_of_week": {
+                    "type": "integer"
+                },
+                "end_date_unix": {
+                    "type": "integer"
+                },
+                "interval": {
+                    "type": "string"
+                },
+                "listing_id": {
+                    "type": "integer"
+                },
+                "quantity": {
+                    "type": "integer"
+                },
+                "side": {
+                    "type": "string"
+                },
+                "start_date_unix": {
+                    "type": "integer"
                 }
             }
         },
@@ -11371,10 +13970,7 @@
         "handler.exerciseRequest": {
             "type": "object",
             "properties": {
-                "buyer_account_id": {
-                    "type": "integer"
-                },
-                "seller_account_id": {
+                "on_behalf_of_client_id": {
                     "type": "integer"
                 }
             }
@@ -11384,6 +13980,22 @@
             "properties": {
                 "amount": {
                     "type": "integer"
+                },
+                "bidder_account_id": {
+                    "description": "Fix #1 (2026-05-16) — the buyer's bank account that pays the\npremium on accept. REQUIRED. Gateway validates the account belongs\nto the caller and its currency matches premium.currency (no\ncross-bank FX in SI-TX yet). The resolved account number is\nthreaded through to the seller's bank in the OtcOffer wire payload\nas buyerAccountNumber so the seller's bank's posting executor\nuses this exact account (no \"first active USD account\" guesswork).",
+                    "type": "integer"
+                },
+                "parent_offer_id": {
+                    "description": "Phase 10 — optional cross-bank cascade-cancel grouping key. When\nthe bidder discovered this listing via /public-option-offers,\nthey pass the listing's (routingNumber, id) here so the seller's\nbank can group sibling chains and cascade-cancel them on accept.\nFree-form bidders (no discovery) leave this unset; they're never\npart of a sibling group.",
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string"
+                        },
+                        "routingNumber": {
+                            "type": "integer"
+                        }
+                    }
                 },
                 "premium": {
                     "type": "object",
@@ -11469,6 +14081,26 @@
                 }
             }
         },
+        "handler.openNegotiationRequest": {
+            "type": "object",
+            "properties": {
+                "bidder_account_id": {
+                    "type": "integer"
+                },
+                "premium": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "string"
+                },
+                "settlement_date": {
+                    "type": "string"
+                },
+                "strike_price": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.passwordResetRequest": {
             "type": "object",
             "required": [
@@ -11476,6 +14108,69 @@
             ],
             "properties": {
                 "email": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.peerForeignBankIdReq": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "routingNumber": {
+                    "type": "integer"
+                }
+            }
+        },
+        "handler.peerMonetaryValueReq": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "string"
+                },
+                "currency": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.peerOtcOfferReq": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer"
+                },
+                "buyerAccountNumber": {
+                    "description": "Fix #1 (2026-05-16) — the buyer's 18-digit account number,\noptionally pinned by the buyer's bank so the seller's bank uses\nthis exact account for the buyer-debit posting on accept.\nEmpty string ⇒ legacy path (participant-id resolution).",
+                    "type": "string"
+                },
+                "buyerId": {
+                    "$ref": "#/definitions/handler.peerForeignBankIdReq"
+                },
+                "lastModifiedBy": {
+                    "$ref": "#/definitions/handler.peerForeignBankIdReq"
+                },
+                "premium": {
+                    "$ref": "#/definitions/handler.peerMonetaryValueReq"
+                },
+                "pricePerUnit": {
+                    "$ref": "#/definitions/handler.peerMonetaryValueReq"
+                },
+                "sellerId": {
+                    "$ref": "#/definitions/handler.peerForeignBankIdReq"
+                },
+                "settlementDate": {
+                    "type": "string"
+                },
+                "stock": {
+                    "$ref": "#/definitions/handler.peerStockDescriptionReq"
+                }
+            }
+        },
+        "handler.peerStockDescriptionReq": {
+            "type": "object",
+            "properties": {
+                "ticker": {
                     "type": "string"
                 }
             }
@@ -11599,6 +14294,17 @@
                 }
             }
         },
+        "handler.sellOTCStockOfferRequest": {
+            "type": "object",
+            "properties": {
+                "quantity": {
+                    "type": "integer"
+                },
+                "seller_account_id": {
+                    "type": "integer"
+                }
+            }
+        },
         "handler.setBiometricsReq": {
             "type": "object",
             "properties": {
@@ -11694,6 +14400,17 @@
                 }
             }
         },
+        "handler.setNotificationTemplateRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "subject": {
+                    "type": "string"
+                }
+            }
+        },
         "handler.submitCodeReq": {
             "type": "object",
             "required": [
@@ -11713,6 +14430,20 @@
             "properties": {
                 "response": {
                     "type": "string"
+                }
+            }
+        },
+        "handler.submitOTCRatingRequest": {
+            "type": "object",
+            "properties": {
+                "comment": {
+                    "type": "string"
+                },
+                "offer_id": {
+                    "type": "integer"
+                },
+                "score": {
+                    "type": "integer"
                 }
             }
         },
@@ -11922,6 +14653,29 @@
                     "type": "string"
                 },
                 "recipient_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.updatePriceAlertRequest": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "condition": {
+                    "type": "string"
+                },
+                "cooldown_seconds": {
+                    "type": "integer"
+                },
+                "email_too": {
+                    "type": "boolean"
+                },
+                "is_recurring": {
+                    "type": "boolean"
+                },
+                "threshold": {
                     "type": "string"
                 }
             }

@@ -29,6 +29,9 @@ func (s *stubSecurityClient) ListStocks(ctx context.Context, in *stockpb.ListSto
 func (s *stubSecurityClient) GetStock(ctx context.Context, in *stockpb.GetStockRequest, opts ...grpc.CallOption) (*stockpb.StockDetail, error) {
 	return nil, nil
 }
+func (s *stubSecurityClient) GetStockByTicker(ctx context.Context, in *stockpb.GetStockByTickerRequest, opts ...grpc.CallOption) (*stockpb.StockDetail, error) {
+	return nil, nil
+}
 func (s *stubSecurityClient) GetStockHistory(ctx context.Context, in *stockpb.GetPriceHistoryRequest, opts ...grpc.CallOption) (*stockpb.PriceHistoryResponse, error) {
 	return nil, nil
 }
@@ -142,6 +145,9 @@ func (s *stubPortfolioClient) ExerciseOptionByOptionID(ctx context.Context, in *
 		return s.exerciseByOptionIDFn(in), nil
 	}
 	return nil, nil
+}
+func (s *stubPortfolioClient) GetHolding(ctx context.Context, in *stockpb.GetHoldingRequest, opts ...grpc.CallOption) (*stockpb.HoldingWithOwner, error) {
+	return &stockpb.HoldingWithOwner{Holding: &stockpb.Holding{Id: in.GetId()}, OwnerType: "client", OwnerId: 42}, nil
 }
 
 // --- helper ---

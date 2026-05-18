@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 
 	"github.com/shopspring/decimal"
@@ -56,6 +55,8 @@ type ledgerSvcFacade interface {
 type accountProducer interface {
 	PublishAccountCreated(ctx context.Context, msg kafkamsg.AccountCreatedMessage) error
 	PublishAccountStatusChanged(ctx context.Context, msg kafkaprod.AccountStatusChangedMsg) error
+	PublishAccountNameUpdated(ctx context.Context, msg kafkamsg.AccountNameUpdatedMessage) error
+	PublishAccountLimitsUpdated(ctx context.Context, msg kafkamsg.AccountLimitsUpdatedMessage) error
 	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
 	SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error
 }
@@ -333,15 +334,17 @@ func (h *AccountGRPCHandler) CreateAccount(ctx context.Context, req *pb.CreateAc
 		CurrencyCode:  account.CurrencyCode,
 	})
 
-	// General notification (no email)
-	_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
-		UserID:  account.OwnerID,
-		Type:    "account_created",
-		Title:   "New Account Created",
-		Message: fmt.Sprintf("Your new %s account (%s) has been created.", account.CurrencyCode, account.AccountNumber),
-		RefType: "account",
-		RefID:   account.ID,
-	})
+	// In-app notification (rendered downstream via the push template registry).
+	// Skip for bank-owned accounts — they have no human recipient.
+	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  account.OwnerID,
+			Type:    "ACCOUNT_OPENED",
+			Data:    map[string]string{"account_number": account.AccountNumber, "currency": account.CurrencyCode},
+			RefType: "account",
+			RefID:   account.ID,
+		})
+	}
 
 	// Send email notification to account owner.
 	if h.clientClient != nil && h.producer != nil {
@@ -435,6 +438,27 @@ func (h *AccountGRPCHandler) UpdateAccountName(ctx context.Context, req *pb.Upda
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to fetch updated account: %v", err)
 	}
+
+	// Domain audit event — fires regardless of ownership (bank-owned accounts
+	// still get an entry on the changelog channel).
+	_ = h.producer.PublishAccountNameUpdated(ctx, kafkamsg.AccountNameUpdatedMessage{
+		AccountID:     account.ID,
+		AccountNumber: account.AccountNumber,
+		NewName:       account.AccountName,
+	})
+
+	// In-app notification (rendered downstream via the push template registry).
+	// Skip for bank-owned accounts — they have no human recipient.
+	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  account.OwnerID,
+			Type:    "ACCOUNT_NAME_UPDATED",
+			Data:    map[string]string{"account_number": account.AccountNumber, "new_name": account.AccountName},
+			RefType: "account",
+			RefID:   account.ID,
+		})
+	}
+
 	return toAccountResponse(account), nil
 }
 
@@ -451,6 +475,28 @@ func (h *AccountGRPCHandler) UpdateAccountLimits(ctx context.Context, req *pb.Up
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to fetch updated account: %v", err)
 	}
+
+	// Domain audit event — fires regardless of ownership (bank-owned accounts
+	// still get an entry on the changelog channel).
+	_ = h.producer.PublishAccountLimitsUpdated(ctx, kafkamsg.AccountLimitsUpdatedMessage{
+		AccountID:     account.ID,
+		AccountNumber: account.AccountNumber,
+		DailyLimit:    account.DailyLimit.StringFixed(2),
+		MonthlyLimit:  account.MonthlyLimit.StringFixed(2),
+	})
+
+	// In-app notification (rendered downstream via the push template registry).
+	// Skip for bank-owned accounts — they have no human recipient.
+	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  account.OwnerID,
+			Type:    "ACCOUNT_LIMITS_UPDATED",
+			Data:    map[string]string{"account_number": account.AccountNumber, "daily_limit": account.DailyLimit.StringFixed(2), "monthly_limit": account.MonthlyLimit.StringFixed(2)},
+			RefType: "account",
+			RefID:   account.ID,
+		})
+	}
+
 	return toAccountResponse(account), nil
 }
 
@@ -472,6 +518,18 @@ func (h *AccountGRPCHandler) UpdateAccountStatus(ctx context.Context, req *pb.Up
 		AccountNumber: account.AccountNumber,
 		Status:        account.Status,
 	})
+
+	// In-app notification (rendered downstream via the push template registry).
+	// Skip for bank-owned accounts — they have no human recipient.
+	if !account.IsBankAccount && account.OwnerID != 1_000_000_000 {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  account.OwnerID,
+			Type:    "ACCOUNT_STATUS_CHANGED",
+			Data:    map[string]string{"account_number": account.AccountNumber, "new_status": account.Status},
+			RefType: "account",
+			RefID:   account.ID,
+		})
+	}
 
 	return toAccountResponse(account), nil
 }

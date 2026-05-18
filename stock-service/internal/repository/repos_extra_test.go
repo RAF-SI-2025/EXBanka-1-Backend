@@ -596,12 +596,12 @@ func TestFundHoldingRepository_DecrementAndGet(t *testing.T) {
 
 func TestClientFundPositionRepository_Ops(t *testing.T) {
 	db := newTestDB(t)
-	if err := db.AutoMigrate(&model.ClientFundPosition{}); err != nil {
+	if err := db.AutoMigrate(&model.ClientFundPosition{}, &model.FundPositionSettlement{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	r := NewClientFundPositionRepository(db)
 	uid := uint64(7)
-	if err := r.IncrementContribution(1, model.OwnerClient, &uid, decimal.NewFromInt(1000)); err != nil {
+	if err := r.IncrementContribution(1, model.OwnerClient, &uid, decimal.NewFromInt(1000), uint64(1)); err != nil {
 		t.Fatalf("increment: %v", err)
 	}
 	rows, err := r.ListByOwner(model.OwnerClient, &uid)

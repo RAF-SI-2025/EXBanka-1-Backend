@@ -48,7 +48,7 @@ func (f *fakeReserver) ConsumeForPeerOptionContract(_ context.Context, contractI
 	}
 	return &service.PartialSettleHoldingResult{}, nil
 }
-func (f *fakeReserver) CreditBuyerHoldingForPeerOption(_ context.Context, _ model.OwnerType, _ *uint64, _ string, _ int64) error {
+func (f *fakeReserver) CreditBuyerHoldingForPeerOption(_ context.Context, _ model.OwnerType, _ *uint64, _ string, _ int64, _ decimal.Decimal) error {
 	f.creditBuyerCalls++
 	return f.creditBuyerErr
 }

@@ -1,9 +1,21 @@
 package service
 
 import (
+	"errors"
+
+	"google.golang.org/grpc/codes"
+	"gorm.io/gorm"
+
+	"github.com/exbanka/contract/shared/svcerr"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
 )
+
+// ErrPaymentRecipientNotFound — caller referenced a payment recipient that
+// doesn't exist. Surfaces as gRPC NotFound → HTTP 404 at the gateway.
+// Defined locally rather than in errors.go because the recipient service
+// is the only place it's produced.
+var ErrPaymentRecipientNotFound = svcerr.New(codes.NotFound, "payment recipient not found")
 
 type PaymentRecipientService struct {
 	repo *repository.PaymentRecipientRepository
@@ -22,12 +34,22 @@ func (s *PaymentRecipientService) ListByClient(clientID uint64) ([]model.Payment
 }
 
 func (s *PaymentRecipientService) GetByID(id uint64) (*model.PaymentRecipient, error) {
-	return s.repo.GetByID(id)
+	pr, err := s.repo.GetByID(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPaymentRecipientNotFound
+		}
+		return nil, err
+	}
+	return pr, nil
 }
 
 func (s *PaymentRecipientService) Update(id uint64, recipientName, accountNumber *string) (*model.PaymentRecipient, error) {
 	pr, err := s.repo.GetByID(id)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPaymentRecipientNotFound
+		}
 		return nil, err
 	}
 	if recipientName != nil {
@@ -43,5 +65,15 @@ func (s *PaymentRecipientService) Update(id uint64, recipientName, accountNumber
 }
 
 func (s *PaymentRecipientService) Delete(id uint64) error {
-	return s.repo.Delete(id)
+	// repository.Delete returns nil + RowsAffected=0 when the row is
+	// absent; surface a typed not-found so the gateway returns 404
+	// instead of 200/Empty.
+	ok, err := s.repo.DeleteIfExists(id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrPaymentRecipientNotFound
+	}
+	return nil
 }

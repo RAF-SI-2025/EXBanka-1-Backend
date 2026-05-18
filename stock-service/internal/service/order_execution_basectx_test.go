@@ -8,6 +8,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	contract "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/stock-service/internal/model"
 	"github.com/exbanka/stock-service/internal/repository"
 )
@@ -120,6 +121,9 @@ func (h *fakeBaseCtxFillHandler) ReleaseResidualReservation(_ context.Context, _
 type fakeBaseCtxPublisher struct{}
 
 func (fakeBaseCtxPublisher) PublishOrderFilled(_ context.Context, _ interface{}) error { return nil }
+func (fakeBaseCtxPublisher) PublishGeneralNotification(_ context.Context, _ contract.GeneralNotificationMessage) error {
+	return nil
+}
 
 // TestStartOrderExecution_UsesBaseCtx_NotRequestCtx is the regression test for bug #3.
 // Before: StartOrderExecution derived its goroutine ctx from the caller's ctx (the

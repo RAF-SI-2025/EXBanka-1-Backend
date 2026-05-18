@@ -905,6 +905,10 @@ type stubNotificationClient struct {
 	markAllReadFn func(*notificationpb.MarkAllNotificationsReadRequest) (*notificationpb.MarkAllNotificationsReadResponse, error)
 	pendingFn     func(*notificationpb.GetPendingMobileRequest) (*notificationpb.PendingMobileResponse, error)
 	ackFn         func(*notificationpb.AckMobileRequest) (*notificationpb.AckMobileResponse, error)
+	listTplFn     func(*notificationpb.ListTemplatesRequest) (*notificationpb.ListTemplatesResponse, error)
+	getTplFn      func(*notificationpb.GetTemplateRequest) (*notificationpb.TemplateInfo, error)
+	setTplFn      func(*notificationpb.SetTemplateRequest) (*notificationpb.TemplateInfo, error)
+	resetTplFn    func(*notificationpb.ResetTemplateRequest) (*notificationpb.TemplateInfo, error)
 }
 
 func (s *stubNotificationClient) SendEmail(_ context.Context, _ *notificationpb.SendEmailRequest, _ ...grpc.CallOption) (*notificationpb.SendEmailResponse, error) {
@@ -948,6 +952,30 @@ func (s *stubNotificationClient) MarkAllNotificationsRead(_ context.Context, in 
 		return s.markAllReadFn(in)
 	}
 	return &notificationpb.MarkAllNotificationsReadResponse{}, nil
+}
+func (s *stubNotificationClient) ListTemplates(_ context.Context, in *notificationpb.ListTemplatesRequest, _ ...grpc.CallOption) (*notificationpb.ListTemplatesResponse, error) {
+	if s.listTplFn != nil {
+		return s.listTplFn(in)
+	}
+	return &notificationpb.ListTemplatesResponse{}, nil
+}
+func (s *stubNotificationClient) GetTemplate(_ context.Context, in *notificationpb.GetTemplateRequest, _ ...grpc.CallOption) (*notificationpb.TemplateInfo, error) {
+	if s.getTplFn != nil {
+		return s.getTplFn(in)
+	}
+	return &notificationpb.TemplateInfo{}, nil
+}
+func (s *stubNotificationClient) SetTemplate(_ context.Context, in *notificationpb.SetTemplateRequest, _ ...grpc.CallOption) (*notificationpb.TemplateInfo, error) {
+	if s.setTplFn != nil {
+		return s.setTplFn(in)
+	}
+	return &notificationpb.TemplateInfo{}, nil
+}
+func (s *stubNotificationClient) ResetTemplate(_ context.Context, in *notificationpb.ResetTemplateRequest, _ ...grpc.CallOption) (*notificationpb.TemplateInfo, error) {
+	if s.resetTplFn != nil {
+		return s.resetTplFn(in)
+	}
+	return &notificationpb.TemplateInfo{}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,20 +1033,21 @@ func (s *stubVerificationClient) VerifyByBiometric(_ context.Context, in *verifi
 // ---------------------------------------------------------------------------
 
 type stubTransactionClient struct {
-	createPaymentFn   func(*transactionpb.CreatePaymentRequest) (*transactionpb.PaymentResponse, error)
-	executePaymentFn  func(*transactionpb.ExecutePaymentRequest) (*transactionpb.PaymentResponse, error)
-	getPaymentFn      func(*transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error)
-	listPmtByAcctFn   func(*transactionpb.ListPaymentsByAccountRequest) (*transactionpb.ListPaymentsResponse, error)
-	listPmtByClientFn func(*transactionpb.ListPaymentsByClientRequest) (*transactionpb.ListPaymentsResponse, error)
-	createTransferFn  func(*transactionpb.CreateTransferRequest) (*transactionpb.TransferResponse, error)
-	executeTransferFn func(*transactionpb.ExecuteTransferRequest) (*transactionpb.TransferResponse, error)
-	getTransferFn     func(*transactionpb.GetTransferRequest) (*transactionpb.TransferResponse, error)
-	listTransfersFn   func(*transactionpb.ListTransfersByClientRequest) (*transactionpb.ListTransfersResponse, error)
-	createRecipFn     func(*transactionpb.CreatePaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
-	getRecipFn        func(*transactionpb.GetPaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
-	listRecipsFn      func(*transactionpb.ListPaymentRecipientsRequest) (*transactionpb.ListPaymentRecipientsResponse, error)
-	updateRecipFn     func(*transactionpb.UpdatePaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
-	deleteRecipFn     func(*transactionpb.DeletePaymentRecipientRequest) (*transactionpb.DeletePaymentRecipientResponse, error)
+	createPaymentFn     func(*transactionpb.CreatePaymentRequest) (*transactionpb.PaymentResponse, error)
+	executePaymentFn    func(*transactionpb.ExecutePaymentRequest) (*transactionpb.PaymentResponse, error)
+	getPaymentFn        func(*transactionpb.GetPaymentRequest) (*transactionpb.PaymentResponse, error)
+	listPmtByAcctFn     func(*transactionpb.ListPaymentsByAccountRequest) (*transactionpb.ListPaymentsResponse, error)
+	listPmtByClientFn   func(*transactionpb.ListPaymentsByClientRequest) (*transactionpb.ListPaymentsResponse, error)
+	createTransferFn    func(*transactionpb.CreateTransferRequest) (*transactionpb.TransferResponse, error)
+	executeTransferFn   func(*transactionpb.ExecuteTransferRequest) (*transactionpb.TransferResponse, error)
+	getTransferFn       func(*transactionpb.GetTransferRequest) (*transactionpb.TransferResponse, error)
+	getTransferStatusFn func(*transactionpb.GetTransferRequest) (*transactionpb.TransferStatusResponse, error)
+	listTransfersFn     func(*transactionpb.ListTransfersByClientRequest) (*transactionpb.ListTransfersResponse, error)
+	createRecipFn       func(*transactionpb.CreatePaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
+	getRecipFn          func(*transactionpb.GetPaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
+	listRecipsFn        func(*transactionpb.ListPaymentRecipientsRequest) (*transactionpb.ListPaymentRecipientsResponse, error)
+	updateRecipFn       func(*transactionpb.UpdatePaymentRecipientRequest) (*transactionpb.PaymentRecipientResponse, error)
+	deleteRecipFn       func(*transactionpb.DeletePaymentRecipientRequest) (*transactionpb.DeletePaymentRecipientResponse, error)
 }
 
 func (s *stubTransactionClient) CreatePayment(_ context.Context, in *transactionpb.CreatePaymentRequest, _ ...grpc.CallOption) (*transactionpb.PaymentResponse, error) {
@@ -1068,6 +1097,12 @@ func (s *stubTransactionClient) GetTransfer(_ context.Context, in *transactionpb
 		return s.getTransferFn(in)
 	}
 	return &transactionpb.TransferResponse{Id: in.Id}, nil
+}
+func (s *stubTransactionClient) GetTransferStatus(_ context.Context, in *transactionpb.GetTransferRequest, _ ...grpc.CallOption) (*transactionpb.TransferStatusResponse, error) {
+	if s.getTransferStatusFn != nil {
+		return s.getTransferStatusFn(in)
+	}
+	return &transactionpb.TransferStatusResponse{TransferId: in.Id, Status: "INITIATED"}, nil
 }
 func (s *stubTransactionClient) ListTransfersByClient(_ context.Context, in *transactionpb.ListTransfersByClientRequest, _ ...grpc.CallOption) (*transactionpb.ListTransfersResponse, error) {
 	if s.listTransfersFn != nil {
@@ -1190,9 +1225,10 @@ func (s *stubStockExchangeClient) GetTestingMode(_ context.Context, in *stockpb.
 // ---------------------------------------------------------------------------
 
 type stubOTCClient struct {
-	listFn        func(*stockpb.ListOTCOffersRequest) (*stockpb.ListOTCOffersResponse, error)
-	buyFn         func(*stockpb.BuyOTCOfferRequest) (*stockpb.OTCTransaction, error)
-	listUnifiedFn func(*stockpb.ListUnifiedOTCOffersRequest) (*stockpb.ListUnifiedOTCOffersResponse, error)
+	listFn              func(*stockpb.ListOTCOffersRequest) (*stockpb.ListOTCOffersResponse, error)
+	buyFn               func(*stockpb.BuyOTCOfferRequest) (*stockpb.OTCTransaction, error)
+	listUnifiedFn       func(*stockpb.ListUnifiedOTCOffersRequest) (*stockpb.ListUnifiedOTCOffersResponse, error)
+	listUnifiedOptionFn func(*stockpb.ListUnifiedOptionOffersRequest) (*stockpb.ListUnifiedOptionOffersResponse, error)
 }
 
 func (s *stubOTCClient) ListOffers(_ context.Context, in *stockpb.ListOTCOffersRequest, _ ...grpc.CallOption) (*stockpb.ListOTCOffersResponse, error) {
@@ -1212,6 +1248,16 @@ func (s *stubOTCClient) ListUnifiedOffers(_ context.Context, in *stockpb.ListUni
 		return s.listUnifiedFn(in)
 	}
 	return &stockpb.ListUnifiedOTCOffersResponse{}, nil
+}
+
+// Phase-6 marketplace RPC. Tests can inject listUnifiedOptionFn to
+// capture the request (the /me/otc/options reshape needs to verify it
+// sets owner_only_seller_id correctly).
+func (s *stubOTCClient) ListUnifiedOptionOffers(_ context.Context, in *stockpb.ListUnifiedOptionOffersRequest, _ ...grpc.CallOption) (*stockpb.ListUnifiedOptionOffersResponse, error) {
+	if s.listUnifiedOptionFn != nil {
+		return s.listUnifiedOptionFn(in)
+	}
+	return &stockpb.ListUnifiedOptionOffersResponse{}, nil
 }
 
 // ---------------------------------------------------------------------------

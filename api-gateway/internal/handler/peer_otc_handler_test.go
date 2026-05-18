@@ -109,14 +109,18 @@ func TestPeerOTC_CreateNegotiation(t *testing.T) {
 		},
 	}
 	r := setupOTCRouter(stub)
+	// Body matches the SI-TX OtcOffer wire shape (peerOtcOfferReq).
+	// Updated 2026-05-16 to pass Fix #6 validation: real ISO currency
+	// codes + client-<N>/employee-<N> form for buyerId / sellerId.
 	body, _ := json.Marshal(map[string]any{
-		"offer": map[string]any{
-			"ticker": "AAPL", "amount": 50, "pricePerStock": "180.50", "currency": "USD",
-			"premium": "700", "premiumCurrency": "USD", "settlementDate": "2026-12-31",
-			"lastModifiedBy": map[string]any{"routingNumber": 222, "id": "user-1"},
-		},
-		"buyerId":  map[string]any{"routingNumber": 222, "id": "buyer-1"},
-		"sellerId": map[string]any{"routingNumber": 111, "id": "seller-1"},
+		"stock":          map[string]any{"ticker": "AAPL"},
+		"settlementDate": "2026-12-31",
+		"pricePerUnit":   map[string]any{"amount": "180.50", "currency": "USD"},
+		"premium":        map[string]any{"amount": "700", "currency": "USD"},
+		"buyerId":        map[string]any{"routingNumber": 222, "id": "client-1"},
+		"sellerId":       map[string]any{"routingNumber": 111, "id": "client-3"},
+		"amount":         50,
+		"lastModifiedBy": map[string]any{"routingNumber": 222, "id": "client-1"},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/negotiations", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

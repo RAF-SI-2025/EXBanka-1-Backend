@@ -125,3 +125,9 @@ test-integration:
 	@echo ""
 	@echo "=== Stock-service informational tests (pass/fail shown, does not affect exit code) ==="
 	-cd test-app && go test -v -tags integration -timeout 60m -run '$(STOCK_TEST_REGEX)' ./workflows/...
+
+# Populates a freshly-bootstrapped stack with OTC demo data (Celina 4 + Celina 5 setup notes).
+# Run AFTER `seeder` has bootstrapped the three test clients.
+# Honors env: GATEWAY_URL, ADMIN_EMAIL, ADMIN_PASSWORD.
+seed-otc-scenarios:
+	cd tools/seed-otc-scenarios && go run .

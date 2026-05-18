@@ -85,6 +85,7 @@ func (f *otcOptionsHandlerFixture) createOffer(t *testing.T, sellerID int64, sto
 		StrikePrice:    "150",
 		Premium:        "20",
 		SettlementDate: time.Now().AddDate(0, 0, 30).Format("2006-01-02"),
+		AccountId:      9001,
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -102,6 +103,7 @@ func TestOTCOptionsHandler_CreateOffer_HappyPath(t *testing.T) {
 		Direction: model.OTCDirectionSellInitiated, StockId: 42,
 		Quantity: "10", StrikePrice: "150", Premium: "20",
 		SettlementDate: time.Now().AddDate(0, 0, 30).Format("2006-01-02"),
+		AccountId:      9001,
 	})
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -160,6 +162,7 @@ func TestOTCOptionsHandler_CreateOffer_WithCounterparty(t *testing.T) {
 		Quantity: "10", StrikePrice: "150", Premium: "20",
 		SettlementDate: time.Now().AddDate(0, 0, 30).Format("2006-01-02"),
 		Counterparty:   &stockpb.PartyRef{UserId: 8, SystemType: "client"},
+		AccountId:      9001,
 	})
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -176,6 +179,7 @@ func TestOTCOptionsHandler_CreateOffer_NoSharesError(t *testing.T) {
 		Direction: model.OTCDirectionSellInitiated, StockId: 42,
 		Quantity: "10", StrikePrice: "150", Premium: "20",
 		SettlementDate: time.Now().AddDate(0, 0, 30).Format("2006-01-02"),
+		AccountId:      9001,
 	})
 	if err == nil {
 		t.Fatal("expected error from service")
@@ -327,18 +331,7 @@ func TestOTCOptionsHandler_AcceptOffer_BadInput(t *testing.T) {
 	fx := newOTCOptionsHandlerFixture(t)
 	_, err := fx.h.AcceptOffer(context.Background(), &stockpb.AcceptOTCOfferRequest{
 		OfferId: 1, ActorUserId: 7, ActorSystemType: "client",
-		// missing buyer/seller account IDs
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Errorf("expected InvalidArgument, got %v", err)
-	}
-}
-
-func TestOTCOptionsHandler_ExerciseContract_BadInput(t *testing.T) {
-	fx := newOTCOptionsHandlerFixture(t)
-	_, err := fx.h.ExerciseContract(context.Background(), &stockpb.ExerciseContractRequest{
-		ContractId: 1, ActorUserId: 7, ActorSystemType: "client",
-		// missing buyer/seller account IDs
+		// missing account_id
 	})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Errorf("expected InvalidArgument, got %v", err)

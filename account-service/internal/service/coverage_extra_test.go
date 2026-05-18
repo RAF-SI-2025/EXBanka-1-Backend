@@ -568,7 +568,7 @@ func TestMaintenanceCronService_StartAndCancel(t *testing.T) {
 	repo := repository.NewAccountRepository(db)
 	ledgerRepo := repository.NewLedgerRepository(db)
 	ledgerSvc := NewLedgerService(ledgerRepo, db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	svc.Start(ctx)
@@ -583,7 +583,7 @@ func TestMaintenanceCronService_ChargeMaintenanceFees_NoBankAccount(t *testing.T
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
 	ledgerSvc := NewLedgerService(repository.NewLedgerRepository(db), db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
 
 	// Seed a client account that is eligible for maintenance fees but no bank
 	// RSD account exists — should warn-and-skip without erroring.
@@ -598,7 +598,7 @@ func TestMaintenanceCronService_ChargeMaintenanceFees_InsufficientBalance(t *tes
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
 	ledgerSvc := NewLedgerService(repository.NewLedgerRepository(db), db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
 
 	// Bank account exists.
 	require.NoError(t, db.Create(&model.Account{
@@ -625,7 +625,7 @@ func TestMaintenanceCronService_ChargeMaintenanceFees_Happy(t *testing.T) {
 	db := newTestDB(t)
 	repo := repository.NewAccountRepository(db)
 	ledgerSvc := NewLedgerService(repository.NewLedgerRepository(db), db)
-	svc := NewMaintenanceCronService(repo, ledgerSvc)
+	svc := NewMaintenanceCronService(repo, ledgerSvc, nil)
 
 	// Bank RSD account.
 	require.NoError(t, db.Create(&model.Account{

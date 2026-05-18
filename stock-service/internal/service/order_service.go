@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,8 @@ import (
 
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
+	contract "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
 	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
 	"github.com/exbanka/stock-service/internal/model"
@@ -55,8 +58,8 @@ type OrderSettings interface {
 // for placement. Defined as an interface so tests can stub it without
 // constructing the real wrapper.
 type AccountClientAPI interface {
-	ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey string) (*accountpb.ReserveFundsResponse, error)
-	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error)
+	ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey, orderKind string) (*accountpb.ReserveFundsResponse, error)
+	ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey, orderKind string) (*accountpb.ReleaseReservationResponse, error)
 	Stub() accountpb.AccountServiceClient
 }
 
@@ -130,6 +133,7 @@ type OrderEventPublisher interface {
 	PublishOrderApproved(ctx context.Context, msg interface{}) error
 	PublishOrderDeclined(ctx context.Context, msg interface{}) error
 	PublishOrderCancelled(ctx context.Context, msg interface{}) error
+	PublishGeneralNotification(ctx context.Context, msg contract.GeneralNotificationMessage) error
 }
 
 // SecurityLookupRepo provides settlement date + ticker lookups for the
@@ -525,12 +529,12 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 			Name: saga.StepReserveFunds,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, rerr := s.accountClient.ReserveFunds(ctx, req.AccountID, order.ID, reserveAmount, reserveCurrency,
-					saga.IdempotencyKey(sagaID, saga.StepReserveFunds))
+					saga.IdempotencyKey(sagaID, saga.StepReserveFunds), orderkind.StockOrder)
 				return rerr
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, rerr := s.accountClient.ReleaseReservation(ctx, order.ID,
-					saga.IdempotencyKey(sagaID, saga.StepReserveFunds)+":compensate")
+					saga.IdempotencyKey(sagaID, saga.StepReserveFunds)+":compensate", orderkind.StockOrder)
 				return rerr
 			},
 		}).
@@ -620,6 +624,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 			evt := buildOrderEvent(order)
 			go func() { _ = s.producer.PublishOrderCreated(context.Background(), evt) }()
 		}
+		s.notifyOrder(order, "ORDER_PLACED", map[string]string{
+			"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10),
+			"ticker": order.Ticker, "order_type": order.OrderType,
+		})
 		return order, nil
 	}
 	StockOrderTotal.WithLabelValues(req.OrderType, "approved").Inc()
@@ -640,6 +648,10 @@ func (s *OrderService) CreateOrder(ctx context.Context, req CreateOrderRequest) 
 		evt := buildOrderEvent(order)
 		go func() { _ = s.producer.PublishOrderCreated(context.Background(), evt) }()
 	}
+	s.notifyOrder(order, "ORDER_PLACED", map[string]string{
+		"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10),
+		"ticker": order.Ticker, "order_type": order.OrderType,
+	})
 
 	return order, nil
 }
@@ -715,6 +727,9 @@ func (s *OrderService) ApproveOrder(orderID uint64, supervisorID uint64, supervi
 	if s.producer != nil {
 		go func() { _ = s.producer.PublishOrderApproved(context.Background(), buildOrderEvent(order)) }()
 	}
+	s.notifyOrder(order, "ORDER_APPROVED", map[string]string{
+		"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10), "ticker": order.Ticker,
+	})
 
 	return order, nil
 }
@@ -744,6 +759,9 @@ func (s *OrderService) DeclineOrder(orderID uint64, supervisorID uint64, supervi
 	if s.producer != nil {
 		go func() { _ = s.producer.PublishOrderDeclined(context.Background(), buildOrderEvent(order)) }()
 	}
+	s.notifyOrder(order, "ORDER_DECLINED", map[string]string{
+		"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10), "ticker": order.Ticker,
+	})
 
 	return order, nil
 }
@@ -789,7 +807,7 @@ func (s *OrderService) CancelOrder(orderID uint64, ownerType model.OwnerType, ow
 		// CancelOrder is outside the placement saga, so we synthesize a
 		// stable key from the order id — retries of CancelOrder remain safe.
 		cancelKey := fmt.Sprintf("cancel-order-%d", order.ID)
-		if _, relErr := s.accountClient.ReleaseReservation(cancelCtx, order.ID, cancelKey); relErr != nil {
+		if _, relErr := s.accountClient.ReleaseReservation(cancelCtx, order.ID, cancelKey, orderkind.StockOrder); relErr != nil {
 			log.Printf("WARN: cancel order %d: ReleaseReservation failed: %v", order.ID, relErr)
 		}
 	}
@@ -820,6 +838,9 @@ func (s *OrderService) CancelOrder(orderID uint64, ownerType model.OwnerType, ow
 	if s.producer != nil {
 		go func() { _ = s.producer.PublishOrderCancelled(context.Background(), buildOrderEvent(order)) }()
 	}
+	s.notifyOrder(order, "ORDER_CANCELLED", map[string]string{
+		"direction": order.Direction, "quantity": strconv.FormatInt(order.Quantity, 10), "ticker": order.Ticker,
+	})
 
 	return order, nil
 }
@@ -1032,6 +1053,23 @@ func buildOrderEvent(order *model.Order) map[string]interface{} {
 		"status":        order.Status,
 		"timestamp":     time.Now().Unix(),
 	}
+}
+
+// notifyOrder emits an in-app notification for an order action. No-op for
+// bank-owned orders (no human recipient); best-effort (failures swallowed —
+// Kafka is observability, not a correctness gate).
+func (s *OrderService) notifyOrder(order *model.Order, notifType string, data map[string]string) {
+	if s.producer == nil || order.OwnerType != model.OwnerClient || order.OwnerID == nil {
+		return
+	}
+	msg := contract.GeneralNotificationMessage{
+		UserID:  *order.OwnerID,
+		Type:    notifType,
+		Data:    data,
+		RefType: "order",
+		RefID:   order.ID,
+	}
+	go func() { _ = s.producer.PublishGeneralNotification(context.Background(), msg) }()
 }
 
 // parseTimeHM parses "09:30" to (9, 30).

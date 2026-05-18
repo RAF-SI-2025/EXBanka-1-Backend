@@ -16,11 +16,9 @@ definitions:
     - fromCurrency
     - toCurrency
     type: object
-  handler.acceptOTCOfferRequest:
+  handler.acceptNegotiationRequest:
     properties:
-      buyer_account_id:
-        type: integer
-      seller_account_id:
+      acceptor_account_id:
         type: integer
     type: object
   handler.activateDeviceReq:
@@ -49,6 +47,11 @@ definitions:
     - password
     - token
     type: object
+  handler.addWatchlistRequest:
+    properties:
+      listing_id:
+        type: integer
+    type: object
   handler.applyBlueprintBody:
     properties:
       target_id:
@@ -72,7 +75,7 @@ definitions:
     required:
     - permission
     type: object
-  handler.counterOTCOfferRequest:
+  handler.counterNegotiationRequest:
     properties:
       premium:
         type: string
@@ -380,22 +383,46 @@ definitions:
     type: object
   handler.createOTCOfferRequest:
     properties:
+      account_id:
+        type: integer
       counterparty_system_type:
         type: string
       counterparty_user_id:
         type: integer
       direction:
         type: string
+      on_behalf_of_client_id:
+        type: integer
       premium:
         type: string
       quantity:
         type: string
       settlement_date:
         type: string
-      stock_id:
-        type: integer
       strike_price:
         type: string
+      ticker:
+        type: string
+    type: object
+  handler.createOTCStockOfferRequest:
+    properties:
+      buyer_account_id:
+        description: buy only
+        type: integer
+      direction:
+        description: '"sell" | "buy"'
+        type: string
+      holding_id:
+        description: sell only
+        type: integer
+      listing_id:
+        description: buy only
+        type: integer
+      price_per_unit:
+        description: buy only (decimal)
+        type: string
+      quantity:
+        type: integer
     type: object
   handler.createOptionOrderRequest:
     properties:
@@ -451,6 +478,53 @@ definitions:
     - amount
     - from_account_number
     - to_account_number
+    type: object
+  handler.createPriceAlertRequest:
+    properties:
+      condition:
+        type: string
+      cooldown_seconds:
+        type: integer
+      email_too:
+        type: boolean
+      is_recurring:
+        type: boolean
+      listing_id:
+        type: integer
+      threshold:
+        type: string
+    type: object
+  handler.createRecurringFundRequest:
+    properties:
+      amount_rsd:
+        type: string
+      day_of_month:
+        type: integer
+      fund_id:
+        type: integer
+      source_account_id:
+        type: integer
+    type: object
+  handler.createRecurringOrderRequest:
+    properties:
+      account_id:
+        type: integer
+      day_of_month:
+        type: integer
+      day_of_week:
+        type: integer
+      end_date_unix:
+        type: integer
+      interval:
+        type: string
+      listing_id:
+        type: integer
+      quantity:
+        type: integer
+      side:
+        type: string
+      start_date_unix:
+        type: integer
     type: object
   handler.createRoleRequest:
     properties:
@@ -547,15 +621,37 @@ definitions:
     type: object
   handler.exerciseRequest:
     properties:
-      buyer_account_id:
-        type: integer
-      seller_account_id:
+      on_behalf_of_client_id:
         type: integer
     type: object
   handler.initiateNegotiationRequest:
     properties:
       amount:
         type: integer
+      bidder_account_id:
+        description: |-
+          Fix #1 (2026-05-16) — the buyer's bank account that pays the
+          premium on accept. REQUIRED. Gateway validates the account belongs
+          to the caller and its currency matches premium.currency (no
+          cross-bank FX in SI-TX yet). The resolved account number is
+          threaded through to the seller's bank in the OtcOffer wire payload
+          as buyerAccountNumber so the seller's bank's posting executor
+          uses this exact account (no "first active USD account" guesswork).
+        type: integer
+      parent_offer_id:
+        description: |-
+          Phase 10 — optional cross-bank cascade-cancel grouping key. When
+          the bidder discovered this listing via /public-option-offers,
+          they pass the listing's (routingNumber, id) here so the seller's
+          bank can group sibling chains and cascade-cancel them on accept.
+          Free-form bidders (no discovery) leave this unset; they're never
+          part of a sibling group.
+        properties:
+          id:
+            type: string
+          routingNumber:
+            type: integer
+        type: object
       premium:
         properties:
           amount:
@@ -610,12 +706,70 @@ definitions:
     required:
     - refresh_token
     type: object
+  handler.openNegotiationRequest:
+    properties:
+      bidder_account_id:
+        type: integer
+      premium:
+        type: string
+      quantity:
+        type: string
+      settlement_date:
+        type: string
+      strike_price:
+        type: string
+    type: object
   handler.passwordResetRequest:
     properties:
       email:
         type: string
     required:
     - email
+    type: object
+  handler.peerForeignBankIdReq:
+    properties:
+      id:
+        type: string
+      routingNumber:
+        type: integer
+    type: object
+  handler.peerMonetaryValueReq:
+    properties:
+      amount:
+        type: string
+      currency:
+        type: string
+    type: object
+  handler.peerOtcOfferReq:
+    properties:
+      amount:
+        type: integer
+      buyerAccountNumber:
+        description: |-
+          Fix #1 (2026-05-16) — the buyer's 18-digit account number,
+          optionally pinned by the buyer's bank so the seller's bank uses
+          this exact account for the buyer-debit posting on accept.
+          Empty string ⇒ legacy path (participant-id resolution).
+        type: string
+      buyerId:
+        $ref: '#/definitions/handler.peerForeignBankIdReq'
+      lastModifiedBy:
+        $ref: '#/definitions/handler.peerForeignBankIdReq'
+      premium:
+        $ref: '#/definitions/handler.peerMonetaryValueReq'
+      pricePerUnit:
+        $ref: '#/definitions/handler.peerMonetaryValueReq'
+      sellerId:
+        $ref: '#/definitions/handler.peerForeignBankIdReq'
+      settlementDate:
+        type: string
+      stock:
+        $ref: '#/definitions/handler.peerStockDescriptionReq'
+    type: object
+  handler.peerStockDescriptionReq:
+    properties:
+      ticker:
+        type: string
     type: object
   handler.previewTransferRequest:
     properties:
@@ -695,6 +849,13 @@ definitions:
     required:
     - current_refresh_token
     type: object
+  handler.sellOTCStockOfferRequest:
+    properties:
+      quantity:
+        type: integer
+      seller_account_id:
+        type: integer
+    type: object
   handler.setBiometricsReq:
     properties:
       enabled:
@@ -760,6 +921,13 @@ definitions:
     required:
     - role_names
     type: object
+  handler.setNotificationTemplateRequest:
+    properties:
+      body:
+        type: string
+      subject:
+        type: string
+    type: object
   handler.submitCodeReq:
     properties:
       code:
@@ -773,6 +941,15 @@ definitions:
         type: string
     required:
     - response
+    type: object
+  handler.submitOTCRatingRequest:
+    properties:
+      comment:
+        type: string
+      offer_id:
+        type: integer
+      score:
+        type: integer
     type: object
   handler.switchSourceRequest:
     properties:
@@ -912,6 +1089,21 @@ definitions:
       account_number:
         type: string
       recipient_name:
+        type: string
+    type: object
+  handler.updatePriceAlertRequest:
+    properties:
+      active:
+        type: boolean
+      condition:
+        type: string
+      cooldown_seconds:
+        type: integer
+      email_too:
+        type: boolean
+      is_recurring:
+        type: boolean
+      threshold:
         type: string
     type: object
   handler.updateRolePermissionsRequest:
@@ -2780,43 +2972,6 @@ paths:
       summary: Reject a card request
       tags:
       - card-requests
-  /api/v2/cards/requests/me:
-    get:
-      description: Returns all card requests for the authenticated client.
-      parameters:
-      - description: Page number (default 1)
-        in: query
-        name: page
-        type: integer
-      - description: Page size (default 20)
-        in: query
-        name: page_size
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: list of card requests
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - ClientBearerAuth: []
-      summary: List my card requests
-      tags:
-      - card-requests
   /api/v2/clients:
     get:
       parameters:
@@ -4270,200 +4425,6 @@ paths:
       security:
       - BearerAuth: []
       summary: List loans by client
-      tags:
-      - loans
-  /api/v2/loans/requests:
-    get:
-      description: Returns all loan requests with optional filters. Requires credits.read
-        permission.
-      parameters:
-      - description: Page number (default 1)
-        in: query
-        name: page
-        type: integer
-      - description: Items per page (default 20)
-        in: query
-        name: page_size
-        type: integer
-      - description: Filter by loan type
-        in: query
-        name: loan_type_filter
-        type: string
-      - description: Filter by account number
-        in: query
-        name: account_number_filter
-        type: string
-      - description: Filter by status
-        in: query
-        name: status_filter
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: List loan requests
-      tags:
-      - loans
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Loan application data
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.createLoanRequestBody'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Submit loan application
-      tags:
-      - loans
-  /api/v2/loans/requests/{id}:
-    get:
-      description: Returns a single loan request. Requires credits.read permission.
-      parameters:
-      - description: Loan request ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Get loan request by ID
-      tags:
-      - loans
-  /api/v2/loans/requests/{id}/approve:
-    put:
-      description: Approves a pending loan request and creates the loan. Requires
-        credits.approve permission.
-      parameters:
-      - description: Loan request ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Approve loan request
-      tags:
-      - loans
-  /api/v2/loans/requests/{id}/reject:
-    put:
-      description: Rejects a pending loan request. Requires credits.approve permission.
-      parameters:
-      - description: Loan request ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Reject loan request
       tags:
       - loans
   /api/v2/loans/requests/client/{client_id}:
@@ -6786,6 +6747,53 @@ paths:
       summary: List payments by account (path-scoped)
       tags:
       - payments
+  /api/v3/bank-accounts/{id}/activity:
+    get:
+      description: Returns paginated ledger entries (debits/credits) for a bank-owned
+        account. Employee-only; the account must be a bank account or the request
+        is rejected with 404.
+      parameters:
+      - description: Bank account ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 200)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: entries, total_count
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: validation_error
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: missing bank_accounts.manage permission
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: not a bank account / account not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List a bank account's ledger activity
+      tags:
+      - accounts
   /api/v3/cards/{id}/changelog:
     get:
       description: Returns paginated audit-log entries for a payment card.
@@ -7210,6 +7218,183 @@ paths:
       summary: Get employee changelog
       tags:
       - Changelog
+  /api/v3/interbank:
+    post:
+      consumes:
+      - application/json
+      description: Inbound from a peer bank. Authenticated via PeerAuth (X-Api-Key
+        or HMAC). Forwards the envelope to transaction-service which classifies on
+        `type` and dispatches.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: SI-TX wire entry (NEW_TX / COMMIT_TX / ROLLBACK_TX /
+        VOTE)'
+      tags:
+      - PeerOTC
+  /api/v3/loan-requests:
+    get:
+      description: Returns all loan requests with optional filters. Requires credits.read
+        permission.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 20)
+        in: query
+        name: page_size
+        type: integer
+      - description: Filter by loan type
+        in: query
+        name: loan_type_filter
+        type: string
+      - description: Filter by account number
+        in: query
+        name: account_number_filter
+        type: string
+      - description: Filter by status
+        in: query
+        name: status_filter
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List loan requests
+      tags:
+      - loans
+  /api/v3/loan-requests/{id}:
+    get:
+      description: Returns a single loan request. Requires credits.read permission.
+      parameters:
+      - description: Loan request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get loan request by ID
+      tags:
+      - loans
+  /api/v3/loan-requests/{id}/approve:
+    post:
+      description: Approves a pending loan request and creates the loan. Requires
+        credits.approve permission.
+      parameters:
+      - description: Loan request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Approve loan request
+      tags:
+      - loans
+  /api/v3/loan-requests/{id}/reject:
+    post:
+      description: Rejects a pending loan request. Requires credits.approve permission.
+      parameters:
+      - description: Loan request ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reject loan request
+      tags:
+      - loans
   /api/v3/loans:
     get:
       description: Lists all loans (employee read). Filter by loan_type/account_number/status.
@@ -7310,6 +7495,85 @@ paths:
       summary: Get loan changelog
       tags:
       - Changelog
+  /api/v3/me/cards/requests:
+    get:
+      description: Returns all card requests for the authenticated client.
+      parameters:
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: list of card requests
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ClientBearerAuth: []
+      summary: List my card requests
+      tags:
+      - card-requests
+  /api/v3/me/loan-requests:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Loan application data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createLoanRequestBody'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Submit loan application
+      tags:
+      - loans
   /api/v3/me/otc/contracts:
     get:
       produces:
@@ -7358,10 +7622,554 @@ paths:
       summary: Exercise a cross-bank OTC option contract
       tags:
       - OTCOptions
-  /api/v3/me/otc/offers:
+  /api/v3/me/otc/history:
+    get:
+      description: Returns OTC offers in terminal statuses (accepted, rejected, expired,
+        failed). Filter by status, date range, and counterparty.
+      parameters:
+      - collectionFormat: multi
+        description: ACCEPTED|REJECTED|EXPIRED|FAILED (repeatable)
+        in: query
+        items:
+          type: string
+        name: status
+        type: array
+      - description: YYYY-MM-DD
+        in: query
+        name: since
+        type: string
+      - description: YYYY-MM-DD
+        in: query
+        name: until
+        type: string
+      - description: owner id of the other party
+        in: query
+        name: counterparty_id
+        type: integer
+      - description: 1-based page (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: 1..100, default 20
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's terminal OTC negotiations (history)
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options:
+    get:
+      description: Same response shape as GET /api/v3/otc/options (kind/bank_code/best_bid/best_ask/active_chains_count/...)
+        but scoped to listings the caller posted. Only OPEN listings appear here (the
+        unified cache is open-only); for a full history of every offer you've ever
+        posted use GET /api/v3/me/otc/options/posted.
+      parameters:
+      - description: Filter to one ticker
+        in: query
+        name: ticker
+        type: string
+      - description: sell_initiated|buy_initiated
+        in: query
+        name: direction
+        type: string
+      - description: 1-based, default 1
+        in: query
+        name: page
+        type: integer
+      - description: default 10
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Marketplace view of the caller's OWN open OTC option listings
+      tags:
+      - OTCOptions
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: offer details (ticker-keyed; account_id is the initiator's account)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createOTCOfferRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create an OTC option offer
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/{id}:
+    delete:
+      description: Initiator-only. Status flips to "cancelled" and all open child
+        negotiation chains cascade-cancel. Returns 204 on success, 403 if caller is
+        not the listing's poster, 409 if listing is not open.
+      parameters:
+      - description: parent listing id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel (withdraw) your own OTC option listing
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/{id}/negotiations/{nid}:
+    delete:
+      description: Bidder-only — the listing's poster cannot cancel a bidder's chain
+        (use reject instead).
+      parameters:
+      - description: parent listing id (sanity check)
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Cancel (withdraw) your own OTC option negotiation chain
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/{id}/negotiations/{nid}/accept:
+    post:
+      consumes:
+      - application/json
+      description: 'Caller must be the party OPPOSITE to whoever proposed the current
+        terms. After the negotiation state TX (which flips this chain to "accepted",
+        parent to "consumed", and cascade-cancels every sibling chain), the contract-formation
+        saga runs: mints OptionContract from the negotiation''s snapshot terms, reserves
+        seller''s underlying shares, reserves+settles buyer''s premium, credits the
+        seller. If the saga fails (e.g. seller no longer has the shares, buyer is
+        short on premium), the negotiation flips to "failed" and the parent stays
+        consumed.'
+      parameters:
+      - description: parent listing id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      - description: acceptor_account_id — caller's account that pays the premium
+          (if accepter is the buyer) or receives it (if accepter is the seller)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.acceptNegotiationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: acceptor_account_id missing or not owned
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: caller proposed current terms or not a party
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: parent listing already consumed
+          schema:
+            additionalProperties: true
+            type: object
+        "412":
+          description: contract-formation saga rejected (seller short on shares OR
+            buyer short on premium)
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Accept the current terms on an OTC option negotiation chain
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/{id}/negotiations/{nid}/counter:
+    post:
+      consumes:
+      - application/json
+      description: Either the bidder or the listing's poster may counter. Updates
+        the chain's terms; status flips to "countered".
+      parameters:
+      - description: parent listing id (sanity check; not used)
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      - description: new terms
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.counterNegotiationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Counter on one of your OTC option negotiation chains
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/{id}/negotiations/{nid}/reject:
+    post:
+      description: Either party may reject. The chain ends without forming a contract;
+        parent listing stays open.
+      parameters:
+      - description: parent listing id (sanity check)
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reject an OTC option negotiation chain
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/negotiations:
+    get:
+      description: Returns chains where the caller is the bidder. Filter with `?statuses=open,countered,accepted,rejected,cancelled,expired`.
+      parameters:
+      - description: comma-separated; omit for all
+        in: query
+        name: statuses
+        type: string
+      - description: 1-based, default 1
+        in: query
+        name: page
+        type: integer
+      - description: default 20, max 200
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's OTC option negotiation chains
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/options/posted:
+    get:
+      description: Returns the raw OTCOffer rows for listings where the caller is
+        the initiator. Includes all statuses (open, consumed, accepted, rejected,
+        expired, cancelled). Use this for a "my posted offers" history view. For the
+        live-marketplace shape of my open involvement, use GET /api/v3/me/otc/options.
+      parameters:
+      - description: comma-separated; omit for all
+        in: query
+        name: statuses
+        type: string
+      - description: 1-based, default 1
+        in: query
+        name: page
+        type: integer
+      - description: default 20
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List every OTC option offer the caller has posted (any status)
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/ratings:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: offer_id + score (1..5) + optional comment
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.submitOTCRatingRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Rate the counterparty of an ACCEPTED OTC offer
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/ratings/received:
     get:
       parameters:
-      - description: initiator|counterparty|either
+      - description: 1..100, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List ratings the caller has received from OTC counterparties
+      tags:
+      - OTCOptions
+  /api/v3/me/otc/stocks:
+    get:
+      description: Returns sell offers (holdings with public_quantity > 0) and buy
+        offers (otc_stock_buy_offers rows) where the caller is the owner. Filter with
+        `?direction=sell|buy`.
+      parameters:
+      - description: sell|buy (omit for both)
+        in: query
+        name: direction
+        type: string
+      - description: 1-based, default 1
+        in: query
+        name: page
+        type: integer
+      - description: default 20, max 200
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's OTC stock offers (both directions)
+      tags:
+      - OTCStocks
+    post:
+      consumes:
+      - application/json
+      description: direction=sell publishes shares from `holding_id` (accumulative);
+        direction=buy creates a standing buy offer at `price_per_unit` backed by a
+        cash reservation on `buyer_account_id`.
+      parameters:
+      - description: offer details (direction-keyed)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createOTCStockOfferRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create an OTC stock sell or buy offer
+      tags:
+      - OTCStocks
+  /api/v3/me/otc/stocks/{id}:
+    delete:
+      description: 'Direction-keyed: sell cancels by holding_id (zeros public_quantity);
+        buy cancels by offer_id (releases reserved cash).'
+      parameters:
+      - description: holding_id (sell) or otc_stock_buy_offers.id (buy)
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: sell|buy
+        in: query
+        name: direction
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel your own OTC stock sell or buy offer
+      tags:
+      - OTCStocks
+  /api/v3/me/peer-otc/negotiations:
+    get:
+      description: Returns rows from this bank's peer_otc_negotiations where the caller
+        is either the buyer (this bank hosts the buyer) or the seller. Use `role=buyer`
+        / `role=seller` to filter.
+      parameters:
+      - description: 'buyer|seller (default: both)'
         in: query
         name: role
         type: string
@@ -7375,10 +8183,9 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: List the caller's OTC offers
+      summary: List the caller's pending peer-OTC negotiations
       tags:
       - OTCOptions
-  /api/v3/me/peer-otc/negotiations:
     post:
       consumes:
       - application/json
@@ -7406,6 +8213,463 @@ paths:
       summary: Initiate a cross-bank OTC negotiation
       tags:
       - OTCOptions
+  /api/v3/me/peer-otc/negotiations/{rid}/{id}:
+    delete:
+      description: Soft-cancels the negotiation on the counterparty's bank (DELETE
+        flips isOngoing to false; the row is preserved per SI-TX §3.5). The local
+        mirror is updated by the inbound webhook from the counterparty after they
+        refetch.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: string
+      - description: foreign id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Cancel a cross-bank OTC negotiation
+      tags:
+      - OTCOptions
+    put:
+      consumes:
+      - application/json
+      description: Updates the negotiation offer on the counterparty's bank. Body
+        is the same OtcOffer shape as the initial POST. The gateway proxies a PUT
+        to the counterparty's /api/v3/negotiations/:rid/:id. The local mirror row
+        is updated by the inbound webhook from the counterparty after they refetch.
+      parameters:
+      - description: routing number of the bank that issued the negotiation id
+        in: path
+        name: rid
+        required: true
+        type: string
+      - description: foreign id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Counter-offer on a cross-bank OTC negotiation
+      tags:
+      - OTCOptions
+  /api/v3/me/peer-otc/negotiations/{rid}/{id}/accept:
+    post:
+      description: Calls the counterparty's /api/v3/negotiations/:rid/:id/accept which
+        begins the option-formation SI-TX (4-posting NEW_TX). Returns the transaction_id
+        assigned by the counterparty.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: string
+      - description: foreign id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Accept a cross-bank OTC negotiation
+      tags:
+      - OTCOptions
+  /api/v3/me/price-alerts:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's price alerts
+      tags:
+      - PriceAlerts
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: alert
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createPriceAlertRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a price alert
+      tags:
+      - PriceAlerts
+  /api/v3/me/price-alerts/{id}:
+    delete:
+      parameters:
+      - description: alert id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a price alert
+      tags:
+      - PriceAlerts
+    get:
+      parameters:
+      - description: alert id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one of the caller's price alerts
+      tags:
+      - PriceAlerts
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: alert id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: alert fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.updatePriceAlertRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update a price alert
+      tags:
+      - PriceAlerts
+  /api/v3/me/recurring-funds:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List my recurring fund investments
+      tags:
+      - RecurringFunds
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: template
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createRecurringFundRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a monthly DCA fund-investment template
+      tags:
+      - RecurringFunds
+  /api/v3/me/recurring-funds/{id}:
+    delete:
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Cancel a recurring fund investment
+      tags:
+      - RecurringFunds
+    get:
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a recurring fund investment
+      tags:
+      - RecurringFunds
+  /api/v3/me/recurring-funds/{id}/pause:
+    post:
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Pause a recurring fund investment
+      tags:
+      - RecurringFunds
+  /api/v3/me/recurring-funds/{id}/resume:
+    post:
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Resume a paused recurring fund investment
+      tags:
+      - RecurringFunds
+  /api/v3/me/recurring-orders:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's recurring orders
+      tags:
+      - RecurringOrders
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: template
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.createRecurringOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a recurring (weekly/monthly) Market order template
+      tags:
+      - RecurringOrders
+  /api/v3/me/recurring-orders/{id}:
+    get:
+      parameters:
+      - description: recurring order id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one of the caller's recurring orders
+      tags:
+      - RecurringOrders
+  /api/v3/me/recurring-orders/{id}/cancel:
+    post:
+      parameters:
+      - description: recurring order id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel a recurring order
+      tags:
+      - RecurringOrders
+  /api/v3/me/recurring-orders/{id}/pause:
+    post:
+      parameters:
+      - description: recurring order id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Pause a recurring order
+      tags:
+      - RecurringOrders
+  /api/v3/me/recurring-orders/{id}/resume:
+    post:
+      parameters:
+      - description: recurring order id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Resume a paused recurring order
+      tags:
+      - RecurringOrders
   /api/v3/me/sessions/{id}:
     delete:
       description: Revokes a session by ID, logging out the device associated with
@@ -7517,6 +8781,443 @@ paths:
       summary: Get a transfer by ID
       tags:
       - transfers
+  /api/v3/me/transfers/{id}/status:
+    get:
+      description: Maps the internal transfer lifecycle (pending/processing/completed/failed)
+        to the four-state public vocabulary (INITIATED/PENDING/COMPLETED/FAILED).
+        Frontend polls this to render the SI-TX status in real time. Notifications
+        for each terminal transition flow via TRANSFER_SENT/RECEIVED/FAILED in-app
+        events.
+      parameters:
+      - description: transfer id
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get the client-facing status of one of the caller's transfers
+      tags:
+      - Transactions
+  /api/v3/me/watchlist:
+    get:
+      parameters:
+      - description: stock|option|futures|forex
+        in: query
+        name: listing_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the caller's watchlist with current prices + daily change
+      tags:
+      - Watchlist
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: listing_id to track
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.addWatchlistRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Add a listing to the caller's watchlist
+      tags:
+      - Watchlist
+  /api/v3/me/watchlist/{listing_id}:
+    delete:
+      parameters:
+      - description: listing id
+        in: path
+        name: listing_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Remove a listing from the caller's watchlist
+      tags:
+      - Watchlist
+  /api/v3/negotiations:
+    post:
+      consumes:
+      - application/json
+      description: 'Inbound from a peer bank''s SI-TX layer. Authenticated via PeerAuth
+        (X-Api-Key or HMAC). Persists a peer_otc_negotiations row keyed on (peer_bank_code,
+        foreign_id). buyerId.routingNumber MUST match the authenticated peer''s routing
+        (Fix #7) and sellerId.routingNumber MUST equal this bank (Fix #9).'
+      parameters:
+      - description: SI-TX OtcOffer wire shape
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.peerOtcOfferReq'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: ForeignBankId of the newly-created negotiation
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: create OTC option negotiation'
+      tags:
+      - PeerOTC
+  /api/v3/negotiations/{rid}/{id}:
+    delete:
+      description: Inbound from a peer bank. Soft-cancels the negotiation row (status
+        → cancelled). The row is preserved for audit per SI-TX §3.5.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: cancel an OTC negotiation'
+      tags:
+      - PeerOTC
+    get:
+      description: Inbound from a peer bank. Returns the full SI-TX OtcNegotiation
+        record for the (peer_bank_code, foreign_id) pair.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: read an OTC negotiation'
+      tags:
+      - PeerOTC
+    put:
+      consumes:
+      - application/json
+      description: Inbound from a peer bank. Updates the offer JSON on a peer_otc_negotiations
+        row. Only the peer that created the row (matched by peer_bank_code) can update
+        it — peer-auth + (peer_bank_code, negotiation_id) lookup combo enforces this.
+      parameters:
+      - description: routing number (this bank's, that issued the foreign_id)
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: new SI-TX OtcOffer terms
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.peerOtcOfferReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: counter-offer on an existing OTC negotiation'
+      tags:
+      - PeerOTC
+  /api/v3/negotiations/{rid}/{id}/accept:
+    get:
+      description: Inbound from the buyer's bank. The seller's bank composes the 4-posting
+        NEW_TX (buyer-debit premium, seller-credit premium, seller-debit option asset,
+        buyer-credit option asset) and dispatches via PeerTxService. SI-TX §3.6 specifies
+        GET semantics.
+      parameters:
+      - description: routing number
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: foreign negotiation id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: transactionId + status
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: accept an OTC negotiation (triggers option-formation
+        SI-TX)'
+      tags:
+      - PeerOTC
+  /api/v3/notification-templates:
+    get:
+      description: Lists every notification template type with its supported {{variables}},
+        default text, and current (possibly customized) text. The discovery endpoint
+        for the template editor.
+      parameters:
+      - description: 'Filter by channel: email | push'
+        in: query
+        name: channel
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List notification templates (discovery)
+      tags:
+      - notification-templates
+  /api/v3/notification-templates/{channel}/{type}:
+    delete:
+      parameters:
+      - description: 'Channel: email | push'
+        in: path
+        name: channel
+        required: true
+        type: string
+      - description: Template type
+        in: path
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Reset a notification template to its default
+      tags:
+      - notification-templates
+    get:
+      parameters:
+      - description: 'Channel: email | push'
+        in: path
+        name: channel
+        required: true
+        type: string
+      - description: Template type, e.g. ACCOUNT_CREATED
+        in: path
+        name: type
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get one notification template
+      tags:
+      - notification-templates
+    put:
+      consumes:
+      - application/json
+      description: Sets the subject/body override for a template type. Placeholders
+        must use {{variable_name}} and reference only that type's known variables.
+      parameters:
+      - description: 'Channel: email | push'
+        in: path
+        name: channel
+        required: true
+        type: string
+      - description: Template type
+        in: path
+        name: type
+        required: true
+        type: string
+      - description: subject + body
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.setNotificationTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Customize a notification template
+      tags:
+      - notification-templates
   /api/v3/otc/contracts/{id}:
     get:
       parameters:
@@ -7548,10 +9249,9 @@ paths:
         name: id
         required: true
         type: integer
-      - description: buyer + seller account IDs
+      - description: optional on-behalf client id; accounts come from the contract
         in: body
         name: body
-        required: true
         schema:
           $ref: '#/definitions/handler.exerciseRequest'
       produces:
@@ -7567,31 +9267,48 @@ paths:
       summary: Exercise an OTC option contract
       tags:
       - OTCOptions
-  /api/v3/otc/offers:
-    post:
-      consumes:
-      - application/json
+  /api/v3/otc/options:
+    get:
+      description: Phase 6 cross-bank discovery. Returns this bank's open
       parameters:
-      - description: offer details
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.createOTCOfferRequest'
+      - description: Filter to one ticker
+        in: query
+        name: ticker
+        type: string
+      - description: local|remote
+        in: query
+        name: kind
+        type: string
+      - description: Filter to one bank
+        in: query
+        name: bank_code
+        type: string
+      - description: sell_initiated|buy_initiated
+        in: query
+        name: direction
+        type: string
+      - description: 1-based, default 1
+        in: query
+        name: page
+        type: integer
+      - description: default 10
+        in: query
+        name: page_size
+        type: integer
       produces:
       - application/json
       responses:
-        "201":
-          description: Created
+        "200":
+          description: OK
           schema:
             additionalProperties: true
             type: object
       security:
       - BearerAuth: []
-      summary: Create an OTC option offer
+      summary: Unified marketplace view of OPEN OTC option listings
       tags:
       - OTCOptions
-  /api/v3/otc/offers/{id}:
+  /api/v3/otc/options/{id}:
     get:
       parameters:
       - description: offer id
@@ -7612,22 +9329,24 @@ paths:
       summary: Get an OTC offer with revisions
       tags:
       - OTCOptions
-  /api/v3/otc/offers/{id}/accept:
+  /api/v3/otc/options/{id}/bid:
     post:
       consumes:
       - application/json
+      description: Many bidders can each open their own chain against the same listing.
+        First to accept wins atomically; siblings cascade-cancel.
       parameters:
-      - description: offer id
+      - description: parent OTCOffer listing id
         in: path
         name: id
         required: true
         type: integer
-      - description: buyer + seller account IDs
+      - description: initial bid terms + bidder's account
         in: body
         name: body
         required: true
         schema:
-          $ref: '#/definitions/handler.acceptOTCOfferRequest'
+          $ref: '#/definitions/handler.openNegotiationRequest'
       produces:
       - application/json
       responses:
@@ -7636,27 +9355,66 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: chain already open for caller on this listing
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - BearerAuth: []
-      summary: Accept an OTC offer (premium-payment saga)
+      summary: Place a bid on an OTC option listing (opens a negotiation chain)
       tags:
       - OTCOptions
-  /api/v3/otc/offers/{id}/counter:
-    post:
-      consumes:
-      - application/json
+  /api/v3/otc/options/{id}/negotiations:
+    get:
+      description: Used by the listing's poster to see all incoming bids. Returns
+        chains in any status (active + terminal).
       parameters:
-      - description: offer id
+      - description: parent OTCOffer listing id
         in: path
         name: id
         required: true
         type: integer
-      - description: new terms
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List every negotiation chain against a given OTC option listing
+      tags:
+      - OTCOptions
+  /api/v3/otc/stocks/{id}/sell:
+    post:
+      consumes:
+      - application/json
+      description: The caller sells the requested quantity of shares into
+      parameters:
+      - description: otc_stock_buy_offers.id
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: quantity + seller's destination account
         in: body
         name: body
         required: true
         schema:
-          $ref: '#/definitions/handler.counterOTCOfferRequest'
+          $ref: '#/definitions/handler.sellOTCStockOfferRequest'
       produces:
       - application/json
       responses:
@@ -7665,18 +9423,47 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+        "412":
+          description: offer not active OR seller short on shares
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - BearerAuth: []
-      summary: Counter an OTC offer
+      summary: Fill a buy-direction OTC stock offer (sell into it)
       tags:
-      - OTCOptions
-  /api/v3/otc/offers/{id}/reject:
-    post:
+      - OTCStocks
+  /api/v3/otc/traders/{owner_type}/{owner_id}/rating:
+    get:
       parameters:
-      - description: offer id
+      - description: client|bank
         in: path
-        name: id
+        name: owner_type
         required: true
+        type: string
+      - description: owner id (0 for bank)
+        in: path
+        name: owner_id
+        required: true
+        type: integer
+      - description: 1..100, default 20
+        in: query
+        name: recent_limit
         type: integer
       produces:
       - application/json
@@ -7688,9 +9475,58 @@ paths:
             type: object
       security:
       - BearerAuth: []
-      summary: Reject an OTC offer
+      summary: Get a trader's aggregate OTC rating + recent comments
       tags:
       - OTCOptions
+  /api/v3/public-option-offers:
+    get:
+      description: |-
+        Phase 6 cross-bank discovery. Returns this bank's
+        Inbound from a peer bank. Returns this bank's open option listings (kind=local). Includes best_bid / best_ask / active_chains_count when available so the peer's cache can surface a richer marketplace view.
+      produces:
+      - application/json
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "501":
+          description: OTCOfferReader not wired
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: list public OPEN OTC option listings (Phase 6 discovery)'
+      tags:
+      - PeerOTC
+      - PeerOTC
+  /api/v3/public-stock:
+    get:
+      description: Inbound from a peer bank. Returns this bank's holdings flagged
+        public_quantity > 0 — the candidate OTC sellers a discovering bank can negotiate
+        against. SI-TX §3.2.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: list public stock holdings'
+      tags:
+      - PeerOTC
   /api/v3/roles/{id}/permissions:
     post:
       consumes:
@@ -7864,6 +9700,43 @@ paths:
       summary: Get the current stock data source and status
       tags:
       - Admin
+  /api/v3/user/{rid}/{id}:
+    get:
+      description: Inbound from a peer bank. Looks up a local (client-N / employee-N)
+        and returns first+last name for OTC negotiation display. Routing number in
+        path MUST match this bank's routing — calls for foreign users return 404.
+      parameters:
+      - description: routing number (must equal this bank's routing)
+        in: path
+        name: rid
+        required: true
+        type: integer
+      - description: principal id, e.g. client-1 or employee-3
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 'Peer-to-peer: resolve a foreign user to display name'
+      tags:
+      - PeerOTC
 securityDefinitions:
   BearerAuth:
     description: Enter "Bearer <token>"

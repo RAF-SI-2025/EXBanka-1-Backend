@@ -44,6 +44,55 @@ func TestCreateVirtualCard_Success(t *testing.T) {
 	assert.Equal(t, "456", resp.Cvv)
 }
 
+func TestCreateVirtualCard_EmitsVirtualCardCreatedNotification(t *testing.T) {
+	want := sampleCard()
+	want.IsVirtual = true
+	want.UsageType = "single_use"
+	cardSvc := &stubCardService{
+		createVirtualCardFn: func(_ context.Context, _ string, _ uint64, _, _ string, _, _ int, _ string) (*model.Card, string, error) {
+			return want, "456", nil
+		},
+	}
+	prod := &stubProducer{}
+	h := &VirtualCardGRPCHandler{cardService: cardSvc, producer: prod}
+	_, err := h.CreateVirtualCard(context.Background(), &pb.CreateVirtualCardRequest{
+		AccountNumber: "265000000000000001",
+		OwnerId:       42,
+		CardBrand:     "visa",
+		UsageType:     "single_use",
+		MaxUses:       1,
+		ExpiryMonths:  1,
+		CardLimit:     "1000",
+	})
+	require.NoError(t, err)
+	require.Len(t, prod.generalNotifications, 1)
+	n := prod.generalNotifications[0]
+	assert.Equal(t, "VIRTUAL_CARD_CREATED", n.Type)
+	assert.Equal(t, want.OwnerID, n.UserID)
+	assert.Equal(t, "single_use", n.Data["usage_type"])
+	assert.Equal(t, "card", n.RefType)
+	assert.Equal(t, want.ID, n.RefID)
+	assert.Empty(t, n.Title)
+	assert.Empty(t, n.Message)
+}
+
+func TestCreateVirtualCard_AuthorizedPerson_NoNotification(t *testing.T) {
+	cardSvc := &stubCardService{
+		createVirtualCardFn: func(_ context.Context, _ string, _ uint64, _, _ string, _, _ int, _ string) (*model.Card, string, error) {
+			c := sampleCard()
+			c.IsVirtual = true
+			c.OwnerType = "authorized_person"
+			c.UsageType = "single_use"
+			return c, "456", nil
+		},
+	}
+	prod := &stubProducer{}
+	h := &VirtualCardGRPCHandler{cardService: cardSvc, producer: prod}
+	_, err := h.CreateVirtualCard(context.Background(), &pb.CreateVirtualCardRequest{UsageType: "single_use"})
+	require.NoError(t, err)
+	assert.Equal(t, 0, prod.generalNotificationCount, "no in-app notification for authorized_person owner")
+}
+
 func TestCreateVirtualCard_InvalidUsageType(t *testing.T) {
 	cardSvc := &stubCardService{
 		createVirtualCardFn: func(_ context.Context, _ string, _ uint64, _, _ string, _, _ int, _ string) (*model.Card, string, error) {

@@ -51,6 +51,12 @@ func (s *SecurityService) ListStocks(filter repository.StockFilter) ([]model.Sto
 	return s.stockRepo.List(filter)
 }
 
+// GetByTicker resolves a stock by its globally-unique ticker. Used by the
+// OTC option flow so callers can reference securities by ticker.
+func (s *SecurityService) GetByTicker(ticker string) (*model.Stock, error) {
+	return s.stockRepo.GetByTicker(ticker)
+}
+
 func (s *SecurityService) GetStock(id uint64) (*model.Stock, error) {
 	ctx := context.Background()
 	key := fmt.Sprintf("security:stock:%d", id)

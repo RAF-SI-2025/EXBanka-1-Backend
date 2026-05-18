@@ -49,7 +49,7 @@ func newReservationFixture(t *testing.T) (svc *ReservationService, accountRepo *
 func TestReserveFunds_HappyPath(t *testing.T) {
 	svc, accountRepo, _, accountID, _ := newReservationFixture(t)
 
-	_, err := svc.ReserveFunds(context.Background(), 500, accountID, decimal.NewFromInt(400), "RSD")
+	_, err := svc.ReserveFunds(context.Background(), 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	if err != nil {
 		t.Fatalf("ReserveFunds: %v", err)
 	}
@@ -69,11 +69,11 @@ func TestReserveFunds_Idempotent(t *testing.T) {
 	svc, accountRepo, _, accountID, _ := newReservationFixture(t)
 	ctx := context.Background()
 
-	r1, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD")
+	r1, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	if err != nil {
 		t.Fatalf("first reserve: %v", err)
 	}
-	r2, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD")
+	r2, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	if err != nil {
 		t.Fatalf("second reserve: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestReserveFunds_Idempotent(t *testing.T) {
 
 func TestReserveFunds_InsufficientAvailable(t *testing.T) {
 	svc, _, _, accountID, _ := newReservationFixture(t)
-	_, err := svc.ReserveFunds(context.Background(), 500, accountID, decimal.NewFromInt(5000), "RSD")
+	_, err := svc.ReserveFunds(context.Background(), 500, accountID, decimal.NewFromInt(5000), "RSD", "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -103,7 +103,7 @@ func TestReserveFunds_InsufficientAvailable(t *testing.T) {
 
 func TestReserveFunds_CurrencyMismatch(t *testing.T) {
 	svc, _, _, accountID, _ := newReservationFixture(t)
-	_, err := svc.ReserveFunds(context.Background(), 500, accountID, decimal.NewFromInt(100), "USD")
+	_, err := svc.ReserveFunds(context.Background(), 500, accountID, decimal.NewFromInt(100), "USD", "")
 	if err == nil {
 		t.Fatal("expected currency-mismatch error")
 	}
@@ -116,10 +116,10 @@ func TestReserveFunds_CurrencyMismatch(t *testing.T) {
 func TestPartialSettle_HappyPath_LedgerEntryWritten(t *testing.T) {
 	svc, accountRepo, ledgerRepo, accountID, accountNumber := newReservationFixture(t)
 	ctx := context.Background()
-	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD")
+	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	require.NoError(t, err)
 
-	resp, err := svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(150), "order 500 fill 9001")
+	resp, err := svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(150), "order 500 fill 9001", "")
 	if err != nil {
 		t.Fatalf("PartialSettle: %v", err)
 	}
@@ -154,13 +154,13 @@ func TestPartialSettle_HappyPath_LedgerEntryWritten(t *testing.T) {
 func TestPartialSettle_IdempotentOnTxnID(t *testing.T) {
 	svc, accountRepo, _, accountID, _ := newReservationFixture(t)
 	ctx := context.Background()
-	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD")
+	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	require.NoError(t, err)
 
-	if _, err := svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(150), ""); err != nil {
+	if _, err := svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(150), "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(150), ""); err != nil {
+	if _, err := svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(150), "", ""); err != nil {
 		t.Fatal("expected idempotent no-op, got error:", err)
 	}
 	acc, _ := accountRepo.GetByID(accountID)
@@ -172,10 +172,10 @@ func TestPartialSettle_IdempotentOnTxnID(t *testing.T) {
 func TestPartialSettle_OverReservation(t *testing.T) {
 	svc, _, _, accountID, _ := newReservationFixture(t)
 	ctx := context.Background()
-	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD")
+	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	require.NoError(t, err)
 
-	_, err = svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(500), "")
+	_, err = svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(500), "", "")
 	if err == nil {
 		t.Fatal("expected over-reservation error")
 	}
@@ -188,13 +188,13 @@ func TestPartialSettle_OverReservation(t *testing.T) {
 func TestPartialSettle_FullyFills_TransitionsToSettled(t *testing.T) {
 	svc, _, _, accountID, _ := newReservationFixture(t)
 	ctx := context.Background()
-	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD")
+	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	require.NoError(t, err)
 
-	_, err = svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(400), "")
+	_, err = svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(400), "", "")
 	require.NoError(t, err)
 	// Reservation should be SETTLED now — releasing should be a no-op returning 0.
-	resp, err := svc.ReleaseReservation(ctx, 500)
+	resp, err := svc.ReleaseReservation(ctx, 500, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,10 +206,10 @@ func TestPartialSettle_FullyFills_TransitionsToSettled(t *testing.T) {
 func TestRelease_ActiveReservation(t *testing.T) {
 	svc, accountRepo, _, accountID, _ := newReservationFixture(t)
 	ctx := context.Background()
-	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD")
+	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	require.NoError(t, err)
 
-	resp, err := svc.ReleaseReservation(ctx, 500)
+	resp, err := svc.ReleaseReservation(ctx, 500, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,19 +228,19 @@ func TestRelease_ActiveReservation(t *testing.T) {
 func TestRelease_Idempotent(t *testing.T) {
 	svc, _, _, accountID, _ := newReservationFixture(t)
 	ctx := context.Background()
-	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD")
+	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	require.NoError(t, err)
-	if _, err := svc.ReleaseReservation(ctx, 500); err != nil {
+	if _, err := svc.ReleaseReservation(ctx, 500, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ReleaseReservation(ctx, 500); err != nil {
+	if _, err := svc.ReleaseReservation(ctx, 500, ""); err != nil {
 		t.Fatal("second release should be no-op")
 	}
 }
 
 func TestRelease_NonexistentOrder_NoOp(t *testing.T) {
 	svc, _, _, _, _ := newReservationFixture(t)
-	resp, err := svc.ReleaseReservation(context.Background(), 99999)
+	resp, err := svc.ReleaseReservation(context.Background(), 99999, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,14 +252,14 @@ func TestRelease_NonexistentOrder_NoOp(t *testing.T) {
 func TestGetReservation_ReturnsSettledTxnIDs(t *testing.T) {
 	svc, _, _, accountID, _ := newReservationFixture(t)
 	ctx := context.Background()
-	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD")
+	_, err := svc.ReserveFunds(ctx, 500, accountID, decimal.NewFromInt(400), "RSD", "")
 	require.NoError(t, err)
-	_, err = svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(100), "")
+	_, err = svc.PartialSettleReservation(ctx, 500, 9001, decimal.NewFromInt(100), "", "")
 	require.NoError(t, err)
-	_, err = svc.PartialSettleReservation(ctx, 500, 9002, decimal.NewFromInt(100), "")
+	_, err = svc.PartialSettleReservation(ctx, 500, 9002, decimal.NewFromInt(100), "", "")
 	require.NoError(t, err)
 
-	st, amount, settled, txnIDs, exists, err := svc.GetReservation(ctx, 500)
+	st, amount, settled, txnIDs, exists, err := svc.GetReservation(ctx, 500, "")
 	if err != nil {
 		t.Fatal(err)
 	}

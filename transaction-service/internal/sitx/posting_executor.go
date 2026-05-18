@@ -167,10 +167,18 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 		// seller), pre-check that the seller has enough unreserved
 		// shares now — voting NO with INSUFFICIENT_ASSET here means
 		// money never moves on a contract the seller can't fulfil.
-		// Without the holdingChecker wired, we skip the pre-check and
-		// fall back to the COMMIT_TX-time best-effort lock.
+		// The pre-check is REQUIRED (Fix #6, 2026-05-16): without it
+		// the COMMIT_TX-time lock would be the only enforcement, which
+		// only fires AFTER the buyer's money has already moved. If the
+		// holdingChecker isn't wired we vote NO with INSUFFICIENT_ASSET
+		// rather than silently skip — keeps transaction-service bootable
+		// even if stock-service is briefly down, but prevents commits
+		// that would land without the seller-can-deliver guarantee.
 		if strings.HasPrefix(p.AssetID, "{") {
-			if p.Direction == contractsitx.DirectionDebit && e.holdingChecker != nil {
+			if p.Direction == contractsitx.DirectionDebit {
+				if e.holdingChecker == nil {
+					return noVote(contractsitx.NoVoteReasonInsufficientAsset, i)
+				}
 				var od optionDescriptionForCheck
 				if err := json.Unmarshal([]byte(p.AssetID), &od); err == nil && od.Ticker != "" && od.Amount > 0 {
 					seller := sellerByDesc[p.AssetID]

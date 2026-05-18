@@ -289,6 +289,16 @@ func TestCreateLoanRequest_Success(t *testing.T) {
 	assert.Equal(t, uint64(42), resp.Id)
 	assert.Equal(t, "pending", resp.Status)
 	assert.Len(t, prod.requested, 1, "PublishLoanRequested should be called once")
+	require.Len(t, prod.notifs, 1, "LOAN_REQUEST_SUBMITTED general notification should fire")
+	n := prod.notifs[0]
+	assert.Equal(t, "LOAN_REQUEST_SUBMITTED", n.Type)
+	assert.Equal(t, uint64(1), n.UserID)
+	assert.Equal(t, "loan_request", n.RefType)
+	assert.Equal(t, uint64(42), n.RefID)
+	assert.Equal(t, "cash", n.Data["loan_type"])
+	assert.Equal(t, "100000.00", n.Data["amount"])
+	assert.Empty(t, n.Title, "Title must be empty in Data form")
+	assert.Empty(t, n.Message, "Message must be empty in Data form")
 }
 
 func TestCreateLoanRequest_ServiceError(t *testing.T) {
@@ -304,6 +314,7 @@ func TestCreateLoanRequest_ServiceError(t *testing.T) {
 	assert.True(t, errors.Is(err, service.ErrInvalidLoanType))
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	assert.Empty(t, prod.requested, "no event should be published on error")
+	assert.Empty(t, prod.notifs, "no general notification should be published on error")
 }
 
 // --- GetLoanRequest ----------------------------------------------------------
@@ -391,7 +402,33 @@ func TestApproveLoanRequest_DisbursedSuccess(t *testing.T) {
 	assert.Equal(t, "active", resp.Status)
 	assert.Len(t, prod.approved, 1, "loan-approved event should fire")
 	assert.Len(t, prod.disbursed, 1, "loan-disbursed event should fire when status=active")
-	assert.Len(t, prod.notifs, 1, "general notification should fire")
+	require.Len(t, prod.notifs, 2, "both LOAN_DISBURSED and LOAN_REQUEST_APPROVED notifications should fire")
+
+	byType := make(map[string]kafkamsg.GeneralNotificationMessage, len(prod.notifs))
+	for _, n := range prod.notifs {
+		byType[n.Type] = n
+	}
+
+	disbursed, ok := byType["LOAN_DISBURSED"]
+	require.True(t, ok, "LOAN_DISBURSED notification must be present")
+	assert.Equal(t, uint64(1), disbursed.UserID)
+	assert.Equal(t, "loan", disbursed.RefType)
+	assert.Equal(t, uint64(50), disbursed.RefID)
+	assert.Equal(t, "LN0001", disbursed.Data["loan_number"])
+	assert.Equal(t, "1000.00", disbursed.Data["amount"])
+	assert.Equal(t, "RSD", disbursed.Data["currency"])
+	assert.Empty(t, disbursed.Title)
+	assert.Empty(t, disbursed.Message)
+
+	approved, ok := byType["LOAN_REQUEST_APPROVED"]
+	require.True(t, ok, "LOAN_REQUEST_APPROVED notification must be present")
+	assert.Equal(t, uint64(1), approved.UserID)
+	assert.Equal(t, "loan", approved.RefType)
+	assert.Equal(t, uint64(50), approved.RefID)
+	assert.Equal(t, "cash", approved.Data["loan_type"])
+	assert.Equal(t, "1000.00", approved.Data["amount"])
+	assert.Empty(t, approved.Title)
+	assert.Empty(t, approved.Message)
 }
 
 func TestApproveLoanRequest_ApprovedButNotDisbursed_NoDisbursedEvent(t *testing.T) {
@@ -411,6 +448,13 @@ func TestApproveLoanRequest_ApprovedButNotDisbursed_NoDisbursedEvent(t *testing.
 	require.NoError(t, err)
 	assert.Len(t, prod.approved, 1)
 	assert.Empty(t, prod.disbursed, "no disbursed event when status != active")
+	require.Len(t, prod.notifs, 1, "only LOAN_REQUEST_APPROVED fires; LOAN_DISBURSED gated behind status=active")
+	assert.Equal(t, "LOAN_REQUEST_APPROVED", prod.notifs[0].Type)
+	assert.Equal(t, uint64(1), prod.notifs[0].UserID)
+	assert.Equal(t, "loan", prod.notifs[0].RefType)
+	assert.Equal(t, uint64(51), prod.notifs[0].RefID)
+	assert.Equal(t, "cash", prod.notifs[0].Data["loan_type"])
+	assert.Equal(t, "1000.00", prod.notifs[0].Data["amount"])
 }
 
 func TestApproveLoanRequest_NotFound(t *testing.T) {
@@ -451,7 +495,16 @@ func TestRejectLoanRequest_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "rejected", resp.Status)
 	assert.Len(t, prod.rejected, 1)
-	assert.Len(t, prod.notifs, 1)
+	require.Len(t, prod.notifs, 1)
+	n := prod.notifs[0]
+	assert.Equal(t, "LOAN_REQUEST_REJECTED", n.Type)
+	assert.Equal(t, uint64(7), n.UserID)
+	assert.Equal(t, "loan_request", n.RefType)
+	assert.Equal(t, uint64(5), n.RefID)
+	assert.Equal(t, "cash", n.Data["loan_type"])
+	assert.Equal(t, "50000.00", n.Data["amount"])
+	assert.Empty(t, n.Title)
+	assert.Empty(t, n.Message)
 }
 
 func TestRejectLoanRequest_NotFound(t *testing.T) {

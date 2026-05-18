@@ -73,14 +73,21 @@ type PartialSettleResult struct {
 	LedgerEntryID     uint64
 }
 
-// ReserveFunds holds `amount` on the account for `orderID`. Idempotent on
-// orderID: retries with the same orderID return the existing reservation
-// without double-counting. Returns codes.FailedPrecondition when available
-// balance is insufficient or the currency does not match the account.
-// Returns codes.NotFound if the account does not exist.
-func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode string) (*ReserveFundsResult, error) {
+// ReserveFunds holds `amount` on the account for `(orderID, orderKind)`.
+// Idempotent on (orderID, orderKind): retries with the same pair return the
+// existing reservation without double-counting. orderKind is the caller-
+// namespace discriminator (see model.OrderKind* constants) so two different
+// callers can each use their own auto-increment id space without colliding.
+// Empty orderKind defaults to "stock_order" for backward compatibility.
+// Returns codes.FailedPrecondition when available balance is insufficient
+// or the currency does not match the account. Returns codes.NotFound if the
+// account does not exist.
+func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountID uint64, amount decimal.Decimal, currencyCode, orderKind string) (*ReserveFundsResult, error) {
 	if amount.Sign() <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "amount must be > 0")
+	}
+	if orderKind == "" {
+		orderKind = model.OrderKindStockOrder
 	}
 	var out *ReserveFundsResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -100,6 +107,7 @@ func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountI
 		res := &model.AccountReservation{
 			AccountID:    acc.ID,
 			OrderID:      orderID,
+			OrderKind:    orderKind,
 			Amount:       amount,
 			CurrencyCode: currencyCode,
 			Status:       model.ReservationStatusActive,
@@ -150,10 +158,10 @@ func (s *ReservationService) ReserveFunds(ctx context.Context, orderID, accountI
 // remaining (amount - settled) held funds back to AvailableBalance. No-op if
 // the reservation is missing, already released, or already settled — returning
 // ReleasedAmount=0 in that case.
-func (s *ReservationService) ReleaseReservation(ctx context.Context, orderID uint64) (*ReleaseResult, error) {
+func (s *ReservationService) ReleaseReservation(ctx context.Context, orderID uint64, orderKind string) (*ReleaseResult, error) {
 	var out *ReleaseResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		res, err := s.resRepo.WithTx(tx).GetByOrderIDForUpdate(orderID)
+		res, err := s.resRepo.WithTx(tx).GetByOrderIDForUpdate(orderID, orderKind)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				out = &ReleaseResult{ReleasedAmount: decimal.Zero, ReservedBalance: decimal.Zero}
@@ -215,13 +223,13 @@ func (s *ReservationService) ReleaseReservation(ctx context.Context, orderID uin
 // in the account's transaction history the same way a regular debit would.
 // Returns codes.FailedPrecondition if the reservation is missing, inactive,
 // or if the settlement would exceed the reserved amount.
-func (s *ReservationService) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo string) (*PartialSettleResult, error) {
+func (s *ReservationService) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, orderKind string) (*PartialSettleResult, error) {
 	if amount.Sign() <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "amount must be > 0")
 	}
 	var out *PartialSettleResult
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		res, err := s.resRepo.WithTx(tx).GetByOrderIDForUpdate(orderID)
+		res, err := s.resRepo.WithTx(tx).GetByOrderIDForUpdate(orderID, orderKind)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return status.Error(codes.FailedPrecondition, "reservation not found")
@@ -331,8 +339,8 @@ func (s *ReservationService) PartialSettleReservation(ctx context.Context, order
 // GetReservation is read-only; used by stock-service to reconcile after a
 // crash. Returns (status, amount, settled_total, settled_txn_ids, exists, err).
 // When the reservation does not exist, returns exists=false and no error.
-func (s *ReservationService) GetReservation(ctx context.Context, orderID uint64) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
-	res, err := s.resRepo.GetByOrderID(orderID)
+func (s *ReservationService) GetReservation(ctx context.Context, orderID uint64, orderKind string) (string, decimal.Decimal, decimal.Decimal, []uint64, bool, error) {
+	res, err := s.resRepo.GetByOrderID(orderID, orderKind)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", decimal.Zero, decimal.Zero, nil, false, nil

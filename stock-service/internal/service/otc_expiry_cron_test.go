@@ -105,6 +105,169 @@ func TestOTCExpiryCron_ExpireContract_NoHoldingRes(t *testing.T) {
 	}
 }
 
+// expireOffer emits OTC_OFFER_EXPIRED to the initiator (and counterparty when
+// it is a client party).
+func TestOTCExpiryCron_ExpireOffer_EmitsNotifications(t *testing.T) {
+	db := newOTCExpiryDB(t)
+	offerRepo := repository.NewOTCOfferRepository(db)
+	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00")
+	notifier := &recordingOTCNotifier{}
+	cr.notifier = notifier
+
+	initiatorUID := uint64(7)
+	cpType := model.OwnerClient
+	cpUID := uint64(9)
+	o := &model.OTCOffer{
+		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &initiatorUID,
+		CounterpartyOwnerType: &cpType, CounterpartyOwnerID: &cpUID,
+		Direction: model.OTCDirectionSellInitiated, StockID: 42, Ticker: "AAPL",
+		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(100),
+		Premium: decimal.NewFromInt(20), Status: model.OTCOfferStatusPending,
+		LastModifiedByPrincipalType: "client", LastModifiedByPrincipalID: 7,
+		SettlementDate: time.Now().Add(-24 * time.Hour),
+	}
+	if err := offerRepo.Create(o); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := cr.expireOffer(context.Background(), o); err != nil {
+		t.Fatalf("expire: %v", err)
+	}
+	if got := countNotifs(notifier.notifs, "OTC_OFFER_EXPIRED"); got != 2 {
+		t.Fatalf("OTC_OFFER_EXPIRED count = %d, want 2 (initiator + counterparty)", got)
+	}
+	sawInitiator, sawCounterparty := false, false
+	for _, m := range notifier.notifs {
+		if m.RefType != "otc_offer" || m.RefID != o.ID {
+			t.Errorf("notif ref = %s/%d, want otc_offer/%d", m.RefType, m.RefID, o.ID)
+		}
+		if m.Data["ticker"] != "AAPL" {
+			t.Errorf("notif ticker = %q, want AAPL", m.Data["ticker"])
+		}
+		if m.UserID == initiatorUID {
+			sawInitiator = true
+		}
+		if m.UserID == cpUID {
+			sawCounterparty = true
+		}
+	}
+	if !sawInitiator || !sawCounterparty {
+		t.Errorf("expected notifications to initiator (%d) and counterparty (%d); sawInitiator=%v sawCounterparty=%v", initiatorUID, cpUID, sawInitiator, sawCounterparty)
+	}
+}
+
+// expireOffer with no counterparty (open offer) notifies only the initiator.
+func TestOTCExpiryCron_ExpireOffer_NoCounterparty_NotifiesInitiatorOnly(t *testing.T) {
+	db := newOTCExpiryDB(t)
+	offerRepo := repository.NewOTCOfferRepository(db)
+	cr := NewOTCExpiryCron(repository.NewOptionContractRepository(db), offerRepo, nil, nil, 10, "02:00")
+	notifier := &recordingOTCNotifier{}
+	cr.notifier = notifier
+
+	initiatorUID := uint64(7)
+	o := &model.OTCOffer{
+		InitiatorOwnerType: model.OwnerClient, InitiatorOwnerID: &initiatorUID,
+		Direction: model.OTCDirectionSellInitiated, StockID: 42, Ticker: "AAPL",
+		Quantity: decimal.NewFromInt(10), StrikePrice: decimal.NewFromInt(100),
+		Premium: decimal.NewFromInt(20), Status: model.OTCOfferStatusPending,
+		LastModifiedByPrincipalType: "client", LastModifiedByPrincipalID: 7,
+		SettlementDate: time.Now().Add(-24 * time.Hour),
+	}
+	if err := offerRepo.Create(o); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if err := cr.expireOffer(context.Background(), o); err != nil {
+		t.Fatalf("expire: %v", err)
+	}
+	if got := countNotifs(notifier.notifs, "OTC_OFFER_EXPIRED"); got != 1 {
+		t.Fatalf("OTC_OFFER_EXPIRED count = %d, want 1 (initiator only)", got)
+	}
+}
+
+// expireContract emits OTC_CONTRACT_EXPIRED to both client parties; a bank
+// party is skipped.
+func TestOTCExpiryCron_ExpireContract_EmitsNotifications(t *testing.T) {
+	db := newOTCExpiryDB(t)
+	contractRepo := repository.NewOptionContractRepository(db)
+	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00")
+	notifier := &recordingOTCNotifier{}
+	cr.notifier = notifier
+
+	buyerUID := uint64(7)
+	sellerUID := uint64(8)
+	c := &model.OptionContract{
+		StockID: 42, Ticker: "AAPL", Quantity: decimal.NewFromInt(10),
+		StrikePrice: decimal.NewFromInt(150), PremiumPaid: decimal.NewFromInt(20),
+		PremiumCurrency: "USD", StrikeCurrency: "USD",
+		SettlementDate: time.Now().Add(-24 * time.Hour),
+		Status:         model.OptionContractStatusActive,
+		BuyerOwnerType: model.OwnerClient, BuyerOwnerID: &buyerUID,
+		SellerOwnerType: model.OwnerClient, SellerOwnerID: &sellerUID,
+		PremiumPaidAt: time.Now(),
+	}
+	if err := contractRepo.Create(c); err != nil {
+		t.Fatalf("seed contract: %v", err)
+	}
+	if err := cr.expireContract(context.Background(), c); err != nil {
+		t.Fatalf("expire: %v", err)
+	}
+	if got := countNotifs(notifier.notifs, "OTC_CONTRACT_EXPIRED"); got != 2 {
+		t.Fatalf("OTC_CONTRACT_EXPIRED count = %d, want 2 (buyer + seller)", got)
+	}
+	sawBuyer, sawSeller := false, false
+	for _, m := range notifier.notifs {
+		if m.RefType != "otc_contract" || m.RefID != c.ID {
+			t.Errorf("notif ref = %s/%d, want otc_contract/%d", m.RefType, m.RefID, c.ID)
+		}
+		if m.Data["ticker"] != "AAPL" {
+			t.Errorf("notif ticker = %q, want AAPL", m.Data["ticker"])
+		}
+		if m.UserID == buyerUID {
+			sawBuyer = true
+		}
+		if m.UserID == sellerUID {
+			sawSeller = true
+		}
+	}
+	if !sawBuyer || !sawSeller {
+		t.Errorf("expected notifications to both buyer (%d) and seller (%d); sawBuyer=%v sawSeller=%v", buyerUID, sellerUID, sawBuyer, sawSeller)
+	}
+}
+
+// expireContract against a bank seller notifies only the client buyer.
+func TestOTCExpiryCron_ExpireContract_BankParty_Skipped(t *testing.T) {
+	db := newOTCExpiryDB(t)
+	contractRepo := repository.NewOptionContractRepository(db)
+	cr := NewOTCExpiryCron(contractRepo, repository.NewOTCOfferRepository(db), nil, nil, 10, "02:00")
+	notifier := &recordingOTCNotifier{}
+	cr.notifier = notifier
+
+	buyerUID := uint64(7)
+	c := &model.OptionContract{
+		StockID: 42, Ticker: "AAPL", Quantity: decimal.NewFromInt(10),
+		StrikePrice: decimal.NewFromInt(150), PremiumPaid: decimal.NewFromInt(20),
+		PremiumCurrency: "USD", StrikeCurrency: "USD",
+		SettlementDate: time.Now().Add(-24 * time.Hour),
+		Status:         model.OptionContractStatusActive,
+		BuyerOwnerType: model.OwnerClient, BuyerOwnerID: &buyerUID,
+		SellerOwnerType: model.OwnerBank, SellerOwnerID: nil,
+		PremiumPaidAt: time.Now(),
+	}
+	if err := contractRepo.Create(c); err != nil {
+		t.Fatalf("seed contract: %v", err)
+	}
+	if err := cr.expireContract(context.Background(), c); err != nil {
+		t.Fatalf("expire: %v", err)
+	}
+	if got := countNotifs(notifier.notifs, "OTC_CONTRACT_EXPIRED"); got != 1 {
+		t.Fatalf("OTC_CONTRACT_EXPIRED count = %d, want 1 (buyer only; bank seller skipped)", got)
+	}
+	for _, m := range notifier.notifs {
+		if m.UserID != buyerUID {
+			t.Errorf("unexpected notification to UserID=%d (want only buyer %d)", m.UserID, buyerUID)
+		}
+	}
+}
+
 // otcNextRunAt: same day vs next day handling.
 func TestOTCNextRunAt_FutureToday(t *testing.T) {
 	now := time.Date(2026, 5, 1, 1, 0, 0, 0, time.UTC)

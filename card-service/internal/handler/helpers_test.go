@@ -110,14 +110,22 @@ type stubProducer struct {
 	sendEmailCount           int
 	generalNotificationCount int
 	failSendEmail            bool
+
+	// Captured payloads for richer assertions. Counts above are preserved
+	// for tests that only assert call counts.
+	cardCreatedMsgs       []kafkamsg.CardCreatedMessage
+	cardStatusChangedMsgs []kafkamsg.CardStatusChangedMessage
+	generalNotifications  []kafkamsg.GeneralNotificationMessage
 }
 
-func (p *stubProducer) PublishCardCreated(_ context.Context, _ kafkamsg.CardCreatedMessage) error {
+func (p *stubProducer) PublishCardCreated(_ context.Context, m kafkamsg.CardCreatedMessage) error {
 	p.cardCreatedCount++
+	p.cardCreatedMsgs = append(p.cardCreatedMsgs, m)
 	return nil
 }
-func (p *stubProducer) PublishCardStatusChanged(_ context.Context, _ kafkamsg.CardStatusChangedMessage) error {
+func (p *stubProducer) PublishCardStatusChanged(_ context.Context, m kafkamsg.CardStatusChangedMessage) error {
 	p.cardStatusChangedCount++
+	p.cardStatusChangedMsgs = append(p.cardStatusChangedMsgs, m)
 	return nil
 }
 func (p *stubProducer) SendEmail(_ context.Context, _ kafkamsg.SendEmailMessage) error {
@@ -127,8 +135,9 @@ func (p *stubProducer) SendEmail(_ context.Context, _ kafkamsg.SendEmailMessage)
 	}
 	return nil
 }
-func (p *stubProducer) PublishGeneralNotification(_ context.Context, _ kafkamsg.GeneralNotificationMessage) error {
+func (p *stubProducer) PublishGeneralNotification(_ context.Context, m kafkamsg.GeneralNotificationMessage) error {
 	p.generalNotificationCount++
+	p.generalNotifications = append(p.generalNotifications, m)
 	return nil
 }
 

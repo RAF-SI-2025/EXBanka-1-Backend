@@ -102,6 +102,56 @@ func TestCreateCard_Success_PublishesEvents(t *testing.T) {
 	assert.Equal(t, 1, prod.generalNotificationCount, "general notification must be published")
 }
 
+func TestCreateCard_EmitsCardCreatedNotification(t *testing.T) {
+	want := sampleCard()
+	cardSvc := &stubCardService{
+		createCardFn: func(_ context.Context, _ string, _ uint64, _, _ string) (*model.Card, string, error) {
+			return want, "999", nil
+		},
+	}
+	prod := &stubProducer{}
+	h := &CardGRPCHandler{cardService: cardSvc, producer: prod}
+
+	_, err := h.CreateCard(context.Background(), &pb.CreateCardRequest{
+		AccountNumber: "265000000000000001",
+		OwnerId:       42,
+		OwnerType:     "client",
+		CardBrand:     "visa",
+	})
+	require.NoError(t, err)
+	require.Len(t, prod.generalNotifications, 1)
+	n := prod.generalNotifications[0]
+	assert.Equal(t, "CARD_CREATED", n.Type)
+	assert.Equal(t, want.OwnerID, n.UserID)
+	assert.Equal(t, want.CardBrand, n.Data["card_brand"])
+	assert.Equal(t, "card", n.RefType)
+	assert.Equal(t, want.ID, n.RefID)
+	assert.Empty(t, n.Title)
+	assert.Empty(t, n.Message)
+}
+
+func TestCreateCard_AuthorizedPerson_NoNotification(t *testing.T) {
+	cardSvc := &stubCardService{
+		createCardFn: func(_ context.Context, _ string, _ uint64, _, _ string) (*model.Card, string, error) {
+			c := sampleCard()
+			c.OwnerType = "authorized_person"
+			return c, "999", nil
+		},
+	}
+	prod := &stubProducer{}
+	h := &CardGRPCHandler{cardService: cardSvc, producer: prod}
+
+	_, err := h.CreateCard(context.Background(), &pb.CreateCardRequest{
+		AccountNumber: "265000000000000001",
+		OwnerId:       42,
+		OwnerType:     "authorized_person",
+		CardBrand:     "visa",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, prod.cardCreatedCount, "domain card.created event must still fire")
+	assert.Equal(t, 0, prod.generalNotificationCount, "no in-app notification for authorized_person owner")
+}
+
 func TestCreateCard_ServiceError_MapsToInvalidArgument(t *testing.T) {
 	cardSvc := &stubCardService{
 		createCardFn: func(_ context.Context, _ string, _ uint64, _, _ string) (*model.Card, string, error) {
@@ -243,6 +293,29 @@ func TestBlockCard_Success_PublishesEventsAndEmail(t *testing.T) {
 	assert.Equal(t, 1, prod.sendEmailCount)
 }
 
+func TestBlockCard_EmitsStatusChangedNotification(t *testing.T) {
+	want := sampleCard()
+	want.Status = "blocked"
+	cardSvc := &stubCardService{
+		blockCardFn: func(_ uint64, _ int64) (*model.Card, error) { return want, nil },
+	}
+	prod := &stubProducer{}
+	client := &stubClientClient{}
+	h := &CardGRPCHandler{cardService: cardSvc, producer: prod, clientClient: client}
+
+	_, err := h.BlockCard(context.Background(), &pb.BlockCardRequest{Id: 7})
+	require.NoError(t, err)
+	require.Len(t, prod.generalNotifications, 1)
+	n := prod.generalNotifications[0]
+	assert.Equal(t, "CARD_STATUS_CHANGED", n.Type)
+	assert.Equal(t, want.OwnerID, n.UserID)
+	assert.Equal(t, "blocked", n.Data["new_status"])
+	assert.Equal(t, "card", n.RefType)
+	assert.Equal(t, want.ID, n.RefID)
+	assert.Empty(t, n.Title)
+	assert.Empty(t, n.Message)
+}
+
 func TestBlockCard_ClientFetchError_StillSucceeds(t *testing.T) {
 	cardSvc := &stubCardService{
 		blockCardFn: func(_ uint64, _ int64) (*model.Card, error) {
@@ -308,6 +381,27 @@ func TestUnblockCard_Success(t *testing.T) {
 	assert.Equal(t, 1, prod.sendEmailCount)
 }
 
+func TestUnblockCard_EmitsStatusChangedNotification(t *testing.T) {
+	want := sampleCard()
+	want.Status = "active"
+	cardSvc := &stubCardService{
+		unblockCardFn: func(_ uint64, _ int64) (*model.Card, error) { return want, nil },
+	}
+	prod := &stubProducer{}
+	client := &stubClientClient{}
+	h := &CardGRPCHandler{cardService: cardSvc, producer: prod, clientClient: client}
+
+	_, err := h.UnblockCard(context.Background(), &pb.UnblockCardRequest{Id: 7})
+	require.NoError(t, err)
+	require.Len(t, prod.generalNotifications, 1)
+	n := prod.generalNotifications[0]
+	assert.Equal(t, "CARD_STATUS_CHANGED", n.Type)
+	assert.Equal(t, want.OwnerID, n.UserID)
+	assert.Equal(t, "active", n.Data["new_status"])
+	assert.Equal(t, "card", n.RefType)
+	assert.Equal(t, want.ID, n.RefID)
+}
+
 func TestUnblockCard_NotFound(t *testing.T) {
 	cardSvc := &stubCardService{
 		unblockCardFn: func(_ uint64, _ int64) (*model.Card, error) { return nil, gorm.ErrRecordNotFound },
@@ -353,6 +447,27 @@ func TestDeactivateCard_Success(t *testing.T) {
 	assert.Equal(t, "deactivated", resp.Status)
 	assert.Equal(t, 1, prod.cardStatusChangedCount)
 	assert.Equal(t, 1, prod.sendEmailCount)
+}
+
+func TestDeactivateCard_EmitsStatusChangedNotification(t *testing.T) {
+	want := sampleCard()
+	want.Status = "deactivated"
+	cardSvc := &stubCardService{
+		deactivateCardFn: func(_ uint64, _ int64) (*model.Card, error) { return want, nil },
+	}
+	prod := &stubProducer{}
+	client := &stubClientClient{}
+	h := &CardGRPCHandler{cardService: cardSvc, producer: prod, clientClient: client}
+
+	_, err := h.DeactivateCard(context.Background(), &pb.DeactivateCardRequest{Id: 7})
+	require.NoError(t, err)
+	require.Len(t, prod.generalNotifications, 1)
+	n := prod.generalNotifications[0]
+	assert.Equal(t, "CARD_STATUS_CHANGED", n.Type)
+	assert.Equal(t, want.OwnerID, n.UserID)
+	assert.Equal(t, "deactivated", n.Data["new_status"])
+	assert.Equal(t, "card", n.RefType)
+	assert.Equal(t, want.ID, n.RefID)
 }
 
 func TestDeactivateCard_NotFound(t *testing.T) {

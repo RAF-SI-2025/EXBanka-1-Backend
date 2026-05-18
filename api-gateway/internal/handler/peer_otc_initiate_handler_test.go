@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/exbanka/api-gateway/internal/handler"
+	accountpb "github.com/exbanka/contract/accountpb"
 	transactionpb "github.com/exbanka/contract/transactionpb"
 )
 
@@ -54,8 +55,27 @@ func validInitiateBody(sellerCode string) string {
         "settlement_date":"2026-12-31",
         "price_per_unit":{"amount":"180","currency":"USD"},
         "premium":{"amount":"700","currency":"USD"},
-        "amount":50
+        "amount":50,
+        "bidder_account_id":99
     }`
+}
+
+// initiateAccountStub returns an "active USD account owned by user 42" by
+// default — matches the principal_id every test uses. Per-test code can
+// override the getFn for the few tests that exercise ownership/currency/
+// status failure paths.
+func initiateAccountStub() *accountFullStub {
+	return &accountFullStub{
+		getFn: func(in *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
+			return &accountpb.AccountResponse{
+				Id:            in.Id,
+				OwnerId:       42,
+				AccountNumber: "111000164448338821",
+				CurrencyCode:  "USD",
+				Status:        "active",
+			}, nil
+		},
+	}
 }
 
 func TestPeerOTCInitiate_Success(t *testing.T) {
@@ -88,7 +108,7 @@ func TestPeerOTCInitiate_Success(t *testing.T) {
 		},
 	}
 
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 
 	rec := httptest.NewRecorder()
@@ -125,7 +145,7 @@ func TestPeerOTCInitiate_Success_WithHMAC(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 
 	rec := httptest.NewRecorder()
@@ -134,7 +154,7 @@ func TestPeerOTCInitiate_Success_WithHMAC(t *testing.T) {
 }
 
 func TestPeerOTCInitiate_BadBody(t *testing.T) {
-	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader("not json")))
@@ -142,7 +162,7 @@ func TestPeerOTCInitiate_BadBody(t *testing.T) {
 }
 
 func TestPeerOTCInitiate_MissingFields(t *testing.T) {
-	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	body := `{"seller_bank_code":"222","seller_id":""}`
@@ -151,7 +171,7 @@ func TestPeerOTCInitiate_MissingFields(t *testing.T) {
 }
 
 func TestPeerOTCInitiate_RejectsOwnBankCode(t *testing.T) {
-	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("111"))))
@@ -160,7 +180,7 @@ func TestPeerOTCInitiate_RejectsOwnBankCode(t *testing.T) {
 }
 
 func TestPeerOTCInitiate_MissingPrincipal(t *testing.T) {
-	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(&stubPeerAdminResolver{}, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 0)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -173,7 +193,7 @@ func TestPeerOTCInitiate_PeerNotRegistered(t *testing.T) {
 			return &transactionpb.ResolvePeerByBankCodeResponse{Found: false}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -191,7 +211,7 @@ func TestPeerOTCInitiate_PeerInactive(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -204,7 +224,7 @@ func TestPeerOTCInitiate_ResolveError(t *testing.T) {
 			return nil, context.DeadlineExceeded
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -228,7 +248,7 @@ func TestPeerOTCInitiate_PeerRejects(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -247,7 +267,7 @@ func TestPeerOTCInitiate_PeerDispatchFails(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))
@@ -271,7 +291,7 @@ func TestPeerOTCInitiate_PeerReturnsInvalidJSON(t *testing.T) {
 			}, nil
 		},
 	}
-	h := handler.NewPeerOTCInitiateHandler(resolver, 111, "111")
+	h := handler.NewPeerOTCInitiateHandler(resolver, nil, initiateAccountStub(), 111, "111")
 	r := peerOTCInitiateRouter(h, 42)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest("POST", "/me/peer-otc/negotiations", strings.NewReader(validInitiateBody("222"))))

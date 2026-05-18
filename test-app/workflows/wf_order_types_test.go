@@ -43,18 +43,21 @@ func TestWF_MultiAssetOrderTypes(t *testing.T) {
 	limitOrderID := int(helpers.GetNumberField(t, limitResp, "id"))
 	t.Logf("WF-7: limit order created id=%d", limitOrderID)
 
-	// Give a moment and verify order is NOT yet done
+	// Give a moment and verify the order is NOT done. A limit buy at 0.01
+	// RSD is far below any real ask, so the matching engine must leave it
+	// pending. Pre-fix this was flaky (the engine clamped the fill price
+	// to LimitValue and filled regardless) — now it's a hard assertion so
+	// any regression reintroduces a noisy failure here.
 	time.Sleep(2 * time.Second)
 	orderResp, err := supervisorC.GET(fmt.Sprintf("/api/v3/me/orders/%d", limitOrderID))
 	if err != nil {
 		t.Fatalf("WF-7: get limit order: %v", err)
 	}
 	helpers.RequireStatus(t, orderResp, 200)
-	if done, ok := orderResp.Body["is_done"].(bool); ok && done {
-		t.Logf("WF-7: limit order filled unexpectedly (price matched) — skipping pending assertion")
-	} else {
-		t.Logf("WF-7: limit order still pending as expected")
+	if done, _ := orderResp.Body["is_done"].(bool); done {
+		t.Fatalf("WF-7: limit order at 0.01 RSD should stay pending but is_done=true — matching engine ignored LimitValue")
 	}
+	t.Logf("WF-7: limit order still pending as expected")
 
 	// Step 4: Cancel the limit order
 	cancelResp, err := supervisorC.POST(fmt.Sprintf("/api/v3/me/orders/%d/cancel", limitOrderID), nil)

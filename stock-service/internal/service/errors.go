@@ -209,6 +209,101 @@ var (
 	// account-service and transaction-service.
 	ErrIdempotencyMissing = svcerr.New(codes.InvalidArgument, "idempotency_key required")
 
+	// --- OTC Stocks Marketplace (Phase 3 — buy + sell direction) ---
+
+	// ErrOTCStockBuyOfferNotFound — buy-side offer lookup failed.
+	ErrOTCStockBuyOfferNotFound = svcerr.New(codes.NotFound, "OTC stock buy offer not found")
+
+	// ErrOTCStockBuyOfferNotActive — caller targeted a buy offer that is
+	// no longer fillable (already filled / cancelled / expired).
+	ErrOTCStockBuyOfferNotActive = svcerr.New(codes.FailedPrecondition, "OTC stock buy offer is not active")
+
+	// ErrOTCStockBuyOfferOwnership — caller tried to cancel a buy offer
+	// they do not own.
+	ErrOTCStockBuyOfferOwnership = svcerr.New(codes.PermissionDenied, "OTC stock buy offer does not belong to caller")
+
+	// ErrOTCStockInsufficientRemainingQty — fill attempt exceeds the
+	// remaining_quantity on the buy offer.
+	ErrOTCStockInsufficientRemainingQty = svcerr.New(codes.FailedPrecondition, "insufficient remaining quantity on buy offer")
+
+	// ErrOTCStockNoActiveSellOffer — cancel-sell-offer called on a
+	// holding with public_quantity == 0.
+	ErrOTCStockNoActiveSellOffer = svcerr.New(codes.FailedPrecondition, "holding has no active sell offer to cancel")
+
+	// ErrOTCStockDirectionRequired — POST /me/otc/stocks body must carry
+	// direction in {sell, buy}.
+	ErrOTCStockDirectionRequired = svcerr.New(codes.InvalidArgument, "direction must be sell or buy")
+
+	// ErrOTCStockCurrencyMismatch — buy offer's listing currency does not
+	// match the buyer's account currency. Required at create time so the
+	// reserved amount = quantity * price_per_unit is deterministic.
+	ErrOTCStockCurrencyMismatch = svcerr.New(codes.FailedPrecondition, "listing currency must match buyer account currency")
+
+	// ErrOTCStockInsufficientShares — sell-offer create would exceed the
+	// holding's OTC-safe available quantity (Quantity - ReservedQuantity -
+	// PublicQuantity), which protects shares already committed to orders
+	// or other sell offers.
+	ErrOTCStockInsufficientShares = svcerr.New(codes.FailedPrecondition, "insufficient available shares for OTC sell offer")
+
+	// ErrOTCStockSellOfferHoldingType — sell offer can only be created on
+	// a security_type='stock' holding (no futures/forex/options).
+	ErrOTCStockSellOfferHoldingType = svcerr.New(codes.FailedPrecondition, "sell offer only supported on stock holdings")
+
+	// ErrOTCStockSellPriceRequired — Phase 11: seller must supply a
+	// positive price_per_unit when creating an OTC sell offer.
+	// Without it the cache + peer /public-stock endpoints can't show
+	// an asking price.
+	ErrOTCStockSellPriceRequired = svcerr.New(codes.InvalidArgument, "price_per_unit is required and must be > 0 for sell direction")
+
+	// --- OTC Negotiation (Phase 2 — parallel chains + first-accept-wins) ---
+
+	// ErrOTCNegotiationNotFound — negotiation lookup failed.
+	ErrOTCNegotiationNotFound = svcerr.New(codes.NotFound, "OTC negotiation not found")
+
+	// ErrOTCNegotiationTerminal — caller attempted to mutate a chain
+	// that's already in a terminal status (accepted/rejected/cancelled/
+	// expired).
+	ErrOTCNegotiationTerminal = svcerr.New(codes.FailedPrecondition, "OTC negotiation is in terminal status")
+
+	// ErrOTCParentNotOpen — bidder/accepter targeted an OTCOffer listing
+	// that is no longer accepting negotiations (already consumed,
+	// cancelled, or expired). Occurs when a parallel chain wins the
+	// first-accept race.
+	ErrOTCParentNotOpen = svcerr.New(codes.FailedPrecondition, "OTC listing is no longer open")
+
+	// ErrOTCChainAlreadyExists — bidder already has an open chain against
+	// this listing. The one-chain-per-bidder invariant prevents a single
+	// user from opening multiple parallel chains on the same offer.
+	ErrOTCChainAlreadyExists = svcerr.New(codes.AlreadyExists, "negotiation chain already open for this bidder/listing")
+
+	// ErrOTCAcceptUnauthorized — only the party OPPOSITE to the most
+	// recent mover may accept. The caller proposed the current terms or
+	// is otherwise not authorized to accept them.
+	ErrOTCAcceptUnauthorized = svcerr.New(codes.PermissionDenied, "caller cannot accept current terms")
+
+	// ErrOTCCounterUnauthorized — caller is neither the bidder nor the
+	// listing's poster, so cannot propose a counter.
+	ErrOTCCounterUnauthorized = svcerr.New(codes.PermissionDenied, "caller cannot counter this chain")
+
+	// ErrOTCBidOwnListing — bidder attempted to open a chain against
+	// their OWN listing.
+	ErrOTCBidOwnListing = svcerr.New(codes.FailedPrecondition, "cannot open negotiation on own listing")
+
+	// ErrOTCAcceptorAccountRequired — AcceptNegotiation needs the
+	// acceptor's account_id to bind the premium-payment side of the
+	// minted contract (Phase 9). Without it the contract-formation
+	// saga can't run, so we mark the negotiation as failed and return
+	// this typed sentinel.
+	ErrOTCAcceptorAccountRequired = svcerr.New(codes.InvalidArgument, "acceptor_account_id is required to mint the option contract")
+
+	// ErrOTCCancelListingUnauthorized — caller tried to cancel a parent
+	// OTCOffer listing they didn't post. Only the initiator may cancel.
+	ErrOTCCancelListingUnauthorized = svcerr.New(codes.PermissionDenied, "only the listing's poster can cancel it")
+
+	// ErrOTCListingNotOpen — caller tried to cancel a listing that is no
+	// longer in an open status (e.g. already consumed, expired, or cancelled).
+	ErrOTCListingNotOpen = svcerr.New(codes.FailedPrecondition, "OTC listing is not open")
+
 	// --- Generic catch-alls (used by handlers when wrapping bare
 	// dependency errors before they become gRPC responses) ---
 

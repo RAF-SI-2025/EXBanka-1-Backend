@@ -45,6 +45,7 @@ var Catalog = []Permission{
 	"otc.trade.accept",
 	"otc.trade.exercise",
 	"otc.trade.expire",
+	"otc.trade.on_behalf",
 	"otc.read.all",
 	"funds.invest.own",
 	"funds.invest.on_behalf_client",
@@ -74,6 +75,7 @@ var Catalog = []Permission{
 	"verification.manage.any",
 	"exchange_rates.read.any",
 	"exchange_rates.update.any",
+	"notifications.templates.manage",
 }
 
 var Accounts = struct {
@@ -449,6 +451,18 @@ var Limits = struct {
 	},
 }
 
+var Notifications = struct {
+	Templates struct {
+		Manage Permission
+	}
+}{
+	Templates: struct {
+		Manage Permission
+	}{
+		Manage: "notifications.templates.manage",
+	},
+}
+
 var Orders = struct {
 	Cancel struct {
 		All Permission
@@ -497,6 +511,7 @@ var Otc = struct {
 		Accept   Permission
 		Exercise Permission
 		Expire   Permission
+		OnBehalf Permission
 	}
 }{
 	Read: struct {
@@ -508,10 +523,12 @@ var Otc = struct {
 		Accept   Permission
 		Exercise Permission
 		Expire   Permission
+		OnBehalf Permission
 	}{
 		Accept:   "otc.trade.accept",
 		Exercise: "otc.trade.exercise",
 		Expire:   "otc.trade.expire",
+		OnBehalf: "otc.trade.on_behalf",
 	},
 }
 
@@ -661,6 +678,7 @@ var DefaultRoles = map[string][]Permission{
 		"limit_templates.update.any",
 		"limits.employee.read",
 		"limits.employee.update",
+		"notifications.templates.manage",
 		"orders.cancel.all",
 		"orders.cancel.own",
 		"orders.place.on_behalf_bank",
@@ -672,6 +690,7 @@ var DefaultRoles = map[string][]Permission{
 		"otc.trade.accept",
 		"otc.trade.exercise",
 		"otc.trade.expire",
+		"otc.trade.on_behalf",
 		"peer_banks.manage.any",
 		"roles.permissions.assign",
 		"roles.permissions.revoke",
@@ -705,6 +724,7 @@ var DefaultRoles = map[string][]Permission{
 		"orders.read.own",
 		"otc.trade.accept",
 		"otc.trade.exercise",
+		"otc.trade.on_behalf",
 		"securities.read.holdings_own",
 		"securities.trade.any",
 	},
@@ -762,6 +782,7 @@ var DefaultRoles = map[string][]Permission{
 		"otc.trade.accept",
 		"otc.trade.exercise",
 		"otc.trade.expire",
+		"otc.trade.on_behalf",
 		"securities.manage.catalog",
 		"securities.read.holdings_all",
 		"securities.read.holdings_own",

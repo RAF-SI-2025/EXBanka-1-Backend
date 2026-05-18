@@ -74,3 +74,7 @@ func (p *Producer) PublishTaxCollected(ctx context.Context, msg contract.TaxColl
 func (p *Producer) PublishOptionExercised(ctx context.Context, msg contract.OptionExercisedMessage) error {
 	return p.inner.Publish(ctx, contract.TopicOptionExercised, msg)
 }
+
+func (p *Producer) PublishGeneralNotification(ctx context.Context, msg contract.GeneralNotificationMessage) error {
+	return p.inner.Publish(ctx, contract.TopicGeneralNotification, msg)
+}

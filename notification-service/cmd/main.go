@@ -34,13 +34,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}); err != nil {
+	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}, &model.NotificationTemplate{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Repositories
 	inboxRepo := repository.NewMobileInboxRepository(db)
 	notifRepo := repository.NewGeneralNotificationRepository(db)
+	templateRepo := repository.NewTemplateRepository(db)
+
+	// Template service (registry-backed render + admin CRUD)
+	templateSvc := service.NewTemplateService(templateRepo)
 
 	// Email sender
 	emailSender := sender.NewEmailSender(
@@ -63,7 +67,7 @@ func main() {
 	)
 
 	// Kafka consumer (email events)
-	emailConsumer := consumer.NewEmailConsumer(cfg.KafkaBrokers, emailSender, producer)
+	emailConsumer := consumer.NewEmailConsumer(cfg.KafkaBrokers, emailSender, producer, templateSvc)
 	defer emailConsumer.Close()
 
 	// Start consumers in background
@@ -72,12 +76,12 @@ func main() {
 	go emailConsumer.Start(ctx)
 
 	// Verification consumer (challenge events → email or mobile inbox)
-	verificationConsumer := consumer.NewVerificationConsumer(cfg.KafkaBrokers, emailSender, producer, inboxRepo)
+	verificationConsumer := consumer.NewVerificationConsumer(cfg.KafkaBrokers, emailSender, producer, inboxRepo, templateSvc)
 	verificationConsumer.Start(ctx)
 	defer verificationConsumer.Close()
 
 	// General notification consumer (persistent user notifications)
-	generalConsumer := consumer.NewGeneralNotificationConsumer(cfg.KafkaBrokers, notifRepo)
+	generalConsumer := consumer.NewGeneralNotificationConsumer(cfg.KafkaBrokers, notifRepo, templateSvc)
 	generalConsumer.Start(ctx)
 	defer generalConsumer.Close()
 
@@ -104,7 +108,7 @@ func main() {
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},
 		Register: func(s *grpc.Server) {
-			notifpb.RegisterNotificationServiceServer(s, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo))
+			notifpb.RegisterNotificationServiceServer(s, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo, templateSvc))
 			shared.RegisterHealthCheck(s, "notification-service")
 			reflection.Register(s)
 			metrics.InitializeGRPCMetrics(s)

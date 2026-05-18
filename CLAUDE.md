@@ -60,7 +60,7 @@ cd notification-service && go build -o bin/notification-service ./cmd
 ```bash
 docker compose --env-file .env.bank-b -f docker-compose.yml -f docker-compose.bank-b.yml up
 ```
-After both stacks are healthy, register each as a peer in the other via `POST /api/v3/peer-banks` using `http://host.docker.internal:<gateway-port>` as the `base_url`. Requires docker compose v2.24+ for the `!override` tag.
+After both stacks are healthy, register each as a peer in the other via `POST /api/v3/peer-banks`. `base_url` is the FULL SI-TX path prefix that the peer exposes its `/interbank`, `/public-stock`, and `/negotiations` endpoints under — for this codebase that's `http://host.docker.internal:<gateway-port>/api/v3`. The outbound clients (`transaction-service/internal/sitx/peer_http_client.go`, `stock-service/internal/otccache/cache.go`, `api-gateway/internal/handler/peer_otc_initiate_handler.go`) only append the leaf names (`/interbank`, `/public-stock`, `/negotiations`) so cohort banks with different gateway path layouts all interop — each peer's prefix lives in its registration row, not in our client code. Requires docker compose v2.24+ for the `!override` tag.
 
 ## Environment
 
@@ -225,6 +225,20 @@ The Notification Service has a PostgreSQL database (`notification_db`, port 5441
   - `loan_type`: `cash`, `housing`, `auto`, `refinancing`, `student`
   - `interest_type`: `fixed`, `variable`
   - `verification_method`: `code_pull`, `qr_scan`, `number_match`, `email`
+
+## Resource Ownership Verification Requirement
+
+**Every endpoint that acts on a caller-supplied resource (account, holding, card, loan, offer, contract, etc.) must verify ownership before forwarding to a gRPC service.** This is a hard requirement — not optional. It is enforced in addition to, never instead of, input validation.
+
+- Never trust an account ID, holding ID, or any other resource identifier from the request body or URL just because the caller is authenticated. Authentication proves *who* the caller is; it does not prove the resource is *theirs*.
+- Resolve the acting identity (`ResolveIdentity` middleware → `ResolvedIdentity`), then verify the resource's owner matches:
+  - **client principal** → resource `owner_id` must equal the client's `principal_id`, and the resource must not be a bank-owned resource.
+  - **employee, no on-behalf** → the resource must be bank-owned (e.g. `account_kind == "bank"`).
+  - **employee acting on behalf of a client** → resource `owner_id` must equal the `on_behalf_of_client_id`, and the employee must hold the corresponding `*.on_behalf_client` permission.
+  - Any mismatch → return HTTP 403 `forbidden` (or 404 `not_found` where existence must not leak — see `enforceOwnership` in `validation.go`).
+- Ownership is verified gateway-side, before the gRPC call, using the shared helpers in `api-gateway/internal/handler/validation.go`. Do not inline ad-hoc ownership checks.
+- When an action involves two parties (e.g. accepting an OTC offer), the caller may only supply and bind *their own* account; the counterparty's account is read from the persisted record, never accepted from the caller.
+- When adding a new endpoint or field that references a resource, add the ownership check alongside the input validation, BEFORE the gRPC call.
 
 ## REST API Conventions
 

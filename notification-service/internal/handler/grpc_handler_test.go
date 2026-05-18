@@ -86,7 +86,7 @@ func (m *mockNotifRepo) MarkAllRead(userID uint64) (int64, error) {
 
 func TestGRPCHandler_SendEmail_Success(t *testing.T) {
 	sender := &mockEmailSender{}
-	h := newGRPCHandlerForTest(sender, &mockInboxRepo{}, &mockNotifRepo{})
+	h := newGRPCHandlerForTest(sender, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	resp, err := h.SendEmail(context.Background(), &notifpb.SendEmailRequest{
 		To: "user@example.com", EmailType: "verification", Data: map[string]string{"code": "123456"},
 	})
@@ -102,7 +102,7 @@ func TestGRPCHandler_SendEmail_Success(t *testing.T) {
 }
 
 func TestGRPCHandler_SendEmail_MissingRecipient(t *testing.T) {
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, &mockNotifRepo{})
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.SendEmail(context.Background(), &notifpb.SendEmailRequest{To: ""})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Errorf("expected InvalidArgument, got %v", status.Code(err))
@@ -113,7 +113,7 @@ func TestGRPCHandler_SendEmail_SenderError(t *testing.T) {
 	sender := &mockEmailSender{
 		sendFn: func(_, _, _ string) error { return errors.New("smtp down") },
 	}
-	h := newGRPCHandlerForTest(sender, &mockInboxRepo{}, &mockNotifRepo{})
+	h := newGRPCHandlerForTest(sender, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	resp, err := h.SendEmail(context.Background(), &notifpb.SendEmailRequest{To: "user@example.com"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -126,12 +126,30 @@ func TestGRPCHandler_SendEmail_SenderError(t *testing.T) {
 	}
 }
 
+func TestGRPCHandler_SendEmail_RenderError(t *testing.T) {
+	sender := &mockEmailSender{}
+	h := newGRPCHandlerForTest(sender, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderErr: errors.New("unknown type")})
+	resp, err := h.SendEmail(context.Background(), &notifpb.SendEmailRequest{To: "user@example.com"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Success {
+		t.Error("expected Success=false on render error")
+	}
+	if resp.Message == "" {
+		t.Error("expected error message in response")
+	}
+	if len(sender.calls) != 0 {
+		t.Errorf("expected sender not called on render error, got %+v", sender.calls)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GetDeliveryStatus
 // ---------------------------------------------------------------------------
 
 func TestGRPCHandler_GetDeliveryStatus_Unimplemented(t *testing.T) {
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, &mockNotifRepo{})
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.GetDeliveryStatus(context.Background(), &notifpb.GetDeliveryStatusRequest{})
 	if status.Code(err) != codes.Unimplemented {
 		t.Errorf("expected Unimplemented, got %v", status.Code(err))
@@ -154,7 +172,7 @@ func TestGRPCHandler_GetPendingMobileItems_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, repo, &mockNotifRepo{})
+	h := newGRPCHandlerForTest(&mockEmailSender{}, repo, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	resp, err := h.GetPendingMobileItems(context.Background(), &notifpb.GetPendingMobileRequest{UserId: 5})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -173,7 +191,7 @@ func TestGRPCHandler_GetPendingMobileItems_Error(t *testing.T) {
 			return nil, errors.New("db down")
 		},
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, repo, &mockNotifRepo{})
+	h := newGRPCHandlerForTest(&mockEmailSender{}, repo, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.GetPendingMobileItems(context.Background(), &notifpb.GetPendingMobileRequest{UserId: 5})
 	if status.Code(err) != codes.Internal {
 		t.Errorf("expected Internal, got %v", status.Code(err))
@@ -189,7 +207,7 @@ func TestGRPCHandler_AckMobileItem_Success(t *testing.T) {
 	repo := &mockInboxRepo{
 		ackFn: func(id uint64) error { captured = id; return nil },
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, repo, &mockNotifRepo{})
+	h := newGRPCHandlerForTest(&mockEmailSender{}, repo, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	resp, err := h.AckMobileItem(context.Background(), &notifpb.AckMobileRequest{Id: 7})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -206,7 +224,7 @@ func TestGRPCHandler_AckMobileItem_NotFound(t *testing.T) {
 	repo := &mockInboxRepo{
 		ackFn: func(_ uint64) error { return errors.New("not found") },
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, repo, &mockNotifRepo{})
+	h := newGRPCHandlerForTest(&mockEmailSender{}, repo, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.AckMobileItem(context.Background(), &notifpb.AckMobileRequest{Id: 99})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("expected NotFound, got %v", status.Code(err))
@@ -226,7 +244,7 @@ func TestGRPCHandler_ListNotifications_Success(t *testing.T) {
 			}, 1, nil
 		},
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	resp, err := h.ListNotifications(context.Background(), &notifpb.ListNotificationsRequest{UserId: 5})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -252,7 +270,7 @@ func TestGRPCHandler_ListNotifications_ReadFilter(t *testing.T) {
 			return nil, 0, nil
 		},
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.ListNotifications(context.Background(), &notifpb.ListNotificationsRequest{
 		UserId: 5, ReadFilter: "read", Page: 2, PageSize: 50,
 	})
@@ -275,7 +293,7 @@ func TestGRPCHandler_ListNotifications_UnreadFilter(t *testing.T) {
 			return nil, 0, nil
 		},
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.ListNotifications(context.Background(), &notifpb.ListNotificationsRequest{
 		UserId: 5, ReadFilter: "unread",
 	})
@@ -296,7 +314,7 @@ func TestGRPCHandler_ListNotifications_DefaultsPagination(t *testing.T) {
 			return nil, 0, nil
 		},
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.ListNotifications(context.Background(), &notifpb.ListNotificationsRequest{UserId: 5, Page: 0, PageSize: 0})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -312,7 +330,7 @@ func TestGRPCHandler_ListNotifications_Error(t *testing.T) {
 			return nil, 0, errors.New("db down")
 		},
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.ListNotifications(context.Background(), &notifpb.ListNotificationsRequest{UserId: 5})
 	if status.Code(err) != codes.Internal {
 		t.Errorf("expected Internal, got %v", status.Code(err))
@@ -327,7 +345,7 @@ func TestGRPCHandler_GetUnreadCount_Success(t *testing.T) {
 	repo := &mockNotifRepo{
 		unreadFn: func(_ uint64) (int64, error) { return 5, nil },
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	resp, err := h.GetUnreadCount(context.Background(), &notifpb.GetUnreadCountRequest{UserId: 5})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -341,7 +359,7 @@ func TestGRPCHandler_GetUnreadCount_Error(t *testing.T) {
 	repo := &mockNotifRepo{
 		unreadFn: func(_ uint64) (int64, error) { return 0, errors.New("db down") },
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.GetUnreadCount(context.Background(), &notifpb.GetUnreadCountRequest{UserId: 5})
 	if status.Code(err) != codes.Internal {
 		t.Errorf("expected Internal, got %v", status.Code(err))
@@ -353,7 +371,7 @@ func TestGRPCHandler_GetUnreadCount_Error(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGRPCHandler_MarkNotificationRead_Success(t *testing.T) {
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, &mockNotifRepo{})
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, &mockNotifRepo{}, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	resp, err := h.MarkNotificationRead(context.Background(), &notifpb.MarkNotificationReadRequest{Id: 1, UserId: 5})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -367,7 +385,7 @@ func TestGRPCHandler_MarkNotificationRead_NotFound(t *testing.T) {
 	repo := &mockNotifRepo{
 		markReadFn: func(_, _ uint64) error { return errors.New("not found") },
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.MarkNotificationRead(context.Background(), &notifpb.MarkNotificationReadRequest{Id: 99, UserId: 5})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("expected NotFound, got %v", status.Code(err))
@@ -382,7 +400,7 @@ func TestGRPCHandler_MarkAllNotificationsRead_Success(t *testing.T) {
 	repo := &mockNotifRepo{
 		markAllReadFn: func(_ uint64) (int64, error) { return 7, nil },
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	resp, err := h.MarkAllNotificationsRead(context.Background(), &notifpb.MarkAllNotificationsReadRequest{UserId: 5})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -396,7 +414,7 @@ func TestGRPCHandler_MarkAllNotificationsRead_Error(t *testing.T) {
 	repo := &mockNotifRepo{
 		markAllReadFn: func(_ uint64) (int64, error) { return 0, errors.New("db down") },
 	}
-	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo)
+	h := newGRPCHandlerForTest(&mockEmailSender{}, &mockInboxRepo{}, repo, &stubTemplateSvc{renderSubject: "S", renderBody: "B"})
 	_, err := h.MarkAllNotificationsRead(context.Background(), &notifpb.MarkAllNotificationsReadRequest{UserId: 5})
 	if status.Code(err) != codes.Internal {
 		t.Errorf("expected Internal, got %v", status.Code(err))

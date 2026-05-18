@@ -9,10 +9,32 @@ import (
 
 // BeforeUpdate adds a WHERE version=? clause and increments the version,
 // providing optimistic locking on every Save/Update of an Account.
+//
+// Fix R9 (2026-05-16): CurrencyCode is also IMMUTABLE post-creation —
+// every saga that takes a cross-currency action (OTC accept, OTC
+// exercise) captures the account's currency once pre-saga and uses
+// the captured value in its Forward closures. If a future code path
+// ever tried to UPDATE currency_code mid-flight, those captured values
+// would be stale and the reservation/settle would land in the wrong
+// currency. The hook below forbids it at the DB write boundary so the
+// invariant is enforced regardless of which caller tries it.
 func (a *Account) BeforeUpdate(tx *gorm.DB) error {
 	tx.Statement.Where("version = ?", a.Version)
 	a.Version++
+	if tx.Statement != nil && tx.Statement.Changed("CurrencyCode") {
+		return errAccountCurrencyImmutable
+	}
 	return nil
+}
+
+// errAccountCurrencyImmutable is returned by the BeforeUpdate hook when
+// a caller attempts to change an Account's CurrencyCode. See Fix R9.
+var errAccountCurrencyImmutable = errAccountCurrencyImmutableT{}
+
+type errAccountCurrencyImmutableT struct{}
+
+func (errAccountCurrencyImmutableT) Error() string {
+	return "account currency_code is immutable post-creation (Fix R9 invariant)"
 }
 
 type Account struct {

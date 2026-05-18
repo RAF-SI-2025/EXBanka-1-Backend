@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 
@@ -45,6 +46,14 @@ func (s *OTCService) ListOffers(filter OTCFilter) ([]model.Holding, int64, error
 }
 
 // BuyOffer purchases shares from an OTC offer (a public holding).
+//
+// **Race-safety (Phase 3B fix).** The seller's holding read is now
+// wrapped in a db.Transaction with SELECT FOR UPDATE so two concurrent
+// buyers can't both pass the PublicQuantity check on the same N shares
+// and double-spend them. The transaction also enforces the canonical
+// "cannot sell what they don't have" check (PublicQuantity >= quantity)
+// before any account-service call fires. Money compensation paths below
+// still run if the saga aborts after holding decrement.
 func (s *OTCService) BuyOffer(
 	offerID uint64, // holding ID of the seller
 	buyerID uint64,
@@ -52,16 +61,29 @@ func (s *OTCService) BuyOffer(
 	quantity int64,
 	buyerAccountID uint64,
 ) (*OTCBuyResult, error) {
-	// Get seller's holding
-	sellerHolding, err := s.holdingRepo.GetByID(offerID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("OTC offer not found: %w", ErrOTCOfferNotFound)
+	// Lock the seller's holding for the duration of the read-check-
+	// decrement sequence. The actual share decrement happens further
+	// down (line ~190), but the lock here serialises concurrent
+	// PublicQuantity reads so we never let a stale-read past the
+	// availability check. Holding the row through the money saga IS
+	// safe — the saga's account-service calls don't touch this row.
+	var sellerHolding *model.Holding
+	err := s.holdingRepo.DB().Transaction(func(tx *gorm.DB) error {
+		h, lerr := s.holdingRepo.LockByIDTx(tx, offerID)
+		if lerr != nil {
+			if errors.Is(lerr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("OTC offer not found: %w", ErrOTCOfferNotFound)
+			}
+			return lerr
 		}
+		if h.PublicQuantity < quantity {
+			return fmt.Errorf("insufficient public quantity for OTC purchase: %w", ErrOTCInsufficientPublicQuantity)
+		}
+		sellerHolding = h
+		return nil
+	})
+	if err != nil {
 		return nil, err
-	}
-	if sellerHolding.PublicQuantity < quantity {
-		return nil, fmt.Errorf("insufficient public quantity for OTC purchase: %w", ErrOTCInsufficientPublicQuantity)
 	}
 	// Self-buy guard: compare on the buyer's owner pair vs the seller's
 	// holding owner. Both sides may legitimately be bank-owned in pathological
@@ -89,6 +111,18 @@ func (s *OTCService) BuyOffer(
 	}
 	commission = commission.Round(2)
 
+	// Each BuyOffer call gets a fresh UUID-scoped key so the per-step
+	// idempotency_keys below stay deterministic within this call (so a
+	// compensation step replays the original step's cached response on
+	// retry) while two distinct buys never collide on the same key.
+	otcTxID := uuid.New().String()
+	buyerDebitKey := "otc-buy-" + otcTxID + ":buyer-debit"
+	sellerCreditKey := "otc-buy-" + otcTxID + ":seller-credit"
+	compBuyerOnSellerLookup := "otc-buy-" + otcTxID + ":comp-buyer-seller-lookup"
+	compBuyerOnSellerCredit := "otc-buy-" + otcTxID + ":comp-buyer-seller-credit"
+	compBuyerOnCapGain := "otc-buy-" + otcTxID + ":comp-buyer-capgain"
+	compSellerOnCapGain := "otc-buy-" + otcTxID + ":comp-seller-capgain"
+
 	// Debit buyer's account: total + commission
 	buyerAcct, err := s.accountClient.GetAccount(context.Background(), &accountpb.GetAccountRequest{Id: buyerAccountID})
 	if err != nil {
@@ -98,6 +132,7 @@ func (s *OTCService) BuyOffer(
 		AccountNumber:   buyerAcct.AccountNumber,
 		Amount:          totalPrice.Add(commission).Neg().StringFixed(4),
 		UpdateAvailable: true,
+		IdempotencyKey:  buyerDebitKey,
 	})
 	if err != nil {
 		return nil, errors.New("failed to debit buyer account: " + err.Error())
@@ -118,6 +153,7 @@ func (s *OTCService) BuyOffer(
 			AccountNumber:   buyerAcct.AccountNumber,
 			Amount:          totalPrice.Add(commission).StringFixed(4),
 			UpdateAvailable: true,
+			IdempotencyKey:  compBuyerOnSellerLookup,
 		})
 		return nil, fmt.Errorf("seller account not found: %w", ErrOTCSellerAccountNotFound)
 	}
@@ -125,6 +161,7 @@ func (s *OTCService) BuyOffer(
 		AccountNumber:   sellerAcct.AccountNumber,
 		Amount:          totalPrice.StringFixed(4),
 		UpdateAvailable: true,
+		IdempotencyKey:  sellerCreditKey,
 	})
 	if err != nil {
 		// Compensate: re-credit buyer since debit succeeded
@@ -132,6 +169,7 @@ func (s *OTCService) BuyOffer(
 			AccountNumber:   buyerAcct.AccountNumber,
 			Amount:          totalPrice.Add(commission).StringFixed(4),
 			UpdateAvailable: true,
+			IdempotencyKey:  compBuyerOnSellerCredit,
 		})
 		return nil, errors.New("failed to credit seller account: " + err.Error())
 	}
@@ -159,11 +197,13 @@ func (s *OTCService) BuyOffer(
 			AccountNumber:   buyerAcct.AccountNumber,
 			Amount:          totalPrice.Add(commission).StringFixed(4),
 			UpdateAvailable: true,
+			IdempotencyKey:  compBuyerOnCapGain,
 		})
 		_, _ = s.accountClient.UpdateBalance(context.Background(), &accountpb.UpdateBalanceRequest{
 			AccountNumber:   sellerAcct.AccountNumber,
 			Amount:          totalPrice.Neg().StringFixed(4),
 			UpdateAvailable: true,
+			IdempotencyKey:  compSellerOnCapGain,
 		})
 		return nil, err
 	}

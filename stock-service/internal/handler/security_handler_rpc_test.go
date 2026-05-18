@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 
 	pb "github.com/exbanka/contract/stockpb"
 	"github.com/exbanka/stock-service/internal/model"
@@ -24,6 +25,7 @@ import (
 type mockSecuritySvc struct {
 	listStocksFn  func(filter repository.StockFilter) ([]model.Stock, int64, error)
 	getStockFn    func(id uint64) (*model.Stock, []model.Option, error)
+	getByTickerFn func(ticker string) (*model.Stock, error)
 	listFuturesFn func(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error)
 	getFuturesFn  func(id uint64) (*model.FuturesContract, error)
 	listForexFn   func(filter repository.ForexFilter) ([]model.ForexPair, int64, error)
@@ -44,6 +46,13 @@ func (m *mockSecuritySvc) GetStockWithOptions(id uint64) (*model.Stock, []model.
 		return m.getStockFn(id)
 	}
 	return &model.Stock{ID: id}, nil, nil
+}
+
+func (m *mockSecuritySvc) GetByTicker(ticker string) (*model.Stock, error) {
+	if m.getByTickerFn != nil {
+		return m.getByTickerFn(ticker)
+	}
+	return &model.Stock{Ticker: ticker}, nil
 }
 
 func (m *mockSecuritySvc) ListFutures(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error) {
@@ -229,6 +238,47 @@ func TestSecurityHandler_GetStock_NotFound(t *testing.T) {
 	_, err := h.GetStock(context.Background(), &pb.GetStockRequest{Id: 99})
 	if status.Code(err) != codes.NotFound {
 		t.Errorf("expected NotFound, got %v", status.Code(err))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetStockByTicker
+// ---------------------------------------------------------------------------
+
+func TestSecurityHandler_GetStockByTicker_Success(t *testing.T) {
+	sec := &mockSecuritySvc{
+		getByTickerFn: func(ticker string) (*model.Stock, error) {
+			return &model.Stock{ID: 9, Ticker: ticker, Name: "Microsoft"}, nil
+		},
+	}
+	h := newSecurityHandlerForTest(sec, &mockListingSvc{}, &mockCandleSvc{}, &mockListingRepo{})
+	resp, err := h.GetStockByTicker(context.Background(), &pb.GetStockByTickerRequest{Ticker: "MSFT"})
+	if err != nil {
+		t.Fatalf("GetStockByTicker: %v", err)
+	}
+	if resp.Id != 9 {
+		t.Errorf("got id %d, want 9", resp.Id)
+	}
+}
+
+func TestSecurityHandler_GetStockByTicker_NotFound(t *testing.T) {
+	sec := &mockSecuritySvc{
+		getByTickerFn: func(_ string) (*model.Stock, error) {
+			return nil, gorm.ErrRecordNotFound
+		},
+	}
+	h := newSecurityHandlerForTest(sec, &mockListingSvc{}, &mockCandleSvc{}, &mockListingRepo{})
+	_, err := h.GetStockByTicker(context.Background(), &pb.GetStockByTickerRequest{Ticker: "NOPE"})
+	if status.Code(err) != codes.NotFound {
+		t.Errorf("got code %v, want NotFound", status.Code(err))
+	}
+}
+
+func TestSecurityHandler_GetStockByTicker_EmptyTicker(t *testing.T) {
+	h := newSecurityHandlerForTest(&mockSecuritySvc{}, &mockListingSvc{}, &mockCandleSvc{}, &mockListingRepo{})
+	_, err := h.GetStockByTicker(context.Background(), &pb.GetStockByTickerRequest{Ticker: ""})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("got code %v, want InvalidArgument", status.Code(err))
 	}
 }
 

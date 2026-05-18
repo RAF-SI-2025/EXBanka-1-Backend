@@ -148,6 +148,7 @@ func newInvestSagaFixture(t *testing.T) *investSagaFixture {
 	if err := db.AutoMigrate(
 		&model.InvestmentFund{},
 		&model.ClientFundPosition{},
+		&model.FundPositionSettlement{},
 		&model.FundContribution{},
 		&model.FundHolding{},
 	); err != nil {

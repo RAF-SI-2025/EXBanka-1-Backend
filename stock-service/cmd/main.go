@@ -77,13 +77,30 @@ func main() {
 		&model.SagaLog{},
 		&model.InvestmentFund{},
 		&model.ClientFundPosition{},
+		&model.FundPositionSettlement{},
 		&model.FundContribution{},
 		&model.FundHolding{},
 		&model.OTCOffer{},
 		&model.OTCOfferRevision{},
+		// OTC stock buy-direction offers — created by /api/v3/me/otc/stocks
+		// with direction=buy. Backed by a cash reservation on the buyer's
+		// account (account-service ReserveFunds) keyed on the synthetic
+		// order_id allocated from otc_stock_buy_offer_res_seq below.
+		&model.OTCStockBuyOffer{},
+		// Per-bidder negotiation chains against parent OTCOffer listings.
+		// Many bidders can negotiate one listing in parallel; first to
+		// accept wins atomically (see plan
+		// docs/superpowers/plans/2026-05-16-otc-options-marketplace.md).
+		&model.OTCNegotiation{},
+		&model.OTCNegotiationRevision{},
 		&model.OptionContract{},
 		&model.OTCOfferReadReceipt{},
 		&model.IdempotencyRecord{},
+		&model.WatchlistItem{},
+		&model.OTCTraderRating{},
+		&model.PriceAlert{},
+		&model.RecurringOrder{},
+		&model.RecurringFundInvestment{},
 		// Phase 4 SI-TX: receiver-side mirror of inbound peer-bank
 		// OTC negotiations. Created/updated by PeerOTCGRPCHandler.
 		&model.PeerOtcNegotiation{},
@@ -103,6 +120,13 @@ func main() {
 	// leaves behind on every table that previously carried them. Idempotent —
 	// safe to remove after one or two deploy cycles.
 	dropLegacyOwnerColumns(db)
+
+	// Sequence backing OTCStockBuyOffer.AccountReservationOrderID. Offset
+	// start avoids collision with orders.id values used by other reservation
+	// flows (price-alert holds, recurring orders, etc.).
+	if err := db.Exec(`CREATE SEQUENCE IF NOT EXISTS otc_stock_buy_offer_res_seq START 1000000`).Error; err != nil {
+		log.Fatalf("create otc_stock_buy_offer_res_seq failed: %v", err)
+	}
 
 	// One-shot backfill for the new capital_gains.tax_collection_id column.
 	// Stamps every existing capital_gain row that already has a corresponding
@@ -226,6 +250,7 @@ func main() {
 		"otc.contract-exercised",
 		"otc.contract-expired",
 		"otc.contract-failed",
+		"notification.general",
 	)
 
 	// --- InfluxDB ---
@@ -497,6 +522,14 @@ func main() {
 	otcRefresher := otccache.NewRefresher(otcOfferCache, otcSvc, peerBankAdminClient, cfg.OwnBankCode, 5*time.Second)
 	go otcRefresher.Run(ctx)
 
+	// Phase 6 — cross-bank discovery of OPEN OTC OPTION listings.
+	// Currency resolved via the listings → exchanges chain (same lookup
+	// pattern used by the stocks marketplace adapter).
+	optionCurrencyResolver := newOptionCurrencyResolverAdapter(listingRepo, stockRepo, exchangeRepo)
+	optionOfferCache := otccache.NewOptionCache()
+	// Refresher + handler wiring lives further down — needs otcOfferRepo
+	// and ownRouting which haven't been constructed yet at this point.
+
 	// Start the outbox drainer. Adapter wraps producer.PublishRaw to satisfy
 	// outbox.Producer (which expects (ctx, topic, []byte)). The drainer ticks
 	// every 500ms publishing up to 100 pending rows per tick; failures
@@ -630,6 +663,8 @@ func main() {
 		otcOfferRepo, otcRevisionRepo, optionContractRepo,
 		holdingRepo, otcReadReceiptRepo, producer,
 	).WithSaga(sagaLogRepo, fundAccountAdapter, fundExchangeAdapter, holdingReservationSvc, holdingRepo).
+		WithStockMeta(&otcStockMetaAdapter{stocks: stockRepo, listings: listingRepo}).
+		WithCapitalGain(capitalGainRepo).
 		WithOutbox(ob, db)
 
 	// --- Cross-bank OTC (Phase 4 SI-TX) ---
@@ -646,6 +681,24 @@ func main() {
 	peerOptionRepo := repository.NewPeerOptionContractRepository(db)
 	peerOtcHandler := handler.NewPeerOTCGRPCHandler(peerOtcRepo, peerOptionRepo, holdingRepo, peerTxClient, ownRouting)
 	peerOtcHandler.SetHoldingReserver(holdingReservationSvc)
+	peerOtcHandler = peerOtcHandler.WithNotifier(producer)
+	// Phase 6: cross-bank option discovery — the peer endpoint
+	// (GET /api/v3/public-option-offers) needs the OTC offers repo +
+	// the currency resolver to stamp strike/premium currency.
+	peerOtcHandler = peerOtcHandler.WithOTCOfferReader(otcOfferRepo, optionCurrencyResolver)
+	peerOtcHandler = peerOtcHandler.WithCapitalGain(capitalGainRepo)
+
+	// Phase 6 refresher: now that otcOfferRepo and ownRouting exist,
+	// start the OPTION cache refresher that polls every active peer's
+	// GET /api/v3/public-option-offers every 5 s.
+	optionRefresher := otccache.NewOptionRefresher(
+		optionOfferCache, otcOfferRepo, optionCurrencyResolver,
+		peerBankAdminClient, cfg.OwnBankCode, ownRouting, 5*time.Second,
+	)
+	// Part A 2026-05-16 — best-bid / best-ask wiring is deferred to
+	// AFTER the otc-negotiation repo is constructed (a few lines
+	// below). The refresher goroutine is started THERE so the first
+	// refresh cycle already has aggregation wired.
 
 	// OTC expiry cron (daily). Covers intra-bank option_contracts and
 	// — via WithPeerContracts — cross-bank peer_option_contracts.
@@ -654,9 +707,88 @@ func main() {
 		WithPeerContracts(peerOptionRepo)
 	otcExpiry.Start(ctx)
 
+	// Fix R8 (2026-05-16) — daily safety-net scan: any holding_reservation
+	// stuck `active` past 24h whose linked entity (Order / OptionContract /
+	// PeerOptionContract) is in a terminal state gets logged at WARN for
+	// operator follow-up. Does NOT auto-release (risk of yanking the lock
+	// out from under a long-running saga). Run in a background goroutine
+	// that honors ctx cancellation.
+	staleScan := service.NewStaleReservationScanner(db, holdingReservationRepo, orderRepo, optionContractRepo, 24*time.Hour, 24*time.Hour).
+		WithPeerContracts(peerOptionRepo)
+	go staleScan.Run(ctx)
+
+	ratingRepo := repository.NewOTCTraderRatingRepository(db)
+	ratingSvc := service.NewOTCRatingService(ratingRepo, otcOfferRepo)
+
+	// Phase 2: parallel-negotiation-chains service. Wired into the
+	// OTCOptionsHandler so its Open/Counter/AcceptChain/Reject/Cancel
+	// RPCs become live; without this WithNegotiations call they return
+	// Unimplemented.
+	// Phase 9: also wire the OTCOfferService as the ContractFormer so
+	// AcceptNegotiation actually mints OptionContract rows + runs the
+	// premium-payment saga (the saga reserves seller shares + buyer
+	// cash before any money moves).
+	otcNegRepo := repository.NewOTCNegotiationRepository(db)
+	otcNegotiationSvc := service.NewOTCNegotiationService(db, otcOfferRepo, otcNegRepo).
+		WithContractFormer(otcOfferSvc).
+		WithNotifier(producer)
+
+	// Part A 2026-05-16 — best-bid / best-ask aggregator wiring.
+	// Adapters convert the repo's typed map[uint64]ChainAggregate to
+	// the cache / peer-handler's string-shape projection, keeping the
+	// downstream packages decoupled from gorm/decimal.
+	cacheAgg := func(offerIDs []uint64) (map[uint64]otccache.OfferAggregate, error) {
+		got, err := otcNegRepo.AggregateActiveBidsByOffer(offerIDs)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[uint64]otccache.OfferAggregate, len(got))
+		for id, a := range got {
+			out[id] = otccache.OfferAggregate{
+				BestBid:     a.BestBid.String(),
+				BestAsk:     a.BestAsk.String(),
+				ActiveCount: a.ActiveCount,
+			}
+		}
+		return out, nil
+	}
+	optionRefresher.WithAggregateBids(cacheAgg)
+	// Now that aggregation is wired, kick off the refresher.
+	go optionRefresher.Run(ctx)
+
+	peerAgg := func(offerIDs []uint64) (map[uint64]handler.PeerOfferAggregate, error) {
+		got, err := otcNegRepo.AggregateActiveBidsByOffer(offerIDs)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[uint64]handler.PeerOfferAggregate, len(got))
+		for id, a := range got {
+			out[id] = handler.PeerOfferAggregate{
+				BestBid:     a.BestBid.String(),
+				BestAsk:     a.BestAsk.String(),
+				ActiveCount: a.ActiveCount,
+			}
+		}
+		return out, nil
+	}
+	peerOtcHandler.WithBidsAggregator(peerAgg)
+
 	otcOptionsHandler := handler.NewOTCOptionsHandler(otcOfferSvc, optionContractRepo).
 		WithListings(listingRepo).
-		WithPeerContracts(peerOptionRepo, ownRouting)
+		WithPeerContracts(peerOptionRepo, ownRouting).
+		WithRatings(ratingSvc).
+		WithNegotiations(otcNegotiationSvc)
+
+	// Phase 3: OTC stocks marketplace (sell + buy direction). The
+	// service uses narrow OTCStockListingResolver + OTCStockAccountClient
+	// interfaces — wire concrete adapters here so tests can swap them.
+	buyOfferRepo := repository.NewOTCStockBuyOfferRepository(db)
+	otcStockSvc := service.NewOTCStockService(
+		db, holdingRepo, buyOfferRepo,
+		&stockListingResolverAdapter{listings: listingRepo, stocks: stockRepo, exchanges: exchangeRepo},
+		newStockAccountClientAdapter(stockAccountClient),
+	).WithCapitalGain(capitalGainRepo)
+	otcStockMarketHandler := handler.NewOTCStockMarketHandler(otcStockSvc)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
@@ -681,11 +813,39 @@ func main() {
 			pb.RegisterSecurityGRPCServiceServer(s, handler.NewSecurityHandler(secSvc, listingSvc, candleSvc, listingRepo))
 			pb.RegisterOrderGRPCServiceServer(s, handler.NewOrderHandler(orderSvc, execEngine))
 			pb.RegisterPortfolioGRPCServiceServer(s, handler.NewPortfolioHandler(portfolioSvc, taxSvc))
-			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandlerWithCache(otcSvc, otcOfferCache))
+			pb.RegisterOTCGRPCServiceServer(s, handler.NewOTCHandlerWithCache(otcSvc, otcOfferCache).WithOptionCache(optionOfferCache))
 			pb.RegisterTaxGRPCServiceServer(s, handler.NewTaxHandler(taxSvc))
 			pb.RegisterInvestmentFundServiceServer(s, fundHandler)
 			pb.RegisterOTCOptionsServiceServer(s, otcOptionsHandler)
+			pb.RegisterOTCStockMarketGRPCServiceServer(s, otcStockMarketHandler)
 			pb.RegisterPeerOTCServiceServer(s, peerOtcHandler)
+			watchlistRepo := repository.NewWatchlistRepository(db)
+			watchlistSvc := service.NewWatchlistService(watchlistRepo, listingRepo, stockRepo, optionRepo, futuresRepo, forexRepo)
+			pb.RegisterWatchlistServiceServer(s, handler.NewWatchlistHandler(watchlistSvc))
+			priceAlertRepo := repository.NewPriceAlertRepository(db)
+			priceAlertSvc := service.NewPriceAlertService(priceAlertRepo, listingRepo, producer)
+			pb.RegisterPriceAlertServiceServer(s, handler.NewPriceAlertHandler(priceAlertSvc))
+			// Cron: re-evaluate active alerts on a 30 s tick. Best-effort —
+			// failures log and the loop continues.
+			go service.NewPriceAlertCron(priceAlertSvc, listingRepo, priceAlertRepo, 30*time.Second).Run(ctx)
+
+			recurringOrderRepo := repository.NewRecurringOrderRepository(db)
+			// orderPlacer is intentionally nil — the cron short-circuits when
+			// unwired. Wiring the existing OrderService.PlaceOrder requires
+			// reshaping the input from the recurring template; deferred to a
+			// follow-up. CRUD + cron loop still operate.
+			recurringOrderSvc := service.NewRecurringOrderService(recurringOrderRepo, listingRepo, nil, producer)
+			pb.RegisterRecurringOrderServiceServer(s, handler.NewRecurringOrderHandler(recurringOrderSvc))
+			go service.NewRecurringOrderCron(recurringOrderSvc, time.Hour).Run(ctx)
+
+			// Closed-end fund lifecycle: walk closed funds and transition
+			// their FundStatus per the calendar (15 min tick).
+			go service.NewFundLifecycleCron(db, producer, 15*time.Minute).Run(ctx)
+
+			recurringFundRepo := repository.NewRecurringFundInvestmentRepository(db)
+			recurringFundSvc := service.NewRecurringFundService(recurringFundRepo, fundRepo, fundService, producer)
+			pb.RegisterRecurringFundServiceServer(s, handler.NewRecurringFundHandler(recurringFundSvc))
+			go service.NewRecurringFundCron(recurringFundSvc, time.Hour).Run(ctx)
 			sourceAdminHandler := handler.NewSourceAdminHandler(syncSvc, func(name string) (source.Source, error) {
 				switch name {
 				case "external":
@@ -812,16 +972,16 @@ func (a *fundAccountAdapter) DebitAccount(ctx context.Context, accountNumber str
 
 // Reservation lifecycle methods — added so fundAccountAdapter also satisfies
 // service.OTCAccountClient (Celina-4 OTC accept/exercise sagas).
-func (a *fundAccountAdapter) ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency, idempotencyKey string) (*accountpb.ReserveFundsResponse, error) {
-	return a.fillClient.ReserveFunds(ctx, accountID, sagaOrderID, amount, currency, idempotencyKey)
+func (a *fundAccountAdapter) ReserveFunds(ctx context.Context, accountID, sagaOrderID uint64, amount decimal.Decimal, currency, idempotencyKey, orderKind string) (*accountpb.ReserveFundsResponse, error) {
+	return a.fillClient.ReserveFunds(ctx, accountID, sagaOrderID, amount, currency, idempotencyKey, orderKind)
 }
 
-func (a *fundAccountAdapter) ReleaseReservation(ctx context.Context, sagaOrderID uint64, idempotencyKey string) (*accountpb.ReleaseReservationResponse, error) {
-	return a.fillClient.ReleaseReservation(ctx, sagaOrderID, idempotencyKey)
+func (a *fundAccountAdapter) ReleaseReservation(ctx context.Context, sagaOrderID uint64, idempotencyKey, orderKind string) (*accountpb.ReleaseReservationResponse, error) {
+	return a.fillClient.ReleaseReservation(ctx, sagaOrderID, idempotencyKey, orderKind)
 }
 
-func (a *fundAccountAdapter) PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.PartialSettleReservationResponse, error) {
-	return a.fillClient.PartialSettleReservation(ctx, sagaOrderID, settleSeq, amount, memo, idempotencyKey)
+func (a *fundAccountAdapter) PartialSettleReservation(ctx context.Context, sagaOrderID, settleSeq uint64, amount decimal.Decimal, memo, idempotencyKey, orderKind string) (*accountpb.PartialSettleReservationResponse, error) {
+	return a.fillClient.PartialSettleReservation(ctx, sagaOrderID, settleSeq, amount, memo, idempotencyKey, orderKind)
 }
 
 // fundExchangeAdapter narrows the exchange-service gRPC client to the

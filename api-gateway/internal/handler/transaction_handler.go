@@ -718,6 +718,47 @@ func (h *TransactionHandler) GetMyTransfer(c *gin.Context) {
 	c.JSON(http.StatusOK, transferToJSON(resp))
 }
 
+// GetMyTransferStatus godoc
+// @Summary      Get the client-facing status of one of the caller's transfers
+// @Description  Maps the internal transfer lifecycle (pending/processing/completed/failed) to the four-state public vocabulary (INITIATED/PENDING/COMPLETED/FAILED). Frontend polls this to render the SI-TX status in real time. Notifications for each terminal transition flow via TRANSFER_SENT/RECEIVED/FAILED in-app events.
+// @Tags         Transactions
+// @Security     BearerAuth
+// @Produce      json
+// @Param        id path int true "transfer id"
+// @Success      200 {object} map[string]interface{}
+// @Failure      404 {object} map[string]interface{}
+// @Router       /api/v3/me/transfers/{id}/status [get]
+func (h *TransactionHandler) GetMyTransferStatus(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		apiError(c, 400, ErrValidation, "invalid id")
+		return
+	}
+	// First load via GetTransfer for the ownership check; then return the
+	// status response. Two round-trips, but the ownership check is the
+	// authoritative gate and we don't expose status to non-owners.
+	owner, oerr := h.txClient.GetTransfer(c.Request.Context(), &transactionpb.GetTransferRequest{Id: id})
+	if oerr != nil {
+		handleGRPCError(c, oerr)
+		return
+	}
+	if ownErr := enforceOwnership(c, owner.ClientId); ownErr != nil {
+		return
+	}
+	resp, err := h.txClient.GetTransferStatus(c.Request.Context(), &transactionpb.GetTransferRequest{Id: id})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"transfer_id":       resp.TransferId,
+		"status":            resp.Status,
+		"internal_status":   resp.InternalStatus,
+		"failure_reason":    resp.FailureReason,
+		"last_changed_unix": resp.LastChangedUnix,
+	})
+}
+
 // ListMyPaymentRecipients serves GET /api/me/payment-recipients.
 func (h *TransactionHandler) ListMyPaymentRecipients(c *gin.Context) {
 	userID, _ := c.Get("principal_id")

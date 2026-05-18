@@ -196,6 +196,14 @@ func (r *Refresher) fetchLocal() ([]Offer, error) {
 	}
 	out := make([]Offer, 0, len(holdings))
 	for _, h := range holdings {
+		// Phase 11 — surface the seller's asking price set at make-
+		// public time. Fall back to AveragePrice (the weighted-avg
+		// buy cost) for legacy rows that have PublicQuantity > 0 but
+		// no explicit ask yet.
+		price := h.PublicPrice
+		if price.Sign() <= 0 {
+			price = h.AveragePrice
+		}
 		out = append(out, Offer{
 			Kind:         "local",
 			BankCode:     r.ownBankCode,
@@ -206,7 +214,7 @@ func (r *Refresher) fetchLocal() ([]Offer, error) {
 			Ticker:       h.Ticker,
 			Name:         h.Name,
 			Quantity:     h.PublicQuantity,
-			PricePerUnit: h.AveragePrice.StringFixed(2),
+			PricePerUnit: price.StringFixed(2),
 			CreatedAt:    h.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		})
 	}
@@ -222,6 +230,9 @@ func (r *Refresher) fetchPeer(ctx context.Context, peer *transactionpb.PeerBank)
 	if full == nil || !full.GetActive() {
 		return nil, nil
 	}
+	// base_url already carries the peer's SI-TX path prefix (set by the
+	// registering admin) so cohort banks with different gateway
+	// layouts can all interop. We only append the leaf path.
 	url := strings.TrimRight(full.GetBaseUrl(), "/") + "/public-stock"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

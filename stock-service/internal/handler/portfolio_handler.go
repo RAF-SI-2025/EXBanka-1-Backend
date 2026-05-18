@@ -18,6 +18,7 @@ import (
 type portfolioSvcFacade interface {
 	ListHoldings(ownerType model.OwnerType, ownerID *uint64, filter service.HoldingFilter) ([]model.Holding, int64, error)
 	GetCurrentPrice(listingID uint64) (decimal.Decimal, error)
+	GetHoldingByID(holdingID uint64) (*model.Holding, error)
 	MakePublic(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, quantity int64) (*model.Holding, error)
 	ExerciseOption(holdingID uint64, ownerType model.OwnerType, ownerID *uint64) (*service.ExerciseResult, error)
 	ListHoldingTransactions(holdingID uint64, ownerType model.OwnerType, ownerID *uint64, direction string, page, pageSize int) ([]repository.HoldingTransactionRow, int64, error)
@@ -135,6 +136,38 @@ func (h *PortfolioHandler) GetPortfolioSummary(ctx context.Context, req *pb.GetP
 		TaxUnpaidTotalRsd:          gt.TaxUnpaidTotalRSD.StringFixed(2),
 		OpenPositionsCount:         openPositions,
 		ClosedTradesThisYear:       gt.ClosedTradesThisYear,
+	}, nil
+}
+
+// GetHolding returns a single Holding row plus its owner pair so the
+// gateway can perform the CLAUDE.md ownership pre-check before mutating
+// ops. (Fix R5, 2026-05-16.)
+func (h *PortfolioHandler) GetHolding(ctx context.Context, req *pb.GetHoldingRequest) (*pb.HoldingWithOwner, error) {
+	if req.GetId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "id is required")
+	}
+	holding, err := h.portfolioSvc.GetHoldingByID(req.GetId())
+	if err != nil {
+		return nil, mapPortfolioError(err)
+	}
+	ownerID := uint64(0)
+	if holding.OwnerID != nil {
+		ownerID = *holding.OwnerID
+	}
+	return &pb.HoldingWithOwner{
+		Holding: &pb.Holding{
+			Id:             holding.ID,
+			SecurityType:   holding.SecurityType,
+			Ticker:         holding.Ticker,
+			Name:           holding.Name,
+			Quantity:       holding.Quantity,
+			AveragePrice:   holding.AveragePrice.StringFixed(2),
+			PublicQuantity: holding.PublicQuantity,
+			AccountId:      holding.AccountID,
+			LastModified:   holding.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		},
+		OwnerType: string(holding.OwnerType),
+		OwnerId:   ownerID,
 	}, nil
 }
 

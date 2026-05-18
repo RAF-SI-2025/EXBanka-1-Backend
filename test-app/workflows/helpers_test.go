@@ -16,6 +16,50 @@ import (
 	"github.com/exbanka/test-app/internal/helpers"
 )
 
+// createClientAccount creates an account for the given client via the admin
+// API and returns both its numeric ID and its account number.
+func createClientAccount(t *testing.T, adminC *client.APIClient, clientID int, currency string, balance float64) (accountID uint64, accountNumber string) {
+	t.Helper()
+	resp, err := adminC.POST("/api/v3/accounts", map[string]interface{}{
+		"owner_id":        clientID,
+		"account_kind":    "current",
+		"account_type":    "personal",
+		"currency_code":   currency,
+		"initial_balance": balance,
+	})
+	if err != nil {
+		t.Fatalf("createClientAccount: %v", err)
+	}
+	helpers.RequireStatus(t, resp, 201)
+	return uint64(helpers.GetNumberField(t, resp, "id")), helpers.GetStringField(t, resp, "account_number")
+}
+
+// firstStock returns the (id, ticker, listingID) of the first seeded stock,
+// or skips the test when the catalog is empty / undeployed.
+func firstStock(t *testing.T, c *client.APIClient) (id uint64, ticker string, listingID uint64) {
+	t.Helper()
+	resp, err := c.GET("/api/v3/securities/stocks?page=1&page_size=1")
+	if err != nil {
+		t.Fatalf("firstStock: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Skipf("stocks endpoint returned %d — skipping", resp.StatusCode)
+	}
+	stocks, _ := resp.Body["stocks"].([]interface{})
+	if len(stocks) == 0 {
+		t.Skipf("no stock listings seeded — skipping")
+	}
+	s, _ := stocks[0].(map[string]interface{})
+	id = uint64(s["id"].(float64))
+	ticker, _ = s["ticker"].(string)
+	if listing, ok := s["listing"].(map[string]interface{}); ok {
+		if lid, ok := listing["id"].(float64); ok {
+			listingID = uint64(lid)
+		}
+	}
+	return id, ticker, listingID
+}
+
 // setupMobileDevice creates an activated client with a funded RSD account,
 // activates a mobile device for them, and returns both browser and mobile clients.
 // The mobile client supports signed requests for /api/mobile/verifications/* endpoints.

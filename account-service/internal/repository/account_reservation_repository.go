@@ -34,13 +34,16 @@ func (r *AccountReservationRepository) Create(res *model.AccountReservation) err
 	return r.db.Create(res).Error
 }
 
-// InsertIfAbsent inserts the reservation unless a row with the same OrderID
-// already exists. Returns (inserted, row, error) where row is either the new
-// row (inserted=true) or the pre-existing row (inserted=false). Callers use
-// this for idempotent ReserveFunds retries.
+// InsertIfAbsent inserts the reservation unless a row with the same
+// (OrderID, OrderKind) already exists. Returns (inserted, row, error) where
+// row is either the new row (inserted=true) or the pre-existing row
+// (inserted=false). Callers use this for idempotent ReserveFunds retries.
 func (r *AccountReservationRepository) InsertIfAbsent(res *model.AccountReservation) (bool, *model.AccountReservation, error) {
+	if res.OrderKind == "" {
+		res.OrderKind = model.OrderKindStockOrder
+	}
 	result := r.db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "order_id"}},
+		Columns:   []clause.Column{{Name: "order_id"}, {Name: "order_kind"}},
 		DoNothing: true,
 	}).Create(res)
 	if result.Error != nil {
@@ -49,16 +52,19 @@ func (r *AccountReservationRepository) InsertIfAbsent(res *model.AccountReservat
 	if result.RowsAffected == 1 {
 		return true, res, nil
 	}
-	existing, err := r.GetByOrderID(res.OrderID)
+	existing, err := r.GetByOrderID(res.OrderID, res.OrderKind)
 	if err != nil {
 		return false, nil, err
 	}
 	return false, existing, nil
 }
 
-func (r *AccountReservationRepository) GetByOrderID(orderID uint64) (*model.AccountReservation, error) {
+func (r *AccountReservationRepository) GetByOrderID(orderID uint64, orderKind string) (*model.AccountReservation, error) {
+	if orderKind == "" {
+		orderKind = model.OrderKindStockOrder
+	}
 	var res model.AccountReservation
-	if err := r.db.Where("order_id = ?", orderID).First(&res).Error; err != nil {
+	if err := r.db.Where("order_id = ? AND order_kind = ?", orderID, orderKind).First(&res).Error; err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -66,10 +72,13 @@ func (r *AccountReservationRepository) GetByOrderID(orderID uint64) (*model.Acco
 
 // GetByOrderIDForUpdate loads the reservation with SELECT FOR UPDATE; caller
 // must already be inside a DB transaction.
-func (r *AccountReservationRepository) GetByOrderIDForUpdate(orderID uint64) (*model.AccountReservation, error) {
+func (r *AccountReservationRepository) GetByOrderIDForUpdate(orderID uint64, orderKind string) (*model.AccountReservation, error) {
+	if orderKind == "" {
+		orderKind = model.OrderKindStockOrder
+	}
 	var res model.AccountReservation
 	err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("order_id = ?", orderID).First(&res).Error
+		Where("order_id = ? AND order_kind = ?", orderID, orderKind).First(&res).Error
 	if err != nil {
 		return nil, err
 	}

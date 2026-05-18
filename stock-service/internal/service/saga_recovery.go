@@ -9,6 +9,7 @@ import (
 	"time"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 )
@@ -314,12 +315,12 @@ func (r *SagaRecovery) reconcileSettle(ctx context.Context, step model.SagaLog) 
 	// Recovery key — retries within recovery share the same key so a
 	// late-arriving original call also collapses through the cache.
 	recoveryKey := fmt.Sprintf("recovery-settle-%d-%d", step.OrderID, txnID)
-	if _, err := r.accountClient.PartialSettleReservation(ctx, step.OrderID, txnID, *step.Amount, memo, recoveryKey); err != nil {
+	if _, err := r.accountClient.PartialSettleReservation(ctx, step.OrderID, txnID, *step.Amount, memo, recoveryKey, orderkind.StockOrder); err != nil {
 		// If the error is "would exceed reservation" the most likely cause
 		// is a concurrent settle that already landed our txnID; recheck
 		// before surfacing the error.
 		if strings.Contains(err.Error(), "would exceed reservation") {
-			if resp2, gerr := r.accountClient.Stub().GetReservation(ctx, &accountpb.GetReservationRequest{OrderId: step.OrderID}); gerr == nil {
+			if resp2, gerr := r.accountClient.Stub().GetReservation(ctx, &accountpb.GetReservationRequest{OrderId: step.OrderID, OrderKind: orderkind.StockOrder}); gerr == nil {
 				for _, id := range resp2.SettledTransactionIds {
 					if id == txnID {
 						return r.sagaRepo.UpdateStatus(step.ID, step.Version, model.SagaStatusCompleted,

@@ -20,8 +20,11 @@ import (
 // PeerHTTPTarget is the per-call target descriptor for the outbound HTTP
 // client. Constructed by callers from a peer_banks row.
 type PeerHTTPTarget struct {
-	BankCode        string
-	RoutingNumber   int64 // peer's routing number
+	BankCode      string // peer's 3-digit code (the recipient)
+	RoutingNumber int64  // peer's routing number
+	OwnBankCode   string // OUR 3-digit code; surfaced as X-Bank-Code so the
+	//                          peer can resolve us in its own peer_banks table
+	//                          to validate the HMAC.
 	OwnRouting      int64 // our routing number (for envelope's idempotenceKey)
 	BaseURL         string
 	APIToken        string // plaintext, sent as X-Api-Key
@@ -95,6 +98,12 @@ func (c *PeerHTTPClient) postEnvelope(ctx context.Context, target *PeerHTTPTarge
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
+	// base_url is the peer's configured SI-TX prefix — it includes
+	// whatever path the peer routes /interbank under (e.g.
+	// "http://bank-b.example/api/v3" or "http://bank-c.example/sitx").
+	// The outbound client only knows the SI-TX leaf names; the prefix
+	// is the registering admin's responsibility so cohort banks with
+	// different gateway layouts all interop.
 	url := strings.TrimRight(target.BaseURL, "/") + "/interbank"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -109,7 +118,10 @@ func (c *PeerHTTPClient) postEnvelope(ctx context.Context, target *PeerHTTPTarge
 		mac := hmac.New(sha256.New, []byte(target.HMACOutboundKey))
 		mac.Write(body)
 		sig := hex.EncodeToString(mac.Sum(nil))
-		req.Header.Set("X-Bank-Code", target.BankCode)
+		// X-Bank-Code identifies the SENDER, not the recipient — the peer
+		// uses it to look up our row in its peer_banks table and pick the
+		// HMAC key to validate against.
+		req.Header.Set("X-Bank-Code", target.OwnBankCode)
 		req.Header.Set("X-Bank-Signature", sig)
 		req.Header.Set("X-Timestamp", ts)
 		req.Header.Set("X-Nonce", nonce)

@@ -14,10 +14,15 @@ type CardRequestService struct {
 	repo     *repository.CardRequestRepository
 	cardSvc  *CardService
 	producer *kafkaprod.Producer
+	notifier cardNotifier
 }
 
 func NewCardRequestService(repo *repository.CardRequestRepository, cardSvc *CardService, producer *kafkaprod.Producer) *CardRequestService {
-	return &CardRequestService{repo: repo, cardSvc: cardSvc, producer: producer}
+	s := &CardRequestService{repo: repo, cardSvc: cardSvc, producer: producer}
+	if producer != nil {
+		s.notifier = producer
+	}
+	return s
 }
 
 func (s *CardRequestService) CreateRequest(ctx context.Context, req *model.CardRequest) error {
@@ -38,6 +43,7 @@ func (s *CardRequestService) CreateRequest(ctx context.Context, req *model.CardR
 		AccountNumber: req.AccountNumber,
 		CardBrand:     req.CardBrand,
 	})
+	s.notifyRequest(ctx, req, "CARD_REQUEST_CREATED", map[string]string{"card_brand": req.CardBrand})
 	return nil
 }
 
@@ -77,6 +83,7 @@ func (s *CardRequestService) ApproveRequest(ctx context.Context, id, employeeID 
 		CardID:     card.ID,
 		EmployeeID: employeeID,
 	})
+	s.notifyRequest(ctx, req, "CARD_REQUEST_APPROVED", map[string]string{"card_brand": req.CardBrand})
 
 	return card, nil
 }
@@ -97,5 +104,24 @@ func (s *CardRequestService) RejectRequest(ctx context.Context, id, employeeID u
 		EmployeeID: employeeID,
 		Reason:     reason,
 	})
+	s.notifyRequest(ctx, req, "CARD_REQUEST_REJECTED", map[string]string{"reason": reason})
 	return nil
+}
+
+// notifyRequest emits a card-request-related in-app notification for the
+// request's owning client. Best-effort: errors are discarded, and no-op when
+// the notifier is unset (e.g. card-service started without Kafka) or when the
+// request is nil. CardRequest.ClientID is always a client owner (no owner_type
+// distinction), so no skip rule is required.
+func (s *CardRequestService) notifyRequest(ctx context.Context, req *model.CardRequest, notifType string, data map[string]string) {
+	if s.notifier == nil || req == nil {
+		return
+	}
+	_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  req.ClientID,
+		Type:    notifType,
+		Data:    data,
+		RefType: "card_request",
+		RefID:   req.ID,
+	})
 }

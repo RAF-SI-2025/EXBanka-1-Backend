@@ -2,12 +2,14 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 
 	"github.com/shopspring/decimal"
 
@@ -29,6 +31,7 @@ type SecurityListingRepo interface {
 type securitySvcFacade interface {
 	ListStocks(filter repository.StockFilter) ([]model.Stock, int64, error)
 	GetStockWithOptions(id uint64) (*model.Stock, []model.Option, error)
+	GetByTicker(ticker string) (*model.Stock, error)
 	ListFutures(filter repository.FuturesFilter) ([]model.FuturesContract, int64, error)
 	GetFutures(id uint64) (*model.FuturesContract, error)
 	ListForexPairs(filter repository.ForexFilter) ([]model.ForexPair, int64, error)
@@ -159,6 +162,21 @@ func (h *SecurityHandler) GetStock(ctx context.Context, req *pb.GetStockRequest)
 	}
 	lid := h.resolveListingID(stock.ID, "stock")
 	return toStockDetail(stock, options, lid), nil
+}
+
+func (h *SecurityHandler) GetStockByTicker(ctx context.Context, req *pb.GetStockByTickerRequest) (*pb.StockDetail, error) {
+	if req.Ticker == "" {
+		return nil, status.Error(codes.InvalidArgument, "ticker is required")
+	}
+	stock, err := h.secSvc.GetByTicker(req.Ticker)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, status.Errorf(codes.NotFound, "no stock with ticker %q", req.Ticker)
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	lid := h.resolveListingID(stock.ID, "stock")
+	return toStockDetail(stock, nil, lid), nil
 }
 
 func (h *SecurityHandler) GetStockHistory(ctx context.Context, req *pb.GetPriceHistoryRequest) (*pb.PriceHistoryResponse, error) {

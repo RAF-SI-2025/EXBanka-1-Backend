@@ -62,7 +62,10 @@ def parse_go_models(model_dir):
             struct_name = match.group(1)
             body = match.group(2)
 
-            if "gorm:" not in body and "ID" not in body:
+            # Only treat structs that declare a primaryKey as real DB tables.
+            # This filters out query-result DTOs (e.g. ActuaryRow) that carry
+            # gorm:"column:..." tags for SELECT mapping but are not tables.
+            if "primaryKey" not in body:
                 continue
 
             fields = []
@@ -421,9 +424,11 @@ def generate_diagram(service_name, db_name, tables, join_tables_raw):
         else:
             start_x = sx_l
 
-        label = fk_field if not fk_field.startswith("many2many:") else ""
+        # No label on the connector — the FK field name is already shown
+        # in the source table row, and midpoint labels collide with
+        # neighbouring tables in dense L-shaped routes.
         draw_fk_connector(draw, start_x, s_cy, tx, ty, tw2, th2,
-                          RELATION_COLOR, label, fb)
+                          RELATION_COLOR, "", fb)
 
     # Legend
     leg_x = MARGIN

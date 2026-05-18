@@ -14,19 +14,19 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	exchangepb "github.com/exbanka/contract/exchangepb"
 	kafkamsg "github.com/exbanka/contract/kafka"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
 )
 
-// ExerciseInput captures the parameters of an Exercise call. The caller
-// (always the buyer) supplies the buyer-side and seller-side account IDs.
+// ExerciseInput captures the parameters of an Exercise call. The caller is
+// always the buyer; the buyer- and seller-side account IDs are read straight
+// off the contract (bound at accept time).
 type ExerciseInput struct {
 	ContractID      uint64
 	ActorUserID     int64
 	ActorSystemType string
-	BuyerAccountID  uint64 // buyer's account that pays the strike (and gets shares)
-	SellerAccountID uint64 // seller's account that receives the strike funds
 }
 
 // ExerciseContract runs the exercise saga (§6.2 of spec):
@@ -64,11 +64,39 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 		return nil, errors.New("only the contract buyer can exercise")
 	}
 
-	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.BuyerAccountID})
+	if c.BuyerAccountID == 0 || c.SellerAccountID == 0 {
+		return nil, errors.New("contract has no bound accounts")
+	}
+
+	// Snapshot the seller's cost basis BEFORE the saga consumes their
+	// holding — needed by the post-saga CapitalGain write so the seller's
+	// realised P/L on the strike sale is recorded. Done up here (not
+	// inside StepConsumeSellerHolding) so a fetch failure can short-
+	// circuit the exercise cleanly before any money moves. Skipped when
+	// neither the capital-gain repo nor the holdings lookup is wired
+	// (legacy test wiring) — the saga still runs, just without the P/L
+	// row, matching pre-fix behaviour.
+	var sellerCostBasis decimal.Decimal
+	sellerCostBasisKnown := false
+	if s.capitalGainRepo != nil && s.holdings != nil {
+		sellerHolding, herr := s.holdings.GetByOwnerAndSecurity(
+			c.SellerOwnerType, c.SellerOwnerID, "stock", c.StockID,
+		)
+		if herr != nil {
+			// Seller's holding row may have already been consumed by a
+			// retried exercise; in that case AveragePrice is unknowable
+			// and we proceed without writing CapitalGain (logged below).
+			log.Printf("WARN: OTC exercise contract=%d: seller holding lookup failed (capital gain will be skipped): %v", c.ID, herr)
+		} else if sellerHolding != nil {
+			sellerCostBasis = sellerHolding.AveragePrice
+			sellerCostBasisKnown = true
+		}
+	}
+	buyerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: c.BuyerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get buyer account: %w", err)
 	}
-	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: in.SellerAccountID})
+	sellerAcct, err := s.accounts.GetAccount(ctx, &accountpb.GetAccountRequest{Id: c.SellerAccountID})
 	if err != nil {
 		return nil, fmt.Errorf("get seller account: %w", err)
 	}
@@ -120,19 +148,18 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	state.Set("step:credit_strike_seller:amount", strikeSellerCcy)
 	state.Set("step:credit_strike_seller:currency", strikeCcy)
 	state.Set("step:consume_seller_holding:amount", c.Quantity)
-	state.Set("step:consume_seller_holding:currency", "shares")
 
 	sg := saga.NewSagaWithID(sagaID, stocksaga.NewRecorder(s.sagaRepo)).
 		Add(saga.Step{
 			Name: saga.StepReserveStrike,
 			Forward: func(ctx context.Context, _ *saga.State) error {
-				_, e := s.accounts.ReserveFunds(ctx, in.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy,
-					saga.IdempotencyKey(sagaID, saga.StepReserveStrike))
+				_, e := s.accounts.ReserveFunds(ctx, c.BuyerAccountID, syntheticTxnID, strikeBuyerCcy, buyerCcy,
+					saga.IdempotencyKey(sagaID, saga.StepReserveStrike), orderkind.OTCStrike)
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.ReleaseReservation(ctx, syntheticTxnID,
-					saga.IdempotencyKey(sagaID, saga.StepReserveStrike)+":compensate")
+					saga.IdempotencyKey(sagaID, saga.StepReserveStrike)+":compensate", orderkind.OTCStrike)
 				return e
 			},
 		}).
@@ -140,7 +167,7 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 			Name: saga.StepSettleStrikeBuyer,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accounts.PartialSettleReservation(ctx, syntheticTxnID, 1, strikeBuyerCcy, settleMemo,
-					saga.IdempotencyKey(sagaID, saga.StepSettleStrikeBuyer))
+					saga.IdempotencyKey(sagaID, saga.StepSettleStrikeBuyer), orderkind.OTCStrike)
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {
@@ -179,16 +206,75 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	// Post-saga best-effort: buyer holding upsert + contract.Save + publish.
 	// At this point money + seller-side shares have moved; failure here is
 	// logged loud and left for manual reconciliation.
-	if err := s.holdingRepo.Upsert(ctx, &model.Holding{
+	//
+	// Fix 2026-05-16: previously omitted Ticker / Name / ListingID, which
+	// left the buyer-credit holding with empty display fields — making it
+	// invisible/untradeable in the FE (no ticker → can't construct a sell
+	// order or render in the holdings list, can't make-public on the
+	// downstream OTC stock marketplace because lookups go through the
+	// ticker). Resolve the metadata now via stockMeta (optional dep);
+	// when unwired, only Ticker (from the contract) is populated and
+	// Name/ListingID stay empty — same as before but at least the row
+	// has its ticker now.
+	buyerHolding := &model.Holding{
 		OwnerType:    c.BuyerOwnerType,
 		OwnerID:      c.BuyerOwnerID,
 		SecurityType: "stock",
 		SecurityID:   c.StockID,
+		Ticker:       c.Ticker,
 		Quantity:     qty,
 		AveragePrice: c.StrikePrice,
-		AccountID:    in.BuyerAccountID,
-	}); err != nil {
+		AccountID:    c.BuyerAccountID,
+	}
+	if s.stockMeta != nil {
+		if stk, gerr := s.stockMeta.GetStockByID(c.StockID); gerr == nil && stk != nil {
+			buyerHolding.Name = stk.Name
+			// Defensive: trust the contract's ticker but if it's empty
+			// (older contract row), fall back to the stock's ticker.
+			if buyerHolding.Ticker == "" {
+				buyerHolding.Ticker = stk.Ticker
+			}
+		} else if gerr != nil {
+			log.Printf("WARN: OTC exercise saga=%s: stockMeta.GetStockByID(%d) failed (name will be blank): %v", sagaID, c.StockID, gerr)
+		}
+		if lst, lerr := s.stockMeta.GetListingBySecurityIDAndType(c.StockID, "stock"); lerr == nil && lst != nil {
+			buyerHolding.ListingID = lst.ID
+		} else if lerr != nil {
+			log.Printf("WARN: OTC exercise saga=%s: stockMeta.GetListingBySecurityIDAndType(%d) failed (listing_id will be 0): %v", sagaID, c.StockID, lerr)
+		}
+	}
+	if err := s.holdingRepo.Upsert(ctx, buyerHolding); err != nil {
 		log.Printf("CRITICAL: OTC exercise saga=%s: buyer holding upsert failed (money moved, shares left seller): %v", sagaID, err)
+	}
+
+	// Seller-side realised P/L: strike price × qty - cost basis × qty.
+	// Mirrors PortfolioService.recordCapitalGain and OTCService.BuyOffer's
+	// capital-gain emission so a user who buys at X and writes a call
+	// that gets exercised at Y sees the (Y - X) gain in their portfolio
+	// summary. Best-effort: a failure here does NOT reverse the saga
+	// (shares + strike money have already moved).
+	if s.capitalGainRepo != nil && sellerCostBasisKnown {
+		gain := c.StrikePrice.Sub(sellerCostBasis).Mul(decimal.NewFromInt(qty))
+		cg := &model.CapitalGain{
+			OwnerType:        c.SellerOwnerType,
+			OwnerID:          c.SellerOwnerID,
+			OTC:              true,
+			SecurityType:     "stock",
+			Ticker:           c.Ticker,
+			Quantity:         qty,
+			BuyPricePerUnit:  sellerCostBasis,
+			SellPricePerUnit: c.StrikePrice,
+			TotalGain:        gain,
+			Currency:         c.StrikeCurrency,
+			AccountID:        c.SellerAccountID,
+			TaxYear:          time.Now().Year(),
+			TaxMonth:         int(time.Now().Month()),
+		}
+		if cgErr := s.capitalGainRepo.Create(cg); cgErr != nil {
+			log.Printf("WARN: OTC exercise saga=%s: seller capital gain create failed (money/shares already moved): %v", sagaID, cgErr)
+		}
+	} else if s.capitalGainRepo != nil && !sellerCostBasisKnown {
+		log.Printf("WARN: OTC exercise saga=%s: seller capital gain skipped (cost basis unknown — holding lookup failed pre-saga)", sagaID)
 	}
 
 	now := time.Now().UTC()
@@ -215,5 +301,15 @@ func (s *OTCOfferService) ExerciseContract(ctx context.Context, in ExerciseInput
 	if data, err := json.Marshal(payload); err == nil {
 		s.publishViaOutboxOrDirect(ctx, kafkamsg.TopicOTCContractExercised, data, sagaID)
 	}
+
+	// In-app notifications to both client parties (no-op for bank parties /
+	// nil notifier). Best-effort — money + shares already moved.
+	exData := map[string]string{
+		"ticker": c.Ticker, "shares_transferred": decimal.NewFromInt(qty).String(),
+		"strike_amount_paid": strikeSellerCcy.String(),
+	}
+	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(c.BuyerOwnerType), OwnerID: c.BuyerOwnerID}, "OTC_CONTRACT_EXERCISED", "otc_contract", c.ID, exData)
+	s.notifyOTCParty(ctx, kafkamsg.OTCParty{OwnerType: string(c.SellerOwnerType), OwnerID: c.SellerOwnerID}, "OTC_CONTRACT_EXERCISED", "otc_contract", c.ID, exData)
+
 	return c, nil
 }

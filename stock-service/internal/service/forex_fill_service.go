@@ -9,6 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	accountpb "github.com/exbanka/contract/accountpb"
+	"github.com/exbanka/contract/shared/orderkind"
 	"github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/stock-service/internal/model"
 	stocksaga "github.com/exbanka/stock-service/internal/saga"
@@ -133,7 +134,7 @@ func (s *ForexFillService) ProcessForexBuy(ctx context.Context, order *model.Ord
 			Name: saga.StepSettleReservationQuote,
 			Forward: func(ctx context.Context, _ *saga.State) error {
 				_, e := s.accountClient.PartialSettleReservation(ctx, order.ID, txn.ID, quoteAmount, quoteMemo,
-					saga.IdempotencyKey(sagaID, saga.StepSettleReservationQuote))
+					saga.IdempotencyKey(sagaID, saga.StepSettleReservationQuote), orderkind.StockOrder)
 				return e
 			},
 			Backward: func(ctx context.Context, _ *saga.State) error {

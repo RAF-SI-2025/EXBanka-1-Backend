@@ -175,7 +175,68 @@ func accountRouter(h *handler.AccountHandler) *gin.Engine {
 		c.Set("principal_id", int64(1))
 		h.GetMyAccountActivity(c)
 	})
+	r.GET("/bank-accounts/:id/activity", h.GetBankAccountActivity)
 	return r
+}
+
+func TestAccount_GetBankAccountActivity_Success(t *testing.T) {
+	acc := &accountFullStub{
+		getFn: func(in *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
+			return &accountpb.AccountResponse{Id: in.Id, OwnerId: 1000000000, AccountNumber: "111-BANK-RSD", CurrencyCode: "RSD", AccountKind: "bank"}, nil
+		},
+		getLedger: func(in *accountpb.GetLedgerEntriesRequest) (*accountpb.GetLedgerEntriesResponse, error) {
+			require.Equal(t, "111-BANK-RSD", in.AccountNumber)
+			return &accountpb.GetLedgerEntriesResponse{
+				Entries:    []*accountpb.LedgerEntryResponse{{Id: 1, EntryType: "credit", Amount: "100"}},
+				TotalCount: 1,
+			}, nil
+		},
+	}
+	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
+	r := accountRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/bank-accounts/5/activity", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"total_count":1`)
+	require.Contains(t, rec.Body.String(), `"entry_type":"credit"`)
+}
+
+func TestAccount_GetBankAccountActivity_RejectsClientAccount(t *testing.T) {
+	acc := &accountFullStub{
+		getFn: func(in *accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
+			return &accountpb.AccountResponse{Id: in.Id, OwnerId: 42, AccountNumber: "265-1-00", CurrencyCode: "RSD", AccountKind: "current"}, nil
+		},
+		getLedger: func(*accountpb.GetLedgerEntriesRequest) (*accountpb.GetLedgerEntriesResponse, error) {
+			t.Fatal("GetLedgerEntries must not be called for a non-bank account")
+			return nil, nil
+		},
+	}
+	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
+	r := accountRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/bank-accounts/5/activity", nil))
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestAccount_GetBankAccountActivity_BadID(t *testing.T) {
+	h := handler.NewAccountHandler(&accountFullStub{}, &stubBankAccountClient{}, nil, nil)
+	r := accountRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/bank-accounts/abc/activity", nil))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAccount_GetBankAccountActivity_AccountNotFound(t *testing.T) {
+	acc := &accountFullStub{
+		getFn: func(*accountpb.GetAccountRequest) (*accountpb.AccountResponse, error) {
+			return nil, status.Error(codes.NotFound, "no account")
+		},
+	}
+	h := handler.NewAccountHandler(acc, &stubBankAccountClient{}, nil, nil)
+	r := accountRouter(h)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest("GET", "/bank-accounts/9999/activity", nil))
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestAccount_CreateAccount_Success(t *testing.T) {

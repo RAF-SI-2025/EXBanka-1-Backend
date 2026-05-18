@@ -48,6 +48,15 @@ func (h *PeerBankAdminHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, peerBankToJSON(resp))
 }
 
+// createPeerBankRequest registers another bank as a SI-TX cohort peer.
+//
+// base_url is the FULL prefix that the peer exposes its SI-TX leaf
+// routes (/interbank, /public-stock, /negotiations, /user) under. For
+// banks built from this codebase that's e.g.
+// "http://bank-b.example.com/api/v3"; for banks with a different
+// gateway layout it's whatever they publish. The outbound clients
+// append only the leaf name so different cohort banks can each route
+// SI-TX traffic under their own prefix.
 type createPeerBankRequest struct {
 	BankCode        string `json:"bank_code"`
 	RoutingNumber   int64  `json:"routing_number"`

@@ -123,6 +123,68 @@ func TestRequireAllPermissions_RejectsWrongType(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// RequirePermissionOrClient
+// ---------------------------------------------------------------------------
+
+// servePermsWithPrincipal is servePerms plus a principal_type injection.
+func servePermsWithPrincipal(t *testing.T, mw gin.HandlerFunc, principalType string, permList []string) *httptest.ResponseRecorder {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("principal_type", principalType)
+		c.Set("permissions", permList)
+		c.Next()
+	})
+	r.Use(mw)
+	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/test", nil)
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestRequirePermissionOrClient_ClientPasses(t *testing.T) {
+	w := servePermsWithPrincipal(t,
+		RequirePermissionOrClient(PermAll, perms.Permission("foo.bar")),
+		"client", []string{},
+	)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRequirePermissionOrClient_EmployeeWithoutPermBlocked(t *testing.T) {
+	w := servePermsWithPrincipal(t,
+		RequirePermissionOrClient(PermAll, perms.Permission("foo.bar")),
+		"employee", []string{},
+	)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRequirePermissionOrClient_EmployeeWithAllPermsPasses(t *testing.T) {
+	w := servePermsWithPrincipal(t,
+		RequirePermissionOrClient(PermAll, perms.Permission("foo.bar"), perms.Permission("baz.qux")),
+		"employee", []string{"foo.bar", "baz.qux"},
+	)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRequirePermissionOrClient_EmployeeAnyMode(t *testing.T) {
+	w := servePermsWithPrincipal(t,
+		RequirePermissionOrClient(PermAny, perms.Permission("foo.bar"), perms.Permission("baz.qux")),
+		"employee", []string{"baz.qux"},
+	)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestRequirePermissionOrClient_EmployeeAnyModeNoneMatch(t *testing.T) {
+	w := servePermsWithPrincipal(t,
+		RequirePermissionOrClient(PermAny, perms.Permission("foo.bar")),
+		"employee", []string{"other"},
+	)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// ---------------------------------------------------------------------------
 // HasPermission
 // ---------------------------------------------------------------------------
 
