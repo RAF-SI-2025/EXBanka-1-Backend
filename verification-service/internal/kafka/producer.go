@@ -2,51 +2,34 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
-	kafkago "github.com/segmentio/kafka-go"
+	"github.com/exbanka/contract/shared"
 )
 
+// Producer wraps the shared Kafka producer with verification-service typed
+// publish methods.
 type Producer struct {
-	writer *kafkago.Writer
+	inner *shared.Producer
 }
 
 func NewProducer(brokers string) *Producer {
-	return &Producer{
-		writer: &kafkago.Writer{
-			Addr:     kafkago.TCP(brokers),
-			Balancer: &kafkago.LeastBytes{},
-		},
-	}
+	return &Producer{inner: shared.NewProducer(brokers)}
 }
 
-func (p *Producer) Close() error {
-	return p.writer.Close()
-}
-
-func (p *Producer) publish(ctx context.Context, topic string, v interface{}) error {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return p.writer.WriteMessages(ctx, kafkago.Message{
-		Topic: topic,
-		Value: data,
-	})
-}
+func (p *Producer) Close() error { return p.inner.Close() }
 
 // PublishChallengeCreated publishes when a new challenge is created for mobile delivery.
 func (p *Producer) PublishChallengeCreated(ctx context.Context, msg kafkamsg.VerificationChallengeCreatedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicVerificationChallengeCreated, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicVerificationChallengeCreated, msg)
 }
 
 // PublishChallengeVerified publishes when a challenge is successfully verified.
 func (p *Producer) PublishChallengeVerified(ctx context.Context, msg kafkamsg.VerificationChallengeVerifiedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicVerificationChallengeVerified, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicVerificationChallengeVerified, msg)
 }
 
 // PublishChallengeFailed publishes when a challenge fails (max attempts or expired).
 func (p *Producer) PublishChallengeFailed(ctx context.Context, msg kafkamsg.VerificationChallengeFailedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicVerificationChallengeFailed, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicVerificationChallengeFailed, msg)
 }

@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -20,6 +21,12 @@ func NewRedisCache(addr string) (*RedisCache, error) {
 		return nil, err
 	}
 	return &RedisCache{client: client}, nil
+}
+
+// newRedisCacheWithClient wraps an existing client. Used by tests to inject a
+// fake (e.g. miniredis-backed) client without requiring a live Redis server.
+func newRedisCacheWithClient(client *redis.Client) *RedisCache {
+	return &RedisCache{client: client}
 }
 
 func (c *RedisCache) Get(ctx context.Context, key string, dest interface{}) error {
@@ -44,10 +51,16 @@ func (c *RedisCache) Delete(ctx context.Context, key string) error {
 
 func (c *RedisCache) DeleteByPattern(ctx context.Context, pattern string) error {
 	iter := c.client.Scan(ctx, 0, pattern, 100).Iterator()
+	var firstErr error
 	for iter.Next(ctx) {
-		c.client.Del(ctx, iter.Val())
+		if err := c.client.Del(ctx, iter.Val()).Err(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
-	return iter.Err()
+	if err := iter.Err(); err != nil {
+		return err
+	}
+	return firstErr
 }
 
 func (c *RedisCache) Exists(ctx context.Context, key string) (bool, error) {
@@ -57,4 +70,32 @@ func (c *RedisCache) Exists(ctx context.Context, key string) (bool, error) {
 
 func (c *RedisCache) Close() error {
 	return c.client.Close()
+}
+
+// SetUserRevokedAt records the revocation epoch for a user. Tokens whose
+// `iat` predates this timestamp must be rejected by ValidateToken.
+// ttl is the access-token lifetime — after it expires no surviving token
+// could possibly be older than the cutoff anyway, so the key is safe to drop.
+func (c *RedisCache) SetUserRevokedAt(ctx context.Context, userID int64, atUnix int64, ttl time.Duration) error {
+	key := userRevokedAtKey(userID)
+	return c.client.Set(ctx, key, atUnix, ttl).Err()
+}
+
+// GetUserRevokedAt returns the revocation epoch in unix seconds, or 0 when
+// no revocation key exists. A Redis error is propagated so callers can
+// decide on fail-open vs fail-closed.
+func (c *RedisCache) GetUserRevokedAt(ctx context.Context, userID int64) (int64, error) {
+	key := userRevokedAtKey(userID)
+	val, err := c.client.Get(ctx, key).Int64()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return val, nil
+}
+
+func userRevokedAtKey(userID int64) string {
+	return "user_revoked_at:" + strconv.FormatInt(userID, 10)
 }

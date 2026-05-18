@@ -73,26 +73,34 @@ func (h *ActuaryHandler) ResetActuaryLimit(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-func (h *ActuaryHandler) SetNeedApproval(c *gin.Context) {
+// setActuaryApproval is the shared core for the require-approval / skip-approval
+// action pair. The HTTP verb is POST and the desired flag is hard-coded by the
+// caller — no body is read.
+func (h *ActuaryHandler) setActuaryApproval(c *gin.Context, needApproval bool) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		apiError(c, 400, ErrValidation, "invalid actuary id")
 		return
 	}
-	var req struct {
-		NeedApproval bool `json:"need_approval"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, 400, ErrValidation, "invalid request body")
-		return
-	}
 
 	resp, err := h.client.SetNeedApproval(middleware.GRPCContextWithChangedBy(c), &userpb.SetNeedApprovalRequest{
-		Id: id, NeedApproval: req.NeedApproval,
+		Id: id, NeedApproval: needApproval,
 	})
 	if err != nil {
 		handleGRPCError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// RequireApproval marks an actuary as requiring supervisor approval for orders.
+// Idempotent.
+func (h *ActuaryHandler) RequireApproval(c *gin.Context) {
+	h.setActuaryApproval(c, true)
+}
+
+// SkipApproval marks an actuary as not requiring supervisor approval for orders.
+// Idempotent.
+func (h *ActuaryHandler) SkipApproval(c *gin.Context) {
+	h.setActuaryApproval(c, false)
 }

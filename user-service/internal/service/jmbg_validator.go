@@ -1,15 +1,15 @@
 // user-service/internal/service/jmbg_validator.go
 package service
 
-import "errors"
+import "fmt"
 
 func ValidateJMBG(jmbg string) error {
 	if len(jmbg) != 13 {
-		return errors.New("JMBG must be exactly 13 digits")
+		return fmt.Errorf("ValidateJMBG: JMBG must be exactly 13 digits: %w", ErrInvalidJMBG)
 	}
 	for _, c := range jmbg {
 		if c < '0' || c > '9' {
-			return errors.New("JMBG must contain only digits")
+			return fmt.Errorf("ValidateJMBG: JMBG must contain only digits: %w", ErrInvalidJMBG)
 		}
 	}
 	return nil

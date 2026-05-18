@@ -18,12 +18,14 @@ const alphaVantageBaseURL = "https://www.alphavantage.co/query"
 
 type AlphaVantageClient struct {
 	apiKey     string
+	baseURL    string
 	httpClient *http.Client
 }
 
 func NewAlphaVantageClient(apiKey string) *AlphaVantageClient {
 	return &AlphaVantageClient{
-		apiKey: apiKey,
+		apiKey:  apiKey,
+		baseURL: alphaVantageBaseURL,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -50,7 +52,7 @@ type OverviewData struct {
 // FetchQuote retrieves real-time price data for a stock ticker.
 func (c *AlphaVantageClient) FetchQuote(ticker string) (*QuoteData, error) {
 	url := fmt.Sprintf("%s?function=GLOBAL_QUOTE&symbol=%s&apikey=%s",
-		alphaVantageBaseURL, ticker, c.apiKey)
+		c.baseURL, ticker, c.apiKey)
 
 	body, err := c.doGet(url)
 	if err != nil {
@@ -89,7 +91,7 @@ func (c *AlphaVantageClient) FetchQuote(ticker string) (*QuoteData, error) {
 // FetchOverview retrieves company overview data for a stock ticker.
 func (c *AlphaVantageClient) FetchOverview(ticker string) (*OverviewData, error) {
 	url := fmt.Sprintf("%s?function=OVERVIEW&symbol=%s&apikey=%s",
-		alphaVantageBaseURL, ticker, c.apiKey)
+		c.baseURL, ticker, c.apiKey)
 
 	body, err := c.doGet(url)
 	if err != nil {

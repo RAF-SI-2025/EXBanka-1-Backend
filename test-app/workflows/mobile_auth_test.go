@@ -23,7 +23,7 @@ func TestMobileAuth_RequestActivation_ValidEmail(t *testing.T) {
 	_, _, _, email := setupActivatedClient(t, adminC)
 
 	c := newClient()
-	resp, err := c.POST("/api/v1/mobile/auth/request-activation", map[string]interface{}{
+	resp, err := c.POST("/api/v3/mobile/auth/request-activation", map[string]interface{}{
 		"email": email,
 	})
 	if err != nil {
@@ -36,7 +36,7 @@ func TestMobileAuth_RequestActivation_ValidEmail(t *testing.T) {
 func TestMobileAuth_RequestActivation_InvalidEmail(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/v1/mobile/auth/request-activation", map[string]interface{}{
+	resp, err := c.POST("/api/v3/mobile/auth/request-activation", map[string]interface{}{
 		"email": "not-an-email",
 	})
 	if err != nil {
@@ -50,7 +50,7 @@ func TestMobileAuth_RequestActivation_InvalidEmail(t *testing.T) {
 func TestMobileAuth_RequestActivation_NonexistentEmail(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/v1/mobile/auth/request-activation", map[string]interface{}{
+	resp, err := c.POST("/api/v3/mobile/auth/request-activation", map[string]interface{}{
 		"email": "nonexistent_user_xyz@example.com",
 	})
 	if err != nil {
@@ -67,7 +67,7 @@ func TestMobileAuth_Activate_InvalidCode(t *testing.T) {
 
 	c := newClient()
 	// Request activation code
-	reqResp, err := c.POST("/api/v1/mobile/auth/request-activation", map[string]interface{}{
+	reqResp, err := c.POST("/api/v3/mobile/auth/request-activation", map[string]interface{}{
 		"email": email,
 	})
 	if err != nil {
@@ -76,7 +76,7 @@ func TestMobileAuth_Activate_InvalidCode(t *testing.T) {
 	helpers.RequireStatus(t, reqResp, 200)
 
 	// Try with wrong code
-	actResp, err := c.POST("/api/v1/mobile/auth/activate", map[string]interface{}{
+	actResp, err := c.POST("/api/v3/mobile/auth/activate", map[string]interface{}{
 		"email":       email,
 		"code":        "000000",
 		"device_name": "Test Device",
@@ -92,7 +92,7 @@ func TestMobileAuth_Activate_InvalidCode(t *testing.T) {
 func TestMobileAuth_Activate_MissingFields(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/v1/mobile/auth/activate", map[string]interface{}{
+	resp, err := c.POST("/api/v3/mobile/auth/activate", map[string]interface{}{
 		"email": "test@example.com",
 		// missing code and device_name
 	})
@@ -107,7 +107,7 @@ func TestMobileAuth_Activate_MissingFields(t *testing.T) {
 func TestMobileAuth_Activate_CodeWrongLength(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/v1/mobile/auth/activate", map[string]interface{}{
+	resp, err := c.POST("/api/v3/mobile/auth/activate", map[string]interface{}{
 		"email":       "test@example.com",
 		"code":        "123",
 		"device_name": "Test Device",
@@ -128,7 +128,7 @@ func TestMobileAuth_ActivateFullFlow(t *testing.T) {
 	c := newClient()
 
 	// Step 1: Request activation
-	reqResp, err := c.POST("/api/v1/mobile/auth/request-activation", map[string]interface{}{
+	reqResp, err := c.POST("/api/v3/mobile/auth/request-activation", map[string]interface{}{
 		"email": email,
 	})
 	if err != nil {
@@ -140,7 +140,7 @@ func TestMobileAuth_ActivateFullFlow(t *testing.T) {
 	code := scanKafkaForMobileActivationCode(t, email)
 
 	// Step 3: Activate with the code
-	actResp, err := c.POST("/api/v1/mobile/auth/activate", map[string]interface{}{
+	actResp, err := c.POST("/api/v3/mobile/auth/activate", map[string]interface{}{
 		"email":       email,
 		"code":        code,
 		"device_name": "Integration Test Device",
@@ -158,7 +158,7 @@ func TestMobileAuth_ActivateFullFlow(t *testing.T) {
 func TestMobileAuth_Refresh_MissingDeviceID(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.POST("/api/v1/mobile/auth/refresh", map[string]interface{}{
+	resp, err := c.POST("/api/v3/mobile/auth/refresh", map[string]interface{}{
 		"refresh_token": "some-fake-token",
 	})
 	if err != nil {
@@ -175,7 +175,7 @@ func TestMobileAuth_DeviceEndpoints_RequireAuth(t *testing.T) {
 	c := newClient()
 
 	// GET /api/mobile/device should require mobile auth
-	resp, err := c.GET("/api/v1/mobile/device")
+	resp, err := c.GET("/api/v3/mobile/device")
 	if err != nil {
 		t.Fatalf("get device info error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestMobileAuth_DeviceEndpoints_RequireAuth(t *testing.T) {
 	}
 
 	// POST /api/mobile/device/deactivate
-	resp, err = c.POST("/api/v1/mobile/device/deactivate", nil)
+	resp, err = c.POST("/api/v3/mobile/device/deactivate", nil)
 	if err != nil {
 		t.Fatalf("deactivate error: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestMobileAuth_DeviceEndpoints_RequireAuth(t *testing.T) {
 	}
 
 	// POST /api/mobile/device/transfer
-	resp, err = c.POST("/api/v1/mobile/device/transfer", map[string]interface{}{
+	resp, err = c.POST("/api/v3/mobile/device/transfer", map[string]interface{}{
 		"email": "test@example.com",
 	})
 	if err != nil {
@@ -209,7 +209,7 @@ func TestMobileAuth_DeviceEndpoints_RejectBrowserToken(t *testing.T) {
 	// A browser (employee) token should NOT work for mobile device endpoints
 	c := loginAsAdmin(t)
 
-	resp, err := c.GET("/api/v1/mobile/device")
+	resp, err := c.GET("/api/v3/mobile/device")
 	if err != nil {
 		t.Fatalf("get device info error: %v", err)
 	}

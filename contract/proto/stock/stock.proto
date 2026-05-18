@@ -2,6 +2,18 @@ syntax = "proto3";
 package stock;
 option go_package = "github.com/exbanka/contract/stockpb;stockpb";
 
+import "google/protobuf/wrappers.proto";
+
+// OwnerType discriminates resource ownership: clients have a non-null owner_id;
+// the bank as owner has owner_id == NULL. Replaces the legacy
+// (user_id, system_type) ownership pair. See plan
+// docs/superpowers/plans/2026-04-27-owner-type-schema.md (Spec C).
+enum OwnerType {
+    OWNER_TYPE_UNSPECIFIED = 0;
+    OWNER_TYPE_CLIENT      = 1;
+    OWNER_TYPE_BANK        = 2;
+}
+
 // ==================== Exchange (Stock Exchanges) ====================
 
 service StockExchangeGRPCService {
@@ -68,6 +80,10 @@ message ListingInfo {
   int64 volume = 9;
   string initial_margin_cost = 10;
   string last_refresh = 11;
+  // currency is the listing currency (derived from the exchange). Same code
+  // that flows into cross-currency conversion on order placement. So users
+  // know whether "price: 155.0000" is 155 USD, 155 EUR, etc.
+  string currency = 12;
 }
 
 message DerivedData {
@@ -107,6 +123,7 @@ service SecurityGRPCService {
   // Stocks
   rpc ListStocks(ListStocksRequest) returns (ListStocksResponse);
   rpc GetStock(GetStockRequest) returns (StockDetail);
+  rpc GetStockByTicker(GetStockByTickerRequest) returns (StockDetail);
   rpc GetStockHistory(GetPriceHistoryRequest) returns (PriceHistoryResponse);
   // Futures
   rpc ListFutures(ListFuturesRequest) returns (ListFuturesResponse);
@@ -165,6 +182,10 @@ message ListStocksResponse {
 
 message GetStockRequest {
   uint64 id = 1;
+}
+
+message GetStockByTickerRequest {
+  string ticker = 1;
 }
 
 // --- Futures ---
@@ -379,6 +400,13 @@ message Order {
   optional string limit_value = 24;
   optional string stop_value = 25;
   uint64 acting_employee_id = 26;  // non-zero when the order was placed by an employee on behalf
+  // Part D: computed state field derived from (status, is_done, has_fills).
+  // Values: "pending" | "approved" | "filling" | "filled" | "cancelled" |
+  // "declined". Raw "status" is retained for backwards compatibility.
+  string state = 27;
+  // filled_quantity is Quantity - RemainingPortions. Surfaced so the UI can
+  // render "3 of 10 filled" without re-calling /orders/{id}.
+  int64 filled_quantity = 28;
 }
 
 message OrderTransaction {
@@ -409,11 +437,24 @@ message CreateOrderRequest {
   uint64 account_id = 12;
   uint64 acting_employee_id    = 13;  // set when an employee places on behalf of a client
   uint64 on_behalf_of_client_id = 14;  // required when acting_employee_id is set; target client
+  // base_account_id is required for forex buy orders. Points at the user's
+  // base-currency account that will be credited when the order fills. Ignored
+  // for non-forex orders.
+  optional uint64 base_account_id = 15;
+  // on_behalf_of_fund_id, when non-zero, places the order against the fund's
+  // RSD account; owner becomes the bank sentinel and fills credit
+  // fund_holdings instead of the user's holdings. Caller must be the fund's
+  // manager (or an admin). account_id must equal the fund's RSD account id.
+  uint64 on_behalf_of_fund_id = 16;
 }
 
 message GetOrderRequest {
   uint64 id = 1;
   uint64 user_id = 2;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ListMyOrdersRequest {
@@ -423,6 +464,10 @@ message ListMyOrdersRequest {
   string order_type = 4;
   int32 page = 5;
   int32 page_size = 6;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ListOrdersRequest {
@@ -442,6 +487,10 @@ message ListOrdersResponse {
 message CancelOrderRequest {
   uint64 id = 1;
   uint64 user_id = 2;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ApproveOrderRequest {
@@ -462,6 +511,17 @@ service PortfolioGRPCService {
   rpc MakePublic(MakePublicRequest) returns (Holding);
   rpc ExerciseOption(ExerciseOptionRequest) returns (ExerciseResult);
   rpc ExerciseOptionByOptionID(ExerciseOptionByOptionIDRequest) returns (ExerciseResult);
+  // GetHolding returns one Holding by ID. Carries owner_type +
+  // owner_id alongside the response so the gateway can perform the
+  // CLAUDE.md ownership pre-check before calling mutating RPCs like
+  // ExerciseOption / MakePublic. (Fix R5, 2026-05-16.)
+  rpc GetHolding(GetHoldingRequest) returns (HoldingWithOwner);
+  // ListHoldingTransactions returns the executed order-transactions that
+  // contributed to a given holding. Since holdings aggregate per
+  // (user_id, system_type, security_type, security_id) (see Part A), this
+  // surfaces the full buy/sell history for that security across every
+  // account the owner used.
+  rpc ListHoldingTransactions(ListHoldingTransactionsRequest) returns (ListHoldingTransactionsResponse);
 }
 
 message Holding {
@@ -483,6 +543,10 @@ message ListHoldingsRequest {
   string security_type = 2;
   int32 page = 3;
   int32 page_size = 4;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ListHoldingsResponse {
@@ -490,32 +554,92 @@ message ListHoldingsResponse {
   int64 total_count = 2;
 }
 
+// GetHoldingRequest / HoldingWithOwner — used by api-gateway for the
+// pre-mutate ownership check (Fix R5). HoldingWithOwner is Holding +
+// owner_type + owner_id so the gateway can assert the caller matches
+// without doing a follow-up lookup.
+message GetHoldingRequest {
+  uint64 id = 1;
+}
+message HoldingWithOwner {
+  Holding holding = 1;
+  string owner_type = 2;  // "client" | "bank"
+  uint64 owner_id = 3;    // 0 when owner_type=="bank"
+}
+
 message GetPortfolioSummaryRequest {
   uint64 user_id = 1;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message PortfolioSummary {
+  // total_profit is the combined realised (lifetime, closed positions,
+  // converted to RSD) + unrealised (current holdings at the native listing
+  // currency) P&L. Kept for backwards compat; prefer the split fields below
+  // when you need to distinguish the two. String-encoded decimal.
   string total_profit = 1;
+  // total_profit_rsd is the same value as total_profit. The "_rsd" suffix is
+  // historical — the unrealised half is actually native-currency. Use
+  // realized_profit_lifetime_rsd + unrealized_profit fields below for clarity.
   string total_profit_rsd = 2;
+  // Tax paid this calendar year, in RSD.
   string tax_paid_this_year = 3;
+  // Tax owed for the current calendar month, in RSD, not yet collected.
   string tax_unpaid_this_month = 4;
+
+  // Realised gains from closed positions (capital_gains rows) — positive
+  // gains are profit, negative are losses; the sum here is net. All amounts
+  // are converted to RSD via exchange-service.Convert.
+  string realized_profit_this_month_rsd = 5;
+  string realized_profit_this_year_rsd = 6;
+  string realized_profit_lifetime_rsd = 7;
+
+  // Unrealised gain on current holdings. Computed as (current_price −
+  // average_price) × quantity per holding, summed in the listing's native
+  // currency. Included so the client doesn't have to recompute, even though
+  // cross-currency portfolios may blend currencies here.
+  string unrealized_profit = 8;
+
+  // Tax owed across every month, not just the current one, in RSD.
+  string tax_unpaid_total_rsd = 9;
+
+  // Number of holdings with quantity > 0.
+  int64 open_positions_count = 10;
+
+  // Number of closed trades this calendar year (count of capital_gains rows).
+  int64 closed_trades_this_year = 11;
 }
 
 message MakePublicRequest {
   uint64 holding_id = 1;
   uint64 user_id = 2;
   int64 quantity = 3;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ExerciseOptionRequest {
   uint64 holding_id = 1;
   uint64 user_id = 2;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ExerciseOptionByOptionIDRequest {
   uint64 option_id  = 1;
   uint64 user_id    = 2;
   uint64 holding_id = 3; // optional; 0 means auto-resolve
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message ExerciseResult {
@@ -526,11 +650,55 @@ message ExerciseResult {
   string profit = 5;
 }
 
+// HoldingTransaction is one executed order-transaction that touched a holding.
+// Populated from model.OrderTransaction plus lookup fields from the parent
+// Order. Post-Part-A (rollup) these can span multiple accounts for the same
+// holding, so account_id is returned per row for audit purposes.
+message HoldingTransaction {
+  uint64 id = 1;                 // order_transactions.id
+  uint64 order_id = 2;
+  string executed_at = 3;        // RFC3339
+  string direction = 4;          // "buy" | "sell"
+  int64  quantity = 5;
+  string price_per_unit = 6;
+  string native_amount = 7;
+  string native_currency = 8;
+  string converted_amount = 9;
+  string account_currency = 10;
+  string fx_rate = 11;
+  string commission = 12;
+  uint64 account_id = 13;
+  string ticker = 14;
+}
+
+message ListHoldingTransactionsRequest {
+  uint64 holding_id = 1;
+  uint64 user_id    = 2;
+  string system_type = 3;        // "client" | "employee"
+  string direction  = 4;         // "" | "buy" | "sell"
+  int32  page       = 5;
+  int32  page_size  = 6;
+}
+
+message ListHoldingTransactionsResponse {
+  repeated HoldingTransaction transactions = 1;
+  int64 total_count = 2;
+}
+
 // ==================== OTC Trading ====================
 
 service OTCGRPCService {
   rpc ListOffers(ListOTCOffersRequest) returns (ListOTCOffersResponse);
   rpc BuyOffer(BuyOTCOfferRequest) returns (OTCTransaction);
+  // Unified view: local offers from this bank's holdings + remote offers
+  // pulled from every active peer bank's GET /public-stock. Backed by
+  // an in-process cache refreshed every ~5 s by stock-service.
+  rpc ListUnifiedOffers(ListUnifiedOTCOffersRequest) returns (ListUnifiedOTCOffersResponse);
+  // Phase 6: cross-bank discovery of OPEN OTC OPTION LISTINGS. Local
+  // rows come from otc_offers (Phase 2 marketplace); remote rows pulled
+  // every ~5 s from peer banks' GET /public-option-offers. Same partial-
+  // failure tolerance as ListUnifiedOffers (peers_total / peers_reached).
+  rpc ListUnifiedOptionOffers(ListUnifiedOptionOffersRequest) returns (ListUnifiedOptionOffersResponse);
 }
 
 message OTCOffer {
@@ -555,6 +723,111 @@ message ListOTCOffersRequest {
 message ListOTCOffersResponse {
   repeated OTCOffer offers = 1;
   int64 total_count = 2;
+}
+
+// UnifiedOTCOffer is one entry in the cross-bank-aggregated OTC view.
+// `kind` discriminates the buy flow:
+//   - "local"  → buy via POST /api/v3/otc/offers/{id}/buy
+//   - "remote" → buy via POST /api/v3/me/peer-otc/negotiations using
+//                bank_code as seller_bank_code and owner_id as seller_id.
+// Local-only fields (id, seller_id, seller_name, name, created_at) are
+// zero/empty on remote offers; owner_id is empty on local offers.
+message UnifiedOTCOffer {
+  string kind = 1;
+  string bank_code = 2;
+
+  // Local-only
+  uint64 id = 3;
+  uint64 seller_id = 4;
+  string seller_name = 5;
+  string name = 6;
+  string created_at = 7;
+
+  // Remote-only. SI-TX owner shape: "0" means bank-owned, "1+" is a
+  // client id at the seller bank.
+  string owner_id = 8;
+
+  // Common
+  string security_type = 9;
+  string ticker = 10;
+  int64 quantity = 11;
+  string price_per_unit = 12;
+  string currency = 13;
+}
+
+message ListUnifiedOTCOffersRequest {
+  string security_type = 1;
+  string ticker = 2;
+  string kind = 3;       // optional filter: "local" | "remote"
+  string bank_code = 4;  // optional filter
+  int32 page = 5;
+  int32 page_size = 6;
+}
+
+message ListUnifiedOTCOffersResponse {
+  repeated UnifiedOTCOffer offers = 1;
+  int64 total_count = 2;
+  int32 peers_total = 3;
+  int32 peers_reached = 4;
+  bool partial = 5;
+  int64 last_refresh_unix = 6;
+}
+
+// Phase 6 — unified cross-bank view of open OTC OPTION listings.
+// Local rows come from this bank's otc_offers (status open + counterparty
+// NULL); remote rows come from peer banks' GET /public-option-offers
+// pulled every ~5 s by the cache refresher.
+message UnifiedOptionOffer {
+  string kind             = 1;   // "local" | "remote"
+  string bank_code        = 2;
+  int64  routing_number   = 3;
+  string offer_id         = 4;   // local: strconv(uint64); remote: foreign id
+  string seller_id        = 5;   // SI-TX-prefixed: "client-<N>" | "bank"
+  string seller_name      = 6;   // local-only display name; "" remote
+  string direction        = 7;   // "sell_initiated" | "buy_initiated"
+  string ticker           = 8;
+  int64  amount           = 9;
+  string strike_price     = 10;
+  string strike_currency  = 11;
+  string premium          = 12;
+  string premium_currency = 13;
+  string settlement_date  = 14;  // RFC3339 UTC
+  string created_at       = 15;
+  // Best-bid / best-ask surface (Part A 2026-05-16). Populated from
+  // active OTCNegotiation rows (status IN open/countered). best_bid =
+  // MAX(premium) on sell_initiated parents; best_ask = MIN(premium)
+  // on buy_initiated parents. Empty string ⇒ no active chains (or
+  // remote peer doesn't support the field — wire-compatible: older
+  // peers omit it and proto3 deserializes to "" on our side).
+  string best_bid             = 16;
+  string best_ask             = 17;
+  int32  active_chains_count  = 18;
+}
+
+message ListUnifiedOptionOffersRequest {
+  string ticker    = 1;
+  string kind      = 2;   // "" | "local" | "remote"
+  string bank_code = 3;
+  string direction = 4;   // "" | "sell_initiated" | "buy_initiated"
+  int32  page      = 5;
+  int32  page_size = 6;
+  // owner_only_seller_id, when non-empty, filters the snapshot to local
+  // listings whose SellerID exactly matches this string (SI-TX form:
+  // "client-<principal_id>" for client listings, "bank" for bank-owned).
+  // Used by GET /api/v3/me/otc/options to scope the marketplace view
+  // to the caller's own open listings without changing the response
+  // shape. Implies kind=local since cross-bank listings can never be
+  // ours.
+  string owner_only_seller_id = 7;
+}
+
+message ListUnifiedOptionOffersResponse {
+  repeated UnifiedOptionOffer offers = 1;
+  int64 total_count       = 2;
+  int32 peers_total       = 3;
+  int32 peers_reached     = 4;
+  bool  partial           = 5;
+  int64 last_refresh_unix = 6;
 }
 
 message BuyOTCOfferRequest {
@@ -617,6 +890,10 @@ message ListUserTaxRecordsRequest {
   uint64 user_id = 1;
   int32 page = 2;
   int32 page_size = 3;
+  // system_type is "client" or "employee" — forwarded from the JWT context
+  // by api-gateway so user-scoped queries filter by (user_id, system_type)
+  // and avoid cross-system-type data leaks.
+  string system_type = 10;
 }
 
 message UserTaxRecord {
@@ -638,6 +915,24 @@ message ListUserTaxRecordsResponse {
   int64 total_count = 2;
   string tax_paid_this_year = 3;
   string tax_unpaid_this_month = 4;
+  // collections lists when capital-gains tax was actually taken from this
+  // user's accounts (one row per per-account-currency-month collection).
+  repeated TaxCollectionRecord collections = 5;
+}
+
+// TaxCollectionRecord surfaces one row from the tax_collections table so the
+// owner can see exactly when tax was collected, from which account, and how
+// much was converted into RSD.
+message TaxCollectionRecord {
+  uint64 id = 1;
+  int32 year = 2;
+  int32 month = 3;
+  uint64 account_id = 4;
+  string currency = 5;
+  string total_gain = 6;
+  string tax_amount = 7;
+  string tax_amount_rsd = 8;
+  string collected_at = 9;
 }
 
 // ==================== Source Admin ====================
@@ -662,4 +957,1241 @@ message SourceStatus {
   string status     = 2; // "idle" | "reseeding" | "failed"
   string started_at = 3; // RFC3339 timestamp of the last switch
   string last_error = 4; // populated when status=failed
+}
+
+// ==================== Investment Funds (Celina 4) ====================
+
+service InvestmentFundService {
+  rpc CreateFund(CreateFundRequest) returns (FundResponse);
+  rpc ListFunds(ListFundsRequest) returns (ListFundsResponse);
+  rpc GetFund(GetFundRequest) returns (FundDetailResponse);
+  rpc UpdateFund(UpdateFundRequest) returns (FundResponse);
+
+  rpc InvestInFund(InvestInFundRequest) returns (ContributionResponse);
+  rpc RedeemFromFund(RedeemFromFundRequest) returns (ContributionResponse);
+
+  rpc ListMyPositions(ListMyPositionsRequest) returns (ListPositionsResponse);
+  rpc ListBankPositions(ListBankPositionsRequest) returns (ListPositionsResponse);
+  rpc GetActuaryPerformance(GetActuaryPerformanceRequest) returns (GetActuaryPerformanceResponse);
+}
+
+message OnBehalfOf {
+  string type = 1;        // "self" | "bank" | "fund"
+  uint64 fund_id = 2;     // required when type == "fund"
+}
+
+message CreateFundRequest {
+  int64 actor_employee_id = 1;
+  string name = 2;
+  string description = 3;
+  string minimum_contribution_rsd = 4;
+}
+
+message FundResponse {
+  uint64 id = 1;
+  string name = 2;
+  string description = 3;
+  int64  manager_employee_id = 4;
+  string manager_full_name = 5;
+  string minimum_contribution_rsd = 6;
+  uint64 rsd_account_id = 7;
+  string rsd_account_number = 8;
+  bool   active = 9;
+  string created_at = 10;
+  string updated_at = 11;
+  string value_rsd = 12;
+  string liquid_rsd = 13;
+  string profit_rsd = 14;
+}
+
+message ListFundsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string search = 3;
+  bool   active_only = 4;
+}
+message ListFundsResponse {
+  repeated FundResponse funds = 1;
+  int64 total = 2;
+}
+
+message GetFundRequest { uint64 fund_id = 1; }
+message FundDetailResponse {
+  FundResponse fund = 1;
+  repeated FundHoldingItem holdings = 2;
+}
+message FundHoldingItem {
+  string security_type = 1;
+  uint64 security_id = 2;
+  string ticker = 3;
+  int64  quantity = 4;
+  string average_price_rsd = 5;
+  string current_price_rsd = 6;
+  string acquired_at = 7;
+}
+
+message UpdateFundRequest {
+  int64  actor_employee_id = 1;
+  uint64 fund_id = 2;
+  string name = 3;
+  string description = 4;
+  string minimum_contribution_rsd = 5;
+  bool   active = 6;
+  bool   active_set = 7;
+}
+
+message InvestInFundRequest {
+  uint64 fund_id = 1;
+  uint64 actor_user_id = 2;
+  string actor_system_type = 3;
+  uint64 source_account_id = 4;
+  string amount = 5;
+  string currency = 6;
+  OnBehalfOf on_behalf_of = 7;
+}
+message RedeemFromFundRequest {
+  uint64 fund_id = 1;
+  uint64 actor_user_id = 2;
+  string actor_system_type = 3;
+  string amount_rsd = 4;
+  uint64 target_account_id = 5;
+  OnBehalfOf on_behalf_of = 6;
+}
+
+message ContributionResponse {
+  uint64 id = 1;
+  uint64 fund_id = 2;
+  string direction = 3;
+  string amount_native = 4;
+  string native_currency = 5;
+  string amount_rsd = 6;
+  string fx_rate = 7;
+  string fee_rsd = 8;
+  string status = 9;
+  uint64 saga_id = 10;
+}
+
+message ListMyPositionsRequest {
+  uint64 actor_user_id = 1;
+  string actor_system_type = 2;
+}
+message ListBankPositionsRequest {}
+message ListPositionsResponse {
+  repeated PositionItem positions = 1;
+}
+message PositionItem {
+  uint64 fund_id = 1;
+  string fund_name = 2;
+  string manager_full_name = 3;
+  string contribution_rsd = 4;
+  string percentage_fund = 5;
+  string current_value_rsd = 6;
+  string profit_rsd = 7;
+  string last_changed_at = 8;
+}
+
+message GetActuaryPerformanceRequest {}
+message GetActuaryPerformanceResponse {
+  repeated ActuaryPerformance actuaries = 1;
+}
+message ActuaryPerformance {
+  int64  employee_id = 1;
+  string full_name = 2;
+  string role = 3;
+  string realized_profit_rsd = 4;
+}
+
+// ==================== Intra-bank OTC Options (Spec 2) ====================
+
+service OTCOptionsService {
+  rpc CreateOffer(CreateOTCOfferRequest)   returns (OTCOfferResponse);
+  rpc ListMyOffers(ListMyOTCOffersRequest) returns (ListMyOTCOffersResponse);
+  rpc GetOffer(GetOTCOfferRequest)         returns (OTCOfferDetailResponse);
+  rpc CounterOffer(CounterOTCOfferRequest) returns (OTCOfferResponse);
+  rpc AcceptOffer(AcceptOTCOfferRequest)   returns (AcceptOfferResponse);
+  rpc RejectOffer(RejectOTCOfferRequest)   returns (OTCOfferResponse);
+
+  rpc ListMyContracts(ListMyContractsRequest)   returns (ListContractsResponse);
+  rpc GetContract(GetContractRequest)           returns (OptionContractResponse);
+  rpc ExerciseContract(ExerciseContractRequest) returns (ExerciseResponse);
+
+  // Negotiation history — terminal-only OTC offers (ACCEPTED, REJECTED,
+  // EXPIRED, FAILED). Filters by status / date range / counterparty.
+  rpc ListNegotiationHistory(ListNegotiationHistoryRequest) returns (ListMyOTCOffersResponse);
+
+  // OTC trader ratings (Celina 3). One rating per (offer, rater).
+  rpc SubmitRating(SubmitOTCRatingRequest)        returns (OTCRatingResponse);
+  rpc GetTraderProfile(GetTraderProfileRequest)   returns (TraderProfileResponse);
+  rpc ListReceivedRatings(ListReceivedRatingsRequest) returns (ListOTCRatingsResponse);
+
+  // --- Phase 2 marketplace: parallel negotiation chains -----------
+  // OTCOffer is the (immutable) listing; many bidders each open their
+  // own OTCNegotiation chain. First-to-accept wins atomically; parent
+  // listing flips to "consumed" and sibling chains cascade-cancel.
+  // See docs/superpowers/plans/2026-05-16-otc-options-marketplace.md.
+  rpc OpenNegotiation(OpenNegotiationRequest)         returns (OTCNegotiationResponse);
+  rpc CounterNegotiation(CounterNegotiationRequest)   returns (OTCNegotiationResponse);
+  rpc AcceptNegotiationChain(OTCAcceptNegotiationRequest) returns (OTCAcceptNegotiationResponse);
+  rpc RejectNegotiation(RejectNegotiationRequest)     returns (OTCNegotiationResponse);
+  rpc CancelNegotiation(CancelNegotiationRequest)     returns (OTCNegotiationResponse);
+  rpc CancelListing(CancelListingRequest)             returns (CancelListingResponse);
+  rpc ListMyNegotiations(ListMyNegotiationsRequest)   returns (ListNegotiationsResponse);
+  rpc ListNegotiationsByListing(ListNegotiationsByListingRequest) returns (ListNegotiationsResponse);
+}
+
+// OTCNegotiationResponse is the wire-form projection of an
+// OTCNegotiation row (one bidder's chain against a parent OTCOffer).
+message OTCNegotiationResponse {
+  uint64 id                          = 1;
+  uint64 parent_offer_id             = 2;
+  string bidder_owner_type           = 3;  // "client" | "bank"
+  uint64 bidder_owner_id             = 4;  // 0 when owner_type=="bank"
+  uint64 bidder_account_id           = 5;
+  string quantity                    = 6;  // decimal as string
+  string strike_price                = 7;
+  string premium                     = 8;
+  string settlement_date             = 9;  // ISO-8601
+  string status                      = 10; // open|countered|accepted|rejected|cancelled|expired
+  string last_action_by_owner_type   = 11;
+  uint64 last_action_by_owner_id     = 12;
+  string last_action_at              = 13; // ISO-8601
+  string created_at                  = 14;
+  string updated_at                  = 15;
+  int64  version                     = 16;
+}
+
+message OpenNegotiationRequest {
+  uint64 parent_offer_id     = 1;
+  string bidder_owner_type   = 2;
+  uint64 bidder_owner_id     = 3;
+  uint64 bidder_account_id   = 4;
+  string quantity            = 5;
+  string strike_price        = 6;
+  string premium             = 7;
+  string settlement_date     = 8;
+  string acting_principal_type = 9;
+  uint64 acting_principal_id   = 10;
+  uint64 acting_employee_id    = 11;
+}
+
+message CounterNegotiationRequest {
+  uint64 negotiation_id        = 1;
+  string caller_owner_type     = 2;
+  uint64 caller_owner_id       = 3;
+  string quantity              = 4;
+  string strike_price          = 5;
+  string premium               = 6;
+  string settlement_date       = 7;
+  string acting_principal_type = 8;
+  uint64 acting_principal_id   = 9;
+  uint64 acting_employee_id    = 10;
+}
+
+message OTCAcceptNegotiationRequest {
+  uint64 negotiation_id        = 1;
+  string caller_owner_type     = 2;
+  uint64 caller_owner_id       = 3;
+  string acting_principal_type = 4;
+  uint64 acting_principal_id   = 5;
+  uint64 acting_employee_id    = 6;
+  // Phase 9: the accepter's own account. Pays the premium when the
+  // accepter is the buyer (parent.direction = sell_initiated); receives
+  // the premium when accepter is the seller (parent.direction =
+  // buy_initiated). Required — accept now mints a contract and moves
+  // money, both of which need a bound account on the accepter's side.
+  uint64 acceptor_account_id   = 7;
+}
+
+// OTCAcceptNegotiationResponse — Phase 9 includes the minted contract.
+// `cancelled_siblings` lists every other chain on the parent that the
+// state TX flipped to "cancelled". `contract` is the OptionContract
+// produced by the premium-payment saga that ran after the state TX
+// (null only when the saga failed and the negotiation was marked
+// "failed").
+message OTCAcceptNegotiationResponse {
+  OTCNegotiationResponse winning            = 1;
+  uint64                  parent_offer_id   = 2;
+  string                  parent_status     = 3;
+  repeated OTCNegotiationResponse cancelled_siblings = 4;
+  OTCMintedContract       contract          = 5;
+}
+
+// OTCMintedContract is a thin projection of model.OptionContract for
+// the AcceptNegotiation response. Same fields the existing
+// /me/otc/contracts route returns, minus the cross-bank-only ones.
+message OTCMintedContract {
+  uint64 id              = 1;
+  uint64 offer_id        = 2;
+  string buyer_owner_type = 3;
+  uint64 buyer_owner_id  = 4;
+  string seller_owner_type = 5;
+  uint64 seller_owner_id = 6;
+  string ticker          = 7;
+  string quantity        = 8;
+  string strike_price    = 9;
+  string premium_paid    = 10;
+  string premium_currency = 11;
+  string strike_currency = 12;
+  string settlement_date = 13;
+  uint64 buyer_account_id = 14;
+  uint64 seller_account_id = 15;
+  string status          = 16;
+  string premium_paid_at = 17;
+}
+
+message RejectNegotiationRequest {
+  uint64 negotiation_id        = 1;
+  string caller_owner_type     = 2;
+  uint64 caller_owner_id       = 3;
+  string acting_principal_type = 4;
+  uint64 acting_principal_id   = 5;
+  uint64 acting_employee_id    = 6;
+}
+
+message CancelNegotiationRequest {
+  uint64 negotiation_id        = 1;
+  string caller_owner_type     = 2;
+  uint64 caller_owner_id       = 3;
+  string acting_principal_type = 4;
+  uint64 acting_principal_id   = 5;
+  uint64 acting_employee_id    = 6;
+}
+
+// CancelListingRequest closes a parent OTCOffer listing the caller posted.
+// Cascade-cancels all open child chains in the same transaction.
+message CancelListingRequest {
+  uint64 offer_id              = 1;
+  string caller_owner_type     = 2;
+  uint64 caller_owner_id       = 3;
+  string acting_principal_type = 4;
+  uint64 acting_principal_id   = 5;
+  uint64 acting_employee_id    = 6;
+}
+
+// CancelListingResponse reports the cancelled parent and every chain
+// that cascade-cancelled. Empty chains slice ⇒ no bids were active.
+message CancelListingResponse {
+  uint64 offer_id                                  = 1;
+  string status                                    = 2; // always "cancelled"
+  repeated OTCNegotiationResponse cancelled_chains = 3;
+}
+
+message ListMyNegotiationsRequest {
+  string owner_type        = 1;
+  uint64 owner_id          = 2;
+  repeated string statuses = 3;
+  int32  page              = 4;
+  int32  page_size         = 5;
+}
+
+message ListNegotiationsByListingRequest {
+  uint64 parent_offer_id = 1;
+}
+
+message ListNegotiationsResponse {
+  repeated OTCNegotiationResponse negotiations = 1;
+  int64                            total       = 2;
+}
+
+// --------------------------------------------------------------------
+// OTCStockMarketGRPCService — Phase 3 stocks marketplace (sell + buy
+// directions). Wires the new OTCStockService. Fill RPCs are deferred
+// to Phase 3B; for now the deprecated OTCGRPCService.BuyOffer backs
+// sell-side fills under the legacy route.
+// See docs/superpowers/plans/2026-05-16-otc-stocks-marketplace.md.
+// --------------------------------------------------------------------
+service OTCStockMarketGRPCService {
+  rpc CreateOTCStockOffer(CreateOTCStockOfferRequest) returns (OTCStockOfferResponse);
+  rpc CancelOTCStockOffer(CancelOTCStockOfferRequest) returns (CancelOTCStockOfferResponse);
+  rpc ListMyOTCStocks(ListMyOTCStocksRequest)         returns (ListMyOTCStocksResponse);
+
+  // SellOTCStockOffer fills a buy-direction offer: seller decrements
+  // their holding, buyer's reserved cash is settled via account-service
+  // PartialSettleReservation, seller's account is credited, buyer's
+  // holding is upserted. Multi-step saga with compensation on each
+  // intermediate failure.
+  rpc SellOTCStockOffer(SellOTCStockOfferRequest) returns (OTCStockFillResult);
+}
+
+message SellOTCStockOfferRequest {
+  uint64 offer_id              = 1; // otc_stock_buy_offers.id
+  string seller_owner_type     = 2;
+  uint64 seller_owner_id       = 3;
+  int64  quantity              = 4;
+  uint64 seller_account_id     = 5; // where proceeds are credited
+  uint64 acting_employee_id    = 6;
+}
+
+message OTCStockFillResult {
+  uint64 offer_id        = 1;
+  int64  filled_quantity = 2;
+  string price_per_unit  = 3;
+  string total_amount    = 4;
+  string seller_credited_account_number = 5;
+}
+
+message OTCStockOfferResponse {
+  string direction      = 1;   // "sell" | "buy"
+  uint64 id             = 2;   // holdings.id for sell; otc_stock_buy_offers.id for buy
+  string owner_type     = 3;
+  uint64 owner_id       = 4;
+  uint64 account_id     = 5;
+  string ticker         = 6;
+  string name           = 7;
+  int64  quantity       = 8;   // sell: PublicQuantity; buy: RemainingQuantity
+  string price_per_unit = 9;
+  string currency       = 10;
+  string status         = 11;  // sell: "" (public_qty>0 IS the active signal); buy: row.Status
+  string created_at     = 12;
+}
+
+message CreateOTCStockOfferRequest {
+  string owner_type            = 1;
+  uint64 owner_id              = 2;
+  string direction             = 3;   // "sell" | "buy"
+  uint64 holding_id            = 4;   // sell only — which holding row to make public
+  uint64 listing_id            = 5;   // buy only — which security
+  int64  quantity              = 6;
+  string price_per_unit        = 7;   // buy only — buyer's offered price
+  uint64 buyer_account_id      = 8;   // buy only — where to reserve cash from
+  uint64 acting_employee_id    = 9;
+}
+
+message CancelOTCStockOfferRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  string direction  = 3;   // "sell" | "buy"
+  uint64 id         = 4;   // holding_id for sell, otc_stock_buy_offers.id for buy
+}
+message CancelOTCStockOfferResponse { bool ok = 1; }
+
+message ListMyOTCStocksRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  string direction  = 3;   // "" | "sell" | "buy"
+  int32  page       = 4;
+  int32  page_size  = 5;
+}
+
+message ListMyOTCStocksResponse {
+  repeated OTCStockOfferResponse offers = 1;
+  int64                          total  = 2;
+}
+
+message SubmitOTCRatingRequest {
+  uint64 offer_id = 1;
+  string rater_owner_type = 2; // "client" | "bank"
+  uint64 rater_owner_id   = 3; // 0 when bank
+  int32  score = 4;            // 1..5
+  string comment = 5;
+}
+
+message OTCRatingResponse {
+  uint64 id = 1;
+  uint64 offer_id = 2;
+  string rater_owner_type = 3;
+  uint64 rater_owner_id   = 4;
+  string rated_owner_type = 5;
+  uint64 rated_owner_id   = 6;
+  int32  score = 7;
+  string comment = 8;
+  int64  created_at_unix = 9;
+}
+
+message GetTraderProfileRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  int32  recent_limit = 3; // 0 = default (20)
+}
+
+message TraderProfileResponse {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  double average    = 3;
+  int64  count      = 4;
+  repeated OTCRatingResponse recent = 5;
+}
+
+message ListReceivedRatingsRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  int32  limit      = 3;
+}
+
+message ListOTCRatingsResponse {
+  repeated OTCRatingResponse ratings = 1;
+}
+
+message ListNegotiationHistoryRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  repeated string statuses = 3; // empty = all terminal statuses
+  int64  since_unix    = 4;     // 0 = no lower bound
+  int64  until_unix    = 5;     // 0 = no upper bound
+  uint64 counterparty_id = 6;   // 0 = no filter
+  int32  page          = 7;
+  int32  page_size     = 8;
+}
+
+message PartyRef {
+  int64  user_id = 1;
+  string system_type = 2;
+  string display_name = 3;
+  string bank_code = 4;
+}
+
+message CreateOTCOfferRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string direction = 3;
+  uint64 stock_id = 4;
+  string quantity = 5;
+  string strike_price = 6;
+  string premium = 7;
+  string settlement_date = 8;
+  PartyRef counterparty = 9;
+  // Initiator's account: pays the premium (buy_initiated) or receives it
+  // (sell_initiated). Bound at creation; the gateway verifies ownership.
+  uint64 account_id = 10;
+  // Set when an employee acts on behalf of a client. 0 = acting as the bank.
+  uint64 on_behalf_of_client_id = 11;
+  // Client-supplied ticker, threaded through for notification rendering.
+  string ticker = 12;
+}
+
+message OTCOfferResponse {
+  uint64  id = 1;
+  string  direction = 2;
+  uint64  stock_id = 3;
+  string  stock_ticker = 4;
+  string  quantity = 5;
+  string  strike_price = 6;
+  string  premium = 7;
+  string  settlement_date = 8;
+  string  status = 9;
+  PartyRef initiator = 10;
+  PartyRef counterparty = 11;
+  PartyRef last_modified_by = 12;
+  string  market_reference_price = 13;
+  string  created_at = 14;
+  string  updated_at = 15;
+  int64   version = 16;
+  bool    unread = 17;
+}
+
+message OTCOfferRevisionItem {
+  int32  revision_number = 1;
+  string quantity = 2;
+  string strike_price = 3;
+  string premium = 4;
+  string settlement_date = 5;
+  string action = 6;
+  PartyRef modified_by = 7;
+  string created_at = 8;
+}
+
+message OTCOfferDetailResponse {
+  OTCOfferResponse offer = 1;
+  repeated OTCOfferRevisionItem revisions = 2;
+}
+
+message ListMyOTCOffersRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string role = 3;
+  repeated string statuses = 4;
+  uint64 stock_id = 5;
+  int32  page = 6;
+  int32  page_size = 7;
+}
+message ListMyOTCOffersResponse {
+  repeated OTCOfferResponse offers = 1;
+  int64 total = 2;
+}
+
+message GetOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message CounterOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  string quantity = 4;
+  string strike_price = 5;
+  string premium = 6;
+  string settlement_date = 7;
+  // Set when an employee acts on behalf of a client. 0 = acting as the bank.
+  uint64 on_behalf_of_client_id = 8;
+}
+
+message AcceptOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  // The acceptor's own account. Maps to buyer or seller via offer.direction;
+  // the counterparty (initiator) account is read from the persisted offer.
+  uint64 account_id = 4;
+  // Set when an employee acts on behalf of a client. 0 = acting as the bank.
+  uint64 on_behalf_of_client_id = 5;
+}
+message AcceptOfferResponse {
+  uint64 offer_id = 1;
+  uint64 contract_id = 2;
+  string status = 3;
+  string saga_id = 4;
+  OptionContractResponse contract = 5;
+}
+
+message RejectOTCOfferRequest {
+  uint64 offer_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message OptionContractResponse {
+  uint64  id = 1;
+  uint64  offer_id = 2;
+  uint64  stock_id = 3;
+  string  stock_ticker = 4;
+  string  quantity = 5;
+  string  strike_price = 6;
+  string  premium_paid = 7;
+  string  premium_currency = 8;
+  string  strike_currency = 9;
+  string  settlement_date = 10;
+  string  status = 11;
+  PartyRef buyer = 12;
+  PartyRef seller = 13;
+  string  market_reference_price = 14;
+  string  premium_paid_at = 15;
+  string  exercised_at = 16;
+  string  expired_at = 17;
+  string  created_at = 18;
+  string  updated_at = 19;
+  int64   version = 20;
+}
+
+message ListMyContractsRequest {
+  int64  actor_user_id = 1;
+  string actor_system_type = 2;
+  string role = 3;
+  repeated string statuses = 4;
+  int32  page = 5;
+  int32  page_size = 6;
+}
+message ListContractsResponse {
+  repeated OptionContractResponse contracts = 1;
+  int64 total = 2;
+  // Cross-bank (Celina 5 SI-TX) option contracts where this user is
+  // either the buyer or the seller. Rendered alongside intra-bank
+  // contracts above so clients see one merged list.
+  repeated PeerOptionContractResponse peer_contracts = 3;
+  int64 peer_total = 4;
+}
+
+// PeerOptionContractResponse is the on-the-wire shape of a row from
+// peer_option_contracts. Keyed on (crossbank_tx_id, posting_index),
+// mirrors the SI-TX OptionDescription terms plus the cross-bank
+// participant identifiers.
+message PeerOptionContractResponse {
+  uint64 id = 1;
+  string crossbank_tx_id = 2;
+  int32 posting_index = 3;
+  int64 negotiation_routing_number = 4;
+  string negotiation_id = 5;
+  PeerForeignBankId buyer_id = 6;
+  PeerForeignBankId seller_id = 7;
+  string ticker = 8;
+  int64 quantity = 9;
+  string strike_price = 10;
+  string currency = 11;
+  string settlement_date = 12;
+  // "DEBIT" → this bank holds the seller side; "CREDIT" → buyer side.
+  string direction = 13;
+  string status = 14;
+  int64 created_at_unix = 15;
+}
+
+message GetContractRequest {
+  uint64 contract_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+}
+
+message ExerciseContractRequest {
+  uint64 contract_id = 1;
+  int64  actor_user_id = 2;
+  string actor_system_type = 3;
+  // Set when an employee acts on behalf of a client. 0 = acting as the bank.
+  uint64 on_behalf_of_client_id = 4;
+}
+message ExerciseResponse {
+  uint64 contract_id = 1;
+  string status = 2;
+  string saga_id = 3;
+  string strike_amount_seller_ccy = 4;
+  string strike_amount_buyer_ccy = 5;
+  string ccy_rate_used = 6;
+  string seller_currency = 7;
+  string buyer_currency = 8;
+  string shares_transferred = 9;
+}
+
+// PeerOTCService backs the api-gateway /api/v3/public-stock and
+// /api/v3/negotiations/{rid}/{id} routes (Phase 4, Celina 5 SI-TX).
+//
+// RecordOptionContract is called by transaction-service at COMMIT_TX
+// time for each option-asset posting that landed on this bank — one
+// call per (DEBIT-on-seller, CREDIT-on-buyer) leg. Idempotent on
+// (crossbank_tx_id, posting_index).
+//
+// CheckSellerCanDeliver is called by transaction-service at NEW_TX
+// time for each DEBIT-direction option-asset posting on this bank,
+// to validate that the seller has enough unreserved shares to back
+// the contract. A NO answer drives an INSUFFICIENT_ASSET NoVote so
+// money never moves on a contract the seller can't fulfil.
+service PeerOTCService {
+  rpc GetPublicStocks(GetPublicStocksRequest) returns (GetPublicStocksResponse);
+  // Phase 6: peer-facing discovery of OPEN OTC OPTION listings.
+  // Returns OTCOffer rows on THIS bank where:
+  //   * status is open/PENDING (legacy alias) AND
+  //   * counterparty_owner_id IS NULL (undirected listings only) AND
+  //   * Private==false OR PrivateToBankCode == X-Bank-Code of caller.
+  // Wire shape parallels GetPublicStocks; PeerAuth via X-Api-Key.
+  rpc GetPublicOptionOffers(GetPublicOptionOffersRequest) returns (GetPublicOptionOffersResponse);
+  rpc CreateNegotiation(CreateNegotiationRequest) returns (CreateNegotiationResponse);
+  rpc UpdateNegotiation(UpdateNegotiationRequest) returns (UpdateNegotiationResponse);
+  rpc GetNegotiation(GetNegotiationRequest) returns (GetNegotiationResponse);
+  rpc DeleteNegotiation(DeleteNegotiationRequest) returns (DeleteNegotiationResponse);
+  rpc AcceptNegotiation(AcceptNegotiationRequest) returns (AcceptNegotiationResponse);
+  rpc RecordOptionContract(RecordOptionContractRequest) returns (RecordOptionContractResponse);
+  rpc CheckSellerCanDeliver(CheckSellerCanDeliverRequest) returns (CheckSellerCanDeliverResponse);
+  rpc InitiateOptionExercise(InitiateOptionExerciseRequest) returns (InitiateOptionExerciseResponse);
+
+  // Buyer-side mirror persistence so the buyer's bank also has a local
+  // row to surface in /me/peer-otc/negotiations. Called by the gateway
+  // right after the outbound POST to the seller's bank succeeds.
+  rpc RecordOutboundNegotiation(RecordOutboundNegotiationRequest) returns (RecordOutboundNegotiationResponse);
+
+  // Discovery: list pending peer negotiations for a client principal.
+  // Surfaces rows where the caller is either buyer or seller; the
+  // caller's bank's routing number is matched against the row's
+  // buyer/seller routing (so a "buyer" row on bank B is one where
+  // buyer_routing == bank-B routing AND buyer_id == "client-<N>"; a
+  // "seller" row on bank A is one where seller_routing == bank-A
+  // routing AND seller_id == "client-<N>").
+  rpc ListMyPeerNegotiations(ListMyPeerNegotiationsRequest) returns (ListMyPeerNegotiationsResponse);
+
+  // Local-mirror status flip to "accepted". Called by the gateway after
+  // a successful proxy of POST /me/peer-otc/negotiations/.../accept to
+  // the counterparty's bank, so the caller's own list reflects the
+  // terminal state immediately. The peer-facing AcceptNegotiation RPC
+  // (above) is reserved for the bank that actually dispatches the
+  // option-formation SI-TX — calling that one twice would re-dispatch.
+  rpc MarkNegotiationAccepted(MarkNegotiationAcceptedRequest) returns (MarkNegotiationAcceptedResponse);
+
+  // Phase 10 — cross-bank cascade-cancel of sibling chains on accept.
+  // Called by the seller's gateway after MarkNegotiationAccepted. The
+  // RPC returns every other ongoing peer_otc_negotiations row whose
+  // seller is the same AND whose offer matches the accepted offer's
+  // ticker + settlement_date — those are "the same parallel-bid
+  // siblings" in the user's mental model. Each match is marked
+  // status=cancelled locally; the response carries (peer_bank_code,
+  // foreign_id) tuples so the gateway can fire outbound DELETEs to
+  // each bidder's bank to update their mirrors.
+  rpc CascadeCancelSiblings(CascadeCancelSiblingsRequest) returns (CascadeCancelSiblingsResponse);
+}
+
+message CascadeCancelSiblingsRequest {
+  // The negotiation that was just accepted — sets the "seller side" +
+  // "offer terms" the cascade matches on. Caller passes the gateway-
+  // side keys (the gateway only knows (peer_bank_code, foreign_id)
+  // because that's what proxyPeerNegotiation already uses).
+  string peer_bank_code = 1; // peer-bank code of the accepted chain
+  string foreign_id     = 2; // foreign id of the accepted chain
+}
+
+// CascadedSibling identifies one chain that was cancelled by the
+// cascade. peer_bank_code + foreign_id are the routing tuple the
+// gateway uses to fire the outbound DELETE; the rest of the fields
+// are a wire-shape projection of the cancelled negotiation (same
+// shape as PeerNegotiationListItem) so the FE can render the
+// cancelled-siblings list in the cross-bank accept response with
+// the same UI it uses for /me/peer-otc/negotiations rows.
+message CascadedSibling {
+  string peer_bank_code = 1; // bidder's bank-code (for outbound DELETE)
+  string foreign_id     = 2; // foreign id on the bidder's bank
+  PeerForeignBankId buyer_id  = 3;
+  PeerForeignBankId seller_id = 4;
+  PeerOtcOffer      offer     = 5;
+  string            status    = 6; // always "cancelled" for cascade results
+  string            role      = 7; // caller's side — always "seller" (cascade fires on accept)
+  string            updated_at = 8; // ISO-8601
+}
+
+message CascadeCancelSiblingsResponse {
+  repeated CascadedSibling siblings = 1;
+}
+
+message MarkNegotiationAcceptedRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+message MarkNegotiationAcceptedResponse {}
+
+message RecordOutboundNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+  PeerForeignBankId buyer_id = 3;
+  PeerForeignBankId seller_id = 4;
+  PeerOtcOffer offer = 5;
+}
+message RecordOutboundNegotiationResponse {}
+
+message ListMyPeerNegotiationsRequest {
+  // Caller's own bank routing number. Used together with client_id to
+  // determine which rows belong to the caller as buyer / seller.
+  int64 own_routing_number = 1;
+  // The caller's client principal id (decimal string of the JWT
+  // principal_id). Server stamps it as "client-<N>" before matching
+  // against buyer_id / seller_id strings.
+  string client_id = 2;
+  // Optional role filter: "buyer", "seller", or "" / "both".
+  string role = 3;
+}
+
+message ListMyPeerNegotiationsResponse {
+  repeated PeerNegotiationListItem items = 1;
+}
+
+message PeerNegotiationListItem {
+  PeerForeignBankId id = 1;          // foreign id on the *other* bank
+  PeerForeignBankId buyer_id = 2;
+  PeerForeignBankId seller_id = 3;
+  PeerOtcOffer offer = 4;
+  string status = 5;
+  string role = 6;                    // "buyer" or "seller" — the caller's side
+  string updated_at = 7;
+}
+
+message PeerForeignBankId {
+  int64 routing_number = 1;
+  string id = 2;
+}
+
+message PeerOtcOffer {
+  string ticker = 1;
+  int64 amount = 2;
+  string price_per_stock = 3;
+  string currency = 4;
+  string premium = 5;
+  string premium_currency = 6;
+  string settlement_date = 7;
+  PeerForeignBankId last_modified_by = 8;
+  // Phase 10 — cross-bank cascade-cancel grouping. Bidders capture
+  // this from /public-option-offers discovery and pass it through so
+  // the seller bank can match siblings on accept. Optional; absent
+  // value (zero routing_number + empty id) means "no parent group".
+  PeerForeignBankId parent_offer_id = 9;
+  // Fix #1 (2026-05-16) — the buyer's pre-bound 18-digit bank account
+  // number. When set, the seller's bank uses this exact account number
+  // for the buyer-debit posting on accept (no resolution from
+  // "client-<id>" → "first account in this currency"). Optional for
+  // backward compat with peer banks that don't emit it; falls back to
+  // participant-id resolution at the receiver's posting_executor.
+  string buyer_account_number = 10;
+}
+
+message GetPublicStocksRequest {
+  string peer_bank_code = 1;
+}
+
+message PeerPublicStock {
+  PeerForeignBankId owner_id = 1;
+  string ticker = 2;
+  int64 amount = 3;
+  string price_per_stock = 4;
+  string currency = 5;
+}
+
+message GetPublicStocksResponse {
+  repeated PeerPublicStock stocks = 1;
+}
+
+// Phase 6 — discovery of open OTC OPTION listings (parallel chains
+// marketplace). See docs/superpowers/plans/2026-05-16-otc-options-cross-bank.md.
+message GetPublicOptionOffersRequest {
+  string peer_bank_code = 1; // X-Bank-Code stamped by PeerAuth ctx
+}
+
+message PeerPublicOptionOffer {
+  PeerForeignBankId offer_id        = 1;  // (own_routing, otc_offers.id stringified)
+  string            ticker          = 2;
+  int64             amount          = 3;
+  string            strike_price    = 4;
+  string            strike_currency = 5;
+  string            premium         = 6;
+  string            premium_currency = 7;
+  string            settlement_date = 8;  // RFC3339 UTC
+  PeerForeignBankId seller_id       = 9;  // SI-TX-prefixed: "client-<N>" | "bank"
+  string            direction       = 10; // "sell_initiated" | "buy_initiated"
+  string            created_at      = 11;
+  PeerForeignBankId last_modified_by = 12;
+  // Best-bid / best-ask surface (Part A 2026-05-16). STRICTLY
+  // ADDITIVE: peers that don't upgrade simply omit these fields and
+  // the receiver sees them as "" / 0 (proto3 default), which the
+  // unified-cache projection treats as "not reported". Peers
+  // publishing them populate from their own
+  // OTCNegotiationRepository.AggregateActiveBidsByOffer.
+  string best_bid             = 13;
+  string best_ask             = 14;
+  int32  active_chains_count  = 15;
+}
+
+message GetPublicOptionOffersResponse {
+  repeated PeerPublicOptionOffer offers = 1;
+}
+
+message CreateNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerOtcOffer offer = 2;
+  PeerForeignBankId buyer_id = 3;
+  PeerForeignBankId seller_id = 4;
+}
+
+message CreateNegotiationResponse {
+  PeerForeignBankId negotiation_id = 1;
+}
+
+message UpdateNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+  PeerOtcOffer offer = 3;
+}
+
+message UpdateNegotiationResponse {}
+
+message GetNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+
+message GetNegotiationResponse {
+  PeerForeignBankId id = 1;
+  PeerForeignBankId buyer_id = 2;
+  PeerForeignBankId seller_id = 3;
+  PeerOtcOffer offer = 4;
+  string status = 5;
+  string updated_at = 6;
+}
+
+message DeleteNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+
+message DeleteNegotiationResponse {}
+
+message AcceptNegotiationRequest {
+  string peer_bank_code = 1;
+  PeerForeignBankId negotiation_id = 2;
+}
+
+message AcceptNegotiationResponse {
+  string transaction_id = 1;
+  string status = 2;
+}
+
+// RecordOptionContractRequest carries everything stock-service needs
+// to materialise one option-asset posting into a peer_option_contracts
+// row at COMMIT_TX time.
+//
+// option_description_json is the verbatim assetId string from the
+// SI-TX posting — a JSON-encoded OptionDescription with ticker,
+// amount, strikePrice, currency, settlementDate, and negotiationId.
+// Buyer/seller are the participant identifiers from the original
+// OtcOffer; only the participant whose routingNumber matches this
+// bank's own_routing is local — the other side is recorded as the
+// foreign counterparty.
+message RecordOptionContractRequest {
+  string crossbank_tx_id = 1;          // peer_bank_code + ":" + locallyGeneratedKey
+  int32 posting_index = 2;             // index into the original Transaction.postings
+  string option_description_json = 3;
+  PeerForeignBankId buyer_id = 4;
+  PeerForeignBankId seller_id = 5;
+  string direction = 6;                // "DEBIT" (seller side) or "CREDIT" (buyer side)
+  // intent: "" or "accept" → form a new contract (lock seller holdings,
+  // write peer_option_contracts row). "exercise" → transition the
+  // existing contract referenced by the embedded OptionDescription's
+  // negotiationId to status=exercised and run role-specific stock ops
+  // (seller side: settle reservation + decrement holding; buyer side:
+  // increment holding). Idempotent on (crossbank_tx_id, posting_index).
+  string intent = 7;
+}
+
+message RecordOptionContractResponse {
+  uint64 contract_id = 1;
+}
+
+// InitiateOptionExerciseRequest triggers a cross-bank option exercise.
+// Called by the gateway when the buyer hits POST /api/v3/me/otc/contracts/peer/:id/exercise.
+// Stock-service composes the 4-posting Transaction (strike money +
+// option markers with intent=exercise) and dispatches via
+// transaction-service.PeerTxService.InitiateOutboundTxWithPostings.
+message InitiateOptionExerciseRequest {
+  uint64 peer_option_contract_id = 1; // local row id (resolved by gateway)
+  // Buyer's currency account that pays the strike on this bank.
+  string buyer_account_number = 2;
+}
+
+message InitiateOptionExerciseResponse {
+  string transaction_id = 1;
+  string status = 2;
+}
+
+// CheckSellerCanDeliverRequest asks whether the seller participant
+// has at least `quantity` unreserved shares of the given ticker.
+// seller_id is the SI-TX participant identifier ("client-<n>" or
+// "bank"); ticker is the stock ticker; quantity is the option's
+// underlying share count.
+message CheckSellerCanDeliverRequest {
+  PeerForeignBankId seller_id = 1;
+  string ticker = 2;
+  int64 quantity = 3;
+}
+
+message CheckSellerCanDeliverResponse {
+  bool ok = 1;
+  int64 available_quantity = 2;
+}
+
+// ---- RecurringFundService -----------------------------------------------
+// Monthly Dollar-Cost-Averaging template for fund contributions.
+
+service RecurringFundService {
+  rpc Create(CreateRecurringFundRequest) returns (RecurringFundResponse);
+  rpc Get(GetRecurringFundRequest)        returns (RecurringFundResponse);
+  rpc Pause(GetRecurringFundRequest)      returns (RecurringFundResponse);
+  rpc Resume(GetRecurringFundRequest)     returns (RecurringFundResponse);
+  rpc Cancel(GetRecurringFundRequest)     returns (CancelRecurringFundResponse);
+  rpc ListMy(ListMyRecurringFundsRequest) returns (ListMyRecurringFundsResponse);
+}
+
+message CreateRecurringFundRequest {
+  uint64 client_id          = 1;
+  uint64 fund_id            = 2;
+  string amount_rsd         = 3;
+  uint64 source_account_id  = 4;
+  int32  day_of_month       = 5; // 1..28
+}
+
+message GetRecurringFundRequest {
+  uint64 id        = 1;
+  uint64 client_id = 2;
+}
+
+message CancelRecurringFundResponse { bool cancelled = 1; }
+
+message ListMyRecurringFundsRequest {
+  uint64 client_id = 1;
+}
+
+message RecurringFundResponse {
+  uint64 id                = 1;
+  uint64 fund_id           = 2;
+  string amount_rsd        = 3;
+  uint64 source_account_id = 4;
+  int32  day_of_month      = 5;
+  bool   active            = 6;
+  int64  last_run_unix     = 7;
+  int64  next_run_unix     = 8;
+  int64  created_at_unix   = 9;
+}
+
+message ListMyRecurringFundsResponse {
+  repeated RecurringFundResponse items = 1;
+}
+
+// ---- RecurringOrderService ----------------------------------------------
+// Templates the user defines once that auto-place Market orders on a
+// weekly or monthly cadence. Insufficient funds skip the tick with a
+// RECURRING_ORDER_SKIPPED push; successful placements emit
+// RECURRING_ORDER_EXECUTED.
+
+service RecurringOrderService {
+  rpc CreateOrder(CreateRecurringOrderRequest) returns (RecurringOrderResponse);
+  rpc GetOrder(GetRecurringOrderRequest)       returns (RecurringOrderResponse);
+  rpc PauseOrder(GetRecurringOrderRequest)     returns (RecurringOrderResponse);
+  rpc ResumeOrder(GetRecurringOrderRequest)    returns (RecurringOrderResponse);
+  rpc CancelOrder(GetRecurringOrderRequest)    returns (RecurringOrderResponse);
+  rpc ListMy(ListMyRecurringOrdersRequest)     returns (ListMyRecurringOrdersResponse);
+}
+
+message CreateRecurringOrderRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  uint64 listing_id = 3;
+  string side       = 4;   // buy | sell
+  int64  quantity   = 5;
+  uint64 account_id = 6;
+  string interval   = 7;   // weekly | monthly
+  int32  day_of_week  = 8; // 0..6 when interval=weekly
+  int32  day_of_month = 9; // 1..28 when interval=monthly
+  int64  start_date_unix = 10;
+  int64  end_date_unix   = 11; // 0 = no end
+}
+
+message GetRecurringOrderRequest {
+  uint64 id = 1;
+  string owner_type = 2;
+  uint64 owner_id   = 3;
+}
+
+message ListMyRecurringOrdersRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+}
+
+message RecurringOrderResponse {
+  uint64 id = 1;
+  uint64 listing_id = 2;
+  string side       = 3;
+  int64  quantity   = 4;
+  uint64 account_id = 5;
+  string interval   = 6;
+  int32  day_of_week  = 7;
+  int32  day_of_month = 8;
+  int64  start_date_unix = 9;
+  int64  end_date_unix   = 10;
+  string status     = 11;
+  int64  last_run_unix = 12;
+  int64  next_run_unix = 13;
+  int64  created_at_unix = 14;
+}
+
+message ListMyRecurringOrdersResponse {
+  repeated RecurringOrderResponse items = 1;
+}
+
+// ---- PriceAlertService --------------------------------------------------
+// Per-owner reactive alerts on a listing's latest price or daily change %.
+// Single-shot alerts auto-deactivate on first match; recurring alerts
+// respect a cooldown between consecutive fires.
+
+service PriceAlertService {
+  rpc CreateAlert(CreatePriceAlertRequest) returns (PriceAlertResponse);
+  rpc UpdateAlert(UpdatePriceAlertRequest) returns (PriceAlertResponse);
+  rpc GetAlert(GetPriceAlertRequest)       returns (PriceAlertResponse);
+  rpc DeleteAlert(DeletePriceAlertRequest) returns (DeletePriceAlertResponse);
+  rpc ListMy(ListMyPriceAlertsRequest)     returns (ListMyPriceAlertsResponse);
+}
+
+message CreatePriceAlertRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  uint64 listing_id = 3;
+  string condition  = 4; // gte | lte | daily_change_pct_gte | daily_change_pct_lte
+  string threshold  = 5; // decimal string
+  bool   is_recurring   = 6;
+  int32  cooldown_seconds = 7; // 60..86400 when is_recurring
+  bool   email_too        = 8;
+}
+
+message UpdatePriceAlertRequest {
+  uint64 id = 1;
+  string owner_type = 2;
+  uint64 owner_id   = 3;
+  string condition  = 4;
+  string threshold  = 5;
+  bool   is_recurring     = 6;
+  int32  cooldown_seconds = 7;
+  bool   email_too        = 8;
+  bool   active           = 9;
+}
+
+message GetPriceAlertRequest {
+  uint64 id = 1;
+  string owner_type = 2;
+  uint64 owner_id   = 3;
+}
+
+message DeletePriceAlertRequest {
+  uint64 id = 1;
+  string owner_type = 2;
+  uint64 owner_id   = 3;
+}
+
+message DeletePriceAlertResponse { bool deleted = 1; }
+
+message ListMyPriceAlertsRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+}
+
+message PriceAlertResponse {
+  uint64 id = 1;
+  uint64 listing_id = 2;
+  string condition  = 3;
+  string threshold  = 4;
+  bool   is_recurring   = 5;
+  int32  cooldown_seconds = 6;
+  bool   email_too        = 7;
+  bool   active           = 8;
+  int64  last_triggered_unix = 9; // 0 = never
+  int64  created_at_unix      = 10;
+}
+
+message ListMyPriceAlertsResponse {
+  repeated PriceAlertResponse alerts = 1;
+}
+
+// ---- WatchlistService ---------------------------------------------------
+// Personal list of tracked listings per (owner_type, owner_id).
+// Read enriches each item with current price + daily change pulled from
+// the existing listing tables. No notifications, no schedulers.
+
+service WatchlistService {
+  rpc AddItem(AddWatchlistItemRequest) returns (WatchlistItemResponse);
+  rpc RemoveItem(RemoveWatchlistItemRequest) returns (RemoveWatchlistItemResponse);
+  rpc ListMy(ListMyWatchlistRequest) returns (ListMyWatchlistResponse);
+}
+
+message AddWatchlistItemRequest {
+  string owner_type = 1; // "client" | "bank"
+  uint64 owner_id   = 2; // omitted/0 when owner_type=="bank"
+  uint64 listing_id = 3;
+}
+
+message RemoveWatchlistItemRequest {
+  string owner_type = 1;
+  uint64 owner_id   = 2;
+  uint64 listing_id = 3;
+}
+
+message RemoveWatchlistItemResponse {
+  bool removed = 1;
+}
+
+message ListMyWatchlistRequest {
+  string owner_type    = 1;
+  uint64 owner_id      = 2;
+  string listing_type  = 3; // optional: "stock" | "option" | "futures" | "forex"
+}
+
+message WatchlistItemResponse {
+  uint64 id                   = 1;
+  uint64 listing_id           = 2;
+  string security_type        = 3;
+  string ticker               = 4;
+  string current_price        = 5;
+  string daily_change         = 6;
+  string daily_change_percent = 7;
+  int64  added_at_unix        = 8;
+}
+
+message ListMyWatchlistResponse {
+  repeated WatchlistItemResponse items = 1;
 }

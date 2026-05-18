@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -12,40 +11,33 @@ import (
 	"github.com/exbanka/stock-service/internal/service"
 )
 
-// mapServiceError maps service-layer error messages to gRPC status codes.
-func mapServiceError(err error) codes.Code {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "not found"):
-		return codes.NotFound
-	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"),
-		strings.Contains(msg, "must not"), strings.Contains(msg, "required"):
-		return codes.InvalidArgument
-	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
-		return codes.AlreadyExists
-	case strings.Contains(msg, "insufficient"), strings.Contains(msg, "limit exceeded"),
-		strings.Contains(msg, "not enough"):
-		return codes.FailedPrecondition
-	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
-		return codes.PermissionDenied
-	default:
-		return codes.Internal
-	}
+// exchangeSvcFacade is the narrow interface of ExchangeService used by ExchangeGRPCHandler.
+type exchangeSvcFacade interface {
+	ListExchanges(search string, page, pageSize int) ([]model.StockExchange, int64, error)
+	GetExchange(id uint64) (*model.StockExchange, error)
+	SetTestingMode(enabled bool) error
+	GetTestingMode() bool
 }
 
 type ExchangeGRPCHandler struct {
 	pb.UnimplementedStockExchangeGRPCServiceServer
-	svc *service.ExchangeService
+	svc exchangeSvcFacade
 }
 
 func NewExchangeGRPCHandler(svc *service.ExchangeService) *ExchangeGRPCHandler {
 	return &ExchangeGRPCHandler{svc: svc}
 }
 
+// newExchangeHandlerForTest constructs an ExchangeGRPCHandler with an
+// interface-typed dependency for use in unit tests.
+func newExchangeHandlerForTest(svc exchangeSvcFacade) *ExchangeGRPCHandler {
+	return &ExchangeGRPCHandler{svc: svc}
+}
+
 func (h *ExchangeGRPCHandler) ListExchanges(ctx context.Context, req *pb.ListExchangesRequest) (*pb.ListExchangesResponse, error) {
 	exchanges, total, err := h.svc.ListExchanges(req.Search, int(req.Page), int(req.PageSize))
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list exchanges: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListExchangesResponse{TotalCount: total, Exchanges: make([]*pb.Exchange, 0, len(exchanges))}
@@ -58,7 +50,7 @@ func (h *ExchangeGRPCHandler) ListExchanges(ctx context.Context, req *pb.ListExc
 func (h *ExchangeGRPCHandler) GetExchange(ctx context.Context, req *pb.GetExchangeRequest) (*pb.Exchange, error) {
 	ex, err := h.svc.GetExchange(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "exchange not found: %v", err)
+		return nil, err
 	}
 	return toExchangeProto(ex), nil
 }

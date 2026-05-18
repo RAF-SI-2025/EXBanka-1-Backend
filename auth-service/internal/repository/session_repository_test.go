@@ -132,6 +132,20 @@ func TestSessionRepository_CountActiveByUser(t *testing.T) {
 	assert.Equal(t, int64(2), count)
 }
 
+func TestSessionRepository_ListAllByUser_IncludesRevoked(t *testing.T) {
+	db := testutil.SetupTestDB(t, &model.ActiveSession{})
+	repo := NewSessionRepository(db)
+
+	now := time.Now()
+	revoked := now.Add(-time.Minute)
+	require.NoError(t, repo.Create(&model.ActiveSession{UserID: 1, UserRole: "client", SystemType: "client", LastActiveAt: now, CreatedAt: now}))
+	require.NoError(t, db.Create(&model.ActiveSession{UserID: 1, UserRole: "client", SystemType: "client", LastActiveAt: now, CreatedAt: now, RevokedAt: &revoked}).Error)
+
+	all, err := repo.ListAllByUser(1)
+	require.NoError(t, err)
+	assert.Len(t, all, 2, "ListAllByUser must include revoked sessions too")
+}
+
 func TestSessionRepository_RevokeAllForUser(t *testing.T) {
 	db := testutil.SetupTestDB(t, &model.ActiveSession{})
 	repo := NewSessionRepository(db)

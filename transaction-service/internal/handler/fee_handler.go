@@ -14,19 +14,35 @@ import (
 	"github.com/exbanka/transaction-service/internal/service"
 )
 
+// feeFacade is the subset of *service.FeeService used by the gRPC handler.
+type feeFacade interface {
+	ListFees() ([]model.TransferFee, error)
+	CreateFee(fee *model.TransferFee) error
+	GetFee(id uint64) (*model.TransferFee, error)
+	UpdateFee(fee *model.TransferFee) error
+	DeactivateFee(id uint64) error
+	CalculateFeeDetailed(amount decimal.Decimal, txType, currency string) (decimal.Decimal, []service.FeeDetail, error)
+}
+
 type FeeGRPCHandler struct {
 	pb.UnimplementedFeeServiceServer
-	feeSvc *service.FeeService
+	feeSvc feeFacade
 }
 
 func NewFeeGRPCHandler(feeSvc *service.FeeService) *FeeGRPCHandler {
 	return &FeeGRPCHandler{feeSvc: feeSvc}
 }
 
+// newFeeGRPCHandlerForTest constructs a FeeGRPCHandler with the feeFacade interface
+// for use in unit tests.
+func newFeeGRPCHandlerForTest(svc feeFacade) *FeeGRPCHandler {
+	return &FeeGRPCHandler{feeSvc: svc}
+}
+
 func (h *FeeGRPCHandler) ListFees(ctx context.Context, req *pb.ListFeesRequest) (*pb.ListFeesResponse, error) {
 	fees, err := h.feeSvc.ListFees()
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list fees: %v", err)
+		return nil, err
 	}
 	resp := &pb.ListFeesResponse{Fees: make([]*pb.TransferFeeResponse, 0, len(fees))}
 	for _, f := range fees {
@@ -55,7 +71,7 @@ func (h *FeeGRPCHandler) CreateFee(ctx context.Context, req *pb.CreateFeeRequest
 		Active:          true,
 	}
 	if err := h.feeSvc.CreateFee(fee); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create fee: %v", err)
+		return nil, err
 	}
 	return toFeeResponse(fee), nil
 }
@@ -66,7 +82,7 @@ func (h *FeeGRPCHandler) UpdateFee(ctx context.Context, req *pb.UpdateFeeRequest
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "fee not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get fee: %v", err)
+		return nil, err
 	}
 	if req.Name != "" {
 		fee.Name = req.Name
@@ -97,7 +113,7 @@ func (h *FeeGRPCHandler) UpdateFee(ctx context.Context, req *pb.UpdateFeeRequest
 	}
 	fee.Active = req.Active
 	if err := h.feeSvc.UpdateFee(fee); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to update fee: %v", err)
+		return nil, err
 	}
 	return toFeeResponse(fee), nil
 }
@@ -133,7 +149,7 @@ func (h *FeeGRPCHandler) CalculateFee(ctx context.Context, req *pb.CalculateFeeR
 
 func (h *FeeGRPCHandler) DeleteFee(ctx context.Context, req *pb.DeleteFeeRequest) (*pb.DeleteFeeResponse, error) {
 	if err := h.feeSvc.DeactivateFee(req.Id); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to deactivate fee: %v", err)
+		return nil, err
 	}
 	return &pb.DeleteFeeResponse{Success: true, Message: "fee deactivated"}, nil
 }

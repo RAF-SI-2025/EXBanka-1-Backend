@@ -21,7 +21,7 @@ func Load() *Config {
 	return &Config{
 		GatewayURL:    getEnv("TEST_GATEWAY_URL", "http://localhost:8080"),
 		KafkaBrokers:  getEnv("TEST_KAFKA_BROKERS", "localhost:9094"),
-		AdminEmail:    getEnv("ADMIN_EMAIL", "admin@admin.com"),
+		AdminEmail:    getEnv("ADMIN_EMAIL", "admin+testadmin@admin.com"),
 		AdminPassword: getEnv("ADMIN_PASSWORD", "AdminAdmin2026!."),
 		BaseEmail:     getEnv("TEST_BASE_EMAIL", "lsavic12123rn+test@raf.rs"),
 		Password:      "AdminAdmin2026!.",

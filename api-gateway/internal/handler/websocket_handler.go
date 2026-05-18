@@ -86,7 +86,7 @@ func (h *WebSocketHandler) HandleConnect(c *gin.Context) {
 		return
 	}
 
-	userID := resp.UserId
+	userID := resp.PrincipalId
 
 	ws := &wsConnection{
 		conn:     conn,

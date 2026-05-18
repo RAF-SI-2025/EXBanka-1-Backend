@@ -4,15 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/exbanka/contract/metrics"
 	notifpb "github.com/exbanka/contract/notificationpb"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	"github.com/exbanka/notification-service/internal/config"
 	"github.com/exbanka/notification-service/internal/consumer"
 	"github.com/exbanka/notification-service/internal/handler"
@@ -37,13 +34,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}); err != nil {
+	if err := db.AutoMigrate(&model.MobileInboxItem{}, &model.GeneralNotification{}, &model.NotificationTemplate{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
 	// Repositories
 	inboxRepo := repository.NewMobileInboxRepository(db)
 	notifRepo := repository.NewGeneralNotificationRepository(db)
+	templateRepo := repository.NewTemplateRepository(db)
+
+	// Template service (registry-backed render + admin CRUD)
+	templateSvc := service.NewTemplateService(templateRepo)
 
 	// Email sender
 	emailSender := sender.NewEmailSender(
@@ -57,7 +58,7 @@ func main() {
 
 	// Pre-create Kafka topics before starting consumers to avoid
 	// partition assignment race condition on fresh startup.
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		"notification.send-email",
 		"notification.email-sent",
 		"verification.challenge-created",
@@ -66,7 +67,7 @@ func main() {
 	)
 
 	// Kafka consumer (email events)
-	emailConsumer := consumer.NewEmailConsumer(cfg.KafkaBrokers, emailSender, producer)
+	emailConsumer := consumer.NewEmailConsumer(cfg.KafkaBrokers, emailSender, producer, templateSvc)
 	defer emailConsumer.Close()
 
 	// Start consumers in background
@@ -75,12 +76,12 @@ func main() {
 	go emailConsumer.Start(ctx)
 
 	// Verification consumer (challenge events → email or mobile inbox)
-	verificationConsumer := consumer.NewVerificationConsumer(cfg.KafkaBrokers, emailSender, producer, inboxRepo)
+	verificationConsumer := consumer.NewVerificationConsumer(cfg.KafkaBrokers, emailSender, producer, inboxRepo, templateSvc)
 	verificationConsumer.Start(ctx)
 	defer verificationConsumer.Close()
 
 	// General notification consumer (persistent user notifications)
-	generalConsumer := consumer.NewGeneralNotificationConsumer(cfg.KafkaBrokers, notifRepo)
+	generalConsumer := consumer.NewGeneralNotificationConsumer(cfg.KafkaBrokers, notifRepo, templateSvc)
 	generalConsumer.Start(ctx)
 	defer generalConsumer.Close()
 
@@ -88,20 +89,6 @@ func main() {
 	cleanupSvc := service.NewInboxCleanupService(inboxRepo)
 	cleanupSvc.StartCleanupCron(ctx)
 
-	// gRPC server
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	notifpb.RegisterNotificationServiceServer(grpcServer, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo))
-	shared.RegisterHealthCheck(grpcServer, "notification-service")
-	reflection.Register(grpcServer)
-	metrics.InitializeGRPCMetrics(grpcServer)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -110,19 +97,29 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// Graceful shutdown
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
-		log.Println("shutting down notification-service...")
-		cancel()
-		grpcServer.GracefulStop()
-	}()
-
-	markReady()
-	fmt.Printf("Notification service listening on %s\n", cfg.GRPCAddr)
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("notification-service"),
+				grpcmw.UnarySagaContextInterceptor(),
+			),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			notifpb.RegisterNotificationServiceServer(s, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo, templateSvc))
+			shared.RegisterHealthCheck(s, "notification-service")
+			reflection.Register(s)
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			fmt.Printf("Notification service listening on %s\n", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
 	}
+	cancel()
 }

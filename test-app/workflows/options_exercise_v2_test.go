@@ -18,7 +18,7 @@ import (
 // The test:
 //  1. Switches stock-source to "generated" so seeded options with listing_ids are available.
 //  2. Finds the first stock and one of its options.
-//  3. POSTs to /api/v2/options/{option_id}/exercise.
+//  3. POSTs to /api/v3/options/{option_id}/exercise.
 //  4. Accepts 200/400/403/404-holding/409 — rejects routing 404 or 5xx.
 //
 // Tagged "destructive" because switching to generated wipes existing securities data.
@@ -26,7 +26,7 @@ func TestOptionsV2_Exercise_RouteWired(t *testing.T) {
 	admin := loginAsAdmin(t)
 
 	// Switch to generated so we have seeded options with listing_ids.
-	switchResp, err := admin.POST("/api/v1/admin/stock-source", map[string]string{"source": "generated"})
+	switchResp, err := admin.POST("/api/v3/stock-sources", map[string]string{"source": "generated"})
 	if err != nil {
 		t.Fatalf("switch to generated: %v", err)
 	}
@@ -34,13 +34,13 @@ func TestOptionsV2_Exercise_RouteWired(t *testing.T) {
 
 	// Cleanup: restore external at test end.
 	t.Cleanup(func() {
-		_, _ = admin.POST("/api/v1/admin/stock-source", map[string]string{"source": "external"})
+		_, _ = admin.POST("/api/v3/stock-sources", map[string]string{"source": "external"})
 	})
 
 	// Poll for idle — the generated source switch is synchronous but we poll for safety.
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		statusResp, err := admin.GET("/api/v1/admin/stock-source")
+		statusResp, err := admin.GET("/api/v3/stock-sources/active")
 		if err != nil {
 			time.Sleep(300 * time.Millisecond)
 			continue
@@ -52,7 +52,7 @@ func TestOptionsV2_Exercise_RouteWired(t *testing.T) {
 	}
 
 	// Find a stock and its options.
-	stocksResp, err := admin.GET("/api/v1/securities/stocks?page=1&page_size=1")
+	stocksResp, err := admin.GET("/api/v3/securities/stocks?page=1&page_size=1")
 	if err != nil {
 		t.Fatalf("list stocks: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestOptionsV2_Exercise_RouteWired(t *testing.T) {
 	firstStock := stocks[0].(map[string]interface{})
 	stockID := int(firstStock["id"].(float64))
 
-	optsResp, err := admin.GET("/api/v1/securities/options?stock_id=" + helpers.FormatID(stockID))
+	optsResp, err := admin.GET("/api/v3/securities/options?stock_id=" + helpers.FormatID(stockID))
 	if err != nil {
 		t.Fatalf("list options: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestOptionsV2_Exercise_RouteWired(t *testing.T) {
 	//
 	// Not acceptable: routing 404 (route not wired) or 5xx (server error).
 	exerciseResp, err := admin.POST(
-		"/api/v2/options/"+helpers.FormatID(optionID)+"/exercise",
+		"/api/v3/options/"+helpers.FormatID(optionID)+"/exercise",
 		map[string]interface{}{"holding_id": 0},
 	)
 	if err != nil {

@@ -70,13 +70,16 @@ func (r *FuturesRepository) UpsertByTicker(f *model.FuturesContract) error {
 		existing.Change = f.Change
 		existing.Volume = f.Volume
 		existing.LastRefresh = f.LastRefresh
-		return tx.Save(&existing).Error
+		return CheckRowsAffected(tx.Save(&existing))
 	})
 }
 
 // UpdatePriceByTicker updates only the price column for the futures contract with the given ticker.
+// Uses SkipHooks because Model(&FuturesContract{}) creates a zero-value struct; the BeforeUpdate
+// optimistic-lock hook would add WHERE version=0 and match nothing (see CLAUDE.md §3a).
 func (r *FuturesRepository) UpdatePriceByTicker(ticker string, price decimal.Decimal) error {
-	return r.db.Model(&model.FuturesContract{}).Where("ticker = ?", ticker).Update("price", price).Error
+	return r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.FuturesContract{}).Where("ticker = ?", ticker).Update("price", price).Error
 }
 
 func (r *FuturesRepository) List(filter FuturesFilter) ([]model.FuturesContract, int64, error) {

@@ -48,10 +48,10 @@ func NewBlueprintService(
 // CreateBlueprint validates and persists a new blueprint.
 func (s *BlueprintService) CreateBlueprint(ctx context.Context, bp model.LimitBlueprint) (*model.LimitBlueprint, error) {
 	if bp.Name == "" {
-		return nil, errors.New("name is required")
+		return nil, fmt.Errorf("CreateBlueprint: name is required: %w", ErrInvalidBlueprint)
 	}
 	if !model.ValidBlueprintTypes[bp.Type] {
-		return nil, fmt.Errorf("invalid blueprint type: must be one of employee, actuary, client")
+		return nil, fmt.Errorf("CreateBlueprint(type=%s): invalid blueprint type, must be one of employee/actuary/client: %w", bp.Type, ErrInvalidBlueprint)
 	}
 	if err := s.validateValues(bp.Type, json.RawMessage(bp.Values)); err != nil {
 		return nil, fmt.Errorf("invalid values: %w", err)
@@ -76,7 +76,7 @@ func (s *BlueprintService) GetBlueprint(id uint64) (*model.LimitBlueprint, error
 // ListBlueprints returns all blueprints, optionally filtered by type.
 func (s *BlueprintService) ListBlueprints(bpType string) ([]model.LimitBlueprint, error) {
 	if bpType != "" && !model.ValidBlueprintTypes[bpType] {
-		return nil, fmt.Errorf("invalid blueprint type filter: must be one of employee, actuary, client")
+		return nil, fmt.Errorf("ListBlueprints(type=%s): invalid blueprint type filter, must be one of employee/actuary/client: %w", bpType, ErrInvalidBlueprint)
 	}
 	return s.blueprintRepo.List(bpType)
 }
@@ -136,7 +136,7 @@ func (s *BlueprintService) ApplyBlueprint(ctx context.Context, blueprintID uint6
 	bp, err := s.blueprintRepo.GetByID(blueprintID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("blueprint not found")
+			return fmt.Errorf("ApplyBlueprint(id=%d): %w", blueprintID, ErrBlueprintNotFound)
 		}
 		return err
 	}

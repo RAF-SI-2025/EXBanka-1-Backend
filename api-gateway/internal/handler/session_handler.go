@@ -25,9 +25,9 @@ func NewSessionHandler(authClient authpb.AuthServiceClient) *SessionHandler {
 // @Security     BearerAuth
 // @Success      200  {object}  map[string]interface{}  "sessions array"
 // @Failure      401  {object}  map[string]string  "unauthorized"
-// @Router       /api/me/sessions [get]
+// @Router       /api/v2/me/sessions [get]
 func (h *SessionHandler) ListMySessions(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid user context")
@@ -59,39 +59,34 @@ func (h *SessionHandler) ListMySessions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"sessions": sessions})
 }
 
-type revokeSessionRequest struct {
-	SessionID int64 `json:"session_id" binding:"required"`
-}
-
 // RevokeSession godoc
 // @Summary      Revoke a specific session
-// @Description  Revokes a session by ID, logging out the device associated with it
+// @Description  Revokes a session by ID, logging out the device associated with it. ID comes from the URL path; ownership enforced by the caller's JWT.
 // @Tags         sessions
-// @Accept       json
 // @Produce      json
 // @Security     BearerAuth
-// @Param        body  body  revokeSessionRequest  true  "Session to revoke"
+// @Param        id  path  int  true  "Session ID"
 // @Success      200  {object}  map[string]string  "success message"
 // @Failure      400  {object}  map[string]string  "validation error"
 // @Failure      401  {object}  map[string]string  "unauthorized"
 // @Failure      404  {object}  map[string]string  "session not found"
-// @Router       /api/me/sessions/revoke [post]
+// @Router       /api/v3/me/sessions/{id} [delete]
 func (h *SessionHandler) RevokeSession(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid user context")
 		return
 	}
 
-	var req revokeSessionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
+	sessionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || sessionID <= 0 {
+		apiError(c, http.StatusBadRequest, ErrValidation, "invalid session id")
 		return
 	}
 
-	_, err := h.authClient.RevokeSession(c.Request.Context(), &authpb.RevokeSessionRequest{
-		SessionId:    req.SessionID,
+	_, err = h.authClient.RevokeSession(c.Request.Context(), &authpb.RevokeSessionRequest{
+		SessionId:    sessionID,
 		CallerUserId: uid,
 	})
 	if err != nil {
@@ -116,9 +111,9 @@ type revokeAllSessionsRequest struct {
 // @Success      200  {object}  map[string]string  "success message"
 // @Failure      400  {object}  map[string]string  "validation error"
 // @Failure      401  {object}  map[string]string  "unauthorized"
-// @Router       /api/me/sessions/revoke-others [post]
+// @Router       /api/v2/me/sessions/revoke-others [post]
 func (h *SessionHandler) RevokeAllSessions(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := c.Get("principal_id")
 	uid, ok := userID.(int64)
 	if !ok {
 		apiError(c, http.StatusUnauthorized, ErrUnauthorized, "invalid user context")
@@ -151,7 +146,7 @@ func (h *SessionHandler) RevokeAllSessions(c *gin.Context) {
 // @Param        limit  query  int  false  "Max entries (default 50, max 100)"
 // @Success      200  {object}  map[string]interface{}  "entries array"
 // @Failure      401  {object}  map[string]string  "unauthorized"
-// @Router       /api/me/login-history [get]
+// @Router       /api/v2/me/login-history [get]
 func (h *SessionHandler) GetMyLoginHistory(c *gin.Context) {
 	email, _ := c.Get("email")
 	emailStr, ok := email.(string)

@@ -14,13 +14,36 @@ import (
 	"github.com/exbanka/stock-service/internal/service"
 )
 
+// orderSvcFacade is the narrow interface of OrderService used by OrderHandler.
+type orderSvcFacade interface {
+	CreateOrder(ctx context.Context, req service.CreateOrderRequest) (*model.Order, error)
+	GetOrder(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, []model.OrderTransaction, error)
+	ListMyOrders(ownerType model.OwnerType, ownerID *uint64, filter repository.OrderFilter) ([]model.Order, int64, error)
+	CancelOrder(orderID uint64, ownerType model.OwnerType, ownerID *uint64) (*model.Order, error)
+	ListAllOrders(filter repository.OrderFilter) ([]model.Order, int64, error)
+	ApproveOrder(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
+	DeclineOrder(orderID uint64, supervisorID uint64, supervisorName string) (*model.Order, error)
+}
+
+// execEngineFacade is the narrow interface of OrderExecutionEngine used by OrderHandler.
+type execEngineFacade interface {
+	StartOrderExecution(ctx context.Context, orderID uint64)
+	StopOrderExecution(orderID uint64)
+}
+
 type OrderHandler struct {
 	pb.UnimplementedOrderGRPCServiceServer
-	orderSvc   *service.OrderService
-	execEngine *service.OrderExecutionEngine
+	orderSvc   orderSvcFacade
+	execEngine execEngineFacade
 }
 
 func NewOrderHandler(orderSvc *service.OrderService, execEngine *service.OrderExecutionEngine) *OrderHandler {
+	return &OrderHandler{orderSvc: orderSvc, execEngine: execEngine}
+}
+
+// newOrderHandlerForTest constructs an OrderHandler with interface-typed
+// dependencies for use in unit tests.
+func newOrderHandlerForTest(orderSvc orderSvcFacade, execEngine execEngineFacade) *OrderHandler {
 	return &OrderHandler{orderSvc: orderSvc, execEngine: execEngine}
 }
 
@@ -49,28 +72,45 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 		holdingID = &v
 	}
 
-	// Resolve effective user ID: when an employee places on behalf of a client,
-	// the order belongs to the client and the employee is recorded for audit.
-	targetUserID := req.UserId
+	targetUserID, targetSystemType, rerr := resolveOrderOwner(req.UserId, req.SystemType, req.ActingEmployeeId, req.OnBehalfOfClientId)
+	if rerr != nil {
+		return nil, rerr
+	}
 	actingEmployeeID := req.ActingEmployeeId
-	if req.ActingEmployeeId != 0 {
-		if req.OnBehalfOfClientId == 0 {
-			return nil, status.Error(codes.InvalidArgument, "on_behalf_of_client_id required when acting_employee_id is set")
-		}
-		targetUserID = req.OnBehalfOfClientId
+
+	// BaseAccountId on the proto is an optional uint64 populated by the
+	// gateway for forex buy orders. Forward it to the service layer; the
+	// service's forex gating (order_service.go CreateOrder) rejects forex
+	// orders without it.
+	var baseAccountID *uint64
+	if req.BaseAccountId != nil {
+		v := *req.BaseAccountId
+		baseAccountID = &v
 	}
 
-	order, err := h.orderSvc.CreateOrder(
-		targetUserID, req.SystemType, req.ListingId, holdingID,
-		req.Direction, req.OrderType, req.Quantity,
-		limitVal, stopVal, req.AllOrNone, req.Margin, req.AccountId,
-		actingEmployeeID,
-	)
+	order, err := h.orderSvc.CreateOrder(ctx, service.CreateOrderRequest{
+		UserID:           targetUserID,
+		SystemType:       targetSystemType,
+		ListingID:        req.ListingId,
+		HoldingID:        holdingID,
+		Direction:        req.Direction,
+		OrderType:        req.OrderType,
+		Quantity:         req.Quantity,
+		LimitValue:       limitVal,
+		StopValue:        stopVal,
+		AllOrNone:        req.AllOrNone,
+		Margin:           req.Margin,
+		AccountID:        req.AccountId,
+		ActingEmployeeID: actingEmployeeID,
+		BaseAccountID:    baseAccountID,
+		OnBehalfOfFundID: req.OnBehalfOfFundId,
+	})
 	if err != nil {
 		return nil, mapOrderError(err)
 	}
 
-	// If auto-approved, start execution
+	// Start execution for any approved order (placement saga now always
+	// flips to "approved" on success).
 	if order.Status == "approved" {
 		h.execEngine.StartOrderExecution(ctx, order.ID)
 	}
@@ -79,7 +119,8 @@ func (h *OrderHandler) CreateOrder(ctx context.Context, req *pb.CreateOrderReque
 }
 
 func (h *OrderHandler) GetOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.OrderDetail, error) {
-	order, txns, err := h.orderSvc.GetOrder(req.Id, req.UserId)
+	ownerType, ownerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	order, txns, err := h.orderSvc.GetOrder(req.Id, ownerType, ownerID)
 	if err != nil {
 		return nil, mapOrderError(err)
 	}
@@ -94,7 +135,8 @@ func (h *OrderHandler) ListMyOrders(ctx context.Context, req *pb.ListMyOrdersReq
 		Page:      int(req.Page),
 		PageSize:  int(req.PageSize),
 	}
-	orders, total, err := h.orderSvc.ListMyOrders(req.UserId, filter)
+	listOwnerType, listOwnerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	orders, total, err := h.orderSvc.ListMyOrders(listOwnerType, listOwnerID, filter)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -102,7 +144,8 @@ func (h *OrderHandler) ListMyOrders(ctx context.Context, req *pb.ListMyOrdersReq
 }
 
 func (h *OrderHandler) CancelOrder(ctx context.Context, req *pb.CancelOrderRequest) (*pb.Order, error) {
-	order, err := h.orderSvc.CancelOrder(req.Id, req.UserId)
+	cancelOwnerType, cancelOwnerID := model.OwnerFromLegacy(req.UserId, req.SystemType)
+	order, err := h.orderSvc.CancelOrder(req.Id, cancelOwnerType, cancelOwnerID)
 	if err != nil {
 		return nil, mapOrderError(err)
 	}
@@ -145,29 +188,55 @@ func (h *OrderHandler) DeclineOrder(ctx context.Context, req *pb.DeclineOrderReq
 }
 
 // --- Mapping helpers ---
-
+//
+// mapOrderError is now a passthrough. Service-layer sentinels carry their own
+// gRPC code via svcerr.SentinelError; placement-saga errors that are already
+// gRPC status errors propagate verbatim. Bare errors that escape this filter
+// will surface as codes.Unknown — fix at the source by wrapping with a
+// sentinel from internal/service/errors.go.
 func mapOrderError(err error) error {
-	switch err.Error() {
-	case "order not found", "listing not found":
-		return status.Error(codes.NotFound, err.Error())
-	case "order does not belong to user":
-		return status.Error(codes.PermissionDenied, err.Error())
-	case "order is not pending", "order is already completed",
-		"order is already declined/cancelled",
-		"cannot approve: settlement date has passed":
-		return status.Error(codes.FailedPrecondition, err.Error())
-	case "limit_value required for limit/stop_limit orders",
-		"stop_value required for stop/stop_limit orders":
-		return status.Error(codes.InvalidArgument, err.Error())
-	default:
-		return status.Error(codes.Internal, err.Error())
+	return err
+}
+
+// computeOrderState returns the computed "state" field from (status, is_done,
+// has_fills). Users were confused that orders stayed in status="approved"
+// after fully filling — state collapses (status, is_done, fill count) into a
+// single label.
+//
+//	pending   → status=pending
+//	declined  → status=declined
+//	cancelled → status=cancelled
+//	filled    → status=approved AND is_done
+//	filling   → status=approved AND has fills but not done
+//	approved  → status=approved AND no fills yet
+func computeOrderState(o *model.Order, hasFills bool) string {
+	switch o.Status {
+	case "pending":
+		return "pending"
+	case "declined":
+		return "declined"
+	case "cancelled":
+		return "cancelled"
+	case "approved":
+		if o.IsDone {
+			return "filled"
+		}
+		if hasFills {
+			return "filling"
+		}
+		return "approved"
 	}
+	return "unknown"
 }
 
 func toOrderProto(o *model.Order) *pb.Order {
+	// has-fills is derived from RemainingPortions < Quantity. The execution
+	// engine maintains this invariant on every partial fill.
+	hasFills := o.RemainingPortions < o.Quantity
+	filledQty := o.Quantity - o.RemainingPortions
 	order := &pb.Order{
 		Id:                o.ID,
-		UserId:            o.UserID,
+		UserId:            model.OwnerIDOrZero(o.OwnerID),
 		ListingId:         o.ListingID,
 		SecurityType:      o.SecurityType,
 		Ticker:            o.Ticker,
@@ -179,6 +248,8 @@ func toOrderProto(o *model.Order) *pb.Order {
 		ApproximatePrice:  o.ApproximatePrice.StringFixed(4),
 		Commission:        o.Commission.StringFixed(2),
 		Status:            o.Status,
+		State:             computeOrderState(o, hasFills),
+		FilledQuantity:    filledQty,
 		ApprovedBy:        o.ApprovedBy,
 		IsDone:            o.IsDone,
 		RemainingPortions: o.RemainingPortions,
@@ -186,7 +257,7 @@ func toOrderProto(o *model.Order) *pb.Order {
 		AllOrNone:         o.AllOrNone,
 		Margin:            o.Margin,
 		AccountId:         o.AccountID,
-		ActingEmployeeId:  o.ActingEmployeeID,
+		ActingEmployeeId:  derefU64(o.ActingEmployeeID),
 		LastModification:  o.LastModification.Format("2006-01-02T15:04:05Z"),
 		CreatedAt:         o.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
@@ -206,6 +277,10 @@ func toOrderProto(o *model.Order) *pb.Order {
 
 func toOrderDetailProto(o *model.Order, txns []model.OrderTransaction) *pb.OrderDetail {
 	orderProto := toOrderProto(o)
+	// Refine the computed "state" field with the authoritative txn count —
+	// toOrderProto has to guess from RemainingPortions; the detail endpoint
+	// knows for sure.
+	orderProto.State = computeOrderState(o, len(txns) > 0)
 	txnProtos := make([]*pb.OrderTransaction, len(txns))
 	for i, t := range txns {
 		txnProtos[i] = &pb.OrderTransaction{
@@ -225,4 +300,38 @@ func toOrderListResponse(orders []model.Order, total int64) *pb.ListOrdersRespon
 		protos[i] = toOrderProto(&o)
 	}
 	return &pb.ListOrdersResponse{Orders: protos, TotalCount: total}
+}
+
+// derefU64 returns 0 when p is nil, otherwise *p. Used to bridge model fields
+// that became *uint64 (e.g. Order.ActingEmployeeID) to proto fields whose
+// schema is still uint64.
+func derefU64(p *uint64) uint64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// resolveOrderOwner decides who the order (and any resulting holding) belongs
+// to. When an employee places on behalf of a client, the order is attributed
+// to the client — both the user ID and the system_type flip — so the holding
+// shows up in the client's /me/portfolio. The acting employee is recorded
+// separately on the order for audit; this function does not touch it.
+func resolveOrderOwner(reqUserID uint64, reqSystemType string, actingEmployeeID, onBehalfOfClientID uint64) (uint64, string, error) {
+	if actingEmployeeID != 0 {
+		// Two legitimate employee-acting patterns:
+		//   1. Employee places for a specific client → owner=client/<clientID>
+		//   2. Employee places for the bank (/me/order under
+		//      OwnerIsBankIfEmployee) → owner=bank/0, no on-behalf-of-client
+		// Distinguish by reqSystemType: "bank" → pattern 2; anything else
+		// requires onBehalfOfClientID (pattern 1).
+		if onBehalfOfClientID != 0 {
+			return onBehalfOfClientID, "client", nil
+		}
+		if reqSystemType == "bank" {
+			return 0, "bank", nil
+		}
+		return 0, "", status.Error(codes.InvalidArgument, "on_behalf_of_client_id required when acting_employee_id is set (or system_type must be bank for employee-as-bank trades)")
+	}
+	return reqUserID, reqSystemType, nil
 }

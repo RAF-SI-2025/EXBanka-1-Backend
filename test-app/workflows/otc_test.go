@@ -13,7 +13,7 @@ func TestOTC_ListOffers(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/v1/otc/offers")
+	resp, err := agentC.GET("/api/v3/otc/offers")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestOTC_ListOffers(t *testing.T) {
 func TestOTC_ListOffers_Unauthenticated(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.GET("/api/v1/otc/offers")
+	resp, err := c.GET("/api/v3/otc/offers")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestOTC_ListOffers_FilterBySecurityType(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/v1/otc/offers?security_type=stock")
+	resp, err := agentC.GET("/api/v3/otc/offers?security_type=stock")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestOTC_ListOffers_InvalidSecurityType(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/v1/otc/offers?security_type=option")
+	resp, err := agentC.GET("/api/v3/otc/offers?security_type=option")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestOTC_BuyOffer_InvalidQuantity(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/v1/otc/offers/1/buy", map[string]interface{}{
+	resp, err := agentC.POST("/api/v3/otc/offers/1/buy", map[string]interface{}{
 		"quantity":   0,
 		"account_id": 1,
 	})
@@ -76,7 +76,7 @@ func TestOTC_BuyOffer_MissingAccountID(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.POST("/api/v1/otc/offers/1/buy", map[string]interface{}{
+	resp, err := agentC.POST("/api/v3/otc/offers/1/buy", map[string]interface{}{
 		"quantity": 5,
 	})
 	if err != nil {

@@ -25,7 +25,7 @@ type requestActivationReq struct {
 // @Produce json
 // @Param body body requestActivationReq true "Email"
 // @Success 200 {object} map[string]interface{}
-// @Router /api/mobile/auth/request-activation [post]
+// @Router /api/v2/mobile/auth/request-activation [post]
 func (h *MobileAuthHandler) RequestActivation(c *gin.Context) {
 	var req requestActivationReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -56,7 +56,7 @@ type activateDeviceReq struct {
 // @Param body body activateDeviceReq true "Activation data"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]interface{}
-// @Router /api/mobile/auth/activate [post]
+// @Router /api/v2/mobile/auth/activate [post]
 func (h *MobileAuthHandler) ActivateDevice(c *gin.Context) {
 	var req activateDeviceReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -95,7 +95,7 @@ type refreshMobileReq struct {
 // @Produce json
 // @Param body body refreshMobileReq true "Refresh token"
 // @Success 200 {object} map[string]interface{}
-// @Router /api/mobile/auth/refresh [post]
+// @Router /api/v2/mobile/auth/refresh [post]
 func (h *MobileAuthHandler) RefreshMobileToken(c *gin.Context) {
 	var req refreshMobileReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -127,9 +127,9 @@ func (h *MobileAuthHandler) RefreshMobileToken(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
-// @Router /api/mobile/device [get]
+// @Router /api/v2/mobile/device [get]
 func (h *MobileAuthHandler) GetDeviceInfo(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	resp, err := h.authClient.GetDeviceInfo(c.Request.Context(), &authpb.GetDeviceInfoRequest{
 		UserId: userID,
 	})
@@ -151,9 +151,9 @@ func (h *MobileAuthHandler) GetDeviceInfo(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
-// @Router /api/mobile/device/deactivate [post]
+// @Router /api/v2/mobile/device/deactivate [post]
 func (h *MobileAuthHandler) DeactivateDevice(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	deviceID, _ := c.Get("device_id")
 	resp, err := h.authClient.DeactivateDevice(c.Request.Context(), &authpb.DeactivateDeviceRequest{
 		UserId:   userID,
@@ -176,9 +176,9 @@ type transferDeviceReq struct {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
-// @Router /api/mobile/device/transfer [post]
+// @Router /api/v2/mobile/device/transfer [post]
 func (h *MobileAuthHandler) TransferDevice(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	var req transferDeviceReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apiError(c, http.StatusBadRequest, ErrValidation, err.Error())
@@ -207,7 +207,7 @@ type setBiometricsReq struct {
 // @Param body body setBiometricsReq true "Biometrics setting"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]interface{}
-// @Router /api/v1/mobile/device/biometrics [post]
+// @Router /api/v2/mobile/device/biometrics [post]
 func (h *MobileAuthHandler) SetBiometrics(c *gin.Context) {
 	var req setBiometricsReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -215,7 +215,7 @@ func (h *MobileAuthHandler) SetBiometrics(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	deviceID, _ := c.Get("device_id")
 
 	resp, err := h.authClient.SetBiometricsEnabled(c.Request.Context(), &authpb.SetBiometricsRequest{
@@ -236,9 +236,9 @@ func (h *MobileAuthHandler) SetBiometrics(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Success 200 {object} map[string]interface{}
-// @Router /api/v1/mobile/device/biometrics [get]
+// @Router /api/v2/mobile/device/biometrics [get]
 func (h *MobileAuthHandler) GetBiometrics(c *gin.Context) {
-	userID := c.GetInt64("user_id")
+	userID := c.GetInt64("principal_id")
 	deviceID, _ := c.Get("device_id")
 
 	resp, err := h.authClient.GetBiometricsEnabled(c.Request.Context(), &authpb.GetBiometricsRequest{

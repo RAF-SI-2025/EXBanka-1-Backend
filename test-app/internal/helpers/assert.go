@@ -71,3 +71,17 @@ func GetNumberField(t *testing.T, resp *client.Response, field string) float64 {
 	}
 	return n
 }
+
+// GetNestedNumberField extracts resp.Body[outer][inner] as a float64.
+func GetNestedNumberField(t *testing.T, resp *client.Response, outer, inner string) float64 {
+	t.Helper()
+	obj, ok := RequireField(t, resp, outer).(map[string]interface{})
+	if !ok {
+		t.Fatalf("field %q is not an object", outer)
+	}
+	n, ok := obj[inner].(float64)
+	if !ok {
+		t.Fatalf("field %q.%q is not a number: %v (type %T)", outer, inner, obj[inner], obj[inner])
+	}
+	return n
+}

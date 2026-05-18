@@ -18,6 +18,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// cronNotifier is the narrow slice of the Kafka producer the cron uses for
+// in-app notification intents. A separate interface (not the concrete
+// *kafka.Producer) so unit tests can inject a recording stub. Named cronNotifier
+// to avoid collisions with the package-private notifier type used by other
+// service files in this package's sibling services. Precedent: Plan B2 Task 1
+// introduced the same pattern in transaction-service/internal/service/payment_service.go.
+type cronNotifier interface {
+	PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error
+}
+
 type CronService struct {
 	installService    *InstallmentService
 	loanService       *LoanService
@@ -25,6 +35,7 @@ type CronService struct {
 	bankAccountClient accountpb.BankAccountServiceClient
 	clientClient      clientpb.ClientServiceClient
 	producer          *kafka.Producer
+	notifier          cronNotifier
 	bankRSDAccount    string
 	db                *gorm.DB
 }
@@ -39,7 +50,7 @@ func NewCronService(
 	bankRSDAccount string,
 	db *gorm.DB,
 ) *CronService {
-	return &CronService{
+	s := &CronService{
 		installService:    installService,
 		loanService:       loanService,
 		accountClient:     accountClient,
@@ -49,25 +60,47 @@ func NewCronService(
 		bankRSDAccount:    bankRSDAccount,
 		db:                db,
 	}
+	if producer != nil {
+		s.notifier = producer
+	}
+	return s
 }
 
-// Start runs the daily installment collection job
-func (c *CronService) Start(ctx context.Context) {
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-
-	// Run immediately on start
-	c.collectDueInstallments(ctx)
-
-	for {
-		select {
-		case <-ticker.C:
-			c.collectDueInstallments(ctx)
-		case <-ctx.Done():
-			log.Println("CronService: stopping")
-			return
-		}
+// notifyInstallment emits an in-app notification for an installment lifecycle
+// event (INSTALLMENT_COLLECTED on success, INSTALLMENT_FAILED on failure).
+// Best-effort: errors are discarded, and no-op when notifier is unset (e.g.,
+// credit-service started without Kafka). retryDeadline is only set on the
+// failure path; pass "" for the success path.
+func (c *CronService) notifyInstallment(ctx context.Context, loan *model.Loan, installmentID uint64, notifType, amount, retryDeadline string) {
+	if c.notifier == nil {
+		return
 	}
+	data := map[string]string{"amount": amount}
+	if retryDeadline != "" {
+		data["retry_deadline"] = retryDeadline
+	}
+	_ = c.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  loan.ClientID,
+		Type:    notifType,
+		Data:    data,
+		RefType: "installment",
+		RefID:   installmentID,
+	})
+}
+
+// Start runs the daily installment collection job using the shared
+// scheduled runner. Returns immediately; the loop runs until ctx is
+// cancelled. RunOnStart fires the first collection without waiting a day.
+func (c *CronService) Start(ctx context.Context) {
+	shared.RunScheduled(ctx, shared.ScheduledJob{
+		Name:       "credit-installment-collection",
+		Interval:   24 * time.Hour,
+		RunOnStart: true,
+		OnTick: func(ctx context.Context) error {
+			c.collectDueInstallments(ctx)
+			return nil
+		},
+	})
 }
 
 func (c *CronService) collectDueInstallments(ctx context.Context) {
@@ -106,6 +139,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 	}
 
 	retryDeadline := time.Now().Add(72 * time.Hour).Format(time.RFC3339)
+	installRef := fmt.Sprintf("installment:%d", installmentID)
 
 	// Debit the loan's account via account-service
 	debitErr := shared.Retry(ctx, shared.DefaultRetryConfig, func() error {
@@ -118,6 +152,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			AccountNumber:   loan.AccountNumber,
 			Amount:          debitAmt,
 			UpdateAvailable: true,
+			IdempotencyKey:  installRef + ":debit",
 		})
 		return e
 	})
@@ -162,6 +197,11 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			}
 		}
 
+		// In-app notification to the borrower: INSTALLMENT_FAILED.
+		// Fired even if the client lookup for the email above failed, since we
+		// already have loan.ClientID directly. Best-effort; errors discarded.
+		c.notifyInstallment(ctx, loan, installmentID, "INSTALLMENT_FAILED", amount, retryDeadline)
+
 		// Apply late payment interest penalty for variable-rate loans
 		CreditLatePaymentPenaltiesTotal.Inc()
 		if loan.InterestType == "variable" {
@@ -182,8 +222,10 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 
 				// Wrap both writes in a single transaction to prevent partial updates.
 				txErr := c.db.Transaction(func(tx *gorm.DB) error {
-					if e := tx.Save(loan).Error; e != nil {
-						return e
+					if saveRes := tx.Save(loan); saveRes.Error != nil {
+						return saveRes.Error
+					} else if saveRes.RowsAffected == 0 {
+						return fmt.Errorf("optimistic lock conflict: loan %d was modified concurrently", loan.ID)
 					}
 					return tx.Session(&gorm.Session{SkipHooks: true}).
 						Model(&model.Installment{}).
@@ -211,6 +253,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			AccountNumber:   c.bankRSDAccount,
 			Amount:          amount,
 			UpdateAvailable: true,
+			IdempotencyKey:  installRef + ":bank-credit",
 		})
 		if creditErr != nil {
 			log.Printf("CronService: failed to credit bank RSD account for installment %d: %v — reversing client debit", installmentID, creditErr)
@@ -218,6 +261,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				AccountNumber:   loan.AccountNumber,
 				Amount:          amount, // positive = credit back to client
 				UpdateAvailable: true,
+				IdempotencyKey:  installRef + ":debit-compensate",
 			})
 			if compErr != nil {
 				log.Printf("CronService: CRITICAL: compensation for installment %d failed: %v — manual intervention required", installmentID, compErr)
@@ -246,6 +290,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				AccountNumber:   c.bankRSDAccount,
 				Amount:          amtDecimal.Neg().StringFixed(4),
 				UpdateAvailable: true,
+				IdempotencyKey:  installRef + ":bank-credit-compensate",
 			}); compErr != nil {
 				log.Printf("CronService: CRITICAL: bank compensation failed for installment %d: %v — manual review required", installmentID, compErr)
 			}
@@ -256,6 +301,7 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 				AccountNumber:   loan.AccountNumber,
 				Amount:          amtDecimal.StringFixed(4),
 				UpdateAvailable: true,
+				IdempotencyKey:  installRef + ":debit-compensate-2",
 			}); compErr != nil {
 				log.Printf("CronService: CRITICAL: client compensation failed for installment %d: %v — manual review required", installmentID, compErr)
 			}
@@ -276,4 +322,8 @@ func (c *CronService) processInstallment(ctx context.Context, installmentID, loa
 			log.Printf("CronService: failed to publish installment-collected event: %v", pubErr)
 		}
 	}
+
+	// In-app notification to the borrower: INSTALLMENT_COLLECTED.
+	// Best-effort; errors discarded inside helper.
+	c.notifyInstallment(ctx, loan, installmentID, "INSTALLMENT_COLLECTED", amount, "")
 }

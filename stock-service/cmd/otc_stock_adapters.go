@@ -1,0 +1,155 @@
+// Package main — adapter glue wiring stock-service repositories into
+// the narrow interfaces consumed by OTCStockService.
+//
+// OTCStockServiceListingResolver wants two leaf methods (currency +
+// ticker/name/stock_id by listing_id). The actual data lives across
+// three repos (Listing → Stock → StockExchange), so we hide the
+// chained lookup behind this adapter and pass it as the service's
+// listing-resolver dependency.
+//
+// OTCStockAccountClient wraps the existing grpc.AccountClient with a
+// GetAccount helper (the raw accountpb stub takes a request struct;
+// the service's narrow interface takes a uint64 for terseness).
+package main
+
+import (
+	"context"
+
+	"github.com/shopspring/decimal"
+
+	accountpb "github.com/exbanka/contract/accountpb"
+	stockgrpc "github.com/exbanka/stock-service/internal/grpc"
+	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/repository"
+)
+
+// stockAccountClientAdapter wraps grpc.AccountClient and adds the
+// terse GetAccount(uint64) variant the OTCStockService consumes.
+type stockAccountClientAdapter struct {
+	wrapped *stockgrpc.AccountClient
+}
+
+func newStockAccountClientAdapter(c *stockgrpc.AccountClient) *stockAccountClientAdapter {
+	return &stockAccountClientAdapter{wrapped: c}
+}
+
+func (a *stockAccountClientAdapter) ReserveFunds(ctx context.Context, accountID, orderID uint64, amount decimal.Decimal, currencyCode, idempotencyKey, orderKind string) (*accountpb.ReserveFundsResponse, error) {
+	return a.wrapped.ReserveFunds(ctx, accountID, orderID, amount, currencyCode, idempotencyKey, orderKind)
+}
+
+func (a *stockAccountClientAdapter) ReleaseReservation(ctx context.Context, orderID uint64, idempotencyKey, orderKind string) (*accountpb.ReleaseReservationResponse, error) {
+	return a.wrapped.ReleaseReservation(ctx, orderID, idempotencyKey, orderKind)
+}
+
+func (a *stockAccountClientAdapter) GetAccount(ctx context.Context, accountID uint64) (*accountpb.AccountResponse, error) {
+	return a.wrapped.Stub().GetAccount(ctx, &accountpb.GetAccountRequest{Id: accountID})
+}
+
+// PartialSettleReservation — used by FillBuyOffer to consume part of
+// the buyer's pre-reserved cash and write the matching ledger entry.
+func (a *stockAccountClientAdapter) PartialSettleReservation(ctx context.Context, orderID, orderTransactionID uint64, amount decimal.Decimal, memo, idempotencyKey, orderKind string) (*accountpb.PartialSettleReservationResponse, error) {
+	return a.wrapped.PartialSettleReservation(ctx, orderID, orderTransactionID, amount, memo, idempotencyKey, orderKind)
+}
+
+// CreditAccount — used by FillBuyOffer to credit the seller's account.
+func (a *stockAccountClientAdapter) CreditAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	return a.wrapped.CreditAccount(ctx, accountNumber, amount, memo, idempotencyKey)
+}
+
+// DebitAccount — used by FillBuyOffer compensation paths to reverse a
+// previous credit.
+func (a *stockAccountClientAdapter) DebitAccount(ctx context.Context, accountNumber string, amount decimal.Decimal, memo, idempotencyKey string) (*accountpb.AccountResponse, error) {
+	return a.wrapped.DebitAccount(ctx, accountNumber, amount, memo, idempotencyKey)
+}
+
+type stockListingResolverAdapter struct {
+	listings  *repository.ListingRepository
+	stocks    *repository.StockRepository
+	exchanges *repository.ExchangeRepository
+}
+
+// otcStockMetaAdapter satisfies service.OTCStockMetaResolver — the OTC
+// exercise saga uses it to resolve Name + ListingID for the
+// buyer-credit holding upsert. Without these fields, the new holding
+// row is invisible/untradeable in the FE (no ticker lookup → can't
+// place a sell order or make-public). See 2026-05-16 fix in
+// otc_exercise_saga.go.
+type otcStockMetaAdapter struct {
+	stocks   *repository.StockRepository
+	listings *repository.ListingRepository
+}
+
+func (a *otcStockMetaAdapter) GetStockByID(id uint64) (*model.Stock, error) {
+	return a.stocks.GetByID(id)
+}
+
+func (a *otcStockMetaAdapter) GetListingBySecurityIDAndType(securityID uint64, securityType string) (*model.Listing, error) {
+	return a.listings.GetBySecurityIDAndType(securityID, securityType)
+}
+
+// GetListingCurrency: Listing → ExchangeID → StockExchange.Currency.
+func (a *stockListingResolverAdapter) GetListingCurrency(listingID uint64) (string, error) {
+	l, err := a.listings.GetByID(listingID)
+	if err != nil {
+		return "", err
+	}
+	ex, err := a.exchanges.GetByID(l.ExchangeID)
+	if err != nil {
+		return "", err
+	}
+	return ex.Currency, nil
+}
+
+// GetListingTickerAndName: Listing → SecurityID → Stock.Ticker/Name.
+// (Returns the stock ID too so OTCStockBuyOffer.StockID can be populated
+// without a second lookup.) Only `security_type == "stock"` is supported
+// here — futures/forex/options listings reject at the service-level
+// validation before this is called.
+func (a *stockListingResolverAdapter) GetListingTickerAndName(listingID uint64) (string, string, uint64, error) {
+	l, err := a.listings.GetByID(listingID)
+	if err != nil {
+		return "", "", 0, err
+	}
+	s, err := a.stocks.GetByID(l.SecurityID)
+	if err != nil {
+		return "", "", 0, err
+	}
+	return s.Ticker, s.Name, s.ID, nil
+}
+
+// optionCurrencyResolverAdapter implements otccache.OptionCurrencyResolver
+// AND handler.OptionCurrencyResolver by looking up the stock's listing →
+// exchange → currency. The two interfaces share the same single-method
+// shape (CurrencyForStock(stockID) (string, error)) so one adapter
+// satisfies both.
+type optionCurrencyResolverAdapter struct {
+	listings  *repository.ListingRepository
+	stocks    *repository.StockRepository
+	exchanges *repository.ExchangeRepository
+}
+
+func newOptionCurrencyResolverAdapter(
+	listings *repository.ListingRepository,
+	stocks *repository.StockRepository,
+	exchanges *repository.ExchangeRepository,
+) *optionCurrencyResolverAdapter {
+	return &optionCurrencyResolverAdapter{listings: listings, stocks: stocks, exchanges: exchanges}
+}
+
+// CurrencyForStock: Stock (lookup) → Listing.GetBySecurityIDAndType
+// → ExchangeID → StockExchange.Currency. Falls back to "" if any
+// lookup fails so the caller can default to "USD".
+func (a *optionCurrencyResolverAdapter) CurrencyForStock(stockID uint64) (string, error) {
+	listing, err := a.listings.GetBySecurityIDAndType(stockID, "stock")
+	if err != nil {
+		return "", err
+	}
+	if listing == nil {
+		return "", nil
+	}
+	ex, err := a.exchanges.GetByID(listing.ExchangeID)
+	if err != nil {
+		return "", err
+	}
+	return ex.Currency, nil
+}

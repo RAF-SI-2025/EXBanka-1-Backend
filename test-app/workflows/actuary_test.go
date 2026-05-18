@@ -14,7 +14,7 @@ func TestActuary_ListActuaries(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
-	resp, err := supervisorC.GET("/api/v1/actuaries")
+	resp, err := supervisorC.GET("/api/v3/actuaries")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestActuary_ListActuaries_AgentCannot(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, agentC, _ := setupAgentEmployee(t, adminC)
 
-	resp, err := agentC.GET("/api/v1/actuaries")
+	resp, err := agentC.GET("/api/v3/actuaries")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestActuary_SetLimit(t *testing.T) {
 	agentID, _, _ := setupAgentEmployee(t, adminC)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
-	resp, err := supervisorC.PUT(fmt.Sprintf("/api/v1/actuaries/%d/limit", agentID), map[string]interface{}{
+	resp, err := supervisorC.PUT(fmt.Sprintf("/api/v3/actuaries/%d/limit", agentID), map[string]interface{}{
 		"limit": "200000.00",
 	})
 	if err != nil {
@@ -55,7 +55,7 @@ func TestActuary_SetLimit_EmptyValue(t *testing.T) {
 	adminC := loginAsAdmin(t)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
-	resp, err := supervisorC.PUT("/api/v1/actuaries/1/limit", map[string]interface{}{
+	resp, err := supervisorC.PUT("/api/v3/actuaries/1/limit", map[string]interface{}{
 		"limit": "",
 	})
 	if err != nil {
@@ -70,22 +70,21 @@ func TestActuary_ResetLimit(t *testing.T) {
 	agentID, _, _ := setupAgentEmployee(t, adminC)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
-	resp, err := supervisorC.POST(fmt.Sprintf("/api/v1/actuaries/%d/reset-limit", agentID), nil)
+	resp, err := supervisorC.POST(fmt.Sprintf("/api/v3/actuaries/%d/reset-limit", agentID), nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 200)
 }
 
-func TestActuary_SetNeedApproval(t *testing.T) {
+func TestActuary_RequireApproval(t *testing.T) {
 	t.Parallel()
 	adminC := loginAsAdmin(t)
 	agentID, _, _ := setupAgentEmployee(t, adminC)
 	_, supervisorC, _ := setupSupervisorEmployee(t, adminC)
 
-	resp, err := supervisorC.PUT(fmt.Sprintf("/api/v1/actuaries/%d/approval", agentID), map[string]interface{}{
-		"need_approval": true,
-	})
+	// POST /actuaries/:id/require-approval — no request body.
+	resp, err := supervisorC.POST(fmt.Sprintf("/api/v3/actuaries/%d/require-approval", agentID), nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -95,7 +94,7 @@ func TestActuary_SetNeedApproval(t *testing.T) {
 func TestActuary_Unauthenticated(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.GET("/api/v1/actuaries")
+	resp, err := c.GET("/api/v3/actuaries")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

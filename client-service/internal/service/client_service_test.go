@@ -660,5 +660,5 @@ func TestSetClientLimits_EmployeeSvcError(t *testing.T) {
 
 	_, err := svc.SetClientLimits(context.Background(), limit, 0)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "verify employee limits")
+	assert.ErrorIs(t, err, ErrEmployeeLookupFailed)
 }

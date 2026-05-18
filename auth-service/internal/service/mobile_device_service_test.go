@@ -172,7 +172,7 @@ func TestDeactivateDevice_WrongUser(t *testing.T) {
 	// Try to deactivate as a different user
 	err := svc.DeactivateDevice(999, deviceID)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "does not belong to user")
+	assert.ErrorIs(t, err, ErrDeviceMismatch)
 }
 
 func TestDeactivateDevice_AlreadyDeactivated(t *testing.T) {
@@ -206,7 +206,8 @@ func TestDeactivateDevice_AlreadyDeactivated(t *testing.T) {
 
 	err := svc.DeactivateDevice(100, deviceID)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already deactivated")
+	// "already deactivated" now collapses to ErrDeviceInactive (status != "active").
+	assert.ErrorIs(t, err, ErrDeviceInactive)
 }
 
 func TestDeactivateDevice_NotFound(t *testing.T) {
@@ -225,7 +226,7 @@ func TestDeactivateDevice_NotFound(t *testing.T) {
 
 	err := svc.DeactivateDevice(100, "nonexistent-device-id")
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "device not found")
+	assert.ErrorIs(t, err, ErrDeviceNotFound)
 }
 
 // ============================================================
@@ -270,7 +271,7 @@ func TestGetDeviceInfo_NoActiveDevice(t *testing.T) {
 
 	_, err := svc.GetDeviceInfo(999)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no active device found")
+	assert.ErrorIs(t, err, ErrDeviceNotFound)
 }
 
 // ============================================================
@@ -334,7 +335,7 @@ func TestValidateDeviceSignature_WrongSignature(t *testing.T) {
 
 	_, err := svc.ValidateDeviceSignature(deviceID, ts, "GET", "/api/me", "abc123", wrongSig)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "signature mismatch")
+	assert.ErrorIs(t, err, ErrInvalidSignature)
 }
 
 func TestValidateDeviceSignature_ExpiredTimestamp(t *testing.T) {
@@ -360,7 +361,7 @@ func TestValidateDeviceSignature_ExpiredTimestamp(t *testing.T) {
 
 	_, err := svc.ValidateDeviceSignature(deviceID, ts, "GET", "/api/me", "abc", sig)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "timestamp too old")
+	assert.ErrorIs(t, err, ErrInvalidSignature)
 }
 
 func TestValidateDeviceSignature_DeviceNotFound(t *testing.T) {

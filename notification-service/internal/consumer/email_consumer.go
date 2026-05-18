@@ -14,13 +14,29 @@ import (
 	kafkago "github.com/segmentio/kafka-go"
 )
 
-type EmailConsumer struct {
-	reader   *kafkago.Reader
-	sender   *sender.EmailSender
-	producer *kafkaprod.Producer
+// emailDispatcher is the minimal subset of *sender.EmailSender used by EmailConsumer.
+type emailDispatcher interface {
+	Send(to, subject, body string) error
 }
 
-func NewEmailConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer) *EmailConsumer {
+// emailSentPublisher is the minimal subset of *kafkaprod.Producer used by EmailConsumer.
+type emailSentPublisher interface {
+	PublishEmailSent(ctx context.Context, msg kafkamsg.EmailSentMessage) error
+}
+
+// templateRenderer is the minimal subset of *service.TemplateService used here.
+type templateRenderer interface {
+	Render(typ, channel string, data map[string]string) (subject, body string, err error)
+}
+
+type EmailConsumer struct {
+	reader    *kafkago.Reader
+	sender    emailDispatcher
+	producer  emailSentPublisher
+	templates templateRenderer
+}
+
+func NewEmailConsumer(brokers string, emailSender *sender.EmailSender, producer *kafkaprod.Producer, templateSvc *svc.TemplateService) *EmailConsumer {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:  strings.Split(brokers, ","),
 		Topic:    kafkamsg.TopicSendEmail,
@@ -29,10 +45,17 @@ func NewEmailConsumer(brokers string, emailSender *sender.EmailSender, producer 
 		MaxBytes: 10e6,
 	})
 	return &EmailConsumer{
-		reader:   reader,
-		sender:   emailSender,
-		producer: producer,
+		reader:    reader,
+		sender:    emailSender,
+		producer:  producer,
+		templates: templateSvc,
 	}
+}
+
+// newEmailConsumerForTest constructs an EmailConsumer with no Kafka reader.
+// Tests call handleMessage directly.
+func newEmailConsumerForTest(d emailDispatcher, p emailSentPublisher, r templateRenderer) *EmailConsumer {
+	return &EmailConsumer{sender: d, producer: p, templates: r}
 }
 
 func (c *EmailConsumer) Start(ctx context.Context) {
@@ -71,7 +94,16 @@ func (c *EmailConsumer) handleMessage(ctx context.Context, data []byte) {
 		return
 	}
 
-	subject, body := sender.BuildEmail(emailMsg.EmailType, emailMsg.Data)
+	subject, body, renderErr := c.templates.Render(string(emailMsg.EmailType), "email", emailMsg.Data)
+	if renderErr != nil {
+		log.Printf("failed to render email template %s: %v", emailMsg.EmailType, renderErr)
+		if pubErr := c.producer.PublishEmailSent(ctx, kafkamsg.EmailSentMessage{
+			To: emailMsg.To, EmailType: emailMsg.EmailType, Success: false, Error: renderErr.Error(),
+		}); pubErr != nil {
+			log.Printf("failed to publish email-sent confirmation: %v", pubErr)
+		}
+		return
+	}
 	sendStart := time.Now()
 	err := c.sender.Send(emailMsg.To, subject, body)
 	svc.NotificationEmailSendDuration.Observe(time.Since(sendStart).Seconds())

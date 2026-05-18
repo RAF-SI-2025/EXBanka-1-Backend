@@ -41,3 +41,14 @@ func (r *PaymentRecipientRepository) Update(pr *model.PaymentRecipient) error {
 func (r *PaymentRecipientRepository) Delete(id uint64) error {
 	return r.db.Delete(&model.PaymentRecipient{}, id).Error
 }
+
+// DeleteIfExists reports whether a row matching id was actually removed.
+// Gorm's Delete returns nil even when no row matches, so callers that
+// want to surface 404 to the user need this richer signal.
+func (r *PaymentRecipientRepository) DeleteIfExists(id uint64) (bool, error) {
+	res := r.db.Delete(&model.PaymentRecipient{}, id)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}

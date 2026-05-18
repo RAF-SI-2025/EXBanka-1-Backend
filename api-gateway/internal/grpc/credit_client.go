@@ -4,11 +4,10 @@ import (
 	"google.golang.org/grpc"
 
 	creditpb "github.com/exbanka/contract/creditpb"
-	"github.com/exbanka/contract/shared"
 )
 
 func NewCreditClient(addr string) (creditpb.CreditServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}

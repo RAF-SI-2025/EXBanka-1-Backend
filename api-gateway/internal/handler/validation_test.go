@@ -2,13 +2,89 @@
 package handler
 
 import (
+	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+
+	"github.com/exbanka/api-gateway/internal/middleware"
+	accountpb "github.com/exbanka/contract/accountpb"
 )
+
+func u64ptr(v uint64) *uint64 { return &v }
+
+// vtStubAccountClient implements accountpb.AccountServiceClient for ownership
+// helper tests; only GetAccount is exercised.
+type vtStubAccountClient struct {
+	accountpb.AccountServiceClient
+	acct *accountpb.AccountResponse
+	err  error
+}
+
+func (s *vtStubAccountClient) GetAccount(_ context.Context, _ *accountpb.GetAccountRequest, _ ...grpc.CallOption) (*accountpb.AccountResponse, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.acct, nil
+}
+
+func newTestGinCtx() (*gin.Context, *httptest.ResponseRecorder) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+	return c, rec
+}
+
+func TestResolveAndCheckAccount_ClientOwns(t *testing.T) {
+	c, _ := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "client", PrincipalID: 5, OwnerType: "client", OwnerID: u64ptr(5)}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 5, AccountKind: "current"}}
+	require.NoError(t, ResolveAndCheckAccount(c, ac, id, 9, 0))
+}
+
+func TestResolveAndCheckAccount_ClientDoesNotOwn(t *testing.T) {
+	c, rec := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "client", PrincipalID: 5, OwnerType: "client", OwnerID: u64ptr(5)}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 999, AccountKind: "current"}}
+	require.Error(t, ResolveAndCheckAccount(c, ac, id, 9, 0))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestResolveAndCheckAccount_EmployeeBankAccount(t *testing.T) {
+	c, _ := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "employee", PrincipalID: 7, OwnerType: "bank"}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 1000000000, AccountKind: "bank"}}
+	require.NoError(t, ResolveAndCheckAccount(c, ac, id, 9, 0))
+}
+
+func TestResolveAndCheckAccount_EmployeeNonBankAccountRejected(t *testing.T) {
+	c, rec := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "employee", PrincipalID: 7, OwnerType: "bank"}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 5, AccountKind: "current"}}
+	require.Error(t, ResolveAndCheckAccount(c, ac, id, 9, 0))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestResolveAndCheckAccount_EmployeeOnBehalf(t *testing.T) {
+	c, _ := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "employee", PrincipalID: 7, OwnerType: "bank"}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 333, AccountKind: "current"}}
+	require.NoError(t, ResolveAndCheckAccount(c, ac, id, 9, 333))
+}
+
+func TestResolveAndCheckAccount_EmployeeOnBehalfWrongClient(t *testing.T) {
+	c, rec := newTestGinCtx()
+	id := &middleware.ResolvedIdentity{PrincipalType: "employee", PrincipalID: 7, OwnerType: "bank"}
+	ac := &vtStubAccountClient{acct: &accountpb.AccountResponse{Id: 9, OwnerId: 444, AccountKind: "current"}}
+	require.Error(t, ResolveAndCheckAccount(c, ac, id, 9, 333))
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
 
 // ---------------------------------------------------------------------------
 // oneOf
@@ -130,8 +206,8 @@ func TestEnforceOwnership_Match_ReturnsNil(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("system_type", "client")
-	c.Set("user_id", int64(42))
+	c.Set("principal_type", "client")
+	c.Set("principal_id", int64(42))
 
 	err := enforceOwnership(c, 42)
 	require.NoError(t, err)
@@ -142,8 +218,8 @@ func TestEnforceOwnership_Mismatch_Writes404(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("system_type", "client")
-	c.Set("user_id", int64(42))
+	c.Set("principal_type", "client")
+	c.Set("principal_id", int64(42))
 
 	err := enforceOwnership(c, 99)
 	require.Error(t, err)
@@ -155,8 +231,8 @@ func TestEnforceOwnership_EmployeeBypass_ReturnsNil(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
-	c.Set("system_type", "employee")
-	c.Set("user_id", int64(1))
+	c.Set("principal_type", "employee")
+	c.Set("principal_id", int64(1))
 
 	err := enforceOwnership(c, 9999)
 	require.NoError(t, err, "employees must bypass ownership check")
@@ -171,4 +247,37 @@ func TestEnforceOwnership_MissingSystemType_ReturnsNil(t *testing.T) {
 	err := enforceOwnership(c, 9999)
 	require.NoError(t, err)
 	require.Equal(t, 200, w.Code)
+}
+
+// ---------------------------------------------------------------------------
+// owner-type-schema legacy converters
+// ---------------------------------------------------------------------------
+
+// TestOwnerToLegacyUserID_NilIsBank locks the contract that a bank owner
+// (OwnerID==nil on ResolvedIdentity) flattens to the legacy uint64 sentinel
+// 0 used by stock-service proto request shapes pending Task 9 of the
+// 2026-04-27 owner-type-schema plan.
+func TestOwnerToLegacyUserID_NilIsBank(t *testing.T) {
+	require.Equal(t, uint64(0), ownerToLegacyUserID(nil),
+		"bank owner has nil OwnerID; legacy form is 0")
+}
+
+func TestOwnerToLegacyUserID_PtrPassThrough(t *testing.T) {
+	v := uint64(42)
+	require.Equal(t, uint64(42), ownerToLegacyUserID(&v),
+		"client/owner ID flattens to its uint64 value")
+}
+
+func TestOwnerToLegacySystemType_PassThrough(t *testing.T) {
+	require.Equal(t, "client", ownerToLegacySystemType("client"))
+	require.Equal(t, "bank", ownerToLegacySystemType("bank"))
+}
+
+func TestDerefU64Ptr_NilIsZero(t *testing.T) {
+	require.Equal(t, uint64(0), derefU64Ptr(nil))
+}
+
+func TestDerefU64Ptr_PtrPassThrough(t *testing.T) {
+	v := uint64(11)
+	require.Equal(t, uint64(11), derefU64Ptr(&v))
 }

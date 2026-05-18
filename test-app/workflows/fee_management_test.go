@@ -14,7 +14,7 @@ import (
 func TestFees_ListFees(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/v1/fees")
+	resp, err := c.GET("/api/v3/fees")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestFees_ListFees(t *testing.T) {
 func TestFees_UnauthenticatedCannotManageFees(t *testing.T) {
 	t.Parallel()
 	c := newClient()
-	resp, err := c.GET("/api/v1/fees")
+	resp, err := c.GET("/api/v3/fees")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestFees_UnauthenticatedCannotManageFees(t *testing.T) {
 func TestFees_CreatePercentageFeeForAllTransactions(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		"name":             fmt.Sprintf("PctAll_%d", helpers.DateOfBirthUnix()),
 		"fee_type":         "percentage",
 		"fee_value":        "0.5",
@@ -55,7 +55,7 @@ func TestFees_CreatePercentageFeeForAllTransactions(t *testing.T) {
 func TestFees_CreateFixedFeeForPayments(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		"name":             fmt.Sprintf("FixedPayment_%d", helpers.DateOfBirthUnix()),
 		"fee_type":         "fixed",
 		"fee_value":        "100.00",
@@ -74,7 +74,7 @@ func TestFees_CreateFixedFeeForPayments(t *testing.T) {
 func TestFees_CreatePercentageFeeForTransfers(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		"name":             fmt.Sprintf("PctTransfer_%d", helpers.DateOfBirthUnix()),
 		"fee_type":         "percentage",
 		"fee_value":        "0.1",
@@ -93,7 +93,7 @@ func TestFees_CreatePercentageFeeForTransfers(t *testing.T) {
 func TestFees_CreateWithMissingName(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		// "name" intentionally omitted — binding:"required"
 		"fee_type":         "percentage",
 		"fee_value":        "0.5",
@@ -110,7 +110,7 @@ func TestFees_CreateWithMissingName(t *testing.T) {
 func TestFees_CreateWithMissingFeeValue(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		"name":     "MissingValue",
 		"fee_type": "percentage",
 		// "fee_value" intentionally omitted — binding:"required"
@@ -127,7 +127,7 @@ func TestFees_CreateWithMissingFeeValue(t *testing.T) {
 func TestFees_CreateWithMissingTransactionType(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		"name":      "MissingTxType",
 		"fee_type":  "percentage",
 		"fee_value": "0.5",
@@ -144,7 +144,7 @@ func TestFees_CreateWithMissingTransactionType(t *testing.T) {
 func TestFees_CreateWithInvalidFeeType(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		"name":             "InvalidType",
 		"fee_type":         "invalid",
 		"fee_value":        "100",
@@ -161,7 +161,7 @@ func TestFees_CreateWithInvalidFeeType(t *testing.T) {
 func TestFees_CreateWithInvalidTransactionType(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		"name":             "InvalidTxType",
 		"fee_type":         "fixed",
 		"fee_value":        "50",
@@ -180,7 +180,7 @@ func TestFees_UpdateFee(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// Create a fee to update
-	createResp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	createResp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		"name":             fmt.Sprintf("UpdateMe_%d", helpers.DateOfBirthUnix()),
 		"fee_type":         "percentage",
 		"fee_value":        "0.3",
@@ -197,7 +197,7 @@ func TestFees_UpdateFee(t *testing.T) {
 	feeID := int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Update it
-	resp, err := c.PUT(fmt.Sprintf("/api/v1/fees/%d", feeID), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v3/fees/%d", feeID), map[string]interface{}{
 		"name":             "UpdatedFee",
 		"fee_type":         "percentage",
 		"fee_value":        "0.5",
@@ -216,7 +216,7 @@ func TestFees_DeleteFee(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// Create a fee to delete
-	createResp, err := c.POST("/api/v1/fees", map[string]interface{}{
+	createResp, err := c.POST("/api/v3/fees", map[string]interface{}{
 		"name":             fmt.Sprintf("DeleteMe_%d", helpers.DateOfBirthUnix()),
 		"fee_type":         "fixed",
 		"fee_value":        "25.00",
@@ -233,7 +233,7 @@ func TestFees_DeleteFee(t *testing.T) {
 	feeID := int(helpers.GetNumberField(t, createResp, "id"))
 
 	// Delete it
-	resp, err := c.DELETE(fmt.Sprintf("/api/v1/fees/%d", feeID))
+	resp, err := c.DELETE(fmt.Sprintf("/api/v3/fees/%d", feeID))
 	if err != nil {
 		t.Fatalf("delete error: %v", err)
 	}

@@ -13,12 +13,19 @@ import (
 	kafkago "github.com/segmentio/kafka-go"
 )
 
-type GeneralNotificationConsumer struct {
-	reader    *kafkago.Reader
-	notifRepo *repository.GeneralNotificationRepository
+// generalNotificationCreator is the minimal subset of
+// *repository.GeneralNotificationRepository used by GeneralNotificationConsumer.
+type generalNotificationCreator interface {
+	Create(n *model.GeneralNotification) error
 }
 
-func NewGeneralNotificationConsumer(brokers string, notifRepo *repository.GeneralNotificationRepository) *GeneralNotificationConsumer {
+type GeneralNotificationConsumer struct {
+	reader    *kafkago.Reader
+	notifRepo generalNotificationCreator
+	templates templateRenderer
+}
+
+func NewGeneralNotificationConsumer(brokers string, notifRepo *repository.GeneralNotificationRepository, templateSvc *service.TemplateService) *GeneralNotificationConsumer {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:  strings.Split(brokers, ","),
 		Topic:    kafkamsg.TopicGeneralNotification,
@@ -26,7 +33,12 @@ func NewGeneralNotificationConsumer(brokers string, notifRepo *repository.Genera
 		MinBytes: 1,
 		MaxBytes: 10e6,
 	})
-	return &GeneralNotificationConsumer{reader: reader, notifRepo: notifRepo}
+	return &GeneralNotificationConsumer{reader: reader, notifRepo: notifRepo, templates: templateSvc}
+}
+
+// newGeneralNotificationConsumerForTest constructs a consumer without a Kafka reader.
+func newGeneralNotificationConsumerForTest(repo generalNotificationCreator, r templateRenderer) *GeneralNotificationConsumer {
+	return &GeneralNotificationConsumer{notifRepo: repo, templates: r}
 }
 
 func (c *GeneralNotificationConsumer) Start(ctx context.Context) {
@@ -54,11 +66,21 @@ func (c *GeneralNotificationConsumer) handleMessage(data []byte) {
 		return
 	}
 
+	title, body := event.Title, event.Message
+	if len(event.Data) > 0 {
+		subject, rendered, err := c.templates.Render(event.Type, "push", event.Data)
+		if err != nil {
+			log.Printf("general notification consumer: render %q failed, dropping: %v", event.Type, err)
+			return
+		}
+		title, body = subject, rendered
+	}
+
 	notif := &model.GeneralNotification{
 		UserID:  event.UserID,
 		Type:    event.Type,
-		Title:   event.Title,
-		Message: event.Message,
+		Title:   title,
+		Message: body,
 		RefType: event.RefType,
 		RefID:   event.RefID,
 	}

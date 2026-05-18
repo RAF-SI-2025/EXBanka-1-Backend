@@ -13,6 +13,7 @@ import (
 	accountpb "github.com/exbanka/contract/accountpb"
 	kafkamsg "github.com/exbanka/contract/kafka"
 	shared "github.com/exbanka/contract/shared"
+	sharedsaga "github.com/exbanka/contract/shared/saga"
 	"github.com/exbanka/transaction-service/internal/kafka"
 	"github.com/exbanka/transaction-service/internal/model"
 	"github.com/exbanka/transaction-service/internal/repository"
@@ -44,6 +45,7 @@ type TransferService struct {
 	bankAccountClient accountpb.BankAccountServiceClient
 	feeSvc            *FeeService
 	producer          *kafka.Producer
+	notifier          notifier
 	retryConfig       shared.RetryConfig
 	sagaRepo          *repository.SagaLogRepository // nil-safe: saga logging skipped when nil
 	dlPublisher       sagaPublisher                 // nil-safe: dead-letter publishing skipped when nil
@@ -58,7 +60,7 @@ func NewTransferService(
 	producer *kafka.Producer,
 	sagaRepo *repository.SagaLogRepository,
 ) *TransferService {
-	return &TransferService{
+	s := &TransferService{
 		transferRepo:      transferRepo,
 		exchangeClient:    exchangeClient,
 		accountClient:     accountClient,
@@ -69,6 +71,10 @@ func NewTransferService(
 		sagaRepo:          sagaRepo,
 		dlPublisher:       producer,
 	}
+	if producer != nil {
+		s.notifier = producer
+	}
+	return s
 }
 
 // publishTransferFailed publishes a transfer-failed Kafka event (best-effort; errors are only logged).
@@ -91,10 +97,10 @@ func (s *TransferService) publishTransferFailed(ctx context.Context, transfer *m
 // ValidateTransfer checks that a transfer has distinct accounts and a positive amount.
 func ValidateTransfer(from, to string, amount decimal.Decimal) error {
 	if from == to {
-		return fmt.Errorf("from and to accounts must be different, both are %s", from)
+		return fmt.Errorf("ValidateTransfer: from and to accounts must be different, both are %s: %w", from, ErrSameAccount)
 	}
 	if amount.IsNegative() || amount.IsZero() {
-		return fmt.Errorf("transfer amount must be positive, got %s", amount.StringFixed(4))
+		return fmt.Errorf("ValidateTransfer: amount must be positive, got %s: %w", amount.StringFixed(4), ErrInvalidTransfer)
 	}
 	return nil
 }
@@ -207,7 +213,10 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 
 	transfer, err := s.transferRepo.GetByID(transferID)
 	if err != nil {
-		return fmt.Errorf("transfer not found: %w", err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTransferNotFound
+		}
+		return fmt.Errorf("transfer lookup failed: %w", err)
 	}
 
 	// Idempotency: if already completed, nothing to do
@@ -247,14 +256,18 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 				reason := fmt.Sprintf("limit_exceeded: daily spending limit would be exceeded on account %s: current daily spending %s, attempted %s, daily limit %s",
 					transfer.FromAccountNumber, dailySpending.StringFixed(4), totalDebit.StringFixed(4), dailyLimit.StringFixed(4))
 				_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+				transfer.FailureReason = reason
 				s.publishTransferFailed(ctx, transfer, reason)
+				s.publishTransferFailedNotification(ctx, transfer)
 				return errors.New(reason)
 			}
 			if !monthlyLimit.IsZero() && monthlySpending.Add(totalDebit).GreaterThan(monthlyLimit) {
 				reason := fmt.Sprintf("limit_exceeded: monthly spending limit would be exceeded on account %s: current monthly spending %s, attempted %s, monthly limit %s",
 					transfer.FromAccountNumber, monthlySpending.StringFixed(4), totalDebit.StringFixed(4), monthlyLimit.StringFixed(4))
 				_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+				transfer.FailureReason = reason
 				s.publishTransferFailed(ctx, transfer, reason)
+				s.publishTransferFailedNotification(ctx, transfer)
 				return errors.New(reason)
 			}
 		}
@@ -274,7 +287,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		if s.accountClient == nil || s.bankAccountClient == nil {
 			reason := "cross-currency transfer requires both accountClient and bankAccountClient"
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return errors.New(reason)
 		}
 
@@ -286,7 +301,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		}); err != nil {
 			reason := fmt.Sprintf("failed to fetch bank accounts: %v", err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return errors.New(reason)
 		}
 
@@ -294,66 +311,83 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		if err != nil {
 			reason := fmt.Sprintf("no bank account for from-currency %s: %v", transfer.FromCurrency, err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return errors.New(reason)
 		}
 
-		bankToAccount, err := findBankAccountByCurrency(bankAccountsResp.GetAccounts(), transfer.ToCurrency)
+		// Cross-currency saga step 3 debits the bank's to-currency account.
+		// findBankAccountByCurrencyWithBalance picks one with sufficient
+		// available balance so we don't pick a 0-balance account (the
+		// gateway POST /bank-accounts path creates accounts with no
+		// initial balance — see findBankAccountByCurrencyWithBalance for
+		// the full rationale).
+		bankToAccount, err := findBankAccountByCurrencyWithBalance(bankAccountsResp.GetAccounts(), transfer.ToCurrency, convertedAmount)
 		if err != nil {
-			reason := fmt.Sprintf("no bank account for to-currency %s: %v", transfer.ToCurrency, err)
+			reason := fmt.Sprintf("no bank account with sufficient balance for to-currency %s: %v", transfer.ToCurrency, err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return errors.New(reason)
 		}
 
+		// sagaID for cross-currency transfer steps — derived from transfer.ID
+		// so retries within the same transfer share idempotency keys.
+		xcSagaID := fmt.Sprintf("transfer-xc-%d", transfer.ID)
 		steps := []sagaStep{
 			{
-				name:          "debit_user_from",
+				name:          sharedsaga.StepDebitUserFrom,
 				accountNumber: transfer.FromAccountNumber,
 				amount:        totalDebit.Neg(),
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: transfer.FromAccountNumber, Amount: totalDebit.Neg().StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepDebitUserFrom),
 						})
 						return e
 					})
 				},
 			},
 			{
-				name:          "credit_bank_from",
+				name:          sharedsaga.StepCreditBankFrom,
 				accountNumber: bankFromAccount,
 				amount:        totalDebit,
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: bankFromAccount, Amount: totalDebit.StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepCreditBankFrom),
 						})
 						return e
 					})
 				},
 			},
 			{
-				name:          "debit_bank_to",
+				name:          sharedsaga.StepDebitBankTo,
 				accountNumber: bankToAccount,
 				amount:        convertedAmount.Neg(),
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: bankToAccount, Amount: convertedAmount.Neg().StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepDebitBankTo),
 						})
 						return e
 					})
 				},
 			},
 			{
-				name:          "credit_user_to",
+				name:          sharedsaga.StepCreditUserTo,
 				accountNumber: transfer.ToAccountNumber,
 				amount:        convertedAmount,
 				execute: func(ctx context.Context) error {
 					return shared.Retry(ctx, s.retryConfig, func() error {
 						_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 							AccountNumber: transfer.ToAccountNumber, Amount: convertedAmount.StringFixed(4), UpdateAvailable: true,
+							IdempotencyKey: sharedsaga.IdempotencyKey(xcSagaID, sharedsaga.StepCreditUserTo),
 						})
 						return e
 					})
@@ -363,35 +397,40 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 		if err := executeWithSaga(ctx, s.sagaRepo, s.accountClient, s.retryConfig, transfer.ID, "transfer", steps); err != nil {
 			reason := fmt.Sprintf("cross-currency transfer execution failed: %v", err)
 			_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+			transfer.FailureReason = reason
 			s.publishTransferFailed(ctx, transfer, reason)
+			s.publishTransferFailedNotification(ctx, transfer)
 			return err
 		}
 
 	} else {
 		// Same-currency: direct debit/credit, no bank intermediate.
 		if s.accountClient != nil {
+			scSagaID := fmt.Sprintf("transfer-sc-%d", transfer.ID)
 			steps := []sagaStep{
 				{
-					name:          "debit_sender",
+					name:          sharedsaga.StepDebitSender,
 					accountNumber: transfer.FromAccountNumber,
 					amount:        totalDebit.Neg(),
 					execute: func(ctx context.Context) error {
 						return shared.Retry(ctx, s.retryConfig, func() error {
 							_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 								AccountNumber: transfer.FromAccountNumber, Amount: totalDebit.Neg().StringFixed(4), UpdateAvailable: true,
+								IdempotencyKey: sharedsaga.IdempotencyKey(scSagaID, sharedsaga.StepDebitSender),
 							})
 							return e
 						})
 					},
 				},
 				{
-					name:          "credit_recipient",
+					name:          sharedsaga.StepCreditRecipient,
 					accountNumber: transfer.ToAccountNumber,
 					amount:        convertedAmount,
 					execute: func(ctx context.Context) error {
 						return shared.Retry(ctx, s.retryConfig, func() error {
 							_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 								AccountNumber: transfer.ToAccountNumber, Amount: convertedAmount.StringFixed(4), UpdateAvailable: true,
+								IdempotencyKey: sharedsaga.IdempotencyKey(scSagaID, sharedsaga.StepCreditRecipient),
 							})
 							return e
 						})
@@ -401,7 +440,9 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 			if err := executeWithSaga(ctx, s.sagaRepo, s.accountClient, s.retryConfig, transfer.ID, "transfer", steps); err != nil {
 				reason := fmt.Sprintf("same-currency transfer execution failed: %v", err)
 				_ = s.transferRepo.UpdateStatusWithReason(transfer.ID, "failed", reason)
+				transfer.FailureReason = reason
 				s.publishTransferFailed(ctx, transfer, reason)
+				s.publishTransferFailedNotification(ctx, transfer)
 				return err
 			}
 		}
@@ -425,25 +466,70 @@ func (s *TransferService) ExecuteTransfer(ctx context.Context, transferID uint64
 	return nil
 }
 
-// publishTransferNotification sends a money_sent general notification for the transfer owner.
-// Transfers are intra-client (same owner), so only one notification is needed.
+// publishTransferNotification emits TRANSFER_SENT/TRANSFER_RECEIVED in-app
+// notification intents to the sender and receiver via the notifier (Kafka
+// notification.general topic). Uses the Data form — notification-service
+// renders the push-channel template registry entry.
+//
+// Transfers are typically intra-client, so both notifications target the same
+// owner; the two emits still represent the distinct "money left" and "money
+// arrived" perspectives. Bank-owned sides (owner_id == 0 or 1_000_000_000
+// sentinel) are skipped. All emits are best-effort: lookup or publish failures
+// are silently ignored.
 func (s *TransferService) publishTransferNotification(ctx context.Context, transfer *model.Transfer) {
-	if s.producer == nil || s.accountClient == nil {
+	if s.notifier == nil || s.accountClient == nil {
 		return
 	}
 	fromAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
 		AccountNumber: transfer.FromAccountNumber,
 	})
-	if err == nil && fromAcct != nil {
-		_ = s.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+	if err == nil && fromAcct != nil && fromAcct.GetOwnerId() != 0 && fromAcct.GetOwnerId() != 1_000_000_000 {
+		_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
 			UserID:  fromAcct.GetOwnerId(),
-			Type:    "money_sent",
-			Title:   "Transfer Completed",
-			Message: fmt.Sprintf("Transfer of %s from %s to %s completed", transfer.InitialAmount.StringFixed(2), transfer.FromAccountNumber, transfer.ToAccountNumber),
+			Type:    "TRANSFER_SENT",
+			Data:    map[string]string{"amount": transfer.InitialAmount.StringFixed(2), "to_account": transfer.ToAccountNumber},
 			RefType: "transfer",
 			RefID:   transfer.ID,
 		})
 	}
+	toAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+		AccountNumber: transfer.ToAccountNumber,
+	})
+	if err == nil && toAcct != nil && toAcct.GetOwnerId() != 0 && toAcct.GetOwnerId() != 1_000_000_000 {
+		_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  toAcct.GetOwnerId(),
+			Type:    "TRANSFER_RECEIVED",
+			Data:    map[string]string{"final_amount": transfer.FinalAmount.StringFixed(2), "from_account": transfer.FromAccountNumber},
+			RefType: "transfer",
+			RefID:   transfer.ID,
+		})
+	}
+}
+
+// publishTransferFailedNotification emits a TRANSFER_FAILED in-app notification
+// intent to the sender (best-effort). The sender's owner is resolved via the
+// accountClient. Skipped if the sender is a bank-owned account (owner_id == 0
+// or 1_000_000_000 sentinel).
+func (s *TransferService) publishTransferFailedNotification(ctx context.Context, transfer *model.Transfer) {
+	if s.notifier == nil || s.accountClient == nil {
+		return
+	}
+	fromAcct, err := s.accountClient.GetAccountByNumber(ctx, &accountpb.GetAccountByNumberRequest{
+		AccountNumber: transfer.FromAccountNumber,
+	})
+	if err != nil || fromAcct == nil {
+		return
+	}
+	if fromAcct.GetOwnerId() == 0 || fromAcct.GetOwnerId() == 1_000_000_000 {
+		return
+	}
+	_ = s.notifier.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+		UserID:  fromAcct.GetOwnerId(),
+		Type:    "TRANSFER_FAILED",
+		Data:    map[string]string{"amount": transfer.InitialAmount.StringFixed(2), "failure_reason": transfer.FailureReason},
+		RefType: "transfer",
+		RefID:   transfer.ID,
+	})
 }
 
 func (s *TransferService) GetTransfer(id uint64) (*model.Transfer, error) {
@@ -471,10 +557,15 @@ func (s *TransferService) runRecoveryTick(ctx context.Context) {
 	for _, comp := range pending {
 		comp := comp
 		retryErr := shared.Retry(ctx, s.retryConfig, func() error {
+			// Per-compensation-row stable key — repeated retries collapse
+			// through the cache, and the account-side ledger
+			// idempotency_key index keeps double-execution out.
+			compKey := fmt.Sprintf("compensate-%d", comp.ID)
 			_, e := s.accountClient.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 				AccountNumber:   comp.AccountNumber,
 				Amount:          comp.Amount.StringFixed(4),
 				UpdateAvailable: true,
+				IdempotencyKey:  compKey,
 			})
 			return e
 		})
@@ -565,6 +656,41 @@ func findBankAccountByCurrency(accounts []*accountpb.AccountResponse, currency s
 		if a.GetCurrencyCode() == currency {
 			return a.GetAccountNumber(), nil
 		}
+	}
+	return "", fmt.Errorf("no bank account found for currency %s", currency)
+}
+
+// findBankAccountByCurrencyWithBalance returns the first bank account in the
+// list whose currency matches AND whose available balance covers `need`.
+// Falls back to the first matching account if none have enough — preserves
+// the legacy "always return something" behavior so the caller still gets a
+// useful error from the saga's actual debit step rather than a confusing
+// pre-check failure.
+//
+// Why this exists: the gateway's POST /bank-accounts path (admin/test
+// helper) creates bank accounts with no initial balance — the gRPC
+// CreateBankAccountRequest proto has no initial_balance field. Tests
+// using that path leave 0-balance bank accounts in the DB. Without the
+// balance filter, findBankAccountByCurrency would return the first match
+// from ListBankAccounts (insertion order), which can be a 0-balance
+// account, causing every cross-currency transfer to fail with a
+// confusing "insufficient funds on account X" error from a downstream
+// FOR UPDATE check.
+func findBankAccountByCurrencyWithBalance(accounts []*accountpb.AccountResponse, currency string, need decimal.Decimal) (string, error) {
+	var firstMatch string
+	for _, a := range accounts {
+		if a.GetCurrencyCode() != currency {
+			continue
+		}
+		if firstMatch == "" {
+			firstMatch = a.GetAccountNumber()
+		}
+		if avail, err := decimal.NewFromString(a.GetAvailableBalance()); err == nil && avail.GreaterThanOrEqual(need) {
+			return a.GetAccountNumber(), nil
+		}
+	}
+	if firstMatch != "" {
+		return firstMatch, nil
 	}
 	return "", fmt.Errorf("no bank account found for currency %s", currency)
 }

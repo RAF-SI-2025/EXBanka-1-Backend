@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -27,6 +23,7 @@ import (
 	kafkamsg "github.com/exbanka/contract/kafka"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	userpb "github.com/exbanka/contract/userpb"
 )
 
@@ -54,7 +51,10 @@ func main() {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
-	userConn, err := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	userConn, err := grpc.NewClient(cfg.UserGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if err != nil {
 		log.Fatalf("failed to connect to user service: %v", err)
 	}
@@ -91,18 +91,6 @@ func main() {
 
 	grpcHandler := handler.NewAuthGRPCHandler(authService, mobileSvc)
 
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	authpb.RegisterAuthServiceServer(s, grpcHandler)
-	shared.RegisterHealthCheck(s, "auth-service")
-	metrics.InitializeGRPCMetrics(s)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -113,7 +101,7 @@ func main() {
 
 	// Pre-create Kafka topics before starting consumers to avoid
 	// partition assignment race condition on fresh startup.
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		"user.employee-created",
 		"client.created",
 		"notification.send-email",
@@ -123,6 +111,7 @@ func main() {
 		kafkamsg.TopicAuthMobileDeviceActivated,
 		kafkamsg.TopicAuthSessionCreated,
 		kafkamsg.TopicAuthSessionRevoked,
+		kafkamsg.TopicUserRolePermissionsChanged,
 	)
 
 	// Start Kafka consumer for employee-created events
@@ -137,22 +126,38 @@ func main() {
 	clientConsumer.Start(ctx)
 	defer clientConsumer.Close()
 
-	// Start gRPC server in goroutine
-	markReady()
-	go func() {
-		fmt.Printf("Auth service listening on %s\n", cfg.GRPCAddr)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("gRPC server failed: %v", err)
-		}
-	}()
+	if redisCache != nil {
+		rolePermHandler := consumer.NewRolePermChangeHandler(redisCache, tokenRepo, cfg.AccessExpiry)
+		rolePermConsumer := consumer.NewRolePermChangeConsumer(cfg.KafkaBrokers, rolePermHandler)
+		rolePermConsumer.Start(ctx)
+		defer rolePermConsumer.Close()
+	} else {
+		log.Println("WARN: redis unavailable — role-perm-change consumer NOT started; session revocation will be eventually consistent (next refresh / token expiry only)")
+	}
 
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down gracefully...")
+	if err := shared.RunGRPCServer(ctx, shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("auth-service"),
+				grpcmw.UnarySagaContextInterceptor(),
+			),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			authpb.RegisterAuthServiceServer(s, grpcHandler)
+			shared.RegisterHealthCheck(s, "auth-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			fmt.Printf("Auth service listening on %s\n", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
+	}
 	cancel()
-	s.GracefulStop()
 	log.Println("Server stopped")
 }

@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,39 +14,32 @@ import (
 	pb "github.com/exbanka/contract/clientpb"
 )
 
-// mapServiceError maps service-layer error messages to appropriate gRPC status codes.
-func mapServiceError(err error) codes.Code {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "not found"):
-		return codes.NotFound
-	case strings.Contains(msg, "must be"), strings.Contains(msg, "invalid"), strings.Contains(msg, "must not"),
-		strings.Contains(msg, "must have"), strings.Contains(msg, "must contain"):
-		return codes.InvalidArgument
-	case strings.Contains(msg, "already exists"), strings.Contains(msg, "duplicate"):
-		return codes.AlreadyExists
-	case strings.Contains(msg, "exceeds"), strings.Contains(msg, "insufficient funds"),
-		strings.Contains(msg, "limit exceeded"), strings.Contains(msg, "spending limit"):
-		return codes.FailedPrecondition
-	case strings.Contains(msg, "locked"), strings.Contains(msg, "max attempts"),
-		strings.Contains(msg, "failed attempts"):
-		return codes.ResourceExhausted
-	case strings.Contains(msg, "permission"), strings.Contains(msg, "forbidden"):
-		return codes.PermissionDenied
-	default:
-		return codes.Internal
-	}
+// clientFacade is the subset of *service.ClientService used by the gRPC handler.
+// Extracted as an interface to allow stub-based unit tests.
+type clientFacade interface {
+	CreateClient(ctx context.Context, c *model.Client) error
+	GetClient(id uint64) (*model.Client, error)
+	GetByEmail(email string) (*model.Client, error)
+	ListClients(emailFilter, nameFilter string, page, pageSize int) ([]model.Client, int64, error)
+	UpdateClient(id uint64, updates map[string]interface{}, changedBy int64) (*model.Client, error)
 }
 
 type ClientGRPCHandler struct {
 	pb.UnimplementedClientServiceServer
-	clientService *service.ClientService
+	clientService    clientFacade
+	changelogService *service.ChangelogService
 }
 
-func NewClientGRPCHandler(clientService *service.ClientService) *ClientGRPCHandler {
+func NewClientGRPCHandler(clientService *service.ClientService, changelogService *service.ChangelogService) *ClientGRPCHandler {
 	return &ClientGRPCHandler{
-		clientService: clientService,
+		clientService:    clientService,
+		changelogService: changelogService,
 	}
+}
+
+// newClientGRPCHandlerForTest constructs a handler with a stub facade, for use in unit tests only.
+func newClientGRPCHandlerForTest(svc clientFacade) *ClientGRPCHandler {
+	return &ClientGRPCHandler{clientService: svc}
 }
 
 func (h *ClientGRPCHandler) CreateClient(ctx context.Context, req *pb.CreateClientRequest) (*pb.ClientResponse, error) {
@@ -63,7 +55,7 @@ func (h *ClientGRPCHandler) CreateClient(ctx context.Context, req *pb.CreateClie
 	}
 
 	if err := h.clientService.CreateClient(ctx, client); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create client: %v", err)
+		return nil, err
 	}
 
 	return toClientResponse(client), nil
@@ -73,9 +65,9 @@ func (h *ClientGRPCHandler) GetClient(ctx context.Context, req *pb.GetClientRequ
 	client, err := h.clientService.GetClient(req.Id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "client not found")
+			return nil, service.ErrClientNotFound
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get client: %v", err)
+		return nil, err
 	}
 	return toClientResponse(client), nil
 }
@@ -84,9 +76,9 @@ func (h *ClientGRPCHandler) GetClientByEmail(ctx context.Context, req *pb.GetCli
 	client, err := h.clientService.GetByEmail(req.Email)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "client not found")
+			return nil, service.ErrClientNotFound
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get client: %v", err)
+		return nil, err
 	}
 	return toClientResponse(client), nil
 }
@@ -97,7 +89,7 @@ func (h *ClientGRPCHandler) ListClients(ctx context.Context, req *pb.ListClients
 		int(req.Page), int(req.PageSize),
 	)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list clients: %v", err)
+		return nil, err
 	}
 
 	resp := &pb.ListClientsResponse{Total: total, Clients: make([]*pb.ClientResponse, 0, len(clients))}
@@ -136,12 +128,36 @@ func (h *ClientGRPCHandler) UpdateClient(ctx context.Context, req *pb.UpdateClie
 	client, err := h.clientService.UpdateClient(req.Id, updates, changedBy)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, status.Errorf(codes.NotFound, "client not found")
+			return nil, service.ErrClientNotFound
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to update client: %v", err)
+		return nil, err
 	}
 
 	return toClientResponse(client), nil
+}
+
+// ListChangelog returns paginated audit-log entries for an entity.
+func (h *ClientGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangelogRequest) (*pb.ListChangelogResponse, error) {
+	entries, total, err := h.changelogService.ListChangelog(req.GetEntityType(), req.GetEntityId(), int(req.GetPage()), int(req.GetPageSize()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
 func toClientResponse(c *model.Client) *pb.ClientResponse {

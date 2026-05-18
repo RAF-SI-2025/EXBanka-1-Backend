@@ -2,47 +2,31 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
-	kafkago "github.com/segmentio/kafka-go"
+	"github.com/exbanka/contract/shared"
 )
 
+// Producer wraps the shared Kafka producer with auth-service typed
+// publish methods. The exported Publish remains because auth_service.go
+// publishes to a variety of dynamic topics (sessions, account-status).
 type Producer struct {
-	writer *kafkago.Writer
+	inner *shared.Producer
 }
 
 func NewProducer(brokers string) *Producer {
-	return &Producer{
-		writer: &kafkago.Writer{
-			Addr:     kafkago.TCP(brokers),
-			Balancer: &kafkago.LeastBytes{},
-		},
-	}
+	return &Producer{inner: shared.NewProducer(brokers)}
 }
 
+func (p *Producer) Close() error { return p.inner.Close() }
+
+// SendEmail publishes a generic email request.
 func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	return p.writer.WriteMessages(ctx, kafkago.Message{
-		Topic: kafkamsg.TopicSendEmail,
-		Value: data,
-	})
+	return p.inner.Publish(ctx, kafkamsg.TopicSendEmail, msg)
 }
 
+// Publish forwards to the shared producer for callers that publish to
+// dynamic topics (auth session events, mobile-device events).
 func (p *Producer) Publish(ctx context.Context, topic string, msg any) error {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	return p.writer.WriteMessages(ctx, kafkago.Message{
-		Topic: topic,
-		Value: data,
-	})
-}
-
-func (p *Producer) Close() error {
-	return p.writer.Close()
+	return p.inner.Publish(ctx, topic, msg)
 }

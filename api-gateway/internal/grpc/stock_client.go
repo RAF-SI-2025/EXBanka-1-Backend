@@ -3,12 +3,11 @@ package grpc
 import (
 	"google.golang.org/grpc"
 
-	"github.com/exbanka/contract/shared"
 	stockpb "github.com/exbanka/contract/stockpb"
 )
 
 func NewStockExchangeClient(addr string) (stockpb.StockExchangeGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -16,7 +15,7 @@ func NewStockExchangeClient(addr string) (stockpb.StockExchangeGRPCServiceClient
 }
 
 func NewSecurityClient(addr string) (stockpb.SecurityGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -24,7 +23,7 @@ func NewSecurityClient(addr string) (stockpb.SecurityGRPCServiceClient, *grpc.Cl
 }
 
 func NewOrderClient(addr string) (stockpb.OrderGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -32,7 +31,7 @@ func NewOrderClient(addr string) (stockpb.OrderGRPCServiceClient, *grpc.ClientCo
 }
 
 func NewPortfolioClient(addr string) (stockpb.PortfolioGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -40,7 +39,7 @@ func NewPortfolioClient(addr string) (stockpb.PortfolioGRPCServiceClient, *grpc.
 }
 
 func NewOTCClient(addr string) (stockpb.OTCGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -48,7 +47,7 @@ func NewOTCClient(addr string) (stockpb.OTCGRPCServiceClient, *grpc.ClientConn, 
 }
 
 func NewTaxClient(addr string) (stockpb.TaxGRPCServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -56,9 +55,68 @@ func NewTaxClient(addr string) (stockpb.TaxGRPCServiceClient, *grpc.ClientConn, 
 }
 
 func NewSourceAdminClient(addr string) (stockpb.SourceAdminServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
 	return stockpb.NewSourceAdminServiceClient(conn), conn, nil
+}
+
+func NewInvestmentFundClient(addr string) (stockpb.InvestmentFundServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewInvestmentFundServiceClient(conn), conn, nil
+}
+
+func NewOTCOptionsClient(addr string) (stockpb.OTCOptionsServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewOTCOptionsServiceClient(conn), conn, nil
+}
+
+// NewOTCStockMarketClient connects to the Phase-3 OTCStockMarketGRPCService
+// (sell+buy direction stocks marketplace). Used by the gateway's
+// /api/v3/otc/stocks/* and /api/v3/me/otc/stocks routes.
+func NewOTCStockMarketClient(addr string) (stockpb.OTCStockMarketGRPCServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewOTCStockMarketGRPCServiceClient(conn), conn, nil
+}
+
+func NewWatchlistClient(addr string) (stockpb.WatchlistServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewWatchlistServiceClient(conn), conn, nil
+}
+
+func NewPriceAlertClient(addr string) (stockpb.PriceAlertServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewPriceAlertServiceClient(conn), conn, nil
+}
+
+func NewRecurringOrderClient(addr string) (stockpb.RecurringOrderServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewRecurringOrderServiceClient(conn), conn, nil
+}
+
+func NewRecurringFundClient(addr string) (stockpb.RecurringFundServiceClient, *grpc.ClientConn, error) {
+	conn, err := sagaDial(addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return stockpb.NewRecurringFundServiceClient(conn), conn, nil
 }

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/shopspring/decimal"
@@ -166,13 +167,52 @@ func (r *AccountRepository) ListActiveAccountsWithMaintenanceFee() ([]model.Acco
 	return accounts, err
 }
 
+// UpdateBalanceOpts carries the optional memo / idempotency-key pair used by
+// callers that want a ledger-audit trail or crash-retry safety. An empty
+// IdempotencyKey opts out of dedup; an empty Memo keeps Description blank on
+// any ledger entry this method writes.
+type UpdateBalanceOpts struct {
+	Memo           string
+	IdempotencyKey string
+}
+
 // UpdateBalance atomically locks the account row with SELECT FOR UPDATE, enforces
 // spending limits for debits on client accounts, checks sufficient funds, then
 // updates balance (and optionally available_balance) and spending counters in a
 // single transaction. This eliminates the TOCTOU race between separate
 // GetByNumber → UpdateBalance → UpdateSpending calls.
-func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+//
+// When opts.IdempotencyKey is non-empty, the method:
+//   - Looks for an existing ledger entry with the same key inside the same TX.
+//   - If found, returns the cached entry without mutating the account. This is
+//     how stock-service's SagaRecovery re-issues credit/debit steps safely
+//     after a crash.
+//   - On first invocation, writes a ledger entry carrying the key (so future
+//     retries short-circuit via the partial unique index).
+//
+// A ledger entry is written whenever opts.IdempotencyKey or opts.Memo is
+// non-empty. Callers that pass neither get the original balance-only update
+// behaviour for full backward compatibility.
+//
+// Returns the ledger entry (nil when none was written) so the handler can
+// surface BalanceAfter / ledger ID to the RPC caller.
+func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.Decimal, updateAvailable bool, opts UpdateBalanceOpts) (*model.LedgerEntry, error) {
+	var entry *model.LedgerEntry
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// Idempotency short-circuit: if a ledger entry with this key already
+		// exists, replay the recorded result without mutating the account.
+		if opts.IdempotencyKey != "" {
+			var existing model.LedgerEntry
+			err := tx.Where("idempotency_key = ?", opts.IdempotencyKey).First(&existing).Error
+			if err == nil {
+				entry = &existing
+				return nil
+			}
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
+
 		// Lock the row for the duration of this transaction.
 		var acct model.Account
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -202,6 +242,9 @@ func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.D
 				accountNumber, acct.AvailableBalance.StringFixed(4), amount.Abs().StringFixed(4))
 		}
 
+		balanceBefore := acct.Balance
+		balanceAfter := balanceBefore.Add(amount)
+
 		// Build the update map and apply atomically.
 		updates := map[string]interface{}{
 			"balance": gorm.Expr("balance + ?", amount),
@@ -223,8 +266,39 @@ func (r *AccountRepository) UpdateBalance(accountNumber string, amount decimal.D
 		if result.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
 		}
+
+		// Every balance change produces a ledger entry. The ledger is the
+		// authoritative audit + recovery log — services rely on it to reconstruct
+		// state after a crash. Callers that already write their own ledger
+		// entries (e.g., transaction-service) can still do so alongside this
+		// one; the RPC-level entry records the account-service side of the
+		// change with whatever memo the caller supplied (or a neutral default).
+		entryType := "credit"
+		amt := amount
+		if isDebit {
+			entryType = "debit"
+			amt = amount.Abs()
+		}
+		description := opts.Memo
+		if description == "" {
+			description = "Balance update"
+		}
+		le := &model.LedgerEntry{
+			AccountNumber:  accountNumber,
+			EntryType:      entryType,
+			Amount:         amt,
+			BalanceBefore:  balanceBefore,
+			BalanceAfter:   balanceAfter,
+			Description:    description,
+			IdempotencyKey: opts.IdempotencyKey,
+		}
+		if err := tx.Create(le).Error; err != nil {
+			return fmt.Errorf("ledger entry: %w", err)
+		}
+		entry = le
 		return nil
 	})
+	return entry, err
 }
 
 // UpdateSpending increments daily_spending and monthly_spending by the given amount.

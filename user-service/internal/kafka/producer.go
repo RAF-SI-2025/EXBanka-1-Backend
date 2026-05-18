@@ -2,57 +2,37 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
 
 	kafkamsg "github.com/exbanka/contract/kafka"
-	kafkago "github.com/segmentio/kafka-go"
+	"github.com/exbanka/contract/shared"
 )
 
+// Producer wraps the shared Kafka producer with user-service typed
+// publish methods.
 type Producer struct {
-	writer *kafkago.Writer
+	inner *shared.Producer
 }
 
 func NewProducer(brokers string) *Producer {
-	return &Producer{
-		writer: &kafkago.Writer{
-			Addr:     kafkago.TCP(brokers),
-			Balancer: &kafkago.LeastBytes{},
-		},
-	}
+	return &Producer{inner: shared.NewProducer(brokers)}
 }
+
+func (p *Producer) Close() error { return p.inner.Close() }
 
 func (p *Producer) SendEmail(ctx context.Context, msg kafkamsg.SendEmailMessage) error {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	return p.writer.WriteMessages(ctx, kafkago.Message{
-		Topic: kafkamsg.TopicSendEmail,
-		Value: data,
-	})
-}
-
-func (p *Producer) publish(ctx context.Context, topic string, v interface{}) error {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return p.writer.WriteMessages(ctx, kafkago.Message{
-		Topic: topic,
-		Value: data,
-	})
+	return p.inner.Publish(ctx, kafkamsg.TopicSendEmail, msg)
 }
 
 func (p *Producer) PublishEmployeeCreated(ctx context.Context, msg kafkamsg.EmployeeCreatedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicEmployeeCreated, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicEmployeeCreated, msg)
 }
 
 func (p *Producer) PublishEmployeeUpdated(ctx context.Context, msg kafkamsg.EmployeeCreatedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicEmployeeUpdated, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicEmployeeUpdated, msg)
 }
 
 func (p *Producer) PublishEmployeeLimitsUpdated(ctx context.Context, msg kafkamsg.EmployeeLimitsUpdatedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicEmployeeLimitsUpdated, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicEmployeeLimitsUpdated, msg)
 }
 
 func (p *Producer) PublishLimitTemplate(ctx context.Context, msg kafkamsg.LimitTemplateMessage) error {
@@ -65,11 +45,11 @@ func (p *Producer) PublishLimitTemplate(ctx context.Context, msg kafkamsg.LimitT
 	default:
 		topic = kafkamsg.TopicLimitTemplateDeleted
 	}
-	return p.publish(ctx, topic, msg)
+	return p.inner.Publish(ctx, topic, msg)
 }
 
 func (p *Producer) PublishActuaryLimitUpdated(ctx context.Context, msg kafkamsg.ActuaryLimitUpdatedMessage) error {
-	return p.publish(ctx, kafkamsg.TopicActuaryLimitUpdated, msg)
+	return p.inner.Publish(ctx, kafkamsg.TopicActuaryLimitUpdated, msg)
 }
 
 func (p *Producer) PublishBlueprint(ctx context.Context, msg kafkamsg.BlueprintMessage) error {
@@ -86,9 +66,15 @@ func (p *Producer) PublishBlueprint(ctx context.Context, msg kafkamsg.BlueprintM
 	default:
 		topic = kafkamsg.TopicBlueprintCreated
 	}
-	return p.publish(ctx, topic, msg)
+	return p.inner.Publish(ctx, topic, msg)
 }
 
-func (p *Producer) Close() error {
-	return p.writer.Close()
+func (p *Producer) PublishRolePermissionsChanged(ctx context.Context, msg kafkamsg.RolePermissionsChangedMessage) error {
+	return p.inner.Publish(ctx, kafkamsg.TopicUserRolePermissionsChanged, msg)
+}
+
+// PublishRaw writes pre-serialized bytes to a topic. Used by the outbox
+// relay so the relay can avoid double-encoding stored payloads.
+func (p *Producer) PublishRaw(ctx context.Context, topic string, payload []byte) error {
+	return p.inner.PublishRaw(ctx, topic, payload)
 }

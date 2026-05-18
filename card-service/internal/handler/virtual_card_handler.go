@@ -8,25 +8,39 @@ import (
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
 
+	kafkaprod "github.com/exbanka/card-service/internal/kafka"
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/service"
 	pb "github.com/exbanka/contract/cardpb"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
 
 type VirtualCardGRPCHandler struct {
 	pb.UnimplementedVirtualCardServiceServer
-	cardService *service.CardService
+	cardService cardServiceFacade
+	producer    producerFacade
 }
 
-func NewVirtualCardGRPCHandler(cardService *service.CardService) *VirtualCardGRPCHandler {
-	return &VirtualCardGRPCHandler{cardService: cardService}
+func NewVirtualCardGRPCHandler(cardService *service.CardService, producer *kafkaprod.Producer) *VirtualCardGRPCHandler {
+	return &VirtualCardGRPCHandler{cardService: cardService, producer: producer}
 }
 
 func (h *VirtualCardGRPCHandler) CreateVirtualCard(ctx context.Context, req *pb.CreateVirtualCardRequest) (*pb.CardResponse, error) {
 	card, cvv, err := h.cardService.CreateVirtualCard(ctx, req.AccountNumber, req.OwnerId, req.CardBrand, req.UsageType, int(req.MaxUses), int(req.ExpiryMonths), req.CardLimit)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create virtual card: %v", err)
+		return nil, err
 	}
+
+	if h.producer != nil && card.OwnerType == "client" {
+		_ = h.producer.PublishGeneralNotification(ctx, kafkamsg.GeneralNotificationMessage{
+			UserID:  card.OwnerID,
+			Type:    "VIRTUAL_CARD_CREATED",
+			Data:    map[string]string{"usage_type": card.UsageType},
+			RefType: "card",
+			RefID:   card.ID,
+		})
+	}
+
 	resp := toCardResponseFull(card)
 	resp.Cvv = cvv
 	return resp, nil
@@ -34,7 +48,7 @@ func (h *VirtualCardGRPCHandler) CreateVirtualCard(ctx context.Context, req *pb.
 
 func (h *VirtualCardGRPCHandler) SetCardPin(ctx context.Context, req *pb.SetCardPinRequest) (*pb.SetCardPinResponse, error) {
 	if err := h.cardService.SetPin(req.Id, req.Pin); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to set PIN: %v", err)
+		return nil, err
 	}
 	return &pb.SetCardPinResponse{Success: true, Message: "PIN set successfully"}, nil
 }
@@ -57,7 +71,7 @@ func (h *VirtualCardGRPCHandler) TemporaryBlockCard(ctx context.Context, req *pb
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to temporarily block card: %v", err)
+		return nil, err
 	}
 	return toCardResponseFull(card), nil
 }

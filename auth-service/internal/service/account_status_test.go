@@ -223,10 +223,10 @@ func TestGetAccountStatusBatch(t *testing.T) {
 }
 
 // ============================================================
-// Token Claims Tests (system_type in JWT)
+// Token Claims Tests (principal_type in JWT)
 // ============================================================
 
-func TestEmployeeLogin_SystemTypeEmployee(t *testing.T) {
+func TestEmployeeLogin_PrincipalTypeEmployee(t *testing.T) {
 	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
 
 	token, err := jwtSvc.GenerateAccessToken(1, "emp@test.com", []string{"EmployeeAdmin"}, []string{"users.manage"}, "employee", TokenProfile{AccountActive: true})
@@ -234,14 +234,14 @@ func TestEmployeeLogin_SystemTypeEmployee(t *testing.T) {
 
 	claims, err := jwtSvc.ValidateToken(token)
 	require.NoError(t, err)
-	assert.Equal(t, "employee", claims.SystemType)
-	assert.Equal(t, int64(1), claims.UserID)
+	assert.Equal(t, "employee", claims.PrincipalType)
+	assert.Equal(t, int64(1), claims.PrincipalID)
 	assert.Equal(t, "emp@test.com", claims.Email)
 	assert.Equal(t, []string{"EmployeeAdmin"}, claims.Roles)
 	assert.Equal(t, []string{"users.manage"}, claims.Permissions)
 }
 
-func TestClientLogin_SystemTypeClient(t *testing.T) {
+func TestClientLogin_PrincipalTypeClient(t *testing.T) {
 	jwtSvc := NewJWTService("test-secret-key-256bit-min", 15*time.Minute)
 
 	token, err := jwtSvc.GenerateAccessToken(42, "client@test.com", []string{"client"}, nil, "client", TokenProfile{AccountActive: true})
@@ -249,8 +249,8 @@ func TestClientLogin_SystemTypeClient(t *testing.T) {
 
 	claims, err := jwtSvc.ValidateToken(token)
 	require.NoError(t, err)
-	assert.Equal(t, "client", claims.SystemType)
-	assert.Equal(t, int64(42), claims.UserID)
+	assert.Equal(t, "client", claims.PrincipalType)
+	assert.Equal(t, int64(42), claims.PrincipalID)
 	assert.Equal(t, "client@test.com", claims.Email)
 	assert.Equal(t, []string{"client"}, claims.Roles)
 	assert.Empty(t, claims.Permissions)
@@ -272,7 +272,7 @@ func TestMobileAccessToken_ContainsDeviceClaims(t *testing.T) {
 
 	claims, err := jwtSvc.ValidateToken(token)
 	require.NoError(t, err)
-	assert.Equal(t, "client", claims.SystemType)
+	assert.Equal(t, "client", claims.PrincipalType)
 	assert.Equal(t, "mobile", claims.DeviceType)
 	assert.Equal(t, deviceID, claims.DeviceID)
 }

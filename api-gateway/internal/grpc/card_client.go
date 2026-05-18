@@ -4,11 +4,10 @@ import (
 	"google.golang.org/grpc"
 
 	cardpb "github.com/exbanka/contract/cardpb"
-	"github.com/exbanka/contract/shared"
 )
 
 func NewCardClient(addr string) (cardpb.CardServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -16,7 +15,7 @@ func NewCardClient(addr string) (cardpb.CardServiceClient, *grpc.ClientConn, err
 }
 
 func NewVirtualCardClient(addr string) (cardpb.VirtualCardServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -24,7 +23,7 @@ func NewVirtualCardClient(addr string) (cardpb.VirtualCardServiceClient, *grpc.C
 }
 
 func NewCardRequestClient(addr string) (cardpb.CardRequestServiceClient, *grpc.ClientConn, error) {
-	conn, err := shared.DialGRPC(addr)
+	conn, err := sagaDial(addr)
 	if err != nil {
 		return nil, nil, err
 	}

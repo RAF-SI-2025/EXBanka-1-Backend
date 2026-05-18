@@ -1,8 +1,12 @@
 package repository
 
 import (
-	"github.com/exbanka/client-service/internal/model"
+	"fmt"
+
 	"gorm.io/gorm"
+
+	"github.com/exbanka/client-service/internal/model"
+	shared "github.com/exbanka/contract/shared"
 )
 
 type ClientRepository struct {
@@ -30,7 +34,14 @@ func (r *ClientRepository) GetByEmail(email string) (*model.Client, error) {
 }
 
 func (r *ClientRepository) Update(client *model.Client) error {
-	return r.db.Save(client).Error
+	saveRes := r.db.Save(client)
+	if saveRes.Error != nil {
+		return saveRes.Error
+	}
+	if saveRes.RowsAffected == 0 {
+		return fmt.Errorf("update client(id=%d): %w", client.ID, shared.ErrOptimisticLock)
+	}
+	return nil
 }
 
 func (r *ClientRepository) List(emailFilter, nameFilter string, page, pageSize int) ([]model.Client, int64, error) {

@@ -6,8 +6,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	shared "github.com/exbanka/contract/shared"
 	"github.com/exbanka/verification-service/internal/model"
 )
+
+// ErrOptimisticLock is the typed sentinel returned when a concurrent
+// modification is detected on a VerificationChallenge row.
+var ErrOptimisticLock = shared.ErrOptimisticLock
 
 type VerificationChallengeRepository struct {
 	db *gorm.DB
@@ -44,14 +49,31 @@ func (r *VerificationChallengeRepository) GetByIDForUpdate(tx *gorm.DB, id uint6
 }
 
 // Save persists changes to an existing VerificationChallenge.
-// The BeforeUpdate hook enforces optimistic locking.
+// The BeforeUpdate hook enforces optimistic locking; RowsAffected==0 means
+// a concurrent update won the race.
 func (r *VerificationChallengeRepository) Save(vc *model.VerificationChallenge) error {
-	return r.db.Save(vc).Error
+	saveRes := r.db.Save(vc)
+	if saveRes.Error != nil {
+		return saveRes.Error
+	}
+	if saveRes.RowsAffected == 0 {
+		return ErrOptimisticLock
+	}
+	return nil
 }
 
 // SaveInTx persists changes within an existing transaction.
+// The BeforeUpdate hook enforces optimistic locking; RowsAffected==0 means
+// a concurrent update won the race.
 func (r *VerificationChallengeRepository) SaveInTx(tx *gorm.DB, vc *model.VerificationChallenge) error {
-	return tx.Save(vc).Error
+	saveRes := tx.Save(vc)
+	if saveRes.Error != nil {
+		return saveRes.Error
+	}
+	if saveRes.RowsAffected == 0 {
+		return ErrOptimisticLock
+	}
+	return nil
 }
 
 // GetPendingByUser returns the most recent pending, non-expired challenge for a user.

@@ -42,12 +42,14 @@ func MobileAuthMiddleware(authClient authpb.AuthServiceClient) gin.HandlerFunc {
 			return
 		}
 
-		// Set context values (same as AuthMiddleware + device fields)
-		c.Set("user_id", resp.UserId)
+		// Set context values (same as AuthMiddleware + device fields).
+		// Keys "principal_id" / "principal_type" replace the legacy
+		// "user_id" / "system_type" (Spec C Task 3).
+		c.Set("principal_id", resp.PrincipalId)
 		c.Set("email", resp.Email)
 		c.Set("role", resp.Role)
 		c.Set("roles", resp.Roles)
-		c.Set("system_type", resp.SystemType)
+		c.Set("principal_type", resp.PrincipalType)
 		c.Set("permissions", resp.Permissions)
 		c.Set("device_type", resp.DeviceType)
 		c.Set("device_id", resp.DeviceId)

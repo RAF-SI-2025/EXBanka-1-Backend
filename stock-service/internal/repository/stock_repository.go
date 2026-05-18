@@ -37,8 +37,18 @@ func (r *StockRepository) GetByTicker(ticker string) (*model.Stock, error) {
 	return &stock, nil
 }
 
+// Update persists a loaded-then-mutated stock through GORM's Save (UPDATE by
+// primary key). The Stock.BeforeUpdate hook attaches the optimistic-lock
+// WHERE version=? clause and increments Version on the caller's struct.
+//
+// We use Select("*").Save(...) intentionally: bare db.Save in GORM v1.31.1
+// falls back to INSERT...ON CONFLICT(id) DO UPDATE when the initial UPDATE
+// matches zero rows (finisher_api.go:109-110), which would silently overwrite
+// the winner of an optimistic-lock race and hide the conflict. Selecting "*"
+// sets the `selectedUpdate` flag in GORM's Save and disables that fallback
+// path, so RowsAffected==0 correctly indicates an optimistic-lock conflict.
 func (r *StockRepository) Update(stock *model.Stock) error {
-	result := r.db.Save(stock)
+	result := r.db.Select("*").Save(stock)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -69,13 +79,18 @@ func (r *StockRepository) UpsertByTicker(stock *model.Stock) error {
 		existing.Change = stock.Change
 		existing.Volume = stock.Volume
 		existing.LastRefresh = stock.LastRefresh
-		return tx.Save(&existing).Error
+		return CheckRowsAffected(tx.Save(&existing))
 	})
 }
 
 // UpdatePriceByTicker updates only the price column for the stock with the given ticker.
+// Uses SkipHooks because Model(&Stock{}) creates a zero-value struct; the BeforeUpdate
+// optimistic-lock hook would add WHERE version=0 and match nothing (see CLAUDE.md §3a).
+// Price-sync is a bulk write, not a concurrent user action, so version-racing is not
+// meaningful here.
 func (r *StockRepository) UpdatePriceByTicker(ticker string, price decimal.Decimal) error {
-	return r.db.Model(&model.Stock{}).Where("ticker = ?", ticker).Update("price", price).Error
+	return r.db.Session(&gorm.Session{SkipHooks: true}).
+		Model(&model.Stock{}).Where("ticker = ?", ticker).Update("price", price).Error
 }
 
 func (r *StockRepository) List(filter StockFilter) ([]model.Stock, int64, error) {

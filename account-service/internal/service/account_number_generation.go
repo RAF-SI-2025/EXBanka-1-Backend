@@ -2,12 +2,34 @@ package service
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"strconv"
 )
 
-const bankCode = "111"
+// bankCode is the 3-digit prefix for account numbers minted by this instance.
+// Default "111" preserves single-instance behaviour; SetBankCode overrides it
+// at startup from OWN_BANK_CODE so multiple bank instances can interoperate
+// over Celina 5 SI-TX without colliding on account-number prefixes.
+var bankCode = "111"
+
 const branchCode = "0001"
+
+// SetBankCode replaces the default 3-digit account-number prefix. Must be
+// called before any account is minted (typically from main during startup,
+// after config load). Panics on invalid input rather than silently minting
+// malformed numbers.
+func SetBankCode(code string) {
+	if len(code) != 3 {
+		panic(fmt.Sprintf("SetBankCode: code must be exactly 3 digits, got %q", code))
+	}
+	for _, c := range code {
+		if c < '0' || c > '9' {
+			panic(fmt.Sprintf("SetBankCode: code must be digits 0-9, got %q", code))
+		}
+	}
+	bankCode = code
+}
 
 // accountTypeCode maps account kind to a 2-digit type code per spec.
 func accountTypeCode(kind string) string {

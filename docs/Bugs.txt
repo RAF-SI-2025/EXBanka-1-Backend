@@ -1,0 +1,355 @@
+EXBanka Known Bugs
+==================
+
+1. POST /api/v1/me/orders always returns 404 "listing not found"  [FIXED 2026-04-23 — Phase 1]
+----------------------------------------------------------------
+Symptom:
+  Client GETs /api/v1/securities/stocks (or /futures, /forex), picks a row,
+  and POSTs its `id` to /api/v1/me/orders as `listing_id`. The gateway
+  forwards the request to stock-service, which returns 404 "listing not
+  found" even though the row was clearly visible in the list response.
+
+Root cause:
+  `ListingInfo` in contract/proto/stock/stock.proto defines `uint64 id = 1`
+  (the listings table PK), but stock-service/internal/handler/security_handler.go:298
+  `toListingInfo(...)` never populates that field — its signature does not
+  even take a listing ID. Every caller (toStockItem, toFuturesItem,
+  toForexItem, toStockDetail, etc.) builds a StockItem/FuturesItem/ForexItem
+  whose TOP-LEVEL `id` is the security table PK (stocks.id, futures_contracts.id,
+  forex_pairs.id), not the listings.id. Listings live in a separate table
+  with its own auto-increment PK that has no relation to the security PK.
+
+  Consequence: clients have no way to discover a listing's actual ID from
+  /securities/stocks | /securities/futures | /securities/forex, so they
+  send the security ID as `listing_id`. OrderService.CreateOrder runs
+  `listingRepo.GetByID(securityID)` against the listings table, which
+  nearly always misses → gorm.ErrRecordNotFound → "listing not found" →
+  gRPC NotFound → HTTP 404.
+
+  Options are NOT affected: the Option model stores ListingID *uint64
+  directly, and toOptionItem / toOptionDetail (security_handler.go:440, :484)
+  expose it correctly.
+
+Fix:
+  - Add a `listingID uint64` parameter to toListingInfo and set
+    `Id: listingID` on the returned pb.ListingInfo.
+  - Update toStockItem / toFuturesItem / toForexItem / toStockDetail /
+    toFuturesDetail / toForexDetail (and their list counterparts) to
+    resolve the listing row for each security (by security_id + security_type)
+    and pass its ID in.
+  - Simplest implementation: extend the ListStocks/ListFutures/ListForexPairs
+    repository queries to JOIN listings and select listing.id, or add a
+    batched ListingRepo.GetBySecurityIDsAndType lookup called once per page.
+  - Update handler unit tests (security_handler_test.go) to assert the
+    listing id is populated.
+
+
+2. Generated source does not populate Volume for stocks / futures / forex  [FIXED 2026-04-23 — Phase 1]
+--------------------------------------------------------------------------
+Symptom:
+  When the stock-service data source is switched to the generated source,
+  every seeded stock, futures contract, and forex pair has Volume = 0.
+  /api/v1/securities/stocks returns `"volume": 0` for every item, sort_by=volume
+  is useless, and listing.volume is always 0 in price snapshots. As a
+  side effect, OrderExecutionEngine.calculateWaitTime uses listing.Volume
+  as a denominator — with volume = 0, the fallback (`volume = 1`) triggers
+  and wait times between partial fills are near-instant regardless of
+  order size, so the simulated market behaviour is wrong.
+
+Root cause:
+  stock-service/internal/source/generated_source.go sets Ticker, Name,
+  ExchangeID, Price, High, Low, Change, and LastRefresh on the generated
+  model structs, but never assigns a Volume value. The struct zero value
+  (int64 0) ends up in the DB. A grep for "Volume" / "volume" in
+  generated_source.go returns zero matches.
+
+Fix:
+  - In generated_source.go, add deterministic (hash-derived) volume values
+    for stocks, futures, and forex pairs — same pattern as the existing
+    price/exchange hashing so values stay stable across reseeds.
+  - Pick sensible ranges per security type (stocks: 100k–50M daily volume;
+    futures: 1k–500k contracts; forex: 100M–10B notional).
+  - Set Volume on Stock, FuturesContract, and ForexPair model literals
+    before returning them from FetchStocks / FetchFutures / FetchForex.
+  - Also propagate Volume into the StockWithListing / FuturesWithListing /
+    ForexWithListing wrappers if those are consumed separately by
+    syncStocks / seedFutures / seedForex.
+  - Add unit tests in source/simulator_source_test.go (or a dedicated
+    generated_source_test.go) asserting Volume > 0 on every returned
+    security.
+
+
+3. Stock / futures / forex buy orders never debit the account (money is not moved at all)  [FIXED 2026-04-24 — Phase 1 (ctx) + Phase 2 (reservation/saga money movement)]
+------------------------------------------------------------------------------------------
+Severity: CRITICAL — this is the bug you are observing: "when I buy
+securities I don't lose money". It is not a safety bug in isolation, it
+is a correctness bug: the code that moves money exists but never executes
+for orders placed via the API during a running session.
+
+Root cause:
+  stock-service/internal/handler/order_handler.go:75 calls
+    h.execEngine.StartOrderExecution(ctx, order.ID)
+  using the gRPC request context `ctx`.
+
+  StartOrderExecution (stock-service/internal/service/order_execution.go:73)
+  then derives the goroutine's context from that request ctx:
+    orderCtx, cancel := context.WithCancel(ctx)
+    ...
+    go e.executeOrder(orderCtx, orderID)
+
+  The gRPC request completes almost immediately (CreateOrder returns
+  after line 78 of the handler), so the request ctx is cancelled. That
+  cancels orderCtx, and executeOrder exits on its very first `select`
+  (order_execution.go:98-102) without ever touching the fill handler.
+
+  Effects observed end-to-end:
+  - Order row is created with status=approved, IsDone=false,
+    RemainingPortions=quantity.
+  - No OrderTransaction row is ever created.
+  - ProcessBuyFill / debitAccount are never called → account balance
+    stays untouched → "I don't lose money when I buy".
+  - Same bug for sell orders → no proceeds are credited.
+  - GET /api/v1/me/orders shows the order stuck at "approved" forever.
+
+  Ironic counter-example: execEngine.Start(ctx) at cmd/main.go:303 is
+  called with a long-lived background ctx from main.go:281. If you
+  RESTART stock-service, ListActiveApproved() picks up the stuck orders
+  and resumes them with the durable ctx — and THEN fills actually
+  execute, money moves, and state advances. That is why this bug looks
+  intermittent if anyone has ever tested with a service restart.
+
+Fix:
+  - Do not derive the execution ctx from the gRPC request ctx. The
+    execution engine should own a long-lived base context (e.g. a
+    `baseCtx` field assigned from cmd/main.go) and derive orderCtx
+    from that inside StartOrderExecution.
+  - Alternatively, have StartOrderExecution ignore the ctx argument and
+    always use e.baseCtx, which it receives via a new constructor arg
+    or a SetBaseContext setter called from main.go.
+  - Same fix applies to ApproveOrder in order_handler.go:135
+    (h.execEngine.StartOrderExecution(ctx, order.ID) uses the request
+    ctx there too).
+  - Add a unit test that calls CreateOrder, waits past the request,
+    and asserts a fill transaction was recorded and the account debit
+    RPC was invoked. A regression of the context bug would fail this
+    test deterministically.
+
+
+4. Once bug #3 is fixed, the fill path itself is not bank-safe  [FIXED 2026-04-24 — Phase 2: reservations, saga log, currency conversion, forex-as-exchange, sync Kafka-after-commit, recovery reconciler]
+--------------------------------------------------------------
+Severity: CRITICAL — must be resolved before allowing real settlement.
+These issues are currently masked by bug #3 (nothing runs, so nothing
+breaks), but will all fire immediately as soon as fills actually execute.
+
+Summary of problems:
+
+  4a. No funds reservation at order placement.
+      stock-service/internal/service/order_service.go:CreateOrder never
+      touches account-service. A buy order is auto-approved (for clients)
+      with status=approved and no debit, no hold, no available-balance
+      decrement. A user with 1,000 RSD available can place 100 buy orders
+      for 1,000 RSD each, all approved, all queued. Whichever orders fill
+      first will debit the account; the rest will fail silently at fill
+      time (see 4b). There is no "reserved" / "pending" balance concept
+      in account-service (AvailableBalance is a single field updated at
+      settlement, not a reservation counter).
+
+  4b. Fills that fail on account update are swallowed.
+      stock-service/internal/service/order_execution.go:170-180 calls
+      fillHandler.ProcessBuyFill / ProcessSellFill and on error just
+      logs a WARN and continues the loop. By that point the
+      OrderTransaction row (txn) has already been committed by
+      txRepo.Create at line 164-167, so the DB now claims the trade
+      happened but the holding / balance state is inconsistent with it.
+      There is no compensation, no retry, no DLQ, no saga log, and
+      RemainingPortions still gets decremented on the next iteration.
+
+  4c. Holding is mutated before the account is debited (free shares on failure).
+      stock-service/internal/service/portfolio_service.go:ProcessBuyFill
+      lines 88-100:
+        holdingRepo.Upsert(holding)   // ← step 1: user gets the shares
+        debitAccount(accountID, amount) // ← step 2: user pays
+      If step 2 errors (account locked, network blip, insufficient funds
+      on any of the concurrent competing orders from 4a), the user keeps
+      the holding and never pays. No rollback of the holding upsert.
+
+  4d. Holding is mutated before the account is credited (lost shares on failure).
+      portfolio_service.go:ProcessSellFill lines 152-175:
+        holding.Quantity -= txn.Quantity
+        holdingRepo.Update/Delete       // ← step 1: shares destroyed
+        creditAccount(accountID, amount) // ← step 2: payout
+      If step 2 errors, the shares are gone and the user never receives
+      the proceeds.
+
+  4e. Commission is credited to the bank in a separate unchecked call.
+      Both ProcessBuyFill and ProcessSellFill call creditBankCommission
+      AFTER the main debit/credit. If the main call succeeds and the
+      commission call fails, the bank loses its fee permanently (logged
+      but not retried). No saga.
+
+  4f. No currency conversion between listing currency and account currency.
+      debitAccount / creditAccount (portfolio_service.go:407-431) take the
+      raw amount from txn.TotalPrice — which is denominated in the listing's
+      exchange currency (listing.Exchange.Currency, e.g. USD for NYSE
+      stocks) — and pass it straight to account-service's UpdateBalance.
+      account-service does not validate currency in UpdateBalance
+      (account-service/internal/service/account_service.go:286). Result:
+      a client paying for a $100 AAPL share from an RSD account is debited
+      100 RSD, not ~11,700 RSD. A client selling a EUR futures contract
+      into an RSD account is credited raw euros as if they were dinars.
+      No call to exchange-service.Convert anywhere in the buy/sell path.
+
+  4g. No saga log is used for cross-service order fills.
+      CLAUDE.md §"Cross-Service Operations (Saga Pattern)" mandates that
+      multi-service business operations record each step in a saga log
+      and use compensating transactions on failure. transaction-service
+      follows this pattern; stock-service does not have a saga_logs table
+      or any equivalent, even though every order fill spans stock-service
+      (txn + holding) and account-service (balance update). This is the
+      architectural root cause of 4b–4e.
+
+  4h. Kafka event is published inside (well, spawned as a goroutine from
+      inside) the execution loop, not after a committed saga step.
+      order_execution.go:197-213 fires PublishOrderFilled in a detached
+      goroutine with no error handling after the txn + fill code path.
+      If ProcessBuyFill failed (see 4b) the order_filled event still goes
+      out, telling downstream consumers (tax-service, notifications,
+      portfolio views) that a trade settled when in fact it didn't. CLAUDE.md
+      also mandates "Kafka events MUST be published AFTER the DB
+      transaction commits" — the commit here is the txn write, not the
+      whole fill, so the current behaviour is wrong even without 3b.
+
+Fix (plan, in order of priority):
+  1. Introduce a reservation mechanism in account-service:
+     - Add ReservedBalance decimal column to Account (or an
+       account_reservations child table with reservation_id FK to order).
+     - Add gRPC methods ReserveFunds / ReleaseReservation / SettleReservation
+       with SELECT FOR UPDATE on the account row.
+     - AvailableBalance = Balance - ReservedBalance.
+  2. stock-service.CreateOrder for buy orders calls
+     account-service.ReserveFunds BEFORE persisting the order, passing the
+     amount converted via exchange-service.Convert into the account's
+     currency (+ a configurable slippage buffer for market/stop orders).
+     For sell orders, reserve the holding quantity via a HoldingReservation
+     instead.
+  3. Introduce a saga_logs table in stock-service mirroring
+     transaction-service/internal/model/saga_log.go. Every fill step
+     (record txn → update holding → settle reservation / credit proceeds
+     → credit bank commission → publish kafka) is a saga step.
+  4. Move the account update BEFORE the holding mutation in both
+     ProcessBuyFill and ProcessSellFill, or wrap both in the saga so a
+     failed account call triggers holding compensation. Record-and-settle
+     must be atomic-by-saga, not "best effort in a goroutine".
+  5. Convert txn.TotalPrice via exchange-service.Convert to
+     account.CurrencyCode before calling UpdateBalance. Store both the
+     native-currency amount and converted amount on OrderTransaction for
+     audit.
+  6. Add InsufficientFunds as a first-class fill outcome: if fill fails
+     due to reserved funds being unavailable (e.g., reservation expired),
+     decline the remaining order portions and emit order_failed kafka
+     event; do not silently log.
+  7. Publish kafka order_filled ONLY after the saga step commits
+     successfully. On compensation, publish order_fill_failed instead.
+  8. Integration tests in test-app/workflows covering:
+     - concurrent buy orders with insufficient available balance
+     - fill-time account-service outage (no money lost, no shares created)
+     - cross-currency buy/sell (correct converted debit/credit)
+     - commission failure (bank fee still recorded via retry)
+     - refund on stop-limit order that never triggered
+
+
+5. Client can see/cancel employee's orders (and vice versa) — same user_id collision  [FIXED 2026-04-24]
+------------------------------------------------------------------------------------
+Severity: HIGH — data privacy / authorization bug.
+
+Root cause:
+  Employees live in user_db.employees; clients live in client_db.clients.
+  Both tables have their own auto-increment PKs, so employee.id=5 and
+  client.id=5 routinely coexist. stock-service's Order/Holding/CapitalGain
+  rows all carry `user_id` AND `system_type` columns, but /me/* queries
+  in order_repository.ListByUser, GetByID ownership check, CancelOrder
+  ownership check, holding_repository.ListByUser, and
+  holding_repository.GetByUserAndSecurity filtered by user_id alone.
+  Result: a client with user_id=5 calling GET /api/v1/me/orders saw
+  every order in the system placed by any employee with user_id=5.
+
+  Holding_repository.Upsert also keyed aggregation on user_id alone,
+  silently merging client and employee portfolio holdings that happened
+  to share a user_id (discovered during this fix).
+
+  Tax collection's ListUsersWithGains subquery was similarly keyed on
+  user_id alone in the LEFT JOIN to holdings and the "last collected"
+  lookup; this would have let employee/client tax bookkeeping contaminate
+  each other when user_ids collided (also discovered + fixed).
+
+Fix:
+  - Added system_type string field to every user-scoped RPC request in
+    contract/proto/stock/stock.proto (9 messages updated).
+  - Gateway reads system_type from JWT context (auth middleware already
+    populates it) and forwards it into each /me/* RPC via a new
+    meIdentity(c) helper that returns 401 if either identity field is
+    missing.
+  - Service-layer methods accept systemType and forward to the repo.
+  - Repositories added AND system_type = ? to every user-scoped WHERE
+    (order.ListByUser + new GetByIDWithOwner; holding.ListByUser,
+    GetByUserAndSecurity, Upsert, FindOldestLongOptionHolding;
+    capital_gain.ListByUser, SumByUserMonth, SumByUserYear;
+    tax_collection.SumByUserMonth, SumByUserYear, GetLastCollection,
+    ListUsersWithGains).
+  - Cross-system GETs return 404 not 403 (don't leak row existence).
+
+Status: FIXED 2026-04-24. Regression test at
+test-app/workflows/wf_systemtype_isolation_test.go.
+
+
+===============================================================================
+[2026-04-25] Cohort-dependent / cross-team TODOs deliberately left open
+===============================================================================
+
+These came out of the Celina 4 + Celina 5 audit after Plans 1–4 landed. Each
+one needs a decision or work outside the four-plan scope and so was
+deliberately left as a TODO instead of being half-implemented.
+
+1. PeerReviseOffer + PeerAcceptIntent RPCs return Unimplemented
+   - Defined in contract/proto/stock/stock.proto under CrossBankOTCService
+   - The Celina spec describes the user-visible flow ("Klijent klikne
+     Predlozi kontra ponudu") but does not lock the inter-bank wire
+     contract. The four faculty banks must agree on the
+     counter / accept-intent payload shape and write it down in
+     docs/superpowers/refs/crossbank-otc-wire.md before any bank can
+     implement these handlers — a unilateral implementation would fail
+     at HMAC + envelope validation on the receiving bank.
+   - Until the wire shape is locked, both RPCs return
+     codes.Unimplemented and the responder-side
+     CrossbankInternalHandler short-circuits with a clear error message.
+
+2. Fund performance history charts (Celina 4 §Detaljan prikaz fonda)
+   - Spec calls for "tabela ili grafikon (po želji tima: mesečni,
+     kvartalni ili godišnji prikaz)".
+   - Backend would need a snapshot table (e.g. fund_value_snapshots) +
+     a daily cron that records (fund_id, date, value_rsd, profit_rsd).
+     None of that is in the original Plan 1 scope.
+   - The fund detail endpoint (GET /api/v3/investment-funds/{id})
+     surfaces current value via the position-reads service; historical
+     series is the missing piece.
+
+3. Visual color thresholds (Celina 4 §Aktivne ponude)
+   - Spec calls for ±5% green / ±5–20% yellow / >20% red banding on
+     the negotiation list.
+   - Backend already returns the data the frontend needs to compute the
+     banding (market_reference_price now ships on every offer +
+     contract response). The thresholds + colours are pure UI.
+
+4. Notification-service consumers for otc.* Kafka topics
+   - Celina 5 §Pregovaranje shows "Prodavac vidi obaveštenje" / Celina 4
+     parallel for fund / OTC events.
+   - Stock-service publishes the full set of otc.offer-* and
+     otc.contract-* topics today, but notification-service has no
+     consumer registered for any of them — emails won't be sent on
+     counter, accept, reject, exercise, or expire events.
+   - Cross-cutting: this would touch notification-service's consumer
+     wiring + new email templates per event type, plus depend on a
+     new EmailType enum value per topic. Outside the four OTC plans.
+
+Each item is genuinely "won't" rather than "missed". Track here so a
+future maintainer doesn't re-discover the same conclusions.

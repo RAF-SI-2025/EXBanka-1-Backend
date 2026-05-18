@@ -12,7 +12,7 @@ import (
 )
 
 func TestGetCandles_MissingListingID(t *testing.T) {
-	h := NewSecurityHandler(nil, nil, nil)
+	h := NewSecurityHandler(nil, nil, nil, nil)
 	_, err := h.GetCandles(context.Background(), &pb.GetCandlesRequest{
 		Interval: "1h",
 		From:     "2026-04-01T00:00:00Z",
@@ -23,7 +23,7 @@ func TestGetCandles_MissingListingID(t *testing.T) {
 }
 
 func TestGetCandles_MissingInterval(t *testing.T) {
-	h := NewSecurityHandler(nil, nil, nil)
+	h := NewSecurityHandler(nil, nil, nil, nil)
 	_, err := h.GetCandles(context.Background(), &pb.GetCandlesRequest{
 		ListingId: 1,
 		From:      "2026-04-01T00:00:00Z",
@@ -34,7 +34,7 @@ func TestGetCandles_MissingInterval(t *testing.T) {
 }
 
 func TestGetCandles_InvalidFromTimestamp(t *testing.T) {
-	h := NewSecurityHandler(nil, nil, nil)
+	h := NewSecurityHandler(nil, nil, nil, nil)
 	_, err := h.GetCandles(context.Background(), &pb.GetCandlesRequest{
 		ListingId: 1,
 		Interval:  "1h",
@@ -46,7 +46,7 @@ func TestGetCandles_InvalidFromTimestamp(t *testing.T) {
 }
 
 func TestGetCandles_InvalidToTimestamp(t *testing.T) {
-	h := NewSecurityHandler(nil, nil, nil)
+	h := NewSecurityHandler(nil, nil, nil, nil)
 	_, err := h.GetCandles(context.Background(), &pb.GetCandlesRequest{
 		ListingId: 1,
 		Interval:  "1h",
@@ -59,7 +59,7 @@ func TestGetCandles_InvalidToTimestamp(t *testing.T) {
 
 func TestGetCandles_NilCandleService_ReturnsEmpty(t *testing.T) {
 	// CandleService with nil influx client returns empty candles (graceful degradation)
-	h := NewSecurityHandler(nil, nil, service.NewCandleService(nil))
+	h := NewSecurityHandler(nil, nil, service.NewCandleService(nil), nil)
 	resp, err := h.GetCandles(context.Background(), &pb.GetCandlesRequest{
 		ListingId: 1,
 		Interval:  "1h",

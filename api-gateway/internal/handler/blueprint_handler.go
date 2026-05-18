@@ -52,7 +52,7 @@ func NewBlueprintHandler(client userpb.BlueprintServiceClient) *BlueprintHandler
 // @Failure      400  {object}  map[string]interface{}  "invalid type filter"
 // @Failure      401  {object}  map[string]interface{}  "unauthorized"
 // @Failure      500  {object}  map[string]interface{}  "error"
-// @Router       /api/v1/blueprints [get]
+// @Router       /api/v2/blueprints [get]
 func (h *BlueprintHandler) ListBlueprints(c *gin.Context) {
 	bpType := c.Query("type")
 	if bpType != "" {
@@ -87,7 +87,7 @@ func (h *BlueprintHandler) ListBlueprints(c *gin.Context) {
 // @Failure      401  {object}  map[string]interface{}  "unauthorized"
 // @Failure      409  {object}  map[string]interface{}  "duplicate name+type"
 // @Failure      500  {object}  map[string]interface{}  "error"
-// @Router       /api/v1/blueprints [post]
+// @Router       /api/v2/blueprints [post]
 func (h *BlueprintHandler) CreateBlueprint(c *gin.Context) {
 	var body createBlueprintBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -126,7 +126,7 @@ func (h *BlueprintHandler) CreateBlueprint(c *gin.Context) {
 // @Failure      401  {object}  map[string]interface{}  "unauthorized"
 // @Failure      404  {object}  map[string]interface{}  "not found"
 // @Failure      500  {object}  map[string]interface{}  "error"
-// @Router       /api/v1/blueprints/{id} [get]
+// @Router       /api/v2/blueprints/{id} [get]
 func (h *BlueprintHandler) GetBlueprint(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -156,7 +156,7 @@ func (h *BlueprintHandler) GetBlueprint(c *gin.Context) {
 // @Failure      401  {object}  map[string]interface{}  "unauthorized"
 // @Failure      404  {object}  map[string]interface{}  "not found"
 // @Failure      500  {object}  map[string]interface{}  "error"
-// @Router       /api/v1/blueprints/{id} [put]
+// @Router       /api/v2/blueprints/{id} [put]
 func (h *BlueprintHandler) UpdateBlueprint(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -195,7 +195,7 @@ func (h *BlueprintHandler) UpdateBlueprint(c *gin.Context) {
 // @Failure      401  {object}  map[string]interface{}  "unauthorized"
 // @Failure      404  {object}  map[string]interface{}  "not found"
 // @Failure      500  {object}  map[string]interface{}  "error"
-// @Router       /api/v1/blueprints/{id} [delete]
+// @Router       /api/v2/blueprints/{id} [delete]
 func (h *BlueprintHandler) DeleteBlueprint(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -225,7 +225,7 @@ func (h *BlueprintHandler) DeleteBlueprint(c *gin.Context) {
 // @Failure      401  {object}  map[string]interface{}  "unauthorized"
 // @Failure      404  {object}  map[string]interface{}  "blueprint not found"
 // @Failure      500  {object}  map[string]interface{}  "error"
-// @Router       /api/v1/blueprints/{id}/apply [post]
+// @Router       /api/v2/blueprints/{id}/apply [post]
 func (h *BlueprintHandler) ApplyBlueprint(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {

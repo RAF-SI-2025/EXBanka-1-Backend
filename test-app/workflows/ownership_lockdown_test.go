@@ -20,7 +20,7 @@ func TestOwnership_BobCannotReadAliceLoan(t *testing.T) {
 
 	// Alice creates a loan request and admin approves it.
 	aliceReqID := submitLoanRequest(t, aliceC, aliceAcct, 5000, 12)
-	approveResp, err := adminC.POST(fmt.Sprintf("/api/v1/loan-requests/%d/approve", aliceReqID), nil)
+	approveResp, err := adminC.POST(fmt.Sprintf("/api/v3/loan-requests/%d/approve", aliceReqID), nil)
 	if err != nil {
 		t.Fatalf("approve: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestOwnership_BobCannotReadAliceLoan(t *testing.T) {
 	aliceLoanID := int(helpers.GetNumberField(t, approveResp, "id"))
 
 	// Bob tries to read Alice's loan → 404.
-	resp, err := bobC.GET("/api/v1/me/loans/" + strconv.Itoa(aliceLoanID))
+	resp, err := bobC.GET("/api/v3/me/loans/" + strconv.Itoa(aliceLoanID))
 	if err != nil {
 		t.Fatalf("bob GET: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestOwnership_BobCannotReadAlicePayment(t *testing.T) {
 	_, _, bobC, _ := setupActivatedClient(t, adminC)
 
 	// Alice creates a payment (intentionally to a likely-nonexistent account — just need the record).
-	payResp, err := aliceC.POST("/api/v1/me/payments", map[string]interface{}{
+	payResp, err := aliceC.POST("/api/v3/me/payments", map[string]interface{}{
 		"from_account_number": aliceAcct,
 		"to_account_number":   "999000000000000001",
 		"amount":              100,
@@ -60,7 +60,7 @@ func TestOwnership_BobCannotReadAlicePayment(t *testing.T) {
 	alicePayID := int(helpers.GetNumberField(t, payResp, "id"))
 
 	// Bob tries to read it → 404.
-	resp, err := bobC.GET("/api/v1/me/payments/" + strconv.Itoa(alicePayID))
+	resp, err := bobC.GET("/api/v3/me/payments/" + strconv.Itoa(alicePayID))
 	if err != nil {
 		t.Fatalf("bob GET: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestOwnership_BobCannotSetPinOnAliceCard(t *testing.T) {
 	_, _, aliceCardID, _, _ := setupClientWithCard(t, adminC, "visa")
 	_, _, bobC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := bobC.POST("/api/v1/me/cards/"+strconv.Itoa(aliceCardID)+"/pin", map[string]interface{}{
+	resp, err := bobC.POST("/api/v3/me/cards/"+strconv.Itoa(aliceCardID)+"/pin", map[string]interface{}{
 		"pin": "1234",
 	})
 	if err != nil {
@@ -96,7 +96,7 @@ func TestOwnership_BobCannotBlockAliceCard(t *testing.T) {
 	_, _, aliceCardID, _, _ := setupClientWithCard(t, adminC, "visa")
 	_, _, bobC, _ := setupActivatedClient(t, adminC)
 
-	resp, err := bobC.POST("/api/v1/me/cards/"+strconv.Itoa(aliceCardID)+"/temporary-block", map[string]interface{}{
+	resp, err := bobC.POST("/api/v3/me/cards/"+strconv.Itoa(aliceCardID)+"/temporary-block", map[string]interface{}{
 		"duration_hours": 1,
 		"reason":         "ownership lockdown test",
 	})
@@ -117,7 +117,7 @@ func TestOwnership_BodyClientIdIgnoredOnLoanRequest(t *testing.T) {
 	_, bobAcct, bobC, _ := setupActivatedClient(t, adminC)
 
 	// Bob sends client_id=alice in body — should be ignored, loan belongs to Bob.
-	resp, err := bobC.POST("/api/v1/me/loan-requests", map[string]interface{}{
+	resp, err := bobC.POST("/api/v3/me/loan-requests", map[string]interface{}{
 		"client_id":        aliceID, // must be ignored by gateway
 		"loan_type":        "cash",
 		"interest_type":    "fixed",

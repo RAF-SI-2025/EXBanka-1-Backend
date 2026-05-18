@@ -19,8 +19,8 @@ import (
 type ExchangeByAcronym func(acronym string) (uint64, error)
 
 // SupportedCurrencies matches the 8 currencies supported by exchange-service.
-// Kept in sync with service.SupportedCurrencies.
-var SupportedCurrencies = []string{"RSD", "EUR", "CHF", "USD", "GBP", "JPY", "CAD", "AUD"}
+// Delegates to model.SupportedCurrencies for a single source of truth.
+var SupportedCurrencies = model.SupportedCurrencies
 
 // ExternalSource wraps the existing external provider clients. It produces
 // the same data as the pre-refactor sync path — this implementation is a
@@ -123,6 +123,11 @@ func (s *ExternalSource) FetchExchanges(ctx context.Context) ([]model.StockExcha
 
 	if csvErr != nil && len(result) == 0 {
 		return nil, fmt.Errorf("fetch exchanges: %w", csvErr)
+	}
+	// Normalize to the subset of currencies exchange-service supports so that
+	// buy orders on these listings don't trip validateCurrency at fill time.
+	for i := range result {
+		result[i].Currency = NormalizeExchangeCurrency(result[i].Currency)
 	}
 	return result, nil
 }

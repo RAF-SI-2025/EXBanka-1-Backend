@@ -66,3 +66,22 @@ func (r *RoleRepository) GetByNames(names []string) ([]model.Role, error) {
 	err := r.db.Preload("Permissions").Where("name IN ?", names).Find(&roles).Error
 	return roles, err
 }
+
+// ListEmployeeIDsByRole returns every employee ID that currently holds the
+// named role via the employee_roles join table. Returns a non-nil empty slice
+// when the role exists but has zero employees (or doesn't exist at all).
+// Order is unspecified — callers that need determinism should sort.
+func (r *RoleRepository) ListEmployeeIDsByRole(roleID int64) ([]int64, error) {
+	var ids []int64
+	err := r.db.
+		Table("employee_roles").
+		Where("role_id = ?", roleID).
+		Pluck("employee_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	if ids == nil {
+		ids = []int64{}
+	}
+	return ids, nil
+}

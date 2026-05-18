@@ -1,0 +1,120 @@
+package saga
+
+import "fmt"
+
+// StepKind is the typed name of a saga step. Switch statements that branch on
+// StepKind in recovery code MUST have a default case that panics — Go's type
+// system does not enforce switch exhaustiveness, so we use the panicking default
+// as the safety net.
+type StepKind string
+
+const (
+	// Crossbank accept (5 steps, derived from old phases).
+	StepReserveBuyerFunds   StepKind = "reserve_buyer_funds"
+	StepCreateContract      StepKind = "create_contract"
+	StepReserveSellerShares StepKind = "reserve_seller_shares"
+	StepDebitBuyer          StepKind = "debit_buyer"
+	StepCreditSeller        StepKind = "credit_seller"
+	StepTransferOwnership   StepKind = "transfer_ownership"
+	StepFinalizeAccept      StepKind = "finalize"
+
+	// Crossbank exercise.
+	StepDebitStrike  StepKind = "debit_strike"
+	StepCreditStrike StepKind = "credit_strike"
+	// StepDeliverShares is RESERVED — defined for completeness of the typed
+	// enum but NOT used as a Step.Name in any current saga. Crossbank
+	// exercise reuses StepTransferOwnership ("transfer_ownership") for the
+	// share-delivery step because the responder side + CHECK_STATUS
+	// reconciler key on that exact phase string. See
+	// stock-service/internal/service/crossbank_exercise_saga.go for the
+	// full rationale. The recovery switch in saga_recovery.go has a case
+	// for StepDeliverShares anyway so future use needs no recovery wiring.
+	StepDeliverShares StepKind = "deliver_shares"
+
+	// Crossbank expire.
+	StepRefundReservation StepKind = "refund_reservation"
+	StepMarkExpired       StepKind = "mark_expired"
+
+	// OTC + Fund (already on shared.Saga; listed for completeness).
+	StepReserveAndContract   StepKind = "reserve_and_contract"
+	StepReservePremium       StepKind = "reserve_premium"
+	StepReserveStrike        StepKind = "reserve_strike"
+	StepSettlePremiumBuyer   StepKind = "settle_premium_buyer"
+	StepSettleStrikeBuyer    StepKind = "settle_strike_buyer"
+	StepConsumeSellerHolding StepKind = "consume_seller_holding"
+	StepDebitSource          StepKind = "debit_source"
+	StepCreditTarget         StepKind = "credit_target"
+	StepDebitFund            StepKind = "debit_fund"
+	StepCreditFund           StepKind = "credit_fund"
+	StepCreditPremiumSeller  StepKind = "credit_premium_seller"
+	StepCreditStrikeSeller   StepKind = "credit_strike_seller"
+	StepUpsertPosition       StepKind = "upsert_position"
+
+	// Placement (intra-bank order placement saga).
+	StepPersistOrderPending StepKind = "persist_order_pending"
+	StepReserveFunds        StepKind = "reserve_funds"
+	StepReserveHolding      StepKind = "reserve_holding"
+	StepFinalizeOrder       StepKind = "finalize_order"
+
+	// Order conversion / FX.
+	StepConvertAmount     StepKind = "convert_amount"
+	StepRecordTransaction StepKind = "record_transaction"
+
+	// Forex fill / settlement.
+	StepSettleReservation      StepKind = "settle_reservation"
+	StepSettleReservationQuote StepKind = "settle_reservation_quote"
+	StepCreditBase             StepKind = "credit_base"
+	StepCreditProceeds         StepKind = "credit_proceeds"
+	StepUpdateHolding          StepKind = "update_holding"
+	StepDecrementHolding       StepKind = "decrement_holding"
+
+	// Commission / fee.
+	StepCreditCommission StepKind = "credit_commission"
+	StepCreditBankFee    StepKind = "credit_bank_fee"
+
+	// Transfer / payment (transaction-service same-currency + cross-currency
+	// money movement steps).
+	StepDebitSender          StepKind = "debit_sender"
+	StepCreditRecipient      StepKind = "credit_recipient"
+	StepCreditBankCommission StepKind = "credit_bank_commission"
+	StepDebitUserFrom        StepKind = "debit_user_from"
+	StepCreditBankFrom       StepKind = "credit_bank_from"
+	StepDebitBankTo          StepKind = "debit_bank_to"
+	StepCreditUserTo         StepKind = "credit_user_to"
+)
+
+var allSteps = map[StepKind]struct{}{
+	StepReserveBuyerFunds: {}, StepCreateContract: {}, StepReserveSellerShares: {},
+	StepDebitBuyer: {}, StepCreditSeller: {}, StepTransferOwnership: {},
+	StepFinalizeAccept: {}, StepDebitStrike: {}, StepCreditStrike: {},
+	StepDeliverShares: {}, StepRefundReservation: {}, StepMarkExpired: {},
+	StepReserveAndContract: {}, StepReservePremium: {}, StepReserveStrike: {},
+	StepSettlePremiumBuyer: {}, StepSettleStrikeBuyer: {}, StepConsumeSellerHolding: {},
+	StepDebitSource: {}, StepCreditTarget: {}, StepDebitFund: {},
+	StepCreditFund: {}, StepCreditPremiumSeller: {}, StepCreditStrikeSeller: {},
+	StepUpsertPosition:      {},
+	StepPersistOrderPending: {}, StepReserveFunds: {}, StepReserveHolding: {},
+	StepFinalizeOrder: {}, StepConvertAmount: {}, StepRecordTransaction: {},
+	StepSettleReservation: {}, StepSettleReservationQuote: {}, StepCreditBase: {},
+	StepCreditProceeds: {}, StepUpdateHolding: {}, StepDecrementHolding: {},
+	StepCreditCommission: {}, StepCreditBankFee: {},
+	StepDebitSender: {}, StepCreditRecipient: {}, StepCreditBankCommission: {},
+	StepDebitUserFrom: {}, StepCreditBankFrom: {}, StepDebitBankTo: {},
+	StepCreditUserTo: {},
+}
+
+// MustStep returns k if k is a registered StepKind. Otherwise it panics.
+// Use at saga construction: saga.AddStep(saga.MustStep(saga.StepDebitBuyer), ...)
+// to fail fast on typos.
+func MustStep(k StepKind) StepKind {
+	if _, ok := allSteps[k]; !ok {
+		panic(fmt.Sprintf("unknown StepKind: %q", k))
+	}
+	return k
+}
+
+// IsRegistered returns true iff k is a known StepKind.
+func IsRegistered(k StepKind) bool {
+	_, ok := allSteps[k]
+	return ok
+}

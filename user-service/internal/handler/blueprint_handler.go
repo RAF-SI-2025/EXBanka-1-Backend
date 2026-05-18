@@ -3,10 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 
 	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/userpb"
@@ -14,12 +14,28 @@ import (
 	"github.com/exbanka/user-service/internal/service"
 )
 
+// blueprintServiceFacade is the narrow interface of BlueprintService used by BlueprintGRPCHandler.
+type blueprintServiceFacade interface {
+	CreateBlueprint(ctx context.Context, bp model.LimitBlueprint) (*model.LimitBlueprint, error)
+	GetBlueprint(id uint64) (*model.LimitBlueprint, error)
+	ListBlueprints(bpType string) ([]model.LimitBlueprint, error)
+	UpdateBlueprint(ctx context.Context, id uint64, name, description string, values json.RawMessage) (*model.LimitBlueprint, error)
+	DeleteBlueprint(ctx context.Context, id uint64) error
+	ApplyBlueprint(ctx context.Context, blueprintID uint64, targetID int64, appliedBy int64) error
+}
+
 type BlueprintGRPCHandler struct {
 	pb.UnimplementedBlueprintServiceServer
-	svc *service.BlueprintService
+	svc blueprintServiceFacade
 }
 
 func NewBlueprintGRPCHandler(svc *service.BlueprintService) *BlueprintGRPCHandler {
+	return &BlueprintGRPCHandler{svc: svc}
+}
+
+// newBlueprintHandlerForTest constructs a BlueprintGRPCHandler with an interface-typed
+// dependency for use in unit tests.
+func newBlueprintHandlerForTest(svc blueprintServiceFacade) *BlueprintGRPCHandler {
 	return &BlueprintGRPCHandler{svc: svc}
 }
 
@@ -32,7 +48,7 @@ func (h *BlueprintGRPCHandler) CreateBlueprint(ctx context.Context, req *pb.Crea
 	}
 	result, err := h.svc.CreateBlueprint(ctx, bp)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create blueprint: %v", err)
+		return nil, err
 	}
 	return toBlueprintResponse(result), nil
 }
@@ -40,7 +56,10 @@ func (h *BlueprintGRPCHandler) CreateBlueprint(ctx context.Context, req *pb.Crea
 func (h *BlueprintGRPCHandler) GetBlueprint(ctx context.Context, req *pb.GetBlueprintRequest) (*pb.BlueprintResponse, error) {
 	result, err := h.svc.GetBlueprint(req.Id)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "blueprint not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, service.ErrBlueprintNotFound
+		}
+		return nil, err
 	}
 	return toBlueprintResponse(result), nil
 }
@@ -48,7 +67,7 @@ func (h *BlueprintGRPCHandler) GetBlueprint(ctx context.Context, req *pb.GetBlue
 func (h *BlueprintGRPCHandler) ListBlueprints(ctx context.Context, req *pb.ListBlueprintsRequest) (*pb.ListBlueprintsResponse, error) {
 	blueprints, err := h.svc.ListBlueprints(req.Type)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to list blueprints: %v", err)
+		return nil, err
 	}
 	resp := &pb.ListBlueprintsResponse{
 		Blueprints: make([]*pb.BlueprintResponse, 0, len(blueprints)),
@@ -67,14 +86,20 @@ func (h *BlueprintGRPCHandler) UpdateBlueprint(ctx context.Context, req *pb.Upda
 	}
 	result, err := h.svc.UpdateBlueprint(ctx, req.Id, req.Name, req.Description, values)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to update blueprint: %v", err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, service.ErrBlueprintNotFound
+		}
+		return nil, err
 	}
 	return toBlueprintResponse(result), nil
 }
 
 func (h *BlueprintGRPCHandler) DeleteBlueprint(ctx context.Context, req *pb.DeleteBlueprintRequest) (*pb.DeleteBlueprintResponse, error) {
 	if err := h.svc.DeleteBlueprint(ctx, req.Id); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to delete blueprint: %v", err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, service.ErrBlueprintNotFound
+		}
+		return nil, err
 	}
 	return &pb.DeleteBlueprintResponse{}, nil
 }
@@ -82,7 +107,7 @@ func (h *BlueprintGRPCHandler) DeleteBlueprint(ctx context.Context, req *pb.Dele
 func (h *BlueprintGRPCHandler) ApplyBlueprint(ctx context.Context, req *pb.ApplyBlueprintRequest) (*pb.ApplyBlueprintResponse, error) {
 	appliedBy := changelog.ExtractChangedBy(ctx)
 	if err := h.svc.ApplyBlueprint(ctx, req.BlueprintId, req.TargetId, appliedBy); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to apply blueprint: %v", err)
+		return nil, err
 	}
 	return &pb.ApplyBlueprintResponse{}, nil
 }
@@ -98,6 +123,3 @@ func toBlueprintResponse(bp *model.LimitBlueprint) *pb.BlueprintResponse {
 		UpdatedAt:   bp.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
-
-// Suppress unused import warning for codes package.
-var _ = codes.OK

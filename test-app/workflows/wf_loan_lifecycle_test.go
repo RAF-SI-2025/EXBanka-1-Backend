@@ -43,7 +43,7 @@ func TestWF_LoanFullLifecycle(t *testing.T) {
 	t.Logf("WF-4: balance before=%.2f, after=%.2f, increase=%.2f", balBefore, balAfter, balIncrease)
 
 	// Step 6: Get installments
-	installmentsResp, err := adminC.GET(fmt.Sprintf("/api/v1/loans/%d/installments", loanID))
+	installmentsResp, err := adminC.GET(fmt.Sprintf("/api/v3/loans/%d/installments", loanID))
 	if err != nil {
 		t.Fatalf("WF-4: get installments: %v", err)
 	}

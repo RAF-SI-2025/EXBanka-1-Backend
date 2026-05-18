@@ -9,36 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/datatypes"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/exbanka/verification-service/internal/model"
-	"github.com/exbanka/verification-service/internal/repository"
 )
 
 // setupTestVerificationService creates an in-memory SQLite database, auto-migrates
-// the VerificationChallenge table, and returns a VerificationService with nil producer.
+// the VerificationChallenge table, and returns a VerificationService with nil producer
+// and nil authClient. Thin wrapper around newServiceWithStubs for backward compat.
 func setupTestVerificationService(t *testing.T) (*VerificationService, *gorm.DB) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
-	t.Cleanup(func() { sqlDB.Close() })
-	require.NoError(t, db.AutoMigrate(&model.VerificationChallenge{}))
-
-	repo := repository.NewVerificationChallengeRepository(db)
-	svc := &VerificationService{
-		repo:            repo,
-		producer:        nil,
-		db:              db,
-		challengeExpiry: 5 * time.Minute,
-		maxAttempts:     3,
-	}
-	return svc, db
+	return newServiceWithStubs(t, nil, nil)
 }
 
 // seedChallenge inserts a VerificationChallenge directly into the DB and returns it.

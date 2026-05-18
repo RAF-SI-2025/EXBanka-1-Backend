@@ -64,3 +64,36 @@ func (r *SagaLogRepository) GetBySagaID(sagaID string) ([]model.SagaLog, error) 
 	err := r.db.Where("saga_id = ?", sagaID).Order("step_number ASC").Find(&logs).Error
 	return logs, err
 }
+
+// IsForwardCompleted reports whether the given saga has a completed
+// forward step row matching stepName. Used by the shared saga runner to
+// skip already-completed steps on restart.
+func (r *SagaLogRepository) IsForwardCompleted(sagaID, stepName string) (bool, error) {
+	var count int64
+	err := r.db.Model(&model.SagaLog{}).
+		Where("saga_id = ? AND step_name = ? AND status = ? AND is_compensation = ?",
+			sagaID, stepName, "completed", false).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// ListStuckOlderThan returns rows in pending or compensating status whose
+// created_at is older than cutoff. The transaction-service saga_log uses
+// created_at as the "last touched" timestamp because it doesn't carry an
+// updated_at column.
+func (r *SagaLogRepository) ListStuckOlderThan(cutoff time.Time) ([]model.SagaLog, error) {
+	var rows []model.SagaLog
+	err := r.db.Where("status IN ? AND created_at < ?",
+		[]string{"pending", "compensating"},
+		cutoff).
+		Order("id ASC").Find(&rows).Error
+	return rows, err
+}
+
+// SetErrorMessage updates only the error_message column without changing
+// status. Used when a compensation attempt fails so the row keeps
+// surfacing in the recovery loop with the latest failure reason.
+func (r *SagaLogRepository) SetErrorMessage(id uint64, errMsg string) error {
+	return r.db.Model(&model.SagaLog{}).Where("id = ?", id).
+		Update("error_message", errMsg).Error
+}

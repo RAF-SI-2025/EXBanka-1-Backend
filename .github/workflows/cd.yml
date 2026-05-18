@@ -2,9 +2,7 @@ name: CD
 
 on:
   push:
-    branches: [Development]
-  pull_request:
-    branches: [Development]
+    branches: [release]
 
 env:
   REGISTRY: ghcr.io
@@ -12,7 +10,7 @@ env:
 
 jobs:
   build:
-    if: github.event_name == 'pull_request' && github.repository == 'RAF-SI-2025/EXBanka-1-Backend'
+    if: github.repository == 'RAF-SI-2025/EXBanka-1-Backend'
     name: Build ${{ matrix.service }}
     runs-on: ubuntu-latest
     permissions:

@@ -73,3 +73,21 @@ func (r *TokenRepository) RevokeAllTokensForSession(sessionID int64) error {
 		Where("session_id = ? AND revoked = false", sessionID).
 		Update("revoked", true).Error
 }
+
+// RevokeAllForPrincipal revokes every refresh token belonging to the named
+// principal (employee or client) by joining through the accounts table.
+// Used by the role-perm-change consumer to force re-login after a role
+// permission change — refreshing alone won't pick up the new perms because
+// auth-service rejects access tokens via the user_revoked_at epoch, but the
+// refresh token itself must also be invalidated so the user is forced through
+// full Login (which re-fetches permissions from user-service) rather than
+// silently getting a fresh access token via Refresh.
+func (r *TokenRepository) RevokeAllForPrincipal(principalType string, principalID int64) error {
+	return r.db.Exec(`
+		UPDATE refresh_tokens
+		SET revoked = true
+		WHERE account_id IN (
+			SELECT id FROM accounts WHERE principal_type = ? AND principal_id = ?
+		)
+	`, principalType, principalID).Error
+}

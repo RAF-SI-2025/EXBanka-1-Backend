@@ -62,7 +62,10 @@ func (r *CardRepository) UpdateStatus(id uint64, status string) (*model.Card, er
 		return nil, err
 	}
 	card.Status = status
-	result := r.db.Save(&card)
+	// Select("*") disables GORM's silent INSERT-on-UPDATE-mismatch upsert
+	// fallback so RowsAffected==0 correctly surfaces optimistic-lock
+	// conflicts. See F15 in future-ideas backlog.
+	result := r.db.Select("*").Save(&card)
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -73,7 +76,8 @@ func (r *CardRepository) UpdateStatus(id uint64, status string) (*model.Card, er
 }
 
 func (r *CardRepository) Update(card *model.Card) error {
-	result := r.db.Save(card)
+	// See SetStatus above for the Select("*") rationale (F15).
+	result := r.db.Select("*").Save(card)
 	if result.Error != nil {
 		return result.Error
 	}

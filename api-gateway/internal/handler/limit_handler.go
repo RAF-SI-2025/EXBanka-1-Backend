@@ -71,7 +71,7 @@ func NewLimitHandler(
 // @Failure      400  {object}  map[string]string       "invalid id"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/employees/{id}/limits [get]
+// @Router       /api/v2/employees/{id}/limits [get]
 func (h *LimitHandler) GetEmployeeLimits(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -102,7 +102,7 @@ func (h *LimitHandler) GetEmployeeLimits(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/employees/{id}/limits [put]
+// @Router       /api/v2/employees/{id}/limits [put]
 func (h *LimitHandler) SetEmployeeLimits(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -144,7 +144,7 @@ func (h *LimitHandler) SetEmployeeLimits(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/employees/{id}/limits/template [post]
+// @Router       /api/v2/employees/{id}/limits/template [post]
 func (h *LimitHandler) ApplyLimitTemplate(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -178,7 +178,7 @@ func (h *LimitHandler) ApplyLimitTemplate(c *gin.Context) {
 // @Success      200  {object}  map[string]interface{}  "list of templates"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/limits/templates [get]
+// @Router       /api/v2/limits/templates [get]
 func (h *LimitHandler) ListLimitTemplates(c *gin.Context) {
 	resp, err := h.empLimitClient.ListLimitTemplates(c.Request.Context(), &userpb.ListLimitTemplatesRequest{})
 	if err != nil {
@@ -200,7 +200,7 @@ func (h *LimitHandler) ListLimitTemplates(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/limits/templates [post]
+// @Router       /api/v2/limits/templates [post]
 func (h *LimitHandler) CreateLimitTemplate(c *gin.Context) {
 	var body createLimitTemplateBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -235,7 +235,7 @@ func (h *LimitHandler) CreateLimitTemplate(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid id"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/clients/{id}/limits [get]
+// @Router       /api/v2/clients/{id}/limits [get]
 func (h *LimitHandler) GetClientLimits(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -266,7 +266,7 @@ func (h *LimitHandler) GetClientLimits(c *gin.Context) {
 // @Failure      400  {object}  map[string]string       "invalid input or limit exceeded"
 // @Failure      401  {object}  map[string]string       "unauthorized"
 // @Failure      500  {object}  map[string]string       "error"
-// @Router       /api/clients/{id}/limits [put]
+// @Router       /api/v2/clients/{id}/limits [put]
 func (h *LimitHandler) SetClientLimits(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -274,7 +274,7 @@ func (h *LimitHandler) SetClientLimits(c *gin.Context) {
 		return
 	}
 
-	employeeID, _ := c.Get("user_id")
+	employeeID, _ := c.Get("principal_id")
 	empID, _ := employeeID.(int64)
 
 	var body setClientLimitsBody

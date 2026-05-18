@@ -22,17 +22,19 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 	_, agentB, _ := setupAgentEmployee(t, adminC)
 
 	_, listingID := getFirstStockListingID(t, agentA)
-	t.Logf("WF-9: using listing_id=%d", listingID)
+	bankAcctID := getBankRSDAccountID(t, adminC)
+	t.Logf("WF-9: using listing_id=%d bank_rsd_account_id=%d", listingID, bankAcctID)
 
 	// Step 2: Agent A buys stock
 	buyQuantity := 5
-	buyResp, err := agentA.POST("/api/v1/me/orders", map[string]interface{}{
+	buyResp, err := agentA.POST("/api/v3/me/orders", map[string]interface{}{
 		"listing_id":  listingID,
 		"direction":   "buy",
 		"order_type":  "market",
 		"quantity":    buyQuantity,
 		"all_or_none": false,
 		"margin":      false,
+		"account_id":  bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-9: agent A buy stock: %v", err)
@@ -45,7 +47,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 	t.Logf("WF-9: agent A buy order filled")
 
 	// Step 3: Get A's holding ID from portfolio
-	portfolioResp, err := agentA.GET("/api/v1/me/portfolio?security_type=stock")
+	portfolioResp, err := agentA.GET("/api/v3/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-9: agent A list portfolio: %v", err)
 	}
@@ -71,7 +73,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 
 	// Step 4: Agent A makes holding public
 	publicQuantity := 2
-	makePublicResp, err := agentA.POST(fmt.Sprintf("/api/v1/me/portfolio/%d/make-public", holdingID), map[string]interface{}{
+	makePublicResp, err := agentA.POST(fmt.Sprintf("/api/v3/me/portfolio/%d/make-public", holdingID), map[string]interface{}{
 		"quantity": publicQuantity,
 	})
 	if err != nil {
@@ -82,7 +84,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 
 	// Step 5: Agent B lists OTC offers
 	time.Sleep(1 * time.Second) // brief wait for offer to propagate
-	offersResp, err := agentB.GET("/api/v1/otc/offers")
+	offersResp, err := agentB.GET("/api/v3/otc/offers")
 	if err != nil {
 		t.Fatalf("WF-9: agent B list OTC offers: %v", err)
 	}
@@ -100,9 +102,9 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 	t.Logf("WF-9: agent B will buy offer id=%d", offerID)
 
 	// Step 6: Agent B buys from A's OTC offer
-	otcBuyResp, err := agentB.POST(fmt.Sprintf("/api/v1/otc/offers/%d/buy", offerID), map[string]interface{}{
+	otcBuyResp, err := agentB.POST(fmt.Sprintf("/api/v3/otc/offers/%d/buy", offerID), map[string]interface{}{
 		"quantity":   1,
-		"account_id": 1,
+		"account_id": bankAcctID,
 	})
 	if err != nil {
 		t.Fatalf("WF-9: agent B OTC buy: %v", err)
@@ -114,7 +116,7 @@ func TestWF_OTCTradingBetweenUsers(t *testing.T) {
 	t.Logf("WF-9: agent B OTC buy response status=%d", otcBuyResp.StatusCode)
 
 	// Step 7: Verify B has a holding
-	portfolioBResp, err := agentB.GET("/api/v1/me/portfolio?security_type=stock")
+	portfolioBResp, err := agentB.GET("/api/v3/me/portfolio?security_type=stock")
 	if err != nil {
 		t.Fatalf("WF-9: agent B list portfolio: %v", err)
 	}

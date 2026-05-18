@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -25,6 +21,7 @@ import (
 	clientpb "github.com/exbanka/contract/clientpb"
 	"github.com/exbanka/contract/metrics"
 	shared "github.com/exbanka/contract/shared"
+	"github.com/exbanka/contract/shared/grpcmw"
 	userpb "github.com/exbanka/contract/userpb"
 )
 
@@ -46,7 +43,7 @@ func main() {
 
 	// Pre-create Kafka topics before any publishing to avoid
 	// partition assignment race condition for downstream consumers.
-	kafkaprod.EnsureTopics(cfg.KafkaBrokers,
+	shared.EnsureTopics(cfg.KafkaBrokers,
 		"client.created",
 		"client.updated",
 		"client.limits-updated",
@@ -65,7 +62,10 @@ func main() {
 
 	// Connect to user-service for employee limit enforcement
 	var userLimitClient userpb.EmployeeLimitServiceClient
-	userConn, userErr := grpc.NewClient(cfg.UserGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	userConn, userErr := grpc.NewClient(cfg.UserGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(grpcmw.UnaryClientSagaContextInterceptor()),
+	)
 	if userErr != nil {
 		log.Printf("warn: failed to connect to user service for limit enforcement: %v", userErr)
 	} else {
@@ -79,23 +79,11 @@ func main() {
 
 	clientService := service.NewClientService(repo, producer, redisCache, changelogRepo)
 	clientLimitSvc := service.NewClientLimitService(clientLimitRepo, userLimitClient, producer, changelogRepo)
+	changelogSvc := service.NewChangelogService(changelogRepo)
 
-	grpcHandler := handler.NewClientGRPCHandler(clientService)
+	grpcHandler := handler.NewClientGRPCHandler(clientService, changelogSvc)
 	limitHandler := handler.NewClientLimitGRPCHandler(clientLimitSvc)
 
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(metrics.GRPCUnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
-	)
-	clientpb.RegisterClientServiceServer(s, grpcHandler)
-	clientpb.RegisterClientLimitServiceServer(s, limitHandler)
-	shared.RegisterHealthCheck(s, "client-service")
-	metrics.InitializeGRPCMetrics(s)
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
 	defer func() { _ = metricsShutdown(context.Background()) }()
 
@@ -104,24 +92,28 @@ func main() {
 		return sqlDB.PingContext(ctx)
 	})
 
-	// Start gRPC server in goroutine
-	markReady()
-	go func() {
-		fmt.Printf("client service listening on %s\n", cfg.GRPCAddr)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("gRPC server failed: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down gracefully...")
-	s.GracefulStop()
-	log.Println("Server stopped")
+	if err := shared.RunGRPCServer(context.Background(), shared.GRPCServerConfig{
+		Address: cfg.GRPCAddr,
+		Options: []grpc.ServerOption{
+			grpc.ChainUnaryInterceptor(
+				metrics.GRPCUnaryServerInterceptor(),
+				grpcmw.UnaryLoggingInterceptor("client-service"),
+				grpcmw.UnarySagaContextInterceptor(),
+			),
+			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
+		},
+		Register: func(s *grpc.Server) {
+			clientpb.RegisterClientServiceServer(s, grpcHandler)
+			clientpb.RegisterClientLimitServiceServer(s, limitHandler)
+			shared.RegisterHealthCheck(s, "client-service")
+			metrics.InitializeGRPCMetrics(s)
+		},
+		Signals: shared.DefaultShutdownSignals,
+		OnReady: func() {
+			markReady()
+			fmt.Printf("client service listening on %s\n", cfg.GRPCAddr)
+		},
+	}); err != nil {
+		log.Fatalf("grpc: %v", err)
+	}
 }
-
-// Keep os import used
-var _ = os.Getenv

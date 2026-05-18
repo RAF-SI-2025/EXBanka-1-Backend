@@ -1,15 +1,29 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/exbanka/card-service/internal/model"
 	"github.com/exbanka/card-service/internal/repository"
+	kafkamsg "github.com/exbanka/contract/kafka"
 )
+
+// recordingCardNotifier captures every GeneralNotificationMessage published by
+// CardService so tests can assert on Type, UserID, Data, RefType, and RefID.
+type recordingCardNotifier struct {
+	notifs []kafkamsg.GeneralNotificationMessage
+}
+
+func (r *recordingCardNotifier) PublishGeneralNotification(_ context.Context, m kafkamsg.GeneralNotificationMessage) error {
+	r.notifs = append(r.notifs, m)
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // CreateCard — card number format and brand validation
@@ -215,7 +229,7 @@ func TestBlockCard_AlreadyBlocked_Error(t *testing.T) {
 
 	_, err := svc.BlockCard(card.ID, 0)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already blocked")
+	assert.ErrorIs(t, err, ErrCardBlocked)
 }
 
 func TestBlockCard_Deactivated_Error(t *testing.T) {
@@ -296,7 +310,7 @@ func TestDeactivateCard_AlreadyDeactivated_Error(t *testing.T) {
 
 	_, err := svc.DeactivateCard(card.ID, 0)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already deactivated")
+	assert.ErrorIs(t, err, ErrCardDeactivated)
 }
 
 func TestDeactivateCard_ThenUnblock_Error(t *testing.T) {
@@ -333,4 +347,56 @@ func TestBlockCard_AfterDeactivation_Error(t *testing.T) {
 	_, err = svc.BlockCard(card.ID, 0)
 	assert.Error(t, err, "blocking a deactivated card must fail")
 	assert.Contains(t, err.Error(), "deactivated")
+}
+
+// ---------------------------------------------------------------------------
+// TemporaryBlockCard — in-app notification emission
+// ---------------------------------------------------------------------------
+
+// TestCardService_TemporaryBlockCard_EmitsNotification verifies that a temporary
+// block on a client-owned card emits a CARD_TEMPORARY_BLOCKED in-app notification
+// carrying the expires_at timestamp and reason, with RefType="card" and RefID
+// matching the card's ID.
+func TestCardService_TemporaryBlockCard_EmitsNotification(t *testing.T) {
+	rec := &recordingCardNotifier{}
+	card := &model.Card{}
+	card.ID = 77
+	card.OwnerID = 42
+	card.OwnerType = "client"
+
+	svc := &CardService{notifier: rec}
+	expiresAt := time.Now().Add(24 * time.Hour)
+	reason := "lost wallet"
+
+	svc.notifyTemporaryBlock(context.Background(), card, expiresAt, reason)
+
+	require.Len(t, rec.notifs, 1, "expected exactly one notification emit")
+	n := rec.notifs[0]
+	assert.Equal(t, "CARD_TEMPORARY_BLOCKED", n.Type)
+	assert.Equal(t, uint64(42), n.UserID, "UserID must equal the card's OwnerID")
+	assert.Equal(t, "card", n.RefType)
+	assert.Equal(t, uint64(77), n.RefID, "RefID must equal the card's ID")
+	assert.NotEmpty(t, n.Data["expires_at"], "expires_at data key must be set")
+	// Confirm RFC3339 parsability.
+	_, parseErr := time.Parse(time.RFC3339, n.Data["expires_at"])
+	assert.NoError(t, parseErr, "expires_at must be a valid RFC3339 timestamp")
+	assert.Equal(t, reason, n.Data["reason"], "reason data key must equal the supplied reason")
+	assert.Empty(t, n.Title, "Title must be empty (notification-service renders via template)")
+	assert.Empty(t, n.Message, "Message must be empty (notification-service renders via template)")
+}
+
+// TestCardService_TemporaryBlockCard_AuthorizedPerson_NoNotification verifies
+// that an authorized_person-owned card does NOT emit a CARD_TEMPORARY_BLOCKED
+// in-app notification (in-app notifications target clients only).
+func TestCardService_TemporaryBlockCard_AuthorizedPerson_NoNotification(t *testing.T) {
+	rec := &recordingCardNotifier{}
+	card := &model.Card{}
+	card.ID = 88
+	card.OwnerID = 99
+	card.OwnerType = "authorized_person"
+
+	svc := &CardService{notifier: rec}
+	svc.notifyTemporaryBlock(context.Background(), card, time.Now().Add(1*time.Hour), "any")
+
+	assert.Empty(t, rec.notifs, "no in-app notification must be emitted for authorized_person-owned cards")
 }

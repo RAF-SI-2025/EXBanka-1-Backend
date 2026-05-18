@@ -56,3 +56,80 @@ func TestFetchRatesFromRSD_APIError(t *testing.T) {
 	_, err := p.FetchRatesFromRSD()
 	assert.Error(t, err)
 }
+
+func TestFetchRatesFromRSD_BadJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("this is not json"))
+	}))
+	defer srv.Close()
+
+	p := provider.NewExchangeRateAPIClient("", srv.URL+"/v6/latest/")
+	_, err := p.FetchRatesFromRSD()
+	assert.Error(t, err)
+}
+
+func TestFetchRatesFromRSD_NonSuccessResult(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"result":    "error",
+			"base_code": "RSD",
+			"rates":     map[string]float64{"EUR": 0.00851},
+		})
+	}))
+	defer srv.Close()
+
+	p := provider.NewExchangeRateAPIClient("", srv.URL+"/v6/latest/")
+	_, err := p.FetchRatesFromRSD()
+	assert.Error(t, err)
+}
+
+func TestFetchRatesFromRSD_NoSupportedCurrencies(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"result":    "success",
+			"base_code": "RSD",
+			"rates":     map[string]float64{"BGN": 0.0166},
+		})
+	}))
+	defer srv.Close()
+
+	p := provider.NewExchangeRateAPIClient("", srv.URL+"/v6/latest/")
+	_, err := p.FetchRatesFromRSD()
+	assert.Error(t, err, "must error when no supported currencies are present")
+}
+
+func TestFetchRatesFromRSD_ZeroRateSkipped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"result":    "success",
+			"base_code": "RSD",
+			"rates": map[string]float64{
+				"EUR": 0.0,    // zero — must be skipped
+				"USD": 0.0093, // included
+			},
+		})
+	}))
+	defer srv.Close()
+
+	p := provider.NewExchangeRateAPIClient("", srv.URL+"/v6/latest/")
+	rates, err := p.FetchRatesFromRSD()
+	require.NoError(t, err)
+	_, hasEUR := rates["EUR"]
+	assert.False(t, hasEUR, "zero rate should be skipped")
+	_, hasUSD := rates["USD"]
+	assert.True(t, hasUSD)
+}
+
+func TestFetchRatesFromRSD_HttpClientError(t *testing.T) {
+	// Point to a baseURL that will fail to dial.
+	p := provider.NewExchangeRateAPIClient("", "http://127.0.0.1:1/v6/latest/")
+	_, err := p.FetchRatesFromRSD()
+	assert.Error(t, err, "transport error must propagate")
+}
+
+func TestNewExchangeRateAPIClient_DefaultsBaseURLWhenEmpty(t *testing.T) {
+	// Constructing with an empty baseURL must not panic and must give back a
+	// usable client. We don't issue a real network call here.
+	c := provider.NewExchangeRateAPIClient("", "")
+	assert.NotNil(t, c)
+}

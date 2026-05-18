@@ -1,0 +1,198 @@
+package service
+
+import (
+	"context"
+	"testing"
+
+	"github.com/shopspring/decimal"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/exbanka/stock-service/internal/model"
+)
+
+// TestHoldingReservationService_PartialSettle_BadQty exercises the
+// qty<=0 input-validation branch.
+func TestHoldingReservationService_PartialSettle_BadQty(t *testing.T) {
+	svc, _, _ := newHoldingReservationFixture(t)
+	_, err := svc.PartialSettle(context.Background(), 1, 1, 0)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", err)
+	}
+}
+
+// TestHoldingReservationService_PartialSettle_NoReservation exercises the
+// not-found branch.
+func TestHoldingReservationService_PartialSettle_NoReservation(t *testing.T) {
+	svc, _, _ := newHoldingReservationFixture(t)
+	_, err := svc.PartialSettle(context.Background(), 9999, 1, 1)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition, got %v", err)
+	}
+}
+
+// ---------------- ReserveForPeerOptionContract ----------------
+
+func TestHoldingReservationService_ReserveForPeerOptionContract_HappyPath(t *testing.T) {
+	svc, _, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	out, err := svc.ReserveForPeerOptionContract(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, 555, 10)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if out.ReservedQuantity != 10 {
+		t.Errorf("reserved=%d", out.ReservedQuantity)
+	}
+}
+
+func TestHoldingReservationService_ReserveForPeerOptionContract_BadQty(t *testing.T) {
+	svc, _, _ := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	_, err := svc.ReserveForPeerOptionContract(context.Background(),
+		model.OwnerClient, &uid, "stock", "TEST", 1, 0)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("expected InvalidArgument, got %v", err)
+	}
+}
+
+func TestHoldingReservationService_ReserveForPeerOptionContract_HoldingMissing(t *testing.T) {
+	svc, _, _ := newHoldingReservationFixture(t)
+	uid := uint64(99)
+	_, err := svc.ReserveForPeerOptionContract(context.Background(),
+		model.OwnerClient, &uid, "stock", "OTHER", 1, 1)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition, got %v", err)
+	}
+}
+
+func TestHoldingReservationService_ReserveForPeerOptionContract_Insufficient(t *testing.T) {
+	svc, _, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	_, err := svc.ReserveForPeerOptionContract(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, 555, 9999)
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("expected FailedPrecondition for insufficient, got %v", err)
+	}
+}
+
+// Idempotent: second call with same contract id returns the same reservation
+// without doubling the reserved quantity.
+func TestHoldingReservationService_ReserveForPeerOptionContract_Idempotent(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	first, err := svc.ReserveForPeerOptionContract(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, 555, 5)
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := svc.ReserveForPeerOptionContract(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, 555, 5)
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if first.ReservationID != second.ReservationID {
+		t.Errorf("expected same reservation id, got %d vs %d", first.ReservationID, second.ReservationID)
+	}
+	got, _ := holdingRepo.GetByID(h.ID)
+	if got.ReservedQuantity != 5 {
+		t.Errorf("expected reserved=5, got %d", got.ReservedQuantity)
+	}
+}
+
+// ---------------- ReleaseForPeerOptionContract ----------------
+
+func TestHoldingReservationService_ReleaseForPeerOptionContract(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	_, err := svc.ReserveForPeerOptionContract(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, 100, 7)
+	if err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	out, err := svc.ReleaseForPeerOptionContract(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if out.ReleasedQuantity != 7 {
+		t.Errorf("released=%d", out.ReleasedQuantity)
+	}
+	got, _ := holdingRepo.GetByID(h.ID)
+	if got.ReservedQuantity != 0 {
+		t.Errorf("expected reserved=0 after release, got %d", got.ReservedQuantity)
+	}
+}
+
+// ---------------- ConsumeForPeerOptionContract ----------------
+
+func TestHoldingReservationService_ConsumeForPeerOptionContract(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	uid := uint64(1)
+	_, err := svc.ReserveForPeerOptionContract(context.Background(),
+		model.OwnerClient, &uid, "stock", h.Ticker, 200, 5)
+	if err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	if _, err := svc.ConsumeForPeerOptionContract(context.Background(), 200, 5); err != nil {
+		t.Fatalf("consume: %v", err)
+	}
+	got, _ := holdingRepo.GetByID(h.ID)
+	if got.Quantity != 95 || got.ReservedQuantity != 0 {
+		t.Errorf("post-consume holding: qty=%d reserved=%d", got.Quantity, got.ReservedQuantity)
+	}
+}
+
+// ---------------- CreditBuyerHoldingForPeerOption ----------------
+
+func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_NewBuyer(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	buyerUID := uint64(99)
+	strike := decimal.NewFromInt(150)
+	if err := svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, h.Ticker, 5, strike); err != nil {
+		t.Fatalf("credit: %v", err)
+	}
+	got, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", h.Ticker)
+	if err != nil {
+		t.Fatalf("lookup buyer holding: %v", err)
+	}
+	if got.Quantity != 5 {
+		t.Errorf("buyer qty=%d want 5", got.Quantity)
+	}
+	if !got.AveragePrice.Equal(strike) {
+		t.Errorf("buyer average_price=%s want 150 (strike)", got.AveragePrice)
+	}
+}
+
+// CreditBuyerHoldingForPeerOption with an existing holding produces a
+// weighted-average cost basis across the pre-existing shares and the
+// strike-priced shares. Without this, two cross-bank exercises into the
+// same ticker would silently overwrite cost basis.
+func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_WeightedAverage(t *testing.T) {
+	svc, holdingRepo, h := newHoldingReservationFixture(t)
+	buyerUID := uint64(99)
+	// Seed an existing position: 10 shares at avg=100.
+	pre := &model.Holding{
+		OwnerType: model.OwnerClient, OwnerID: &buyerUID,
+		SecurityType: "stock", Ticker: h.Ticker, Name: h.Ticker,
+		Quantity: 10, AveragePrice: decimal.NewFromInt(100),
+	}
+	if err := holdingRepo.Upsert(context.Background(), pre); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	strike := decimal.NewFromInt(200)
+	if err := svc.CreditBuyerHoldingForPeerOption(context.Background(), model.OwnerClient, &buyerUID, h.Ticker, 10, strike); err != nil {
+		t.Fatalf("credit: %v", err)
+	}
+	got, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyerUID, "stock", h.Ticker)
+	if err != nil {
+		t.Fatalf("lookup buyer holding: %v", err)
+	}
+	if got.Quantity != 20 {
+		t.Errorf("buyer qty=%d want 20", got.Quantity)
+	}
+	// (10 × 100 + 10 × 200) / 20 = 150
+	want := decimal.NewFromInt(150)
+	if !got.AveragePrice.Equal(want) {
+		t.Errorf("buyer average_price=%s want %s (weighted avg)", got.AveragePrice, want)
+	}
+}

@@ -19,7 +19,7 @@ func TestEmployee_CreateWithBasicRole(t *testing.T) {
 	el.Start()
 	defer el.Stop()
 
-	resp, err := c.POST("/api/v1/employees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Emp"),
 		"last_name":     helpers.RandomName("Basic"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -64,7 +64,7 @@ func TestEmployee_CreateWithBasicRole(t *testing.T) {
 func TestEmployee_CreateWithAgentRole(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/employees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Emp"),
 		"last_name":     helpers.RandomName("Agent"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -88,7 +88,7 @@ func TestEmployee_CreateWithAgentRole(t *testing.T) {
 func TestEmployee_CreateWithSupervisorRole(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/employees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Emp"),
 		"last_name":     helpers.RandomName("Supervisor"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -111,7 +111,7 @@ func TestEmployee_CreateWithSupervisorRole(t *testing.T) {
 func TestEmployee_CreateWithAdminRole(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.POST("/api/v1/employees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    helpers.RandomName("Emp"),
 		"last_name":     helpers.RandomName("Admin"),
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -135,7 +135,7 @@ func TestEmployee_CreateWithInvalidJMBG(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
 	// Too short
-	resp, err := c.POST("/api/v1/employees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    "Bad",
 		"last_name":     "JMBG",
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -159,7 +159,7 @@ func TestEmployee_CreateWithDuplicateEmail(t *testing.T) {
 	email := helpers.RandomEmail()
 
 	// First creation
-	resp, err := c.POST("/api/v1/employees", map[string]interface{}{
+	resp, err := c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    "First",
 		"last_name":     "Employee",
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -175,7 +175,7 @@ func TestEmployee_CreateWithDuplicateEmail(t *testing.T) {
 	helpers.RequireStatus(t, resp, 201)
 
 	// Duplicate email
-	resp, err = c.POST("/api/v1/employees", map[string]interface{}{
+	resp, err = c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    "Duplicate",
 		"last_name":     "Employee",
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -198,14 +198,14 @@ func TestEmployee_ListAndGet(t *testing.T) {
 	c := loginAsAdmin(t)
 
 	// List employees
-	resp, err := c.GET("/api/v1/employees")
+	resp, err := c.GET("/api/v3/employees")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
 	helpers.RequireStatus(t, resp, 200)
 
 	// Get specific employee (ID 1 = seeded admin)
-	resp, err = c.GET("/api/v1/employees/1")
+	resp, err = c.GET("/api/v3/employees/1")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestEmployee_Update(t *testing.T) {
 
 	// Create employee first
 	email := helpers.RandomEmail()
-	createResp, err := c.POST("/api/v1/employees", map[string]interface{}{
+	createResp, err := c.POST("/api/v3/employees", map[string]interface{}{
 		"first_name":    "Update",
 		"last_name":     "Test",
 		"date_of_birth": helpers.DateOfBirthUnix(),
@@ -237,7 +237,7 @@ func TestEmployee_Update(t *testing.T) {
 	empID := helpers.GetNumberField(t, createResp, "id")
 
 	// Update
-	resp, err := c.PUT(fmt.Sprintf("/api/v1/employees/%d", int(empID)), map[string]interface{}{
+	resp, err := c.PUT(fmt.Sprintf("/api/v3/employees/%d", int(empID)), map[string]interface{}{
 		"last_name":  "Updated",
 		"department": "HR",
 		"position":   "Manager",
@@ -251,7 +251,7 @@ func TestEmployee_Update(t *testing.T) {
 func TestEmployee_GetNonExistent(t *testing.T) {
 	t.Parallel()
 	c := loginAsAdmin(t)
-	resp, err := c.GET("/api/v1/employees/999999")
+	resp, err := c.GET("/api/v3/employees/999999")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}

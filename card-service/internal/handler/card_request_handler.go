@@ -15,7 +15,7 @@ import (
 
 type CardRequestGRPCHandler struct {
 	pb.UnimplementedCardRequestServiceServer
-	cardRequestSvc *service.CardRequestService
+	cardRequestSvc cardRequestServiceFacade
 }
 
 func NewCardRequestGRPCHandler(cardRequestSvc *service.CardRequestService) *CardRequestGRPCHandler {
@@ -31,7 +31,7 @@ func (h *CardRequestGRPCHandler) CreateCardRequest(ctx context.Context, req *pb.
 		CardName:      req.CardName,
 	}
 	if err := h.cardRequestSvc.CreateRequest(ctx, cardReq); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to create card request: %v", err)
+		return nil, err
 	}
 	return toCardRequestResponse(cardReq), nil
 }
@@ -42,7 +42,7 @@ func (h *CardRequestGRPCHandler) GetCardRequest(ctx context.Context, req *pb.Get
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, status.Errorf(codes.NotFound, "card request not found")
 		}
-		return nil, status.Errorf(mapServiceError(err), "failed to get card request: %v", err)
+		return nil, err
 	}
 	return toCardRequestResponse(cardReq), nil
 }
@@ -96,7 +96,7 @@ func (h *CardRequestGRPCHandler) ListCardRequestsByClient(ctx context.Context, r
 func (h *CardRequestGRPCHandler) ApproveCardRequest(ctx context.Context, req *pb.ApproveCardRequestRequest) (*pb.CardRequestApprovedResponse, error) {
 	card, err := h.cardRequestSvc.ApproveRequest(ctx, req.Id, req.EmployeeId)
 	if err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to approve card request: %v", err)
+		return nil, err
 	}
 
 	// Fetch updated request for response
@@ -113,7 +113,7 @@ func (h *CardRequestGRPCHandler) ApproveCardRequest(ctx context.Context, req *pb
 
 func (h *CardRequestGRPCHandler) RejectCardRequest(ctx context.Context, req *pb.RejectCardRequestRequest) (*pb.CardRequestResponse, error) {
 	if err := h.cardRequestSvc.RejectRequest(ctx, req.Id, req.EmployeeId, req.Reason); err != nil {
-		return nil, status.Errorf(mapServiceError(err), "failed to reject card request: %v", err)
+		return nil, err
 	}
 
 	cardReq, err := h.cardRequestSvc.GetRequest(req.Id)
