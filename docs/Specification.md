@@ -1422,6 +1422,23 @@ api-gateway:
 | PUT | `/api/v3/notification-templates/:channel/:type` | notifications.templates.manage | NotificationHandler.SetNotificationTemplate | Customize a template's subject/body; placeholder referencing an unknown variable or empty subject/body → 400; unknown type → 404 |
 | DELETE | `/api/v3/notification-templates/:channel/:type` | notifications.templates.manage | NotificationHandler.ResetNotificationTemplate | Revert a template to its code-defined default; unknown type → 404 |
 
+### Securities Market Data (/api/v3/securities — AnyAuthMiddleware)
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| GET | `/api/v3/securities/stocks` | SecuritiesHandler.ListStocks | List all stock listings |
+| GET | `/api/v3/securities/stocks/:id` | SecuritiesHandler.GetStock | Get one stock listing |
+| GET | `/api/v3/securities/stocks/:id/history` | SecuritiesHandler.GetStockHistory | Returns OHLC-bucketed price history. On a freshly-seeded DB the response is non-empty for every period — `stock-service` writes 5 years of deterministic synthetic daily OHLC per listing during `SeedAll`. Live intraday snapshots (1-minute interval) accumulate on top of synthetic history. |
+| GET | `/api/v3/securities/futures` | SecuritiesHandler.ListFutures | List all futures listings |
+| GET | `/api/v3/securities/futures/:id` | SecuritiesHandler.GetFutures | Get one futures listing |
+| GET | `/api/v3/securities/futures/:id/history` | SecuritiesHandler.GetFuturesHistory | OHLC-bucketed price history for a futures listing — same backfill and accumulation behaviour as `/stocks/:id/history`. |
+| GET | `/api/v3/securities/forex` | SecuritiesHandler.ListForexPairs | List all forex pair listings |
+| GET | `/api/v3/securities/forex/:id` | SecuritiesHandler.GetForexPair | Get one forex pair listing |
+| GET | `/api/v3/securities/forex/:id/history` | SecuritiesHandler.GetForexPairHistory | OHLC-bucketed price history for a forex pair — same backfill and accumulation behaviour as `/stocks/:id/history`. |
+| GET | `/api/v3/securities/options` | SecuritiesHandler.ListOptions | List all options listings |
+| GET | `/api/v3/securities/options/:id` | SecuritiesHandler.GetOption | Get one options listing |
+| GET | `/api/v3/securities/candles` | SecuritiesHandler.GetCandles | Get intraday OHLC candles (1-minute snapshots); query params `listing_id`, `period` |
+
 ### Peer-Bank Protocol (Celina 5 SI-TX — PeerAuth)
 
 These routes are reached by other banks in the SI-TX cohort, not by employees or clients. Authentication is via `middleware.PeerAuth` (hybrid `X-Api-Key` or HMAC headers — see [§25](#25-inter-bank-cross-bank-communication-celina-5--si-tx)).
@@ -2270,6 +2287,13 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 
 ### Key Business Rules
 
+**Stock & futures price oscillation (generated source — dev/demo default):**
+- The `generated` source (`stock-service/internal/source/generated_source.go`) drives stock and futures prices on a deterministic 4-minute cycle keyed to wallclock UTC minutes. Each phase lasts exactly one minute.
+- Multipliers per phase: `[0.90, 1.00, 1.10, 1.00]` applied to immutable seed prices. Phase index = `floor(unixSeconds / 60) mod 4`.
+- Cycle repeats indefinitely with zero drift — base seeds are never mutated.
+- Forex pairs are NOT oscillated; cross-currency conversion via `exchange-service.Convert` depends on stable rates for fill pricing and fee math.
+- The security price refresh interval default is `1` minute (env `SECURITY_SYNC_INTERVAL_MINUTES`, default in `stock-service/internal/config/config.go`) so the DB visibly steps to the new phase each minute. The `external` and `simulator` sources are unaffected by the oscillation.
+
 **Accounts:**
 - `current` accounts → RSD only
 - `foreign` accounts → EUR, CHF, USD, GBP, JPY, CAD, AUD
@@ -2338,6 +2362,8 @@ Keep these synchronized across API Gateway validation, protobuf definitions, and
 - On startup, stock-service reads `system_settings.active_stock_source` and restores that source automatically. Default source when no setting exists is `external`.
 - When the active source is `simulator`, a background goroutine refreshes prices every 3 seconds. Switching away from `simulator` cancels this goroutine via `context.Context` cancellation.
 - The `SourceAdminService.SwitchSource` RPC rejects unknown source names with `codes.InvalidArgument`.
+
+**Stock-service synthetic history backfill.** During `SeedAll` (initial seed and `SwitchSource`), `stock-service` writes 5 years (1825 days) of deterministic synthetic OHLC rows per listing to `listing_daily_price_infos`. Random walk is seeded by `listing.ID`, anchors the newest row at the listing's current price, and is idempotent on reseed via `INSERT … ON CONFLICT (listing_id, date) DO UPDATE`. Implemented in `stock-service/internal/service/listing_history_backfill.go`.
 
 **Securities & Trading (Phase 2 bank-safe settlement):**
 - Buy orders for securities reserve funds at placement (converted to the account currency via exchange-service for cross-currency listings). Reservations are released on cancellation; released partially when an order completes under the reserved amount due to market slippage.
