@@ -27,6 +27,16 @@ func (m *listingCronDailyMock) UpsertByListingAndDate(info *model.ListingDailyPr
 	m.upserts = append(m.upserts, info)
 	return nil
 }
+func (m *listingCronDailyMock) UpsertManyByListingAndDate(infos []model.ListingDailyPriceInfo) error {
+	if m.upsertErr != nil {
+		return m.upsertErr
+	}
+	for i := range infos {
+		row := infos[i]
+		m.upserts = append(m.upserts, &row)
+	}
+	return nil
+}
 func (m *listingCronDailyMock) GetHistory(listingID uint64, _, _ time.Time, _, _ int) ([]model.ListingDailyPriceInfo, int64, error) {
 	if m.historyErr != nil {
 		return nil, 0, m.historyErr
@@ -36,6 +46,15 @@ func (m *listingCronDailyMock) GetHistory(listingID uint64, _, _ time.Time, _, _
 	}
 	rows := m.historyByID[listingID]
 	return rows, int64(len(rows)), nil
+}
+func (m *listingCronDailyMock) GetHistoryBucketed(listingID uint64, _, _ time.Time, _ int) ([]model.ListingDailyPriceInfo, error) {
+	if m.historyErr != nil {
+		return nil, m.historyErr
+	}
+	if m.historyByID == nil {
+		return nil, nil
+	}
+	return m.historyByID[listingID], nil
 }
 
 // listingCronListingMock: the tiny ListingRepo surface SnapshotDailyPrices /
