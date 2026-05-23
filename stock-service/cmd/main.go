@@ -483,6 +483,8 @@ func main() {
 		initialSource,
 		wipeRepo,
 	)
+	historyBackfill := service.NewListingHistoryBackfill(listingRepo, dailyPriceRepo)
+	syncSvc = syncSvc.WithHistoryBackfill(historyBackfill)
 	syncSvc.StartSimulatorRefreshLoopIfActive()
 
 	// Portfolio, OTC, and tax services.
