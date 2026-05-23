@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sort"
 	"testing"
 	"time"
 
@@ -50,8 +51,8 @@ func TestBackfill_WritesExpectedRowCountPerListing(t *testing.T) {
 	b, dr := newBackfillFixture(listings)
 	require.NoError(t, b.Run())
 
-	const days = 1825
-	assert.Equal(t, 2*days, len(dr.upserts), "expected one row per listing per day for 5y")
+	const rowsPerListing = 2112 // 288 intraday + 1824 daily
+	assert.Equal(t, 2*rowsPerListing, len(dr.upserts), "expected intraday+daily rows per listing")
 }
 
 func TestBackfill_AnchorsAtCurrentPrice(t *testing.T) {
@@ -103,7 +104,7 @@ func TestBackfill_SkipsZeroPriceListings(t *testing.T) {
 	for _, row := range dr.upserts {
 		assert.NotEqual(t, uint64(1), row.ListingID, "zero-price listing must produce no rows")
 	}
-	assert.Equal(t, 1825, len(dr.upserts))
+	assert.Equal(t, 2112, len(dr.upserts))
 }
 
 func TestBackfill_DatesAreDistinctAndContiguous(t *testing.T) {
@@ -111,12 +112,44 @@ func TestBackfill_DatesAreDistinctAndContiguous(t *testing.T) {
 	b, dr := newBackfillFixture(listings)
 	require.NoError(t, b.Run())
 
+	// Total row count
+	assert.Equal(t, 2112, len(dr.upserts), "expected 288 intraday + 1824 daily")
+
+	// All dates distinct
 	seen := map[time.Time]bool{}
 	for _, row := range dr.upserts {
 		assert.False(t, seen[row.Date], "duplicate date: %s", row.Date)
 		seen[row.Date] = true
 	}
-	assert.Equal(t, 1825, len(seen))
+	assert.Equal(t, 2112, len(seen))
+
+	// generateHistory appends intraday rows first (indices 0..intradayCount-1)
+	// then daily rows (indices intradayCount..2111). Use index-based split.
+	intradayRows := dr.upserts[:intradayCount]
+	dailyRows := dr.upserts[intradayCount:]
+
+	assert.Equal(t, intradayCount, len(intradayRows), "expected 288 intraday rows")
+	assert.Equal(t, dailyBackfillDays, len(dailyRows), "expected 1824 daily rows")
+
+	// Sort intraday desc and check 5-min gaps
+	sort.Slice(intradayRows, func(i, j int) bool {
+		return intradayRows[i].Date.After(intradayRows[j].Date)
+	})
+	for i := 1; i < len(intradayRows); i++ {
+		gap := intradayRows[i-1].Date.Sub(intradayRows[i].Date)
+		assert.Equal(t, time.Duration(intradayMinutes)*time.Minute, gap,
+			"intraday row %d gap should be %d min", i, intradayMinutes)
+	}
+
+	// Sort daily desc and check 1-day gaps
+	sort.Slice(dailyRows, func(i, j int) bool {
+		return dailyRows[i].Date.After(dailyRows[j].Date)
+	})
+	for i := 1; i < len(dailyRows); i++ {
+		gap := dailyRows[i-1].Date.Sub(dailyRows[i].Date)
+		assert.Equal(t, 24*time.Hour, gap,
+			"daily row %d gap should be 24h", i)
+	}
 }
 
 func TestBackfill_OHLCInvariants(t *testing.T) {
