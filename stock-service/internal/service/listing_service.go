@@ -169,10 +169,72 @@ func (s *ListingService) GetListingForSecurity(securityID uint64, securityType s
 	return listing, nil
 }
 
-// GetPriceHistory retrieves daily price history for a listing within a period.
+// SnapshotIntradayPrices writes one ListingDailyPriceInfo row per listing
+// at the current timestamp. Called after every successful price refresh so
+// the /history endpoint surfaces oscillation/intraday movement, not just
+// the end-of-day cron snapshot. The unique-by-timestamp key means each tick
+// inserts a fresh row.
+func (s *ListingService) SnapshotIntradayPrices() {
+	listings, err := s.listingRepo.ListAll()
+	if err != nil {
+		log.Printf("WARN: intraday snapshot: failed to list listings: %v", err)
+		return
+	}
+	now := time.Now()
+	count := 0
+	for _, l := range listings {
+		info := &model.ListingDailyPriceInfo{
+			ListingID: l.ID,
+			Date:      now,
+			Price:     l.Price,
+			High:      l.Price, // per-snapshot is a single point-in-time
+			Low:       l.Price,
+			Change:    decimal.Decimal{}, // no per-snapshot delta; bucketer derives close-open
+			Volume:    l.Volume,
+		}
+		if err := s.dailyRepo.UpsertByListingAndDate(info); err != nil {
+			log.Printf("WARN: intraday snapshot: listing %d: %v", l.ID, err)
+			continue
+		}
+		count++
+	}
+	log.Printf("intraday snapshot: recorded %d listings at %s", count, now.Format(time.RFC3339))
+}
+
+// GetPriceHistory retrieves OHLC-bucketed price history for a listing. The
+// bucket interval is derived from the period so each timeframe produces a
+// sensible number of candles regardless of how dense the underlying snapshot
+// stream is. Pagination is bypassed when bucketing — the bucket interval
+// itself caps the row count to ~300-400 per period.
 func (s *ListingService) GetPriceHistory(listingID uint64, period string, page, pageSize int) ([]model.ListingDailyPriceInfo, int64, error) {
 	from, to := periodToDateRange(period)
-	return s.dailyRepo.GetHistory(listingID, from, to, page, pageSize)
+	bucket := periodToBucketSeconds(period)
+	rows, err := s.dailyRepo.GetHistoryBucketed(listingID, from, to, bucket)
+	if err != nil {
+		return nil, 0, err
+	}
+	return rows, int64(len(rows)), nil
+}
+
+// periodToBucketSeconds maps a chart period to the candle bucket width that
+// produces a sensible candle count (a few hundred max). Long periods bucket
+// coarsely so e.g. a year doesn't render 525k 1-minute rows; short periods
+// keep fine granularity.
+func periodToBucketSeconds(period string) int {
+	switch period {
+	case "day":
+		return 5 * 60 // 5 minutes
+	case "week":
+		return 30 * 60 // 30 minutes
+	case "month":
+		return 2 * 3600 // 2 hours
+	case "year":
+		return 24 * 3600 // 1 day
+	case "5y", "all":
+		return 7 * 24 * 3600 // 1 week
+	default:
+		return 2 * 3600
+	}
 }
 
 // GetPriceHistoryForSecurity looks up the listing for a security, then gets history.
