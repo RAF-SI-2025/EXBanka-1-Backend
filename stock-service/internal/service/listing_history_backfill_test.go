@@ -56,7 +56,7 @@ func TestBackfill_WritesExpectedRowCountPerListing(t *testing.T) {
 }
 
 func TestBackfill_AnchorsAtCurrentPrice(t *testing.T) {
-	listings := []model.Listing{{ID: 7, Price: priceDec(123.45)}}
+	listings := []model.Listing{{ID: 7, SecurityType: "stock", Price: priceDec(123.45)}}
 	b, dr := newBackfillFixture(listings)
 	require.NoError(t, b.Run())
 
@@ -75,7 +75,7 @@ func TestBackfill_AnchorsAtCurrentPrice(t *testing.T) {
 }
 
 func TestBackfill_IsDeterministic(t *testing.T) {
-	listings := []model.Listing{{ID: 9, Price: priceDec(80)}}
+	listings := []model.Listing{{ID: 9, SecurityType: "stock", Price: priceDec(80)}}
 
 	b1, dr1 := newBackfillFixture(listings)
 	require.NoError(t, b1.Run())
@@ -95,8 +95,8 @@ func TestBackfill_IsDeterministic(t *testing.T) {
 
 func TestBackfill_SkipsZeroPriceListings(t *testing.T) {
 	listings := []model.Listing{
-		{ID: 1, Price: priceDec(0)},
-		{ID: 2, Price: priceDec(10)},
+		{ID: 1, SecurityType: "stock", Price: priceDec(0)},
+		{ID: 2, SecurityType: "stock", Price: priceDec(10)},
 	}
 	b, dr := newBackfillFixture(listings)
 	require.NoError(t, b.Run())
@@ -108,7 +108,7 @@ func TestBackfill_SkipsZeroPriceListings(t *testing.T) {
 }
 
 func TestBackfill_DatesAreDistinctAndContiguous(t *testing.T) {
-	listings := []model.Listing{{ID: 1, Price: priceDec(10)}}
+	listings := []model.Listing{{ID: 1, SecurityType: "stock", Price: priceDec(10)}}
 	b, dr := newBackfillFixture(listings)
 	require.NoError(t, b.Run())
 
@@ -153,7 +153,7 @@ func TestBackfill_DatesAreDistinctAndContiguous(t *testing.T) {
 }
 
 func TestBackfill_OHLCInvariants(t *testing.T) {
-	listings := []model.Listing{{ID: 1, Price: priceDec(50)}}
+	listings := []model.Listing{{ID: 1, SecurityType: "stock", Price: priceDec(50)}}
 	b, dr := newBackfillFixture(listings)
 	require.NoError(t, b.Run())
 
@@ -166,4 +166,18 @@ func TestBackfill_OHLCInvariants(t *testing.T) {
 		assert.True(t, row.Low.LessThanOrEqual(minOC),
 			"row %d: Low %s must be <= min(open,close) %s", i, row.Low, minOC)
 	}
+}
+
+func TestBackfill_SkipsOptionListings(t *testing.T) {
+	listings := []model.Listing{
+		{ID: 1, SecurityType: "option", Price: priceDec(5)},   // skip
+		{ID: 2, SecurityType: "stock", Price: priceDec(100)},  // include
+	}
+	b, dr := newBackfillFixture(listings)
+	require.NoError(t, b.Run())
+
+	for _, row := range dr.upserts {
+		assert.NotEqual(t, uint64(1), row.ListingID, "option listing must produce no rows")
+	}
+	assert.Equal(t, 2112, len(dr.upserts))
 }

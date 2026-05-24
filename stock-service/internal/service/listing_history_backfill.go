@@ -54,6 +54,12 @@ func (b *ListingHistoryBackfill) Run() error {
 		if l.Price.IsZero() {
 			continue
 		}
+		switch l.SecurityType {
+		case "stock", "futures", "forex":
+			// supported; generate history
+		default:
+			continue
+		}
 		rows := generateHistory(l.ID, l.Price, l.Volume, now)
 		if err := b.dailyRepo.UpsertManyByListingAndDate(rows); err != nil {
 			log.Printf("WARN: backfill: listing %d: %v", l.ID, err)
