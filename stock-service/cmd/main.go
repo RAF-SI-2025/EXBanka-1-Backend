@@ -485,6 +485,9 @@ func main() {
 	)
 	historyBackfill := service.NewListingHistoryBackfill(listingRepo, dailyPriceRepo)
 	syncSvc = syncSvc.WithHistoryBackfill(historyBackfill)
+	if err := historyBackfill.Run(); err != nil {
+		log.Printf("WARN: startup history backfill: %v", err)
+	}
 	syncSvc.StartSimulatorRefreshLoopIfActive()
 
 	// Portfolio, OTC, and tax services.
