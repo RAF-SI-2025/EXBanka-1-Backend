@@ -20,6 +20,6 @@ type ListingDailyPriceInfo struct {
 	Price     decimal.Decimal `gorm:"type:numeric(18,8);not null" json:"price"`
 	High      decimal.Decimal `gorm:"type:numeric(18,8);not null" json:"high"`
 	Low       decimal.Decimal `gorm:"type:numeric(18,8);not null" json:"low"`
-	Change     decimal.Decimal `gorm:"type:numeric(18,8);not null" json:"change"`
+	Change    decimal.Decimal `gorm:"type:numeric(18,8);not null" json:"change"`
 	Volume    int64           `gorm:"not null;default:0" json:"volume"`
 }

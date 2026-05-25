@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	intradayMinutes   = 5                          // 5-minute granularity for today
-	intradayCount     = 24 * 60 / intradayMinutes  // 288 rows for the last 24h
-	dailyBackfillDays = 1824                        // 5 years - 1 day (today is covered by intraday rows)
+	intradayMinutes   = 5                         // 5-minute granularity for today
+	intradayCount     = 24 * 60 / intradayMinutes // 288 rows for the last 24h
+	dailyBackfillDays = 1824                      // 5 years - 1 day (today is covered by intraday rows)
 )
 
 // ListingHistoryBackfill seeds 5 years of deterministic synthetic OHLC history
@@ -121,12 +121,12 @@ func generateHistory(listingID uint64, anchorPrice decimal.Decimal, anchorVolume
 	// Daily: continue walking newest->oldest from the price reached at the end
 	// of the intraday walk. Each preceding day's close = today's open from
 	// where we left off.
-	startDay := now.UTC().Truncate(24 * time.Hour).AddDate(0, 0, -1)
+	startDay := now.UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
 	for d := 0; d < dailyBackfillDays; d++ {
 		seed := int64(listingID*1_000_003) + int64(d) + 1_000_000
 		rng := newRng(seed)
 		drift := (rng.Float64()*2 - 1) * 0.01 // ±1% daily
-		spread := rng.Float64() * 0.015        // 0-1.5%
+		spread := rng.Float64() * 0.015       // 0-1.5%
 
 		cls := price
 		open := cls * (1 + drift)

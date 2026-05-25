@@ -170,8 +170,8 @@ func TestBackfill_OHLCInvariants(t *testing.T) {
 
 func TestBackfill_SkipsOptionListings(t *testing.T) {
 	listings := []model.Listing{
-		{ID: 1, SecurityType: "option", Price: priceDec(5)},   // skip
-		{ID: 2, SecurityType: "stock", Price: priceDec(100)},  // include
+		{ID: 1, SecurityType: "option", Price: priceDec(5)},  // skip
+		{ID: 2, SecurityType: "stock", Price: priceDec(100)}, // include
 	}
 	b, dr := newBackfillFixture(listings)
 	require.NoError(t, b.Run())
