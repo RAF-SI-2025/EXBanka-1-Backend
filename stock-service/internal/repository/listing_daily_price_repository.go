@@ -101,7 +101,7 @@ func (r *ListingDailyPriceRepository) GetHistoryBucketed(listingID uint64, from,
 			SELECT
 				to_timestamp(floor(extract(epoch FROM date) / ?) * ?) AS bucket,
 				date AS at,
-				price, high, low, volume
+				price, high, low, volume, "change"
 			FROM listing_daily_price_infos
 			WHERE listing_id = ?
 			  AND (? OR date >= ?)
@@ -109,7 +109,7 @@ func (r *ListingDailyPriceRepository) GetHistoryBucketed(listingID uint64, from,
 		)
 		SELECT
 			bucket,
-			(array_agg(price ORDER BY at ASC))[1]  AS open,
+			(array_agg(price - "change" ORDER BY at ASC))[1]  AS open,
 			(array_agg(price ORDER BY at DESC))[1] AS close,
 			MAX(high)   AS high,
 			MIN(low)    AS low,
