@@ -175,6 +175,9 @@ func (s *ListingService) GetListingForSecurity(securityID uint64, securityType s
 // the end-of-day cron snapshot. The unique-by-timestamp key means each tick
 // inserts a fresh row.
 func (s *ListingService) SnapshotIntradayPrices() {
+	if s.listingRepo == nil || s.dailyRepo == nil {
+		return
+	}
 	listings, err := s.listingRepo.ListAll()
 	if err != nil {
 		log.Printf("WARN: intraday snapshot: failed to list listings: %v", err)
