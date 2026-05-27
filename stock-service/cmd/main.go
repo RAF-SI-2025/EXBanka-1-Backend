@@ -57,6 +57,13 @@ func main() {
 		log.Printf("warn: drop inter_bank_saga_logs failed: %v", err)
 	}
 
+	// Drop legacy single-column unique index on listing_daily_price_infos.date.
+	// Replaced by composite (listing_id, date) unique index "idx_listing_daily_listing_id_date".
+	// Safe no-op if already dropped or never existed.
+	if err := db.Exec("DROP INDEX IF EXISTS idx_listing_daily_listing_date").Error; err != nil {
+		log.Printf("WARN: drop legacy listing_daily_price_infos date index: %v", err)
+	}
+
 	// AutoMigrate all models
 	if err := db.AutoMigrate(
 		&model.StockExchange{},
@@ -483,6 +490,13 @@ func main() {
 		initialSource,
 		wipeRepo,
 	)
+	historyBackfill := service.NewListingHistoryBackfill(listingRepo, dailyPriceRepo)
+	syncSvc = syncSvc.WithHistoryBackfill(historyBackfill)
+	go func() {
+		if err := historyBackfill.Run(); err != nil {
+			log.Printf("WARN: startup history backfill: %v", err)
+		}
+	}()
 	syncSvc.StartSimulatorRefreshLoopIfActive()
 
 	// Portfolio, OTC, and tax services.

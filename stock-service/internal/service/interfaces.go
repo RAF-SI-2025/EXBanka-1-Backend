@@ -97,7 +97,9 @@ type Wiper interface {
 type DailyPriceRepo interface {
 	Create(info *model.ListingDailyPriceInfo) error
 	UpsertByListingAndDate(info *model.ListingDailyPriceInfo) error
+	UpsertManyByListingAndDate(infos []model.ListingDailyPriceInfo) error
 	GetHistory(listingID uint64, from, to time.Time, page, pageSize int) ([]model.ListingDailyPriceInfo, int64, error)
+	GetHistoryBucketed(listingID uint64, from, to time.Time, bucketSeconds int) ([]model.ListingDailyPriceInfo, error)
 }
 
 type OrderRepo interface {
