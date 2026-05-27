@@ -844,11 +844,13 @@ func main() {
 			go service.NewPriceAlertCron(priceAlertSvc, listingRepo, priceAlertRepo, 30*time.Second).Run(ctx)
 
 			recurringOrderRepo := repository.NewRecurringOrderRepository(db)
-			// orderPlacer is intentionally nil — the cron short-circuits when
-			// unwired. Wiring the existing OrderService.PlaceOrder requires
-			// reshaping the input from the recurring template; deferred to a
-			// follow-up. CRUD + cron loop still operate.
-			recurringOrderSvc := service.NewRecurringOrderService(recurringOrderRepo, listingRepo, nil, producer)
+			// The placer reshapes each recurring template tick into a Market
+			// CreateOrder call via orderSvc's placement saga (reserve → persist
+			// → approve). Insufficient funds / validation errors on a tick are
+			// caught by RunDue, which notifies the owner and still advances
+			// NextRun so the template doesn't get stuck.
+			recurringOrderSvc := service.NewRecurringOrderService(
+				recurringOrderRepo, listingRepo, newRecurringOrderPlacerAdapter(orderSvc), producer)
 			pb.RegisterRecurringOrderServiceServer(s, handler.NewRecurringOrderHandler(recurringOrderSvc))
 			go service.NewRecurringOrderCron(recurringOrderSvc, time.Hour).Run(ctx)
 

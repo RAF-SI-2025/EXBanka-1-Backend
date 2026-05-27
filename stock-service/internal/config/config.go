@@ -53,7 +53,7 @@ type Config struct {
 }
 
 func Load() *Config {
-	syncMins := 15
+	syncMins := 1
 	if v := os.Getenv("SECURITY_SYNC_INTERVAL_MINUTES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			syncMins = n

@@ -11,6 +11,8 @@ import (
 	contractsitx "github.com/exbanka/contract/sitx"
 	stockpb "github.com/exbanka/contract/stockpb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // AccountClient is the subset of accountpb.AccountServiceClient that
@@ -264,6 +266,50 @@ func (e *PostingExecutor) Reserve(ctx context.Context, postings []contractsitx.P
 		DebitedItems:    debits,
 		OptionItems:     options,
 	}
+}
+
+// ReverseLocal undoes the local effects a prior Reserve applied for the same
+// (postings, peerBankCode, locallyGeneratedKey): it releases the CREDIT-side
+// reservation and credits back each DEBIT posting on our routing, reusing the
+// same reservation key and per-posting idempotency tags Reserve used. Because
+// those keys match, ReverseLocal nets exactly the effects of Reserve and is
+// safe to call repeatedly and to interleave with the inline rollback path.
+//
+// Used by OutboundReplayCron (via PeerTxGRPCHandler.ReverseOutboundLocal) to
+// return money on a sender-side OTC TX that terminally fails after the local
+// legs were already applied. Option-asset postings carry no money and are
+// skipped; a NotFound on release is benign (no CREDIT legs landed locally).
+func (e *PostingExecutor) ReverseLocal(ctx context.Context, postings []contractsitx.Posting, peerBankCode, locallyGeneratedKey string) error {
+	key := peerBankCode + ":" + locallyGeneratedKey
+	if _, err := e.client.ReleaseIncoming(ctx, &accountpb.ReleaseIncomingRequest{
+		ReservationKey: key,
+		IdempotencyKey: "sitx-localrelease-" + key,
+	}); err != nil && status.Code(err) != codes.NotFound {
+		return err
+	}
+	for i := range postings {
+		p := postings[i]
+		if p.RoutingNumber != e.ownRouting || p.Direction != contractsitx.DirectionDebit {
+			continue
+		}
+		if strings.HasPrefix(p.AssetID, "{") {
+			continue // option-asset leg — no money to return
+		}
+		accountNumber, resolveErr := e.resolveAccountForPosting(ctx, p.AccountID, p.AssetID)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		tag := fmt.Sprintf("%s:%s:%d", peerBankCode, locallyGeneratedKey, i)
+		if _, err := e.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+			AccountNumber:   accountNumber,
+			Amount:          p.Amount.String(),
+			UpdateAvailable: true,
+			IdempotencyKey:  "sitx-localcreditback-" + tag,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // resolveAccountForPosting maps an accountId string to a concrete bank

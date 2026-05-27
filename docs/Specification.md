@@ -1564,6 +1564,8 @@ Closed-end invariants enforced in `model.InvestmentFund.BeforeSave`. `FundServic
 
 Unique `(OwnerType, OwnerID, ListingID)` enforces "one tracked entry per owner+listing"; `WatchlistRepository.Add` issues `ON CONFLICT DO NOTHING` so double-adds are idempotent. No version column — append/delete only.
 
+**RecurringOrder** (Celina 3 — `recurring_orders` table in stock-service `stock_db`) — per-owner weekly/monthly Market-order template (`OwnerType`/`OwnerID`, `ListingID`, `Side` buy|sell, `Quantity`, `AccountID`, `Interval` weekly|monthly with `DayOfWeek`/`DayOfMonth`, `StartDate`/`EndDate`, `Status` active|paused|cancelled|finished, `NextRun`). `RecurringOrderCron` ticks hourly and calls `RunDue`, which materialises every due template into a real Market order via `OrderService.CreateOrder` (the full placement saga: reserve funds → persist → approve). The cron is wired through `recurringOrderPlacerAdapter` (stock-service `cmd/`), which maps each tick's `(owner_type, owner_id)` back onto the legacy `(user_id, system_type)` pair CreateOrder consumes (`bank`→system_type=bank/no user id; `client`→system_type=client/client id). A failed tick (insufficient funds, validation) does not abort the loop: it fires a `RECURRING_ORDER_SKIPPED` in-app notification (vs. `RECURRING_ORDER_EXECUTED` on success) and still advances `NextRun` so the template never gets stuck. Past `EndDate` flips `Status=finished`.
+
 ### Auth Service (auth_db)
 
 **Account** — Unified login record for employees and clients
@@ -2705,6 +2707,8 @@ On success the middleware sets `peer_bank_code` and `peer_routing_number` on the
 
 `OutboundReplayCron` (transaction-service): 30s tick. Scans `outbound_peer_txs` rows in `pending` whose `last_attempt_at` is older than 60s (or NULL — never attempted). 4-attempt cap; rows that exceed get marked `failed`. Receiver returns the same cached vote on every retry due to idempotence-key dedup.
 
+**Credit-back on terminal failure (cron + inline parity):** because the sender is debited at initiation, every terminal non-committed outcome must return that money. On a peer **NO vote** *and* on **max-attempts-exceeded**, the cron first reverses the local effects (via `PeerTxGRPCHandler.ReverseOutboundLocal`, wired as the cron's `LocalReversalFunc`) before marking the row `rolled_back` / `failed`. The reversal dispatches by `tx_kind`: `transfer` credits the local DEBIT leg back with key `peer-out-creditback-<idem>`; OTC kinds delegate to `PostingExecutor.ReverseLocal`, which releases the local CREDIT reservation (`sitx-localrelease-<own>:<idem>`) and credits each local DEBIT leg back (`sitx-localcreditback-<own>:<idem>:<i>`). All credit-back keys match the inline dispatch path so the two never double-credit. If the reversal itself fails, the row is kept `pending` (via `MarkAttempt`) so a later tick retries it — money is never stranded in a terminal row. The inline NO-vote paths (`InitiateOutboundTx`, `InitiateOutboundTxWithPostings`) follow the same rule: a failed credit-back keeps the row `pending` instead of marking it `rolled_back`.
+
 ### NoVote reason codes
 
 Verbatim from SI-TX (each emitted with optional posting index for posting-scoped reasons):
@@ -2864,7 +2868,7 @@ The unified OTC offer view (local + cross-bank) is served by `stock-service`'s `
 5. The SI-TX flow:
    - `posting_executor.Reserve` (NEW_TX) on each bank validates option-asset postings via `CheckSellerCanDeliver` for DEBIT direction → vote NO with `INSUFFICIENT_ASSET` if seller short.
    - On YES, `cacheAndReturn` persists `peer_idempotence_records.options_json` listing the option items.
-   - On COMMIT_TX, `materialiseOptions` calls `PeerOTCService.RecordOptionContract` per option leg → writes `peer_option_contracts` row + (DEBIT side) calls `HoldingReservationService.ReserveForPeerOptionContract` to lock seller's shares.
+   - On COMMIT_TX, `materialiseOptions` calls `PeerOTCService.RecordOptionContract` per option leg → writes `peer_option_contracts` row + (DEBIT side) calls `HoldingReservationService.ReserveForPeerOptionContract` to lock seller's shares. If the seller-side lock fails (reservation error or unparseable `seller_id`), `RecordOptionContract` **returns an error** rather than reporting success — leaving an `active` contract with no holding reservation behind it (silent over-promise) is not allowed. The COMMIT then does not ack and retries; both the contract row (idempotent on `crossbank_tx_id, posting_index`) and the reservation (idempotent on `peer_option_contract_id`) are replay-safe, so the lock heals once shares are available.
 6. Negotiation status transitions to `accepted`.
 
 #### Exercise (`/me/otc/contracts/peer/:id/exercise`)
@@ -2874,9 +2878,8 @@ The unified OTC offer view (local + cross-bank) is served by `stock-service`'s `
 2. Compose 4 postings using the original contract terms — buyer DEBIT strike money / seller CREDIT strike / seller DEBIT option marker / buyer CREDIT option marker. The `OptionDescription` carries `intent="exercise"`.
 3. Dispatch via `InitiateOutboundTxWithPostings` (`tx_kind="otc-exercise"`).
 4. On COMMIT_TX, `RecordOptionContract`'s exercise branch:
-   - DEBIT side: `ConsumeForPeerOptionContract` settles the reservation and decrements seller's holding.
-   - CREDIT side: `CreditBuyerHoldingForPeerOption` finds-or-creates the buyer's holding and increments it.
-   - Both sides: contract row → `status=exercised`.
+   - DEBIT side: `ConsumeForPeerOptionContract` settles the reservation and decrements seller's holding. It is idempotent on a synthetic settlement txn id; a replay returns `AlreadySettled=true` so the handler **skips** the realised-`CapitalGain` write (which is not idempotent) and avoids double-counting P/L. Then `SetStatus(exercised)`.
+   - CREDIT side: `ExerciseBuyerCreditForPeerOption` credits the buyer's holding **and** flips the contract to `status=exercised` in a single transaction, with the contract status read under a row lock as the idempotency guard. A replayed exercise (duplicate COMMIT_TX) finds `status=exercised` and is a no-op, so the buyer's shares are never double-credited. If the credit fails (or `buyer_id` is unparseable), it **returns an error and does not mark the contract exercised** — the buyer has paid the strike, so a silent failure would leave them paid-but-undelivered; the SI-TX exercise commit retries instead.
 
 #### Expiry (cron)
 

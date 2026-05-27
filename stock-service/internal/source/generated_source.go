@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -13,49 +12,100 @@ import (
 	"github.com/exbanka/stock-service/internal/model"
 )
 
-const (
-	generatedSeed          = int64(0x1EB0081A) // arbitrary stable seed; not cryptographic
-	generatedRandomWalkPct = 0.005             // ±0.5% per refresh tick
-)
+// oscillationMultipliers defines a deterministic 4-phase cycle applied to
+// stock and futures prices. Each phase lasts one wallclock minute, so the
+// full cycle is 4 minutes and repeats forever. This replaces a random walk
+// so demo / test environments produce predictable, visible price movement
+// that order triggers (limit, stop, alerts) can be verified against.
+//
+// Phase index = floor(unixSeconds / 60) mod 4.
+var oscillationMultipliers = [4]float64{0.90, 1.00, 1.10, 1.00}
 
 // DecFromFloat is exported so tests can build expected decimals.
 func DecFromFloat(f float64) decimal.Decimal { return decimal.NewFromFloat(f) }
 
 // GeneratedSource produces deterministic local data for dev/demo use.
-// It holds mutable current prices so RefreshPrices can drift them.
+// It holds mutable current prices so RefreshPrices can update them to the
+// current oscillation phase.
 type GeneratedSource struct {
-	mu        sync.RWMutex
-	now       time.Time
-	rng       *rand.Rand
-	stockPx   map[string]decimal.Decimal
-	futuresPx map[string]decimal.Decimal
-	forexPx   map[string]decimal.Decimal
+	mu  sync.RWMutex
+	now time.Time
+	// clock is the wallclock used to compute the oscillation phase. It is
+	// overridable for deterministic tests.
+	clock func() time.Time
+	// baseStockPx / baseFuturesPx are the immutable seed prices captured at
+	// construction. Current prices are always derived from these times an
+	// oscillation multiplier, so the cycle never drifts.
+	baseStockPx   map[string]decimal.Decimal
+	baseFuturesPx map[string]decimal.Decimal
+	stockPx       map[string]decimal.Decimal
+	futuresPx     map[string]decimal.Decimal
+	forexPx       map[string]decimal.Decimal
 	// exchangeByAcronym resolves exchange acronyms to the IDs currently in
 	// the database. When nil (unit tests without a DB), the fallback hash
 	// `exchangeForTicker` is used, which assumes fresh-DB IDs 1..20.
 	exchangeByAcronym ExchangeByAcronym
 }
 
-// NewGeneratedSource constructs a GeneratedSource with a deterministic seed.
-// Two calls to NewGeneratedSource will produce identical FetchStocks output.
+// NewGeneratedSource constructs a GeneratedSource seeded from the static
+// `generatedStocks` / `generatedFutures` tables. Two calls to
+// NewGeneratedSource at the same wallclock minute produce identical
+// FetchStocks output.
 func NewGeneratedSource() *GeneratedSource {
 	g := &GeneratedSource{
-		now:       time.Date(2026, 4, 13, 12, 0, 0, 0, time.UTC),
-		rng:       rand.New(rand.NewSource(generatedSeed)), //nolint:gosec // not cryptographic
-		stockPx:   make(map[string]decimal.Decimal, len(generatedStocks)),
-		futuresPx: make(map[string]decimal.Decimal, len(generatedFutures)),
-		forexPx:   make(map[string]decimal.Decimal, len(forexSeedPrices)),
+		now:           time.Date(2026, 4, 13, 12, 0, 0, 0, time.UTC),
+		clock:         func() time.Time { return time.Now().UTC() },
+		baseStockPx:   make(map[string]decimal.Decimal, len(generatedStocks)),
+		baseFuturesPx: make(map[string]decimal.Decimal, len(generatedFutures)),
+		stockPx:       make(map[string]decimal.Decimal, len(generatedStocks)),
+		futuresPx:     make(map[string]decimal.Decimal, len(generatedFutures)),
+		forexPx:       make(map[string]decimal.Decimal, len(forexSeedPrices)),
 	}
 	for _, s := range generatedStocks {
-		g.stockPx[s.Ticker] = dec(s.Price)
+		base := dec(s.Price)
+		g.baseStockPx[s.Ticker] = base
+		g.stockPx[s.Ticker] = base
 	}
 	for _, f := range generatedFutures {
-		g.futuresPx[f.Ticker] = dec(f.Price)
+		base := dec(f.Price)
+		g.baseFuturesPx[f.Ticker] = base
+		g.futuresPx[f.Ticker] = base
 	}
 	for pair, p := range forexSeedPrices {
 		g.forexPx[pair] = dec(p)
 	}
+	// Apply the current phase so the first FetchStocks call after
+	// construction reflects the oscillating price, not the raw seed.
+	g.applyOscillationLocked()
 	return g
+}
+
+// withClock overrides the clock used for phase computation. Test-only.
+func (g *GeneratedSource) withClock(fn func() time.Time) *GeneratedSource {
+	g.mu.Lock()
+	g.clock = fn
+	g.applyOscillationLocked()
+	g.mu.Unlock()
+	return g
+}
+
+// oscillationPhase returns the current phase index in [0,4) for the given
+// instant. Each phase covers one wallclock minute.
+func oscillationPhase(t time.Time) int {
+	return int((t.Unix() / 60) % int64(len(oscillationMultipliers)))
+}
+
+// applyOscillationLocked recomputes stockPx and futuresPx from the immutable
+// base seeds times the current phase multiplier. Must be called with g.mu
+// held for writing.
+func (g *GeneratedSource) applyOscillationLocked() {
+	mult := decimal.NewFromFloat(oscillationMultipliers[oscillationPhase(g.clock())])
+	for k, base := range g.baseStockPx {
+		g.stockPx[k] = base.Mul(mult)
+	}
+	for k, base := range g.baseFuturesPx {
+		g.futuresPx[k] = base.Mul(mult)
+	}
 }
 
 // WithExchangeResolver attaches the exchange-lookup function used to translate
@@ -214,12 +264,21 @@ func (g *GeneratedSource) FetchExchanges(_ context.Context) ([]model.StockExchan
 }
 
 // FetchStocks returns the 20 generated stocks with current prices.
+//
+// Change is reported as (current price − base seed price), so the derived
+// ChangePercent surfaces the oscillation as ±10% at peak/trough phases and
+// 0% at base phases. High/Low span [base, peak] (or [trough, base]) so the
+// daily range column matches the swing direction.
 func (g *GeneratedSource) FetchStocks(_ context.Context) ([]StockWithListing, error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	out := make([]StockWithListing, 0, len(generatedStocks))
 	for _, s := range generatedStocks {
+		base := g.baseStockPx[s.Ticker]
 		price := g.stockPx[s.Ticker]
+		change := price.Sub(base)
+		high := decimal.Max(price, base)
+		low := decimal.Min(price, base)
 		exchangeID := g.resolveExchangeID(s.Ticker)
 		volume := hashVolume("stock:"+s.Ticker, 100_000, 50_000_000)
 		out = append(out, StockWithListing{
@@ -227,16 +286,17 @@ func (g *GeneratedSource) FetchStocks(_ context.Context) ([]StockWithListing, er
 				Ticker:      s.Ticker,
 				Name:        s.Name,
 				Price:       price,
-				High:        price,
-				Low:         price,
+				High:        high,
+				Low:         low,
+				Change:      change,
 				Volume:      volume,
 				LastRefresh: g.now,
 				ExchangeID:  exchangeID,
 			},
 			ExchangeID:  exchangeID,
 			Price:       price,
-			High:        price,
-			Low:         price,
+			High:        high,
+			Low:         low,
 			Volume:      volume,
 			LastRefresh: g.now,
 		})
@@ -250,7 +310,11 @@ func (g *GeneratedSource) FetchFutures(_ context.Context) ([]FuturesWithListing,
 	defer g.mu.RUnlock()
 	out := make([]FuturesWithListing, 0, len(generatedFutures))
 	for _, f := range generatedFutures {
+		base := g.baseFuturesPx[f.Ticker]
 		price := g.futuresPx[f.Ticker]
+		change := price.Sub(base)
+		high := decimal.Max(price, base)
+		low := decimal.Min(price, base)
 		unit, ok := futuresContractUnit[f.Ticker]
 		if !ok {
 			unit = "contract"
@@ -264,8 +328,9 @@ func (g *GeneratedSource) FetchFutures(_ context.Context) ([]FuturesWithListing,
 				ContractSize:   f.ContractSize,
 				ContractUnit:   unit,
 				Price:          price,
-				High:           price,
-				Low:            price,
+				High:           high,
+				Low:            low,
+				Change:         change,
 				Volume:         volume,
 				LastRefresh:    g.now,
 				SettlementDate: futuresSettlementDate(g.now, f.DaysToExpiry),
@@ -273,8 +338,8 @@ func (g *GeneratedSource) FetchFutures(_ context.Context) ([]FuturesWithListing,
 			},
 			ExchangeID:  exchangeID,
 			Price:       price,
-			High:        price,
-			Low:         price,
+			High:        high,
+			Low:         low,
 			Volume:      volume,
 			LastRefresh: g.now,
 		})
@@ -337,23 +402,14 @@ func (g *GeneratedSource) FetchOptions(_ context.Context, stock *model.Stock) ([
 	return GenerateOptionsForStock(stock), nil
 }
 
-// RefreshPrices applies a ±0.5% random walk to all current prices.
-// The walk uses the instance's RNG so it is per-instance (not global).
+// RefreshPrices recomputes stock and futures prices to match the current
+// 4-minute oscillation phase. Forex rates are intentionally left untouched
+// because cross-currency conversion (exchange-service.Convert) is used to
+// price buy/sell fills and fee math — swinging forex ±10% would distort
+// balances and break parity with the exchange-service.
 func (g *GeneratedSource) RefreshPrices(_ context.Context) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	walk := func(p decimal.Decimal) decimal.Decimal {
-		delta := (g.rng.Float64()*2 - 1) * generatedRandomWalkPct //nolint:gosec // not cryptographic
-		return p.Mul(decimal.NewFromFloat(1 + delta))
-	}
-	for k, v := range g.stockPx {
-		g.stockPx[k] = walk(v)
-	}
-	for k, v := range g.futuresPx {
-		g.futuresPx[k] = walk(v)
-	}
-	for k, v := range g.forexPx {
-		g.forexPx[k] = walk(v)
-	}
+	g.applyOscillationLocked()
 	return nil
 }

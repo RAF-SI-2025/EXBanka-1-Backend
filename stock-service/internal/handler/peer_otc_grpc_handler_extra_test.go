@@ -48,7 +48,7 @@ func (f *fakeReserver) ConsumeForPeerOptionContract(_ context.Context, contractI
 	}
 	return &service.PartialSettleHoldingResult{}, nil
 }
-func (f *fakeReserver) CreditBuyerHoldingForPeerOption(_ context.Context, _ model.OwnerType, _ *uint64, _ string, _ int64, _ decimal.Decimal) error {
+func (f *fakeReserver) ExerciseBuyerCreditForPeerOption(_ context.Context, _ uint64, _ model.OwnerType, _ *uint64, _ string, _ int64, _ decimal.Decimal) error {
 	f.creditBuyerCalls++
 	return f.creditBuyerErr
 }
@@ -257,6 +257,69 @@ func TestPeerOTC_RecordOptionContract_AcceptIntent_CreditDirection_NoReserveCall
 	}
 }
 
+// TestPeerOTC_RecordOptionContract_ReserveFails_ReturnsError verifies that
+// when the seller-side share lock (ReserveForPeerOptionContract) fails, the
+// RPC returns an error instead of silently succeeding. A success here would
+// leave an "active" contract with no holding_reservations row behind it —
+// the seller's shares stay tradeable until exercise time (Bug 2).
+func TestPeerOTC_RecordOptionContract_ReserveFails_ReturnsError(t *testing.T) {
+	h, _, _, _ := newPeerOtcHandler(t)
+	reserver := &fakeReserver{reserveErr: status.Error(codes.FailedPrecondition, "shares traded away")}
+	h.SetHoldingReserver(reserver)
+
+	optDesc := contractsitx.OptionDescription{
+		Ticker: "AAPL", Amount: 5, StrikePrice: decimal.NewFromInt(100), Currency: "USD",
+		SettlementDate: "2026-12-31",
+		NegotiationID:  contractsitx.ForeignBankId{RoutingNumber: 222, ID: "neg-rf"},
+	}
+	optJSON, _ := json.Marshal(optDesc)
+	_, err := h.RecordOptionContract(context.Background(), &stockpb.RecordOptionContractRequest{
+		CrossbankTxId:         "tx-reserve-fail",
+		PostingIndex:          2,
+		BuyerId:               &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-99"},
+		SellerId:              &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-7"},
+		Direction:             contractsitx.DirectionDebit,
+		OptionDescriptionJson: string(optJSON),
+	})
+	if err == nil {
+		t.Fatal("expected error when seller-side reservation fails; silent success leaves an unlocked active contract")
+	}
+	if reserver.reserveCalls != 1 {
+		t.Errorf("reserve calls = %d want 1", reserver.reserveCalls)
+	}
+}
+
+// TestPeerOTC_RecordOptionContract_UnparseableSeller_ReturnsError verifies
+// that a DEBIT-side contract whose seller_id cannot be parsed (so no share
+// lock can be applied) is reported as an error rather than silently leaving
+// an active, unlockable contract (Bug 2, parse branch).
+func TestPeerOTC_RecordOptionContract_UnparseableSeller_ReturnsError(t *testing.T) {
+	h, _, _, _ := newPeerOtcHandler(t)
+	reserver := &fakeReserver{}
+	h.SetHoldingReserver(reserver)
+
+	optDesc := contractsitx.OptionDescription{
+		Ticker: "AAPL", Amount: 5, StrikePrice: decimal.NewFromInt(100), Currency: "USD",
+		SettlementDate: "2026-12-31",
+		NegotiationID:  contractsitx.ForeignBankId{RoutingNumber: 222, ID: "neg-bad"},
+	}
+	optJSON, _ := json.Marshal(optDesc)
+	_, err := h.RecordOptionContract(context.Background(), &stockpb.RecordOptionContractRequest{
+		CrossbankTxId:         "tx-bad-seller",
+		PostingIndex:          2,
+		BuyerId:               &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-99"},
+		SellerId:              &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "weird-7"},
+		Direction:             contractsitx.DirectionDebit,
+		OptionDescriptionJson: string(optJSON),
+	})
+	if err == nil {
+		t.Fatal("expected error when seller_id is unparseable; cannot lock shares")
+	}
+	if reserver.reserveCalls != 0 {
+		t.Errorf("reserve should not be called for unparseable seller, got %d", reserver.reserveCalls)
+	}
+}
+
 func TestPeerOTC_RecordOptionContract_BadDirection(t *testing.T) {
 	h, _, _, _ := newPeerOtcHandler(t)
 	_, err := h.RecordOptionContract(context.Background(), &stockpb.RecordOptionContractRequest{
@@ -402,6 +465,49 @@ func TestPeerOTC_RecordOptionContract_ExerciseIntent_NoActiveContract(t *testing
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Errorf("expected FailedPrecondition, got %v", err)
+	}
+}
+
+// TestPeerOTC_RecordOptionContract_ExerciseIntent_BuyerCreditFails_ReturnsError
+// verifies that when the buyer-side share credit fails during exercise, the
+// RPC returns an error and does NOT mark the contract exercised. The buyer has
+// paid the strike (money moved cross-bank); silently swallowing the credit
+// failure and marking exercised would leave the buyer paid-but-not-delivered
+// with no retry (exercise-time analog of Bug 2).
+func TestPeerOTC_RecordOptionContract_ExerciseIntent_BuyerCreditFails_ReturnsError(t *testing.T) {
+	h, _, _, _ := newPeerOtcHandler(t)
+	reserver := &fakeReserver{creditBuyerErr: errors.New("holding write failed")}
+	h.SetHoldingReserver(reserver)
+
+	optDesc := contractsitx.OptionDescription{
+		Ticker: "AAPL", Amount: 10, StrikePrice: decimal.NewFromInt(150), Currency: "USD",
+		SettlementDate: "2026-12-31",
+		NegotiationID:  contractsitx.ForeignBankId{RoutingNumber: 222, ID: "neg-credit-fail"},
+	}
+	optJSON, _ := json.Marshal(optDesc)
+	// Seed an active CREDIT-direction contract (this bank holds the buyer).
+	if _, err := h.RecordOptionContract(context.Background(), &stockpb.RecordOptionContractRequest{
+		CrossbankTxId:         "tx-cf-seed",
+		PostingIndex:          0,
+		BuyerId:               &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-7"},
+		SellerId:              &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-99"},
+		Direction:             contractsitx.DirectionCredit,
+		OptionDescriptionJson: string(optJSON),
+	}); err != nil {
+		t.Fatalf("seed accept: %v", err)
+	}
+
+	_, err := h.RecordOptionContract(context.Background(), &stockpb.RecordOptionContractRequest{
+		CrossbankTxId:         "tx-cf-exercise",
+		PostingIndex:          0,
+		Intent:                "exercise",
+		BuyerId:               &stockpb.PeerForeignBankId{RoutingNumber: 111, Id: "client-7"},
+		SellerId:              &stockpb.PeerForeignBankId{RoutingNumber: 222, Id: "client-99"},
+		Direction:             contractsitx.DirectionCredit,
+		OptionDescriptionJson: string(optJSON),
+	})
+	if err == nil {
+		t.Fatal("expected error when buyer holding credit fails; buyer would be paid but undelivered")
 	}
 }
 
