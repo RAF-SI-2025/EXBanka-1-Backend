@@ -365,16 +365,21 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTx(ctx context.Context, req *transac
 			reason = "peer voted NO: " + vote.NoVotes[0].Reason
 		}
 		// Atomicity (Celina 5: "ili u celosti, ili ne uopšte"): credit the
-		// sender back on a NO vote, since we already debited them above.
+		// sender back on a NO vote, since we already debited them above. If
+		// the credit-back fails, keep the row pending (MarkAttempt) so
+		// OutboundReplayCron retries the reversal — marking it rolled_back
+		// here would strand the debited money in a terminal row nothing
+		// revisits. The credit-back key is idempotent, so the retry nets out.
 		if _, cbErr := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
 			AccountNumber:   req.GetFromAccountNumber(),
 			Amount:          req.GetAmount(),
 			UpdateAvailable: true,
 			IdempotencyKey:  "peer-out-creditback-" + idem,
 		}); cbErr != nil {
-			reason = reason + " (creditback failed: " + cbErr.Error() + ")"
+			_ = h.outRepo.MarkAttempt(idem, reason+" (creditback failed, will retry: "+cbErr.Error()+")")
+		} else {
+			_ = h.outRepo.MarkRolledBack(idem, reason)
 		}
-		_ = h.outRepo.MarkRolledBack(idem, reason)
 	}
 
 	return &transactionpb.SiTxInitiateResponse{
@@ -499,12 +504,17 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 			reason = "peer voted NO: " + vote.NoVotes[0].Reason
 		}
 		// Peer voted NO → release our local reservation + credit-back
-		// any DEBIT legs we already finalised locally.
+		// any DEBIT legs we already finalised locally. If any reversal step
+		// fails, keep the row pending (MarkAttempt) so OutboundReplayCron
+		// retries the reversal rather than stranding the locally-applied
+		// money in a terminal row. All reversal keys are idempotent.
+		reversalFailed := false
 		if _, rerr := h.client.ReleaseIncoming(ctx, &accountpb.ReleaseIncomingRequest{
 			ReservationKey: localKey,
 			IdempotencyKey: "sitx-localrelease-" + localKey,
 		}); rerr != nil && status.Code(rerr) != codes.NotFound {
 			reason = reason + " (local release failed: " + rerr.Error() + ")"
+			reversalFailed = true
 		}
 		for _, d := range localResult.DebitedItems {
 			if _, cerr := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
@@ -514,9 +524,14 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 				IdempotencyKey:  "sitx-localcreditback-" + d.IdempotencyTag,
 			}); cerr != nil {
 				reason = reason + " (local creditback " + d.IdempotencyTag + " failed: " + cerr.Error() + ")"
+				reversalFailed = true
 			}
 		}
-		_ = h.outRepo.MarkRolledBack(idem, reason)
+		if reversalFailed {
+			_ = h.outRepo.MarkAttempt(idem, reason+" (will retry reversal)")
+		} else {
+			_ = h.outRepo.MarkRolledBack(idem, reason)
+		}
 	}
 
 	return &transactionpb.SiTxInitiateResponse{
@@ -524,6 +539,50 @@ func (h *PeerTxGRPCHandler) InitiateOutboundTxWithPostings(ctx context.Context, 
 		PollUrl:       "/api/v3/me/transfers/" + idem,
 		Status:        "pending",
 	}, nil
+}
+
+// ReverseOutboundLocal undoes the local balance effects applied at
+// initiation for an outbound row that terminally fails without committing
+// (peer NO vote or max retries exceeded in OutboundReplayCron). It is wired
+// into the cron as its LocalReversalFunc so the cron — which has no account
+// client of its own — can credit the sender back.
+//
+// Dispatch mirrors the two initiation paths so the credit-back idempotency
+// keys match, making the reversal idempotent and safe to interleave with the
+// inline NO-vote rollback:
+//   - "transfer" (InitiateOutboundTx): a single sender debit was applied with
+//     key "peer-out-debit-<idem>"; credit the local DEBIT leg back with
+//     "peer-out-creditback-<idem>".
+//   - otherwise (InitiateOutboundTxWithPostings OTC legs): reservations +
+//     debits were applied via the posting executor with peerCode = our own
+//     routing; reverse them via the executor's matching keys.
+func (h *PeerTxGRPCHandler) ReverseOutboundLocal(ctx context.Context, row *model.OutboundPeerTx) error {
+	var postings []contractsitx.Posting
+	if err := json.Unmarshal([]byte(row.PostingsJSON), &postings); err != nil {
+		return err
+	}
+	idem := row.IdempotenceKey
+	switch row.TxKind {
+	case "", "transfer":
+		for i := range postings {
+			p := postings[i]
+			if p.RoutingNumber != h.ownRouting || p.Direction != contractsitx.DirectionDebit {
+				continue
+			}
+			if _, err := h.client.UpdateBalance(ctx, &accountpb.UpdateBalanceRequest{
+				AccountNumber:   p.AccountID,
+				Amount:          p.Amount.String(),
+				UpdateAvailable: true,
+				IdempotencyKey:  "peer-out-creditback-" + idem,
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		ownPeerCode := strconv.FormatInt(h.ownRouting, 10)
+		return h.executor.ReverseLocal(ctx, postings, ownPeerCode, idem)
+	}
 }
 
 func protoToPostings(in []*transactionpb.SiTxPosting) []contractsitx.Posting {

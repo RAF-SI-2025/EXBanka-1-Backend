@@ -21,6 +21,7 @@ type OutboundReplayCron struct {
 	repo         *repository.OutboundPeerTxRepository
 	httpClient   *sitx.PeerHTTPClient
 	peerLookup   PeerLookupFunc
+	reverseLocal LocalReversalFunc
 	tickInterval time.Duration
 	minRetryGap  time.Duration
 	maxAttempts  int
@@ -29,6 +30,16 @@ type OutboundReplayCron struct {
 // PeerLookupFunc resolves a peer-bank-code to a PeerHTTPTarget. Provided
 // by cmd/main.go so the cron doesn't take a direct gRPC dependency.
 type PeerLookupFunc func(ctx context.Context, code string) (*sitx.PeerHTTPTarget, error)
+
+// LocalReversalFunc undoes the local balance effects that were applied at
+// initiation time for an outbound row (the immediate sender debit, or the
+// OTC multi-leg reservations + debits). It is called on the cron's terminal
+// non-committed paths — peer NO vote and max-retries-exceeded — so the money
+// the sender was debited up front is returned. Provided by cmd/main.go,
+// which wires it to PeerTxGRPCHandler.ReverseOutboundLocal so the credit-back
+// idempotency keys match the inline dispatch path. Must be idempotent: the
+// cron may call it more than once for the same row across ticks.
+type LocalReversalFunc func(ctx context.Context, row *model.OutboundPeerTx) error
 
 func NewOutboundReplayCron(
 	repo *repository.OutboundPeerTxRepository,
@@ -55,6 +66,16 @@ func (c *OutboundReplayCron) WithMinRetryGap(d time.Duration) *OutboundReplayCro
 }
 func (c *OutboundReplayCron) WithMaxAttempts(n int) *OutboundReplayCron {
 	c.maxAttempts = n
+	return c
+}
+
+// WithLocalReversal wires the local credit-back used on terminal
+// non-committed paths. Optional — left nil, the cron preserves its prior
+// behaviour of marking the row terminal without reversing local effects
+// (used by tests that don't exercise money movement). Production always
+// wires it; see LocalReversalFunc.
+func (c *OutboundReplayCron) WithLocalReversal(fn LocalReversalFunc) *OutboundReplayCron {
+	c.reverseLocal = fn
 	return c
 }
 
@@ -93,7 +114,16 @@ func (c *OutboundReplayCron) tick(ctx context.Context) {
 
 func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.OutboundPeerTx) {
 	if row.AttemptCount >= c.maxAttempts {
-		_ = c.repo.MarkFailed(row.IdempotenceKey, "max retries exceeded")
+		// Terminal failure after exhausting retries. The peer never
+		// committed, but the sender was debited at initiation — reverse
+		// that before parking the row in `failed`. If the reversal itself
+		// fails we still mark failed (we're out of retries) but record the
+		// reversal error so ops can recover the stranded money.
+		reason := "max retries exceeded"
+		if rerr := c.reverse(ctx, row); rerr != nil {
+			reason += " (creditback failed: " + rerr.Error() + ")"
+		}
+		_ = c.repo.MarkFailed(row.IdempotenceKey, reason)
 		return
 	}
 	target, err := c.peerLookup(ctx, row.PeerBankCode)
@@ -139,7 +169,25 @@ func (c *OutboundReplayCron) processRow(ctx context.Context, row *model.Outbound
 	if len(vote.NoVotes) > 0 {
 		reason = "peer voted NO: " + vote.NoVotes[0].Reason
 	}
+	// Atomicity (Celina 5: "ili u celosti, ili ne uopšte"): the sender was
+	// debited at initiation, so a NO vote must credit them back. If the
+	// reversal fails, keep the row pending (MarkAttempt) so a later tick
+	// retries it rather than stranding the money in a terminal row — the
+	// credit-back is idempotent, so replaying the NO+reverse loop is safe.
+	if rerr := c.reverse(ctx, row); rerr != nil {
+		_ = c.repo.MarkAttempt(row.IdempotenceKey, reason+" (creditback failed, will retry: "+rerr.Error()+")")
+		return
+	}
 	_ = c.repo.MarkRolledBack(row.IdempotenceKey, reason)
+}
+
+// reverse credits back the local effects of an outbound row via the wired
+// LocalReversalFunc. No-op (nil error) when no reversal func is wired.
+func (c *OutboundReplayCron) reverse(ctx context.Context, row *model.OutboundPeerTx) error {
+	if c.reverseLocal == nil {
+		return nil
+	}
+	return c.reverseLocal(ctx, row)
 }
 
 func errString(err error) string {

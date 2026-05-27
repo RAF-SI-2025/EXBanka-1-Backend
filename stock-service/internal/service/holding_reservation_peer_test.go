@@ -5,10 +5,15 @@ import (
 	"testing"
 
 	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/exbanka/stock-service/internal/model"
+	"github.com/exbanka/stock-service/internal/repository"
 )
 
 // TestHoldingReservationService_PartialSettle_BadQty exercises the
@@ -160,6 +165,57 @@ func TestHoldingReservationService_CreditBuyerHoldingForPeerOption_NewBuyer(t *t
 	}
 	if !got.AveragePrice.Equal(strike) {
 		t.Errorf("buyer average_price=%s want 150 (strike)", got.AveragePrice)
+	}
+}
+
+// TestHoldingReservationService_ExerciseBuyerCreditForPeerOption_Idempotent
+// is the Bug D regression: a replayed cross-bank exercise (duplicate
+// COMMIT_TX) must credit the buyer's shares exactly once. The contract
+// status, flipped to "exercised" in the same transaction as the credit and
+// read under a row lock, is the idempotency guard.
+func TestHoldingReservationService_ExerciseBuyerCreditForPeerOption_Idempotent(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(
+		&model.Holding{},
+		&model.HoldingReservation{},
+		&model.HoldingReservationSettlement{},
+		&model.PeerOptionContract{},
+	))
+	holdingRepo := repository.NewHoldingRepository(db)
+	resRepo := repository.NewHoldingReservationRepository(db)
+	svc := NewHoldingReservationService(db, holdingRepo, resRepo)
+
+	strike := decimal.NewFromInt(150)
+	contract := &model.PeerOptionContract{
+		CrossbankTxID: "tx-idem", PostingIndex: 0,
+		NegotiationRoutingNumber: 222, NegotiationID: "neg",
+		BuyerRoutingNumber: 111, BuyerID: "client-99",
+		SellerRoutingNumber: 222, SellerID: "client-1",
+		Ticker: "AAPL", Quantity: 5, StrikePrice: strike,
+		Currency: "USD", SettlementDate: "2026-12-31",
+		Direction: "CREDIT", Status: "active",
+	}
+	require.NoError(t, db.Create(contract).Error)
+
+	buyer := uint64(99)
+	// First exercise: credits 5 shares and flips status to exercised.
+	require.NoError(t, svc.ExerciseBuyerCreditForPeerOption(context.Background(), contract.ID, model.OwnerClient, &buyer, "AAPL", 5, strike))
+	// Replay: must be a no-op (contract already exercised), NOT a second credit.
+	require.NoError(t, svc.ExerciseBuyerCreditForPeerOption(context.Background(), contract.ID, model.OwnerClient, &buyer, "AAPL", 5, strike))
+
+	got, err := holdingRepo.GetByOwnerAndTicker(model.OwnerClient, &buyer, "stock", "AAPL")
+	require.NoError(t, err)
+	if got.Quantity != 5 {
+		t.Errorf("buyer qty=%d want 5 — replayed exercise double-credited", got.Quantity)
+	}
+	var reloaded model.PeerOptionContract
+	require.NoError(t, db.First(&reloaded, contract.ID).Error)
+	if reloaded.Status != "exercised" {
+		t.Errorf("contract status=%q want exercised", reloaded.Status)
 	}
 }
 

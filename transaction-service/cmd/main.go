@@ -243,7 +243,8 @@ func main() {
 		peerTxHandler.SetOptionRecorder(optionRecorder)
 	}
 
-	replayCron := service.NewOutboundReplayCron(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup))
+	replayCron := service.NewOutboundReplayCron(outRepo, peerHTTPClient, service.PeerLookupFunc(peerLookup)).
+		WithLocalReversal(peerTxHandler.ReverseOutboundLocal)
 	replayCron.Start(ctx)
 
 	markReady, addReadinessCheck, metricsShutdown := metrics.StartMetricsServer(cfg.MetricsPort)
