@@ -78,3 +78,10 @@ func (p *Producer) PublishOptionExercised(ctx context.Context, msg contract.Opti
 func (p *Producer) PublishGeneralNotification(ctx context.Context, msg contract.GeneralNotificationMessage) error {
 	return p.inner.Publish(ctx, contract.TopicGeneralNotification, msg)
 }
+
+// PublishSagaDeadLetter publishes a stuck-saga dead-letter event to the
+// stock-service dead-letter topic. Called by SagaRecovery when a step
+// exhausts maxSagaRecoveryRetries.
+func (p *Producer) PublishSagaDeadLetter(ctx context.Context, msg contract.SagaDeadLetterMessage) error {
+	return p.inner.Publish(ctx, contract.TopicStockSagaDeadLetter, msg)
+}

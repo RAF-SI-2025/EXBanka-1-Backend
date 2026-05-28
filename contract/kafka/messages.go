@@ -53,6 +53,7 @@ const (
 	TopicTransferFailed       = "transaction.transfer-failed"
 	TopicSagaDeadLetter       = "transaction.saga-dead-letter"
 	TopicCreditSagaDeadLetter = "credit.saga-dead-letter"
+	TopicStockSagaDeadLetter  = "stock.saga-dead-letter"
 	TopicLoanRequested        = "credit.loan-requested"
 	TopicLoanApproved         = "credit.loan-approved"
 	TopicLoanRejected         = "credit.loan-rejected"
