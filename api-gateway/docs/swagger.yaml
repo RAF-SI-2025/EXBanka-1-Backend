@@ -8258,6 +8258,40 @@ paths:
       summary: List the caller's OTC option negotiation chains
       tags:
       - OTCOptions
+  /api/v3/me/otc/options/negotiations/{nid}/revisions:
+    get:
+      description: Returns all bid/counter/accept/reject revisions for a negotiation
+        chain in revision_number order. Caller must be either the bidder or the parent
+        listing's poster.
+      parameters:
+      - description: negotiation chain id
+        in: path
+        name: nid
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: caller is not a party to this negotiation
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: negotiation not found
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List the full revision chain of an OTC option negotiation
+      tags:
+      - OTCOptions
   /api/v3/me/otc/options/posted:
     get:
       description: Returns the raw OTCOffer rows for listings where the caller is
