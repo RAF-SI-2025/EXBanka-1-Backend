@@ -7,6 +7,7 @@ import (
 	"github.com/exbanka/client-service/internal/repository"
 )
 
+
 // ChangelogService is a thin read-only wrapper around ChangelogRepository,
 // exposed via gRPC ListChangelog RPC for the API gateway.
 type ChangelogService struct {
@@ -36,4 +37,19 @@ func (s *ChangelogService) ListChangelog(entityType string, entityID int64, page
 		pageSize = 200
 	}
 	return s.repo.ListByEntity(entityType, entityID, page, pageSize)
+}
+
+// ListAllChangelogs returns paginated changelog rows across all entities.
+// page defaults to 1, pageSize defaults to 50 and is capped at 200.
+func (s *ChangelogService) ListAllChangelogs(filters repository.ChangelogFilters, page, pageSize int) ([]model.Changelog, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	return s.repo.ListAll(filters, page, pageSize)
 }

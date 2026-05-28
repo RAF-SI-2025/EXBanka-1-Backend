@@ -471,6 +471,44 @@ func (h *CreditGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChang
 	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
 }
 
+// ListAllChangelogs returns paginated audit-log entries across all entities
+// (global view, admin-only).
+func (h *CreditGRPCHandler) ListAllChangelogs(ctx context.Context, req *pb.ListAllChangelogsRequest) (*pb.ListAllChangelogsResponse, error) {
+	page := int(req.GetPage())
+	pageSize := int(req.GetPageSize())
+	filters := repository.ChangelogFilters{
+		Since:   req.GetSince(),
+		Until:   req.GetUntil(),
+		ActorID: req.GetActorId(),
+		Action:  req.GetAction(),
+	}
+	entries, total, err := h.changelogService.ListAllChangelogs(filters, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListAllChangelogsResponse{
+		Entries:  protoEntries,
+		Total:    total,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	}, nil
+}
+
 func toInterestRateTierResponse(t *model.InterestRateTier) *pb.InterestRateTierResponse {
 	return &pb.InterestRateTierResponse{
 		Id:           t.ID,

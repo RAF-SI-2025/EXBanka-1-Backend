@@ -12,6 +12,11 @@ service ClientService {
   // Audit-trail reads. Returns changelog rows scoped by entity_type +
   // entity_id; pagination matches list endpoints (1-based page).
   rpc ListChangelog(ListChangelogRequest) returns (ListChangelogResponse);
+
+  // ListAllChangelogs returns every changelog row for this service (global
+  // audit view, admin-only). Supports optional filters: since/until (unix
+  // seconds), actor_id (changed_by), action string, and pagination.
+  rpc ListAllChangelogs(ListAllChangelogsRequest) returns (ListAllChangelogsResponse);
 }
 
 message ListChangelogRequest {
@@ -37,6 +42,22 @@ message ChangelogEntry {
 message ListChangelogResponse {
   repeated ChangelogEntry entries = 1;
   int64                   total   = 2;
+}
+
+message ListAllChangelogsRequest {
+  int32  page      = 1;
+  int32  page_size = 2;
+  int64  since     = 3; // unix seconds, 0 = no lower bound
+  int64  until     = 4; // unix seconds, 0 = no upper bound
+  int64  actor_id  = 5; // changed_by filter, 0 = all
+  string action    = 6; // exact match, "" = all
+}
+
+message ListAllChangelogsResponse {
+  repeated ChangelogEntry entries = 1;
+  int64                   total   = 2;
+  int32                   page    = 3;
+  int32                   page_size = 4;
 }
 
 message CreateClientRequest {

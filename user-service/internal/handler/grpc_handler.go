@@ -13,6 +13,7 @@ import (
 	"github.com/exbanka/contract/changelog"
 	pb "github.com/exbanka/contract/userpb"
 	"github.com/exbanka/user-service/internal/model"
+	"github.com/exbanka/user-service/internal/repository"
 	"github.com/exbanka/user-service/internal/service"
 )
 
@@ -292,6 +293,44 @@ func (h *UserGRPCHandler) ListChangelog(ctx context.Context, req *pb.ListChangel
 		}
 	}
 	return &pb.ListChangelogResponse{Entries: protoEntries, Total: total}, nil
+}
+
+// ListAllChangelogs returns paginated audit-log entries across all entities
+// (global view, admin-only).
+func (h *UserGRPCHandler) ListAllChangelogs(ctx context.Context, req *pb.ListAllChangelogsRequest) (*pb.ListAllChangelogsResponse, error) {
+	page := int(req.GetPage())
+	pageSize := int(req.GetPageSize())
+	filters := repository.ChangelogFilters{
+		Since:   req.GetSince(),
+		Until:   req.GetUntil(),
+		ActorID: req.GetActorId(),
+		Action:  req.GetAction(),
+	}
+	entries, total, err := h.changelogService.ListAllChangelogs(filters, page, pageSize)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "%v", err)
+	}
+	protoEntries := make([]*pb.ChangelogEntry, len(entries))
+	for i, e := range entries {
+		protoEntries[i] = &pb.ChangelogEntry{
+			Id:         e.ID,
+			EntityType: e.EntityType,
+			EntityId:   e.EntityID,
+			Action:     e.Action,
+			FieldName:  e.FieldName,
+			OldValue:   e.OldValue,
+			NewValue:   e.NewValue,
+			ChangedBy:  e.ChangedBy,
+			ChangedAt:  e.ChangedAt.Unix(),
+			Reason:     e.Reason,
+		}
+	}
+	return &pb.ListAllChangelogsResponse{
+		Entries:  protoEntries,
+		Total:    total,
+		Page:     int32(page),
+		PageSize: int32(pageSize),
+	}, nil
 }
 
 func toEmployeeResponse(emp *model.Employee, empSvc employeeFacade) *pb.EmployeeResponse {
