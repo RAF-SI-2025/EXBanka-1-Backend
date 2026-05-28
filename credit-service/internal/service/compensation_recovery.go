@@ -128,7 +128,12 @@ func (r *CompensationRecovery) runRecoveryTick(ctx context.Context) {
 			continue
 		}
 
-		// Re-run compensation via Disburse (idempotency keys ensure no double-action).
+		// Re-run the specific compensation step that is stuck. We MUST NOT
+		// call Disburse (the forward saga) here: Disburse would attempt to
+		// re-run the full forward path, which — on a partially-compensated
+		// saga — could double-credit the borrower or re-debit the bank in
+		// the wrong direction. Instead, we invoke only the Backward closure
+		// of the stuck step by name, which is exactly what RetryStuckCompensation does.
 		if r.disbursment != nil {
 			loan, loanErr := r.disbursment.loanRepo.GetByID(comp.LoanID)
 			if loanErr != nil {
@@ -139,18 +144,24 @@ func (r *CompensationRecovery) runRecoveryTick(ctx context.Context) {
 				continue
 			}
 
-			retryErr := r.disbursment.Disburse(ctx, loan)
+			retryErr := r.disbursment.RetryStuckCompensation(ctx, loan, comp.StepName)
 			if retryErr != nil {
 				if incErr := r.sagaRepo.IncrementRetryCount(comp.ID); incErr != nil {
 					log.Printf("loan saga recovery: failed to increment retry count for comp %d: %v — skipping dead-letter check", comp.ID, incErr)
 					continue
 				}
 				updatedCount := comp.RetryCount + 1
-				log.Printf("loan saga recovery: compensation %d still failing (retry %d/%d) for loan %d saga %s: %v",
-					comp.ID, updatedCount, maxLoanCompensationRetries, comp.LoanID, comp.SagaID, retryErr)
+				log.Printf("loan saga recovery: compensation %d still failing (retry %d/%d) for loan %d saga %s step %s: %v",
+					comp.ID, updatedCount, maxLoanCompensationRetries, comp.LoanID, comp.SagaID, comp.StepName, retryErr)
 			} else {
-				log.Printf("loan saga recovery: compensation %d succeeded for loan %d saga %s",
-					comp.ID, comp.LoanID, comp.SagaID)
+				// Mark the stuck compensation row as completed so the
+				// recovery loop stops retrying it.
+				if markErr := r.sagaRepo.CompleteStep(comp.ID); markErr != nil {
+					log.Printf("loan saga recovery: compensation %d succeeded but failed to mark complete: %v", comp.ID, markErr)
+				} else {
+					log.Printf("loan saga recovery: compensation %d succeeded for loan %d saga %s step %s",
+						comp.ID, comp.LoanID, comp.SagaID, comp.StepName)
+				}
 			}
 		}
 	}
