@@ -1603,8 +1603,8 @@ Protected by `AuthMiddleware` (employee JWT). Each sub-group has a distinct perm
 >
 > **OTC marketplace refactor (Phases 1B / 3 / 3B) entities:**
 > - `OTCStockBuyOffer` — standing buy-direction OTC stock offer. Cash held in an account-service reservation keyed on `AccountReservationOrderID` (allocated from `otc_stock_buy_offer_res_seq`). Lifecycle status enum `active|filled|cancelled|expired`. Versioned (optimistic locking) + `BeforeUpdate` hook.
-> - `OTCNegotiation` — one bidder's negotiation chain against a parent `OTCOffer` listing (Phase 2 parallel-chains model). Unique index `(parent_offer_id, bidder_owner_type, bidder_owner_id)` enforces one chain per bidder per listing. Status enum `open|countered|accepted|rejected|cancelled|expired`.
-> - `OTCNegotiationRevision` — append-only history row for one move (BID, COUNTER, ACCEPT, REJECT) within an `OTCNegotiation`. Unique index `(negotiation_id, revision_number)` enforces monotonic ordering.
+> - `OTCNegotiation` — one bidder's negotiation chain against a parent `OTCOffer` listing (Phase 2 parallel-chains model). Unique index `(parent_offer_id, bidder_owner_type, bidder_owner_id)` enforces one chain per bidder per listing. Status enum `open|countered|accepted|rejected|cancelled|expired`. New field `minted_contract_id *uint64` (indexed, nullable): set after contract-formation saga succeeds on a `status=accepted` row, so the list endpoint can return a direct link from negotiation → contract.
+> - `OTCNegotiationRevision` — append-only history row for one move (BID, COUNTER, ACCEPT, REJECT) within an `OTCNegotiation`. Unique index `(negotiation_id, revision_number)` enforces monotonic ordering. Exposed via `GET /api/v3/me/otc/options/negotiations/:nid/revisions` (authorization: bidder or listing poster only).
 > - `OTCOffer` (existing model) — gained semantic dual-use: legacy single-chain negotiations still mutate it in place; Phase 2 marketplace treats it as an immutable LISTING with status `open|consumed|cancelled` (legacy `PENDING|COUNTERED` aliased as "open" via `IsOpenListing()` helper). Per-bidder chains live in `OTCNegotiation` rows above.
 > - `Holding` (existing model) — gained `OTCSafeAvailable() = Quantity - ReservedQuantity - PublicQuantity` helper used by `OTCStockService.CreateSellOffer` to prevent double-commit of shares already locked by orders or earlier public offers.
 
@@ -2667,6 +2667,9 @@ The full endpoint reference is in `docs/api/REST_API_v1.md` (kept under that fil
 | GET | `/api/v3/me/otc/contracts` | AnyAuthMiddleware | OTCOptionsHandler.ListMyContracts | Caller's OTC contracts (intra-bank in `contracts`, cross-bank in `peer_contracts`) |
 | POST | `/api/v3/me/otc/contracts/peer/:id/exercise` | AnyAuthMiddleware | OTCOptionsHandler.ExercisePeerContract | Cross-bank option exercise (buyer-only). See §27. |
 | POST | `/api/v3/me/peer-otc/negotiations` | AnyAuthMiddleware | PeerOTCInitiateHandler.CreatePeerNegotiation | Client-facing initiator for cross-bank OTC negotiations. See §27. |
+| GET | `/api/v3/me/otc/options/negotiations` | AnyAuthMiddleware + ResolveIdentity | OTCOptionsHandler.ListMyNegotiations | Caller's intra-bank negotiation chains. Includes all statuses (open/countered/accepted/rejected/cancelled/expired) with optional `?statuses=` filter. Response includes `minted_contract_id` (non-zero on `status=accepted` rows). |
+| GET | `/api/v3/me/otc/options/negotiations/:nid/revisions` | AnyAuthMiddleware + ResolveIdentity | OTCOptionsHandler.ListMyNegotiationRevisions | Full revision chain (BID/COUNTER/ACCEPT/REJECT) for a negotiation. Caller must be the bidder or the listing's poster; returns 403 otherwise. |
+| GET | `/api/v3/me/peer-otc/negotiations` | AnyAuthMiddleware | PeerOTCInitiateHandler.ListMyPeerNegotiations | Caller's cross-bank negotiation rows (any status). Response includes `local_contract_id` (non-zero on `status=accepted` rows where a `peer_option_contracts` row exists on this bank). |
 
 ## 24. Investment Funds (Celina 4)
 
@@ -2921,7 +2924,7 @@ Both sides of a cross-bank negotiation now have full visibility + control throug
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v3/me/peer-otc/negotiations` | Lists rows from this bank's `peer_otc_negotiations` where the caller's `client-<principal_id>` matches `buyer_id` (when this bank hosts the buyer) or `seller_id` (when this bank hosts the seller). Optional `?role=buyer|seller` filter. Each item carries a `role` field so the UI knows which side the caller is on. |
+| GET | `/api/v3/me/peer-otc/negotiations` | Lists rows from this bank's `peer_otc_negotiations` where the caller's `client-<principal_id>` matches `buyer_id` (when this bank hosts the buyer) or `seller_id` (when this bank hosts the seller). Optional `?role=buyer|seller` filter. Each item carries a `role` field so the UI knows which side the caller is on. Returns ALL status values including terminal (`cancelled`, `accepted`). For `status=accepted` rows, a `local_contract_id` field links to the `peer_option_contracts.id` on this bank (CREDIT direction for buyers, DEBIT direction for sellers). |
 | PUT | `/api/v3/me/peer-otc/negotiations/:rid/:id` | Counter-offer. Resolves the counterparty's bank from the caller's row, proxies a PUT to `{peer.base_url}/negotiations/{rid}/{id}`, and mirrors the new offer onto the caller's local row so both UIs reflect the change immediately. |
 | POST | `/api/v3/me/peer-otc/negotiations/:rid/:id/accept` | Accept. Calls the counterparty's `GET .../accept`, which begins the option-formation SI-TX. |
 | DELETE | `/api/v3/me/peer-otc/negotiations/:rid/:id` | Cancel. Proxies DELETE to counterparty + flips local mirror status to `cancelled` (matches peer-protocol soft-cancel semantics). |
@@ -2986,7 +2989,7 @@ The unified OTC offer view (local + cross-bank) is served by `stock-service`'s `
 
 ### Database tables
 
-- **`peer_otc_negotiations`** — receiver-side persistence of inbound peer negotiations. Composite-unique on `(peer_bank_code, foreign_id)`. Columns: `id`, `peer_bank_code`, `foreign_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `offer_json`, `status` (`ongoing` | `accepted` | `cancelled`), timestamps.
+- **`peer_otc_negotiations`** — receiver-side persistence of inbound peer negotiations. Composite-unique on `(peer_bank_code, foreign_id)`. Columns: `id`, `peer_bank_code`, `foreign_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `offer_json`, `status` (`ongoing` | `accepted` | `cancelled`), timestamps. Terminal-state rows (`accepted`, `cancelled`) are retained and returned by `ListByClient` with no status filter — callers see the full history.
 - **`peer_option_contracts`** — cross-bank option-contract records. One row per option-asset posting that landed on this bank. Composite-unique on `(crossbank_tx_id, posting_index)`. Columns: `id`, `crossbank_tx_id` (= `<peer_bank_code>:<locally_generated_key>`), `posting_index`, `negotiation_routing_number`, `negotiation_id`, `buyer_routing_number`, `buyer_id`, `seller_routing_number`, `seller_id`, `ticker`, `quantity`, `strike_price`, `currency`, `settlement_date`, `direction` (`DEBIT` = seller side, `CREDIT` = buyer side), `status` (`active` | `exercised` | `expired`), `created_at`.
 - **`holding_reservations`** — extended with `peer_option_contract_id` (third optional FK alongside `order_id` and `otc_contract_id`). DB CHECK constraint `holding_reservation_owner_chk` enforces "exactly one of three" non-NULL.
 - **`peer_idempotence_records`** — extended with `options_json` column (in addition to `debits_json`). Persists option items at NEW_TX vote-YES so COMMIT_TX can materialise them without depending on the original postings list.

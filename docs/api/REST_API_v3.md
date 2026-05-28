@@ -8001,6 +8001,46 @@ List chains where the caller is the bidder.
 | `page` | int | Default 1 |
 | `page_size` | int | Default 20, max 200 |
 
+**`OTCNegotiationResponse` shape:** includes a `minted_contract_id` field (uint64, 0 when absent) populated on `status=accepted` rows that successfully minted a contract.
+
+---
+
+#### GET /api/v3/me/otc/options/negotiations/:nid/revisions
+
+Retrieve the full revision chain (bid, counter, counter, accept/reject) for a single negotiation. Either the bidder or the parent listing's poster may call this endpoint. A third-party caller receives 403.
+
+**Authentication:** Any JWT + `ResolveIdentity` (AnyAuth — clients and employees accepted)
+
+**Path:** `:nid` — the negotiation chain id.
+
+**Response 200:**
+
+```json
+{
+  "revisions": [
+    {
+      "id":                       1,
+      "negotiation_id":           5,
+      "revision_number":          1,
+      "action":                   "BID",
+      "quantity":                 "10",
+      "strike_price":             "150.00",
+      "premium":                  "7.50",
+      "settlement_date":          "2026-07-01T00:00:00Z",
+      "action_by_principal_type": "client",
+      "action_by_principal_id":   42,
+      "created_at":               "2026-06-01T12:00:00Z"
+    }
+  ]
+}
+```
+
+Revisions are ordered by `revision_number ASC`.
+
+**Response 403:** Caller is neither the bidder nor the listing's poster.
+
+**Response 404:** Negotiation not found.
+
 ---
 
 #### GET /api/v3/me/otc/options
@@ -8169,6 +8209,33 @@ POST /api/v3/me/peer-otc/negotiations/{rid}/{id}/accept   ← cross-bank
 ```
 
 The intra-bank equivalent (`POST /me/otc/options/:id/negotiations/:nid/accept`) returns the same `cancelled_siblings` key, populated with `OTCNegotiationResponse` rows (`id`, `parent_offer_id`, `bidder_*`, `quantity`, `strike_price`, `premium`, `settlement_date`, `status`, `last_action_*`). FE keys off `cancelled_siblings[*]` without branching the cascade UI on flow type.
+
+#### GET /api/v3/me/peer-otc/negotiations
+
+List the caller's cross-bank OTC negotiations (both as buyer and as seller, depending on the `role` filter). Returns ALL rows in ANY status including terminal states (`cancelled`, `accepted`).
+
+**Authentication:** Any JWT (AnyAuth)
+
+**Query Parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `role` | string | `buyer`, `seller`, or omit for both |
+
+**Response 200:** `{ "items": [PeerNegotiationListItem...] }`.
+
+**`PeerNegotiationListItem` shape:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `{ routingNumber, id }` | Foreign id on the seller's bank |
+| `buyer_id` | `{ routingNumber, id }` | Buyer's SI-TX participant id |
+| `seller_id` | `{ routingNumber, id }` | Seller's SI-TX participant id |
+| `offer` | `PeerOtcOffer` | Current offer terms |
+| `status` | string | `ongoing`, `accepted`, or `cancelled` |
+| `role` | string | `buyer` or `seller` — the caller's side |
+| `updated_at` | string | ISO-8601 |
+| `local_contract_id` | uint64 | `peer_option_contracts.id` on this bank. Non-zero only on `status=accepted` rows where the option contract was minted on this bank (seller side: DEBIT direction; buyer side: CREDIT direction). 0 when not yet minted or not applicable. |
 
 #### Notification coverage (2026-05-16)
 
