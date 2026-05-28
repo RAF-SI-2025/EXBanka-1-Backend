@@ -5,7 +5,6 @@ package saga
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -17,9 +16,8 @@ import (
 
 // Recorder implements sharedsaga.Recorder over the SagaLogRepository.
 type Recorder struct {
-	repo    *repository.SagaLogRepository
-	loanID  uint64
-	account string // borrower account number (populated in state)
+	repo   *repository.SagaLogRepository
+	loanID uint64
 }
 
 // NewRecorder constructs a recorder bound to the given repository and loan.
@@ -120,12 +118,3 @@ func (r *Recorder) buildRow(sagaID string, stepName sharedsaga.StepKind, stepNum
 	return row
 }
 
-// stripCompensationSuffix removes the "_compensation" suffix from legacy
-// step names so the classifier sees the canonical step name.
-func stripCompensationSuffix(name string) string {
-	const suffix = "_compensation"
-	if strings.HasSuffix(name, suffix) {
-		return strings.TrimSuffix(name, suffix)
-	}
-	return name
-}

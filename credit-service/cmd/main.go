@@ -35,7 +35,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
-	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}, &model.Changelog{}, &model.IdempotencyRecord{}); err != nil {
+	if err := db.AutoMigrate(&model.LoanRequest{}, &model.Loan{}, &model.Installment{}, &model.InterestRateTier{}, &model.BankMargin{}, &model.Changelog{}, &model.IdempotencyRecord{}, &model.SagaLog{}); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
 
@@ -56,6 +56,7 @@ func main() {
 		"credit.changelog",
 		"notification.send-email",
 		"notification.general",
+		"credit.saga-dead-letter",
 	)
 
 	// Connect to account-service
@@ -114,8 +115,11 @@ func main() {
 	}
 
 	changelogRepo := repository.NewChangelogRepository(db)
+	sagaRepo := repository.NewSagaLogRepository(db)
+	disbursementSaga := service.NewLoanDisbursementSaga(bankAccountClient, accountClient, loanRepo, sagaRepo)
 	loanRequestSvc := service.NewLoanRequestService(loanRequestRepo, loanRepo, installmentRepo, limitClient, accountClient, rateConfigSvc, db, changelogRepo)
 	loanRequestSvc.SetBankAccountClient(bankAccountClient)
+	loanRequestSvc.SetDisbursementSaga(disbursementSaga)
 	loanSvc := service.NewLoanService(loanRepo)
 	installmentSvc := service.NewInstallmentService(installmentRepo)
 	changelogSvc := service.NewChangelogService(changelogRepo)
@@ -124,6 +128,11 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go cronSvc.Start(ctx)
+
+	// Start the loan disbursement saga compensation recovery worker.
+	// It polls credit_saga_logs for stuck "compensating" rows and retries them.
+	compensationRecovery := service.NewCompensationRecovery(sagaRepo, disbursementSaga, producer)
+	compensationRecovery.Start(ctx)
 
 	grpcHandler := handler.NewCreditGRPCHandler(loanRequestSvc, loanSvc, installmentSvc, rateConfigSvc, loanRepo, installmentRepo, producer, changelogSvc)
 

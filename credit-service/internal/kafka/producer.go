@@ -58,3 +58,10 @@ func (p *Producer) PublishLatePenaltyApplied(ctx context.Context, msg kafkamsg.L
 func (p *Producer) PublishGeneralNotification(ctx context.Context, msg kafkamsg.GeneralNotificationMessage) error {
 	return p.inner.Publish(ctx, kafkamsg.TopicGeneralNotification, msg)
 }
+
+// PublishSagaDeadLetter publishes a dead-letter event for a loan disbursement
+// saga step that has exceeded its retry budget. Consumers (ops dashboards,
+// alerting) can inspect these rows for manual remediation.
+func (p *Producer) PublishSagaDeadLetter(ctx context.Context, msg kafkamsg.SagaDeadLetterMessage) error {
+	return p.inner.Publish(ctx, kafkamsg.TopicCreditSagaDeadLetter, msg)
+}
