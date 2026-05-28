@@ -87,6 +87,10 @@ func negToProto(n *model.OTCNegotiation) *stockpb.OTCNegotiationResponse {
 	if n.LastActionByOwnerID != nil {
 		lastOwnerID = *n.LastActionByOwnerID
 	}
+	mintedContractID := uint64(0)
+	if n.MintedContractID != nil {
+		mintedContractID = *n.MintedContractID
+	}
 	return &stockpb.OTCNegotiationResponse{
 		Id:                    n.ID,
 		ParentOfferId:         n.ParentOfferID,
@@ -104,6 +108,7 @@ func negToProto(n *model.OTCNegotiation) *stockpb.OTCNegotiationResponse {
 		CreatedAt:             n.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:             n.UpdatedAt.UTC().Format(time.RFC3339),
 		Version:               n.Version,
+		MintedContractId:      mintedContractID,
 	}
 }
 
@@ -351,6 +356,42 @@ func (h *OTCOptionsHandler) ListMyNegotiations(ctx context.Context, in *stockpb.
 		Negotiations: negsToProto(rows),
 		Total:        total,
 	}, nil
+}
+
+func (h *OTCOptionsHandler) ListNegotiationRevisions(ctx context.Context, in *stockpb.ListNegotiationRevisionsRequest) (*stockpb.ListNegotiationRevisionsResponse, error) {
+	if h.negotiations == nil {
+		return nil, status.Error(codes.Unimplemented, "OTCNegotiationService not wired")
+	}
+	ot, err := ownerTypeFromProto(in.GetCallerOwnerType())
+	if err != nil {
+		return nil, err
+	}
+	oid, err := resolveOwnerID(ot, in.GetCallerOwnerId())
+	if err != nil {
+		return nil, err
+	}
+	revs, err := h.negotiations.ListRevisions(ctx, in.GetNegotiationId(), ot, oid)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*stockpb.OTCNegotiationRevisionResponse, 0, len(revs))
+	for i := range revs {
+		r := &revs[i]
+		out = append(out, &stockpb.OTCNegotiationRevisionResponse{
+			Id:                   r.ID,
+			NegotiationId:        r.NegotiationID,
+			RevisionNumber:       int32(r.RevisionNumber),
+			Action:               r.Action,
+			Quantity:             r.Quantity.String(),
+			StrikePrice:          r.StrikePrice.String(),
+			Premium:              r.Premium.String(),
+			SettlementDate:       r.SettlementDate.UTC().Format(time.RFC3339),
+			ActionByPrincipalType: r.ModifiedByPrincipalType,
+			ActionByPrincipalId:  r.ModifiedByPrincipalID,
+			CreatedAt:            r.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return &stockpb.ListNegotiationRevisionsResponse{Revisions: out}, nil
 }
 
 func (h *OTCOptionsHandler) ListNegotiationsByListing(ctx context.Context, in *stockpb.ListNegotiationsByListingRequest) (*stockpb.ListNegotiationsResponse, error) {
