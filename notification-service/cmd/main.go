@@ -45,6 +45,7 @@ func main() {
 	inboxRepo := repository.NewMobileInboxRepository(db)
 	notifRepo := repository.NewGeneralNotificationRepository(db)
 	templateRepo := repository.NewTemplateRepository(db)
+	adminAuditRepo := repository.NewAdminAuditLogRepository(db)
 
 	// Template service (registry-backed render + admin CRUD)
 	templateSvc := service.NewTemplateService(templateRepo)
@@ -117,7 +118,7 @@ func main() {
 			grpc.ChainStreamInterceptor(metrics.GRPCStreamServerInterceptor()),
 		},
 		Register: func(s *grpc.Server) {
-			notifpb.RegisterNotificationServiceServer(s, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo, templateSvc))
+			notifpb.RegisterNotificationServiceServer(s, handler.NewGRPCHandler(emailSender, inboxRepo, notifRepo, templateSvc, adminAuditRepo))
 			adminpb.RegisterAdminCronServer(s, cronreg.NewGRPCServer(cronRegistry))
 			shared.RegisterHealthCheck(s, "notification-service")
 			reflection.Register(s)
