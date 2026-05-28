@@ -252,6 +252,17 @@ func (m *mockTaxCapitalGainRepo) CountByOwnerYear(ownerType model.OwnerType, own
 	return count, nil
 }
 
+func (m *mockTaxCapitalGainRepo) DeleteByIdempotencyKey(key string) error {
+	remaining := m.gains[:0]
+	for _, g := range m.gains {
+		if g.IdempotencyKey == nil || *g.IdempotencyKey != key {
+			remaining = append(remaining, g)
+		}
+	}
+	m.gains = remaining
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Mock: ExchangeServiceClient
 // ---------------------------------------------------------------------------

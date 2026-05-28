@@ -272,6 +272,17 @@ func (m *mockCapitalGainRepo) MarkCollected(ownerType model.OwnerType, ownerID *
 	return nil
 }
 
+func (m *mockCapitalGainRepo) DeleteByIdempotencyKey(key string) error {
+	remaining := m.gains[:0]
+	for _, g := range m.gains {
+		if g.IdempotencyKey == nil || *g.IdempotencyKey != key {
+			remaining = append(remaining, g)
+		}
+	}
+	m.gains = remaining
+	return nil
+}
+
 // mockStockRepo returns pre-configured stocks.
 type mockStockRepo struct {
 	stocks map[uint64]*model.Stock
