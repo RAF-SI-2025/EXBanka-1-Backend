@@ -288,3 +288,53 @@ func emptyIfNil[T any](s []T) []T {
 	}
 	return s
 }
+
+// enforcePortfolioAccess returns an error and writes a 403 response if the
+// resolved identity may not view the portfolio identified by (ownerType,
+// ownerID). Permission set is passed in to keep validation.go free of cyclic
+// deps with the middleware package.
+//
+// Rules (per spec B3):
+//   - client principal: only their own client-<myPrincipalId> allowed
+//   - employee + no special perms: only "bank" allowed
+//   - employee with portfolio.view_client: any "client" portfolio
+//   - employee with portfolio.view_fund: any "investment_fund" portfolio
+func enforcePortfolioAccess(c *gin.Context, id *middleware.ResolvedIdentity,
+	targetOwnerType string, targetOwnerID *uint64, callerPermissions []string) error {
+
+	hasPerm := func(p string) bool {
+		for _, x := range callerPermissions {
+			if x == p {
+				return true
+			}
+		}
+		return false
+	}
+
+	switch id.PrincipalType {
+	case "client":
+		if targetOwnerType == "client" && targetOwnerID != nil && *targetOwnerID == id.PrincipalID {
+			return nil
+		}
+		apiError(c, 403, ErrForbidden, "you may only view your own portfolio")
+		return fmt.Errorf("client %d may not view %s/%v", id.PrincipalID, targetOwnerType, targetOwnerID)
+	case "employee":
+		switch targetOwnerType {
+		case "bank":
+			return nil
+		case "client":
+			if hasPerm("portfolio.view_client") {
+				return nil
+			}
+		case "investment_fund":
+			if hasPerm("portfolio.view_fund") {
+				return nil
+			}
+		}
+		apiError(c, 403, ErrForbidden, "missing permission to view this portfolio")
+		return fmt.Errorf("employee %d missing perm for %s", id.PrincipalID, targetOwnerType)
+	default:
+		apiError(c, 401, ErrUnauthorized, "unknown principal")
+		return fmt.Errorf("unknown principal type %q", id.PrincipalType)
+	}
+}
